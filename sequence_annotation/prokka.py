@@ -2,6 +2,7 @@
 Wrapper for Prokka - Prokaryotic annotation tool
 Author: Paolo Uva paolo dot uva at crs4 dot it
 Date: February 14, 2013
+Update: March 14, 2013 - Added more options
 """
 
 import optparse, os, shutil, subprocess, sys, tempfile
@@ -13,7 +14,12 @@ def stop_err( msg ):
 def __main__():
     #Parse Command Line
     op = optparse.OptionParser()
-    op.add_option( '-f', '--fasta', dest="fasta", help="Fasta file with contigs")
+    op.add_option( '', '--fasta',     dest="fasta",                         help="Fasta file with contigs")
+    op.add_option( '', '--kingdom',   dest="kingdom",   default="Bacteria", help="Kingdom")
+    op.add_option( '', '--gram',      dest="gram",      default="None",     help="Gram")
+    op.add_option( '', '--minContig', dest="minContig", default="200",      help="Minimun contig size")
+    op.add_option( '', '--rfam',      dest="rfam",      default="false",    help="Enable searching for ncRNAs")
+    op.add_option( '', '--centre',    dest="centre",    default="CRS4",     help="Sequencing centre")
     op.add_option( '', '--gff', dest="gff", help="This is the master annotation in GFF3 format, containing both sequences and annotations. It can be viewed directly in Artemis or IGV")
     op.add_option( '', '--gbk', dest="gbk", help="This is a standard Genbank file derived from the master .gff. If the input to prokka was a multi-FASTA, then this will be a multi-Genbank, with one record for each sequence")
     op.add_option( '', '--fna', dest="fna", help="Nucleotide FASTA file of the input contig sequences")
@@ -28,8 +34,18 @@ def __main__():
     (options, args) = op.parse_args()
 
     # Build command
-    cl = ['prokka --outdir . --prefix prokka ', '%s' % (options.fasta)]
- 
+    if options.gram == 'None' :
+        gram_flag = ''
+    else:
+        gram_flag = '--gram %s' % (options.gram)
+
+    if options.rfam == 'false' :
+        rfam_flag = ''
+    else:
+        rfam_flag = '--rfam'
+
+    cl = ['prokka --force --outdir . --prefix prokka --kingdom %s --minContig %s --centre %s %s %s %s' % (options.kingdom, options.minContig, options.centre, gram_flag, rfam_flag, options.fasta)]
+
     # Run command
     dummy,tlog = tempfile.mkstemp(prefix='process_log')
     sout = open(tlog, 'w')
@@ -38,11 +54,11 @@ def __main__():
     sout.close()
     
     # Rename output files
-    suffix = ['gff', 'gbk', 'fna', 'faa', 'ffn', 'sqn', 'fsa', 'tbl', 'err', 'log']
+    suffix = ['log', 'gbk', 'fna', 'faa', 'ffn', 'sqn', 'fsa', 'tbl', 'err', 'gff']
     try:
-    	  for s in suffix:
-    	  	shutil.move( 'prokka.' + s, getattr(options, s))
+        for s in suffix:
+            shutil.move( 'prokka.' + s, getattr(options, s))
     except Exception, e:
-    	  raise Exception, 'Error moving output file: ' + str( e )
+        raise Exception, 'Error moving output file: ' + str( e )
 
 if __name__=="__main__": __main__()
