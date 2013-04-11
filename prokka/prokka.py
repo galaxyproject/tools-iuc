@@ -5,7 +5,11 @@ Date: February 14, 2013
 Update: March 14, 2013 - Added more options
 """
 
-import optparse, os, shutil, subprocess, sys, tempfile
+import optparse
+import shutil
+import subprocess
+import sys
+import tempfile
 
 def stop_err( msg ):
     sys.stderr.write( '%s\n' % msg )
@@ -47,7 +51,7 @@ def __main__():
     cl = ['prokka --force --outdir . --prefix prokka --kingdom %s --minContig %s --centre %s %s %s %s' % (options.kingdom, options.minContig, options.centre, gram_flag, rfam_flag, options.fasta)]
 
     # Run command
-    dummy,tlog = tempfile.mkstemp(prefix='process_log')
+    dummy, tlog = tempfile.mkstemp(prefix='process_log')
     sout = open(tlog, 'w')
     p = subprocess.Popen(' '.join(cl), shell=True, stderr=sout, stdout=sout)
     retval = p.wait()
@@ -61,4 +65,5 @@ def __main__():
     except Exception, e:
         raise Exception, 'Error moving output file: ' + str( e )
 
-if __name__=="__main__": __main__()
+if __name__ == "__main__":
+    __main__()
