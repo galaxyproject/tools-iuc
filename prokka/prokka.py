@@ -9,7 +9,6 @@ import optparse
 import shutil
 import subprocess
 import sys
-import tempfile
 
 def stop_err( msg ):
     sys.stderr.write( '%s\n' % msg )
@@ -42,28 +41,36 @@ def __main__():
         gram_flag = ''
     else:
         gram_flag = '--gram %s' % (options.gram)
-
     if options.rfam == 'false' :
         rfam_flag = ''
     else:
         rfam_flag = '--rfam'
-
-    cl = ['prokka --force --outdir . --prefix prokka --kingdom %s --minContig %s --centre %s %s %s %s' % (options.kingdom, options.minContig, options.centre, gram_flag, rfam_flag, options.fasta)]
+    
+    cl = 'prokka --force --outdir . --prefix prokka --kingdom %s --minContig %s --centre %s %s %s %s' % (options.kingdom, options.minContig, options.centre, gram_flag, rfam_flag, options.fasta)
+    print '\nProkka command to be executed: \n %s' % ( cl )
 
     # Run command
-    dummy, tlog = tempfile.mkstemp(prefix='process_log')
-    sout = open(tlog, 'w')
-    p = subprocess.Popen(' '.join(cl), shell=True, stderr=sout, stdout=sout)
-    retval = p.wait()
-    sout.close()
+    try:
+        if options.log:
+            sout = open(options.log, 'w')
+        else:
+            sout = sys.stdout
+        retcode = subprocess.call(cl, stdout=sout, shell=True)
+        if sout != sys.stdout:
+            sout.close()
+        
+        if retcode != 0:
+            stop_err("Execution of Prokka terminated with return code: %i" % retcode)
+    except Exception, e:
+        stop_err('Execution of Prokka failed:: ' + str(e))
     
     # Rename output files
-    suffix = ['log', 'gbk', 'fna', 'faa', 'ffn', 'sqn', 'fsa', 'tbl', 'err', 'gff']
+    suffix = ['gbk', 'fna', 'faa', 'ffn', 'sqn', 'fsa', 'tbl', 'err', 'gff']
     try:
         for s in suffix:
             shutil.move( 'prokka.' + s, getattr(options, s))
     except Exception, e:
-        raise Exception, 'Error moving output file: ' + str( e )
+        stop_err('Error moving output file: ' + str(e))
 
 if __name__ == "__main__":
     __main__()
