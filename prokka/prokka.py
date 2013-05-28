@@ -55,7 +55,7 @@ def __main__():
             sout = open(options.log, 'w')
         else:
             sout = sys.stdout
-        retcode = subprocess.call(cl, stdout=sout, shell=True)
+        retcode = subprocess.call(cl, stdout=sout, stderr=sout, shell=True) # need to redirect stderr because prokka writes many logging info there
         if sout != sys.stdout:
             sout.close()
         
