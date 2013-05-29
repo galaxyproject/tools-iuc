@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Wrapper for Prokka - Prokaryotic annotation tool
 Author: Paolo Uva paolo dot uva at crs4 dot it
@@ -55,7 +56,7 @@ def __main__():
             sout = open(options.log, 'w')
         else:
             sout = sys.stdout
-        retcode = subprocess.call(cl, stdout=sout, stderr=sout, shell=True) # need to redirect stderr because prokka writes many logging info there
+        retcode = subprocess.call(cl, stdout=sout, stderr=subprocess.STDOUT, shell=True) # need to redirect stderr because prokka writes many logging info there
         if sout != sys.stdout:
             sout.close()
         
