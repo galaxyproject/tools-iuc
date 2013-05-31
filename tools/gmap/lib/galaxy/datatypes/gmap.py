@@ -2,7 +2,7 @@
 GMAP indexes
 """
 import logging
-import os,os.path,re
+import os,os.path,re,sys
 import galaxy.datatypes.data
 from galaxy.datatypes.data import Text
 from galaxy import util
@@ -15,11 +15,14 @@ class GmapDB( Text ):
     A GMAP DB for indexes
     """
     MetadataElement( name="db_name", desc="The db name for this index set", default='unknown', set_in_upload=True, readonly=True )
+    MetadataElement( name="chromosomes", desc="The chromosomes or contigs", no_value=[], readonly=False )
+    MetadataElement( name="circular", desc="cirular chromosomes", no_value=[], readonly=False )
+    MetadataElement( name="chromlength", desc="Chromosome lengths", no_value=[], readonly=False )
     MetadataElement( name="basesize", default="12", desc="The basesize for offsetscomp", visible=True, readonly=True )
-    MetadataElement( name="kmers", default=[''], desc="The kmer sizes for indexes", visible=True, no_value=[''], readonly=True )
+    MetadataElement( name="kmers", desc="The kmer sizes for indexes", visible=True, no_value=[''], readonly=True )
     MetadataElement( name="map_dir", desc="The maps directory", default='unknown', set_in_upload=True, readonly=True )
-    MetadataElement( name="maps", default=[''], desc="The names of maps stored for this gmap gmapdb", visible=True, no_value=[''], readonly=True )
-    MetadataElement( name="snps", default=[''], desc="The names of SNP indexes stored for this gmapdb", visible=True, no_value=[''], readonly=True )
+    MetadataElement( name="maps", desc="The names of maps stored for this gmap gmapdb", visible=True, no_value=[''], readonly=True )
+    MetadataElement( name="snps", desc="The names of SNP indexes stored for this gmapdb", visible=True, no_value=[''], readonly=True )
     MetadataElement( name="cmet", default=False, desc="Has a cmet index", visible=True, readonly=True )
     MetadataElement( name="atoi", default=False, desc="Has a atoi index", visible=True, readonly=True )
     
@@ -41,10 +44,24 @@ class GmapDB( Text ):
         """
         bn = dataset.metadata.db_name
         log.info( "GmapDB regenerate_primary_file %s" % (bn))
-        rval = ['<html><head><title>GMAPDB %s</title></head><p/><H3>GMAPDB %s</H3><p/>cmet %s<br>atoi %s<H4>Maps:</H4><ul>' % (bn,bn,dataset.metadata.cmet,dataset.metadata.atoi)]
-        for i,name in enumerate(dataset.metadata.maps):
-            rval.append( '<li>%s' % name)
-        rval.append( '</ul></html>' )
+        rval = []
+        rval.append("GMAPDB: %s" % dataset.metadata.db_name)
+        if dataset.metadata.chromosomes:
+            rval.append("chromosomes: %s" % dataset.metadata.chromosomes)
+        if dataset.metadata.chromlength and len(dataset.metadata.chromlength) == len(dataset.metadata.chromosomes):
+            rval.append( 'chrom\tlength' )
+            for i,name in enumerate(dataset.metadata.chromosomes):
+                rval.append( '%s\t%d' % (dataset.metadata.chromosomes[i],dataset.metadata.chromlength[i]))
+        if dataset.metadata.circular:
+            rval.append("circular: %s" % dataset.metadata.circular)
+        if dataset.metadata.kmers:
+            rval.append("kmers: %s" % dataset.metadata.kmers)
+        rval.append("cmetindex: %s  atoiindex: %s" % (dataset.metadata.cmet,dataset.metadata.atoi))
+        if dataset.metadata.maps and len(dataset.metadata.maps) > 0:
+            rval.append( 'Maps:')
+            for i,name in enumerate(dataset.metadata.maps):
+                if name.strip() != '':
+                    rval.append( ' %s' % name)
         f = file(dataset.file_name,'w')
         f.write("\n".join( rval ))
         f.write('\n')
@@ -53,7 +70,7 @@ class GmapDB( Text ):
     def set_peek( self, dataset, is_multi_byte=False ):
         log.info( "GmapDB set_peek %s" % (dataset))
         if not dataset.dataset.purged:
-            dataset.peek  = "GMAPDB index %s\n cmet %s\n atoi %s\n maps %s" % ( dataset.metadata.db_name,dataset.metadata.cmet,dataset.metadata.atoi,dataset.metadata.maps )
+            dataset.peek  = "GMAPDB index %s\n chroms %s\n kmers %s cmet %s atoi %s\n maps %s" % ( dataset.metadata.db_name,dataset.metadata.chromosomes,dataset.metadata.kmers,dataset.metadata.cmet,dataset.metadata.atoi,dataset.metadata.maps )
             dataset.blurb = "GMAPDB %s" % ( dataset.metadata.db_name )
         else:
             dataset.peek = 'file does not exist'
@@ -68,6 +85,26 @@ class GmapDB( Text ):
         return False
     def set_meta( self, dataset, overwrite = True, **kwd ):
         """
+        extra_files_path/<db_name>/GRCh37_19
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.a2iag12123offsetscomp
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.a2iag123positions
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.a2itc12123offsetscomp
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.a2itc123positions
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.chromosome
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.chromosome.iit
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.chrsubset
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.contig
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.contig.iit
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.genomecomp
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.maps
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.metct12123offsetscomp
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.metct123positions
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.metga12123offsetscomp
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.metga123positions
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.ref12123offsetscomp
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.ref123positions
+        extra_files_path/<db_name>/GRCh37_19/GRCh37_19.version
+
         Expecting:
         extra_files_path/<db_name>/db_name>.ref<basesize><kmer>3<index>
         extra_files_path/db_name/db_name.ref1[2345]1[2345]3offsetscomp
@@ -77,7 +114,9 @@ class GmapDB( Text ):
         extra_files_path/db_name/db_name.maps/*.iit
         """
         log.info( "GmapDB set_meta %s %s" % (dataset,dataset.extra_files_path))
-        pat = '(.*)\.((ref)|(met)[atgc][atgc]|(a2i)[atgc][atgc])((\d\d)(\d\d))?3positions(\.(.+))?'
+        chrom_pat = '^(.+).chromosome$'
+        #pat = '(.*)\.((ref)|(met)[atgc][atgc]|(a2i)[atgc][atgc])((\d\d)(\d\d))?3positions(\.(.+))?'
+        pat = '(.*)\.((ref)|(met)[atgc][atgc]|(a2i)[atgc][atgc])((\d\d)(\d\d))?(\d)(offsetscomp)'
         efp = dataset.extra_files_path
         flist = os.listdir(efp)
         for i,fname in enumerate(flist):
@@ -85,24 +124,60 @@ class GmapDB( Text ):
             fpath = os.path.join(efp,fname)
             if os.path.isdir(fpath):
                 ilist = os.listdir(fpath)
-                kmers = {'':'default'} # HACK  '' empty key  added so user has default choice when selecting kmer from metadata
+                # kmers = {'':'default'} # HACK  '' empty key  added so user has default choice when selecting kmer from metadata
+                kmers = dict()
                 for j,iname in enumerate(ilist):
                     log.info( "GmapDB set_meta file %s %s" % (j,iname))
                     ipath = os.path.join(fpath,iname)
+                    print >> sys.stderr, "GmapDB set_meta file %s %s %s" % (j,iname,ipath)
                     if os.path.isdir(ipath):  # find maps
                         dataset.metadata.map_dir = iname
+                        maps = []
+                        snps = []
                         for mapfile in os.listdir(ipath):
                             mapname = mapfile.replace('.iit','')
                             log.info( "GmapDB set_meta map %s %s" % (mapname,mapfile))
-                            dataset.metadata.maps.append(mapname)
+                            print >> sys.stderr, "GmapDB set_meta map %s %s " % (mapname,mapfile)
+                            maps.append(mapname)
+                            if mapname.find('snp') >= 0: 
+                                snps.append(mapname)
+                        if len(maps) > 0:
+                            dataset.metadata.maps = maps
+                        if len(snps) > 0:
+                            dataset.metadata.snps = snps
                     else: 
+                        m = re.match(chrom_pat,iname)
+                        if m and len(m.groups()) == 1:
+                            dataset.metadata.db_name = m.groups()[0]
+                            print >> sys.stderr, "GmapDB set_meta file %s %s %s" % (j,iname,ipath)
+                            try:
+                                fh = open(ipath)
+                                dataset.metadata.chromosomes = []
+                                dataset.metadata.circular = []
+                                dataset.metadata.chromlength = []
+                                for k,line in enumerate(fh):
+                                   fields = line.strip().split('\t')
+                                   print >> sys.stderr, "GmapDB set_meta chrom %s fields %s"  % (line,fields)
+                                   if len(fields) > 2:
+                                       dataset.metadata.chromosomes.append(str(fields[0]))
+                                       dataset.metadata.chromlength.append(int(fields[2]))
+                                   if len(fields) > 3 and fields[3] == 'circular':
+                                       dataset.metadata.circular.append(str(fields[0]))
+                                print >> sys.stderr, "GmapDB set_meta db_name %s chromosomes %s  circular %s" % (dataset.metadata.db_name,dataset.metadata.chromosomes,dataset.metadata.circular)
+                            except Exception, e:
+                                log.info( "GmapDB set_meta error %s %s " % (iname, e))
+                                print >> sys.stderr, "GmapDB set_meta file %s Error %s"  % (ipath,e)
+                            finally:
+                                if fh:
+                                    fh.close()
+                            continue
                         m = re.match(pat,iname)
                         if m:
                             log.info( "GmapDB set_meta m %s %s " % (iname, m))
+                            print >> sys.stderr, "GmapDB set_meta iname %s  %s" % (iname,m.groups())
                             assert len(m.groups()) == 10
-                            dataset.metadata.db_name = fname
                             if m.groups()[2] == 'ref':
-                                if m.groups()[-1] != None:
+                                if m.groups()[-1] != None and m.groups()[-1] != 'offsetscomp':
                                     dataset.metadata.snps.append(m.groups()[-1])
                                 else:
                                     if m.groups()[-3] != None:
@@ -115,6 +190,7 @@ class GmapDB( Text ):
                             elif m.groups()[4] == 'a2i':
                                 dataset.metadata.atoi = True
                 dataset.metadata.kmers = kmers.keys()
+        self.regenerate_primary_file(dataset)
 
 class GmapSnpIndex( Text ):
     """

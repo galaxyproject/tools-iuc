@@ -1,7 +1,7 @@
-<tool id="gmap" name="GMAP" version="2.0.1">
+<tool id="gmap" name="GMAP" version="3.0.0">
   <description>Genomic Mapping and Alignment Program for mRNA and EST sequences</description>
   <requirements>
-    <requirement type="package" version="2011-11-30">gmap</requirement>
+    <requirement type="package" version="2013-05-09">gmap</requirement>
   </requirements>
   <version_string>gmap --version</version_string>
   <command>
@@ -11,8 +11,7 @@
     #if $refGenomeSource.genomeSource == "history":
       --gseg=$refGenomeSource.ownFile
     #elif $refGenomeSource.genomeSource == "gmapdb":
-      #set $gmapdb = $os.listdir($refGenomeSource.gmapdb.extra_files_path)[0]
-      --dir=$refGenomeSource.gmapdb.extra_files_path --db=$gmapdb
+      --dir=$refGenomeSource.gmapdb.extra_files_path --db=$refGenomeSource.gmapdb.metadata.db_name
       #if $refGenomeSource.kmer != None and len($refGenomeSource.kmer.__str__) == 2:
         --kmer=$refGenomeSource.kmer
       #end if
@@ -43,6 +42,9 @@
     #elif $result.format == "sam":
       --format=$result.sam_paired_read
       $result.no_sam_headers 
+      $result.sam_use_0M
+      $result.force_xs_dir
+      $result.md_lowercase_snp
       #* Removed in gmap version 2011-11-30
       #if len($result.noncanonical_splices.__str__) > 0
          --noncanonical-splices=$result.noncanonical_splices
@@ -65,6 +67,7 @@
     #end if
     #if $computation.options == "advanced":
       $computation.nosplicing
+      $computation.find_shifted_canonical
       $computation.cross_species
       #if len($computation.min_intronlength.__str__) > 0
         --min-intronlength=$computation.min_intronlength
@@ -170,6 +173,15 @@
             <filter type="sort_by" column="3"/>
           </options>
         </param>
+        <!--
+         basesize=INT                 Base size to use in genome database.  If not specified, the program
+                                   will find the highest available base size in the genome database
+                                   within selected k-mer size
+         sampling=INT                 Sampling to use in genome database.  If not specified, the program
+                                   will find the smallest available sampling value in the genome database
+                                   within selected basesize and k-mer size
+
+        -->
         <param name="map" type="select" data_ref="gmapindex" label="Look for splicing involving known sites or known introns" help="">
           <options from_file="gmap_indices.loc">
             <column name="name" index="4"/>
@@ -224,7 +236,7 @@
          <validator type="in_range" message="totallength must be positive" min="0" />
        </param>
        <param name="chimera_margin" type="integer" value="" optional="true" label="Amount of unaligned sequence that triggers search for a chimera" 
-              help=" default is 40, To turn off, set to a large value (greater than the query length)" >	
+              help=" default is 40, To turn off, set to 0" >	
          <validator type="in_range" message="chimera_margin must be positive" min="0" />
        </param>
        <param name="direction"  type="select" label="cDNA direction">	
@@ -237,6 +249,7 @@
        <param name="trimendexons"  type="integer" value="" optional="true" label="Trim end exons with fewer than given number of matches (in nt, default 12)" >	
          <validator type="in_range" message="trimendexons must be positive" min="1" />
        </param>
+       <param name="find_shifted_canonical" type="boolean" truevalue="--find-shifted-canonical-species" falsevalue="" checked="false" label="find-shifted-canonical Use a more sensitive search for canonical splicing" help=""/>
        <param name="cross_species" type="boolean" truevalue="--cross-species" falsevalue="" checked="false" label="Cross-species alignment" help="For cross-species alignments, use a more sensitive search for canonical splicing"/>
        
        <param name="canonical"  type="select" label="Reward for canonical and semi-canonical introns">	
@@ -328,7 +341,7 @@
       <option value="splicesites">splicesites output (for GSNAP)</option>
       <option value="introns">introns output (for GSNAP)</option>
       <option value="map_exons">IIT FASTA exon map format</option>
-      <option value="map_genes">IIT FASTA map format</option>
+      <option value="map_ranges">IIT FASTA map format</option>
       <option value="coords">coords in table format</option>
       <option value="sam" selected="true">SAM format</option>
     </param>
@@ -353,7 +366,7 @@
       <when value="splicesites"/>
       <when value="introns"/>
       <when value="map_exons"/>
-      <when value="map_genes"/>
+      <when value="map_ranges"/>
       <when value="coords"/>
       <when value="sam">
         <param name="sam_paired_read" type="boolean" truevalue="sampe" falsevalue="samse" checked="false" label="SAM paired reads"/>
@@ -369,6 +382,11 @@
         <param name="read_group_name" type="text" value="" label="Value to put into read-group name (RG-SM) field"/>
         <param name="read_group_library" type="text" value="" label="Value to put into read-group library (RG-LB) field"/>
         <param name="read_group_platform" type="text" value="" label="Value to put into read-group library platform (RG-PL) field"/>
+        <param name="sam_use_0M" type="boolean" truevalue="--sam-use-0M" falsevalue="" checked="false" label="Insert 0M in CIGAR between adjacent insertions and deletions" help="Required by Picard, but can cause errors in other tools"/>
+        <param name="force_xs_dir" type="boolean" truevalue="--force-xs-dir" falsevalue="" checked="false" label="Force direction (disallow XS:A:?)" 
+               help="For RNA-Seq alignments, disallows XS:A:? when the sense direction is unclear, and replaces this value arbitrarily with XS:A:+. May be useful for some programs, such as Cufflinks, that cannot handle XS:A:?.  However, if you use this flag, the reported value of XS:A:+ in these cases will not be meaningful."/>
+        <param name="md_lowercase_snp" type="boolean" truevalue="--md-lowercase-snp" falsevalue="" checked="false" label="MD lowercase SNP" 
+               help="In MD string, when known SNPs are given by the -v flag, prints difference nucleotides as lower-case when they, differ from reference but match a known alternate allele"/>
       </when>
     </conditional> <!-- name="result" -->
 
@@ -382,6 +400,18 @@
       flanking=INT     Show flanking hits (default 0)
       print-comment    Show comment line for each hit
     -->
+
+    <!-- 
+  min-trimmed-coverage=FLOAT   Do not print alignments with trimmed coverage less
+                                   this value (default=0.0, which means no filtering)
+                                   Note that chimeric alignments will be output regardless
+                                   of this filter
+  min-identity=FLOAT           Do not print alignments with identity less
+                                   this value (default=0.0, which means no filtering)
+                                   Note that chimeric alignments will be output regardless
+                                   of this filter
+    -->
+
 
 
   </inputs>

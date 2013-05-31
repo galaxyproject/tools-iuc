@@ -1,7 +1,7 @@
-<tool id="gsnap" name="GSNAP" version="2.0.1">
+<tool id="gsnap" name="GSNAP" version="3.0.0">
   <description>Genomic Short-read Nucleotide Alignment Program</description>
   <requirements>
-      <requirement type="package" version="2011-11-30">gmap</requirement>
+      <requirement type="package" version="2013-05-09">gmap</requirement>
   </requirements>
   <version_string>gsnap --version</version_string>
   <command>
@@ -9,7 +9,6 @@
     gsnap
     --nthreads="4" --ordered
     #if $refGenomeSource.genomeSource == "gmapdb":
-      #set $gmapdb = $os.listdir($refGenomeSource.gmapdb.extra_files_path)[0]
       --dir=$refGenomeSource.gmapdb.extra_files_path --db=$refGenomeSource.gmapdb.metadata.db_name
     #else:
       --dir=$os.path.dirname($refGenomeSource.gmapindex.value) --db=$os.path.basename($refGenomeSource.gmapindex.value)
@@ -140,6 +139,9 @@
       #if $output.npath.__str__ != '':
         --npath=$output.npath
       #end if
+      #if $output.maxsearch.__str__ != '':
+        --maxsearch=$output.maxsearch 
+      #end if
       $output.quiet_if_excessive
       $output.show_refdiff
       $output.clip_overlap
@@ -248,7 +250,13 @@
         <param name="fastq" type="data" format="fastq" label="Select a fastq dataset" />
         <conditional name="paired">
           <param name="ispaired" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Use Paired Reads?"/>
-          <when value="no"/>
+          <when value="no">
+          <!--
+            Could allow multiple input fastq and set the force-single-end flag
+            force-single-end             When multiple FASTQ files are provided on the command line, GSNAP assumes
+                                    they are match paired-end files.  This flag treats each file as single-end.
+          -->
+          </when>
           <when value="yes">
             <param name="fastq" type="data" format="fastq" label="Select the paired reads reverse dataset" />
             <param name="orientation" type="select" label="Orientation of paired-end reads" help="">
@@ -471,8 +479,11 @@
       <when value="default"/>
       <when value="advanced">
          <param name="max_mismatches" type="float" value="" optional="true" label="Maximum number of mismatches allowed (uses default when negative)" 
-              help="Defaults to the ultrafast level of ((readlength+2)/12 - 2)).
-                    If specified between 0.0 and 1.0, then treated as a fraction
+              help="Maximum number of mismatches allowed (if not specified, then
+                    defaults to the ultrafast level of ((readlength+index_interval-1)/kmer - 2))
+                    (By default, the genome index interval is 3, but this can be changed
+                    by providing a different value for -q to gmap_build when processing the genome.)
+		    If specified between 0.0 and 1.0, then treated as a fraction
                     of each read length.  Otherwise, treated as an integral number
                     of mismatches (including indel and splicing penalties)
                     For RNA-Seq, you may need to increase this value slightly
@@ -481,12 +492,24 @@
          </param>
          <param name="query_unk_mismatch" type="boolean" checked="false" truevalue="--query-unk-mismatch=1" falsevalue="" label="Count unknown (N) characters in the query as a mismatch"/>
          <param name="genome_unk_mismatch" type="boolean" checked="true" truevalue="" falsevalue="--genome-unk-mismatch=0" label="Count unknown (N) characters in the genome as a mismatch"/>
-         <param name="terminal_threshold"  type="integer" value="" optional="true" label="Threshold for searching for a terminal alignment (default 2)" 
-                help="(from one end of the read to the best possible position at the other end).   For example, if this value is 2, then if GSNAP finds an exact or
+         <param name="maxsearch" type="integer" value="" optional="true" label="Maximum number of alignments to find (default 1000)"
+                help="Must be larger than paths, which is the number to report.
+                      Keeping this number large will allow for random selection among multiple alignments.
+                      Reducing this number can speed up the program. "/>
+
+         <param name="terminal_threshold"  type="integer" value="" optional="true" label="Threshold for searching for a terminal alignment" 
+                help="Threshold for searching for a terminal alignment (from one end of the
+                                   read to the best possible position at the other end) (default 2
+                                   for standard, atoi-stranded, and atoi-nonstranded mode; default 100
+                                   for cmet-stranded and cmet-nonstranded mode).
+                                   For example, if this value is 2, then if GSNAP finds an exact or
                                    1-mismatch alignment, it will not try to find a terminal alignment.
                                    Note that this default value may not be low enough if you want to
                                    obtain terminal alignments for very short reads, although such reads
-                                   probably don't have enough specificity for terminal alignments anyway." />
+                                   probably don't have enough specificity for terminal alignments anyway.
+                                   To turn off terminal alignments, set this to a high value, greater
+                                   than the value for max-mismatches.
+                                   "/>
          <param name="indel_penalty"  type="integer" value="" optional="true" label="Penalty for an indel (default 2)" 
                 help="Counts against mismatches allowed.  To find indels, make indel-penalty less than or equal to max-mismatches.  A value &lt; 2 can lead to false positives at read ends" />
          <param name="indel_endlength"  type="integer" value="" optional="true" label="Minimum length at end required for indel alignments (default 4)" />
@@ -497,9 +520,10 @@
          <param name="suboptimal_levels"  type="integer" value="" optional="true" label="Report suboptimal hits beyond best hit (default 0)"
                 help="All hits with best score plus suboptimal-levels are reported" />
          <param name="adapter_strip"  type="select" label="Method for removing adapters from reads" 
-                help="paired removes adapters from paired-end reads if a concordant or paired alignment cannot be found from the original read">
-           <option value="paired" selected="true">paired</option>
-           <option value="off">off</option>
+                help="Default is 'off'.  To turn on, specify 'paired', which removes adapters
+                                   from paired-end reads if they appear to be present.">
+           <option value="paired">paired</option>
+           <option value="off" selected="true">off</option>
          </param>
          <param name="trim_mismatch_score" type="integer" value="" optional="true" label="Score to use for mismatches when trimming at ends (default is -3)" 
                 help="to turn off trimming, specify 0 (Warning: turning trimming off will give false positive mismatches at the ends of reads)"/>
@@ -523,6 +547,7 @@
           <param name="gmap_mode" type="select" multiple="true" optional="true" display="checkboxes" label="Cases to use GMAP for complex alignments containing multiple splices or indels" 
                  help="Default: pairsearch,terminal,improve">
             <option value="pairsearch" selected="true">pairsearch</option>
+            <option value="indel_knownsplice" selected="true">indel_knownsplice</option>
             <option value="terminal" selected="true">terminal</option>
             <option value="improve" selected="true">improve</option>
           </param>

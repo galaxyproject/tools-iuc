@@ -1,10 +1,10 @@
-<tool id="gmap_build" name="GMAP Build" version="2.0.0">
+<tool id="gmap_build" name="GMAP Build" version="3.0.0">
   <description>a database genome index for GMAP and GSNAP</description>
   <requirements>
-      <requirement type="package" version="2011-11-30">gmap</requirement>
+      <requirement type="package" version="2013-05-09">gmap</requirement>
   </requirements>
   <version_string>gmap --version</version_string>
-  <command interpreter="command"> /bin/bash $shscript 2>1 1> $output </command>
+  <command interpreter="command"> /bin/bash $shscript > $output </command>
   <inputs>
     <!-- Name for this gmapdb -->
     <param name="refname" type="text" label="Name you want to give this gmap database" help="">
@@ -15,12 +15,17 @@
       <param name="input" type="data" format="fasta" label="reference sequence fasta" />
     </repeat>
 
-    <param name="kmer" type="select" multiple="true" force_select="true" label="kmer size" help="">
-      <option value="12">12</option>
-      <option value="13">13</option>
-      <option value="14">14</option>
-      <option value="15" selected="true">15</option>
+    <param name="circular_chroms" type="text" value="" optional="true" label="Names of circular chromosomes" 
+           help="a list of chromosomes, separated by commas, allow GSNAP and GMAP to align reads across the ends of the chromosome">
+    </param>
+
+    <param name="sort" type="select" label="Sort chromosomes" help="">
+      <option value="none">none - use chromosomes as found in FASTA file(s)</option>
+      <option value="alpha">alpha - sort chromosomes alphabetically (chr10 before chr 1)</option>
+      <option value="numeric-alpha">numeric-alpha - chr1, chr1U, chr2, chrM, chrU, chrX, chrY</option>
+      <option value="chrom">chrom - chr1, chr2, chrM, chrX, chrY, chr1U, chrU</option>
     </param>  
+
     <param name="cmetindex" type="boolean" checked="true" truevalue="yes" falsevalue="no" label="Create cmetindex to process reads from bisulfite-treated DNA"/>
     <param name="atoiindex" type="boolean" checked="true" truevalue="yes" falsevalue="no" label="Create atoiindex to process reads under RNA-editing tolerance"/>
     <conditional name="splicesite">
@@ -51,6 +56,7 @@
         <option value="none"></option>
         <option value="snpTable">UCSC SNP Table</option>
         <option value="snpFile">GMAP SNP File</option>
+        <option value="vcfFile">VCF File</option>
       </param>
       <when value="none"/>
       <when value="snpTable">
@@ -77,8 +83,33 @@
                 sequence, that SNP will be ignored in subsequent processing as a probable error.
                 The N stands for any other allele." />
       </when>
+      <when value="vcfFile">
+        <param name="snps" type="data" format="vcf" optional="true" label="VCF SNPs file" 
+               help="Example: ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/00-All.vcf.gz
+                     The VCF file contains multiple versions of dbSNP, so if you want a
+                     particular version, such as 135.  The vcf_iit program tries to pick 
+                     a subset of SNPs that somewhat parallel
+                     the ones without exceptions in the UCSC dbSNP file.  It keeps all SNPs
+                     that have been validated (marked in the VCF file as &#34;VLD&#34;) or have a
+                     submitter link-out (&#34;SLO&#34;).  Otherwise, it excludes SNPs that are
+                     individual genotypes (&#34;GNO&#34;).  If none of these conditions hold, then
+                     the SNP is allowed.  "/>
+        <param name="vcf_version" type="text" value="" optional="true" label="dbSNP version" 
+           help="The VCF file contains multiple versions of dbSNP, so if you want a particular version, such as 135"/>
+      </when>
     </conditional> 
+
+    <param name="kmer" type="select" multiple="true" force_select="true" label="kmer size" help="Use smaller values when building indexes on machines with limited RAM">
+      <option value="12">12 (64MB RAM)</option>
+      <option value="13">13 (256MB RAM)</option>
+      <option value="14">14 (1GB RAM)</option>
+      <option value="15" selected="true">15 (4GB RAM)</option>
+    </param>
+
   </inputs>
+  <stdio>
+    <exit_code range="1"  level="fatal"   description="Error running gmap_build" />
+  </stdio>
   <outputs>
     <!--
     <data format="txt" name="log" label="${tool.name} on ${on_string}: log"/>
@@ -97,15 +128,23 @@
   ## #set $ref_files = $ref_files $i.input
 ## #end for
 ## echo $ref_files
+#set circular = ""
+#if $circular_chroms.__str__.strip() != '':
+#set circular = ('').join([' -c ','"', $circular_chroms.__str__,'"'])
+#end if
 #import os.path
 #set $gmapdb = $output.extra_files_path
 #set $mapsdir = $os.path.join($os.path.join($gmapdb,str($refname)), str($refname) + '.maps')
 mkdir -p $gmapdb
 ## export GMAPDB required for cmetindex  and atoiindex
 export GMAPDB=$gmapdb
+#if $kmer:
 #for $k in $kmer.__str__.split(','):
-gmap_build -D $gmapdb -d $refname -s numeric-alpha -k $k #for i in $inputs# ${i.input}#end for#
+gmap_build -D $gmapdb -d $refname -s $sort $circular -k $k #for i in $inputs# ${i.input}#end for#
 #end for
+#else:
+gmap_build -D $gmapdb -d $refname -s $sort $circular #for i in $inputs# ${i.input}#end for#
+#end if
 get-genome -D $gmapdb -d '?' | sed 's/^Available .*/gmap db: /' 
 echo "kmers: " $kmer 
 #if $splicesite.splice_source == 'refGeneTable':
@@ -125,17 +164,23 @@ cat $splicesite.gff3Genes | gff3_introns | iit_store -o  $os.path.join($mapsdir,
 #end if
 #end if
 #if $dbsnp.snp_source != 'none' and $dbsnp.snps.__str__ != 'None':
-#if $dbsnp.snp_source == 'snpTable':
-#if $dbsnp.snpsex.__str__ != 'None':
-cat $dbsnp.snps | dbsnp_iit -w $dbsnp.weight -e $dbsnp.snpsex | iit_store -o  $os.path.join($mapsdir,'snps')
-#else:
-cat $dbsnp.snps | dbsnp_iit -w $dbsnp.weight | iit_store -o  $os.path.join($mapsdir,'snps')
-#end if
-#else:
-cat $dbsnp.snps | iit_store -o  $os.path.join($mapsdir,'snps')
-#end if
-snpindex -d $refname -v snps
-echo "snpindex" -d  $refname -v snps
+ #if $dbsnp.snp_source == 'snpTable':
+  #if $dbsnp.snpsex.__str__ != 'None':
+   cat $dbsnp.snps | dbsnp_iit -w $dbsnp.weight -e $dbsnp.snpsex | iit_store -o  $os.path.join($mapsdir,'snps')
+  #else:
+   cat $dbsnp.snps | dbsnp_iit -w $dbsnp.weight | iit_store -o  $os.path.join($mapsdir,'snps')
+  #end if
+ #elif $dbsnp.snp_source == 'vcfFile':
+  #if $dbsnp.vcf_version  and len($dbsnp.vcf_version.__str__.strip()) > 0:
+   cat $dbsnp.snps | vcf_iit -v $dbsnp.vcf_version.__str__.strip() | iit_store -o  $os.path.join($mapsdir,'snps')
+  #else:
+   cat $dbsnp.snps | vcf_iit | iit_store -o  $os.path.join($mapsdir,'snps')
+  #end if
+ #else:
+  cat $dbsnp.snps | iit_store -o  $os.path.join($mapsdir,'snps')
+ #end if
+ snpindex -d $refname -v snps
+ echo "snpindex" -d  $refname -v snps
 #end if
 #if $cmetindex.__str__ == 'yes':
 cmetindex -d $refname
@@ -154,10 +199,9 @@ get-genome -D $gmapdb -d $refname -m '?' | sed 's/^Available maps .*/maps: /'
 
   <help>
 
-
 **GMAP Build**
 
-GMAP Build creates an index of a genomic sequence for mapping and alignment using GMAP_ (Genomic Mapping and Alignment Program for mRNA and EST sequences) and GSNAP_ (Genomic Short-read Nucleotide Alignment Program).  (GMAP Build uses GMSP commands: gmap_build, iit_store, psl_splicesites, psl_introns, gtf_splicesites, gtf_introns, gff3_splicesites, gff3_introns, dbsnp_iit, snpindex, cmetindex, and atoiindex.)
+GMAP Build creates an index of a genomic sequence for mapping and alignment using GMAP_ (Genomic Mapping and Alignment Program for mRNA and EST sequences) and GSNAP_ (Genomic Short-read Nucleotide Alignment Program).  (GMAP Build uses GMAP commands: gmap_build, iit_store, psl_splicesites, psl_introns, gtf_splicesites, gtf_introns, gff3_splicesites, gff3_introns, dbsnp_iit, snpindex, cmetindex, and atoiindex.)
 
 You will want to read the README_
 
@@ -168,6 +212,129 @@ Publication_ citation: Thomas D. Wu, Colin K. Watanabe  Bioinformatics 2005 21(9
 .. _README: http://research-pub.gene.com/gmap/src/README
 .. _Publication: http://bioinformatics.oxfordjournals.org/cgi/content/full/21/9/1859
 
+
+**circular chromosomes**
+
+Finally, you can provide information to gmap_build that certain
+chromosomes are circular, with the -c or -\-circular flag.  The value
+for these flags is a list of chromosomes, separated by commas.  The
+gmap_build program will then allow GSNAP and GMAP to align reads
+across the ends of the chromosome.  For example, the mitochondrial
+genome in human beings is circular.
+
+
+**Detecting known and novel splice sites in GSNAP**
+
+GSNAP can detect splice junctions in individual reads.  
+GSNAP allows for known splicing at two levels: at the level of known
+splice sites and at the level of known introns.  At the site level,
+GSNAP finds splicing between arbitrary combinations of donor and
+acceptor splice sites, meaning that it can find alternative splicing
+events.  At the intron level, GSNAP finds splicing only between the
+set of given donor-acceptor pairs, so it is constrained not to find
+alternative splicing events, only introns included in the given list.
+For most purposes, I would recommend using known splice sites, rather
+than known introns, unless you are certain that all alternative
+splicing events are known are represented in your file.
+
+Splice site files can be generated from a GTF file 
+or from  refGenes table from UCSC.  
+
+
+**SNP-tolerant alignment in GSNAP**
+
+GSNAP has the ability to align to a reference space of all possible
+major and minor alleles in a set of known SNPs provided by the user.
+
+
+Process known SNP data, either from older dbSNP files or from newer
+files in VCF format.  The older dbSNP files can be obtained from UCSC,
+either from the Galaxy UCSC table browser or downloaded:
+
+    ftp://hgdownload.cse.ucsc.edu/goldenPath/hg18/database/snp130.txt.gz
+
+For versions before snp132, you may also want to exclude exceptions,
+which will require this file:
+
+    ftp://hgdownload.cse.ucsc.edu/goldenPath/hg18/database/snp130Exceptions.txt.gz
+
+The option "-w weight" makes use of the dbSNP item weight, a value
+from 1 to 3, where lower weight means higher confidence.  Items will
+be included if the item weight is the given value weight or less.
+The default value of -w is 1, which is the criterion UCSC uses to
+build its ambiguous version of the genome.  To allow all item weights,
+specify "-w 3".
+
+The more recent SNP data are provided in VCF format, and can be
+retrieved like this:
+
+    ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/00-All.vcf.gz
+
+The VCF file contains multiple versions of dbSNP, so if you want a
+particular version, such as 135, you would use the flag "-v 135".  The
+vcf_iit program tries to pick a subset of SNPs that somewhat parallel
+the ones without exceptions in the UCSC dbSNP file.  It keeps all SNPs
+that have been validated (marked in the VCF file as "VLD") or have a
+submitter link-out ("SLO").  Otherwise, it excludes SNPs that are
+individual genotypes ("GNO").  If none of these conditions hold, then
+the SNP is allowed.  These rules might not be the best ones; I made
+them up by trying to compare version 135 of the VCF data with
+version 135 of the UCSC dbSNP data.
+
+**Alignment of reads from bisulfite-treated DNA in GSNAP**
+
+GSNAP has the ability to align reads from bisulfite-treated DNA, which
+converts unmethylated cytosines to uracils that appear as thymines in
+reads.  GSNAP is able to identify genomic-T to read-C mismatches, 
+if a cmetindex is generated.
+
+**RNA-editing tolerance in GSNAP**
+
+Just as GSNAP has a program cmetindex and a mode called "cmet" for
+tolerance to C-to-T changes, it can be tolerant to A-to-G changes
+using the program atoiindex and a mode called "atoi".  This mode is
+designed to facilitate alignments that are tolerant to RNA editing
+where A's are converted to I's, which appear as G's to a sequencer.
+
+To process reads under RNA-editing tolerance, you will first need to
+create th atoi index.
+
+
+
+**K-mer size**
+
+You can control the k-mer size
+for the genomic index with the -k flag, which can range from 12 to 15.
+The default value for -k is 15, but this requires your machine to have
+4 GB of RAM to build the indices.  If you do not have 4 GB of RAM,
+then you will need to reduce the value of -k or find another machine.
+Here are the RAM requirements for building various indices::
+
+    k-mer of 12: 64 MB
+    k-mer of 13: 256 MB
+    k-mer of 14: 1 GB
+    k-mer of 15: 4 GB
+
+These are the RAM requirements for building indices, but not to run
+the GMAP/GSNAP programs once the indices are built, because the
+genomic indices are compressed.  For example, the genomic index for a
+k-mer of 15 gives a gammaptrs file of 64 MB and an offsetscomp file of
+about 350 MB, much smaller than the 4 GB that would otherwise be
+required.  Therefore, you may want to build your genomic index on a
+computer with sufficient RAM, and distribute that index to be used by
+computers with less RAM.
+
+The amount of compression can be controlled using the -b or -\-basesize
+parameter to gmap_build.  By default, the value for k-mer size is 15,
+and the value for basesize is 12.  If you select a different value for
+k-mer size, then basesize is made by default to be equal to that k-mer
+size.
+
+If you want to build your genomic databases with more than one k-mer
+size, you can re-run gmap_build with different values of -k.  This
+will overwrite only the identical files from the previous runs.  You
+can then choose the k-mer size at run-time by using the -k flag for
+either GMAP or GSNAP.
 
   </help>
 </tool>
