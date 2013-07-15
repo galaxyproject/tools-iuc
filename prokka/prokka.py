@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 def stop_err( msg ):
+    """ Print error message and exit """
     sys.stderr.write( '%s\n' % msg )
     sys.exit()
 
