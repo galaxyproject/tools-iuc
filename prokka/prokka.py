@@ -49,7 +49,7 @@ def __main__():
     else:
         rfam_flag = '--rfam'
     
-    cl = 'prokka --force --outdir . --prefix prokka --kingdom %s --minContig %s --centre %s %s %s %s' % (options.kingdom, options.minContig, options.centre, gram_flag, rfam_flag, options.fasta)
+    cl = 'prokka --force --outdir . --prefix prokka --kingdom %s --minContig %d --centre %s %s %s %s' % (options.kingdom, options.minContig, options.centre, gram_flag, rfam_flag, options.fasta)
     print '\nProkka command to be executed: \n %s' % ( cl )
 
     # Run command
