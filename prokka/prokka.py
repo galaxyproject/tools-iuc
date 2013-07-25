@@ -11,11 +11,6 @@ import shutil
 import subprocess
 import sys
 
-def stop_err( msg ):
-    """ Print error message and exit """
-    sys.stderr.write( '%s\n' % msg )
-    sys.exit()
-
 
 def __main__():
     #Parse Command Line
@@ -58,12 +53,11 @@ def __main__():
         sout = open(options.log, 'w')
     else:
         sout = sys.stdout
-    retcode = subprocess.call(cl, stdout=sout, stderr=subprocess.STDOUT, shell=True) # need to redirect stderr because prokka writes many logging info there
-    if sout != sys.stdout:
-        sout.close()
-    
-    if retcode != 0:
-        stop_err("Execution of Prokka terminated with return code: %i" % retcode)
+    try:
+        subprocess.check_call(cl, stdout=sout, stderr=subprocess.STDOUT, shell=True) # need to redirect stderr because prokka writes many logging info there
+    finally:
+        if sout != sys.stdout:
+            sout.close()
     
     # Rename output files
     suffix = ['gbk', 'fna', 'faa', 'ffn', 'sqn', 'fsa', 'tbl', 'err', 'gff']
