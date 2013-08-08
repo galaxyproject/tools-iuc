@@ -15,10 +15,10 @@ import sys
 def __main__():
     #Parse Command Line
     parser = optparse.OptionParser()
-    parser.add_option('--fasta', dest="fasta", help="FASTA file with contigs")
-    parser.add_option('--kingdom', dest="kingdom", choices=['Archaea', 'Bacteria', 'Viruses'], default="Bacteria", help="Kingdom")
-    parser.add_option('--gram', dest="gram", choices=['None', 'pos', 'neg'], default="None", help="Gram")
-    parser.add_option('--minContig', dest="minContig", type='int', default=200, help="Minimun contig size")
+    parser.add_option('--cpus', dest='cpus', type='int', help='Number of CPUs to use [0=all]')
+    parser.add_option('--fasta', dest='fasta', help='FASTA file with contigs')
+    parser.add_option('--kingdom', dest='kingdom', choices=['Archaea', 'Bacteria', 'Viruses'], default='Bacteria', help='Kingdom')
+    parser.add_option('--mincontig', dest='mincontig', type='int', help='Minimun contig size')
     parser.add_option('--rfam', action="store_true", dest="rfam", help="Enable searching for ncRNAs")
     parser.add_option('--centre', dest="centre", default="CRS4", help="Sequencing centre")
     parser.add_option('--gff', dest="gff", help="This is the master annotation in GFF3 format, containing both sequences and annotations. It can be viewed directly in Artemis or IGV")
@@ -36,28 +36,20 @@ def __main__():
         parser.error('Wrong number of arguments')
 
     # Build command
-    if options.gram == 'None' :
-        gram_flag = ''
-    else:
-        gram_flag = '--gram %s' % (options.gram)
-    if options.rfam:
-        rfam_flag = '--rfam'
-    else:
-        rfam_flag = ''
+    cpus = "--cpus %d" % (options.cpus) if options.cpus is not None else ''
+    rfam = '--rfam' if options.rfam else ''
+    mincontig = "--mincontig %d" % options.mincontig if options.mincontig is not None else ''
     
-    cl = 'prokka --force --outdir . --prefix prokka --kingdom %s --minContig %d --centre %s %s %s %s' % (options.kingdom, options.minContig, options.centre, gram_flag, rfam_flag, options.fasta)
-    print '\nProkka command to be executed: \n %s' % ( cl )
+    cl = "prokka --force --outdir . --prefix prokka --kingdom %s %s --centre %s %s %s %s" % (options.kingdom, mincontig, options.centre, rfam, cpus, options.fasta)
+    print '\nProkka command to be executed: \n %s' % cl
 
     # Run command
-    if options.log:
-        sout = open(options.log, 'w')
-    else:
-        sout = sys.stdout
+    log = open(options.log, 'w') if options.log else sys.stdout
     try:
-        subprocess.check_call(cl, stdout=sout, stderr=subprocess.STDOUT, shell=True) # need to redirect stderr because prokka writes many logging info there
+        subprocess.check_call(cl, stdout=log, stderr=subprocess.STDOUT, shell=True) # need to redirect stderr because prokka writes many logging info there
     finally:
-        if sout != sys.stdout:
-            sout.close()
+        if log != sys.stdout:
+            log.close()
     
     # Rename output files
     suffix = ['gbk', 'fna', 'faa', 'ffn', 'sqn', 'fsa', 'tbl', 'err', 'gff']
