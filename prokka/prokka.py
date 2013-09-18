@@ -39,9 +39,9 @@ def __main__():
     cpus = "--cpus %d" % (options.cpus) if options.cpus is not None else ''
     rfam = '--rfam' if options.rfam else ''
     mincontig = "--mincontig %d" % options.mincontig if options.mincontig is not None else ''
-    
+
     cl = "prokka --force --outdir . --prefix prokka --kingdom %s %s --centre %s %s %s %s" % (options.kingdom, mincontig, options.centre, rfam, cpus, options.fasta)
-    print '\nProkka command to be executed: \n %s' % cl
+    print '\nProkka command to be executed:\n %s' % cl
 
     # Run command
     log = open(options.log, 'w') if options.log else sys.stdout
@@ -50,11 +50,11 @@ def __main__():
     finally:
         if log != sys.stdout:
             log.close()
-    
+
     # Rename output files
     suffix = ['gbk', 'fna', 'faa', 'ffn', 'sqn', 'fsa', 'tbl', 'err', 'gff']
     for s in suffix:
-        shutil.move( 'prokka.' + s, getattr(options, s))
+        shutil.move('prokka.' + s, getattr(options, s))
 
 if __name__ == "__main__":
     __main__()
