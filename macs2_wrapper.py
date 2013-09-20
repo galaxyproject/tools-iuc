@@ -19,20 +19,6 @@ CHUNK_SIZE = 1024
 #==========================================================================================
 #functions
 #==========================================================================================
-def gunzip_cat_glob_path( glob_path, target_filename, delete = False ):
-    out = open( target_filename, 'wb' )
-    for filename in glob.glob( glob_path ):
-        fh = gzip.open( filename, 'rb' )
-        while True:
-            data = fh.read( CHUNK_SIZE )
-            if data:
-                out.write( data )
-            else:
-                break
-        fh.close()
-        if delete:
-            os.unlink( filename )
-    out.close()
 
 def xls_to_interval( xls_file, interval_file, header = None ):
     out = open( interval_file, 'wb' )
