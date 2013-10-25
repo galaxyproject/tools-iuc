@@ -31,5 +31,5 @@ Version history
 
 - v0.1 (LG): initial release in the toolshed, supports Prokka 1.6.
 - v0.2 (LG): added this readme file, supports Prokka 1.7, and adds dependencies management.
-- v1.1.0: merge the wrappers by CRS4 and Lionel Guy, add COPYING file with MIT license, make all params optional, add gffver param, correctly quote text params in command, use float type for 'evalue' param, describe output files in help, upgrade BLAST+ dependency to version 2.2.28, depend on package_aragorn_1_2_36 instead of trna_prediction, add PROKKA_SITE_OPTIONS to env.sh and remove 'cpus' param.
+- v1.1.0: merge the wrappers by CRS4 and Lionel Guy, add COPYING file with MIT license, make all params optional, add gffver param, correctly quote text params in command, use float type for 'evalue' param, describe output files in help, upgrade BLAST+ dependency to version 2.2.28, depend on package_aragorn_1_2_36 instead of trna_prediction, depend on package_prodigal_2_60 instead of prodigal, depend on package_barrnap_0_2 instead of barrnap, add PROKKA_SITE_OPTIONS to env.sh and remove 'cpus' param.
 
