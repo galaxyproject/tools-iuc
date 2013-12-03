@@ -23,34 +23,38 @@ Installation
 
 The recommended installation is by means of the toolshed_.
 
-.. _toolshed: http://toolshed.g2.bx.psu.edu/view/bjoern-gruening/augustus
+.. _toolshed: http://toolshed.g2.bx.psu.edu/view/iuc/gatk2
 
-Galaxy should be able to automatically install samtools dependencies automatically
+Galaxy should be able to install samtools dependencies automatically
 for you. GATK2, and its new licence model, does not allow us to distribute the GATK binaries.
-As a consequence you need to install GATK2 by your own, please see the GATK website for more informations:
+As a consequence you need to install GATK2 by your own, please see the GATK website for more information:
 
 http://www.broadinstitute.org/gatk/download
 
-Once you have installed GATK2 you need to edit the env.sh file that is installed with these wrappers.
-You will find this env.sh file under:
+Once you have installed GATK2, you need to edit the env.sh files that are installed together with the wrappers.
+You must edit the GATK2_PATH environment variable in the file:
 
-<tool_dependency_dir>/gatk2/<version>/iuc/<hash_string>/env.sh
+<tool_dependency_dir>/environment_settings/GATK2_PATH/iuc/gatk2/<hash_string>/env.sh
 
-You should edit the GATK2_PATH environment variable to point to the folder you have installed GATK2
-and if you want to deactivate the 'call home feature' from GATK you can set
+to point to the folder where you have installed GATK2.
+
+Optionally, you may also want to edit the GATK2_SITE_OPTIONS environment variable in the file:
+
+<tool_dependency_dir>/environment_settings/GATK2_SITE_OPTIONS/iuc/gatk2/<hash_string>/env.sh
+
+to deactivate the 'call home feature' of GATK with something like:
 
 GATK2_SITE_OPTIONS='-et "NO_ET" -K "/data/gatk2_key_file"'
 
-GATK2_SITE_OPTIONS can be used to insert specific options into every GATK2 wrapper 
-during runtime, without changing the actuall wrapper.
+GATK2_SITE_OPTIONS can be also used to insert other specific options into every GATK2 wrapper
+at runtime, without changing the actual wrapper.
 
 Read more about the "Phone Home" problem under:
 http://www.broadinstitute.org/gatk/guide/article?id=1250
 
-
 Finally, you should fill in additional information about your genomes and 
 annotations in the gatk2_picard_index.loc and gatk2_annotations.txt. 
-You can find them under ./tool-data/.
+You can find them in the tool-data/ Galaxy directory.
 
 
 
