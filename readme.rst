@@ -44,7 +44,7 @@ Optionally, you may also want to edit the GATK2_SITE_OPTIONS environment variabl
 
 to deactivate the 'call home feature' of GATK with something like:
 
-GATK2_SITE_OPTIONS='-et "NO_ET" -K "/data/gatk2_key_file"'
+GATK2_SITE_OPTIONS='-et NO_ET -K /data/gatk2_key_file'
 
 GATK2_SITE_OPTIONS can be also used to insert other specific options into every GATK2 wrapper
 at runtime, without changing the actual wrapper.
