@@ -11,25 +11,42 @@ Dependencies of Prokka which needs to be installed separately
 
 - Perl core modules: File\::Copy, FindBin, Getopt::Long, List::Util, Scalar::Util, Time::Piece, Time::Seconds;
 - Perl modules: Bio::SeqIO from BioPerl_ >= 1.6.900, `XML::Simple`_;
-- `GNU Parallel`_ >= 20130422 is required, but is shipped with Prokka and thus is not managed by the tool dependency system;
 - tbl2asn_ >= 21.0 is required. This dependency is not managed here since versions are increasing very rapidly;
 - SignalP_ >= 3.0 is an optional dependency to find signal peptides. For licensing reasons, it is not used in the tool wrapper.
 
 .. _BioPerl: http://search.cpan.org/dist/BioPerl/
 .. _XML::Simple: http://search.cpan.org/dist/XML-Simple/
-.. _GNU Parallel: http://www.gnu.org/software/parallel/
 .. _tbl2asn: http://www.ncbi.nlm.nih.gov/genbank/tbl2asn2/
 .. _SignalP: http://www.cbs.dtu.dk/services/SignalP/
 
 Configuration
 -------------
 
-Change the PROKKA_SITE_OPTIONS variable in the installed env.sh file to adjust the number of CPUs to use (--cpus).
+If you are using Galaxy release_2013.11.04 or later, this tool will automatically use the number of threads allocated by the job runner according to the configuration of the job destination selected for this tool (see http://wiki.galaxyproject.org/Admin/Config/Jobs ).
+
+If instead you are using an older Galaxy release, you should add a line
+
+  GALAXY_SLOTS=N; export GALAXY_SLOTS
+
+(where N is the number of threads allocated by the job runner) to the file
+
+  <tool_dependencies_dir>/prokka/1.7/crs4/prokka/<hash_string>/env.sh
 
 Version history
 ---------------
 
-- v0.1 (LG): initial release in the toolshed, supports Prokka 1.6.
-- v0.2 (LG): added this readme file, supports Prokka 1.7, and adds dependencies management.
-- v1.1.0: merge the wrappers by CRS4 and Lionel Guy, add COPYING file with MIT license, make all params optional, add gffver param, correctly quote text params in command, use float type for 'evalue' param, describe output files in help, upgrade BLAST+ dependency to version 2.2.28, depend on package_aragorn_1_2_36 instead of trna_prediction, depend on package_prodigal_2_60 instead of prodigal, depend on package_barrnap_0_2 instead of barrnap, add PROKKA_SITE_OPTIONS to env.sh and remove 'cpus' param.
+- Release 3 (prokka 1.2.0): Use $GALAXY_SLOTS instead of $PROKKA_SITE_OPTIONS. Upgrade Barrnap dependency to v. 0.3. Upgrade Infernal dependency to v. 1.1. Depend on package_gnu_parallel_20131122 (requires Galaxy release_2013.11.04 or later).
+- Release 2 (prokka 1.1.0): Merge the wrappers by CRS4 and Lionel Guy. Directly call prokka, remove prokka.py . Add 'locustag', 'increment', 'gffver', 'compliant', 'addgenes', 'genus', 'species', 'strain', 'plasmid', 'gcode', 'usegenus', 'metagenome', 'fast', 'evalue', 'norrna', 'notrna' params. Upgrade BLAST+ dependency to v. 2.2.28. Add dependencies on prodigal and barrnap. Add readme.rst .
+- Release 1 (prokka 1.0.1): Add txt output file. Use a definition list instead of a block quote in <help>. Correct 2 dependency minimum versions.
+- Release 0 (prokka 1.0.0): Initial release in the Tool Shed.
 
+Version history of (now deprecated) Lionel Guy's wrapper:
+
+- prokka 1.1.0: Merge the wrappers by CRS4 and Lionel Guy. Add COPYING file with MIT license. Make all params optional. Add 'gffver' param. Correctly quote text params in command. Use float type for 'evalue' param. Describe output files in help. Upgrade BLAST+ dependency to v. 2.2.28. Depend on package_aragorn_1_2_36 instead of trna_prediction. Depend on package_prodigal_2_60 instead of prodigal. Depend on package_barrnap_0_2 instead of barrnap. Add PROKKA_SITE_OPTIONS to env.sh and remove 'cpus' param.
+- prokka 0.2: Added this readme file. Support Prokka 1.7. Add dependencies management.
+- prokka 0.1: Initial release in the Tool Shed, supports Prokka 1.6.
+
+Development
+-----------
+
+Development is hosted at https://bitbucket.org/crs4/orione-tools . Contributions and bug reports are very welcome!
