@@ -22,13 +22,15 @@ Dependencies of Prokka which needs to be installed separately
 Configuration
 -------------
 
-If you are using Galaxy release_2013.11.04 or later, this tool will automatically use the number of threads allocated by the job runner according to the configuration of the job destination selected for this tool (see http://wiki.galaxyproject.org/Admin/Config/Jobs ).
+prokka tool may be configured to use more than one CPU core by selecting an appropriate destination for this tool in Galaxy job_conf.xml file (see http://wiki.galaxyproject.org/Admin/Config/Jobs and http://wiki.galaxyproject.org/Admin/Config/Performance/Cluster ).
 
-If instead you are using an older Galaxy release, you should add a line
+If you are using Galaxy release_2013.11.04 or later, this tool will automatically use the number of CPU cores allocated by the job runner according to the configuration of the destination selected for this tool.
+
+If instead you are using an older Galaxy release, you should also add a line
 
   GALAXY_SLOTS=N; export GALAXY_SLOTS
 
-(where N is the number of threads allocated by the job runner) to the file
+(where N is the number of CPU cores allocated by the job runner for this tool) to the file
 
   <tool_dependencies_dir>/prokka/1.7/crs4/prokka/<hash_string>/env.sh
 
