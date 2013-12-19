@@ -37,6 +37,7 @@ If instead you are using an older Galaxy release, you should also add a line
 Version history
 ---------------
 
+- Release 4 (): Update citation.
 - Release 3 (prokka 1.2.0): Use $GALAXY_SLOTS instead of $PROKKA_SITE_OPTIONS. Upgrade Barrnap dependency to v. 0.3. Upgrade Infernal dependency to v. 1.1. Depend on package_gnu_parallel_20131122 (requires Galaxy release_2013.11.04 or later).
 - Release 2 (prokka 1.1.0): Merge the wrappers by CRS4 and Lionel Guy. Directly call prokka, remove prokka.py . Add 'locustag', 'increment', 'gffver', 'compliant', 'addgenes', 'genus', 'species', 'strain', 'plasmid', 'gcode', 'usegenus', 'metagenome', 'fast', 'evalue', 'norrna', 'notrna' params. Upgrade BLAST+ dependency to v. 2.2.28. Add dependencies on prodigal and barrnap. Add readme.rst .
 - Release 1 (prokka 1.0.1): Add txt output file. Use a definition list instead of a block quote in <help>. Correct 2 dependency minimum versions.
