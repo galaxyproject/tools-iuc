@@ -7,10 +7,12 @@
   <command interpreter="python">
     gatk2_wrapper.py
     --stdout "${output_log}"
-    -d "-I" "${reference_source.input_bam}" "${reference_source.input_bam.ext}" "gatk_input"
-    #if str( $reference_source.input_bam.metadata.bam_index ) != "None":
-        -d "" "${reference_source.input_bam.metadata.bam_index}" "bam_index" "gatk_input" ##hardcode galaxy ext type as bam_index
-    #end if
+    #for $i, $input_bam in enumerate( $reference_source.input_bams ):
+        -d "-I" "${input_bam.input_bam}" "${input_bam.input_bam.ext}" "gatk_input_${i}"
+        #if str( $input_bam.input_bam.metadata.bam_index ) != "None":
+            -d "" "${input_bam.input_bam.metadata.bam_index}" "bam_index" "gatk_input_${i}" ##hardcode galaxy ext type as bam_index
+        #end if
+    #end for
     -p '
     @JAR_PATH@
     -T "HaplotypeCaller"
@@ -18,7 +20,7 @@
 
     \$GATK2_SITE_OPTIONS
 
-    @THREADS@
+    --num_cpu_threads_per_data_thread \${GALAXY_SLOTS:-4}
 
     #if $reference_source.reference_source_selector != "history":
         -R "${reference_source.ref_file.fields.path}"
@@ -27,14 +29,12 @@
         --BQSR "${input_recal}"
     #end if
    '
+    @DBSNP_OPTIONS@
     #include source=$standard_gatk_options#
     
     ##start analysis specific options
     #if $analysis_param_type.analysis_param_type_selector == "advanced":
         -p '
-        #if $analysis_param_type.p_nonref_model.__str__ != "None" and len($analysis_param_type.p_nonref_model.__str__) > 0:
-          --p_nonref_model $analysis_param_type.p_nonref_model
-        #end if
         #if $analysis_param_type.heterozygosity.__str__.strip() != '':
             --heterozygosity $analysis_param_type.heterozygosity
         #end if
@@ -42,8 +42,8 @@
         #if str( $analysis_param_type.genotyping_mode_type.genotyping_mode ) == 'GENOTYPE_GIVEN_ALLELES':
             --alleles "${analysis_param_type.genotyping_mode_type.input_alleles_rod}"
         #end if
-        #if $analysis_param_type.output_mode.__str__ != "None" and len($analysis_param_type.output_mode.__str__) > 0:
-          --output_mode $analysis_param_type.output_mode
+        #if not $analysis_param_type.emitRefConfidence is None:
+          --emitRefConfidence $analysis_param_type.emitRefConfidence
         #end if
 
         ## files
@@ -52,9 +52,6 @@
         #end if
         #if str($analysis_param_type.comp) != 'None':
             --comp "$analysis_param_type.comp"
-        #end if
-        #if str($analysis_param_type.dbsnp) != 'None':
-            --dbsnp "$analysis_param_type.dbsnp"
         #end if
         ##  
         #if str( $analysis_param_type.annotation ) != "None":
@@ -80,9 +77,6 @@
         #if $analysis_param_type.contamination_fraction_to_filter.__str__.strip() != '':
             --contamination_fraction_to_filter $analysis_param_type.contamination_fraction_to_filter
         #end if
-        #if $analysis_param_type.downsampleRegion.__str__.strip() != '':
-            --downsampleRegion $analysis_param_type.downsampleRegion
-        #end if
         #if $analysis_param_type.minPruning.__str__.strip() != '':
             --minPruning $analysis_param_type.minPruning
         #end if
@@ -99,9 +93,7 @@
             --max_alternate_alleles $analysis_param_type.max_alternate_alleles
         #end if
         ## mode selections
-        #if $analysis_param_type.genotyping_mode.__str__ != "None" and len($analysis_param_type.genotyping_mode.__str__) > 0:
-          --genotyping_mode $analysis_param_type.genotyping_mode
-        #end if
+
         #if $analysis_param_type.pair_hmm_implementation.__str__ != "None" and len($analysis_param_type.pair_hmm_implementation.__str__) > 0:
           --pair_hmm_implementation $analysis_param_type.pair_hmm_implementation
         #end if
@@ -130,26 +122,27 @@
     <conditional name="reference_source">
       <expand macro="reference_source_selector_param" />
       <when value="cached">
-        <param name="input_bam" type="data" format="bam" label="BAM file" help="-I,--input_file &amp;lt;input_file&amp;gt;">
-          <validator type="unspecified_build" />
-          <validator type="dataset_metadata_in_data_table" table_name="gatk2_picard_indexes" metadata_name="dbkey" metadata_column="dbkey" message="Sequences are not currently available for the specified build." /> <!-- fixme!!! this needs to be a select -->
-        </param>
+        <repeat name="input_bams" title="BAM file" min="1" help="-I,--input_file &amp;lt;input_file&amp;gt;">
+          <param name="input_bam" type="data" format="bam" label="BAM file">
+            <validator type="unspecified_build" />
+            <validator type="dataset_metadata_in_data_table" table_name="gatk2_picard_indexes" metadata_name="dbkey" metadata_column="dbkey" message="Sequences are not currently available for the specified build." /> <!-- fixme!!! this needs to be a select -->
+          </param>
+        </repeat>
         <param name="ref_file" type="select" label="Using reference genome" help="-R,--reference_sequence &amp;lt;reference_sequence&amp;gt;" >
           <options from_data_table="gatk2_picard_indexes">
-            <filter type="data_meta" key="dbkey" ref="input_bam" column="dbkey"/>
+            <!-- <filter type="data_meta" key="dbkey" ref="input_bam" column="dbkey"/> does not yet work in a repeat...-->
           </options>
           <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file"/>
         </param>
       </when>
       <when value="history">
-        <param name="input_bam" type="data" format="bam" label="BAM file" help="-I,--input_file &amp;lt;input_file&amp;gt;" />
-        <param name="ref_file" type="data" format="fasta" label="Using reference file" help="-R,--reference_sequence &amp;lt;reference_sequence&amp;gt;">
-          <options>
-            <filter type="data_meta" key="dbkey" ref="input_bam" />
-          </options>
-        </param>
+        <repeat name="input_bams" title="BAM file" min="1" help="-I,--input_file &amp;lt;input_file&amp;gt;">
+          <param name="input_bam" type="data" format="bam" label="BAM file" />
+        </repeat>
+        <param name="ref_file" type="data" format="fasta" label="Using reference file" help="-R,--reference_sequence &amp;lt;reference_sequence&amp;gt;" />
       </when>
     </conditional>
+    <expand macro="dbsnp_param" />
     
     <expand macro="gatk_param_type_conditional" />
 
@@ -211,9 +204,7 @@
         <param name="contamination_fraction_to_filter" type="float" value="0.05" optional="true" label="contamination_fraction_to_filter" help="--contamination_fraction_to_filter / -contamination  Fraction of contamination in sequencing data (for all samples) to aggressively remove">
             <validator type="in_range" message="value between 0.00 and 1.00" min="0" max="1"/>
         </param>
-        <param name="dbsnp" type="data" format="vcf" optional="true" label="dbsnp" help="--dbsnp / -D  dbSNP file"/>
         <param name="debug" type="boolean" checked="False" truevalue="-debug" falsevalue="" label="debug" help="--debug / -debug  If specified, print out very verbose debug information about each triggering active region"/>
-        <param name="downsampleRegion" type="integer" value="1000" optional="true" label="downsampleRegion" help="--downsampleRegion / -dr  coverage, per-sample, to downsample each active region to"/>
 
         <conditional name="genotyping_mode_type">
           <param name="genotyping_mode" type="select" label="How to determine the alternate allele to use for genotyping" help="-gt_mode,--genotyping_mode &amp;lt;genotyping_mode&amp;gt;">
@@ -234,10 +225,11 @@
         <param name="minPruning" type="integer" value="1" optional="true" label="minPruning" help="--minPruning / -minPruning  The minimum allowed pruning factor in assembly graph. Paths with &gt;= X supporting kmers are pruned from the graph">
             <validator type="in_range" message="value between 0 and 127" min="0" max="127"/>
         </param>
-        <param name="output_mode" type="select" optional="true" label="output_mode" help="--output_mode / -out_mode  Specifies which type of calls we should output">
-              <option value="EMIT_VARIANTS_ONLY" selected="True">EMIT_VARIANTS_ONLY</option>
-              <option value="EMIT_ALL_CONFIDENT_SITES">EMIT_ALL_CONFIDENT_SITES</option>
-              <option value="EMIT_ALL_SITES">EMIT_ALL_SITES</option>
+        <!-- http://www.broadinstitute.org/gatk/guide/article?id=2940 -->
+        <param name="emitRefConfidence" type="select" optional="true" label="Output confidence estimates" help="Emitting a per-bp or summarized confidence estimate for a site being strictly homozygous-reference (--emitRefConfidence)">
+              <option value="NONE" selected="True">don't emit anything</option>
+              <option value="BP_RESOLUTION">BP_RESOLUTION (emit detailed information for each BP)</option>
+              <option value="GVCF">GVCF (emit a block summarized version of the BP_RESOLUTION data)</option>
         </param>
         <param name="pair_hmm_implementation" type="select" optional="true" label="pair_hmm_implementation" help="--pair_hmm_implementation / -pairHMM  The PairHMM implementation to use for genotype likelihood calculations">
               <option value="EXACT">EXACT</option>
@@ -252,13 +244,6 @@
         <param name="gcpHMM" type="integer" value="10" optional="true" label="gcpHMM" help="--gcpHMM / -gcpHMM  Flat gap continuation penalty for use in the Pair HMM"/>
         <param name="genotypeFullActiveRegion" type="boolean" checked="False" truevalue="-genotypeFullActiveRegion" falsevalue="" label="genotypeFullActiveRegion" help="--genotypeFullActiveRegion / -genotypeFullActiveRegion  If specified, alternate alleles are considered to be the full active region for the purposes of genotyping"/>
         <param name="max_alternate_alleles" type="integer" value="6" optional="true" label="max_alternate_alleles" help="--max_alternate_alleles / -maxAltAlleles  Maximum number of alternate alleles to genotype"/>
-        <param name="p_nonref_model" type="select" optional="true" label="p_nonref_model" help="--p_nonref_model / -pnrm  Non-reference probability calculation model to employ">
-              <option value="EXACT_INDEPENDENT" selected="True">EXACT_INDEPENDENT experimental implementation - for testing only</option>
-              <option value="EXACT_REFERENCE">EXACT_REFERENCE reference implementation of multi-allelic EXACT model. Extremely slow for many alternate alleles</option>
-              <option value="EXACT_ORIGINAL">EXACT_ORIGINAL original biallelic exact model, for testing only</option>
-              <option value="EXACT_GENERAL_PLOIDY">implementation that supports any sample ploidy</option>
-        </param>
-
       </when>
     </conditional>
   </inputs>
@@ -323,14 +308,12 @@ Go `here &lt;http://www.broadinstitute.org/gatk/guide/topic?name=intro&gt;`_ for
  contamination               Fraction of contamination in sequencing data (for all samples) to aggressively remove
  dbsnp                       dbSNP file
  debug                       If specified, print out very verbose debug information about each triggering active region
- downsampleRegion            coverage, per-sample, to downsample each active region to
  excludeAnnotation           One or more specific annotations to exclude
  genotyping_mode             Specifies how to determine the alternate alleles to use for genotyping
  graphOutput                 File to which debug assembly graph information should be written
  group                       One or more classes/groups of annotations to apply to variant calls
  heterozygosity              Heterozygosity value used to compute prior likelihoods for any locus
  minPruning                  The minimum allowed pruning factor in assembly graph. Paths with less than or equal supporting kmers are pruned from the graph
- output_mode                 Specifies which type of calls we should output
  pair_hmm_implementation     The PairHMM implementation to use for genotype likelihood calculations
  stand_call_conf             The minimum phred-scaled confidence threshold at which variants should be called
  stand_emit_conf             The minimum phred-scaled confidence threshold at which variants should be emitted (and filtered with LowQual if less than the calling threshold)
@@ -339,9 +322,6 @@ Go `here &lt;http://www.broadinstitute.org/gatk/guide/topic?name=intro&gt;`_ for
  gcpHMM                      Flat gap continuation penalty for use in the Pair HMM
  genotypeFullActiveRegion    If specified, alternate alleles are considered to be the full active region for the purposes of genotyping
  max_alternate_alleles       Maximum number of alternate alleles to genotype
- p_nonref_model              Non-reference probability calculation model to employ
-
-------
 
 @CITATION_SECTION@
   </help>
