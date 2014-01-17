@@ -13,7 +13,6 @@ make it capable of taking on projects of any size.
 http://www.broadinstitute.org/gatk
 http://www.broadinstitute.org/gatk/about/citing-gatk
 
-
 GATK is Free for academics, and fee for commercial use. Please study the GATK licensing website:
 http://www.broadinstitute.org/gatk/about/#licensing
 
@@ -49,13 +48,16 @@ GATK2_SITE_OPTIONS='-et NO_ET -K /data/gatk2_key_file'
 GATK2_SITE_OPTIONS can be also used to insert other specific options into every GATK2 wrapper
 at runtime, without changing the actual wrapper.
 
-Read more about the "Phone Home" problem under:
+Read more about the "Phone Home" problem at:
 http://www.broadinstitute.org/gatk/guide/article?id=1250
+
+Optionally, you may also want to add some commands to be executed before GATK (e.g. to load modules) to the file:
+
+<tool_dependency_dir>/gatk2/default/env.sh
 
 Finally, you should fill in additional information about your genomes and 
 annotations in the gatk2_picard_index.loc and gatk2_annotations.txt. 
 You can find them in the tool-data/ Galaxy directory.
-
 
 
 History
@@ -84,5 +86,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-
-
