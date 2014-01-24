@@ -23,5 +23,6 @@ SnpEff citation:
 SnpSift citation:
 "Using Drosophila melanogaster as a model for genotoxic chemical mutational studies with a new program, SnpSift", Cingolani, P., et. al., Frontiers in Genetics, 3, 2012.
 
-Wrapper authors:
-- Jim Johnson
+-Wrapper authors:
+    -- Jim Johnson
+
