@@ -6,7 +6,7 @@ Warning
 
 Prokka includes custom databases and is thus about a 2.0 GB download!
 
-Dependencies of Prokka which needs to be installed separately
+Dependencies of Prokka which need to be installed separately
 -------------------------------------------------------------
 
 - Perl core modules: File\::Copy, FindBin, Getopt::Long, List::Util, Scalar::Util, Time::Piece, Time::Seconds;
@@ -30,7 +30,7 @@ If instead you are using an older Galaxy release, you should also add a line
 
 (where N is the number of CPU cores allocated by the job runner for this tool) to the file
 
-  <tool_dependencies_dir>/prokka/1.7/crs4/prokka/<hash_string>/env.sh
+  <tool_dependencies_dir>/prokka/1.8/crs4/prokka/<hash_string>/env.sh
 
 Version history
 ---------------
