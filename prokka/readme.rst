@@ -20,7 +20,7 @@ Dependencies of Prokka which need to be installed separately
 Configuration
 -------------
 
-prokka tool may be configured to use more than one CPU core by selecting an appropriate destination for this tool in Galaxy job_conf.xml file (see http://wiki.galaxyproject.org/Admin/Config/Jobs and http://wiki.galaxyproject.org/Admin/Config/Performance/Cluster ).
+prokka tool may be configured to use more than one CPU core by selecting an appropriate destination for this tool in Galaxy job_conf.xml file (see https://wiki.galaxyproject.org/Admin/Config/Jobs and https://wiki.galaxyproject.org/Admin/Config/Performance/Cluster ).
 
 If you are using Galaxy release_2013.11.04 or later, this tool will automatically use the number of CPU cores allocated by the job runner according to the configuration of the destination selected for this tool.
 
