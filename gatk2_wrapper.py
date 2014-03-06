@@ -100,7 +100,7 @@ def __main__():
                     bam_filenames.append( gatk_filename )
                 if galaxy_ext == 'fasta':
                     subprocess.check_call( 'samtools faidx "%s"' % gatk_filename, shell=True )
-                    subprocess.check_call( 'java -jar %s R=%s O=%s' % ( os.path.join(os.environ['JAVA_JAR_PATH'], 'CreateSequenceDictionary.jar'), gatk_filename, os.path.splitext(gatk_filename)[0] + '.dict' ), shell=True )
+                    subprocess.check_call( 'java -jar %s R=%s O=%s QUIET=true' % ( os.path.join(os.environ['JAVA_JAR_PATH'], 'CreateSequenceDictionary.jar'), gatk_filename, os.path.splitext(gatk_filename)[0] + '.dict' ), shell=True )
         index_bam_files( bam_filenames )
         #set up stdout and stderr output options
         stdout = open_file_from_option( options.stdout, mode = 'wb' )
