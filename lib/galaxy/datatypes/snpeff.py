@@ -18,7 +18,7 @@ class SnpEffDb( Text ):
 
     def set_meta( self, dataset, **kwd ):
         Text.set_meta(self, dataset, **kwd )
-        data_dir = dataset.extra_files_path
+        data_dir = dataset.files_path
         ## search data_dir/genome_version for files
         regulation_pattern = 'regulation_(.+).bin'
         #  annotation files that are included in snpEff by a flag
