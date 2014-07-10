@@ -98,7 +98,7 @@ def main():
     filename = args[0]
 
     params = from_json_string( open( filename ).read() )
-    target_directory = params[ 'output_data' ][0][.files_path']
+    target_directory = params[ 'output_data' ][0]['files_path']
     os.mkdir( target_directory )
     data_manager_dict = {}
 
