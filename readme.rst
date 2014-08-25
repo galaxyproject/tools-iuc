@@ -63,7 +63,8 @@ You can find them in the tool-data/ Galaxy directory.
 History
 =======
 
-v0.1 - Initial public release
+* v0.1      - Initial public release
+* v2.8.0    - Bugfix release, increase version number to reflect the underlying GATK version
 
 
 Licence (MIT)
