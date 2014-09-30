@@ -88,7 +88,7 @@ def main():
     filename = options.out_file
     params = from_json_string( open( filename ).read() )
     target_directory = options.out_index_path
-    os.mkdir( target_directory )
+    os.mkdirs( target_directory )
     data_manager_dict = {}
     
     dbkey = options.fasta_dbkey
