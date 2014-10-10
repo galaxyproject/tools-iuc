@@ -85,11 +85,9 @@ def main():
     parser.add_option( '--sjdbOverhang', type="string", default='100' )
     parser.add_option( '--runThreadN', type="string", default='4' )
     (options, args) = parser.parse_args()
-    
-    params = loads( open( filename ).read() )
-    filename = args[0]
+    filename = args[0]    
     # this is passed as an positional parameter in the original wrapper with the extra_files_path from the params
-    # 
+    params = loads( open( filename ).read() )
     target_directory = params[ 'output_data' ][0]['extra_files_path'].encode('ascii','replace')
     try:
          os.mkdir( target_directory )
