@@ -6,7 +6,6 @@
 import sys
 import os
 import tempfile
-import shutil
 import optparse
 import subprocess
 
@@ -35,7 +34,7 @@ def _run_command( command, target_directory ):
     if return_code:
         tmp_stderr.flush()
         tmp_stderr.seek( 0 )
-        sys.stderr.write( "### Error building index:\n" )
+        sys.stderr.write( "### star reports an error:\n" )
         while True:
             chunk = tmp_stderr.read( CHUNK_SIZE )
             if not chunk:
@@ -63,7 +62,6 @@ def build_rnastar_index( data_manager_dict, fasta_filename,  target_directory,
          cl += ['--sjdbOverhang', sjdbOverhang, '--sjdbGTFfile', sjdbGTFfile]
     elif sjdbFileChrStartEnd:
         cl += ['--sjdbFileChrStartEnd', sjdbFileChrStartEnd, '--sjdbOverhang', sjdbOverhang]
-    print >> sys.stdout, 'cl =',' '.join(cl)
     return_code = _run_command(command=cl,target_directory=target_directory)
     data_table_entry = dict( value=sequence_id, dbkey=dbkey, name=sequence_name, path=fasta_base_name )
     data_manager_dict.setdefault('data_tables',{})
@@ -88,23 +86,22 @@ def main():
     parser.add_option( '--runThreadN', type="string", default='4' )
     (options, args) = parser.parse_args()
     
-    #filename = options.out_file
-    filename = args[0]
     params = loads( open( filename ).read() )
-    
+    filename = args[0]
+    # this is passed as an positional parameter in the original wrapper with the extra_files_path from the params
+    # 
     target_directory = params[ 'output_data' ][0]['extra_files_path'].encode('ascii','replace')
     try:
          os.mkdir( target_directory )
-         print >> sys.stdout, target_directory,'created'
     except OSError:
-        print >> sys.stdout, target_directory,'already exists'
+        pass
 
     data_manager_dict = {}
     
     dbkey = options.fasta_dbkey
     
     if dbkey in [ None, '', '?' ]:
-        raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( dbkey ) )
+        raise Exception( 'dbkey "%s" does not specify any locally known genome to be indexed.' % ( dbkey ) )
     
     sequence_id, sequence_name = get_id_name( params, dbkey=dbkey, fasta_description=options.fasta_description )
     
