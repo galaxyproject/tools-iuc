@@ -65,8 +65,8 @@ def build_rnastar_index( data_manager_dict, fasta_filename,  target_directory,
     return_code = _run_command(command=cl,target_directory=target_directory)
     data_table_entry = dict( value=sequence_id, dbkey=dbkey, name=sequence_name, path=fasta_base_name )
     data_manager_dict.setdefault('data_tables',{})
-    data_manager_dict['data_tables'].setdefault('data_table_name',[])
-    data_manager_dict['data_tables'][ 'data_table_name' ].append( data_table_entry )
+    data_manager_dict['data_tables'].setdefault(data_table_name,[])
+    data_manager_dict['data_tables'][ data_table_name ].append( data_table_entry )
     return data_manager_dict
 
 
