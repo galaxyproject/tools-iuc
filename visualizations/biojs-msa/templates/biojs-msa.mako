@@ -71,3 +71,4 @@ ${h.javascript_link( root + 'plugins/visualizations/biojs-msa/static/msa.min.js'
 </script>
 
 </body>
+</html>
