@@ -1,7 +1,7 @@
 glmnet wrappers
 ===============
 
-These are galaxy tools for the glmnet_ R package from Trevor Hastie and others.
+This is a self installing galaxy tool wrapping the glmnet_ R package from Trevor Hastie and others.
 
 It exposes the entire range of pure and hybrid penalised maximum likelihood regression models from 
 pure lasso (alpha=1) to pure ridge-regression (alpha=0). 
