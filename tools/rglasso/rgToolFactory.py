@@ -572,8 +572,6 @@ o.close()
                 except OverflowError:
                     pass
                 tmp_stderr.close()
-                if retval != 0:
-                    raise Exception, stderr
             if self.opts.make_HTML:
                 self.makeHtml()
         return retval

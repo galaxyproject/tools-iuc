@@ -1,4 +1,4 @@
-<tool id="rglasso_cox" name="Lasso" version="0.02">
+<tool id="rglasso_cox" name="Lasso" version="0.03">
   <description>and cox regression using elastic net</description>
   <requirements>
       <requirement type="package" version="3.1.1">R_3_1_1</requirement>
@@ -157,13 +157,56 @@ licensed to you under the LGPL_ like other rgenetics artefacts
 library('glmnet')
 library('lars')
 
+
+mdsPlot = function(dm,myTitle,groups,outpdfname,transpose=T)
+{
+  
+  samples = colnames(dm)
+  mt = paste(unlist(strsplit(myTitle,' ')),collapse=" ")
+  pcols=c('maroon')
+  if (! is.na(groups))
+  {
+  gu = unique(groups)
+  colours = rainbow(length(gu),start=0.1,end=0.9)
+  pcols = colours[match(groups,gu)]
+  }
+  mydata = dm
+  if (transpose==T)
+  {
+  mydata = t(dm) 
+  }
+  d = dist(mydata) 
+  fit = cmdscale(d,eig=TRUE, k=10) 
+  
+  x = fit\$points[,1]
+  y = fit\$points[,2]
+  pdf(outpdfname)
+  plot(x, y, xlab="Dimension 1", ylab="Dimension 2",
+       main=paste(mt,"MDS Plot"),type="n", col=pcols, cex=0.3)
+  text(x, y, labels = row.names(mydata), cex=0.3, col=pcols)
+  grid(col="lightgray",lty="dotted")
+  dev.off()
+}
+
+
 dolasso_cox = function(x,y,debugOn=F,maxsteps=10000,nfold=10,xcolnames,ycolnames,
                              descr='Cox test',logtransform=F,do_standard=F,alpha=0.9,penalty=c())
 {
   logf = file("cox_rglasso.log", open = "wt")
   sink(logf,type = c("output", "message"))
   res = NULL
-  
+
+  ok = complete.cases(x,y)
+  if (sum(! ok) > 0) {
+      y = y[(ok),]
+      x = x[(ok),]
+      print(paste("Removed",sum(! ok),'cases with any missing variables'))
+    }
+    if (sum(ok) == 0 ) {
+      print(paste("No complete cases found for cox models in input x dim =",paste(dim(xm),collapse=','),"length y=",length(y)))
+      sink
+      return(NA)
+    }
   do_standard = do_standard
   standardize = do_standard 
   normalize = do_standard
@@ -177,7 +220,7 @@ dolasso_cox = function(x,y,debugOn=F,maxsteps=10000,nfold=10,xcolnames,ycolnames
   }
   minlambda = min(larsres\$lambda)
   print(paste('All partial likelihood coefficients from Cox model at minimum lambda of ',minlambda,':',sep=''))
-  print(coef(larsres,s=minlambda))
+  print(coef(larsres,s=0))
   outpdf = paste('cox',descr,'glmnetdev.pdf',sep='_')
   try(
       {
@@ -277,7 +320,12 @@ do_lasso = function(x=NA,y=NA,do_standard=T,debugOn=T,defaultFam="gaussian",logt
     outpdf = paste(target,descr,'glmnetCV_MSE.pdf',sep='_')
     larscv = try(cv.glmnet(x,y,family=fam,type.measure='mse',penalty=penalty),T)
   }
-  if (class(larscv) == "try-error") { return(NA) }
+  if (class(larscv) == "try-error")
+      {
+      print(paste('ERROR: unable to run cross validation for target',target,'error=',larscv))
+      sink()
+      return(NA)
+      }
   pdf(outpdf)
   try(
      {
@@ -291,9 +339,9 @@ do_lasso = function(x=NA,y=NA,do_standard=T,debugOn=T,defaultFam="gaussian",logt
   bestpred = as.matrix(coef(larscv, s = "lambda.min"))
   inmodel = which(bestpred != 0)
   coefs = bestpred[inmodel,1]
+  preds = rownames(bestpred)[inmodel]
   iforced = ipenalty[inmodel]
   forced = ! as.logical(iforced)
-  preds = rownames(bestpred)[inmodel]
   names(coefs) = preds
   if (debugOn) {cat(indx,'best_lambda=',best_lambda,'saving',fam,'respreds=',names(coefs),'as predictors of',target,'coefs=',coefs,'\n')}
   res = try(data.frame(i=indx,pred=target,regulator=names(coefs),coef=coefs,forced_in=forced,glmnet_model=fam),T)
@@ -308,6 +356,8 @@ do_lasso = function(x=NA,y=NA,do_standard=T,debugOn=T,defaultFam="gaussian",logt
 dolasso_generic = function(predvars=NA,depvars=NA,debugOn=T,maxsteps=100, alpha=alpha,nfold=10,xcolnames=c(),ycolnames=c(),
                            descr="describe me",logtransform=F,do_standard=F,defaultFam="gaussian",penalty=penalty)
 {
+  logf = file("rglasso.log", open = "a")
+  sink(logf,type = c("output", "message"))
   xdat = predvars
   if (logtransform) {
         small = 1e-10
@@ -326,6 +376,11 @@ dolasso_generic = function(predvars=NA,depvars=NA,debugOn=T,maxsteps=100, alpha=
   res = NA
   depnames = ycolnames
   ndep = length(depnames)
+  dm = xm
+  outpdfname = 'rglasso_x_in_sample_space_MDS.pdf'
+  mdsPlot(dm,'measurements in sample space',groups=NA,outpdfname=outpdfname,transpose=T)
+  outpdfname = 'rglasso_samples_in_x_space_MDS.pdf'
+  mdsPlot(dm,'samples in measurement space',groups=NA,outpdfname=outpdfname,transpose=F)
   for (i in c(1:max(1,ndep)))   {
     target = depnames[i]
     if (length(target) < 1) { target='y' }
@@ -353,6 +408,7 @@ dolasso_generic = function(predvars=NA,depvars=NA,debugOn=T,maxsteps=100, alpha=
   if (! is.na(res)) {
     rownames(res) = c(1:length(res\$i))
   }
+  sink()
   return(res)
 }
 
@@ -377,30 +433,6 @@ corPlot=function(xdat=c(),main='main title',is_raw=T)
 
 
 
-
-mdsPlot = function(dm,myTitle,groups)
-{
-  
-  samples = colnames(dm)
-  mt = paste(unlist(strsplit(myTitle,' ')),collapse=" ")
-  outpdfname=paste(mt,"MDS.pdf",sep='_')
-  gu = unique(groups)
-  colours = rainbow(length(gu),start=0.1,end=0.9)
-  pcols = colours[match(groups,gu)]
-  
-  mydata = t(dm) 
-  d = dist(mydata) 
-  fit = cmdscale(d,eig=TRUE, k=2) 
-  
-  x = fit\$points[,1]
-  y = fit\$points[,2]
-  pdf(outpdfname)
-  plot(x, y, xlab="Dimension 1", ylab="Dimension 2",
-       main=paste(mt,"MDS Plot"),type="n", col=pcols)
-  text(x, y, labels = row.names(mydata), cex=0.3, col=pcols)
-  grid(col="lightgray",lty="dotted")
-  dev.off()
-}
 
 runTest = function(n=10)
 {  
@@ -459,11 +491,20 @@ if (file.exists(Out_Dir) == F) dir.create(Out_Dir)
   cox_status = $model.cox_status
   yvar_cols = c(cox_time,cox_status)
   ycolnames = c('time','status')
-  y = data.frame(time = as.double(indat[,cox_time]),status = as.double(indat[,cox_status]))
+  istat = as.double(indat[,cox_status])
+  itime = as.double(indat[,cox_time])
+  y = data.frame(time = itime, status = istat)
+  ustat = unique(istat)
+  if ((length(ustat) != 2) | (! 1 %in% ustat ) | (! 0 %in% ustat))
+  {
+   print.noquote(paste('INPUT ERROR: status should have ONLY 0 (censored) and 1 (event) - found',paste(ustat,collapse=',') ))
+   quit(save='no',status=1)
+  }
   y = as.matrix(y)
   x = as.matrix(x)
-  print.noquote(paste('Cox model: Got yvar=',paste(ycolnames,collapse=','),'cols',paste(yvar_cols,sep=','),'n preds=',length(xcolnames),
-    'forced in=',paste(force_xvar_cols,collapse=',')))
+  forced = paste(force_xvar_cols,collapse=',')
+  print.noquote(paste('Cox model: Got yvar=',paste(ycolnames,collapse=','),'cols=',paste(yvar_cols,collapse=','),'n preds=',length(xcolnames),
+    'forced in=',forced))
   regres_out = dolasso_cox(x=x,y=y,debugOn=F,maxsteps=10000,nfold=nfold,xcolnames=xcolnames,ycolnames=ycolnames,
                              descr=myTitle,logtransform=logtrans,do_standard=do_standard,alpha=alpha,penalty=penalty)
 #else:
@@ -480,6 +521,7 @@ print.noquote(regres_out)
 write.table(regres_out,outtab,quote=FALSE, sep="\t",row.names=F)
 print.noquote('SessionInfo for this R session:')
 sessionInfo()
+warnings()
 
 </configfile>
 </configfiles>
