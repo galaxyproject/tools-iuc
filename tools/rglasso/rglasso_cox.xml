@@ -50,6 +50,10 @@
              <param name="cox_status" label="Select column containing status = 1 for outcome of interest at the end of the time under observation or 0 for right censoring"
                  type="data_column" data_ref="input1" numerical="True" optional="False"
                  multiple="False" use_header_names="True"  help = "This MUST contain 1 for subjects who had an event at that time or 0 for a right censored observation"/>
+             <param name="output_full" type="select" label="Create a tabular output with coefficients for all predictors" >
+            <option value="F" selected="true">No full model output file</option>
+            <option value="T">Create a full model output file</option>
+    </param>
         </when>
     </conditional>
     <param name="logtrans" type="select" label="Perform a log transformation on all predictors" help="A tiny number (1e-10) will be added to prevent taking logs of zero">
@@ -70,6 +74,9 @@
   <outputs>
     <data format="html" name="html_file" label="${title}.html"/>
     <data format="tabular" name="model_file" label="${title}_modelres.xls"/>
+    <data format="tabular" name="full_cox" label="${title}_full_cox_model.xls">
+        <filter>model['output_full'] == 'T'</filter>
+    </data>
   </outputs>
  <tests>
     <test>
@@ -86,6 +93,7 @@
      <param name='model.yvar_cols' value='' />
      <param name='xvar_cols' value='3,4,5' />
      <param name='force_xvar_cols' value='3' />
+     <param name='output_full' value='0' />
      <output name='model_file'> 
           <assert_contents>
                 <has_text text="rhubarb" />
@@ -189,7 +197,7 @@ mdsPlot = function(dm,myTitle,groups,outpdfname,transpose=T)
 }
 
 
-dolasso_cox = function(x,y,debugOn=F,maxsteps=10000,nfold=10,xcolnames,ycolnames,
+dolasso_cox = function(x,y,debugOn=F,maxsteps=10000,nfold=10,xcolnames,ycolnames,out_full=F,out_full_file=NA,
                              descr='Cox test',logtransform=F,do_standard=F,alpha=0.9,penalty=c())
 {
   logf = file("cox_rglasso.log", open = "wt")
@@ -218,9 +226,16 @@ dolasso_cox = function(x,y,debugOn=F,maxsteps=10000,nfold=10,xcolnames,ycolnames
     sink()
     return(NA)
   }
-  minlambda = min(larsres\$lambda)
-  print(paste('All partial likelihood coefficients from Cox model at minimum lambda of ',minlambda,':',sep=''))
-  print(coef(larsres,s=0))
+  if (out_full == T)
+  {
+  b = as.matrix(larsres\$beta)
+  nb = length(colnames(b))
+  bcoef = b[,nb]
+  lastl = larsres\$lambda[length(larsres\$lambda)]
+  allres = data.frame(x=rownames(b),beta=bcoef,lambda=lastl)
+  write.table(allres,out_full_file,quote=FALSE, sep="\t",row.names=F)
+  }
+
   outpdf = paste('cox',descr,'glmnetdev.pdf',sep='_')
   try(
       {
@@ -333,8 +348,7 @@ do_lasso = function(x=NA,y=NA,do_standard=T,debugOn=T,defaultFam="gaussian",logt
      grid()
      dev.off()
      },T)
-  ipenalty = c(0,penalty)
-  ### must include intercept which is always forced
+  ipenalty = c(0,penalty)  ### must include intercept which is always forcedq
   best_lambda = larscv\$lambda.min
   bestpred = as.matrix(coef(larscv, s = "lambda.min"))
   inmodel = which(bestpred != 0)
@@ -462,7 +476,7 @@ xvar_cols_in = "$xvar_cols"
 force_xvar_cols_in = "$force_xvar_cols"
 xvar_cols = as.numeric(strsplit(xvar_cols_in,",")[[1]])
 force_xvar_cols = c()
-if (force_xvar_cols_in > "")
+if (force_xvar_cols_in &gt; "")
 {
   force_xvar_cols = as.numeric(strsplit(force_xvar_cols_in,",")[[1]])
   allx = c(xvar_cols,force_xvar_cols)
@@ -477,7 +491,7 @@ x = indat[,xvar_cols]
 xcolnames = datcols[xvar_cols]
 penalties = rep(1,length(datcols))
 penalty = penalties[xvar_cols]
-if (force_xvar_cols_in > "")
+if (force_xvar_cols_in &gt; "")
 {
   penalties[force_xvar_cols] = 0
   penalty = penalties[xvar_cols]
@@ -485,10 +499,13 @@ if (force_xvar_cols_in > "")
 }
 
 if (file.exists(Out_Dir) == F) dir.create(Out_Dir)
-
+out_full = F
+out_full_file = NA
 #if $model.fam == "cox":
   cox_time = $model.cox_time
   cox_status = $model.cox_status
+  out_full = as.logical("$model.output_full")
+  if (out_full == T) { out_full_file="$full_cox" }
   yvar_cols = c(cox_time,cox_status)
   ycolnames = c('time','status')
   istat = as.double(indat[,cox_status])
@@ -497,7 +514,7 @@ if (file.exists(Out_Dir) == F) dir.create(Out_Dir)
   ustat = unique(istat)
   if ((length(ustat) != 2) | (! 1 %in% ustat ) | (! 0 %in% ustat))
   {
-   print.noquote(paste('INPUT ERROR: status should have ONLY 0 (censored) and 1 (event) - found',paste(ustat,collapse=',') ))
+   print.noquote(paste('INPUT ERROR: status must have 0 (censored) or 1 (event) but found',paste(ustat,collapse=',') ))
    quit(save='no',status=1)
   }
   y = as.matrix(y)
@@ -505,7 +522,7 @@ if (file.exists(Out_Dir) == F) dir.create(Out_Dir)
   forced = paste(force_xvar_cols,collapse=',')
   print.noquote(paste('Cox model: Got yvar=',paste(ycolnames,collapse=','),'cols=',paste(yvar_cols,collapse=','),'n preds=',length(xcolnames),
     'forced in=',forced))
-  regres_out = dolasso_cox(x=x,y=y,debugOn=F,maxsteps=10000,nfold=nfold,xcolnames=xcolnames,ycolnames=ycolnames,
+  regres_out = dolasso_cox(x=x,y=y,debugOn=F,maxsteps=10000,nfold=nfold,xcolnames=xcolnames,ycolnames=ycolnames,out_full=out_full,out_full_file=out_full_file,
                              descr=myTitle,logtransform=logtrans,do_standard=do_standard,alpha=alpha,penalty=penalty)
 #else:
     yvar_cols = "$model.yvar_cols"

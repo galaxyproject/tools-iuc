@@ -550,7 +550,7 @@ o.close()
             if self.opts.output_dir:
                 ste = open(self.elog,'w')
                 sto = open(self.tlog,'w')
-                sto.write('## Toolfactory generated command line = %s\n' % ' '.join(self.cl))
+                sto.write('## Toolfactory running %s as %s script\n' % (self.toolname,self.opts.interpreter))
                 sto.flush()
                 p = subprocess.Popen(self.cl,shell=False,stdout=sto,stderr=ste,stdin=subprocess.PIPE,cwd=self.opts.output_dir,env=my_env)
             else:
@@ -604,8 +604,6 @@ o.close()
             except OverflowError:
                 pass
             tmp_stderr.close()
-            if retval != 0:
-                raise Exception, stderr
         if self.opts.make_HTML:
             self.makeHtml()
         return retval
