@@ -6,6 +6,7 @@ It annotates and predicts the effects of variants on genes (such as amino acid c
 
 .. _SnpEff: http://snpeff.sourceforge.net/
 
+
 This repository let you automatically install SnpEff and SnpSift.
 This will use the default location for genome reference downloads from the ``snpEff.config`` file:
 
