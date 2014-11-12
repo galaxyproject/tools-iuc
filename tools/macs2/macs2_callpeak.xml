@@ -1,0 +1,293 @@
+<tool id="macs2_callpeak" name="MACS2 callpeak" version="@VERSION_STRING@.0">
+    <description>Call peaks from alignment results</description>
+    <expand macro="requirements">
+        <requirement type="package" version="3.0.1">R_3_0_1</requirement>
+        <requirement type="package" version="4.1.0">gnu_awk</requirement>
+        <requirement type="set_environment">MACS2_SCRIPT_PATH</requirement>
+    </expand>
+    <expand macro="version_command" />
+    <macros>
+        <import>macs2_macros.xml</import>
+    </macros>
+    <command>
+        #set $temp_stderr = 'macs2_stderr'
+        (macs2 callpeak
+
+            --name "MACS2"
+            -t ${ ' '.join( map( lambda x:'"%s"' % ( x ), $input_treatment_file ) ) }
+
+            #if str( $input_control_file ) != 'None':
+                -c ${ ' '.join( map( lambda x:'"%s"' % ( x ), $input_control_file ) ) }
+            #end if
+
+        #for $ifile in $input_treatment_file:
+            #if $ifile.ext.upper() == 'BAM' and $bampe:
+                --format BAMPE
+            #else
+                --format='$ifile.ext.upper()'
+            #end if
+        #end for
+
+        @effective_genome_size@
+
+        --bw='$band_width'
+
+        ## advanced options
+        #if $advanced_options.advanced_options_selector == 'on':
+            $advanced_options.nolambda
+            $advanced_options.to_large
+            --ratio $advanced_options.ratio
+            --slocal $advanced_options.slocal
+            --llocal $advanced_options.llocal
+            #if $advanced_options.broad_options.broad_options_selector == 'broad':
+                --broad
+                --broad-cutoff='${ advanced_options.broad_options.broad_cutoff }'
+            #else:
+                $advanced_options.broad_options.call_summits
+            #end if
+
+            #if str( $advanced_options.keep_dup_options.keep_dup_options_selector ) == "user":
+                --keep-dup "${ advanced_options.keep_dup_options.user_keepdup }"
+            #else
+                --keep-dup "${ advanced_options.keep_dup_options.keep_dup_options_selector }"
+            #end if
+
+        #end if
+
+        ## With --bdg two additional output files will be generated.
+        #if 'bdg' in str($outputs).split(','):
+            --bdg
+        #end if
+
+        ## cutoff selection
+        #if str( $cutoff_options.cutoff_options_selector ) == 'qvalue':
+            --qvalue "${ cutoff_options.qvalue }"
+        #elif str( $cutoff_options.cutoff_options_selector ) == 'pvalue':
+            #if str($cutoff_options.pvalue).strip() != '':
+                --pvalue "${ cutoff_options.pvalue }"
+            #end if
+        #else:
+            --foldenrichment "${ cutoff_options.foldenrichment }"
+        #end if
+
+        ## model options
+        #if $nomodel_type.nomodel_type_selector == 'nomodel':
+            --nomodel
+            ##--shiftsize '$nomodel_type.shiftsize'
+            --extsize '${ nomodel_type.extsize }'
+        #end if
+
+        2> $temp_stderr)
+        #if 'peaks_bed' in str($outputs).split(','):
+            &amp;&amp;
+            awk '$2-=1' MACS2_peaks.xls | awk '!/^#/' | awk -v OFS='\t' '$1=$1' | tail -n+3  > "${ output_bed }"
+        #end if
+
+        ## run R to create pdf from model script
+        #if 'pdf' in str($outputs).split(','):
+            &amp;&amp;
+            Rscript MACS2_model.r > MACS2_model.r.log
+        #end if
+
+        #if 'html' in str($outputs).split(','):
+            ## if output files exists, move them to the files_path and create a html result page linking to them
+            &amp;&amp;
+            (
+            count=`ls -1 MACS2* 2>/dev/null | wc -l`;
+            if [ \$count != 0 ];
+            then 
+                mkdir "${ output_extra_files.files_path }";
+                cp MACS2* "${ output_extra_files.files_path }";
+                python "\$MACS2_SCRIPT_PATH/dir2html.py" "${ output_extra_files.files_path }" $temp_stderr > "${ output_extra_files }";
+            fi;
+            )
+        #end if
+        ;
+        exit_code_for_galaxy=\$?;
+        cat $temp_stderr 2&gt;&amp;1;
+        (exit \$exit_code_for_galaxy)
+    </command>
+    <expand macro="stdio" />
+    <inputs>
+        <param name="input_treatment_file" type="data" format="bam,sam,bed" multiple="True" label="ChIP-Seq Treatment File" />
+        <param name="input_control_file" type="data" format="bam,sam,bed" multiple="True" optional="True" label="ChIP-Seq Control File" />
+
+        <param name="bampe" type="boolean" truevalue="--format BAMPE" falsevalue="" checked="False" label="Are your inputs Paired-end BAM files?"
+            help="The 'Build model step' will be ignored and the real fragments will be used for each template defined by leftmost and rightmost mapping positions. (--format BAMPE)"/>
+
+        <expand macro="conditional_effective_genome_size" />
+        <expand macro="band_width" />
+
+        <conditional name="cutoff_options">
+            <param name="cutoff_options_selector" type="select" label="Peak detection based on" help="default uses q-value">
+                <option value="qvalue" selected="true">q-value</option>
+                <option value="pvalue">p-value</option>
+                <option value="foldenrichment">foldenrichment</option>
+            </param>
+            <when value="pvalue">
+                <param name="pvalue" type="float" value="" label="p-value cutoff for peak detection"
+                    help="default: not set (--pvalue)"/>
+            </when>
+            <when value="qvalue">
+                <param name="qvalue" type="float" value="0.05" label="Minimum FDR (q-value) cutoff for peak detection"
+                    help="default: 0.05 (--qvalue)"/>
+            </when>
+            <when value="foldenrichment">
+                <param name="foldenrichment" value="" type="integer" label="Foldenrichment cutoff for peak detection"
+                    help="(--foldenrichment)"/>
+            </when>
+        </conditional>
+
+        <conditional name="nomodel_type">
+            <param name="nomodel_type_selector" type="select" label="Build Model">
+                <option value="nomodel">Do not build the shifting model (--nomodel)</option>
+                <option value="create_model" selected="true">Build the shifting model</option>
+            </param>
+            <when value="create_model"/>
+            <when value="nomodel">
+                <!--<param name="shiftsize" type="integer" label="Arbitrary shift size in bp" value="100" help="(shiftsize)"/>-->
+                <param name="extsize" type="integer" value="100" label="The arbitrary extension size in bp" 
+                    help="MACS will use this value as fragment size to extend each read towards 3' end, then pile them up. It's exactly twice the number of legacy shiftsize. In previous language, each read is moved 3' direction to middle of fragment by 1/2 d, then extended to both direction with 1/2 d. This is equivalent to say each read is extended towards 3' into a d size fragment. DEFAULT: 200 (--extsize)"/>
+            </when>
+        </conditional>
+
+        <param name="outputs" type="select" display="checkboxes" multiple="True" label="Outputs">
+            <option value="peaks_bed" selected="True">Peaks as BED file</option>
+            <!--<option value="narrow">narrow Peaks</option>-->
+            <!--<option value="summits" selected="true">summits</option>-->
+            <option value="bdg" selected="true">Scores in bedGraph files (--bdg)</option>
+            <option value="html">Summary page (html)</option>
+            <option value="pdf">Plot in PDF</option>
+            <validator type="no_options" message="Please select at least one output file." />
+        </param>
+
+        <conditional name="advanced_options">
+            <param name="advanced_options_selector" type="select" label="Advanced options">
+                <option value="off" selected="true">Hide advanced options</option>
+                <option value="on">Display advanced options</option>
+            </param>
+            <when value="on">
+                <param name="to_large" type="boolean" truevalue="--to-large" falsevalue="" checked="False" 
+                    label="When set, scale the small sample up to the bigger sample"
+                    help="By default, the bigger dataset will be scaled down towards the smaller dataset, which will lead to smaller p/qvalues and more specific results. Keep in mind that scaling down will bring down background noise more. (--to-large)"/>
+                <param name="nolambda" type="boolean" truevalue="--nolambda" falsevalue="" checked="False" 
+                    label="Use fixed background lambda as local lambda for every peak region" help="up to 9X more time consuming (--nolambda)"/>
+                <param name="ratio" type="float" value="1.0"
+                    label="When set, use a custom scaling ratio of ChIP/control (e.g. calculated using NCIS) for linear scaling"
+                    help="(--ratio)"/>
+                <param name="slocal" value="1000" type="integer" label="The small nearby region in basepairs to calculate dynamic lambda"
+                    help="This is used to capture the bias near the peak summit region. Invalid if there is no control data. If you set this to 0, MACS will skip slocal lambda calculation. *Note* that MACS will always perform a d-size local lambda calculation. The final local bias should be the maximum of the lambda value from d, slocal, and llocal size windows. (--slocal)"/>
+                <param name="llocal" value="10000" type="integer" label="The large nearby region in basepairs to calculate dynamic lambda"
+                    help="This is used to capture the surround bias. If you set this to 0, MACS will skip llocal lambda calculation. *Note* that MACS will always perform a d-size local lambda calculation. The final local bias should be the maximum of the lambda value from d, slocal, and llocal size windows. (--llocal)"/>
+                <conditional name="broad_options">
+                    <param name="broad_options_selector" type="select"
+                        label="Composite broad regions" help="by putting nearby highly enriched regions into a broad region with loose cutoff (--broad)">
+                        <option value="nobroad" selected="true">No broad regions</option>
+                        <option value="broad">broad regions</option>
+                    </param>
+                    <when value="broad">
+                        <param name="broad_cutoff" type="float" label="Cutoff for broad region" value="0.1" 
+                            help="value is either p-value or q-value as specified above (--broad-cutoff)"/>
+                    </when>
+                    <when value="nobroad">
+                        <param name="call_summits" type="boolean" truevalue="--call-summits" falsevalue="" checked="False" 
+                            label="Use a more sophisticated signal processing approach to find subpeak summits in each enriched peak region" 
+                            help="(--call-summits)"/>
+                    </when>
+                </conditional>
+                <expand macro="keep_duplicates" />
+            </when>
+            <when value="off" />
+        </conditional>
+    </inputs>
+    <outputs>
+        <!--callpeaks output-->
+        <data name="output_bed" format="bed" label="${tool.name} on ${on_string} (Peaks in BED format)">
+            <filter>'peaks_bed' in outputs</filter>
+        </data>
+        <data name="output_broadpeaks" format="bed" from_work_dir="MACS2_broad_peaks.bed" label="${tool.name} on ${on_string} (broad Peaks)">
+            <filter>
+            ((
+              advanced_options['advanced_options_selector'] == "on" and
+              advanced_options['broad_options']['broad_options_selector'] == "broad"
+            ))
+            </filter>
+        </data>
+        <data name="output_gappedpeaks" format="tabular" from_work_dir="MACS2_peaks.gappedPeak" label="${tool.name} on ${on_string} (gapped Peaks)">
+            <filter>
+            ((
+              advanced_options['advanced_options_selector'] == "on" and
+              advanced_options['broad_options']['broad_options_selector'] == "broad"
+            ))
+            </filter>
+        </data>
+        <data name="output_narrowpeaks" format="tabular" from_work_dir="MACS2_peaks.narrowPeak" label="${tool.name} on ${on_string} (narrow Peaks)">
+            <filter>
+            ((
+              advanced_options['advanced_options_selector'] == "on" and
+              advanced_options['broad_options']['broad_options_selector'] == "nobroad"
+            ))
+            </filter>
+        </data>
+        <data name="output_summits" format="bed" from_work_dir="MACS2_summits.bed" label="${tool.name} on ${on_string} (summits in BED)">
+            <filter>
+            ((
+              advanced_options['advanced_options_selector'] == "on" and
+              advanced_options['broad_options']['broad_options_selector'] == "nobroad"
+            ))
+            </filter>
+        </data>
+        <data name="output_plot" format="pdf" from_work_dir="MACS2_model.pdf" label="${tool.name} on ${on_string} (plot)">
+            <filter>'pdf' in outputs</filter>
+        </data>
+        <data name="output_treat_pileup" format="bedgraph" from_work_dir="MACS2_treat_pileup.bdg" label="${tool.name} on ${on_string} (Bedgraph Treatment)">
+            <filter>'bdg' in outputs</filter>
+        </data>
+        <data name="output_control_lambda" format="bedgraph" from_work_dir="MACS2_control_lambda.bdg" label="${tool.name} on ${on_string} (Bedgraph Control)">
+            <filter>'bdg' in outputs</filter>
+        </data>
+        <data name="output_extra_files" format="html" label="${tool.name} on ${on_string} (html report)">
+            <filter>'html' in outputs</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_control_file" value="Control_200K.bed" ftype="bed"/>
+            <param name="input_treatment_file" value="ChIP_200K.bed" ftype="bed"/>
+            <param name="cutoff_options_selector" value="qvalue"/>
+            <param name="qvalue" value="0.05"/>
+            <param name="band_width" value="300"/>
+            <param name="outputs" value="peaks_bed,bdg,summits"/>
+            <param name="effective_genome_size_options_selector" value="3300000000"/>
+            <output name="output_control_lambda" compare="contains" file="callpeak_control_part.bdg"/>
+            <output name="output_treat_pileup" compare="contains" file="callpeak_treatment_part.bdg"/>
+            <output name="output_bed" compare="contains" file="callpeak_part.bed"/>
+            <output name="output_summits" compare="contains" file="callpeak_summits_part.bed"/>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+With the improvement of sequencing techniques, chromatin immunoprecipitation followed by high throughput sequencing (ChIP-Seq)
+is getting popular to study genome-wide protein-DNA interactions. To address the lack of powerful ChIP-Seq analysis method, we present a novel algorithm, named Model-based Analysis of ChIP-Seq (MACS), for
+identifying transcript factor binding sites. MACS captures the influence of genome complexity to evaluate the significance of enriched ChIP regions, and MACS improves the spatial resolution of
+binding sites through combining the information of both sequencing tag position and orientation. MACS can be easily used for ChIP-Seq data alone, or with control sample with the increase of specificity.
+
+View the original MACS2 documentation: https://github.com/taoliu/MACS/blob/master/README
+
+------
+
+**Usage**
+
+**Peak Calling**: Main MACS2 Function to Call peaks from alignment results.
+
+If you choose "Scores in bedGraph files" MACS will output the fragment pileup, control lambda, -log10-pvalue and -log10-qvalue scores in bedGraph files.
+The peaks in BED format contain the following colomns: chr end length abs_summit pileup -log10(pvalue) fold_enrichment -log10(qvalue) name
+
+**Compare .bdg files**: Deduct noise by comparing two signal tracks in bedGraph.
+
+
+@citation@
+  </help>
+  <expand macro="citations" />
+</tool>
