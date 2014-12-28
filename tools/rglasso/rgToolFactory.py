@@ -113,7 +113,7 @@ class ScriptRunner:
     """class is a wrapper for an arbitrary script
     """
 
-    def __init__(self,opts=None,treatbashSpecial=True):
+    def __init__(self,opts=None):
         """
         cleanup inputs, setup some outputs
         
@@ -122,7 +122,6 @@ class ScriptRunner:
         self.useIM = cmd_exists('convert')
         self.useGS = cmd_exists('gs')
         self.temp_warned = False # we want only one warning if $TMP not set
-        self.treatbashSpecial = treatbashSpecial
         if opts.output_dir: # simplify for the tool tarball
             os.chdir(opts.output_dir)
         self.thumbformat = 'png'
@@ -149,16 +148,8 @@ class ScriptRunner:
             artifact = open(artpath,'w') # use self.sfile as script source for Popen
             artifact.write(self.script)
             artifact.close()
-        self.cl = []
         self.html = []
-        a = self.cl.append
-        a(opts.interpreter)
-        if self.treatbashSpecial and opts.interpreter in ['bash','sh']:
-            a(self.sfile)
-        else:
-            a('-') # stdin
-        a(opts.input_tab)
-        a(opts.output_tab)
+        self.cl = (opts.interpreter,self.sfile)
         self.outFormats = 'tabular' # TODO make this an option at tool generation time
         self.inputFormats = 'tabular' # TODO make this an option at tool generation time
         self.test1Input = '%s_test1_input.xls' % self.toolname
@@ -538,45 +529,40 @@ o.close()
         htmlf.close()
         self.html = html
 
-
     def run(self):
         """
         scripts must be small enough not to fill the pipe!
         """
         my_env = os.environ.copy()
-        if self.treatbashSpecial and self.opts.interpreter in ['bash','sh']:
-          retval = self.runBash(pth)
-        else:
-            if self.opts.output_dir:
-                ste = open(self.elog,'w')
-                sto = open(self.tlog,'w')
-                sto.write('## Toolfactory running %s as %s script\n' % (self.toolname,self.opts.interpreter))
-                sto.flush()
-                p = subprocess.Popen(self.cl,shell=False,stdout=sto,stderr=ste,stdin=subprocess.PIPE,cwd=self.opts.output_dir,env=my_env)
-            else:
-                p = subprocess.Popen(self.cl,shell=False,stdin=subprocess.PIPE,env=my_env)
-            p.stdin.write(self.script)
-            p.stdin.close()
+        if self.opts.output_dir:
+            ste = open(self.elog,'w')
+            sto = open(self.tlog,'w')
+            sto.write('## Toolfactory running %s as %s script\n' % (self.toolname,self.opts.interpreter))
+            sto.flush()
+            p = subprocess.Popen(self.cl,shell=False,stdout=sto,stderr=ste,cwd=self.opts.output_dir,env=my_env)
             retval = p.wait()
-            if self.opts.output_dir:
-                sto.close()
-                ste.close()
-                # get stderr, allowing for case where it's very large
-                tmp_stderr = open( self.elog, 'rb' )
-                stderr = ''
-                try:
-                    while True:
-                        stderr += tmp_stderr.read( buffsize )
-                        if not stderr or len( stderr ) % buffsize != 0:
-                            break
-                except OverflowError:
-                    pass
-                tmp_stderr.close()
-            if self.opts.make_HTML:
-                self.makeHtml()
+            sto.close()
+            ste.close()
+            # get stderr, allowing for case where it's very large
+            tmp_stderr = open( self.elog, 'rb' )
+            stderr = ''
+            try:
+                while True:
+                    stderr += tmp_stderr.read( buffsize )
+                    if not stderr or len( stderr ) % buffsize != 0:
+                        break
+            except OverflowError:
+                pass
+            tmp_stderr.close()
+        else:
+            p = subprocess.Popen(self.cl,shell=False,env=my_env)
+            retval = p.wait()
+        if self.opts.make_HTML:
+            self.makeHtml()
         return retval
 
-    def runBash(self):
+
+    def remove_me_runBash(self):
         """
         cannot use - for bash so use self.sfile
         """
@@ -604,16 +590,21 @@ o.close()
             except OverflowError:
                 pass
             tmp_stderr.close()
-        if self.opts.make_HTML:
-            self.makeHtml()
         return retval
   
 
 def main():
     u = """
-    This is a Galaxy wrapper. It expects to be called by a special purpose tool.xml as:
-    <command interpreter="python">rgBaseScriptWrapper.py --script_path "$scriptPath" --tool_name "foo" --interpreter "Rscript"
+    This is a Galaxy wrapper. It expects to be called by a special purpose tool.xml as (eg):
+    <command interpreter="python">rgToolFactory.py --script_path "$scriptPath" --tool_name "foo" --interpreter "Rscript"
     </command>
+    The tool writes a script to a scriptPath using a configfile.
+    Some things in the script are templates.
+    The idea here is that depending on how this code is called, it uses the specified interpreter
+    to run a (hopefully correct) script/template. Optionally generates a clone of itself
+    which will run that same script/template as a toolshed repository tarball for uploading to a toolshed.
+    There's now an updated version which allows arbitrary parameters.
+    And so it goes.
     """
     op = optparse.OptionParser()
     a = op.add_option
