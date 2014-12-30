@@ -8,24 +8,36 @@
     ##
     ## Run STAR.
     ##
-
-        STAR
+    #if str($refGenomeSource.genomeSource) == 'history':
+       STAR --runMode genomeGenerate --genomeDir "./" --genomeFastaFiles "$refGenomeSource.ownFile" --runThreadN 2
+        #if str($refGenomeSource.geneModel) != 'None':
+          --sjdbOverhang "100" --sjdbGTFfile "$refGenomeSource.geneModel"
+          #if str($refGenomeSource.geneModel.ext) == 'gff3':
+            --sjdbGTFtagExonParentTranscript Parent
+          #end if
+        #end if
+        ;
+    #end if
+    STAR
     ## Can adjust this as appropriate for the system.
     --genomeLoad NoSharedMemory
-
-    --genomeDir ${refGenomeSource.index.fields.path} 
+    #if str($refGenomeSource.genomeSource) == 'history':
+        --genomeDir "./"
+    #else
+        --genomeDir $refGenomeSource.index.fields.path
+    #end if
     --readFilesIn $input1 
-    #if $singlePaired.sPaired == "paired"
+    #if str($singlePaired.sPaired) == "paired"
             $singlePaired.input2
-        #end if
+    #end if
         --runThreadN 4
-    #if $params.settingsType == "full":
+    #if str($params.settingsType) == "full":
         --chimSegmentMin $params.chim_segment_min
         --chimScoreMin $params.chim_score_min
     #end if
 
     ## may or may not need to generate SAM tags and handle non-canonicals for Cufflinks tools.
-    ${outSAMstrandField} ${outFilterIntronMotifs} ${outSAMattributes}
+    $outSAMstrandField $outFilterIntronMotifs $outSAMattributes
 
     ;
 
@@ -37,7 +49,7 @@
     samtools view -Shb Aligned.out.sam | samtools sort - Aligned.out
 
     ## Convert chimeric reads.
-    #if $params.settingsType == "full" and $params.chim_segment_min > 0:
+    #if str($params.settingsType) == "full" and $params.chim_segment_min > 0:
         ; samtools view -Shb Chimeric.out.sam | samtools sort - Chimeric.out
     #end if
     </command>
@@ -73,8 +85,8 @@
         <!-- Genome source. -->
         <conditional name="refGenomeSource">
             <param name="genomeSource" type="select" label="Will you select a reference genome from your history or use a built-in index?" help="Built-ins were indexed using default options">
-                <option value="indexed">Use a built-in index</option>
-                <option value="history">Use one from the history</option>
+                <option value="indexed" selected="True">Use a built-in index</option>
+                <option value="history">Index and use a genome fasta file from my current history</option>
             </param>
             <when value="indexed">
             <param name="index" type="select" label="Select a reference genome">
@@ -86,6 +98,8 @@
             </when>
             <when value="history">
                 <param name="ownFile" type="data" format="fasta" metadata_name="dbkey" label="Select the reference genome" />
+                <param name="geneModel" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions. Leave blank for none"
+                optional="true" help="Optional. If supplied, the index file will retain exon junction information for mapping splices" />
             </when>
         </conditional>
             <param name="outSAMattributes" type="select" label="Include extra sam attributes for downstream processing">
@@ -118,8 +132,8 @@
     </inputs>
 
     <outputs>
-       <data format="txt" name="output_log" label="${on_string}_{jobName}.log" from_work_dir="Log.final.out"/>
-       <data format="interval" name="chimeric_junctions" label="${on_string}_{jobName}_starchimjunc.bed" from_work_dir="Chimeric.out.junction">
+       <data format="txt" name="output_log" label="${jobName}.log" from_work_dir="Log.final.out"/>
+       <data format="interval" name="chimeric_junctions" label="${jobName}_starchimjunc.bed" from_work_dir="Chimeric.out.junction">
           <filter>(params['settingsType'] == 'full' and params['chim_segment_min'] > 0)</filter>
           <actions>
              <conditional name="refGenomeSource.genomeSource">
@@ -139,7 +153,7 @@
              </conditional>
           </actions>
        </data>
-       <data format="bam" name="chimeric_reads" label="${on_string}_${jobName}_starmappedchim.bam" 
+       <data format="bam" name="chimeric_reads" label="${jobName}_starmappedchim.bam" 
                     from_work_dir="Chimeric.out.bam">
          <filter>(params['settingsType'] == 'full' and params['chim_segment_min'] > 0)</filter>
           <actions>
@@ -160,7 +174,7 @@
              </conditional>
           </actions>
         </data>
-        <data format="interval" name="splice_junctions" label="${on_string}_${jobName}_starsplicejunct.bed" 
+        <data format="interval" name="splice_junctions" label="${jobName}_starsplicejunct.bed" 
                    from_work_dir="SJ.out.tab">
           <actions>
              <conditional name="refGenomeSource.genomeSource">
@@ -180,7 +194,7 @@
              </conditional>
           </actions>
         </data>
-        <data format="bam" name="mapped_reads" label="${on_string}_${jobName}_starmapped.bam" 
+        <data format="bam" name="mapped_reads" label="${jobName}_starmapped.bam" 
                     from_work_dir="Aligned.out.bam">
           <actions>
              <conditional name="refGenomeSource.genomeSource">
@@ -201,6 +215,22 @@
           </actions>
         </data>
     </outputs>
+    <tests>
+        <test>
+ <param name='input1' value='tophat_test.fa' ftype='fasta' />
+ <param name='jobName' value='rnastar_test' />
+ <param name='genomeSource' value='history' />
+ <param name='ownFile' value='tophat_test.fa' />
+ <param name='sPaired' value='single' />
+ <param name='outSAMattributes' value='--outSAMattributes All' />
+ <param name='outSAMstrandField' value='--outSAMstrandField intronMotif' />
+ <param name='outFilterIntronMotifs' value='--outFilterIntronMotifs RemoveNoncanonical' />
+ <output name='output_log' file='rnastar_test.log' compare='diff' lines_diff = '10'/>
+ <output name='splice_junctions' file="rnastar_test_splicejunctions.bed" />
+ <output name='mapped_reads' file="rnastar_test_mapped_reads.bam" />
+
+        </test>
+    </tests>
 <help>
 
 **What it does**
