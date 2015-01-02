@@ -235,22 +235,22 @@ class ScriptRunner:
         if self.opts.interpreter == 'python':
             # yes, this is how additional parameters are always passed in python - to the TF itself and to
             # scripts to avoid having unknown parameter names (yes, they can be parsed but...) on the command line
-            a('--INPATHS=%s' % (self.infile_paths)) 
-            a('--INNAMES=%s' % (self.infile_names)) 
+            a('--INPATHS "%s"' % (self.infile_paths)) 
+            a('--INNAMES "%s"' % (self.infile_names)) 
             if self.opts.output_tab:
-                a('--OUTPATH=%s' % self.opts.output_tab) 
+                a('--OUTPATH "%s"' % self.opts.output_tab) 
             for p in opts.additional_parameters:
                 p = p.replace('"','')
                 psplit=p.split(',')
                 param = psplit[0]
                 value = psplit[1]
-                a('--additional_parameters="%s,%s"' % (param,value))
+                a('--additional_parameters "%s,%s"' % (param,value))
         if (self.opts.interpreter == 'Rscript'):
             # pass params on command line
-            a('INPATHS="%s"' % self.infile_paths)
-            a('INNAMES="%s"' % self.infile_names)
+            a('INPATHS "%s"' % self.infile_paths)
+            a('INNAMES "%s"' % self.infile_names)
             if self.opts.output_tab:
-                a('OUTPATH="%s"' % self.opts.output_tab) 
+                a('OUTPATH "%s"' % self.opts.output_tab) 
             for param in opts.additional_parameters:
                 param, value=param.split(',')
                 a('%s="%s"' % (param,value))
@@ -387,7 +387,7 @@ o.close()
         %(test1Inputs)s
         <param name="job_name" value="test1"/>
         <param name="runMe" value="$runMe"/>
-        <output name="tab_file" file="%(test1Output)s" ftype="tabular"/>
+        <output name="output1="%(test1Output)s" ftype="tabular"/>
         %(additionalParams)s
         </test>
         """
@@ -406,7 +406,7 @@ o.close()
         <param name="job_name" value="test1"/>
         <param name="runMe" value="$runMe"/>
         %(additionalParams)s
-        <output name="tab_file" file="%(test1Output)s" ftype="tabular" />
+        <output name="output1" file="%(test1Output)s" ftype="tabular" />
         <output name="html_file" file="%(test1HTML)s" ftype="html" lines_diff="10"/>
         </test>
         """
@@ -426,7 +426,7 @@ o.close()
         xdict['test1HTML'] = self.test1HTML
         xdict['test1Output'] = self.test1Output
         xdict['test1Inputs'] = self.test1Inputs
-        if self.opts.make_HTML and self.opts.output_tab <> 'None':
+        if self.opts.make_HTML and self.opts.output_tab:
             xdict['tooltests'] = tooltestsBoth % xdict
         elif self.opts.make_HTML:
             xdict['tooltests'] = tooltestsHTMLOnly % xdict
@@ -461,7 +461,7 @@ o.close()
             cins.append('--input_tab "$intab,$intab.name"')
             cins.append('#end for\n')
             xdict['command_inputs'] = '\n'.join(cins)
-            xdict['inputs'] = '''<param name="input1" multiple="true"  type="data" format="%s" label="Select one or more %s input files from your history"
+            xdict['inputs'] = '''<param name="input_tab" multiple="true"  type="data" format="%s" label="Select one or more %s input files from your history"
                     help="Multiple inputs may be selected assuming the script can deal with them..."/> \n''' % (self.inputFormats,self.inputFormats)
         else:
             xdict['command_inputs'] = '' # assume no input - eg a random data generator       
@@ -486,9 +486,9 @@ o.close()
             xdict['outputs'] +=  ' <data format="html" name="html_file" label="${job_name}.html"/>\n'
         else:
             xdict['command_outputs'] += ' --output_dir "./"' 
-        if self.opts.output_tab <> 'None':
+        if self.opts.output_tab:
             xdict['command_outputs'] += ' --output_tab "$tab_file"'
-            xdict['outputs'] += ' <data format="%s" name="tab_file" label="${job_name}"/>\n' % self.outFormats
+            xdict['outputs'] += ' <data format="%s" name="output1" label="${job_name}"/>\n' % self.outFormats
         xdict['command'] = newCommand % xdict
         if self.opts.citations:
             citationstext = open(self.opts.citations,'r').read()
@@ -544,7 +544,7 @@ o.close()
                 dest = os.path.join(testdir,os.path.basename(si))
                 if si <> dest:
                     shutil.copyfile(si,dest)
-            if self.opts.output_tab <> 'None':
+            if self.opts.output_tab <> None:
                 shutil.copyfile(self.opts.output_tab,os.path.join(testdir,self.test1Output))
             if self.opts.make_HTML:
                 shutil.copyfile(self.opts.output_html,os.path.join(testdir,self.test1HTML))
@@ -818,7 +818,7 @@ def main():
     a('--output_html',default=None)
     a('--input_tab',default=[], action="append") # these are "galaxypath,metadataname" pairs
     a("--input_formats",default="tabular")
-    a('--output_tab',default="None")
+    a('--output_tab',default=None)
     a('--output_format',default='tabular')
     a('--user_email',default='Unknown')
     a('--bad_user',default=None)
