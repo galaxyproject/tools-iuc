@@ -17,6 +17,8 @@ args <- commandArgs(trailingOnly = TRUE)
 spec = matrix(c(
     'verbose', 'v', 2, "integer",
     'help' , 'h', 0, "logical",
+    'replace_outliers_off' , 'r', 0, "logical",
+    'outlier_filtering_off' , 's', 0, "logical",
     'outfile' , 'o', 1, "character",
     'outfilefiltered' , 'f', 1, "character",
     'plots' , 'p', 2, "character",
@@ -53,7 +55,8 @@ generatePlots <-function(dds, title_prefix){
     vsd <- varianceStabilizingTransformation(dds, blind=TRUE)
     distsRL <- dist(t(assay(rld)))
     mat <- as.matrix(distsRL)
-    heatmap.2(mat, trace="none", col = rev(hmcol), main = paste(title_prefix, "Sample-to-sample distances"), margin=c(13,13))
+    hc = hclust(distsRL)
+    heatmap.2(mat, Rowv=as.dendrogram(hc), trace="none", col = rev(hmcol), main = paste(title_prefix, "Sample-to-sample distances"), margin=c(13,13))
 }
 
 parser <- newJSONParser()
@@ -92,9 +95,21 @@ ddsHTSeq = DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
                                       directory = "",
                                       design =  designFormula)
 
-ddsHTSeq <- DESeq(ddsHTSeq)
+if ( !is.null(opt$replace_outliers_off) ) {
+    ddsHTSeq <- DESeq(ddsHTSeq, minReplicatesForReplace=Inf)
+    print(paste("Never replace outliers"))
+}else{
+    ddsHTSeq <- DESeq(ddsHTSeq)
+}
+
 #ddsHTSeq <- nbinomWaldTest(ddsHTSeq, cooksCutoff=FALSE)
-deseqRes <- results(ddsHTSeq)
+
+if ( !is.null(opt$replace_outliers_off) ) {
+    deseqRes <- results(ddsHTSeq, cooksCutoff=FALSE)
+    print(paste("Turn off outlier filtering"))
+} else {
+    deseqRes <- results(ddsHTSeq)
+}
 mcols(deseqRes)$description
 
 resSorted <- deseqRes[order(deseqRes$padj),]
@@ -116,8 +131,13 @@ if(opt$filtermode == "absolute"){
 
 ddsHTSeqFilt <- ddsHTSeq[use, ]
 ddsHTSeqFilt <- DESeq(ddsHTSeqFilt)
-#ddsHTSeqFilt <- nbinomWaldTest(ddsHTSeqFilt, cooksCutoff=FALSE)
-deseqResFilt <- results(ddsHTSeqFilt)
+if ( !is.null(opt$replace_outliers_off) ) {
+    deseqResFilt <- results(ddsHTSeqFilt, cooksCutoff=FALSE)
+    print(paste("Turn off outlier filtering"))
+} else {
+    deseqResFilt <- results(ddsHTSeqFilt)
+}
+
 mcols(deseqResFilt)$description
 
 resFiltSorted <- deseqResFilt[order(deseqResFilt$padj),]
