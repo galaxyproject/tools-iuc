@@ -36,31 +36,20 @@ def get_id_name( params, dbkey, fasta_description=None):
     return sequence_id, sequence_name
 
 
-def _run_command( command, target_directory ):
-    tmp_stderr = tempfile.NamedTemporaryFile( prefix = "tmp-data-manager-rnastar_index_builder-stderr" )
-    return_code = subprocess.call( command, shell=False, stdout=sys.stdout, stderr=tmp_stderr.fileno() )
-    if return_code:
-        tmp_stderr.flush()
-        tmp_stderr.seek( 0 )
-        sys.stderr.write( "### star reports an error:\n" )
-        while True:
-            chunk = tmp_stderr.read( CHUNK_SIZE )
-            if not chunk:
-                break
-            sys.stderr.write( chunk )
-        sys.exit( return_code )
-    tmp_stderr.close()
-    return return_code
-
+def _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry ):
+    data_manager_dict['data_tables'] = data_manager_dict.get( 'data_tables', {} )
+    data_manager_dict['data_tables'][ data_table_name ] = data_manager_dict['data_tables'].get( data_table_name, [] )
+    data_manager_dict['data_tables'][ data_table_name ].append( data_table_entry )
+    return data_manager_dict
 
 def build_rnastar_index( data_manager_dict, fasta_filename,  target_directory, 
-    dbkey, sequence_id, sequence_name, data_table_name,
-    sjdbOverhang,sjdbGTFfile, sjdbFileChrStartEnd,sjdbGTFtagExonParentTranscript,sjdbGTFfeatureExon,sjdbGTFchrPrefix,n_threads):
+       dbkey, sequence_id, sequence_name, data_table_name,
+       sjdbOverhang,sjdbGTFfile, sjdbFileChrStartEnd,sjdbGTFtagExonParentTranscript,sjdbGTFfeatureExon,sjdbGTFchrPrefix,n_threads):
     #TODO: allow multiple FASTA input files
     fasta_base_name = os.path.basename( fasta_filename )
     sym_linked_fasta_filename = os.path.join( target_directory, fasta_base_name )
     os.symlink( fasta_filename, sym_linked_fasta_filename )
-    print >> sys.stdout,'made',sym_linked_fasta_filename
+    # print >> sys.stdout,'made',sym_linked_fasta_filename
     cl = ['STAR','--runMode', 'genomeGenerate', '--genomeFastaFiles', sym_linked_fasta_filename, '--genomeDir', target_directory, '--runThreadN',n_threads ]
     
     if sjdbGTFfile:
@@ -86,14 +75,9 @@ def build_rnastar_index( data_manager_dict, fasta_filename,  target_directory,
         sys.exit( return_code )
     tmp_stderr.close()
     data_table_entry = dict( value=sequence_id, dbkey=dbkey, name=sequence_name, path=fasta_base_name )
-    _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry )
-
-
-def _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry ):
-    data_manager_dict['data_tables'] = data_manager_dict.get( 'data_tables', {} )
-    data_manager_dict['data_tables'][ data_table_name ] = data_manager_dict['data_tables'].get( data_table_name, [] )
-    data_manager_dict['data_tables'][ data_table_name ].append( data_table_entry )
+    data_manager_dict = _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry )
     return data_manager_dict
+
     
 def main():
     #Parse Command Line
@@ -113,7 +97,6 @@ def main():
     filename = args[0]
     params = from_json_string( open( filename ).read() )
     target_directory = params[ 'output_data' ][0]['extra_files_path'].encode('ascii','replace')
-    data_manager_dict = {}
     dbkey = options.fasta_dbkey
     if dbkey in [ None, '', '?' ]:
         raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( dbkey ) )
@@ -125,7 +108,7 @@ def main():
     except OSError:
         pass
     #build the index
-    build_rnastar_index( data_manager_dict = data_manager_dict, fasta_filename = options.fasta_filename, target_directory = target_directory,
+    data_manager_dict = build_rnastar_index( data_manager_dict = {}, fasta_filename = options.fasta_filename, target_directory = target_directory,
       dbkey = dbkey, sequence_id = sequence_id, sequence_name = sequence_name, data_table_name=options.data_table_name,
       sjdbOverhang=options.sjdbOverhang,sjdbGTFfile=options.sjdbGTFfile,
       sjdbFileChrStartEnd=options.sjdbFileChrStartEnd,sjdbGTFtagExonParentTranscript=options.sjdbGTFtagExonParentTranscript,
