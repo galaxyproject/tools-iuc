@@ -12,11 +12,26 @@ class SnpEffDb( Text ):
     """Class describing a SnpEff genome build"""
     file_ext = "snpeffdb"
     MetadataElement( name="genome_version", default=None, desc="Genome Version", readonly=True, visible=True, no_value=None )
+    MetadataElement( name="snpeff_version", default=None, desc="SnpEff Version", readonly=True, visible=True, no_value=None )
     MetadataElement( name="regulation", default=[], desc="Regulation Names", readonly=True, visible=True, no_value=[], optional=True)
     MetadataElement( name="annotation", default=[], desc="Annotation Names", readonly=True, visible=True, no_value=[], optional=True)
 
     def __init__( self, **kwd ):
         Text.__init__( self, **kwd )
+
+    def getSnpeffVersionFromFile(self, path):
+        snpeff_version = None
+        try:
+            fh = gzip.open(path, 'rb')
+            buf = fh.read(100)
+            lines = buf.splitlines()
+            m = re.match('^(SnpEff)\s+(\d+\.\d+).*$',lines[0].strip())
+            if m:
+                snpeff_version = m.groups()[0] + m.groups()[1]
+            fh.close()
+        except Exception, e:
+            pass
+        return snpeff_version
 
     def set_meta( self, dataset, **kwd ):
         Text.set_meta(self, dataset, **kwd )
@@ -27,6 +42,8 @@ class SnpEffDb( Text ):
         annotations_dict = {'nextProt.bin' : '-nextprot','motif.bin': '-motif'}
         regulations = []
         annotations = []
+        genome_version = None
+        snpeff_version = None
         if data_dir and os.path.isdir(data_dir):
             for root, dirs, files in os.walk(data_dir):
                 for fname in files:
@@ -47,7 +64,8 @@ class SnpEffDb( Text ):
             dataset.metadata.annotation = annotations
             try:
                 fh = file(dataset.file_name,'w')
-                fh.write("%s\n" % genome_version)
+                fh.write("%s\n" % genome_version if genome_version else 'Genome unknown')
+                fh.write("%s\n" % snpeff_version if snpeff_version else 'SnpEff version unknown')
                 if annotations:
                     fh.write("annotations: %s\n" % ','.join(annotations))
                 if regulations:
