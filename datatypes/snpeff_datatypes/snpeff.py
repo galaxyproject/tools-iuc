@@ -12,13 +12,14 @@ class SnpEffDb( Text ):
     """Class describing a SnpEff genome build"""
     file_ext = "snpeffdb"
     MetadataElement( name="genome_version", default=None, desc="Genome Version", readonly=True, visible=True, no_value=None )
-    MetadataElement( name="snpeff_version", default=None, desc="SnpEff Version", readonly=True, visible=True, no_value=None )
+    MetadataElement( name="snpeff_version", default="SnpEff4.0", desc="SnpEff Version", readonly=True, visible=True, no_value=None )
     MetadataElement( name="regulation", default=[], desc="Regulation Names", readonly=True, visible=True, no_value=[], optional=True)
     MetadataElement( name="annotation", default=[], desc="Annotation Names", readonly=True, visible=True, no_value=[], optional=True)
 
     def __init__( self, **kwd ):
         Text.__init__( self, **kwd )
 
+    "" The SnpEff version line was added in SnpEff version 4.1 
     def getSnpeffVersionFromFile(self, path):
         snpeff_version = None
         try:
