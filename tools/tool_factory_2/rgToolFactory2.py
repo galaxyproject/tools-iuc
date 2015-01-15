@@ -172,7 +172,20 @@ def parse_citations(citations_text):
             citation_tuples.append( ("bibtex", citation[len("bibtex"):].strip() ) )
     return citation_tuples
 
-
+def shell_source(script):
+    """need a way to source a Galaxy tool interpreter env.sh so we can use that dependency
+    package 
+    see http://pythonwise.blogspot.fr/2010/04/sourcing-shell-script.html
+    Sometime you want to emulate the action of "source" in bash,
+    settings some environment variables. Here is a way to do it.
+    Note that we have to finesse the automagic exports using nulls as newlines for env"""
+    pipe = subprocess.Popen("env -i ; . %s ; env -0" % script, stdout=subprocess.PIPE, shell=True)
+    output = pipe.communicate()[0]
+    outl = output.split('\0')
+    outl = [x for x in outl if len(x.split("=")) == 2]
+    newenv = dict((line.split("=", 1) for line in outl))
+    os.environ.update(newenv)
+    
 class ScriptRunner:
     """class is a wrapper for an arbitrary script
     """
@@ -218,10 +231,7 @@ class ScriptRunner:
         self.test1Inputs = [] # now a list
         a = self.cl.append
         a(opts.interpreter)
-        if self.treatbashSpecial and opts.interpreter in ['bash','sh']:
-            a(self.sfile)
-        else:
-            a('-') # stdin
+        a(self.sfile)
         # if multiple inputs - positional or need to distinguish them with cl params
         if opts.input_tab:
             tests = []
@@ -391,7 +401,8 @@ o.close()
     %(citations)s
     <citation type="doi">10.1093/bioinformatics/bts573</citation>
 </citations>
-</tool>""" # needs a dict with toolname, toolid, interpreter, scriptname, command, inputs as a multi line string ready to write, outputs ditto, help ditto
+</tool>"""
+# needs a dict with toolname, toolid, interpreter, scriptname, command, inputs as a multi line string ready to write, outputs ditto, help ditto
 
         newCommand="""
         %(toolname)s.py --script_path "$runMe" --interpreter "%(interpreter)s" 
@@ -774,10 +785,13 @@ o.close()
         self.html = html
 
 
+
     def run(self):
         """
         scripts must be small enough not to fill the pipe!
         """
+        if self.opts.envshpath <> 'system':
+            shell_source(self.opts.envshpath)
         if self.treatbashSpecial and self.opts.interpreter in ['bash','sh']:
           retval = self.runBash()
         else:
@@ -786,11 +800,9 @@ o.close()
                 sto = open(self.tlog,'w')
                 sto.write('## Toolfactory generated command line = %s\n' % ' '.join(self.cl))
                 sto.flush()
-                p = subprocess.Popen(self.cl,shell=False,stdout=sto,stderr=ste,stdin=subprocess.PIPE,cwd=self.opts.output_dir)
+                p = subprocess.Popen(self.cl,shell=False,stdout=sto,stderr=ste,cwd=self.opts.output_dir)
             else:
-                p = subprocess.Popen(self.cl,shell=False,stdin=subprocess.PIPE)
-            p.stdin.write(self.script)
-            p.stdin.close()
+                p = subprocess.Popen(self.cl,shell=False)
             retval = p.wait()
             if self.opts.output_dir:
                 sto.close()
@@ -851,6 +863,7 @@ def main():
     a('--citations',default=None)
     a('--additional_parameters', dest='additional_parameters', action='append', default=[])
     a('--edit_additional_parameters', action="store_true", default=False)
+    a('--envshpath',default="system")   
     opts, args = op.parse_args()
     assert not opts.bad_user,'UNAUTHORISED: %s is NOT authorized to use this tool until Galaxy admin adds %s to admin_users in universe_wsgi.ini' % (opts.bad_user,opts.bad_user)
     assert opts.tool_name,'## Tool Factory expects a tool name - eg --tool_name=DESeq'
