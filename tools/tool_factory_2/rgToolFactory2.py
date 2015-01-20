@@ -7,6 +7,11 @@
 # Licensed under the LGPL
 # suggestions for improvement and bug fixes welcome at https://bitbucket.org/fubar/galaxytoolfactory/wiki/Home
 #
+# January 2015
+# in the process of building a complex tool
+# added ability to choose one of the current toolshed package_r or package_perl or package_python dependencies and source that package
+# need to add that package to tool_dependencies
+#
 # sept 2014 added additional params from
 # https://bitbucket.org/mvdbeek/dockertoolfactory/src/d4863bcf7b521532c7e8c61b6333840ba5393f73/DockerToolFactory.py?at=default
 # passing them is complex
@@ -107,32 +112,6 @@ toolFactoryURL = 'https://bitbucket.org/fubar/galaxytoolfactory'
 
 # if we do html we need these dependencies specified in a tool_dependencies.xml file and referred to in the generated
 # tool xml
-toolhtmldepskel = """<?xml version="1.0"?>
-<tool_dependency>
-    <package name="ghostscript" version="9.10">
-        <repository name="package_ghostscript_9_10" owner="devteam" prior_installation_required="True" />
-    </package>
-    <package name="graphicsmagick" version="1.3.18">
-        <repository name="package_graphicsmagick_1_3" owner="iuc" prior_installation_required="True" />
-    </package>
-        <readme>
-           %s
-       </readme>
-</tool_dependency>
-"""
-
-emptytoolhtmldepskel = """<?xml version="1.0"?>
-<tool_dependency>
-        <readme>
-           %s
-       </readme>
-</tool_dependency>
-"""
-
-protorequirements = """<requirements>
-      <requirement type="package" version="9.10">ghostscript</requirement>
-      <requirement type="package" version="1.3.18">graphicsmagick</requirement>
-  </requirements>"""
 
 def timenow():
     """return current time as a string
@@ -188,13 +167,141 @@ def shell_source(script):
     
 class ScriptRunner:
     """class is a wrapper for an arbitrary script
+    note funky templating. this should all be done proper.
+    Problem is, this kludge developed quite naturally and seems to work ok with
+    little overhead...
+    
     """
+
 
     def __init__(self,opts=None,treatbashSpecial=True):
         """
         cleanup inputs, setup some outputs
         
         """
+        
+        self.toolhtmldepinterpskel = """<?xml version="1.0"?>
+        <tool_dependency>
+            <package name="ghostscript" version="9.10">
+                <repository name="package_ghostscript_9_10" owner="devteam" prior_installation_required="True" />
+            </package>
+            <package name="graphicsmagick" version="1.3.18">
+                <repository name="package_graphicsmagick_1_3" owner="iuc" prior_installation_required="True" />
+            </package>
+             <package name="%(interpreter_name)s" version="%(interpreter_version)s">
+                <repository name="%(interpreter_pack)s" owner="%(interpreter_owner)s" prior_installation_required="True" />
+            </package>
+           
+                <readme>
+                   %(readme)s
+               </readme>
+        </tool_dependency>
+        """
+        
+        self.toolhtmldepskel = """<?xml version="1.0"?>
+        <tool_dependency>
+            <package name="ghostscript" version="9.10">
+                <repository name="package_ghostscript_9_10" owner="devteam" prior_installation_required="True" />
+            </package>
+            <package name="graphicsmagick" version="1.3.18">
+                <repository name="package_graphicsmagick_1_3" owner="iuc" prior_installation_required="True" />
+            </package>
+                <readme>
+                   %(readme)s
+               </readme>
+        </tool_dependency>
+        """
+
+        self.emptytoolhtmldepskel = """<?xml version="1.0"?>
+        <tool_dependency>
+                <readme>
+                   %(readme)s
+               </readme>
+        </tool_dependency>
+        """
+
+        self.protorequirements = """<requirements>
+              <requirement type="package" version="9.10">ghostscript</requirement>
+              <requirement type="package" version="1.3.18">graphicsmagick</requirement>
+          </requirements>"""
+          
+        self.protorequirements_interpreter = """<requirements>
+              <requirement type="package" version="9.10">ghostscript</requirement>
+              <requirement type="package" version="1.3.18">graphicsmagick</requirement>
+              <requirement type="package" version="%(interpreter_version)s">%(interpreter_name)s</requirement>
+          </requirements>"""
+          
+
+        self.newCommand="""
+            %(toolname)s.py --script_path "$runMe" --interpreter "%(interpreter)s" 
+                --tool_name "%(toolname)s"
+                %(command_inputs)s
+                %(command_outputs)s
+            """
+    
+        self.tooltestsTabOnly = """
+            <test>
+            %(test1Inputs)s
+            <param name="job_name" value="test1"/>
+            <param name="runMe" value="$runMe"/>
+            <output name="output1="%(test1Output)s" ftype="tabular"/>
+            %(additionalParams)s
+            </test>
+            """
+            
+        self.tooltestsHTMLOnly = """
+            <test>
+            %(test1Inputs)s
+            <param name="job_name" value="test1"/>
+            <param name="runMe" value="$runMe"/>
+            %(additionalParams)s
+            <output name="html_file" file="%(test1HTML)s" ftype="html" lines_diff="5"/>
+            </test>
+            """
+            
+        self.tooltestsBoth = """
+            <test>
+            %(test1Inputs)s
+            <param name="job_name" value="test1"/>
+            <param name="runMe" value="$runMe"/>
+            %(additionalParams)s
+            <output name="output1" file="%(test1Output)s" ftype="tabular" />
+            <output name="html_file" file="%(test1HTML)s" ftype="html" lines_diff="10"/>
+            </test>
+            """
+
+        self.newXML="""<tool id="%(toolid)s" name="%(toolname)s" version="%(tool_version)s">
+%(tooldesc)s
+%(requirements)s
+<command interpreter="python">
+%(command)s
+</command>
+<inputs>
+%(inputs)s
+%(additionalInputs)s
+</inputs>
+<outputs>
+%(outputs)s
+</outputs>
+<configfiles>
+<configfile name="runMe">
+%(script)s
+</configfile>
+</configfiles>
+<tests>
+%(tooltests)s
+</tests>
+<help>
+
+%(help)s
+
+</help>
+<citations>
+    %(citations)s
+    <citation type="doi">10.1093/bioinformatics/bts573</citation>
+</citations>
+</tool>"""
+            
         self.useGM = cmd_exists('gm')
         self.useIM = cmd_exists('convert')
         self.useGS = cmd_exists('gs')
@@ -315,8 +422,21 @@ class ScriptRunner:
                   else:
                     a('%s=%s' % (param,value))
                     self.cl.insert(4+i,'%s=%s' % (param,value))
-
-
+        self.interp_owner = None
+        self.interp_pack = None
+        self.interp_revision = None
+        self.interp_version = None
+        if opts.envshpath <> 'system': # need to parse out details for our tool_dependency
+            try:
+                packdetails = opts.envshpath.split(os.path.sep)[-4:-1]  # eg ['fubar', 'package_r_3_1_1', '63cdb9b2234c']
+                self.interpreter_owner = packdetails[0]
+                self.interpreter_pack = packdetails[1]
+                self.interpreter_name = packdetails[1].split('_')[1].upper()
+                self.interpreter_revision = packdetails[2]
+                self.interpreter_version =  '.'.join(self.interpreter_pack.split('_')[2:])
+                # hope our naming convention as at jan 2015 = package_[interp]_v0_v1_v2... = version v0.v1.v2.. is in play
+            except:
+                pass
         self.outFormats = opts.output_format
         self.inputFormats = opts.input_formats
         self.test1Output = '%s_test1_output.xls' % self.toolname
@@ -371,74 +491,9 @@ o.close()
             </tool>
         
         """ 
-        newXML="""<tool id="%(toolid)s" name="%(toolname)s" version="%(tool_version)s">
-%(tooldesc)s
-%(requirements)s
-<command interpreter="python">
-%(command)s
-</command>
-<inputs>
-%(inputs)s
-%(additionalInputs)s
-</inputs>
-<outputs>
-%(outputs)s
-</outputs>
-<configfiles>
-<configfile name="runMe">
-%(script)s
-</configfile>
-</configfiles>
-<tests>
-%(tooltests)s
-</tests>
-<help>
 
-%(help)s
+        # these templates need a dict with the right keys to match the parameters - outputs, help, code...
 
-</help>
-<citations>
-    %(citations)s
-    <citation type="doi">10.1093/bioinformatics/bts573</citation>
-</citations>
-</tool>"""
-# needs a dict with toolname, toolid, interpreter, scriptname, command, inputs as a multi line string ready to write, outputs ditto, help ditto
-
-        newCommand="""
-        %(toolname)s.py --script_path "$runMe" --interpreter "%(interpreter)s" 
-            --tool_name "%(toolname)s"
-            %(command_inputs)s
-            %(command_outputs)s
-        """
-        # may NOT be an input or htmlout - appended later
-        tooltestsTabOnly = """
-        <test>
-        %(test1Inputs)s
-        <param name="job_name" value="test1"/>
-        <param name="runMe" value="$runMe"/>
-        <output name="output1="%(test1Output)s" ftype="tabular"/>
-        %(additionalParams)s
-        </test>
-        """
-        tooltestsHTMLOnly = """
-        <test>
-        %(test1Inputs)s
-        <param name="job_name" value="test1"/>
-        <param name="runMe" value="$runMe"/>
-        %(additionalParams)s
-        <output name="html_file" file="%(test1HTML)s" ftype="html" lines_diff="5"/>
-        </test>
-        """
-        tooltestsBoth = """
-        <test>
-        %(test1Inputs)s
-        <param name="job_name" value="test1"/>
-        <param name="runMe" value="$runMe"/>
-        %(additionalParams)s
-        <output name="output1" file="%(test1Output)s" ftype="tabular" />
-        <output name="html_file" file="%(test1HTML)s" ftype="html" lines_diff="10"/>
-        </test>
-        """
         xdict = {}
         xdict['additionalParams'] = ''
         xdict['additionalInputs'] = ''
@@ -446,21 +501,27 @@ o.close()
             if self.opts.edit_additional_parameters: # add to new tool form with default value set to original value
                 xdict['additionalInputs'] = '\n'.join(['<param name="%s" value="%s" label="%s" help="%s" type="%s"/>' % \
                 (x.split(',')[0],html_escape(x.split(',')[1]),html_escape(x.split(',')[2]),html_escape(x.split(',')[3]), x.split(',')[4]) for x in self.opts.additional_parameters])
-            xdict['additionalParams'] = '\n'.join(['<param name="%s" value="%s" />' % (x.split(',')[0],html_escape(x.split(',')[1])) for x in self.opts.additional_parameters])
+        xdict['additionalParams'] = '\n'.join(['<param name="%s" value="%s" />' % (x.split(',')[0],html_escape(x.split(',')[1])) for x in self.opts.additional_parameters])
+        xdict['interpreter_owner'] = self.interpreter_owner
+        xdict['interpreter_version'] = self.interpreter_version
+        xdict['interpreter_pack'] = self.interpreter_pack
+        xdict['interpreter_name'] = self.interpreter_name
         xdict['requirements'] = ''
-        if self.opts.make_HTML:
-            if self.opts.include_dependencies == "yes":
-                xdict['requirements'] = protorequirements
+        if self.opts.include_dependencies == "yes":
+            if self.opts.envshpath <> 'system':
+                xdict['requirements'] = self.protorequirements_interpreter % xdict       
+            else:    
+                xdict['requirements'] = self.protorequirements
         xdict['tool_version'] = self.opts.tool_version
         xdict['test1HTML'] = self.test1HTML
         xdict['test1Output'] = self.test1Output
         xdict['test1Inputs'] = self.test1Inputs
         if self.opts.make_HTML and self.opts.output_tab:
-            xdict['tooltests'] = tooltestsBoth % xdict
+            xdict['tooltests'] = self.tooltestsBoth % xdict
         elif self.opts.make_HTML:
-            xdict['tooltests'] = tooltestsHTMLOnly % xdict
+            xdict['tooltests'] = self.tooltestsHTMLOnly % xdict
         else:
-            xdict['tooltests'] = tooltestsTabOnly % xdict
+            xdict['tooltests'] = self.tooltestsTabOnly % xdict
         xdict['script'] = self.escapedScript 
         # configfile is least painful way to embed script to avoid external dependencies
         # but requires escaping of <, > and $ to avoid Mako parsing
@@ -520,7 +581,7 @@ o.close()
         if self.opts.output_tab:
             xdict['command_outputs'] += ' --output_tab "$output1"'
             xdict['outputs'] += ' <data format="%s" name="output1" label="${job_name}"/>\n' % self.outFormats
-        xdict['command'] = newCommand % xdict
+        xdict['command'] = self.newCommand % xdict
         if self.opts.citations:
             citationstext = open(self.opts.citations,'r').read()
             citation_tuples = parse_citations(citationstext)
@@ -531,7 +592,7 @@ o.close()
             xdict['citations'] = citations_xml
         else:
             xdict['citations'] = ""
-        xmls = newXML % xdict
+        xmls = self.newXML % xdict
         xf = open(self.xmlfile,'w')
         xf.write(xmls)
         xf.write('\n')
@@ -555,10 +616,15 @@ o.close()
             hlp = open(self.opts.help_text,'r').read()
         else:
             hlp = 'Please ask the tool author for help as none was supplied at tool generation\n'
+        readme_dict = {'readme':hlp,'interpreter':self.opts.interpreter,'interpreter_version':self.interpreter_version,'interpreter_name':self.interpreter_name,
+        'interpreter_owner':self.interpreter_owner}
         if self.opts.include_dependencies == "yes":
-            tooldepcontent = toolhtmldepskel  % hlp
+            if self.opts.envshpath == 'system':
+                tooldepcontent = self.toolhtmldepskel % readme_dict
+            else:
+                tooldepcontent = self.toolhtmldepinterpskel % readme_dict
         else:
-            tooldepcontent = emptytoolhtmldepskel  % hlp
+            tooldepcontent = self.emptytoolhtmldepskel  % readme_dictls -l
         depf = open(os.path.join(tdir,'tool_dependencies.xml'),'w')
         depf.write(tooldepcontent)
         depf.write('\n')
