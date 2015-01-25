@@ -631,7 +631,7 @@ o.close()
             else:
                 tooldepcontent = self.toolhtmldepinterpskel % readme_dict
         else:
-            tooldepcontent = self.emptytoolhtmldepskel  % readme_dictls -l
+            tooldepcontent = self.emptytoolhtmldepskel  % readme_dict
         depf = open(os.path.join(tdir,'tool_dependencies.xml'),'w')
         depf.write(tooldepcontent)
         depf.write('\n')
