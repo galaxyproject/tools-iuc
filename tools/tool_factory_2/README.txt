@@ -16,6 +16,21 @@ to all designated administrators of the host Galaxy server, allowing them to
 run scripts in R, python, sh and perl over multiple selected input data sets,
 writing a single new data set as output.
 
+*Differences between TF2 and the original Tool Factory*
+
+1. TF2 (this one) allows any number of either fixed or user-editable parameters to be defined
+for the new tool. If these are editable, the user can change them but otherwise, they are passed
+as fixed and invisible parameters for each execution. Obviously, there are substantial security
+implications with editable parameters, but these are always sanitized by Galaxy's inbuilt 
+parameter sanitization so you may need to "unsanitize" characters - eg translate all "__lt__" 
+into "<" for certain parameters where that is needed. Please practise safe toolshed.
+
+2. Any number of (the same datatype) of input files may be defined.
+
+These changes substantially complicate the way your supplied script is supplied with
+all the new and variable parameters. Examples in each scripting language are shown
+in the tool help
+
 *Automated outputs in named sections*
 
 If your script writes to the current directory path, arbitrary mix of (eg)
