@@ -8,6 +8,8 @@
 # suggestions for improvement and bug fixes welcome at https://bitbucket.org/fubar/galaxytoolfactory/wiki/Home
 #
 # January 2015
+# unified all setups by passing the script on the cl rather than via a PIPE - no need for treat_bash_special so removed
+#
 # in the process of building a complex tool
 # added ability to choose one of the current toolshed package_r or package_perl or package_python dependencies and source that package
 # add that package to tool_dependencies
@@ -120,6 +122,16 @@ def timenow():
     """
     return time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(time.time()))
 
+def quote_non_numeric(s):
+    """return a prequoted string for non-numerics
+    useful for perl and Rscript parameter passing?
+    """
+    try:
+        res = float(s)
+        return s
+    except ValueError:
+        return '"%s"' % s
+
 html_escape_table = {
      "&": "&amp;",
      ">": "&gt;",
@@ -154,12 +166,9 @@ def parse_citations(citations_text):
     return citation_tuples
 
 def shell_source(script):
-    """need a way to source a Galaxy tool interpreter env.sh so we can use that dependency
-    package 
-    see http://pythonwise.blogspot.fr/2010/04/sourcing-shell-script.html
-    Sometime you want to emulate the action of "source" in bash,
-    settings some environment variables. Here is a way to do it.
-    Note that we have to finesse the automagic exports using nulls as newlines for env"""
+    """need a way to source a Galaxy tool interpreter env.sh to point at the right dependency package 
+    This based on the idea in http://pythonwise.blogspot.fr/2010/04/sourcing-shell-script.html
+    Note that we have to finesse any wierdly quoted newlines in automagic exports using nulls (env -0) as newlines"""
     pipe = subprocess.Popen("env -i ; . %s ; env -0" % script, stdout=subprocess.PIPE, shell=True)
     output = pipe.communicate()[0]
     outl = output.split('\0')
@@ -176,7 +185,7 @@ class ScriptRunner:
     """
 
 
-    def __init__(self,opts=None,treatbashSpecial=True):
+    def __init__(self,opts=None):
         """
         cleanup inputs, setup some outputs
         
@@ -313,7 +322,6 @@ https://toolshed.g2.bx.psu.edu/view/fubar/tool_factory_2
         self.useIM = cmd_exists('convert')
         self.useGS = cmd_exists('gs')
         self.temp_warned = False # we want only one warning if $TMP not set
-        self.treatbashSpecial = treatbashSpecial
         if opts.output_dir: # simplify for the tool tarball
             os.chdir(opts.output_dir)
         self.thumbformat = 'png'
@@ -380,7 +388,7 @@ https://toolshed.g2.bx.psu.edu/view/fubar/tool_factory_2
                 value = html_unescape(psplit[1])
                 a('%s="%s"' % (param,value))
         if (self.opts.interpreter == 'Rscript'):
-            # pass params on command line
+            # pass params on command line as expressions which the script evaluates - see sample
             if self.opts.input_tab:
                 a('INPATHS="%s"' % self.infile_paths)
                 a('INNAMES="%s"' % self.infile_names)
@@ -391,23 +399,21 @@ https://toolshed.g2.bx.psu.edu/view/fubar/tool_factory_2
                 psplit = p.split(',')
                 param = html_unescape(psplit[0])
                 value = html_unescape(psplit[1])
-                a('%s="%s"' % (param,value))
+                a('%s=%s' % (param,quote_non_numeric(value)))
         if (self.opts.interpreter == 'perl'):
-            # pass params on command line
+            # pass positional params on command line - perl script needs to discombobulate the path/name lists
             if self.opts.input_tab:
                 a('%s' % self.infile_paths)
                 a('%s' % self.infile_names)
             if self.opts.output_tab:
                 a('%s' % self.opts.output_tab)
             for p in opts.additional_parameters:
+                # followed by any additional name=value parameter pairs
                 p = p.replace('"','')
                 psplit = p.split(',')
                 param = html_unescape(psplit[0])
                 value = html_unescape(psplit[1])
-                if (value.find(' ') <> -1):
-                    a('%s="%s"' % (param,value))
-                else:
-                    a('%s=%s' % (param,value))
+                a('%s=%s' % (param,quote_non_numeric(value)))
         if self.opts.interpreter == 'sh' or self.opts.interpreter == 'bash':
               # more is better - now move all params into environment AND drop on to command line.
               self.cl.insert(0,'env')
@@ -423,19 +429,16 @@ https://toolshed.g2.bx.psu.edu/view/fubar/tool_factory_2
                   psplit = p.split(',')
                   param = html_unescape(psplit[0])
                   value = html_unescape(psplit[1])
-                  if (value.find(' ') <> -1):
-                    a('%s="%s"' % (param,value))
-                    self.cl.insert(4+i,'%s="%s"' % (param,value))
-                  else:
-                    a('%s=%s' % (param,value))
-                    self.cl.insert(4+i,'%s=%s' % (param,value))
-        self.interp_owner = None
-        self.interp_pack = None
-        self.interp_revision = None
-        self.interp_version = None
+                  a('%s=%s' % (param,quote_non_numeric(value)))
+                  self.cl.insert(4+i,'%s=%s' % (param,quote_non_numeric(value)))
+        self.interpreter_owner = None
+        self.interpreter_pack = None
+        self.interpreter_name = None
+        self.interpreter_version = None
+        self.interpreter_revision = None
         if opts.envshpath <> 'system': # need to parse out details for our tool_dependency
             try: # fragile - depends on common naming convention as at jan 2015 = package_[interp]_v0_v1_v2... = version v0.v1.v2.. is in play
-
+                # this ONLY happens at tool generation by an admin - the generated tool always uses the default of system so path is from local env.sh
                 packdetails = opts.envshpath.split(os.path.sep)[-4:-1]  # eg ['fubar', 'package_r_3_1_1', '63cdb9b2234c']
                 self.interpreter_owner = packdetails[0]
                 self.interpreter_pack = packdetails[1]
@@ -860,50 +863,44 @@ o.close()
 
     def run(self):
         """
-        scripts must be small enough not to fill the pipe!
+        Some devteam tools have this defensive stderr read so I'm keeping with the faith
+        Feel free to update. 
         """
         if self.opts.envshpath <> 'system':
             shell_source(self.opts.envshpath)
-        if self.treatbashSpecial and self.opts.interpreter in ['bash','sh']:
-          retval = self.runBash()
-        else:
-            if self.opts.output_dir:
-                ste = open(self.elog,'w')
-                sto = open(self.tlog,'w')
-                sto.write('## Toolfactory generated command line = %s\n' % ' '.join(self.cl))
-                sto.flush()
-                p = subprocess.Popen(self.cl,shell=False,stdout=sto,stderr=ste,cwd=self.opts.output_dir)
-            else:
-                p = subprocess.Popen(self.cl,shell=False)
-            retval = p.wait()
-            if self.opts.output_dir:
-                sto.close()
-                ste.close()
-                err = open(self.elog,'r').readlines()
-                if retval <> 0 and err: # problem
-                    print >> sys.stderr,err
-            if self.opts.make_HTML:
-                self.makeHtml()
-        return retval
-
-    def runBash(self):
-        """
-        cannot use - for bash so use self.sfile
-        """
+            # this only happens at tool generation - the generated tool relies on the dependencies all being set up
+            # at toolshed installation by sourcing local env.sh 
         if self.opts.output_dir:
-            s = '## Toolfactory generated command line = %s\n' % ' '.join(self.cl)
-            sto = open(self.tlog,'w')
-            sto.write(s)
+            ste = open(self.elog,'wb')
+            sto = open(self.tlog,'wb')
+            s = ' '.join(self.cl)
+            sto.write('## Executing Toolfactory generated command line = %s\n' % s)
             sto.flush()
-            p = subprocess.Popen(self.cl,shell=False,stdout=sto,stderr=sto,cwd=self.opts.output_dir)
-        else:
-            p = subprocess.Popen(self.cl,shell=False)            
-        retval = p.wait()
-        if self.opts.output_dir:
+            p = subprocess.Popen(self.cl,shell=False,stdout=sto,stderr=ste,cwd=self.opts.output_dir)
+            retval = p.wait()
             sto.close()
+            ste.close()
+            tmp_stderr = open( self.elog, 'rb' )
+            err = ''
+            buffsize = 1048576
+            try:
+                while True:
+                    err += tmp_stderr.read( buffsize )
+                    if not err or len( stderr ) % buffsize != 0:
+                        break
+            except OverflowError:
+                pass
+            tmp_stderr.close()
+        else:
+            p = subprocess.Popen(self.cl,shell=False)
+            retval = p.wait()
+        if self.opts.output_dir:
+            if retval <> 0 and err: # problem
+                print >> sys.stderr,err
         if self.opts.make_HTML:
             self.makeHtml()
         return retval
+
   
 
 def main():
