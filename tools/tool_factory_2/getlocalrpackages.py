@@ -1,7 +1,7 @@
 import os
 import subprocess
 
-def find_packages(prefix="package_r_"):
+def find_packages(path='~/',prefix="package_r_"):
     """
     """
     #locate env.sh | grep -i package_r_
@@ -12,11 +12,16 @@ def find_packages(prefix="package_r_"):
     eprefix = prefix
     if prefix.find('/') <> -1:
         eprefix = prefix.replace('/','\/') # for grep
-    cl = ['locate env.sh | grep -i %s' % eprefix,]
+    # fails on nitesh's recent mac - locate not working 
+    # cl = ['locate env.sh | grep -i %s' % eprefix,]
+    cl = ['find %s -iname "env.sh" | grep -i %s' % (path,eprefix),]
+    print 'cl=',cl
     p = subprocess.Popen(cl, stdout=subprocess.PIPE, stderr=subprocess.PIPE,shell=True)
     out, err = p.communicate()
+    print 'out=',out
     fpaths = out.split('\n')
     fpaths = [x for x in fpaths if len(x) > 1]
+    print 'fpaths=',fpaths
     fver = [x.split(os.path.sep)[-4:-1] for x in fpaths]
     # >>> foo.split(os.path.sep)[-4:-1]
     # ['fubar', 'package_r_3_1_1', '63cdb9b2234c']
