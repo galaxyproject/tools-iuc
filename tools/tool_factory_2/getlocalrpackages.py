@@ -20,9 +20,13 @@ def find_packages(prefix="package_r_"):
     fver = [x.split(os.path.sep)[-4:-1] for x in fpaths]
     # >>> foo.split(os.path.sep)[-4:-1]
     # ['fubar', 'package_r_3_1_1', '63cdb9b2234c']
-    res = [['%s rev %s owner %s' % (x[1],x[2],x[0]),fpaths[i],False] for i,x in enumerate(fver)]
-    res.insert(0,['Use default (system) interpreter','system',False])
-    if len(res) > 1:
+    if len(fpaths) > 0:
+        res = [['%s rev %s owner %s' % (x[1],x[2],x[0]),fpaths[i],False] for i,x in enumerate(fver)]
+        res.insert(0,['Use default (system) interpreter','system',False])
+    else:
+        res = [['Use default (system) interpreter','system',False],
+        ['**WARNING** NO package env.sh files found - is the "locate" system command working? Are any interpreters installed?','system',True]]
+    if len(res) > 2:
         res[1][2] = True # selected if more than one
     # return a triplet - user_sees,value,selected - all unselected if False
     return res

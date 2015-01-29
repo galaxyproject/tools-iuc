@@ -431,11 +431,11 @@ https://toolshed.g2.bx.psu.edu/view/fubar/tool_factory_2
                   value = html_unescape(psplit[1])
                   a('%s=%s' % (param,quote_non_numeric(value)))
                   self.cl.insert(4+i,'%s=%s' % (param,quote_non_numeric(value)))
-        self.interpreter_owner = None
-        self.interpreter_pack = None
-        self.interpreter_name = None
-        self.interpreter_version = None
-        self.interpreter_revision = None
+        self.interpreter_owner = 'SYSTEM'
+        self.interpreter_pack = 'SYSTEM'
+        self.interpreter_name = 'SYSTEM'
+        self.interpreter_version = 'SYSTEM'
+        self.interpreter_revision = 'SYSTEM'
         if opts.envshpath <> 'system': # need to parse out details for our tool_dependency
             try: # fragile - depends on common naming convention as at jan 2015 = package_[interp]_v0_v1_v2... = version v0.v1.v2.. is in play
                 # this ONLY happens at tool generation by an admin - the generated tool always uses the default of system so path is from local env.sh
