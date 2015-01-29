@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import os
 import subprocess
 
@@ -12,7 +14,8 @@ def find_packages(prefix="package_r_"):
     eprefix = prefix
     if prefix.find('/') <> -1:
         eprefix = prefix.replace('/','\/') # for grep
-    cl = ['locate env.sh | grep -i %s' % eprefix,]
+    #cl = ['locate env.sh | grep -i %s' % eprefix,   ]
+    cl = ['find . -name "env.sh" | grep -i %s' % eprefix,]
     p = subprocess.Popen(cl, stdout=subprocess.PIPE, stderr=subprocess.PIPE,shell=True)
     out, err = p.communicate()
     fpaths = out.split('\n')
