@@ -1,5 +1,16 @@
 import os
 import subprocess
+import sys
+
+new_path = [ os.path.join( os.getcwd(), "lib" ) ]
+#new_path.extend( sys.path[1:] ) # remove scripts/ from the path
+sys.path = new_path
+from galaxy import config
+
+aconfig = config.Configuration( )
+M_A_K = aconfig.master_api_key
+print M_A_K
+
 
 def find_packages(prefix="package_r_"):
     """
