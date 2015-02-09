@@ -18,13 +18,26 @@ inclusion.
 ## What to contribute
 
 * Wrappers for new tools
-* Wrappers without tests
 * Visualization Plugins
 * New datatypes
+* Updates for tools
+* Enhancements for tools (e.g. supporting new parameters)
+* Bug fixes
+* Documentation improvements
+* New test cases
+
+### Abandoned Tools
+
+* The IUC is happy to adopt tools that you (the developer) are abandoning.
+* If there are tools that you find useful but seem to be abandoned and not
+  updated, you're welcome to create an issue recommending that the IUC adopt
+  that tool.
 
 ## What not to contribute
 
 * Things already wrapped and currently maintained by other users
+* Wrappers without tests
+
 
 ## Tests
 
