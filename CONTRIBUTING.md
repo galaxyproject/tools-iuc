@@ -14,3 +14,40 @@ inclusion.
 * Make sure you have added the necessary tests for your changes and they pass.
 * Open a [pull request](https://help.github.com/articles/using-pull-requests)
   with these changes.
+
+## What to contribute
+
+* Wrappers for new tools
+* Wrappers without tests
+* Visualization Plugins
+* New datatypes
+
+## What not to contribute
+
+* Things already wrapped and currently maintained by other users
+
+## Tests
+
+Contributed tools should include test cases for all tools. They need not
+necessarily cover all uses of the program, but should ensure that it is
+generally working. The Galaxy Wiki has a
+[page](https://wiki.galaxyproject.org/Admin/Tools/WritingTests) on writing
+tests.
+
+The IUC strongly recommends testing with [planemo](https://github.com/galaxyproject/planemo/), which provides a simple command line utility for testing functionality
+
+```console
+$ planemo test --install_galaxy my_tool.xml
+```
+
+## Requirements for Contributions
+
+Before a PR will be accepted, the IUC has some requirements on the
+submitted code (which we will be happy to help you achieve if you need the
+assistance).
+
+* Tools must contain tests (and test-data)
+* The tests must pass
+* The tools should pass linting by planemo (`planemo lint tool.xml`)
+* If there's a relevant paper for the tool, it should be cited with a [citation](https://wiki.galaxyproject.org/Admin/Tools/ToolConfigSyntax#A.3Ccitations.3E_tag_set) block
+
