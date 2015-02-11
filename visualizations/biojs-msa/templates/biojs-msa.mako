@@ -35,7 +35,7 @@ ${h.javascript_link( root + 'plugins/visualizations/biojs-msa/static/msa.min.js'
     var hdaJson = ${h.dumps( trans.security.encode_dict_ids( hda.to_dict() ), indent=2 )};
 
     var title   = "${title or default_title}";
-    var url = "/api/datasets/"+config.dataset_id+"?data_type=raw_data&provider=base";
+    var url = "${root}" + "/api/datasets/"+config.dataset_id+"?data_type=raw_data&provider=base";
 	var xhr = require("nets");
 	xhr(url, function(err, response,text){
 		var data = JSON.parse(text).data;
