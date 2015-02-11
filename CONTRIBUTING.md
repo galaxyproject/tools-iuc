@@ -19,7 +19,6 @@ inclusion.
 
 * Wrappers for new tools
 * Visualization Plugins
-* New datatypes
 * Updates for tools
 * Enhancements for tools (e.g. supporting new parameters)
 * Bug fixes
@@ -37,6 +36,10 @@ inclusion.
 
 * Things already wrapped and currently maintained by other users
 * Wrappers without tests
+* New datatypes
+    * When possible, new datatypes should be added directly to the Galaxy
+      codebase as it's currently not trivial to deal with toolshed installed
+      datatypes in some situations.
 
 
 ## Tests
