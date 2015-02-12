@@ -928,7 +928,7 @@ def main():
     a('--tool_desc',default=None)
     a('--new_tool',default=None)
     a('--tool_version',default=None)
-    a('--include_dependencies',default="yes")   
+    a('--include_dependencies',default=None)   
     a('--citations',default=None)
     a('--additional_parameters', dest='additional_parameters', action='append', default=[])
     a('--edit_additional_parameters', action="store_true", default=False)

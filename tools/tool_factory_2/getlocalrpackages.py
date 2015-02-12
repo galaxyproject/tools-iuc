@@ -2,15 +2,6 @@ import os
 import subprocess
 import sys
 
-new_path = [ os.path.join( os.getcwd(), "lib" ) ]
-#new_path.extend( sys.path[1:] ) # remove scripts/ from the path
-sys.path = new_path
-from galaxy import config
-
-aconfig = config.Configuration( )
-M_A_K = aconfig.master_api_key
-print M_A_K
-
 
 def find_packages(prefix="package_r_"):
     """
@@ -39,11 +30,24 @@ def find_packages(prefix="package_r_"):
         res.insert(0,['Use default (system) interpreter','system',False])
     else:
         res = [['Use default (system) interpreter','system',False],
-        ['**WARNING** NO package env.sh files found - is the "locate" system command working? Are any interpreters installed?','system',True]]
+        ['**WARNING** NO package env.sh files found - is the "find" system command working? Are any interpreters installed?','system',True]]
     if len(res) > 2:
         res[1][2] = True # selected if more than one
     # return a triplet - user_sees,value,selected - all unselected if False
     return res
 
+def testapi():
+    host_url = 'http://localhost:8080'
+    new_path = [ os.path.join( os.getcwd(), "lib" ) ]
+    new_path.extend( sys.path[1:] ) # remove scripts/ from the path
+    sys.path = new_path
+    from galaxy import config
+    aconfig = config.Configuration( )
+    M_A_K = aconfig.master_api_key
+    tooldeps = aconfig.tool_dependency_dir
+    gi = GalaxyInstance(url=host_url, key=M_A_K)
+
+
 if __name__ == "__main__":
-   print find_packages()
+    print find_packages()
+   
