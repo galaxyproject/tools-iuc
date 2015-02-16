@@ -257,75 +257,94 @@ Toolshed entry.
 7. Ask the local admin to check the new tool to confirm it's not evil and
 install it in the local production galaxy
 
-**Simple examples on the tool form**
 
-A simple Rscript "filter" showing how the command line parameters can be
-handled, takes an input file, does something (transpose in this case) and
-writes the results to a new tabular file::
 
- # transpose a tabular input file and write as a tabular output file
+**Parameter passing and file inputs**
+
+Your script will receive up to 3 named parameters
+INPATHS is a comma separated list of input file paths
+INNAMES is a comma separated list of input file names in the same order
+OUTPATH is optional if a file is being generated, your script should write there
+Your script should open and write files in the provided working directory if you are using the Html
+automatic presentation option.
+
+Python script command lines will have --INPATHS and --additional_arguments etc. to make it easy to use argparse
+
+Rscript will need to use commandArgs(TRUE) - see the example below - additional arguments will
+appear as themselves - eg foo="bar" will mean that foo is defined as "bar" for the script.
+
+Bash and sh will see any additional parameters on their command lines and the 3 named parameters
+in their environment magically - well, using env on the CL
+
+***python***::
+
+ # argparse for 3 possible comma separated lists
+ # additional parameters need to be parsed !
+ # then echo parameters to the output file
+ import sys
+ import argparse
+ argp=argparse.ArgumentParser()
+ argp.add_argument('--INNAMES',default=None)
+ argp.add_argument('--INPATHS',default=None)
+ argp.add_argument('--OUTPATH',default=None)
+ argp.add_argument('--additional_parameters',default=[],action="append")
+ argp.add_argument('otherargs', nargs=argparse.REMAINDER)
+ args = argp.parse_args()
+ f= open(args.OUTPATH,'w')
+ s = '### args=%s\n' % str(args)
+ f.write(s)
+ s = 'sys.argv=%s\n' % sys.argv
+ f.write(s) 
+ f.close()
+
+
+
+***Rscript***::
+
+ # tool factory Rscript parser suggested by Forester
+ # http://www.r-bloggers.com/including-arguments-in-r-cmd-batch-mode/
+ # additional parameters will appear in the ls() below - they are available
+ # to your script
+ # echo parameters to the output file
  ourargs = commandArgs(TRUE)
- inf = ourargs[1]
- outf = ourargs[2]
- inp = read.table(inf,head=F,row.names=NULL,sep='\t')
- outp = t(inp)
- write.table(outp,outf, quote=FALSE, sep="\t",row.names=F,col.names=F)
-
-Calculate a multiple test adjusted p value from a column of p values -
-for this script to be useful, it needs the right column for the input to be
-specified in the code for the given input file type(s) specified when the
-tool is generated ::
-
- # use p.adjust - assumes a HEADER row and column 1 - please fix for any
- real use
- column = 1 # adjust if necessary for some other kind of input
- fdrmeth = 'BH'
- ourargs = commandArgs(TRUE)
- inf = ourargs[1]
- outf = ourargs[2]
- inp = read.table(inf,head=T,row.names=NULL,sep='\t')
- p = inp[,column]
- q = p.adjust(p,method=fdrmeth)
- newval = paste(fdrmeth,'p-value',sep='_')
- q = data.frame(q)
- names(q) = newval
- outp = cbind(inp,newval=q)
- write.table(outp,outf, quote=FALSE, sep="\t",row.names=F,col.names=T)
+ if(length(ourargs)==0){
+    print("No arguments supplied.")
+ }else{
+    for(i in 1:length(ourargs)){
+         eval(parse(text=ourargs[[i]]))
+    }
+ sink(OUTPATH)
+ cat('INPATHS=',INPATHS,'\n')
+ cat('INNAMES=',INNAMES,'\n')
+ cat('OUTPATH=',OUTPATH,'\n')
+ x=ls()
+ cat('all objects=',x,'\n')
+ sink()
+ }
+ sessionInfo()
+ print.noquote(date())
 
 
+***bash/sh***::
 
-Another Rscript example without any input file - generates a random heatmap
-pdf - you must make sure the option to create an HTML output file is
-turned on for this to work. The heatmap will be presented as a thumbnail
-linked to the pdf in the resulting HTML page::
+ # tool factory sets up these environmental variables
+ # this example writes those to the output file
+ # additional params appear on command line
+ if [ ! -f "$OUTPATH" ] ; then
+    touch "$OUTPATH"
+ fi
+ echo "INPATHS=$INPATHS" >> "$OUTPATH"
+ echo "INNAMES=$INNAMES" >> "$OUTPATH"
+ echo "OUTPATH=$OUTPATH" >> "$OUTPATH"
+ echo "CL=$@" >> "$OUTPATH"
 
- # note this script takes NO input or output because it generates random data
- foo = data.frame(a=runif(100),b=runif(100),c=runif(100),d=runif(100),
- e=runif(100),f=runif(100))
- bar = as.matrix(foo)
- pdf( "heattest.pdf" )
- heatmap(bar,main='Random Heatmap')
- dev.off()
+***perl***::
 
-A Python example that reverses each row of a tabular file. You'll need
-to remove the leading spaces for this to work if cut and pasted into the
-script box. Note that you can already do this in Galaxy by setting up the
-cut columns tool with the correct number of columns in reverse order,but
-this script will work for any number of columns so is completely generic::
-
-# reverse order of columns in a tabular file
-import sys
-inp = sys.argv[1]
-outp = sys.argv[2]
-i = open(inp,'r')
-o = open(outp,'w')
-for row in i:
-    rs = row.rstrip().split('\t')
-    rs.reverse()
-    o.write('\t'.join(rs))
-    o.write('\n')
-i.close()
-o.close()
+ (my $INPATHS,my $INNAMES,my $OUTPATH ) = @ARGV;
+ open(my $fh, '>', $OUTPATH) or die "Could not open file '$OUTPATH' $!";
+ print $fh "INPATHS=$INPATHS\n INNAMES=$INNAMES\n OUTPATH=$OUTPATH\n";
+ close $fh;
+ 
 
 
 Galaxy as an IDE for developing API scripts
