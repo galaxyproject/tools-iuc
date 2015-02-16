@@ -36,7 +36,7 @@ real file paths.
 
 
 tldr;
-
+`
 ﻿# WARNING before you start
 # Install this tool on a private Galaxy ONLY
 # Please NEVER on a public or production instance
@@ -399,3 +399,4 @@ Licensed under the LGPL
 http://bitbucket.org/fubar/galaxytoolmaker/src/fda8032fe989/images/dynamicScriptTool.png
 
 
+`
