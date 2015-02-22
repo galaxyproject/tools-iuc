@@ -67,14 +67,14 @@ def main():
     bases = ('A','T','C','G')
     mutation_probs = [45,35,15,5]
     base_seq= ''
-    for iteration in range(50):
+    for iteration in range(25000):
         base_seq += random.choice(bases)
     mut_seq = base_seq
     sequence_output.write('>original\n%s\n' % base_seq)
     i=1
     for sequence in range(number_of_sequences):
         changes_list = []
-        for evolutionary_event in range(50):
+        for evolutionary_event in range(500):
             Prob = random.randint(0,100)
             if Prob in range(0,mutation_probs[0]):
                 mut_seq,changes_list = insertion(mut_seq,changes_list)
