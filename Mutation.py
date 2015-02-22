@@ -67,7 +67,7 @@ def main():
     bases = ('A','T','C','G')
     mutation_probs = [45,35,15,5]
     base_seq= ''
-    for iteration in range(25000):
+    for iteration in range(250):
         base_seq += random.choice(bases)
     mut_seq = base_seq
     sequence_output.write('>original\n%s\n' % base_seq)
