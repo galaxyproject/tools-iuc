@@ -71,10 +71,8 @@ def main():
         base_seq += random.choice(bases)
     mut_seq = base_seq
     sequence_output.write('>original\n%s\n' % base_seq)
-    sequence_output.close()
     i=1
     for sequence in range(number_of_sequences):
-        sequence_output = open('mut_seq'+str(i)+'.fa','w')
         changes_list = []
         for evolutionary_event in range(500):
             Prob = random.randint(0,100)
@@ -90,7 +88,6 @@ def main():
         for change in changes_list:
             change_list_output.write(change + "\n")
         change_list_output.write("End of Sequence" + str(i) + '\n')
-        sequence_output.write('>mut'+str(i)+'\n%s\n' % mut_seq)
         sequence_output.close
         i+=1
     change_list_output.close()
