@@ -886,7 +886,7 @@ o.close()
             try:
                 while True:
                     err += tmp_stderr.read( buffsize )
-                    if not err or len( stderr ) % buffsize != 0:
+                    if not err or len( err ) % buffsize != 0:
                         break
             except OverflowError:
                 pass
