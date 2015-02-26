@@ -377,10 +377,10 @@ https://toolshed.g2.bx.psu.edu/view/fubar/tool_factory_2
             # yes, this is how additional parameters are always passed in python - to the TF itself and to
             # scripts to avoid having unknown parameter names (yes, they can be parsed but...) on the command line
             if self.opts.input_tab:
-                a('--INPATHS "%s"' % (self.infile_paths)) 
-                a('--INNAMES "%s"' % (self.infile_names)) 
+                a('--inpaths=%s' % (self.infile_paths)) 
+                a('--innames=%s' % (self.infile_names)) 
             if self.opts.output_tab:
-                a('--OUTPATH "%s"' % self.opts.output_tab) 
+                a('--outpath=%s' % self.opts.output_tab) 
             for p in opts.additional_parameters:
                 p = p.replace('"','')
                 psplit = p.split(',')
@@ -886,7 +886,7 @@ o.close()
             try:
                 while True:
                     err += tmp_stderr.read( buffsize )
-                    if not err or len( stderr ) % buffsize != 0:
+                    if not err or len( err ) % buffsize != 0:
                         break
             except OverflowError:
                 pass
