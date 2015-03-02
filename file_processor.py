@@ -1,5 +1,5 @@
-link_output = open('link_coordinates.txt','w')
-file = open('threeseq.xmfa.backbone','r')
+link_output = open('2nd_run_links.txt','w')
+file = open('2nd_run.xmfa.backbone','r')
 new_readlines = []
 for line in file.readlines():
     t_ct = 0
@@ -22,9 +22,22 @@ for line in file.readlines():
     else:
         pass
 for line in new_readlines:
+   new_line_1 = ''
+   new_line_2 = ''
+   new_line_3 = ''
    line = line.replace('chr1 0 0',"")
    line = line.replace('chr2 0 0',"")
    line = line.replace('chr3 0 0',"")
    line = line.strip()
-   if line.count('leftend')==0:
-        link_output.write('%s\n' %line)    
+   if 'chr1' in line and 'chr2' in line and 'chr3' in line:
+        chr2_pos = line.find('chr2')
+        chr3_pos = line.find('chr3')
+        new_line_1 = (line[chr2_pos-1:]).strip()
+        new_line_2 = (line[:chr3_pos-1]).strip()
+        new_line_3 = (line[:chr2_pos-1]+line[chr3_pos-1:]).strip()
+   if line.count('leftend')==0 and new_line_1 == '':
+        link_output.write('%s\n' %line)
+   elif line.count('leftend')==0:
+        link_output.write(new_line_1+str('\n'))    
+        link_output.write(new_line_2+str('\n'))
+        link_output.write(new_line_3+str('\n'))

@@ -62,12 +62,12 @@ def translocation(mut_seq,changes_list):
 
 def main():
     number_of_sequences = 2
-    change_list_output = open('change-list.txt', 'w')
-    sequence_output = open('base_seq.fa', 'w')
+    change_list_output = open('second_run_changes.txt', 'w')
+    sequence_output = open('second_run.fa', 'w')
     bases = ('A','T','C','G')
     mutation_probs = [45,35,15,5]
     base_seq= ''
-    for iteration in range(250):
+    for iteration in range(50000):
         base_seq += random.choice(bases)
     mut_seq = base_seq
     sequence_output.write('>original\n%s\n' % base_seq)
@@ -84,7 +84,7 @@ def main():
                 mut_seq,changes_list = inversion(mut_seq,changes_list)
             else:
                 mut_seq,changes_list = translocation(mut_seq,changes_list)
-        sequence_output.write('>inv'+str(i)+'\n%s\n' % mut_seq)
+        sequence_output.write('>mut'+str(i)+'\n%s\n' % mut_seq)
         for change in changes_list:
             change_list_output.write(change + "\n")
         change_list_output.write("End of Sequence" + str(i) + '\n')
