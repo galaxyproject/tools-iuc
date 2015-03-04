@@ -1,5 +1,5 @@
 def links(backbone_file,link_output):
-	link_output = open(link_output,'w')
+        link_output = open(link_output,'w')
 	backbone_file = open(backbone_file,'r')
 	new_readlines = []
 	for line in backbone_file.readlines():
@@ -61,8 +61,10 @@ def karyotype(seq_file):
                         preceding_line_was_header = 1
 			name = line.strip()
 	seq_file.close()
-	return genome_list
-
+	karyotype_file = open('new_karyotype.txt','w')
+	for tuple in genome_list:
+		karyotype_file.write('chr - '+tuple[0]+' '+tuple[0][1:]+' '+str(0)+' '+str(tuple[1]-1)+' \n')
+	karyotype_file.close()
 def main():
 	backbone_file = ''
 	link_output = ''
@@ -71,10 +73,7 @@ def main():
 	for line in sample_conf.readlines():
 			output_conf.write(str(line).strip()+'\n')
 	sample_conf.close()
-	genome_list = karyotype('second_run.fa')
-	print genome_list
-
-
+	karyotype('second_run.fa')
 	output_conf.close()
 
 if __name__ == '__main__':
