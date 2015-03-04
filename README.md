@@ -44,3 +44,5 @@ Circos Notes
 			#Number of records read from the data file can be capped with the parameter record_limit.
 			</link>
 			</links>
+		For the size of the link to reflect the sizes of the matches on the two "chromosomes", the ribbon setting must be set to "yes" in the conf file.
+
