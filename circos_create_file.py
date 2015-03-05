@@ -1,53 +1,51 @@
+import os.path
+import itertools
 def links(backbone_file,link_output):
-        link_output = open(link_output,'w')
-	backbone_file = open(backbone_file,'r')
-	new_readlines = []
-	for line in backbone_file.readlines():
-	    t_ct = 0
-	    new_line = 'chr1 '
-	    for character in line:
-	        if character == '\t':
-	            t_ct+=1
-	            if t_ct == 2:
-	                new_line += ' chr2 '
-	            elif t_ct == 4:
-	                new_line += ' chr3 '
-	            else:
-	                new_line += ' '
-	        elif character == '\n':
-	            pass
-	        else:
-	            new_line += character
-	    if new_line.count('0 0')<>2:
-	        new_readlines += [new_line]
-	    else:
-	        pass
-	for line in new_readlines:
-	   new_line_1 = ''
-	   new_line_2 = ''
-	   new_line_3 = ''
-	   line = line.replace('chr1 0 0',"")
-	   line = line.replace('chr2 0 0',"")
-	   line = line.replace('chr3 0 0',"")
-	   line = line.strip()
-	   if 'chr1' in line and 'chr2' in line and 'chr3' in line:
-	        chr2_pos = line.find('chr2')
-	        chr3_pos = line.find('chr3')
-	        new_line_1 = (line[chr2_pos-1:]).strip()
-	        new_line_2 = (line[:chr3_pos-1]).strip()
-	        new_line_3 = (line[:chr2_pos-1]+line[chr3_pos-1:]).strip()
-	   if line.count('leftend')==0 and new_line_1 == '':
-	        link_output.write('%s\n' %line)
-	   elif line.count('leftend')==0:
-	        link_output.write(new_line_1+str('\n'))
-	        link_output.write(new_line_2+str('\n'))
-	        link_output.write(new_line_3+str('\n'))
-	backbone_file.close()
-	link_output.close()
+	lines = open(backbone_file,'r').readlines()
+	# There will be 2N where N is the number of genomes in our header
+	header = lines[0].split('\t') 
+	genome_count = len(header) / 2
+	# Data structure to hold the links
+	links = {}
+	# A from-to list (from col/to col) which will be used to check links between genomes
+	# https://docs.python.org/2/library/itertools.html
+	# from_to for a genome_count of 3 looks like: [(0, 1), (0, 2), (1, 2)]
+	# Preferred as it will expand to ANY number of comparisons
+	from_to = list(itertools.combinations(range(genome_count), 2))
+	# Now down to actual parsing
+	for line in lines[1:]:
+	  # Split with a tab. I can't remember if the file is tab separated, if not, then use `.split()` and it'll split on any whitespace.
+	  link_data = line.split('\t')
+	  # Iterate over pairs of columns
+	  for x, y in from_to:
+	    # Access the link data in that column
+	    a_left = link_data[2*x].strip()
+	    a_right = link_data[2*x + 1].strip()
+	    b_left = link_data[2*y].strip()
+	    b_right = link_data[2*y + 1].strip()
+	    # if any of them are zero, then we can continue, as this isn't a "true" link.
+	    if a_left != 0  and b_left != 0:
+	      try:
+	        links['%s-%s' % (x,y)].append([a_left, a_right, b_left, b_right])
+	      except:
+	        links['%s-%s' % (x,y)] = [
+	          [a_left, a_right, b_left, b_right]
+	        ]
+	return links
+
+def write_link_file(names_list,links, link_output='links.txt'):
+  with open(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/Data',link_output), 'w') as handle:
+    for key in links:
+      key_from, key_to = key.split('-') # Rememver, we keyed on 1-3 0-2 3-2 / etc
+      for link in links[key]: # List of from/to
+        # Create the list by re-arranging the link_data
+        data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
+        handle.write(' '.join(data) + "\n")
 
 
 def karyotype(seq_file):
 	genome_list = []
+	names_list = []
 	seq_file = open(seq_file,'r')
 	preceding_line_was_header = 0
 	for line in seq_file.readlines():
@@ -63,19 +61,22 @@ def karyotype(seq_file):
 	seq_file.close()
 	karyotype_file = open('new_karyotype.txt','w')
 	for tuple in genome_list:
+		names_list+=[tuple[0]]
 		karyotype_file.write('chr - '+tuple[0]+' '+tuple[0][1:]+' '+str(0)+' '+str(tuple[1]-1)+' \n')
 	karyotype_file.close()
+	return names_list
+
 def main():
-	backbone_file = ''
-	link_output = ''
+	backbone_file = '2nd_run.xmfa.backbone'
+	link_output = '2nd_run_links.txt'
 	sample_conf = open('sample_conf.conf','r')
         output_conf = open('output.conf','w')
 	for line in sample_conf.readlines():
 			output_conf.write(str(line).strip()+'\n')
 	sample_conf.close()
-	karyotype('second_run.fa')
 	output_conf.close()
-
+	write_link_file(karyotype('second_run.fa'),links(backbone_file,link_output))
+	
 if __name__ == '__main__':
 	main()
 
