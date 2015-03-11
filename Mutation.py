@@ -10,9 +10,17 @@ def insertion(mut_seq,changes_list):
         changes_list += ['Insertion of '+str(base)+' at position '+str(i+1)]
     return new_seq,changes_list
 
+def rev_comp(sequence):
+    pairing_dict = {'A':'T','G':'C','T':'A','C':'G'}
+    nucl_list = [pairing_dict[letter] for letter in sequence[::-1]]
+    return ''.join(str(char) for char in nucl_list)
+
 def deletion(mut_seq,changes_list):
     i = random.randint(0,len(mut_seq)-1)
-    new_seq = mut_seq[:i] + mut_seq[i+1:]
+    j = random.randint(i+1,i+100)
+    if j>=len(mut_seq):
+        j = len(mut_seq)
+    new_seq = mut_seq[:min(i,j)] + mut_seq[max(i,j):]
     changes_list += ['Deletion at position '+str(i+1)]
     return new_seq,changes_list
 
@@ -25,11 +33,7 @@ def inversion(mut_seq,changes_list):
         endpoints = (i,j)
     else:
         endpoints = (j,i)
-    inverted_raw = mut_seq[endpoints[1]-1::-1]
-    inverted_processed = ''
-    for nucleotide in range(abs(i-j)):
-        inverted_processed += str(inverted_raw[nucleotide])
-    new_seq = mut_seq[:endpoints[0]] + inverted_processed + mut_seq[endpoints[1]:]
+    new_seq = mut_seq[:i]+rev_comp(mut_seq[i:j])+mut_seq[j:]
     changes_list += ['Inversion between positions ' + str(endpoints[0]+1) + ' and ' + str(endpoints[1])]
     return new_seq,changes_list
 
@@ -62,12 +66,12 @@ def translocation(mut_seq,changes_list):
 
 def main():
     number_of_sequences = 2
-    change_list_output = open('second_run_changes.txt', 'w')
-    sequence_output = open('second_run.fa', 'w')
+    change_list_output = open('3_genome_data/three_genomes.txt', 'w')
+    sequence_output = open('3_genome_data/three_genomes.fa', 'w')
     bases = ('A','T','C','G')
     mutation_probs = [45,35,15,5]
     base_seq= ''
-    for iteration in range(50000):
+    for iteration in range(10000):
         base_seq += random.choice(bases)
     mut_seq = base_seq
     sequence_output.write('>original\n%s\n' % base_seq)
@@ -91,11 +95,6 @@ def main():
         sequence_output.close
         i+=1
     change_list_output.close()
-    #print 'Base Sequence:', base_seq
-    #print 'New Sequence: ',mut_seq
-    #print 'Changes:'
-    #for change in changes_list:
-        #print change
     
 
 if __name__ == '__main__':

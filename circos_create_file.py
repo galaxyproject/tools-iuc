@@ -1,3 +1,4 @@
+import pprint
 import os.path
 import itertools
 def links(backbone_file,link_output):
@@ -24,24 +25,26 @@ def links(backbone_file,link_output):
 	    b_left = link_data[2*y].strip()
 	    b_right = link_data[2*y + 1].strip()
 	    # if any of them are zero, then we can continue, as this isn't a "true" link.
+	    # Circos will plot links from "0 0", so any links with "0 0" need to be removed.
 	    if a_left != 0  and b_left != 0:
-	      try:
-	        links['%s-%s' % (x,y)].append([a_left, a_right, b_left, b_right])
-	      except:
-	        links['%s-%s' % (x,y)] = [
+	        try:
+	            links['%s-%s' % (x,y)].append([a_left, a_right, b_left, b_right])
+	        except:
+	            links['%s-%s' % (x,y)] = [
 	          [a_left, a_right, b_left, b_right]
-	        ]
+		    ]
 	return links
 
 def write_link_file(names_list,links, link_output='links.txt'):
-  with open(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/Data',link_output), 'w') as handle:
+  with open(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/3_genome_data',link_output), 'w') as handle:
     for key in links:
       key_from, key_to = key.split('-') # Rememver, we keyed on 1-3 0-2 3-2 / etc
       for link in links[key]: # List of from/to
         # Create the list by re-arranging the link_data
-        data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
-        handle.write(' '.join(data) + "\n")
-
+        # Circos will plot links from "0 0", so any links with "0 0" need to be removed.
+	if link[0] != link[1] and link[2] != link[3]: 
+            data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
+            handle.write(' '.join(data) + "\n")
 
 def karyotype(seq_file):
 	genome_list = []
@@ -57,25 +60,27 @@ def karyotype(seq_file):
 		genome_tuple = ('','')
                 if line[0] == '>':
                         preceding_line_was_header = 1
-			name = line.strip()
+			#Circos does not like ">" in the genome names.
+			name = line[1:].strip()
 	seq_file.close()
-	karyotype_file = open('new_karyotype.txt','w')
+	karyotype_file = open(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/3_genome_data','3_genome_karyotype.txt'),'w')
 	for tuple in genome_list:
 		names_list+=[tuple[0]]
-		karyotype_file.write('chr - '+tuple[0]+' '+tuple[0][1:]+' '+str(0)+' '+str(tuple[1]-1)+' \n')
+		karyotype_file.write('chr - '+(tuple[0]+' ')*2+str(0)+' '+str(tuple[1]-1)+' \n')
 	karyotype_file.close()
 	return names_list
 
 def main():
-	backbone_file = '2nd_run.xmfa.backbone'
-	link_output = '2nd_run_links.txt'
+	backbone_file = os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/3_genome_data','3_genome_data.xmfa.backbone')
+	link_output = '3_genome_links.txt'
 	sample_conf = open('sample_conf.conf','r')
-        output_conf = open('output.conf','w')
+        output_conf = open(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/3_genome_data','three_genome_conf.conf'),'w')
 	for line in sample_conf.readlines():
+		if line[0] != '#':
 			output_conf.write(str(line).strip()+'\n')
 	sample_conf.close()
 	output_conf.close()
-	write_link_file(karyotype('second_run.fa'),links(backbone_file,link_output))
+	write_link_file(karyotype(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/3_genome_data','three_genome_data.fa')),links(backbone_file,link_output))
 	
 if __name__ == '__main__':
 	main()
