@@ -41,26 +41,26 @@ class Nucleic_Acid:
                 new_start_pos = random.randint(0,len(new_DNA))
                 self.nucl_seq = new_DNA[:new_start_pos]+translocated_segment+new_DNA[new_start_pos:]
             prob = random.randint(1,100)
-            #if prob<=35:
-            #    insertion(self,length,start)
-            #elif prob<=70:
-            #    deletion(self,length,start)
-            #if prob<=90:
-            #    translocation(self,length,start)
-            #else:
-            inversion(self,length,start)
+            if prob<=35:
+                insertion(self,length,start)
+            elif prob<=70:
+                deletion(self,length,start)
+            if prob<=90:
+                translocation(self,length,start)
+            else:
+		inversion(self,length,start)
     
     
 
 if __name__ == '__main__':
-    output = open(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos',"backbone_test.fa"),'w')
-    init_list = [Nucleic_Acid.DNA(random.randint(100,200)) for number_of_sequences in range(1)]
+    output = open(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos',"test2_0409.fa"),'w')
+    init_list = [Nucleic_Acid.DNA(random.randint(1000,2000)) for number_of_sequences in range(1)]
     mut_list = []
     ops_list = []
-    for number_of_sequences in range(2):
-        obj2 = Nucleic_Acid.DNA(random.randint(10,50))
+    for number_of_sequences in range(5):
+        obj2 = Nucleic_Acid.DNA(random.randint(1000,2000))
         obj2.nucl_seq = init_list[0].nucl_seq
-        for event in range(1):
+        for event in range(500):
             obj2.mutation_event()
         mut_list += [obj2]
         ops_list += [obj2.list_of_changes]
@@ -72,5 +72,5 @@ if __name__ == '__main__':
         output.write('>Mut%s\n' % i)
         output.write(str(sequence.nucl_seq) + '\n')
     output.close()
-    print ops_list
+   #print ops_list
         

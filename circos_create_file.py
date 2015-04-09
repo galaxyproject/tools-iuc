@@ -35,18 +35,74 @@ def links(backbone_file,link_output):
 		    ]
 	return links
 
-def write_link_file(names_list,links, link_output='links.txt'):
-  with open(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/3_genome_data',link_output), 'w') as handle:
-    for key in links:
-      key_from, key_to = key.split('-') # Rememver, we keyed on 1-3 0-2 3-2 / etc
-      for link in links[key]: # List of from/to
+def reverse_complement(sequence):
+	DNA_pairing_dict = {'A':'T','G':'C','T':'A','C':'G'}
+	new_seq = ''
+	for letter in sequence[::-1]:
+		new_seq+=DNA_pairing_dict[letter]
+	return new_seq
+
+def percent_sequence_identity(seq1,seq2):
+	i=0
+	total_length = max(len(seq1),len(seq2))
+	matches = 0
+	while i < min(len(seq1),len(seq2)):
+		if seq1[i]==seq2[i]:
+			matches+=1
+		i+=1
+	return float(matches)/float(total_length)
+
+def write_link_file(names_list, links, link_output,directory):
+	with open(os.path.join(directory,link_output), 'w') as handle:
+		for key in links:
+			key_from, key_to = key.split('-') # Rememver, we keyed on 1-3 0-2 3-2 / etc
+			for link in links[key]: # List of from/to
         # Create the list by re-arranging the link_data
         # Circos will plot links from "0 0", so any links with "0 0" need to be removed.
-	if link[0] != link[1] and link[2] != link[3]: 
-            data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
-            handle.write(' '.join(data) + "\n")
+				if len(link) == 5: 
+					if int(link[0]) > 0 and int(link[2])>0:
+						data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
+						if float(link[4])<0.3:
+							handle.write(' '.join(data) + " color=lblue \n")
+							#print ' '.join(data) + " color=lblue \n"
+						elif float(link[4])<0.6:
+							handle.write(' '.join(data) + " color=blue \n")
+							#print ' '.join(data) + " color=lblue \n"
+						else:
+							handle.write(' '.join(data) + " color=dblue \n")
+							#print ' '.join(data) + " color=lblue \n"
+					elif int(link[0]) < 0:
+						link[0] = str(-1*int(link[0]))
+						link[1] = str(-1*int(link[1]))
+						data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
+						if float(link[4])<0.3:
+							handle.write(' '.join(data) + " color=lred \n")
+							#print ' '.join(data) + " color=lblue \n"
+						elif float(link[4])<0.6:
+							handle.write(' '.join(data) + " color=red \n")
+							#print ' '.join(data) + " color=lblue \n"
+						else:
+							handle.write(' '.join(data) + " color=dred \n")
+							#print ' '.join(data) + " color=lblue \n"
+					else:
+						link[2] = str(-1*int(link[2]))
+						link[3] = str(-1*int(link[3]))						
+						data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
+						if float(link[4])<0.3:
+							handle.write(' '.join(data) + " color=lred \n")
+							#print ' '.join(data) + " color=lblue \n"
+						elif float(link[4])<0.6:
+							handle.write(' '.join(data) + " color=red \n")
+							#print ' '.join(data) + " color=lblue \n"
+						else:
+							handle.write(' '.join(data) + " color=dred \n")	
+							#print ' '.join(data) + " color=lblue \n"
+					
+					
 
-def karyotype(seq_file):
+def karyotype(seq_file,karyotype_name,directory):
+	i=0
+	colors_list = ['red','blue','green','orange','violet','brown']
 	genome_list = []
 	names_list = []
 	seq_file = open(seq_file,'r')
@@ -63,25 +119,83 @@ def karyotype(seq_file):
 			#Circos does not like ">" in the genome names.
 			name = line[1:].strip()
 	seq_file.close()
-	karyotype_file = open(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/3_genome_data','3_genome_karyotype.txt'),'w')
+	karyotype_file = open(os.path.join(directory,karyotype_name),'w')
 	for tuple in genome_list:
 		names_list+=[tuple[0]]
-		karyotype_file.write('chr - '+(tuple[0]+' ')*2+str(0)+' '+str(tuple[1]-1)+' \n')
+		karyotype_file.write('chr - '+(tuple[0]+' ')*2+str(0)+' '+str(tuple[1]-1)+ ' ' + str(colors_list[i]) + ' \n')
+		i+=1
 	karyotype_file.close()
 	return names_list
 
+def add_pct_identity(link_dict,sequence_file):
+	with open(sequence_file,'r') as handle:
+		lines_list = handle.readlines()
+		key_pair = []
+		for key in link_dict:
+			list_of_links = link_dict[key]
+			key_pair+=key[0]
+			key_pair+=key[-1]
+			for element in list_of_links:
+				first_index_set = [min(abs(int(element[0])),abs(int(element[1]))),max(abs(int(element[0])),abs(int(element[1])))]
+				second_index_set = [min(abs(int(element[2])),abs(int(element[3]))),max(abs(int(element[2])),abs(int(element[3])))]
+				sect_1 = lines_list[2*int(key_pair[0])+1].strip()[first_index_set[0]:first_index_set[1]]
+				sect_2 = lines_list[2*int(key_pair[1])+1].strip()[second_index_set[0]:second_index_set[1]]
+				if int(element[0]) < 0:
+					sect_1 = reverse_complement(sect_1)
+				if int(element[2]) < 0:
+				        sect_2 = reverse_complement(sect_2)
+				#print key_pair[0],sect_1
+				#print key_pair[1],sect_2
+				if sect_1!= '' and sect_2!= '':
+					element += [percent_sequence_identity(sect_1,sect_2)]
+					#pprint.pprint(element)
+			#for item in key_pair:
+			#	print lines_list[2*int(item)+1].strip()[]
+			key_pair = []
+		return link_dict
+
+
 def main():
-	backbone_file = os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/3_genome_data','3_genome_data.xmfa.backbone')
-	link_output = '3_genome_links.txt'
+	directory = 'C:\\Users\\User\\Desktop\\491 Scripts\\test_2\\'
+	destination_directory = 'C:\\Users\\User\\Desktop\\491 Scripts\\test_2\\'
+	image_direct = 'C:\\Users\\User\\Documents\\circos-0.67-5\\test'
+	karyotype_name = 'karyotype.txt'
+	link_output = 'links.txt'
+	backbone_filename = 'test2_0409.xmfa.backbone'
+	seq_filename = 'test2_0409.fa'
+	output_conf_filename = 'test2_0409.conf'
+	backbone_file = os.path.join(directory,backbone_filename)
+	link_dict = links(backbone_file,link_output)
+	link_dict = add_pct_identity(link_dict,os.path.join(directory,seq_filename))
+	write_link_file(karyotype(os.path.join(directory,seq_filename),karyotype_name,directory),link_dict,link_output,directory)
 	sample_conf = open('sample_conf.conf','r')
-        output_conf = open(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/3_genome_data','three_genome_conf.conf'),'w')
+        output_conf = open(os.path.join(directory,output_conf_filename),'w')
 	for line in sample_conf.readlines():
-		if line[0] != '#':
-			output_conf.write(str(line).strip()+'\n')
+		i = 0
+		while i!= len(line):
+			if line[0] == '<':
+				output_conf.write(str(line).strip()+'\n')
+				break
+			elif line[i] != ' ':
+				i+=1
+			else:
+				if line[0:i] == 'karyotype':
+					output_conf.write('karyotype = '+destination_directory + str(karyotype_name)+'\n')
+				elif line[0:i] == 'file':
+					output_conf.write('file = '+destination_directory+str(link_output)+'\n')
+				elif line[0:i] == 'dir*':
+					output_conf.write('dir* = '+image_direct+'\n')
+				elif line[0:i] == 'color':
+					break
+				else:
+					if line[0] != '#':
+						output_conf.write(str(line).strip()+'\n')
+				break
 	sample_conf.close()
 	output_conf.close()
-	write_link_file(karyotype(os.path.join('/home/users/CPT/CPT/491/scrosby/Circos/3_genome_data','three_genome_data.fa')),links(backbone_file,link_output))
+	
 	
 if __name__ == '__main__':
 	main()
+
 
