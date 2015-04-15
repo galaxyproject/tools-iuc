@@ -11,6 +11,8 @@ class Client(object):
     def __init__(self, history_file=None, user_email=None, admin_email=None):
         self.using_history = False
 
+        if user_email is not None and admin_email is not None:
+            Entrez.email = ';'.join((admin_email, user_email))
         if user_email is not None:
             Entrez.email = user_email
         elif admin_email is not None:
