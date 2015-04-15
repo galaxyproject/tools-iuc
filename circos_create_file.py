@@ -1,6 +1,40 @@
 import pprint
 import os.path
 import itertools
+import re
+
+def xmfa_parse(xmfa,num_seq):
+    start_regex = re.compile('>\s[1-9]:')
+    seq_info_list = [{} for num in range(num_seq+1)]
+    seq_string = ''
+    seq_string_2 = ''
+    i=0
+    return_list = []
+    with open(xmfa,'r') as handle:
+        for line in handle.readlines():
+            if start_regex.match(line) != None:
+                if i>0:
+                    seq_info_list[int(current_seq)][int(seq_start)] = seq_string
+                seq_start = ''
+                seq_string = ''
+                current_seq = line[2]
+                for character in line[4::]:
+                    if character != '-':
+                        seq_start += str(character)
+                    else:
+                        break
+                i+=1
+            elif line[0] != '=':
+                seq_string += line.strip()
+	else:
+	    seq_info_list[int(current_seq)][int(seq_start)] = seq_string
+    for d in seq_info_list:
+        seq_string_2 = ''
+        for element in d:
+            seq_string_2 += d[element]
+        return_list += [seq_string_2]
+    return return_list
+
 def links(backbone_file,link_output):
 	lines = open(backbone_file,'r').readlines()
 	# There will be 2N where N is the number of genomes in our header
@@ -36,7 +70,7 @@ def links(backbone_file,link_output):
 	return links
 
 def reverse_complement(sequence):
-	DNA_pairing_dict = {'A':'T','G':'C','T':'A','C':'G'}
+	DNA_pairing_dict = {'A':'T','G':'C','T':'A','C':'G','-':'-'}
 	new_seq = ''
 	for letter in sequence[::-1]:
 		new_seq+=DNA_pairing_dict[letter]
@@ -127,7 +161,7 @@ def karyotype(seq_file,karyotype_name,directory):
 	karyotype_file.close()
 	return names_list
 
-def add_pct_identity(link_dict,sequence_file):
+def add_pct_identity(link_dict,sequence_file,alignment_list):
 	with open(sequence_file,'r') as handle:
 		lines_list = handle.readlines()
 		key_pair = []
@@ -138,8 +172,8 @@ def add_pct_identity(link_dict,sequence_file):
 			for element in list_of_links:
 				first_index_set = [min(abs(int(element[0])),abs(int(element[1]))),max(abs(int(element[0])),abs(int(element[1])))]
 				second_index_set = [min(abs(int(element[2])),abs(int(element[3]))),max(abs(int(element[2])),abs(int(element[3])))]
-				sect_1 = lines_list[2*int(key_pair[0])+1].strip()[first_index_set[0]:first_index_set[1]]
-				sect_2 = lines_list[2*int(key_pair[1])+1].strip()[second_index_set[0]:second_index_set[1]]
+				sect_1 = alignment_list[int(key_pair[0])+1][first_index_set[0]:first_index_set[1]]
+				sect_2 = alignment_list[int(key_pair[1])+1][second_index_set[0]:second_index_set[1]]
 				if int(element[0]) < 0:
 					sect_1 = reverse_complement(sect_1)
 				if int(element[2]) < 0:
@@ -152,6 +186,7 @@ def add_pct_identity(link_dict,sequence_file):
 			#for item in key_pair:
 			#	print lines_list[2*int(item)+1].strip()[]
 			key_pair = []
+		pprint.pprint(link_dict)
 		return link_dict
 
 
@@ -164,9 +199,12 @@ def main():
 	backbone_filename = 'test2_0409.xmfa.backbone'
 	seq_filename = 'test2_0409.fa'
 	output_conf_filename = 'test2_0409.conf'
+	xmfa = os.path.join(directory,'test2_0409.xmfa')
 	backbone_file = os.path.join(directory,backbone_filename)
+	alignment_list = xmfa_parse(xmfa,6)
+	print alignment_list
 	link_dict = links(backbone_file,link_output)
-	link_dict = add_pct_identity(link_dict,os.path.join(directory,seq_filename))
+	link_dict = add_pct_identity(link_dict,os.path.join(directory,seq_filename),alignment_list)
 	write_link_file(karyotype(os.path.join(directory,seq_filename),karyotype_name,directory),link_dict,link_output,directory)
 	sample_conf = open('sample_conf.conf','r')
         output_conf = open(os.path.join(directory,output_conf_filename),'w')
@@ -197,5 +235,3 @@ def main():
 	
 if __name__ == '__main__':
 	main()
-
-
