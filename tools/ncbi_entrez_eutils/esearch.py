@@ -16,9 +16,11 @@ if __name__ == '__main__':
     # History
     parser.add_argument('--history_out', type=argparse.FileType('w'),
                         help='Output history file')
+    parser.add_argument('--user_email', help="User email")
+    parser.add_argument('--admin_email', help="Admin email")
     args = parser.parse_args()
 
-    c = eutils.Client(history_file=args.history_file)
+    c = eutils.Client(history_file=args.history_file, user_email=args.user_email, admin_email=args.admin_email)
 
     payload = {
         'db': args.db,

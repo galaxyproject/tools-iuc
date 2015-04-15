@@ -2,15 +2,22 @@ import os
 import json
 import StringIO
 from Bio import Entrez
-Entrez.email = os.environ.get('NCBI_EUTILS_CONTACT', None)
-Entrez.tool = "GalaxyEutils"
+Entrez.tool = "GalaxyEutils_1_0"
 BATCH_SIZE = 200
 
 
 class Client(object):
 
-    def __init__(self, history_file=None):
+    def __init__(self, history_file=None, user_email=None, admin_email=None):
         self.using_history = False
+
+        if user_email is not None:
+            Entrez.email = user_email
+        elif admin_email is not None:
+            Entrez.email = admin_email
+        else:
+            Entrez.email = os.environ.get('NCBI_EUTILS_CONTACT', None)
+
         if Entrez.email is None:
             raise Exception("Cannot continue without an email; please set "
                             "administrator email in NCBI_EUTILS_CONTACT")
