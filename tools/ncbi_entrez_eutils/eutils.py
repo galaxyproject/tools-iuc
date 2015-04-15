@@ -13,7 +13,7 @@ class Client(object):
 
         if user_email is not None and admin_email is not None:
             Entrez.email = ';'.join((admin_email, user_email))
-        if user_email is not None:
+        elif user_email is not None:
             Entrez.email = user_email
         elif admin_email is not None:
             Entrez.email = admin_email
