@@ -3,14 +3,14 @@ import os.path
 import itertools
 import re
 
-def xmfa_parse(xmfa,num_seq):
+def xmfa_parse(xmfa, num_seq):
 	start_regex = re.compile('>\s[1-9]:')
 	seq_info_list = [{} for num in range(num_seq+1)]
 	seq_string = ''
 	seq_string_2 = ''
 	i=0
 	return_list = []
-	with open(xmfa,'r') as handle:
+	with open(xmfa, 'r') as handle:
 		for line in handle.readlines():
 			if start_regex.match(line) != None:
 				if i>0:
@@ -35,8 +35,8 @@ def xmfa_parse(xmfa,num_seq):
 		return_list += [seq_string_2]
 	return return_list
 
-def links(backbone_file,link_output):
-	lines = open(backbone_file,'r').readlines()
+def links(backbone_file, link_output):
+	lines = open(backbone_file, 'r').readlines()
 	# There will be 2N where N is the number of genomes in our header
 	header = lines[0].split('\t')
 	genome_count = len(header) / 2
@@ -44,55 +44,55 @@ def links(backbone_file,link_output):
 	links = {}
 	# A from-to list (from col/to col) which will be used to check links between genomes
 	# https://docs.python.org/2/library/itertools.html
-	# from_to for a genome_count of 3 looks like: [(0, 1), (0, 2), (1, 2)]
+	# from_to for a genome_count of 3 looks like: [(0,  1),  (0,  2),  (1,  2)]
 	# Preferred as it will expand to ANY number of comparisons
-	from_to = list(itertools.combinations(range(genome_count), 2))
+	from_to = list(itertools.combinations(range(genome_count),  2))
 	# Now down to actual parsing
 	for line in lines[1:]:
-		# Split with a tab. I can't remember if the file is tab separated, if not, then use `.split()` and it'll split on any whitespace.
+		# Split with a tab. I can't remember if the file is tab separated,  if not,  then use `.split()` and it'll split on any whitespace.
 		link_data = line.split('\t')
 		# Iterate over pairs of columns
-		for x, y in from_to:
+		for x,  y in from_to:
 		# Access the link data in that column
 		a_left = link_data[2*x].strip()
 		a_right = link_data[2*x + 1].strip()
 		b_left = link_data[2*y].strip()
 		b_right = link_data[2*y + 1].strip()
-		# if any of them are zero, then we can continue, as this isn't a "true" link.
-		# Circos will plot links from "0 0", so any links with "0 0" need to be removed.
+		# if any of them are zero,  then we can continue,  as this isn't a "true" link.
+		# Circos will plot links from "0 0",  so any links with "0 0" need to be removed.
 		if a_left != 0  and b_left != 0:
 			try:
-				links['%s-%s' % (x,y)].append([a_left, a_right, b_left, b_right])
+				links['%s-%s' % (x, y)].append([a_left,  a_right,  b_left,  b_right])
 			except:
-				links['%s-%s' % (x,y)] = [
-			        [a_left, a_right, b_left, b_right]
+				links['%s-%s' % (x, y)] = [
+			        [a_left,  a_right,  b_left,  b_right]
 			    ]
 	return links
 
 def reverse_complement(sequence):
-	DNA_pairing_dict = {'A':'T','G':'C','T':'A','C':'G','-':'-'}
+	DNA_pairing_dict = {'A':'T', 'G':'C', 'T':'A', 'C':'G', '-':'-'}
 	new_seq = ''
 	for letter in sequence[::-1]:
 		new_seq+=DNA_pairing_dict[letter]
 	return new_seq
 
-def percent_sequence_identity(seq1,seq2):
+def percent_sequence_identity(seq1, seq2):
 	i=0
-	total_length = max(len(seq1),len(seq2))
+	total_length = max(len(seq1), len(seq2))
 	matches = 0
-	while i < min(len(seq1),len(seq2)):
+	while i < min(len(seq1), len(seq2)):
 		if seq1[i]==seq2[i]:
 			matches+=1
 		i+=1
 	return float(matches)/float(total_length)
 
-def write_link_file(names_list, links, link_output,directory):
-	with open(os.path.join(directory,link_output), 'w') as handle:
+def write_link_file(names_list,  links,  link_output, directory):
+	with open(os.path.join(directory, link_output),  'w') as handle:
 		for key in links:
-			key_from, key_to = key.split('-') # Rememver, we keyed on 1-3 0-2 3-2 / etc
+			key_from,  key_to = key.split('-') # Rememver,  we keyed on 1-3 0-2 3-2 / etc
 			for link in links[key]: # List of from/to
 		# Create the list by re-arranging the link_data
-		# Circos will plot links from "0 0", so any links with "0 0" need to be removed.
+		# Circos will plot links from "0 0",  so any links with "0 0" need to be removed.
 				if len(link) == 5:
 					if int(link[0]) > 0 and int(link[2])>0:
 						data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
@@ -134,26 +134,26 @@ def write_link_file(names_list, links, link_output,directory):
 
 
 
-def karyotype(seq_file,karyotype_name,directory):
+def karyotype(seq_file, karyotype_name, directory):
 	i=0
-	colors_list = ['red','blue','green','orange','violet','brown']
+	colors_list = ['red', 'blue', 'green', 'orange', 'violet', 'brown']
 	genome_list = []
 	names_list = []
-	seq_file = open(seq_file,'r')
+	seq_file = open(seq_file, 'r')
 	preceding_line_was_header = 0
 	for line in seq_file.readlines():
 				if preceding_line_was_header == 1:
-			genome_tuple = (name,len(line))
+			genome_tuple = (name, len(line))
 			genome_list += [genome_tuple]
 				preceding_line_was_header = 0
 		name = ''
-		genome_tuple = ('','')
+		genome_tuple = ('', '')
 				if line[0] == '>':
 						preceding_line_was_header = 1
 			#Circos does not like ">" in the genome names.
 			name = line[1:].strip()
 	seq_file.close()
-	karyotype_file = open(os.path.join(directory,karyotype_name),'w')
+	karyotype_file = open(os.path.join(directory, karyotype_name), 'w')
 	for tuple in genome_list:
 		names_list+=[tuple[0]]
 		karyotype_file.write('chr - '+(tuple[0]+' ')*2+str(0)+' '+str(tuple[1]-1)+ ' ' + str(colors_list[i]) + ' \n')
@@ -161,8 +161,8 @@ def karyotype(seq_file,karyotype_name,directory):
 	karyotype_file.close()
 	return names_list
 
-def add_pct_identity(link_dict,sequence_file,alignment_list):
-	with open(sequence_file,'r') as handle:
+def add_pct_identity(link_dict, sequence_file, alignment_list):
+	with open(sequence_file, 'r') as handle:
 		lines_list = handle.readlines()
 		key_pair = []
 		for key in link_dict:
@@ -170,18 +170,18 @@ def add_pct_identity(link_dict,sequence_file,alignment_list):
 			key_pair+=key[0]
 			key_pair+=key[-1]
 			for element in list_of_links:
-				first_index_set = [min(abs(int(element[0])),abs(int(element[1]))),max(abs(int(element[0])),abs(int(element[1])))]
-				second_index_set = [min(abs(int(element[2])),abs(int(element[3]))),max(abs(int(element[2])),abs(int(element[3])))]
+				first_index_set = [min(abs(int(element[0])), abs(int(element[1]))), max(abs(int(element[0])), abs(int(element[1])))]
+				second_index_set = [min(abs(int(element[2])), abs(int(element[3]))), max(abs(int(element[2])), abs(int(element[3])))]
 				sect_1 = alignment_list[int(key_pair[0])+1][first_index_set[0]:first_index_set[1]]
 				sect_2 = alignment_list[int(key_pair[1])+1][second_index_set[0]:second_index_set[1]]
 				if int(element[0]) < 0:
 					sect_1 = reverse_complement(sect_1)
 				if int(element[2]) < 0:
 						sect_2 = reverse_complement(sect_2)
-				#print key_pair[0],sect_1
-				#print key_pair[1],sect_2
+				#print key_pair[0], sect_1
+				#print key_pair[1], sect_2
 				if sect_1!= '' and sect_2!= '':
-					element += [percent_sequence_identity(sect_1,sect_2)]
+					element += [percent_sequence_identity(sect_1, sect_2)]
 					#pprint.pprint(element)
 			#for item in key_pair:
 			#	print lines_list[2*int(item)+1].strip()[]
@@ -199,15 +199,15 @@ def main():
 	backbone_filename = 'test2_0409.xmfa.backbone'
 	seq_filename = 'test2_0409.fa'
 	output_conf_filename = 'test2_0409.conf'
-	xmfa = os.path.join(directory,'test2_0409.xmfa')
-	backbone_file = os.path.join(directory,backbone_filename)
-	alignment_list = xmfa_parse(xmfa,6)
+	xmfa = os.path.join(directory, 'test2_0409.xmfa')
+	backbone_file = os.path.join(directory, backbone_filename)
+	alignment_list = xmfa_parse(xmfa, 6)
 	print alignment_list
-	link_dict = links(backbone_file,link_output)
-	link_dict = add_pct_identity(link_dict,os.path.join(directory,seq_filename),alignment_list)
-	write_link_file(karyotype(os.path.join(directory,seq_filename),karyotype_name,directory),link_dict,link_output,directory)
-	sample_conf = open('sample_conf.conf','r')
-		output_conf = open(os.path.join(directory,output_conf_filename),'w')
+	link_dict = links(backbone_file, link_output)
+	link_dict = add_pct_identity(link_dict, os.path.join(directory, seq_filename), alignment_list)
+	write_link_file(karyotype(os.path.join(directory, seq_filename), karyotype_name, directory), link_dict, link_output, directory)
+	sample_conf = open('sample_conf.conf', 'r')
+		output_conf = open(os.path.join(directory, output_conf_filename), 'w')
 	for line in sample_conf.readlines():
 		i = 0
 		while i!= len(line):
