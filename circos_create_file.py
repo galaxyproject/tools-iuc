@@ -206,15 +206,29 @@ if __name__ == '__main__':
 	destination_directory = 'C:\\Users\\User\\Desktop\\491 Scripts\\test_2\\'
 	image_direct = 'C:\\Users\\User\\Documents\\circos-0.67-5\\test'
 
+	directory = 'test_2'
+	destination_directory = 'test_2'
+	image_direct = 'test_2_circos'
+
 	karyotype_name = 'karyotype.txt'
 	link_output = 'links.txt'
+	# TODO: replace with call to progrssiveMauve and taking test2_0409.fa from
+	# the command line
 	backbone_filename = 'test2_0409.xmfa.backbone'
 	seq_filename = 'test2_0409.fa'
 	output_conf_filename = 'test2_0409.conf'
 	xmfa = os.path.join(directory, 'test2_0409.xmfa')
 	backbone_file = os.path.join(directory, backbone_filename)
 	alignment_list = xmfa_parse(xmfa, 6)
-	print alignment_list
+
+	for i in range(0, len(alignment_list[1]), 100):
+		print "\n%s..%s" % (i, i + 100)
+		print '\n'.join(x[i:i + 100] for x in alignment_list[1:])
+
+	import sys
+	sys.exit()
+
+
 	link_dict = links(backbone_file, link_output)
 	link_dict = add_pct_identity(link_dict, os.path.join(directory, seq_filename), alignment_list)
 	write_link_file(karyotype(os.path.join(directory, seq_filename), karyotype_name, directory), link_dict, link_output, directory)
