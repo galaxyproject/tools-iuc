@@ -148,8 +148,9 @@ def write_link_file(names_list,  links,  link_output, directory):
 
 
 def karyotype(seq_file, karyotype_name, directory):
-	i=0
+	# TODO: brewer colours
 	colors_list = ['red', 'blue', 'green', 'orange', 'violet', 'brown']
+
 	genome_list = []
 	names_list = []
 	seq_file = open(seq_file, 'r')
@@ -166,12 +167,14 @@ def karyotype(seq_file, karyotype_name, directory):
 		#Circos does not like ">" in the genome names.
 		name = line[1:].strip()
 	seq_file.close()
-	karyotype_file = open(os.path.join(directory, karyotype_name), 'w')
-	for tuple in genome_list:
-		names_list+=[tuple[0]]
-		karyotype_file.write('chr - '+(tuple[0]+' ')*2+str(0)+' '+str(tuple[1]-1)+ ' ' + str(colors_list[i]) + ' \n')
-		i+=1
-	karyotype_file.close()
+
+	with open(os.path.join(directory, karyotype_name), 'w') as karyotype_file:
+		for i, gt in enumerate(genome_list):
+			names_list.append(gt[0])
+			karyotype_file.write('chr - %s %s 0 %s %s\n' % (gt[0], gt[0], gt[1], colors_list[i]))
+
+	print names_list
+	import sys; sys.exit()
 	return names_list
 
 def add_pct_identity(link_dict, sequence_file, alignment_list):
@@ -244,10 +247,11 @@ if __name__ == '__main__':
 		#print '\n'.join(x[i:i + 100] for x in alignment_list[1:])
 	link_dict = links(backbone_file, link_output)
 	link_dict = add_pct_identity(link_dict, os.path.join(directory, seq_filename), alignment_list)
-	print link_dict
+
+	write_link_file(karyotype(os.path.join(directory, seq_filename), karyotype_name, directory), link_dict, link_output, directory)
 	import sys
 	sys.exit()
-	write_link_file(karyotype(os.path.join(directory, seq_filename), karyotype_name, directory), link_dict, link_output, directory)
+
 	sample_conf = open('sample_conf.conf', 'r')
 	output_conf = open(os.path.join(directory, output_conf_filename), 'w')
 	for line in sample_conf.readlines():
