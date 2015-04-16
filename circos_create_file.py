@@ -8,36 +8,35 @@ import argparse
 from Bio import SeqIO
 
 
-def xmfa_parse(xmfa):
+def xmfa_parse(xmfa_handle):
 	start_regex = re.compile('> (?P<idx>[1-9]+):(?P<start>[0-9]+)-(?P<end>[0-9]+)')
 	seq_info_list = {}
-	with open(xmfa, 'r') as handle:
-		seqidx = None
-		seq_start = None
+	seqidx = None
+	seq_start = None
 
-		for line in handle.readlines():
-			match = start_regex.match(line)
-			if match is not None:
-				seqidx = match.group('idx')
-				if seqidx not in seq_info_list:
-					seq_info_list[seqidx] = {}
+	for line in xmfa_handle.readlines():
+		match = start_regex.match(line)
+		if match is not None:
+			seqidx = match.group('idx')
+			if seqidx not in seq_info_list:
+				seq_info_list[seqidx] = {}
 
-				seq_start = int(start_regex.match(line).group('start'))
-				continue
+			seq_start = int(start_regex.match(line).group('start'))
+			continue
 
-			# = separates blocks
-			if line.strip() == "=":
-				continue
+		# = separates blocks
+		if line.strip() == "=":
+			continue
 
-			# This should ONLY be sequence. We've skipped header, we've passed
-			# >s and =s
-			#
-			# Checking that seqidx is not None ensure that we're within a
-			# sequence block
-			if not line.startswith('#') and seqidx is not None:
-				if seq_start not in seq_info_list[seqidx]:
-					seq_info_list[seqidx][seq_start] = ''
-				seq_info_list[seqidx][seq_start] += line.strip()
+		# This should ONLY be sequence. We've skipped header, we've passed
+		# >s and =s
+		#
+		# Checking that seqidx is not None ensure that we're within a
+		# sequence block
+		if not line.startswith('#') and seqidx is not None:
+			if seq_start not in seq_info_list[seqidx]:
+				seq_info_list[seqidx][seq_start] = ''
+			seq_info_list[seqidx][seq_start] += line.strip()
 
 	return_list = []
 	for seqidx in sorted(seq_info_list.keys()):
@@ -105,8 +104,9 @@ def percent_sequence_identity(seq1, seq2):
 def write_link_file(names_list, links, link_output, directory):
 	with open(os.path.join(directory, link_output),  'w') as handle:
 		for key in links:
-			key_from,  key_to = key.split('-')  # Rememver, we keyed on 1-3 0-2 3-2 / etc
+			key_from, key_to = key.split('-')  # Rememver, we keyed on 1-3 0-2 3-2 / etc
 			for link in links[key]:  # List of from/to
+				print link
 				# Create the list by re-arranging the link_data
 				# Circos will plot links from "0 0",  so any links with "0 0" need to be removed.
 				if len(link) == 5:
