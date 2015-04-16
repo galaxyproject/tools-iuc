@@ -2,6 +2,8 @@ import pprint
 import os.path
 import itertools
 import re
+import subprocess
+import tempfile
 
 def xmfa_parse(xmfa, num_seq):
 	start_regex = re.compile('>\s[1-9]:')
@@ -188,6 +190,15 @@ def add_pct_identity(link_dict, sequence_file, alignment_list):
 			key_pair = []
 		pprint.pprint(link_dict)
 		return link_dict
+
+
+def run_progressiveMauve(sequence_file):
+	# Tempfiles will need to be cleaned up when they're finished with, but for testing we'll just leave it here.
+	#tmp = tempfile.NamedTemporaryFile(delete=False)
+	# Then use tmp.name to access the file path
+	#
+	tmp = "output.xmfa"
+	subprocess.check_call(['progressiveMauve', '--output=%s' % tmp, sequence_file])
 
 
 if __name__ == '__main__':
