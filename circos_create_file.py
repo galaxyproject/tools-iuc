@@ -5,17 +5,13 @@ import re
 import subprocess
 import tempfile
 
-def xmfa_parse(xmfa, num_seq):
+
+def xmfa_parse(xmfa):
 	start_regex = re.compile('> (?P<idx>[1-9]+):(?P<start>[0-9]+)-(?P<end>[0-9]+)')
-	#seq_info_list = [{} for num in range(num_seq+1)]
 	seq_info_list = {}
-	seq_string = ''
-	seq_string_2 = ''
-	return_list = []
 	with open(xmfa, 'r') as handle:
 		seqidx = None
 		seq_start = None
-		seq_end = None
 
 		for line in handle.readlines():
 			match = start_regex.match(line)
@@ -25,7 +21,6 @@ def xmfa_parse(xmfa, num_seq):
 					seq_info_list[seqidx] = {}
 
 				seq_start = int(start_regex.match(line).group('start'))
-				#seq_end = int(start_regex.match(line).group('end'))
 				continue
 
 			# = separates blocks
@@ -34,11 +29,15 @@ def xmfa_parse(xmfa, num_seq):
 
 			# This should ONLY be sequence. We've skipped header, we've passed
 			# >s and =s
+			#
+			# Checking that seqidx is not None ensure that we're within a
+			# sequence block
 			if not line.startswith('#') and seqidx is not None:
 				if seq_start not in seq_info_list[seqidx]:
 					seq_info_list[seqidx][seq_start] = ''
 				seq_info_list[seqidx][seq_start] += line.strip()
 
+	return_list = []
 	for seqidx in sorted(seq_info_list.keys()):
 		return_list.append(''.join([seq_info_list[seqidx][x] for x in sorted(seq_info_list[seqidx].keys())]))
 	return return_list
@@ -225,7 +224,7 @@ if __name__ == '__main__':
 	output_conf_filename = 'test2_0409.conf'
 	xmfa = os.path.join(directory, 'test2_0409.xmfa')
 	backbone_file = os.path.join(directory, backbone_filename)
-	alignment_list = xmfa_parse(xmfa, 6)
+	alignment_list = xmfa_parse(xmfa)
 
 	for i in range(0, len(alignment_list[1]), 100):
 		print "\n%s..%s" % (i, i + 100)
