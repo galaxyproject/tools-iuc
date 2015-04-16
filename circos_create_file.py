@@ -4,6 +4,7 @@ import itertools
 import re
 import subprocess
 import tempfile
+from Bio import SeqIO
 
 
 def xmfa_parse(xmfa):
@@ -150,32 +151,13 @@ def write_link_file(names_list,  links,  link_output, directory):
 def karyotype(seq_file, karyotype_name, directory):
 	# TODO: brewer colours
 	colors_list = ['red', 'blue', 'green', 'orange', 'violet', 'brown']
-
 	genome_list = []
-	names_list = []
-	seq_file = open(seq_file, 'r')
-	preceding_line_was_header = 0
-	for line in seq_file.readlines():
-		if preceding_line_was_header == 1:
-			genome_tuple = (name, len(line))
-			genome_list += [genome_tuple]
-		preceding_line_was_header = 0
-		name = ''
-		genome_tuple = ('', '')
-		if line[0] == '>':
-			preceding_line_was_header = 1
-		#Circos does not like ">" in the genome names.
-		name = line[1:].strip()
-	seq_file.close()
-
 	with open(os.path.join(directory, karyotype_name), 'w') as karyotype_file:
-		for i, gt in enumerate(genome_list):
-			names_list.append(gt[0])
-			karyotype_file.write('chr - %s %s 0 %s %s\n' % (gt[0], gt[0], gt[1], colors_list[i]))
-
-	print names_list
-	import sys; sys.exit()
-	return names_list
+		for i, record in enumerate(SeqIO.parse(seq_file, 'fasta')):
+			genome_list.append(record.id)
+			karyotype_file.write('chr - %s %s 0 %s %s\n' %
+						(record.id, record.id, len(record.seq), colors_list[i]))
+	return genome_list
 
 def add_pct_identity(link_dict, sequence_file, alignment_list):
 	with open(sequence_file, 'r') as handle:
