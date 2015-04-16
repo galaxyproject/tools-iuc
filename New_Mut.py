@@ -1,73 +1,87 @@
 import random
 import os.path
+import copy
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+from Bio.Alphabet import generic_dna
 
-class Nucleic_Acid:
+
+class Nucleic_Acid(object):
 	class DNA:
-		def __init__(self, length):
-			self.variety = 'DNA'
-			self.nucl_seq = ''
-			self.list_of_changes = []
-			for nucleotide in range(length):
-				self.nucl_seq+=('A', 'T', 'G', 'C')[random.randint(0, 3)]
+		def __init__(self, length=1000, seq=None):
+			"""DNA class takes a length parameter and generates a sequence of
+			that length.
 
-		def reverse_complement(self, start, end):
-			DNA_pairing_dict = {'A':'T', 'G':'C', 'T':'A', 'C':'G'}
-			rev_comp_template = self.nucl_seq[start:end]
-			rev_comp_product = ''
-			for letter in rev_comp_template[::-1]:
-				if self.variety == 'DNA':
-					rev_comp_product += DNA_pairing_dict[letter]
-			return rev_comp_product
+			Optionally it can take a sequence string from a previously
+			generated sequence.
+			"""
+			self.list_of_changes = []
+			self.nucl_seq = Seq(self.generate_fragment(length), generic_dna)
+
+			if seq is not None:
+				self.nucl_seq = Seq(seq, generic_dna)
+
+		@classmethod
+		def generate_fragment(cls, length):
+			letters = ('A', 'C', 'T', 'G')
+			return ''.join([random.choice(letters) for i in range(length)])
+
+		def insertion(self, length, start):
+			insertion_fragment = self.generate_fragment(length)
+			self.nucl_seq = self.nucl_seq[0:start] + insertion_fragment + self.nucl_seq[start:]
+			self.list_of_changes.append('i%s@%s' % (length, start))
+
+		def deletion(self, length, start):
+			self.nucl_seq = self.nucl_seq[0:start] + self.nucl_seq[start + length:]
+			self.list_of_changes.append('d%s@%s' % (length, start))
+
+		def inversion(self, length, start):
+			self.nucl_seq = self.nucl_seq[0:start] + \
+				self.nucl_seq[start:start + length].reverse_complement() + \
+				self.nucl_seq[start + length:]
+			self.list_of_changes.append('v%s@%s' % (length, start))
+
+		def translocation(self, length, start):
+			translocated_segment = self.nucl_seq[start:start + length]
+			new_DNA = self.nucl_seq[0:start] + self.nucl_seq[start + length:]
+			new_start_pos = random.randint(0, len(new_DNA))
+			self.nucl_seq = new_DNA[0:new_start_pos] + \
+				translocated_segment + \
+				new_DNA[new_start_pos:]
+			self.list_of_changes.append('t%s@%s2%s' % (length, start, new_start_pos))
 
 		def mutation_event(self):
 			length = random.randint(1, 100)
 			start = random.randint(0, len(self.nucl_seq))
-			def insertion(self, length, start):
-				insertion_fragment = ''.join([('A', 'T', 'G', 'C')[random.randint(0, 3)] for instance in range(length)])
-				self.nucl_seq = self.nucl_seq[:start+1]+insertion_fragment+self.nucl_seq[start+1:]
+			print length, start
 
-			def deletion(self, length, start):
-				self.nucl_seq = self.nucl_seq[:start+1]+self.nucl_seq[start+length+1:]
-
-			def inversion(self, length, start):
-				self.nucl_seq = self.nucl_seq[:start+1]+self.reverse_complement(start+1, start+1+length)+self.nucl_seq[start+1+length:]
-				self.list_of_changes += ('inversion', start, start+length)
-			def translocation(self, length, start):
-				translocated_segment = self.nucl_seq[start:start+length+1]
-				new_DNA = self.nucl_seq[:start]+self.nucl_seq[start+length+1:]
-				new_start_pos = random.randint(0, len(new_DNA))
-				self.nucl_seq = new_DNA[:new_start_pos]+translocated_segment+new_DNA[new_start_pos:]
 			prob = random.randint(1, 100)
-			if prob<=35:
-				insertion(self, length, start)
-			elif prob<=70:
-				deletion(self, length, start)
-			if prob<=90:
-				translocation(self, length, start)
+			if prob <= 35:
+				self.insertion(length, start)
+			elif prob <= 70:
+				self.deletion(length, start)
+			if prob <= 90:
+				self.translocation(length, start)
 			else:
-				inversion(self, length, start)
-
-
+				self.inversion(length, start)
 
 if __name__ == '__main__':
-	output = open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "test2_0409.fa"), 'w')
-	init_list = [Nucleic_Acid.DNA(random.randint(1000, 2000)) for number_of_sequences in range(1)]
-	mut_list = []
-	ops_list = []
-	for number_of_sequences in range(5):
-		obj2 = Nucleic_Acid.DNA(random.randint(1000, 2000))
-		obj2.nucl_seq = init_list[0].nucl_seq
-		for event in range(500):
-			obj2.mutation_event()
-		mut_list += [obj2]
-		ops_list += [obj2.list_of_changes]
-	output.write('>Original\n')
-	output.write(str(init_list[0].nucl_seq)+'\n')
-	i=0
-	for sequence in mut_list:
-		i+=1
-		output.write('>Mut%s\n' % i)
-		output.write(str(sequence.nucl_seq) + '\n')
-	output.close()
-   #print ops_list
+	with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "test2_0409.fa"), 'w') as output:
+		parent = Nucleic_Acid.DNA(random.randint(1000, 2000))
 
+		parent_record = SeqRecord(parent.nucl_seq, id="Parent", description="length=%s" % len(parent.nucl_seq))
+		SeqIO.write(parent_record, output, 'fasta')
+
+		for i in range(5):
+			obj2 = Nucleic_Acid.DNA(seq=str(parent.nucl_seq))
+			# Use copy.deepcopy in order to copy the entire object. Simply
+			# assigning obj2.nucl_seq = parent.nucl_seq is likely to have bad
+			# effects.
+			#
+			# However, instead of copying, we'll just add an optional parameter
+			# that will take a sequence in, avoiding any copying problems.
+			for event in range(2):
+				obj2.mutation_event()
+			# Write obj2 to the fasta file
+			SeqIO.write(SeqRecord(obj2.nucl_seq, id="Mut%s" % i, description=" ".join(obj2.list_of_changes)), output, 'fasta')
