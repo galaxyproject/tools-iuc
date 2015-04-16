@@ -81,11 +81,10 @@ def links(backbone_file_handle):
 						map(int, [a_left, a_right, b_left, b_right]))
 	return links
 
+
 def reverse_complement(sequence):
 	DNA_pairing_dict = {'A':'T', 'G':'C', 'T':'A', 'C':'G', '-':'-'}
-	new_seq = ''
-	for letter in sequence[::-1]:
-		new_seq+=DNA_pairing_dict[letter]
+	new_seq = ''.join([DNA_pairing_dict[letter] for letter in sequence[::-1]])
 	return new_seq
 
 
@@ -93,12 +92,19 @@ def percent_sequence_identity(seq1, seq2):
 	if len(seq1) == 0 or len(seq2) == 0:
 		return 0
 
-	results = [seq1[i] == seq2[i]
-				for i in range(min(len(seq1), len(seq2)))]
+	results = [seq1[i] == seq2[i] for i in range(min(len(seq1), len(seq2)))]
 	# Count the trues, return that as % of length
 	# Currently will underestimate sequences
 	return float(results.count(True)) / len(results)
 
+
+def link_colour(percent_identity, colour):
+	prefix = ''
+	if percent_identity < 0.3:
+		prefix = 'l'
+	elif percent_identity >= 0.6:
+		prefix = 'd'
+	return prefix + colour
 
 def write_link_file(names_list, links, link_output):
 	with open(link_output,  'w') as handle:
@@ -107,46 +113,25 @@ def write_link_file(names_list, links, link_output):
 			for link in links[key]:  # List of from/to
 				print link
 				# Create the list by re-arranging the link_data
-				# Circos will plot links from "0 0",  so any links with "0 0" need to be removed.
 				if len(link) == 5:
 					if int(link[0]) > 0 and int(link[2])>0:
+						# +:+ (+strand to +strand)
 						data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
-						if float(link[4])<0.3:
-							handle.write(' '.join(data) + " color=lblue \n")
-							#print ' '.join(data) + " color=lblue \n"
-						elif float(link[4])<0.6:
-							handle.write(' '.join(data) + " color=blue \n")
-							#print ' '.join(data) + " color=lblue \n"
-						else:
-							handle.write(' '.join(data) + " color=dblue \n")
-							#print ' '.join(data) + " color=lblue \n"
+						color = 'blue'
 					elif int(link[0]) < 0:
+						# -:+, -:-
 						link[0] = str(-1*int(link[0]))
 						link[1] = str(-1*int(link[1]))
 						data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
-						if float(link[4])<0.3:
-							handle.write(' '.join(data) + " color=lred \n")
-							#print ' '.join(data) + " color=lblue \n"
-						elif float(link[4])<0.6:
-							handle.write(' '.join(data) + " color=red \n")
-							#print ' '.join(data) + " color=lblue \n"
-						else:
-							handle.write(' '.join(data) + " color=dred \n")
-							#print ' '.join(data) + " color=lblue \n"
+						color = 'red'
 					else:
+						# +:-
 						link[2] = str(-1*int(link[2]))
 						link[3] = str(-1*int(link[3]))
 						data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
-						if float(link[4])<0.3:
-							handle.write(' '.join(data) + " color=lred \n")
-							#print ' '.join(data) + " color=lblue \n"
-						elif float(link[4])<0.6:
-							handle.write(' '.join(data) + " color=red \n")
-							#print ' '.join(data) + " color=lblue \n"
-						else:
-							handle.write(' '.join(data) + " color=dred \n")
-							#print ' '.join(data) + " color=lblue \n"
+						color = 'red'
 
+					handle.write(' '.join(map(str, data)) + " color=%s\n" % link_colour(float(link[4]), color))
 
 
 def karyotype(seq_file):
@@ -178,12 +163,13 @@ def add_pct_identity(link_dict, alignment_list):
 			sect_1 = alignment_list[key_pair[0]][first_index_set[0]:first_index_set[1]]
 			sect_2 = alignment_list[key_pair[1]][second_index_set[0]:second_index_set[1]]
 
+			# TODO: biopython? Maybe not if - in the sequence
 			if element[0] < 0:
 				sect_1 = reverse_complement(sect_1)
 			if element[2] < 0:
 				sect_2 = reverse_complement(sect_2)
 
-			if first_index_set[0] != 0 and second_index_set != 0:
+			if element[0] != 0 and element[2] != 0:
 				good_links.append(element + [percent_sequence_identity(sect_1, sect_2)])
 
 		link_dict[key] = good_links
@@ -211,9 +197,6 @@ def main():
 	destination_directory = 'C:\\Users\\User\\Desktop\\491 Scripts\\test_2\\'
 	image_direct = 'C:\\Users\\User\\Documents\\circos-0.67-5\\test'
 
-	destination_directory = 'test_2'
-	image_direct = 'test_2_circos'
-
 	# TODO: replace with call to progrssiveMauve and taking test2_0409.fa from
 	# the command line
 	output_conf_filename = 'test2_0409.conf'
@@ -240,6 +223,7 @@ def main():
 	write_link_file(genome_id_list, link_dict,
 					os.path.join(args.output, 'links.txt'))
 
+	# TODO: templates
 	sample_conf = open('sample_conf.conf', 'r')
 	output_conf = open(os.path.join(directory, output_conf_filename), 'w')
 	for line in sample_conf.readlines():
