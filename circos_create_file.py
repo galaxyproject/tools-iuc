@@ -42,38 +42,43 @@ def xmfa_parse(xmfa):
 		return_list.append(''.join([seq_info_list[seqidx][x] for x in sorted(seq_info_list[seqidx].keys())]))
 	return return_list
 
+
 def links(backbone_file, link_output):
-	lines = open(backbone_file, 'r').readlines()
-	# There will be 2N where N is the number of genomes in our header
-	header = lines[0].split('\t')
-	genome_count = len(header) / 2
-	# Data structure to hold the links
+	header_parsed = False
 	links = {}
-	# A from-to list (from col/to col) which will be used to check links between genomes
-	# https://docs.python.org/2/library/itertools.html
-	# from_to for a genome_count of 3 looks like: [(0,  1),  (0,  2),  (1,  2)]
-	# Preferred as it will expand to ANY number of comparisons
-	from_to = list(itertools.combinations(range(genome_count),  2))
-	# Now down to actual parsing
-	for line in lines[1:]:
-		# Split with a tab. I can't remember if the file is tab separated,  if not,  then use `.split()` and it'll split on any whitespace.
-		link_data = line.split('\t')
-		# Iterate over pairs of columns
-		for x,  y in from_to:
-			# Access the link data in that column
-			a_left = link_data[2*x].strip()
-			a_right = link_data[2*x + 1].strip()
-			b_left = link_data[2*y].strip()
-			b_right = link_data[2*y + 1].strip()
-		# if any of them are zero,  then we can continue,  as this isn't a "true" link.
-		# Circos will plot links from "0 0",  so any links with "0 0" need to be removed.
-		if a_left != 0  and b_left != 0:
-			try:
-				links['%s-%s' % (x, y)].append([a_left,  a_right,  b_left,  b_right])
-			except:
-				links['%s-%s' % (x, y)] = [
-					[a_left,  a_right,  b_left,  b_right]
-				]
+	with open(backbone_file, 'r') as handle:
+		for line in handle:
+			if not header_parsed:
+				# There will be 2N where N is the number of genomes in our header_parsed
+				header_parsed = line.split('\t')
+				genome_count = len(header_parsed) / 2
+				# Data structure to hold the links
+				# A from-to list (from col/to col) which will be used to check links between genomes
+				# https://docs.python.org/2/library/itertools.html
+				# from_to for a genome_count of 3 looks like: [(0,  1),  (0,  2),  (1,  2)]
+				# Preferred as it will expand to ANY number of comparisons
+				from_to = list(itertools.combinations(range(genome_count), 2))
+				header_parsed = True
+			else:
+				# Now down to actual parsing
+				link_data = line.split()
+				# Iterate over pairs of columns
+				for x, y in from_to:
+					# Access the link data in that column
+					a_left = link_data[2 * x].strip()
+					a_right = link_data[2 * x + 1].strip()
+					b_left = link_data[2 * y].strip()
+					b_right = link_data[2 * y + 1].strip()
+				# if any of them are zero,  then we can continue,  as this
+				# isn't a "true" link. Circos will plot links from "0 0",  so
+				# any links with "0 0" need to be removed.
+				if a_left != 0 and b_left != 0:
+					key = '%s-%s' % (x, y)
+					if key not in links:
+						links[key] = []
+
+					links['%s-%s' % (x, y)].append(
+						map(int, [a_left, a_right, b_left, b_right]))
 	return links
 
 def reverse_complement(sequence):
@@ -226,16 +231,15 @@ if __name__ == '__main__':
 	backbone_file = os.path.join(directory, backbone_filename)
 	alignment_list = xmfa_parse(xmfa)
 
-	for i in range(0, len(alignment_list[1]), 100):
-		print "\n%s..%s" % (i, i + 100)
-		print '\n'.join(x[i:i + 100] for x in alignment_list[1:])
-
-	import sys
-	sys.exit()
-
-
+	# Print alignments
+	#for i in range(0, len(alignment_list[1]), 100):
+		#print "\n%s..%s" % (i, i + 100)
+		#print '\n'.join(x[i:i + 100] for x in alignment_list[1:])
 	link_dict = links(backbone_file, link_output)
 	link_dict = add_pct_identity(link_dict, os.path.join(directory, seq_filename), alignment_list)
+	print link_dict
+	import sys
+	sys.exit()
 	write_link_file(karyotype(os.path.join(directory, seq_filename), karyotype_name, directory), link_dict, link_output, directory)
 	sample_conf = open('sample_conf.conf', 'r')
 	output_conf = open(os.path.join(directory, output_conf_filename), 'w')
