@@ -56,15 +56,13 @@ class Nucleic_Acid(object):
 			start = random.randint(0, len(self.nucl_seq))
 			print length, start
 
-			prob = random.randint(1, 100)
-			if prob <= 35:
-				self.insertion(length, start)
-			elif prob <= 70:
-				self.deletion(length, start)
-			if prob <= 90:
-				self.translocation(length, start)
-			else:
-				self.inversion(length, start)
+			# List of methods to possibly call
+			methods = ('insertion', 'deletion', 'translocation', 'inversion')
+			# Randomly choose one of the above, and get that attribute of this Class.
+			# getattr(self) lets you pick out a function by name and store in method_to_call
+			method_to_call = getattr(self, random.choice(methods))
+			# Which we then call and pass apporpriate parameters
+			method_to_call(length, start)
 
 if __name__ == '__main__':
 	with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "test2_0409.fa"), 'w') as output:
