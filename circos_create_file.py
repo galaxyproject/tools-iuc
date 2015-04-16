@@ -26,8 +26,8 @@ def xmfa_parse(xmfa, num_seq):
 				i+=1
 			elif line[0] != '=':
 				seq_string += line.strip()
-	else:
-		seq_info_list[int(current_seq)][int(seq_start)] = seq_string
+			else:
+				seq_info_list[int(current_seq)][int(seq_start)] = seq_string
 	for d in seq_info_list:
 		seq_string_2 = ''
 		for element in d:
@@ -53,11 +53,11 @@ def links(backbone_file, link_output):
 		link_data = line.split('\t')
 		# Iterate over pairs of columns
 		for x,  y in from_to:
-		# Access the link data in that column
-		a_left = link_data[2*x].strip()
-		a_right = link_data[2*x + 1].strip()
-		b_left = link_data[2*y].strip()
-		b_right = link_data[2*y + 1].strip()
+			# Access the link data in that column
+			a_left = link_data[2*x].strip()
+			a_right = link_data[2*x + 1].strip()
+			b_left = link_data[2*y].strip()
+			b_right = link_data[2*y + 1].strip()
 		# if any of them are zero,  then we can continue,  as this isn't a "true" link.
 		# Circos will plot links from "0 0",  so any links with "0 0" need to be removed.
 		if a_left != 0  and b_left != 0:
@@ -65,8 +65,8 @@ def links(backbone_file, link_output):
 				links['%s-%s' % (x, y)].append([a_left,  a_right,  b_left,  b_right])
 			except:
 				links['%s-%s' % (x, y)] = [
-			        [a_left,  a_right,  b_left,  b_right]
-			    ]
+					[a_left,  a_right,  b_left,  b_right]
+				]
 	return links
 
 def reverse_complement(sequence):
@@ -142,16 +142,16 @@ def karyotype(seq_file, karyotype_name, directory):
 	seq_file = open(seq_file, 'r')
 	preceding_line_was_header = 0
 	for line in seq_file.readlines():
-				if preceding_line_was_header == 1:
+		if preceding_line_was_header == 1:
 			genome_tuple = (name, len(line))
 			genome_list += [genome_tuple]
-				preceding_line_was_header = 0
+		preceding_line_was_header = 0
 		name = ''
 		genome_tuple = ('', '')
-				if line[0] == '>':
-						preceding_line_was_header = 1
-			#Circos does not like ">" in the genome names.
-			name = line[1:].strip()
+		if line[0] == '>':
+			preceding_line_was_header = 1
+		#Circos does not like ">" in the genome names.
+		name = line[1:].strip()
 	seq_file.close()
 	karyotype_file = open(os.path.join(directory, karyotype_name), 'w')
 	for tuple in genome_list:
@@ -190,10 +190,11 @@ def add_pct_identity(link_dict, sequence_file, alignment_list):
 		return link_dict
 
 
-def main():
+if __name__ == '__main__':
 	directory = 'C:\\Users\\User\\Desktop\\491 Scripts\\test_2\\'
 	destination_directory = 'C:\\Users\\User\\Desktop\\491 Scripts\\test_2\\'
 	image_direct = 'C:\\Users\\User\\Documents\\circos-0.67-5\\test'
+
 	karyotype_name = 'karyotype.txt'
 	link_output = 'links.txt'
 	backbone_filename = 'test2_0409.xmfa.backbone'
@@ -207,7 +208,7 @@ def main():
 	link_dict = add_pct_identity(link_dict, os.path.join(directory, seq_filename), alignment_list)
 	write_link_file(karyotype(os.path.join(directory, seq_filename), karyotype_name, directory), link_dict, link_output, directory)
 	sample_conf = open('sample_conf.conf', 'r')
-		output_conf = open(os.path.join(directory, output_conf_filename), 'w')
+	output_conf = open(os.path.join(directory, output_conf_filename), 'w')
 	for line in sample_conf.readlines():
 		i = 0
 		while i!= len(line):
