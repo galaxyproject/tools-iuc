@@ -64,7 +64,6 @@ def links(backbone_file, link_output):
 				link_data = line.split()
 				# Iterate over pairs of columns
 				for x, y in from_to:
-					print x, y
 					# Access the link data in that column
 					a_left = link_data[2 * x].strip()
 					a_right = link_data[2 * x + 1].strip()
@@ -244,10 +243,10 @@ if __name__ == '__main__':
 		#print "\n%s..%s" % (i, i + 100)
 		#print '\n'.join(x[i:i + 100] for x in alignment_list[1:])
 	link_dict = links(backbone_file, link_output)
+	link_dict = add_pct_identity(link_dict, os.path.join(directory, seq_filename), alignment_list)
 	print link_dict
 	import sys
 	sys.exit()
-	link_dict = add_pct_identity(link_dict, os.path.join(directory, seq_filename), alignment_list)
 	write_link_file(karyotype(os.path.join(directory, seq_filename), karyotype_name, directory), link_dict, link_output, directory)
 	sample_conf = open('sample_conf.conf', 'r')
 	output_conf = open(os.path.join(directory, output_conf_filename), 'w')
