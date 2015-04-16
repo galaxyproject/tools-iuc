@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 def xmfa_parse(xmfa, num_seq):
-	start_regex = re.compile('>\s[1-9]:')
+	start_regex = re.compile('>\s[1-9]+:')
 	seq_info_list = [{} for num in range(num_seq+1)]
 	seq_string = ''
 	seq_string_2 = ''
