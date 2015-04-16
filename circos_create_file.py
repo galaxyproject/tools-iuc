@@ -4,6 +4,7 @@ import itertools
 import re
 import subprocess
 import tempfile
+import argparse
 from Bio import SeqIO
 
 
@@ -44,7 +45,7 @@ def xmfa_parse(xmfa):
 	return return_list
 
 
-def links(backbone_file, link_output):
+def links(backbone_file):
 	header_parsed = False
 	links = {}
 	with open(backbone_file, 'r') as handle:
@@ -100,13 +101,14 @@ def percent_sequence_identity(seq1, seq2):
 	# Currently will underestimate sequences
 	return float(results.count(True)) / len(results)
 
-def write_link_file(names_list,  links,  link_output, directory):
+
+def write_link_file(names_list, links, link_output, directory):
 	with open(os.path.join(directory, link_output),  'w') as handle:
 		for key in links:
-			key_from,  key_to = key.split('-') # Rememver,  we keyed on 1-3 0-2 3-2 / etc
-			for link in links[key]: # List of from/to
-		# Create the list by re-arranging the link_data
-		# Circos will plot links from "0 0",  so any links with "0 0" need to be removed.
+			key_from,  key_to = key.split('-')  # Rememver, we keyed on 1-3 0-2 3-2 / etc
+			for link in links[key]:  # List of from/to
+				# Create the list by re-arranging the link_data
+				# Circos will plot links from "0 0",  so any links with "0 0" need to be removed.
 				if len(link) == 5:
 					if int(link[0]) > 0 and int(link[2])>0:
 						data = [names_list[int(key_from)]] + link[0:2] + [names_list[int(key_to)]] + link[2:4]
@@ -148,16 +150,17 @@ def write_link_file(names_list,  links,  link_output, directory):
 
 
 
-def karyotype(seq_file, karyotype_name, directory):
+def karyotype(seq_file):
 	# TODO: brewer colours
 	colors_list = ['red', 'blue', 'green', 'orange', 'violet', 'brown']
 	genome_list = []
-	with open(os.path.join(directory, karyotype_name), 'w') as karyotype_file:
-		for i, record in enumerate(SeqIO.parse(seq_file, 'fasta')):
-			genome_list.append(record.id)
-			karyotype_file.write('chr - %s %s 0 %s %s\n' %
-						(record.id, record.id, len(record.seq), colors_list[i]))
-	return genome_list
+	karyotype = []
+
+	for i, record in enumerate(SeqIO.parse(seq_file, 'fasta')):
+		genome_list.append(record.id)
+		karyotype.append('chr - %s %s 0 %s %s\n' %
+						 (record.id, record.id, len(record.seq), colors_list[i]))
+	return genome_list, karyotype
 
 def add_pct_identity(link_dict, sequence_file, alignment_list):
 	with open(sequence_file, 'r') as handle:
@@ -194,45 +197,53 @@ def add_pct_identity(link_dict, sequence_file, alignment_list):
 		return link_dict
 
 
-def run_progressiveMauve(sequence_file):
-	# Tempfiles will need to be cleaned up when they're finished with, but for testing we'll just leave it here.
-	#tmp = tempfile.NamedTemporaryFile(delete=False)
-	# Then use tmp.name to access the file path
-	#
-	tmp = "output.xmfa"
-	subprocess.check_call(['progressiveMauve', '--output=%s' % tmp, sequence_file])
+def main():
+	parser = argparse.ArgumentParser(description='Circos conf from progressiveMauve output')
+	parser.add_argument('xmfa', type=file, help='ProgressiveMauve XMFA file')
+	parser.add_argument('backbone', type=file, help='ProgressiveMauve backbone file')
+	parser.add_argument('sequence', type=file, help='Fasta sequence')
+	parser.add_argument('--output', help="Output Directory", default="test_2")
+	parser.add_argument('--verbose', action='store_true', help="Verbose output/logging")
+	args = parser.parse_args()
 
+	# Create it if it doesn't exist
+	if not os.path.exists(args.output):
+		os.mkdir(args.output)
 
-if __name__ == '__main__':
-	directory = 'C:\\Users\\User\\Desktop\\491 Scripts\\test_2\\'
+	# If not a directory, die early
+	if not os.path.isdir(args.output):
+		raise Exception("--output must be a directory")
+
 	destination_directory = 'C:\\Users\\User\\Desktop\\491 Scripts\\test_2\\'
 	image_direct = 'C:\\Users\\User\\Documents\\circos-0.67-5\\test'
 
-	directory = 'test_2'
 	destination_directory = 'test_2'
 	image_direct = 'test_2_circos'
 
-	karyotype_name = 'karyotype.txt'
-	link_output = 'links.txt'
 	# TODO: replace with call to progrssiveMauve and taking test2_0409.fa from
 	# the command line
-	backbone_filename = 'test2_0409.xmfa.backbone'
-	seq_filename = 'test2_0409.fa'
 	output_conf_filename = 'test2_0409.conf'
-	xmfa = os.path.join(directory, 'test2_0409.xmfa')
-	backbone_file = os.path.join(directory, backbone_filename)
-	alignment_list = xmfa_parse(xmfa)
+
+	alignment_list = xmfa_parse(args.xmfa)
 
 	# Print alignments
-	#for i in range(0, len(alignment_list[1]), 100):
-		#print "\n%s..%s" % (i, i + 100)
-		#print '\n'.join(x[i:i + 100] for x in alignment_list[1:])
-	link_dict = links(backbone_file, link_output)
-	link_dict = add_pct_identity(link_dict, os.path.join(directory, seq_filename), alignment_list)
+	if args.verbose:
+		for i in range(0, len(alignment_list[1]), 100):
+			print "\n%s..%s" % (i, i + 100)
+			print '\n'.join(x[i:i + 100] for x in alignment_list[1:])
 
-	write_link_file(karyotype(os.path.join(directory, seq_filename), karyotype_name, directory), link_dict, link_output, directory)
-	import sys
-	sys.exit()
+	# Construct genome-genome link dictionary
+	link_dict = links(args.backbone)
+	# Add %ID to each of the links
+	link_dict = add_pct_identity(link_dict, args.sequence, alignment_list)
+	# Collect 'chromosome' IDs and ...
+	genome_id_list, karyotype_data = karyotype(args.sequence, directory)
+	# write karyotype data to output/karyotype.txt
+	with open(os.path.join(directory, 'karyotype.txt'), 'w') as handle:
+		for chrom in karyotype_data:
+			handle.write(chrom)
+	# Write output/links.txt
+	write_link_file(genome_id_list, link_dict, link_output, directory)
 
 	sample_conf = open('sample_conf.conf', 'r')
 	output_conf = open(os.path.join(directory, output_conf_filename), 'w')
