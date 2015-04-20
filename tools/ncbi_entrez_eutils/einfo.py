@@ -14,4 +14,5 @@ if __name__ == '__main__':
     payload = {}
     if args.db is not None:
         payload['db'] = args.db
+        payload['version'] = '2.0'
     print c.info(**payload)
