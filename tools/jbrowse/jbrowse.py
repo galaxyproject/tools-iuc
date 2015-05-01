@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import shutil
 import argparse
 import subprocess
 import hashlib
@@ -8,15 +9,8 @@ TN_TABLE = {
     'gff3': '--gff',
     'gff': '--gff',
     'bed': '--bed',
-    #'genbank': '--gbk',
+    # 'genbank': '--gbk',
 }
-
-
-def extract_jbrowse(source, dest="/tmp/jbrowse"):
-    if not os.path.exists(dest):
-        os.makedirs(dest)
-    cmd = ['unzip', '-oq', source]
-    subprocess.check_call(cmd, cwd=dest)
 
 
 def process_genome(jbrowse_dir, genome):
@@ -40,15 +34,13 @@ if __name__ == '__main__':
     parser.add_argument('--gff3_format', choices=['gff3', 'gff', 'bed', 'gbk'], nargs='*', help='GFF3/BED/GBK Format')
     parser.add_argument('--gff3_label', type=str, nargs='*', help='GFF3/BED/GBK Label')
 
-    parser.add_argument('--tooldir', help='Folder containing a jbrowse release',
-                        default=os.path.dirname(os.path.realpath(__file__)))
+    parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
     args = parser.parse_args()
 
-    jbrowse_release = os.path.join(args.tooldir, '1.11.6-release.zip')
     jbrowse_dir = os.path.join(args.outdir, 'JBrowse-1.11.6')
+    shutil.copytree(args.jbrowse.name, jbrowse_dir)
 
-    extract_jbrowse(jbrowse_release, dest=args.outdir)
     process_genome(jbrowse_dir, os.path.realpath(args.genome.name))
 
     for gff3, gff3_format, gff3_label in zip(args.gff3, args.gff3_format, args.gff3_label):
