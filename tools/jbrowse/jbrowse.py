@@ -39,7 +39,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     jbrowse_dir = os.path.join(args.outdir, 'JBrowse-1.11.6')
-    shutil.copytree(args.jbrowse.name, jbrowse_dir)
+    shutil.copytree(args.jbrowse, jbrowse_dir)
 
     process_genome(jbrowse_dir, os.path.realpath(args.genome.name))
 
