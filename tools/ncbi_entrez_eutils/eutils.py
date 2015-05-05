@@ -107,6 +107,9 @@ class Client(object):
     def gquery(self, **kwargs):
         return Entrez.egquery(**kwargs).read()
 
+    def citmatch(self, **kwargs):
+        return Entrez.ECitMatch(**kwargs).read()
+
     @classmethod
     def parse_ids(cls, id_list, id, history_file):
         """Parse IDs passed on --cli or in a file passed to the cli
