@@ -30,7 +30,9 @@ INPUT_TYPE_MAPPING = {
     'seqsetall': {'file_formats': ['fasta']},
     'url': {'type': str},
     'variation': {'file_formats': ['vcf']},
-    'xml': {'file_formats': ['xml']}
+    'xml': {'file_formats': ['xml']},
+    'taxon': {'type': str},
+    'text': {'type': str},
 }
 
 
@@ -57,10 +59,20 @@ def handle_parameter(child):
         num_min = None
         num_max = None
         if child.find('minimum') is not None:
-            num_min = float(child.find('minimum').text)
+            try:
+                num_min = float(child.find('minimum').text)
+            except Exception:
+                pass
         if child.find('maximum') is not None:
-            num_max = float(child.find('maximum').text)
-        num_default = float(child.find('default').text)
+            try:
+                num_max = float(child.find('maximum').text)
+            except Exception:
+                pass
+
+        try:
+            num_default = float(child.find('default').text)
+        except Exception:
+            num_default = 0
 
         if child.attrib['type'] == 'integer':
             if num_min is not None:
@@ -75,6 +87,50 @@ def handle_parameter(child):
     elif child.attrib['type'] in ('boolean', 'toggle'):
         kwargs['type'] = str
         kwargs['choices'] = ['true', 'false']
+    elif child.attrib['type'] == 'list':
+        if child.find('delimiter') is not None:
+            delimiter = child.find('delimiter').text
+        else:
+            delimiter = ';'
+
+        if child.find('codedelimiter') is not None:
+            codedelimiter = child.find('codedelimiter').text
+        else:
+            codedelimiter = ':'
+
+        kv = {}
+        for x in child.find('values').text.split(delimiter):
+            if len(x.strip()) > 0:
+                try:
+                    key, value = x.split(codedelimiter)
+                except:
+                    tmp = x.split()
+                    key = tmp[0]
+                    value = ' '.join(tmp[1:])
+
+                kv[key.strip()] = value.strip()
+
+        kwargs['type'] = str
+        kwargs['choices'] = [kv[k] for k in kv.keys()]
+    elif child.attrib['type'] == 'selection':
+        if child.find('delimiter') is not None:
+            delimiter = child.find('delimiter').text
+        else:
+            delimiter = ';'
+
+        kv = {}
+        for i, x in enumerate(child.find('values').text.split(delimiter)):
+            if len(x.strip()) > 0:
+                kv[str(i)] = x.strip()
+
+        kwargs['type'] = str
+        kwargs['choices'] = [kv[k] for k in kv.keys()]
+    elif child.attrib['type'] == 'range':
+        # TODO
+        kwargs['type'] = 'string'
+    elif child.attrib['type'] == 'array':
+        # TODO
+        kwargs['type'] = 'string'
 
     if child.find('information') is not None:
         kwargs['description'] = child.find('information').text
@@ -100,6 +156,7 @@ def handle_section(section, subparams, required=False):
             handle_section(child, subsubparams, required=required)
         else:
             print child.tag
+
 
 output_section = None
 for section in root.findall('section'):
@@ -136,4 +193,4 @@ for section in root.findall('section'):
                     **kwargs
                 )
 
-tool.write_ctd('example.ctd')
+tool.write_ctd(sys.argv[2])

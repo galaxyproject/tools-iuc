@@ -1,10 +1,11 @@
 EMBOSS_ACD_LOCATION=~/.linuxbrew/Cellar/emboss/6.6.0/share/EMBOSS/acd/
 ACDS:= $(wildcard ${EMBOSS_ACD_LOCATION}*.acd)
 OUTPUT_ACDS:=$(addprefix output/, $(addsuffix .xml, $(notdir $(ACDS))))
+OUTPUT_GXML:=$(addprefix output/, $(addsuffix .gxml, $(notdir $(ACDS))))
 
 .PHONY: all clean full_clean
 
-all: $(OUTPUT_ACDS)
+all: $(OUTPUT_ACDS) $(OUTPUT_GXML)
 	@echo "Done"
 
 output:
@@ -12,6 +13,10 @@ output:
 
 output/%.xml: acd output
 	-cat $(EMBOSS_ACD_LOCATION)$(notdir $(basename $@)) | ./acd | xmllint --pretty 1 - > output/$(notdir $@)
+
+output/%.gxml: output/%.xml
+	python acd2ctd.py $(basename $@).xml $(basename $@).ctd;
+	python GalaxyConfigGenerator/galaxyconfiggenerator/generator.py -i $(basename $@).ctd -o $@ -q
 
 lex.yy.c:
 	flex acd.l
