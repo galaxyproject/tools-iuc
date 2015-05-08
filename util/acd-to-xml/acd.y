@@ -89,7 +89,7 @@ metadata_list: %empty
 
 metadata: WORD COLON QWORDS
         {
-            printf("\t\t<%s>%s</%s>\n", $1, $3, $1);
+            printf("\t\t<%s><![CDATA[%s]]></%s>\n", $1, $3, $1);
         }
         ;
 %%
