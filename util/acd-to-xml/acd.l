@@ -5,6 +5,7 @@
 %}
 
 %%
+#.*\n                   /* ignore comments */;
 application             return APPTOK;
 section                 return OSEC;
 endsection              return ESEC;
