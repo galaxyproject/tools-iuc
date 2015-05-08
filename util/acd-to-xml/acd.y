@@ -1,20 +1,22 @@
 %{
 #include <stdio.h>
 #include <string.h>
+extern "C" int yyparse (void);
+extern int yylex (void);
 
 void yyerror(const char *str)
 {
-        fprintf(stderr,"error: %s\n",str);
+    fprintf(stderr,"error: %s\n",str);
 }
 
 int yywrap()
 {
-        return 1;
+    return 1;
 }
 
-main()
+int main()
 {
-        yyparse();
+    yyparse();
 }
 
 %}
@@ -47,7 +49,7 @@ application_section:
     EBRACKET
 ;
 
-sections:
+sections: %empty
     | sections section;
 
 section:
@@ -67,7 +69,7 @@ section:
     }
 ;
 
-parameter_list:
+parameter_list: %empty
               | parameter_list parameter;
 
 parameter:
@@ -78,7 +80,7 @@ parameter:
     EBRACKET
     { printf("</parameter>");}
 
-metadata_list:
+metadata_list: %empty
         | metadata_list metadata;
 
 metadata: WORD COLON QWORDS

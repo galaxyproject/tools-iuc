@@ -16,10 +16,12 @@ lex.yy.c:
 	flex acd.l
 
 y.tab.c:
-	yacc -d acd.y
+	yacc -Wall -d acd.y
 
 acd: lex.yy.c y.tab.c
-	gcc lex.yy.c y.tab.c -o acd -ll
+	g++ -Wall -Wno-unused-function -g lex.yy.c y.tab.c -o acd -lfl -D_GNU_SOURCE
+# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=30426
+
 
 # In case we need it?
 groups.json: output

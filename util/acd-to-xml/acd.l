@@ -8,7 +8,7 @@
 application             return APPTOK;
 section                 return OSEC;
 endsection              return ESEC;
-\"[^\"]*\"              yylval.str=strdup(yytext); return QWORDS;
+\"[^\"]*\"              yylval.str=strndup(yytext + 1, strlen(yytext) - 2); return QWORDS;
 [a-zA-Z][a-zA-Z0-9]*    yylval.str=strdup(yytext); return WORD;
 \"                      return QUOTE;
 \{                      return OBRACE;
