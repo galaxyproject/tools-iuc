@@ -25,7 +25,7 @@ int main()
   char* str;
 }
 
-%token APPTOK QUOTE OBRACE EBRACE OBRACKET EBRACKET COLON OSEC ESEC;
+%token APPTOK QUOTE OBRACE EBRACE OBRACKET EBRACKET COLON OSEC ESEC VARIABLE;
 %token <str> QWORDS WORDS WORD;
 
 %%
@@ -71,7 +71,8 @@ section:
 
 parameters_and_sections: %empty
     | parameters_and_sections parameter_list
-    | parameters_and_sections section ;
+    | parameters_and_sections section
+    | parameters_and_sections variable ;
 
 parameter_list: %empty
               | parameter_list parameter;
@@ -84,12 +85,19 @@ parameter:
     EBRACKET
     { printf("</parameter>");}
 
+variable:
+    VARIABLE COLON WORD QWORDS
+    {
+        printf("<variable name=\"%s\"><![CDATA[%s]]></variable>", $3, $4);
+    }
+;
+
 metadata_list: %empty
         | metadata_list metadata;
 
 metadata: WORD COLON QWORDS
-        {
-            printf("\t\t<%s><![CDATA[%s]]></%s>\n", $1, $3, $1);
-        }
-        ;
+    {
+        printf("\t\t<%s><![CDATA[%s]]></%s>\n", $1, $3, $1);
+    }
+;
 %%
