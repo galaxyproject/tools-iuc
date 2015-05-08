@@ -1,16 +1,17 @@
-EMBOSS_ACD_LOCATION=~/.linuxbrew/Cellar/emboss/6.6.0/share/EMBOSS/acd
-ACDS:= $(wildcard ${EMBOSS_ACD_LOCATION}/*.acd)
+EMBOSS_ACD_LOCATION=~/.linuxbrew/Cellar/emboss/6.6.0/share/EMBOSS/acd/
+ACDS:= $(wildcard ${EMBOSS_ACD_LOCATION}*.acd)
+OUTPUT_ACDS:=$(addprefix output/, $(addsuffix .xml, $(notdir $(ACDS))))
 
-.PHONY: all clean
+.PHONY: all clean full_clean
 
-all: $(ACDS:=.xml)
+all: $(OUTPUT_ACDS)
 	@echo "Done"
 
 output:
 	mkdir output
 
-%.xml: acd output
-	-cat $(basename $@) | ./acd | xmllint --pretty 1 - > output/$(notdir $@)
+output/%.xml: acd output
+	-cat $(EMBOSS_ACD_LOCATION)$(notdir $(basename $@)) | ./acd | xmllint --pretty 1 - > output/$(notdir $@)
 
 lex.yy.c:
 	flex acd.l
@@ -25,7 +26,10 @@ acd: lex.yy.c y.tab.c
 
 # In case we need it?
 groups.json: output
-	python convert-groups.py ${EMBOSS_ACD_LOCATION}/groups.standard | json_pp > output/groups.json
+	python convert-groups.py ${EMBOSS_ACD_LOCATION}groups.standard | json_pp > output/groups.json
 
 clean:
-	@rm -fr output lex.yy.c acd y.tab.c y.tab.h 
+	@rm -fr lex.yy.c acd y.tab.c y.tab.h
+
+full_clean: clean
+	@rm -fr output
