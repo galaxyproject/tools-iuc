@@ -62,12 +62,16 @@ section:
     metadata_list
     { printf("\t</metadata>\n"); }
     EBRACKET
-    parameter_list
+    parameters_and_sections
     ESEC COLON WORD
     {
         printf("\t</section>\n");
     }
 ;
+
+parameters_and_sections: %empty
+    | parameters_and_sections parameter_list
+    | parameters_and_sections section ;
 
 parameter_list: %empty
               | parameter_list parameter;
