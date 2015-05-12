@@ -52,15 +52,11 @@ Read more about the "Phone Home" problem at:
 http://www.broadinstitute.org/gatk/guide/article?id=1250
 
 Optionally, you may also want to add some commands to be executed before GATK (e.g. to load modules) to the file:
-
-<tool_dependency_dir>/gatk2/default/env.sh
-
-Finally, you should fill in additional information about your genomes and 
-annotations in the gatk2_picard_index.loc and gatk2_annotations.txt. 
-You can find them in the tool-data/ Galaxy directory.
+::
+    <tool_dependency_dir>/gatk2/default/env.sh
 
 Note that due to the manual nature of the GATK2 installation you will be getting the 
-following warnings in the Galaxy log:
+following warnings in the Galaxy log (unless you specified the env.sh in the previous paragraph):
 ::
     Failed to resolve dependency on 'gatk2', ignoring.
 
@@ -69,6 +65,9 @@ This is because the
     <requirement type="package">gatk2</requirement>
 is specified but never resolved in the tool_dependencies.xml. It is safe to ignore.
 
+Finally, you should fill in additional information about your genomes and 
+annotations in the gatk2_picard_index.loc and gatk2_annotations.txt. 
+You can find them in the tool-data/ Galaxy directory.
 
 History
 =======
