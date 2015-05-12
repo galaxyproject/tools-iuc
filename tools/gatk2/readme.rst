@@ -59,9 +59,15 @@ Finally, you should fill in additional information about your genomes and
 annotations in the gatk2_picard_index.loc and gatk2_annotations.txt. 
 You can find them in the tool-data/ Galaxy directory.
 
-Note that due to the manual nature of the GATK2 installation you will be getting the following warnings in the Galaxy log:
-```Failed to resolve dependency on 'gatk2', ignoring```. This is because the <requirement type="package">gatk2</requirement> is specified but
-never resolved in the tool_dependencies.xml. It is safe to ignore.
+Note that due to the manual nature of the GATK2 installation you will be getting the 
+following warnings in the Galaxy log:
+::
+    Failed to resolve dependency on 'gatk2', ignoring.
+
+This is because the 
+::
+    <requirement type="package">gatk2</requirement>
+is specified but never resolved in the tool_dependencies.xml. It is safe to ignore.
 
 
 History
