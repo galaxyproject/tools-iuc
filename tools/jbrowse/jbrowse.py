@@ -35,10 +35,9 @@ def _add_json(jbrowse_dir, json_data):
 
 def add_bigwig(jbrowse_dir, data, key, **kwargs):
     label = hashlib.md5(data).hexdigest()
-    source = data
     dest = os.path.join('data', 'raw', os.path.basename(data))
     # ln?
-    cmd = ['cp', source, dest]
+    cmd = ['cp', data, dest]
     subprocess.check_call(cmd, cwd=jbrowse_dir)
 
     track_data = {
@@ -48,7 +47,7 @@ def add_bigwig(jbrowse_dir, data, key, **kwargs):
         "bicolor_pivot": "zero",
         "storeClass": "JBrowse/Store/SeqFeature/BigWig",
         "type": "JBrowse/View/Track/Wiggle/Density",
-        "key": "bigwig"
+        "key": key,
     }
     track_data.update(kwargs)
     _add_json(jbrowse_dir, track_data)
@@ -116,13 +115,13 @@ def process_annotations(jbrowse_dir, data, key, format,
                         **kwargs):
     if format in ('gff', 'gff3', 'bed'):
         add_features(jbrowse_dir, data, key, format, **kwargs)
-    elif format in ('bigwig', 'wig'):
+    elif format == 'bigwig':
         add_bigwig(jbrowse_dir, data, key, **kwargs)
-    elif format in ('bam', ):
+    elif format == 'bam':
         add_bam(jbrowse_dir, data, key, **kwargs)
     elif format in ('blastxml', ):
         pass
-    elif format in ('vcf', ):
+    elif format == 'vcf':
         add_vcf(jbrowse_dir, data, key, **kwargs)
         pass
 
