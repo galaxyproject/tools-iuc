@@ -13,6 +13,14 @@ Installation
 
 It is recommended to install this wrapper via the Galaxy Tool Shed
 
+Running Locally
+===============
+
+The Galaxy tool interface writes out a yaml file which is then used to generate
+the visualizations. An example used during development/testing can be seen in
+`test.yml`. The format is in no way rigorously defined and is likely to change
+at any time.
+
 History
 =======
 
