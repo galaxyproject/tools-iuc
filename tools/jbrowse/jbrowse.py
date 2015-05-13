@@ -70,8 +70,17 @@ def add_bam(jbrowse_dir, data, key, **kwargs):
         "type": "JBrowse/View/Track/Alignments2",
         "storeClass": "JBrowse/Store/SeqFeature/BAM",
     }
-    track_data.update(kwargs)
     _add_json(jbrowse_dir, track_data)
+
+    if kwargs.get('auto_snp', False):
+        track_data = {
+            "storeClass": "JBrowse/Store/SeqFeature/BAM",
+            "urlTemplate": os.path.join('..', dest),
+            "type": "JBrowse/View/Track/SNPCoverage",
+            "key": key + " - SNPs/Coverage",
+            "label": label + "_autosnp",
+        }
+        _add_json(jbrowse_dir, track_data)
 
 
 def add_vcf(jbrowse_dir, data, key, **kwargs):
