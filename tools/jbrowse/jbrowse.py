@@ -5,6 +5,7 @@ import subprocess
 import hashlib
 import tempfile
 import json
+import yaml
 
 TN_TABLE = {
     'gff3': '--gff',
@@ -107,15 +108,7 @@ def clone_jbrowse(jbrowse_dir, destination):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
     parser.add_argument('genome', type=file, help='Input genome file')
-
-    parser.add_argument('--annotation', type=file, nargs='*',
-                        help='annotation data')
-    parser.add_argument('--annotation_format', choices=['gff3', 'gff', 'bed', 'bam', 'wig', 'bigwig'],
-                        nargs='*', help='annotation format')
-    parser.add_argument('--annotation_label', type=str, nargs='*',
-                        help='annotation label')
-    parser.add_argument('--annotation_extra', type=str, nargs='*',
-                        help='annotation extra data')
+    parser.add_argument('yaml', type=file, help='Track Configuration')
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
@@ -126,18 +119,11 @@ if __name__ == '__main__':
 
     process_genome(jbrowse_dir, os.path.realpath(args.genome.name))
 
-    for annotation, format, label, extra in zip(args.annotation,
-                                                args.annotation_format,
-                                                args.annotation_label,
-                                                args.annotation_extra):
-        path = os.path.realpath(annotation.name)
-
-        # Take in json formatted "extra" that goes straight into trackData.json
-        real_extra = {}
-        if extra != "None":
-            real_extra = json.loads(extra)
-
-        process_annotations(jbrowse_dir, path, label, format, **real_extra)
+    track_data = yaml.load(args.yaml)
+    for track in track_data:
+        path = os.path.realpath(track['file'])
+        real_extra = track.get('options', {})
+        process_annotations(jbrowse_dir, path, track['label'], track['ext'], **real_extra)
 
     print """
     <html>
