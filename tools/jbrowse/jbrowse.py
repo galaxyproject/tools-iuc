@@ -74,6 +74,28 @@ def add_bam(jbrowse_dir, data, key, **kwargs):
     _add_json(jbrowse_dir, track_data)
 
 
+def add_vcf(jbrowse_dir, data, key, **kwargs):
+    label = hashlib.md5(data).hexdigest()
+    dest = os.path.join('data', 'raw', os.path.basename(data))
+    # ln?
+    cmd = ['cp', data, dest]
+    subprocess.check_call(cmd, cwd=jbrowse_dir)
+    cmd = ['bgzip', dest]
+    subprocess.check_call(cmd, cwd=jbrowse_dir)
+    cmd = ['tabix', '-p', 'vcf', dest + '.gz']
+    subprocess.check_call(cmd, cwd=jbrowse_dir)
+
+    track_data = {
+        "key": key,
+        "label": label,
+        "urlTemplate": os.path.join('..', dest + '.gz'),
+        "type": "JBrowse/View/Track/HTMLVariants",
+        "storeClass": "JBrowse/Store/SeqFeature/VCFTabix",
+    }
+    track_data.update(kwargs)
+    _add_json(jbrowse_dir, track_data)
+
+
 def add_features(jbrowse_dir, data, key, format, **kwargs):
     label = hashlib.md5(data).hexdigest()
     cmd = ['perl', 'bin/flatfile-to-json.pl', TN_TABLE.get(format, 'gff'),
@@ -90,6 +112,9 @@ def process_annotations(jbrowse_dir, data, key, format,
     elif format in ('bam', ):
         add_bam(jbrowse_dir, data, key, **kwargs)
     elif format in ('blastxml', ):
+        pass
+    elif format in ('vcf', ):
+        add_vcf(jbrowse_dir, data, key, **kwargs)
         pass
 
 
@@ -122,8 +147,8 @@ if __name__ == '__main__':
     track_data = yaml.load(args.yaml)
     for track in track_data:
         path = os.path.realpath(track['file'])
-        real_extra = track.get('options', {})
-        process_annotations(jbrowse_dir, path, track['label'], track['ext'], **real_extra)
+        extra = track.get('options', {})
+        process_annotations(jbrowse_dir, path, track['label'], track['ext'], **extra)
 
     print """
     <html>
