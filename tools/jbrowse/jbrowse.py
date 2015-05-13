@@ -3,6 +3,8 @@ import os
 import argparse
 import subprocess
 import hashlib
+import tempfile
+import json
 
 TN_TABLE = {
     'gff3': '--gff',
@@ -16,20 +18,78 @@ def process_genome(jbrowse_dir, genome):
     subprocess.check_output(['perl', 'bin/prepare-refseqs.pl', '--fasta', genome], cwd=jbrowse_dir)
 
 
-def process_annotations(jbrowse_dir, data, label, format,
-                        **kwargs):
-    key = hashlib.md5(data).hexdigest()
+def _add_json(jbrowse_dir, json_data):
+    if len(json_data.keys()) == 0:
+        return
 
+    print json_data
+    tmp = tempfile.NamedTemporaryFile(delete=False)
+    tmp.write(json.dumps(json_data))
+    tmp.close()
+    cmd = ['perl', 'bin/add-track-json.pl', tmp.name,
+           os.path.join('data', 'trackList.json')]
+    subprocess.check_call(cmd, cwd=jbrowse_dir)
+    os.unlink(tmp.name)
+
+
+def add_bigwig(jbrowse_dir, data, key, **kwargs):
+    label = hashlib.md5(data).hexdigest()
+    source = data
+    dest = os.path.join('data', 'raw', os.path.basename(data))
+    # ln?
+    cmd = ['cp', source, dest]
+    subprocess.check_call(cmd, cwd=jbrowse_dir)
+
+    track_data = {
+        "autoscale": "local",
+        "label": label,
+        "urlTemplate": os.path.join('..', dest),
+        "bicolor_pivot": "zero",
+        "storeClass": "JBrowse/Store/SeqFeature/BigWig",
+        "type": "JBrowse/View/Track/Wiggle/Density",
+        "key": "bigwig"
+    }
+    track_data.update(kwargs)
+    _add_json(jbrowse_dir, track_data)
+
+
+def add_bam(jbrowse_dir, data, key, **kwargs):
+    label = hashlib.md5(data).hexdigest()
+    dest = os.path.join('data', 'raw', os.path.basename(data))
+    # ln?
+    cmd = ['cp', data, dest]
+    subprocess.check_call(cmd, cwd=jbrowse_dir)
+    cmd = ['cp', data + '.bai', dest + '.bai']
+    subprocess.check_call(cmd, cwd=jbrowse_dir)
+
+    track_data = {
+        "urlTemplate": os.path.join('..', dest),
+        "key": key,
+        "label": label,
+        "type": "JBrowse/View/Track/Alignments2",
+        "storeClass": "JBrowse/Store/SeqFeature/BAM",
+    }
+    track_data.update(kwargs)
+    _add_json(jbrowse_dir, track_data)
+
+
+def add_features(jbrowse_dir, data, key, format, **kwargs):
+    label = hashlib.md5(data).hexdigest()
+    cmd = ['perl', 'bin/flatfile-to-json.pl', TN_TABLE.get(format, 'gff'),
+           data, '--trackLabel', label, '--key', key]
+    subprocess.check_call(cmd, cwd=jbrowse_dir)
+
+
+def process_annotations(jbrowse_dir, data, key, format,
+                        **kwargs):
     if format in ('gff', 'gff3', 'bed'):
-        cmd = ['perl', 'bin/flatfile-to-json.pl', TN_TABLE.get(format, 'gff'),
-               data, '--trackLabel', key, '--key', label]
+        add_features(jbrowse_dir, data, key, format, **kwargs)
     elif format in ('bigwig', 'wig'):
-        cmd = []
+        add_bigwig(jbrowse_dir, data, key, **kwargs)
     elif format in ('bam', ):
-        cmd = []
+        add_bam(jbrowse_dir, data, key, **kwargs)
     elif format in ('blastxml', ):
-        cmd = []
-    subprocess.check_output(cmd, cwd=jbrowse_dir)
+        pass
 
 
 def clone_jbrowse(jbrowse_dir, destination):
@@ -39,6 +99,10 @@ def clone_jbrowse(jbrowse_dir, destination):
     subprocess.check_output(cmd)
     cmd = ['cp', '-r', jbrowse_dir, destination]
     subprocess.check_output(cmd)
+    cmd = ['mkdir', '-p', os.path.join(destination, 'JBrowse-1.11.6', 'data',
+                                       'raw')]
+    subprocess.check_output(cmd)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
@@ -50,6 +114,8 @@ if __name__ == '__main__':
                         nargs='*', help='annotation format')
     parser.add_argument('--annotation_label', type=str, nargs='*',
                         help='annotation label')
+    parser.add_argument('--annotation_extra', type=str, nargs='*',
+                        help='annotation extra data')
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
@@ -60,9 +126,18 @@ if __name__ == '__main__':
 
     process_genome(jbrowse_dir, os.path.realpath(args.genome.name))
 
-    for annotation, format, label in zip(args.annotation, args.annotation_format, args.annotation_label):
+    for annotation, format, label, extra in zip(args.annotation,
+                                                args.annotation_format,
+                                                args.annotation_label,
+                                                args.annotation_extra):
         path = os.path.realpath(annotation.name)
-        process_annotations(jbrowse_dir, path, label, format)
+
+        # Take in json formatted "extra" that goes straight into trackData.json
+        real_extra = {}
+        if extra != "None":
+            real_extra = json.loads(extra)
+
+        process_annotations(jbrowse_dir, path, label, format, **real_extra)
 
     print """
     <html>
