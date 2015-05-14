@@ -23,7 +23,6 @@ def _add_json(jbrowse_dir, json_data):
     if len(json_data.keys()) == 0:
         return
 
-    print json_data
     tmp = tempfile.NamedTemporaryFile(delete=False)
     tmp.write(json.dumps(json_data))
     tmp.close()
