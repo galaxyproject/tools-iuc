@@ -14,6 +14,8 @@ TN_TABLE = {
     # 'genbank': '--gbk',
 }
 
+INSTALLED_TO = os.path.dirname(os.path.realpath(__file__))
+
 
 def process_genome(jbrowse_dir, genome):
     subprocess.check_output(['perl', 'bin/prepare-refseqs.pl', '--fasta', genome], cwd=jbrowse_dir)
@@ -33,6 +35,20 @@ def _add_json(jbrowse_dir, json_data):
 
 
 def add_blastxml(jbrowse_dir, data, key, format, **kwargs):
+    gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
+    cmd = ['python', os.path.join(INSTALLED_TO, 'blastxml_to_gapped_gff3.py'),
+           '--trim_end', '--min_gap', '10', data]
+    subprocess.check_call(cmd, cwd=jbrowse_dir, stdout=gff3_unrebased)
+    gff3_unrebased.close()
+
+    gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
+    cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
+    if kwargs['protein']:
+        cmd.append('--protein2dna')
+    cmd.extend(['--trim_end', '--min_gap', kwargs['min_gap'], kwargs['parent'], gff3_unrebased.name])
+    subprocess.check_call(cmd, cwd=jbrowse_dir, stdout=gff3_rebased)
+    gff3_rebased.close()
+
     label = hashlib.md5(data).hexdigest()
     color_function = """
         function(feature, variableName, glyphObject, track) {
@@ -55,7 +71,7 @@ def add_blastxml(jbrowse_dir, data, key, format, **kwargs):
         'glyph': 'JBrowse/View/FeatureGlyph/Segments',
     }
     cmd = ['perl', 'bin/flatfile-to-json.pl',
-           '--gff3', data,
+           '--gff3', gff3_rebased.name,
            '--trackLabel', label,
            '--key', key,
            '--clientConfig', json.dumps(clientConfig),
