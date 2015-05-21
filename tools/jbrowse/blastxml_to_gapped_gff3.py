@@ -8,6 +8,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(name='blastxml2gff3')
 
+__author__ = "Eric Rasche"
+__version__ = "0.4.0"
+__maintainer__ = "Eric Rasche"
+__email__ = "esr@tamu.edu"
 
 __doc__ = """
 BlastXML files, when transformed to GFF3, do not normally show gaps in the
