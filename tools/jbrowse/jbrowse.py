@@ -32,6 +32,41 @@ def _add_json(jbrowse_dir, json_data):
     os.unlink(tmp.name)
 
 
+def add_blastxml(jbrowse_dir, data, key, format, **kwargs):
+    label = hashlib.md5(data).hexdigest()
+    color_function = """
+        function(feature, variableName, glyphObject, track) {
+            var score = feature._parent.get('score');
+            var opacity = 0;
+            if(score == 0.0) {
+                opacity = 1;
+            } else{
+                opacity = (20 - Math.log10(score)) / 180;
+            }
+            return 'rgba(109, 166, 166, ' + opacity + ')';
+        }
+    """
+    clientConfig = {
+        'label': 'description',
+        'color': color_function.replace('\n', ''),
+        'description': 'Hit_titles',
+    }
+    config = {
+        'glyph': 'JBrowse/View/FeatureGlyph/Segments',
+    }
+    cmd = ['perl', 'bin/flatfile-to-json.pl',
+           '--gff3', data,
+           '--trackLabel', label,
+           '--key', key,
+           '--clientConfig', json.dumps(clientConfig),
+           '--type', 'JBrowse/View/Track/CanvasFeatures',
+           '--config', json.dumps(config),
+           '--trackType', 'JBrowse/View/Track/CanvasFeatures'
+           ]
+
+    subprocess.check_call(cmd, cwd=jbrowse_dir)
+
+
 def add_bigwig(jbrowse_dir, data, key, **kwargs):
     label = hashlib.md5(data).hexdigest()
     dest = os.path.join('data', 'raw', os.path.basename(data))
@@ -123,7 +158,7 @@ def process_annotations(jbrowse_dir, data, key, format,
     elif format == 'bam':
         add_bam(jbrowse_dir, data, key, **kwargs)
     elif format in ('blastxml', ):
-        pass
+        add_blastxml(jbrowse_dir, data, key, **kwargs)
     elif format == 'vcf':
         add_vcf(jbrowse_dir, data, key, **kwargs)
         pass
