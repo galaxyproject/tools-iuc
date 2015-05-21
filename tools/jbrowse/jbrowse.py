@@ -40,7 +40,6 @@ def add_bigwig(jbrowse_dir, data, key, **kwargs):
     subprocess.check_call(cmd, cwd=jbrowse_dir)
 
     track_data = {
-        "autoscale": "local",
         "label": label,
         "urlTemplate": os.path.join('..', dest),
         "bicolor_pivot": "zero",
@@ -49,6 +48,11 @@ def add_bigwig(jbrowse_dir, data, key, **kwargs):
         "key": key,
     }
     track_data.update(kwargs)
+
+    if 'min' not in track_data and 'max' not in track_data \
+            and 'autoscale' not in track_data:
+        track_data['autoscale'] = 'local'
+
     _add_json(jbrowse_dir, track_data)
 
 
