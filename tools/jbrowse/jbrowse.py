@@ -97,7 +97,9 @@ def add_bam(jbrowse_dir, data, key, **kwargs):
     # ln?
     cmd = ['cp', data, dest]
     subprocess.check_call(cmd, cwd=jbrowse_dir)
-    cmd = ['cp', data + '.bai', dest + '.bai']
+
+    bai_source = kwargs['bam_index']
+    cmd = ['cp', bai_source, dest + '.bai']
     subprocess.check_call(cmd, cwd=jbrowse_dir)
 
     track_data = {
