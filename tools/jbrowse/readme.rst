@@ -25,6 +25,7 @@ History
 =======
 
 -  0.1 Initial public release
+-  0.2 Added support for BAM, Blast, VCF
 
 Wrapper License (MIT/BSD Style)
 ===============================
