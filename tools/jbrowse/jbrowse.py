@@ -70,8 +70,8 @@ class JbrowseConnector(object):
         return r, g, b
 
     def process_genome(self):
-        self.subprocess_check_call(['perl', 'bin/prepare-refseqs.pl', '--fasta',
-                                 self.genome_path])
+        self.subprocess_check_call(['perl', 'bin/prepare-refseqs.pl',
+                                    '--fasta', self.genome_path])
 
     def _add_json(self, json_data):
         if len(json_data.keys()) == 0:
@@ -117,12 +117,16 @@ class JbrowseConnector(object):
             'color': color_function.replace('\n', ''),
             'description': 'Hit_titles',
         }
+        config = {'glyph': 'JBrowse/View/FeatureGlyph/Segments'}
+        if 'category' in kwargs:
+            config['category'] = kwargs['category']
+
         cmd = ['perl', 'bin/flatfile-to-json.pl',
                '--gff', gff3_rebased.name,
                '--trackLabel', label,
                '--key', key,
                '--clientConfig', json.dumps(clientConfig),
-               '--config', json.dumps({'glyph': 'JBrowse/View/FeatureGlyph/Segments', 'category': 'Test'}),
+               '--config', json.dumps(config),
                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                ]
 
@@ -192,6 +196,8 @@ class JbrowseConnector(object):
             "type": "JBrowse/View/Track/Alignments2",
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
         }
+        if 'category' in kwargs:
+            track_data['category'] = kwargs['category']
         self._add_json(track_data)
 
         if kwargs.get('auto_snp', False):
@@ -202,6 +208,8 @@ class JbrowseConnector(object):
                 "key": key + " - SNPs/Coverage",
                 "label": label + "_autosnp",
             }
+            if 'category' in kwargs:
+                track_data['category'] = kwargs['category']
             self._add_json(track_data)
 
     def add_vcf(self, data, key, **kwargs):
@@ -232,6 +240,10 @@ class JbrowseConnector(object):
                '--trackLabel', label,
                '--key', key]
 
+        config = {}
+        if 'category' in kwargs:
+            config['category'] = kwargs['category']
+
         if kwargs.get('match', False):
             clientConfig = {
                 'label': 'description',
@@ -243,7 +255,7 @@ class JbrowseConnector(object):
 
             if min_val is not None and max_val is not None:
                 MIN_MAX_OPACITY_MATH = Template("""
-                var opacity = (score - ${max}) * (1/(${max} - ${min}))
+                var opacity = (score - ${min}) * (1/(${max} - ${min}));
                 """).substitute({
                     'max': max_val,
                     'min': min_val,
@@ -260,10 +272,13 @@ class JbrowseConnector(object):
 
                 clientConfig['color'] = color_function.replace('\n', '')
 
+            config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
+
             cmd += ['--clientConfig', json.dumps(clientConfig),
-                    '--config', json.dumps({'glyph': 'JBrowse/View/FeatureGlyph/Segments', 'category': 'Test'}),
                     '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                     ]
+
+        cmd.extend(['--config', json.dumps(config)])
 
         self.subprocess_check_call(cmd)
 
@@ -323,6 +338,7 @@ if __name__ == '__main__':
             if possible_partial_path in extra:
                 extra[possible_partial_path] = os.path.realpath(
                     extra[possible_partial_path])
+        extra['category'] = track.get('category', 'Default')
 
         jc.process_annotations(path, track['label'], track['ext'], **extra)
 
