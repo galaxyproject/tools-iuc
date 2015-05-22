@@ -25,12 +25,6 @@ if(score == 0.0) {
 }
 """
 
-CANVAS_ARGS = [
-    '--config', json.dumps({'glyph': 'JBrowse/View/FeatureGlyph/Segments'}),
-    '--type', 'JBrowse/View/Track/CanvasFeatures',
-    '--trackType', 'JBrowse/View/Track/CanvasFeatures'
-]
-
 BREWER_COLOUR_IDX = 0
 BREWER_COLOUR_SCHEMES = [
     (228, 26, 28),
@@ -66,14 +60,18 @@ class JbrowseConnector(object):
         self.clone_jbrowse(self.jbrowse, self.outdir)
         self.process_genome()
 
+    def _jb_scc(self, command):
+        print 'cd %s && %s' % (self.jbrowse_dir, ' '.join(command))
+        subprocess.check_call(command, cwd=self.jbrowse_dir)
+
     def _get_colours(self):
         r, g, b = BREWER_COLOUR_SCHEMES[self.brewer_colour_idx]
         self.brewer_colour_idx += 1
         return r, g, b
 
     def process_genome(self):
-        subprocess.check_output(['perl', 'bin/prepare-refseqs.pl', '--fasta',
-                                 self.genome_path], cwd=self.jbrowse_dir)
+        self._jb_scc(['perl', 'bin/prepare-refseqs.pl', '--fasta',
+                                 self.genome_path])
 
     def _add_json(self, json_data):
         if len(json_data.keys()) == 0:
@@ -84,13 +82,13 @@ class JbrowseConnector(object):
         tmp.close()
         cmd = ['perl', 'bin/add-track-json.pl', tmp.name,
                os.path.join('data', 'trackList.json')]
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        self._jb_scc(cmd)
         os.unlink(tmp.name)
 
-    def add_blastxml(self, data, key, format, **kwargs):
+    def add_blastxml(self, data, key, **kwargs):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
         cmd = ['python', os.path.join(INSTALLED_TO, 'blastxml_to_gapped_gff3.py'),
-               '--trim_end', '--min_gap', '10', data]
+               '--trim_end', '--min_gap', str(kwargs['min_gap']), data]
         subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_unrebased)
         gff3_unrebased.close()
 
@@ -98,7 +96,8 @@ class JbrowseConnector(object):
         cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
         if kwargs['protein']:
             cmd.append('--protein2dna')
-        cmd.extend(['--trim_end', '--min_gap', kwargs['min_gap'], kwargs['parent'], gff3_unrebased.name])
+        cmd.extend([kwargs['parent'], gff3_unrebased.name])
+        print ' '.join(cmd)
         subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_rebased)
         gff3_rebased.close()
 
@@ -119,15 +118,19 @@ class JbrowseConnector(object):
             'description': 'Hit_titles',
         }
         cmd = ['perl', 'bin/flatfile-to-json.pl',
-               '--gff3', gff3_rebased.name,
+               '--gff', gff3_rebased.name,
                '--trackLabel', label,
                '--key', key,
                '--clientConfig', json.dumps(clientConfig),
-               ] + CANVAS_ARGS
+               '--config', json.dumps({'glyph': 'JBrowse/View/FeatureGlyph/Segments', 'category': 'Test'}),
+               '--trackType', 'JBrowse/View/Track/CanvasFeatures'
+               ]
 
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        self._jb_scc(cmd)
+        os.unlink(gff3_rebased.name)
+        os.unlink(gff3_unrebased.name)
 
-    def _min_max_gff(gff_file):
+    def _min_max_gff(self, gff_file):
         min_val = None
         max_val = None
         with open(gff_file, 'r') as handle:
@@ -153,7 +156,7 @@ class JbrowseConnector(object):
         dest = os.path.join('data', 'raw', os.path.basename(data))
         # ln?
         cmd = ['cp', data, dest]
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        self._jb_scc(cmd)
 
         track_data = {
             "label": label,
@@ -176,11 +179,11 @@ class JbrowseConnector(object):
         dest = os.path.join('data', 'raw', os.path.basename(data))
         # ln?
         cmd = ['cp', data, dest]
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        self._jb_scc(cmd)
 
         bai_source = kwargs['bam_index']
         cmd = ['cp', bai_source, dest + '.bai']
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        self._jb_scc(cmd)
 
         track_data = {
             "urlTemplate": os.path.join('..', dest),
@@ -206,11 +209,11 @@ class JbrowseConnector(object):
         dest = os.path.join('data', 'raw', os.path.basename(data))
         # ln?
         cmd = ['cp', data, dest]
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        self._jb_scc(cmd)
         cmd = ['bgzip', dest]
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        self._jb_scc(cmd)
         cmd = ['tabix', '-p', 'vcf', dest + '.gz']
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        self._jb_scc(cmd)
 
         track_data = {
             "key": key,
@@ -257,9 +260,12 @@ class JbrowseConnector(object):
 
                 clientConfig['color'] = color_function.replace('\n', '')
 
-            cmd += ['--clientConfig', json.dumps(clientConfig)] + CANVAS_ARGS
+            cmd += ['--clientConfig', json.dumps(clientConfig),
+                    '--config', json.dumps({'glyph': 'JBrowse/View/FeatureGlyph/Segments', 'category': 'Test'}),
+                    '--trackType', 'JBrowse/View/Track/CanvasFeatures'
+                    ]
 
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        self._jb_scc(cmd)
 
     def process_annotations(self, data, key, format, **kwargs):
         if format in ('gff', 'gff3', 'bed'):
@@ -277,17 +283,17 @@ class JbrowseConnector(object):
         # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
         # unlike copytree
         cmd = ['mkdir', '-p', destination]
-        subprocess.check_output(cmd)
+        subprocess.check_call(cmd)
         cmd = ['cp', '-r', jbrowse_dir, destination]
-        subprocess.check_output(cmd)
+        subprocess.check_call(cmd)
         cmd = ['mkdir', '-p', os.path.join(destination, 'JBrowse-1.11.6',
                                            'data', 'raw')]
-        subprocess.check_output(cmd)
+        subprocess.check_call(cmd)
 
         # http://unix.stackexchange.com/a/38691/22785
         # JBrowse releases come with some broken symlinks
-        cmd = ['find', destination, '-type', 'l', '-xtype', 'l', '-exec', 'rm', "'{}'", '\;']
-        subprocess.check_output(cmd)
+        cmd = ['find', destination, '-type', 'l', '-xtype', 'l', '-exec', 'rm', "'{}'", '+']
+        subprocess.check_call(cmd)
 
 
 if __name__ == '__main__':
@@ -310,6 +316,14 @@ if __name__ == '__main__':
     for track in track_data:
         path = os.path.realpath(track['file'])
         extra = track.get('options', {})
+        if '__unused__' in extra:
+            del extra['__unused__']
+
+        for possible_partial_path in ('bam_index', 'parent'):
+            if possible_partial_path in extra:
+                extra[possible_partial_path] = os.path.realpath(
+                    extra[possible_partial_path])
+
         jc.process_annotations(path, track['label'], track['ext'], **extra)
 
     print """
