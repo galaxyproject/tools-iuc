@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from string import Template
 import os
 import argparse
 import subprocess
@@ -7,13 +8,13 @@ import tempfile
 import json
 import yaml
 
-COLOR_FUNCTION_TEMPLATE = """
+COLOR_FUNCTION_TEMPLATE = Template("""
 function(feature, variableName, glyphObject, track) {
-    var score = %s;
-    %s
-    return 'rgba(%s, %s, %s, ' + opacity + ')';
+    var score = ${score};
+    ${opacity}
+    return 'rgba(${red}, ${green}, ${blue}, ' + opacity + ')';
 }
-"""
+""")
 
 BLAST_OPACITY_MATH = """
 var opacity = 0;
@@ -103,9 +104,14 @@ class JbrowseConnector(object):
 
         label = hashlib.md5(data).hexdigest()
 
-        color_function = COLOR_FUNCTION_TEMPLATE % \
-            ["feature._parent.get('score')",
-             BLAST_OPACITY_MATH].extend(self._get_colours())
+        red, green, blue = self._get_colours()
+        color_function = COLOR_FUNCTION_TEMPLATE.substitute({
+            'score': "feature._parent.get('score')",
+            'opacity': BLAST_OPACITY_MATH,
+            'red': red,
+            'green': green,
+            'blue': blue,
+        })
 
         clientConfig = {
             'label': 'description',
@@ -120,6 +126,27 @@ class JbrowseConnector(object):
                ] + CANVAS_ARGS
 
         subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+
+    def _min_max_gff(gff_file):
+        min_val = None
+        max_val = None
+        with open(gff_file, 'r') as handle:
+            for line in handle:
+                try:
+                    value = float(line.split('\t')[5])
+                    if min_val is None:
+                        min_val = value
+                    if max_val is None:
+                        max_val = value
+
+                    if value < min_val:
+                        min_val = value
+
+                    if value > max_val:
+                        max_val = value
+                except Exception:
+                    pass
+        return min_val, max_val
 
     def add_bigwig(self, data, key, **kwargs):
         label = hashlib.md5(data).hexdigest()
@@ -197,8 +224,41 @@ class JbrowseConnector(object):
 
     def add_features(self, data, key, format, **kwargs):
         label = hashlib.md5(data).hexdigest()
-        cmd = ['perl', 'bin/flatfile-to-json.pl', TN_TABLE.get(format, 'gff'),
-               data, '--trackLabel', label, '--key', key]
+        cmd = ['perl', 'bin/flatfile-to-json.pl',
+               TN_TABLE.get(format, 'gff'), data,
+               '--trackLabel', label,
+               '--key', key]
+
+        if kwargs.get('match', False):
+            clientConfig = {
+                'label': 'description',
+                'description': 'Hit_titles',
+            }
+
+            # Get min/max and build a scoring function since JBrowse doesn't
+            min_val, max_val = self._min_max_gff(data)
+
+            if min_val is not None and max_val is not None:
+                MIN_MAX_OPACITY_MATH = Template("""
+                var opacity = (score - ${max}) * (1/(${max} - ${min}))
+                """).substitute({
+                    'max': max_val,
+                    'min': min_val,
+                })
+
+                red, green, blue = self._get_colours()
+                color_function = COLOR_FUNCTION_TEMPLATE.substitute({
+                    'score': "feature.get('score')",
+                    'opacity': MIN_MAX_OPACITY_MATH,
+                    'red': red,
+                    'green': green,
+                    'blue': blue,
+                })
+
+                clientConfig['color'] = color_function.replace('\n', '')
+
+            cmd += ['--clientConfig', json.dumps(clientConfig)] + CANVAS_ARGS
+
         subprocess.check_call(cmd, cwd=self.jbrowse_dir)
 
     def process_annotations(self, data, key, format, **kwargs):
