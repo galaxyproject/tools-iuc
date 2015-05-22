@@ -7,6 +7,42 @@ import tempfile
 import json
 import yaml
 
+COLOR_FUNCTION_TEMPLATE = """
+function(feature, variableName, glyphObject, track) {
+    var score = %s;
+    %s
+    return 'rgba(%s, %s, %s, ' + opacity + ')';
+}
+"""
+
+BLAST_OPACITY_MATH = """
+var opacity = 0;
+if(score == 0.0) {
+    opacity = 1;
+} else{
+    opacity = (20 - Math.log10(score)) / 180;
+}
+"""
+
+CANVAS_ARGS = [
+    '--config', json.dumps({'glyph': 'JBrowse/View/FeatureGlyph/Segments'}),
+    '--type', 'JBrowse/View/Track/CanvasFeatures',
+    '--trackType', 'JBrowse/View/Track/CanvasFeatures'
+]
+
+BREWER_COLOUR_IDX = 0
+BREWER_COLOUR_SCHEMES = [
+    (228, 26, 28),
+    (55, 126, 184),
+    (77, 175, 74),
+    (152, 78, 163),
+    (255, 127, 0),
+]
+
+
+# score comes from feature._parent.get('score') or feature.get('score')
+# Opacity math
+
 TN_TABLE = {
     'gff3': '--gff',
     'gff': '--gff',
@@ -17,181 +53,181 @@ TN_TABLE = {
 INSTALLED_TO = os.path.dirname(os.path.realpath(__file__))
 
 
-def process_genome(jbrowse_dir, genome):
-    subprocess.check_output(['perl', 'bin/prepare-refseqs.pl', '--fasta', genome], cwd=jbrowse_dir)
+class JbrowseConnector(object):
 
+    def __init__(self, jbrowse, jbrowse_dir, outdir, genome):
+        self.jbrowse = jbrowse
+        self.jbrowse_dir = jbrowse_dir
+        self.outdir = outdir
+        self.genome_path = genome
+        self.brewer_colour_idx = 0
 
-def _add_json(jbrowse_dir, json_data):
-    if len(json_data.keys()) == 0:
-        return
+        self.clone_jbrowse(self.jbrowse, self.outdir)
+        self.process_genome()
 
-    tmp = tempfile.NamedTemporaryFile(delete=False)
-    tmp.write(json.dumps(json_data))
-    tmp.close()
-    cmd = ['perl', 'bin/add-track-json.pl', tmp.name,
-           os.path.join('data', 'trackList.json')]
-    subprocess.check_call(cmd, cwd=jbrowse_dir)
-    os.unlink(tmp.name)
+    def _get_colours(self):
+        r, g, b = BREWER_COLOUR_SCHEMES[self.brewer_colour_idx]
+        self.brewer_colour_idx += 1
+        return r, g, b
 
+    def process_genome(self):
+        subprocess.check_output(['perl', 'bin/prepare-refseqs.pl', '--fasta',
+                                 self.genome_path], cwd=self.jbrowse_dir)
 
-def add_blastxml(jbrowse_dir, data, key, format, **kwargs):
-    gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
-    cmd = ['python', os.path.join(INSTALLED_TO, 'blastxml_to_gapped_gff3.py'),
-           '--trim_end', '--min_gap', '10', data]
-    subprocess.check_call(cmd, cwd=jbrowse_dir, stdout=gff3_unrebased)
-    gff3_unrebased.close()
+    def _add_json(self, json_data):
+        if len(json_data.keys()) == 0:
+            return
 
-    gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
-    cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
-    if kwargs['protein']:
-        cmd.append('--protein2dna')
-    cmd.extend(['--trim_end', '--min_gap', kwargs['min_gap'], kwargs['parent'], gff3_unrebased.name])
-    subprocess.check_call(cmd, cwd=jbrowse_dir, stdout=gff3_rebased)
-    gff3_rebased.close()
+        tmp = tempfile.NamedTemporaryFile(delete=False)
+        tmp.write(json.dumps(json_data))
+        tmp.close()
+        cmd = ['perl', 'bin/add-track-json.pl', tmp.name,
+               os.path.join('data', 'trackList.json')]
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        os.unlink(tmp.name)
 
-    label = hashlib.md5(data).hexdigest()
-    color_function = """
-        function(feature, variableName, glyphObject, track) {
-            var score = feature._parent.get('score');
-            var opacity = 0;
-            if(score == 0.0) {
-                opacity = 1;
-            } else{
-                opacity = (20 - Math.log10(score)) / 180;
-            }
-            return 'rgba(109, 166, 166, ' + opacity + ')';
+    def add_blastxml(self, data, key, format, **kwargs):
+        gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
+        cmd = ['python', os.path.join(INSTALLED_TO, 'blastxml_to_gapped_gff3.py'),
+               '--trim_end', '--min_gap', '10', data]
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_unrebased)
+        gff3_unrebased.close()
+
+        gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
+        cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
+        if kwargs['protein']:
+            cmd.append('--protein2dna')
+        cmd.extend(['--trim_end', '--min_gap', kwargs['min_gap'], kwargs['parent'], gff3_unrebased.name])
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_rebased)
+        gff3_rebased.close()
+
+        label = hashlib.md5(data).hexdigest()
+
+        color_function = COLOR_FUNCTION_TEMPLATE % \
+            ["feature._parent.get('score')",
+             BLAST_OPACITY_MATH].extend(self._get_colours())
+
+        clientConfig = {
+            'label': 'description',
+            'color': color_function.replace('\n', ''),
+            'description': 'Hit_titles',
         }
-    """
-    clientConfig = {
-        'label': 'description',
-        'color': color_function.replace('\n', ''),
-        'description': 'Hit_titles',
-    }
-    config = {
-        'glyph': 'JBrowse/View/FeatureGlyph/Segments',
-    }
-    cmd = ['perl', 'bin/flatfile-to-json.pl',
-           '--gff3', gff3_rebased.name,
-           '--trackLabel', label,
-           '--key', key,
-           '--clientConfig', json.dumps(clientConfig),
-           '--type', 'JBrowse/View/Track/CanvasFeatures',
-           '--config', json.dumps(config),
-           '--trackType', 'JBrowse/View/Track/CanvasFeatures'
-           ]
+        cmd = ['perl', 'bin/flatfile-to-json.pl',
+               '--gff3', gff3_rebased.name,
+               '--trackLabel', label,
+               '--key', key,
+               '--clientConfig', json.dumps(clientConfig),
+               ] + CANVAS_ARGS
 
-    subprocess.check_call(cmd, cwd=jbrowse_dir)
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
 
+    def add_bigwig(self, data, key, **kwargs):
+        label = hashlib.md5(data).hexdigest()
+        dest = os.path.join('data', 'raw', os.path.basename(data))
+        # ln?
+        cmd = ['cp', data, dest]
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
 
-def add_bigwig(jbrowse_dir, data, key, **kwargs):
-    label = hashlib.md5(data).hexdigest()
-    dest = os.path.join('data', 'raw', os.path.basename(data))
-    # ln?
-    cmd = ['cp', data, dest]
-    subprocess.check_call(cmd, cwd=jbrowse_dir)
-
-    track_data = {
-        "label": label,
-        "urlTemplate": os.path.join('..', dest),
-        "bicolor_pivot": "zero",
-        "storeClass": "JBrowse/Store/SeqFeature/BigWig",
-        "type": "JBrowse/View/Track/Wiggle/Density",
-        "key": key,
-    }
-    track_data.update(kwargs)
-
-    if 'min' not in track_data and 'max' not in track_data \
-            and 'autoscale' not in track_data:
-        track_data['autoscale'] = 'local'
-
-    _add_json(jbrowse_dir, track_data)
-
-
-def add_bam(jbrowse_dir, data, key, **kwargs):
-    label = hashlib.md5(data).hexdigest()
-    dest = os.path.join('data', 'raw', os.path.basename(data))
-    # ln?
-    cmd = ['cp', data, dest]
-    subprocess.check_call(cmd, cwd=jbrowse_dir)
-
-    bai_source = kwargs['bam_index']
-    cmd = ['cp', bai_source, dest + '.bai']
-    subprocess.check_call(cmd, cwd=jbrowse_dir)
-
-    track_data = {
-        "urlTemplate": os.path.join('..', dest),
-        "key": key,
-        "label": label,
-        "type": "JBrowse/View/Track/Alignments2",
-        "storeClass": "JBrowse/Store/SeqFeature/BAM",
-    }
-    _add_json(jbrowse_dir, track_data)
-
-    if kwargs.get('auto_snp', False):
         track_data = {
-            "storeClass": "JBrowse/Store/SeqFeature/BAM",
+            "label": label,
             "urlTemplate": os.path.join('..', dest),
-            "type": "JBrowse/View/Track/SNPCoverage",
-            "key": key + " - SNPs/Coverage",
-            "label": label + "_autosnp",
+            "bicolor_pivot": "zero",
+            "storeClass": "JBrowse/Store/SeqFeature/BigWig",
+            "type": "JBrowse/View/Track/Wiggle/Density",
+            "key": key,
         }
-        _add_json(jbrowse_dir, track_data)
+        track_data.update(kwargs)
 
+        if 'min' not in track_data and 'max' not in track_data \
+                and 'autoscale' not in track_data:
+            track_data['autoscale'] = 'local'
 
-def add_vcf(jbrowse_dir, data, key, **kwargs):
-    label = hashlib.md5(data).hexdigest()
-    dest = os.path.join('data', 'raw', os.path.basename(data))
-    # ln?
-    cmd = ['cp', data, dest]
-    subprocess.check_call(cmd, cwd=jbrowse_dir)
-    cmd = ['bgzip', dest]
-    subprocess.check_call(cmd, cwd=jbrowse_dir)
-    cmd = ['tabix', '-p', 'vcf', dest + '.gz']
-    subprocess.check_call(cmd, cwd=jbrowse_dir)
+        self._add_json(track_data)
 
-    track_data = {
-        "key": key,
-        "label": label,
-        "urlTemplate": os.path.join('..', dest + '.gz'),
-        "type": "JBrowse/View/Track/HTMLVariants",
-        "storeClass": "JBrowse/Store/SeqFeature/VCFTabix",
-    }
-    track_data.update(kwargs)
-    _add_json(jbrowse_dir, track_data)
+    def add_bam(self, data, key, **kwargs):
+        label = hashlib.md5(data).hexdigest()
+        dest = os.path.join('data', 'raw', os.path.basename(data))
+        # ln?
+        cmd = ['cp', data, dest]
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
 
+        bai_source = kwargs['bam_index']
+        cmd = ['cp', bai_source, dest + '.bai']
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
 
-def add_features(jbrowse_dir, data, key, format, **kwargs):
-    label = hashlib.md5(data).hexdigest()
-    cmd = ['perl', 'bin/flatfile-to-json.pl', TN_TABLE.get(format, 'gff'),
-           data, '--trackLabel', label, '--key', key]
-    subprocess.check_call(cmd, cwd=jbrowse_dir)
+        track_data = {
+            "urlTemplate": os.path.join('..', dest),
+            "key": key,
+            "label": label,
+            "type": "JBrowse/View/Track/Alignments2",
+            "storeClass": "JBrowse/Store/SeqFeature/BAM",
+        }
+        self._add_json(track_data)
 
+        if kwargs.get('auto_snp', False):
+            track_data = {
+                "storeClass": "JBrowse/Store/SeqFeature/BAM",
+                "urlTemplate": os.path.join('..', dest),
+                "type": "JBrowse/View/Track/SNPCoverage",
+                "key": key + " - SNPs/Coverage",
+                "label": label + "_autosnp",
+            }
+            self._add_json(track_data)
 
-def process_annotations(jbrowse_dir, data, key, format,
-                        **kwargs):
-    if format in ('gff', 'gff3', 'bed'):
-        add_features(jbrowse_dir, data, key, format, **kwargs)
-    elif format == 'bigwig':
-        add_bigwig(jbrowse_dir, data, key, **kwargs)
-    elif format == 'bam':
-        add_bam(jbrowse_dir, data, key, **kwargs)
-    elif format in ('blastxml', ):
-        add_blastxml(jbrowse_dir, data, key, **kwargs)
-    elif format == 'vcf':
-        add_vcf(jbrowse_dir, data, key, **kwargs)
-        pass
+    def add_vcf(self, data, key, **kwargs):
+        label = hashlib.md5(data).hexdigest()
+        dest = os.path.join('data', 'raw', os.path.basename(data))
+        # ln?
+        cmd = ['cp', data, dest]
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        cmd = ['bgzip', dest]
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+        cmd = ['tabix', '-p', 'vcf', dest + '.gz']
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
 
+        track_data = {
+            "key": key,
+            "label": label,
+            "urlTemplate": os.path.join('..', dest + '.gz'),
+            "type": "JBrowse/View/Track/HTMLVariants",
+            "storeClass": "JBrowse/Store/SeqFeature/VCFTabix",
+        }
+        track_data.update(kwargs)
+        self._add_json(track_data)
 
-def clone_jbrowse(jbrowse_dir, destination):
-    # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
-    # unlike copytree
-    cmd = ['mkdir', '-p', destination]
-    subprocess.check_output(cmd)
-    cmd = ['cp', '-r', jbrowse_dir, destination]
-    subprocess.check_output(cmd)
-    cmd = ['mkdir', '-p', os.path.join(destination, 'JBrowse-1.11.6', 'data',
-                                       'raw')]
-    subprocess.check_output(cmd)
+    def add_features(self, data, key, format, **kwargs):
+        label = hashlib.md5(data).hexdigest()
+        cmd = ['perl', 'bin/flatfile-to-json.pl', TN_TABLE.get(format, 'gff'),
+               data, '--trackLabel', label, '--key', key]
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir)
+
+    def process_annotations(self, data, key, format, **kwargs):
+        if format in ('gff', 'gff3', 'bed'):
+            self.add_features(data, key, format, **kwargs)
+        elif format == 'bigwig':
+            self.add_bigwig(data, key, **kwargs)
+        elif format == 'bam':
+            self.add_bam(data, key, **kwargs)
+        elif format == 'blastxml':
+            self.add_blastxml(data, key, **kwargs)
+        elif format == 'vcf':
+            self.add_vcf(data, key, **kwargs)
+
+    def clone_jbrowse(self, jbrowse_dir, destination):
+        # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
+        # unlike copytree
+        cmd = ['mkdir', '-p', destination]
+        subprocess.check_output(cmd)
+        cmd = ['cp', '-r', jbrowse_dir, destination]
+        subprocess.check_output(cmd)
+        cmd = ['mkdir', '-p', os.path.join(destination, 'JBrowse-1.11.6',
+                                           'data', 'raw')]
+        subprocess.check_output(cmd)
+
+        # http://unix.stackexchange.com/a/38691/22785
+        # JBrowse releases come with some broken symlinks
+        cmd = ['find', destination, '-type', 'l', '-xtype', 'l', '-exec', 'rm', "'{}'", '\;']
+        subprocess.check_output(cmd)
 
 
 if __name__ == '__main__':
@@ -203,16 +239,18 @@ if __name__ == '__main__':
     parser.add_argument('--outdir', help='Output directory', default='out')
     args = parser.parse_args()
 
-    jbrowse_dir = os.path.join(args.outdir, 'JBrowse-1.11.6')
-    clone_jbrowse(args.jbrowse, args.outdir)
-
-    process_genome(jbrowse_dir, os.path.realpath(args.genome.name))
+    jc = JbrowseConnector(
+        jbrowse=args.jbrowse,
+        jbrowse_dir=os.path.join(args.outdir, 'JBrowse-1.11.6'),
+        outdir=args.outdir,
+        genome=os.path.realpath(args.genome.name),
+    )
 
     track_data = yaml.load(args.yaml)
     for track in track_data:
         path = os.path.realpath(track['file'])
         extra = track.get('options', {})
-        process_annotations(jbrowse_dir, path, track['label'], track['ext'], **extra)
+        jc.process_annotations(path, track['label'], track['ext'], **extra)
 
     print """
     <html>
