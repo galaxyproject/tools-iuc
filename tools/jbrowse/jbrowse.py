@@ -60,7 +60,7 @@ class JbrowseConnector(object):
         self.clone_jbrowse(self.jbrowse, self.outdir)
         self.process_genome()
 
-    def _jb_scc(self, command):
+    def subprocess_check_call(self, command):
         print 'cd %s && %s' % (self.jbrowse_dir, ' '.join(command))
         subprocess.check_call(command, cwd=self.jbrowse_dir)
 
@@ -70,7 +70,7 @@ class JbrowseConnector(object):
         return r, g, b
 
     def process_genome(self):
-        self._jb_scc(['perl', 'bin/prepare-refseqs.pl', '--fasta',
+        self.subprocess_check_call(['perl', 'bin/prepare-refseqs.pl', '--fasta',
                                  self.genome_path])
 
     def _add_json(self, json_data):
@@ -82,7 +82,7 @@ class JbrowseConnector(object):
         tmp.close()
         cmd = ['perl', 'bin/add-track-json.pl', tmp.name,
                os.path.join('data', 'trackList.json')]
-        self._jb_scc(cmd)
+        self.subprocess_check_call(cmd)
         os.unlink(tmp.name)
 
     def add_blastxml(self, data, key, **kwargs):
@@ -126,7 +126,7 @@ class JbrowseConnector(object):
                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                ]
 
-        self._jb_scc(cmd)
+        self.subprocess_check_call(cmd)
         os.unlink(gff3_rebased.name)
         os.unlink(gff3_unrebased.name)
 
@@ -156,7 +156,7 @@ class JbrowseConnector(object):
         dest = os.path.join('data', 'raw', os.path.basename(data))
         # ln?
         cmd = ['cp', data, dest]
-        self._jb_scc(cmd)
+        self.subprocess_check_call(cmd)
 
         track_data = {
             "label": label,
@@ -179,11 +179,11 @@ class JbrowseConnector(object):
         dest = os.path.join('data', 'raw', os.path.basename(data))
         # ln?
         cmd = ['cp', data, dest]
-        self._jb_scc(cmd)
+        self.subprocess_check_call(cmd)
 
         bai_source = kwargs['bam_index']
         cmd = ['cp', bai_source, dest + '.bai']
-        self._jb_scc(cmd)
+        self.subprocess_check_call(cmd)
 
         track_data = {
             "urlTemplate": os.path.join('..', dest),
@@ -209,11 +209,11 @@ class JbrowseConnector(object):
         dest = os.path.join('data', 'raw', os.path.basename(data))
         # ln?
         cmd = ['cp', data, dest]
-        self._jb_scc(cmd)
+        self.subprocess_check_call(cmd)
         cmd = ['bgzip', dest]
-        self._jb_scc(cmd)
+        self.subprocess_check_call(cmd)
         cmd = ['tabix', '-p', 'vcf', dest + '.gz']
-        self._jb_scc(cmd)
+        self.subprocess_check_call(cmd)
 
         track_data = {
             "key": key,
@@ -265,7 +265,7 @@ class JbrowseConnector(object):
                     '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                     ]
 
-        self._jb_scc(cmd)
+        self.subprocess_check_call(cmd)
 
     def process_annotations(self, data, key, format, **kwargs):
         if format in ('gff', 'gff3', 'bed'):
