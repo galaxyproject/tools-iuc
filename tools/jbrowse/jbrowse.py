@@ -7,6 +7,9 @@ import hashlib
 import tempfile
 import json
 import yaml
+import logging
+logging.basicConfig()
+log = logging.getLogger(__name__)
 
 COLOR_FUNCTION_TEMPLATE = Template("""
 function(feature, variableName, glyphObject, track) {
@@ -61,7 +64,7 @@ class JbrowseConnector(object):
         self.process_genome()
 
     def subprocess_check_call(self, command):
-        print 'cd %s && %s' % (self.jbrowse_dir, ' '.join(command))
+        log.debug('cd %s && %s', self.jbrowse_dir, ' '.join(command))
         subprocess.check_call(command, cwd=self.jbrowse_dir)
 
     def _get_colours(self):
@@ -97,7 +100,6 @@ class JbrowseConnector(object):
         if kwargs['protein']:
             cmd.append('--protein2dna')
         cmd.extend([kwargs['parent'], gff3_unrebased.name])
-        print ' '.join(cmd)
         subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_rebased)
         gff3_rebased.close()
 
@@ -349,6 +351,9 @@ if __name__ == '__main__':
             window.location=JBrowse-1.11.6/index.html
         </script>
         <a href="JBrowse-1.11.6/index.html">Go to JBrowse</a>
+        <p>Please note that JBrowse functions best on production Galaxy
+        instances. The paste server used in development instances has issues
+        serving the volumes of data regularly involved in JBrowse</p>
         </body>
     </html>
     """
