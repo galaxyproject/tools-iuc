@@ -1,0 +1,321 @@
+<tool id="rna_star" name="rnastar" version="2.4.0d">
+    <description>Gapped-read mapper for RNA-seq data</description>
+    <requirements>
+        <requirement type="package" version="2.4.0d">rnastar</requirement>
+        <requirement type="package" version="0.1.19">samtools</requirement>
+    </requirements>
+    <stdio>
+        <regex match=".*" source="both" level="warning" description="Some stderr/stdout text"/>
+    </stdio>
+
+    <command>
+    ##
+    ## Run STAR.
+    ##
+    #if str($refGenomeSource.genomeSource) == 'history':
+       mkdir -p tempstargenomedir; STAR --runMode genomeGenerate --genomeDir "tempstargenomedir" --genomeFastaFiles "$refGenomeSource.ownFile" --runThreadN 2
+        #if str($refGenomeSource.geneModel) != 'None':
+          --sjdbOverhang "100" --sjdbGTFfile "$refGenomeSource.geneModel"
+          #if str($refGenomeSource.geneModel.ext) == 'gff3':
+            --sjdbGTFtagExonParentTranscript Parent
+          #end if
+        #end if
+        ;
+    #end if
+    STAR
+    ## Can adjust this as appropriate for the system.
+    --genomeLoad NoSharedMemory
+    #if str($refGenomeSource.genomeSource) == 'history':
+        --genomeDir "tempstargenomedir"
+    #else
+        --genomeDir "$refGenomeSource.index.fields.path"
+    #end if
+    --readFilesIn $singlePaired.input1
+    #if str($singlePaired.sPaired) == "paired"
+            $singlePaired.input2
+    #end if
+        --runThreadN 4
+    #if str($params.settingsType) == "full":
+        --chimSegmentMin $params.chim_segment_min
+        --chimScoreMin $params.chim_score_min
+    #end if
+
+    ## may or may not need to generate SAM tags and handle non-canonicals for Cufflinks tools.
+    $outSAMstrandField $outFilterIntronMotifs $outSAMattributes
+
+    ;
+    ##
+    ## BAM conversion.
+    ##
+
+    ## Convert aligned reads.
+    samtools view -Shb Aligned.out.sam | samtools sort - AlignedSorted 2&gt;/dev/null
+
+    ## Convert chimeric reads.
+    #if str($params.settingsType) == "full" and $params.chim_segment_min > 0:
+        ; samtools view -Shb Chimeric.out.sam | samtools sort - ChimericSorted 2&gt;/dev/null
+    #end if
+    </command>
+
+    <inputs>
+        <param name="jobName" type="text" size="120" value="rna-star run" label="Job narrative (added to output names)"
+          help="Only letters, numbers and underscores (_) will be retained in this field">
+           <sanitizer invalid_char="">
+              <valid initial="string.letters,string.digits"><add value="_" /> </valid>
+           </sanitizer>
+        </param>
+        <!-- FASTQ input(s) and options specifically for paired-end data. -->
+        <conditional name="singlePaired">
+            <param name="sPaired" type="select" label="Single ended or mate-pair ended reads in this library?">
+              <option value="single" selected="true">Single-end</option>
+              <option value="paired">Paired-end</option>
+            </param>
+            <when value="single">
+                <param format="fastqsanger,fastq,fasta" name="input1" type="data" label="RNA-Seq FASTQ file" help="Nucleotide-space: Must have Sanger-scaled quality values with ASCII offset 33"/>
+            </when>
+            <when value="paired">
+                <param format="fastqsanger,fastq,fasta" name="input1" type="data" label="RNA-Seq FASTQ file, forward reads"
+            help="Nucleotide-space: Must have Sanger-scaled quality values with ASCII offset 33" />
+                <param format="fastqsanger,fastq,fasta" name="input2" type="data" label="RNA-Seq FASTQ file, reverse reads"
+            help="Nucleotide-space: Must have Sanger-scaled quality values with ASCII offset 33" />
+            </when>
+        </conditional>
+
+        <!-- Genome source. -->
+        <conditional name="refGenomeSource">
+            <param name="genomeSource" type="select" label="Will you select a reference genome from your history or use a built-in index?" help="Built-ins were indexed using default options">
+                <option value="indexed" selected="True">Use a built-in index</option>
+                <option value="history">Index and use a genome fasta file from my current history</option>
+            </param>
+            <when value="indexed">
+            <param name="index" type="select" label="Select a reference genome">
+                <options from_data_table="rnastar_index">
+                    <filter type="sort_by" column="2"/>
+                    <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                </options>
+            </param>
+            </when>
+            <when value="history">
+                <param name="ownFile" type="data" format="fasta" metadata_name="dbkey" label="Select the reference genome" />
+                <param name="geneModel" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions. Leave blank for none"
+                optional="true" help="Optional. If supplied, the index file will retain exon junction information for mapping splices" />
+            </when>
+        </conditional>
+            <param name="outSAMattributes" type="select" label="Include extra sam attributes for downstream processing">
+              <option value="--outSAMattributes Standard">Standard - eg for old Samtools downstream</option>
+              <option value="--outSAMattributes All" selected="true">All modern Samtools attributes - see below</option>
+            </param>
+            <param name="outSAMstrandField" type="select" label="Include extra sam attributes for downstream processing">
+              <option value="--outSAMstrandField intronMotif" selected="true">Add XS for cufflinks</option>
+              <option value="">No XS added to sam output</option>
+            </param>
+            <param name="outFilterIntronMotifs" type="select" label="Canonical junction preparation for unstranded data">
+              <option value="">No special handling - all non-canonical junctions passed through</option>
+              <option value="--outFilterIntronMotifs RemoveNoncanonical" selected="true">Remove all non-canonical junctions for eg cufflinks</option>
+              <option value="--outFilterIntronMotifs RemoveNoncanonicalUnannotated">Remove only unannotated non-canonical junctions for eg cufflinks</option>
+            </param>
+        <!-- Parameter settings. -->
+        <conditional name="params">
+            <param name="settingsType" type="select" label="Settings to use" help="You can use the default settings or set custom values for any STAR parameter.">
+                <option value="preSet" selected="true">Use Defaults</option>
+                <option value="full">Full parameter list</option>
+            </param>
+            <when value="preSet" />
+            <!-- Full/advanced params. -->
+            <when value="full">
+            <param name="chim_segment_min" type="integer" min="0" value="0" label="Minimum chimeric segment length" />
+            <param name="chim_score_min" type="integer" min="0" value="0" label="Minimum total (summed) score of the chimeric segments" />
+
+            </when>
+        </conditional>
+    </inputs>
+
+    <outputs>
+       <data format="txt" name="output_log" label="${jobName}.log" from_work_dir="Log.final.out"/>
+       <data format="interval" name="chimeric_junctions" label="${jobName}_starchimjunc.bed" from_work_dir="Chimeric.out.junction">
+          <filter>(params['settingsType'] == 'full' and params['chim_segment_min'] > 0)</filter>
+          <actions>
+             <conditional name="refGenomeSource.genomeSource">
+             <when value="indexed">
+               <action type="metadata" name="dbkey">
+                <option type="from_data_table" name="rnastar_index" column="1" offset="0">
+                 <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
+                  <filter type="param_value" ref="refGenomeSource.index" column="0"/>
+                </option>
+               </action>
+             </when>
+             <when value="history">
+               <action type="metadata" name="dbkey">
+                 <option type="from_param" name="refGenomeSource.ownFile" param_attribute="dbkey" />
+               </action>
+             </when>
+             </conditional>
+          </actions>
+       </data>
+       <data format="bam" name="chimeric_reads" label="${jobName}_starmappedchim.bam"
+                    from_work_dir="ChimericSorted.bam">
+         <filter>(params['settingsType'] == 'full' and params['chim_segment_min'] > 0)</filter>
+          <actions>
+             <conditional name="refGenomeSource.genomeSource">
+             <when value="indexed">
+               <action type="metadata" name="dbkey">
+                <option type="from_data_table" name="rnastar_index" column="1" offset="0">
+                 <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
+                  <filter type="param_value" ref="refGenomeSource.index" column="0"/>
+                </option>
+               </action>
+             </when>
+             <when value="history">
+               <action type="metadata" name="dbkey">
+                 <option type="from_param" name="refGenomeSource.ownFile" param_attribute="dbkey" />
+               </action>
+             </when>
+             </conditional>
+          </actions>
+        </data>
+        <data format="interval" name="splice_junctions" label="${jobName}_starsplicejunct.bed"
+                   from_work_dir="SJ.out.tab">
+          <actions>
+             <conditional name="refGenomeSource.genomeSource">
+             <when value="indexed">
+               <action type="metadata" name="dbkey">
+                <option type="from_data_table" name="rnastar_index" column="1" offset="0">
+                 <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
+                  <filter type="param_value" ref="refGenomeSource.index" column="0"/>
+                </option>
+               </action>
+             </when>
+             <when value="history">
+               <action type="metadata" name="dbkey">
+                 <option type="from_param" name="refGenomeSource.ownFile" param_attribute="dbkey" />
+               </action>
+             </when>
+             </conditional>
+          </actions>
+        </data>
+        <data format="bam" name="mapped_reads" label="${jobName}_starmapped.bam"
+                    from_work_dir="AlignedSorted.bam">
+          <actions>
+             <conditional name="refGenomeSource.genomeSource">
+             <when value="indexed">
+               <action type="metadata" name="dbkey">
+                <option type="from_data_table" name="rnastar_index" column="1" offset="0">
+                 <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
+                  <filter type="param_value" ref="refGenomeSource.index" column="0"/>
+                </option>
+               </action>
+             </when>
+             <when value="history">
+               <action type="metadata" name="dbkey">
+                 <option type="from_param" name="refGenomeSource.ownFile" param_attribute="dbkey" />
+               </action>
+             </when>
+             </conditional>
+          </actions>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+ <param name='input1' value='tophat_in2.fastqsanger' ftype='fastqsanger' />
+ <param name='jobName' value='rnastar_test' />
+ <param name='genomeSource' value='history' />
+ <param name='ownFile' value='tophat_test.fa' />
+ <param name='sPaired' value='single' />
+ <param name='outSAMattributes' value='--outSAMattributes All' />
+ <param name='outSAMstrandField' value='--outSAMstrandField intronMotif' />
+ <param name='outFilterIntronMotifs' value='--outFilterIntronMotifs RemoveNoncanonical' />
+ <output name='output_log' file='rnastar_test.log' compare='diff' lines_diff = '10'/>
+ <output name='splice_junctions' file="rnastar_test_splicejunctions.bed" compare="sim_size" delta="200"/>
+ <output name='mapped_reads' file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="200" />
+        </test>
+    </tests>
+<help>
+
+**What it does**
+Runs the rna star gapped aligner. Suited to paired or single end rna-seq.
+
+8.2: SAM alignments
+
+The number of loci Nmap a read maps to (multi-mapping) is given by NH:i: field.
+The mapping quality MAPQ (column 5) is 255 for uniquely mapping reads, and int(-10*log10(1-1/Nmap)) for
+multi-mapping reads. This scheme is same as the one used by Tophat and is compatible with Cufflinks.
+
+For multi-mappers, all alignments except one are marked with 0x100 (secondary alignment) in the FLAG
+column 2. The un-marked alignment is either the best one (i.e. highest scoring), or is randomly selected from
+the alignments of equal quality.
+
+8.2.1: Standard SAM attributes
+With default --outSAMattributes Standard option the following SAM attributes will be generated:
+
+Column 12: NH: number of loci a read (pair) maps to
+Column 13: IH: alignment index for all alignments of a read
+Column 14: aS: alignment score
+Column 15: nM: number of mismatches (does not include indels)
+
+8.2.2: Extra SAM attrbiutes
+If --outSAMattributes All option is used, the following additional attributes will be output:
+
+Column 16: jM:B:c,M1,M2,... Intron motifs for all junctions (i.e. N in CIGAR):
+0: non-canonical; 1:GT/AG, 2: CT/AC, 3: GC/AG, 4: CT/GC, 5: AT/AC, 6: GT/AT.
+
+If splice junctions database is used, and a junction is annotated, 20 is added to its motif value.
+Column 17: jI:B:I,Start1,End1,Start2,End2,... Start and End of introns for all junctions (1-based)
+
+Note, that samtools 0.1.18 or later have to be used with these extra attributes.
+
+
+8.2.3: XS SAM strand attribute for Cufflinks/Cuffdiff
+
+If you have un-stranded RNA-seq data, and wish to run Cufflinks/Cuffdiff on STAR alignments, you will
+need to run STAR with --outSAMstrandField intronMotif option, which will generate the XS
+strand attribute for all alignments that contain splice junctions. The spliced alignments that have undefined
+strand (i.e. containing only non-canonical junctions) will be suppressed.
+
+If you have stranded RNA-seq data, you do not need to use any specific STAR options. Instead, you need
+to run Cufflinks with the library option --library-type options. For example, cufflinks with
+library-type fr-firststrand should be used for the b
+
+It is recommended to remove the non-canonical junctions for Cufflinks runs using b
+
+
+--outFilterIntronMotifs RemoveNoncanonical
+filter out alignments that contain non-canonical junctions
+
+OR
+
+--outFilterIntronMotifs RemoveNoncanonicalUnannotated
+filter out alignments that contain non-canonical unannotated junctions
+when using annotated splice junctions database. The annotated non-
+canonical junctions will be kept.
+
+
+**Attributions**
+
+Note that each component has its own license. Good luck with figuring out your obligations.
+
+rna_star - see the web site at rna_star_
+
+For details, please see the rna_starMS_
+"STAR: ultrafast universal RNA-seq aligner"
+A. Dobin et al, Bioinformatics 2012; doi: 10.1093/bioinformatics/bts635
+
+Galaxy_ (that's what you are using right now!) for gluing everything together
+
+Most of the work for this wrapper XML is Jeremy Goecks' original STAR_ wrapper
+
+Minor tweaks to output names to suit our downstream purposes, toolshed automated dependencies
+and odds and ends of other code and documentation comprising this tool was
+written by Ross Lazarus and that part is licensed_ the same way as other rgenetics artefacts
+
+.. _STAR: https://bitbucket.org/jgoecks/jeremys-code/raw/fa1930a689b8e2f6b59cc1706e5ba0ed8ad357be/galaxy/tool-wrappers/star.xml
+.. _licensed: http://creativecommons.org/licenses/by-nc-nd/3.0/
+.. _rna_star: http://code.google.com/p/rna-star/
+.. _rna_starMS: http://bioinformatics.oxfordjournals.org/content/29/1/15.full
+.. _Galaxy: http://getgalaxy.org
+
+</help>
+<citations>
+    <citation type="doi">doi: 10.1093/bioinformatics/bts635</citation>
+</citations>
+</tool>
+
