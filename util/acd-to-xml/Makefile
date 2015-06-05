@@ -1,4 +1,5 @@
 EMBOSS_ACD_LOCATION=~/.linuxbrew/Cellar/emboss/6.6.0/share/EMBOSS/acd/
+EMBOSS_DOC_LOCATION=${EMBOSS_ACD_LOCATION}../doc/programs/html/
 ACDS:= $(wildcard ${EMBOSS_ACD_LOCATION}*.acd)
 OUTPUT_ACDS:=$(addprefix output/, $(addsuffix .xml, $(notdir $(ACDS))))
 OUTPUT_GXML:=$(addprefix output/, $(addsuffix .gxml, $(notdir $(ACDS))))
@@ -11,12 +12,14 @@ all: $(OUTPUT_ACDS) $(OUTPUT_GXML)
 output:
 	mkdir output
 
-output/%.xml: acd output
-	-cat $(EMBOSS_ACD_LOCATION)$(notdir $(basename $@)) | ./acd | xmllint --pretty 1 - > output/$(notdir $@)
+output/%.rst:
+	-cat $(EMBOSS_DOC_LOCATION)$(notdir $(basename $@)).html | pandoc -f html -t rst > $@
 
-output/%.gxml: output/%.xml
-	python acd2ctd.py $(basename $@).xml $(basename $@).ctd;
-	python GalaxyConfigGenerator/galaxyconfiggenerator/generator.py -i $(basename $@).ctd -o $@ -q
+output/%.xml: acd output
+	-cat $(EMBOSS_ACD_LOCATION)$(notdir $(basename $@)).acd | ./acd | xmllint --pretty 1 - > $@
+
+output/%.gxml: output/%.xml output/%.rst
+	python acd2galaxyxml.py $(basename $@).xml $(basename $@).rst  | xmllint --pretty 1 - > $@
 
 lex.yy.c:
 	flex acd.l
