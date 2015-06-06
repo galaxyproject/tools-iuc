@@ -15,7 +15,7 @@ output:
 output/%.xml: acd output
 	-cat $(EMBOSS_ACD_LOCATION)$(notdir $(basename $@)).acd | ./acd | xmllint --pretty 1 - > $@
 
-output/%.gxml: output/%.xml output/%.rst
+output/%.gxml: output/%.xml
 	python acd2galaxyxml.py $(basename $@).xml $(EMBOSS_DOC_LOCATION)$(notdir $(basename $@)).html  | xmllint --pretty 1 - > $@
 
 lex.yy.c:

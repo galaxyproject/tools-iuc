@@ -1,7 +1,11 @@
 #!/usr/bin/env python
 from lxml import etree as ET
+import shlex
+import subprocess
+import argparse
 import re
 import sys
+from bs4 import BeautifulSoup
 import logging
 import pprint
 logging.basicConfig(level=logging.DEBUG)
@@ -9,6 +13,26 @@ log = logging.getLogger()
 
 ACD_INPUTS = ('additional', 'advanced', 'input', 'required')
 ACD_OUTPUTS = ('output', )
+HTML_MAN_UNINTERESTING = (
+    'Wiki',
+    'Usage',
+    'Command line arguments',
+    'Input file format',
+    'Output file format',
+    'Data files',
+    'References'
+    'Diagnostic Error Messages',
+    'Exit status',
+    'See also',
+    'Author(s)',
+    'Target users'
+)
+
+TEST_CASE_DATA = (
+    'Usage',
+    'Input file format',
+    'Output file format',
+)
 
 INPUT_TYPE_MAPPING = {
     'assembly': {},
@@ -44,13 +68,104 @@ def unbreak_strings(data):
     return re.sub('\s*[\r\n]\s*', ' ', data)
 
 
-def extract_test_cases(html):
-    print html
+def html_between_bounds(left_bound, right_bound):
+    html = ''
+    for tag in left_bound.next_siblings:
+        if tag == right_bound:
+            break
+        else:
+            html += str(tag)
+    return html
+
+
+def __parse_cli(command_line):
+    # Ignore the first two parts, as they're useless (% and appname)
+    parts = shlex.split(command_line)[2:]
+
+    args = []
+    kwargs = {}
+
+    for i in range(len(parts)):
+        if parts[i].startswith('-'):
+            # Either a flag or a kwarg
+            log.debug('%s -> %s', i, parts[i])
+
+            if i < len(parts) - 1:
+                # If we still have an item after this, treat naively
+                if parts[i + 1].startswith('-'):
+                    # Flag case, dash and next is also a dash
+                    kwargs[parts[i]] = "True"
+                else:
+                    # Otherwise it's a flag with a string/argument after
+                    kwargs[parts[i]] = parts[i + 1]
+                    i += 1
+            else:
+                kwargs[parts[i]] = "True"
+    return args, kwargs
+
+
+def __parse_test_usage(html):
+    code_statements = BeautifulSoup(html).find_all('pre')
+    for code in code_statements:
+        for line in code.text.strip().split('\n'):
+            if line.startswith('%'):
+                args, kwargs = __parse_cli(line)
+                log.debug(pprint.pformat(args))
+                log.debug(pprint.pformat(kwargs))
     pass
+
+def __parse_test_inputs(html):
+    pass
+
+def __parse_test_outputs(html):
+    pass
+
+
+def extract_test_cases(html):
+    h2s = html.find_all('h2')
+    test_case = {}
+    for i, h2 in enumerate(h2s):
+        # Get bounds for fetching HTML
+        left_bound = h2
+        if i < len(h2s) - 1:
+            right_bound = h2s[i + 1]
+        else:
+            right_bound = None
+
+        # Ignore uninteresting items
+        if h2.text.strip() in TEST_CASE_DATA:
+            test_case[h2.text.strip()] = html_between_bounds(left_bound, right_bound)
+
+    __parse_test_usage(test_case['Usage'])
+    __parse_test_inputs(test_case['Input file format'])
+    __parse_test_outputs(test_case['Output file format'])
 
 
 def extract_useful_help(html):
-    pass
+    p = subprocess.Popen(['pandoc', '-f', 'html', '-t', 'rst'],
+                         stdout=subprocess.PIPE,
+                         stdin=subprocess.PIPE
+                         )
+    good_html = ""
+    h2s = html.find_all('h2')
+    for i, h2 in enumerate(h2s):
+        # Get bounds for fetching HTML
+        left_bound = h2
+        if i < len(h2s) - 1:
+            right_bound = h2s[i + 1]
+        else:
+            right_bound = None
+
+        # Ignore uninteresting items
+        if h2.text.strip() in HTML_MAN_UNINTERESTING:
+            continue
+
+        good_html += str(h2)
+        good_html += str(html_between_bounds(left_bound, right_bound))
+
+    # TODO References should be transferred to citations automatically
+    out, err = p.communicate(input=good_html)
+    return out
 
 
 def valid_xml_char_ordinal(c):
@@ -329,11 +444,11 @@ for section in root.findall('section'):
 
 tool_help = ET.Element("help")
 with open(sys.argv[2], 'r') as handle:
-    tool_help_unparsed_html = handle.read()
+    tool_help_unparsed_html = BeautifulSoup(handle.read())
 
 testnode = ET.Element('tests')
-test_cases = extract_test_cases(tool_help.text)
-tool_help.text = ET.CData("\n" + clean_string(extract_useful_help(tool_help_unparsed_html)))
+test_cases = extract_test_cases(tool_help_unparsed_html)
+tool_help.text = ET.CDATA("\n" + clean_string(extract_useful_help(tool_help_unparsed_html)))
 
 tool.append(command)
 tool.append(inputs)
