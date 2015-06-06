@@ -101,6 +101,19 @@ class EPL(object):
         inputs = ET.Element("inputs")
         outputs = ET.Element("outputs")
 
+        h2s = self.html.find_all('h2')
+        param_table = None
+        for i, h2 in enumerate(h2s):
+            if h2.text.strip() == 'Command line arguments':
+                param_table = self.parse_cli_table(
+                    BeautifulSoup(
+                        self.html_between_bounds(h2, h2s[i + 1])
+                    )
+                )
+
+        if param_table is None:
+            raise Exception("Couldn't parse out html command table")
+
         for section in root.findall('section'):
             log.info(section.attrib)
             # Top level attributes
