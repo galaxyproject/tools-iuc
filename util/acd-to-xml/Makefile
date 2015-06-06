@@ -12,14 +12,11 @@ all: $(OUTPUT_ACDS) $(OUTPUT_GXML)
 output:
 	mkdir output
 
-output/%.rst:
-	-cat $(EMBOSS_DOC_LOCATION)$(notdir $(basename $@)).html | pandoc -f html -t rst > $@
-
 output/%.xml: acd output
 	-cat $(EMBOSS_ACD_LOCATION)$(notdir $(basename $@)).acd | ./acd | xmllint --pretty 1 - > $@
 
 output/%.gxml: output/%.xml output/%.rst
-	python acd2galaxyxml.py $(basename $@).xml $(basename $@).rst  | xmllint --pretty 1 - > $@
+	python acd2galaxyxml.py $(basename $@).xml $(EMBOSS_DOC_LOCATION)$(notdir $(basename $@)).html  | xmllint --pretty 1 - > $@
 
 lex.yy.c:
 	flex acd.l

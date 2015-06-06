@@ -14,19 +14,19 @@ INPUT_TYPE_MAPPING = {
     'assembly': {},
     'codon': {},
     'cpdb': {},
-    'datafile': {'file_format': 'data'},
+    'datafile': {},
     'directory': {},
     'dirlist': {},
     'features': {},
     'filelist': {},
-    'infile': {'file_format': 'data'},
+    'infile': {},
     'matrix': {},
     'matrixf': {},
     'obo': {'file_format': 'obo'},
     'pattern': {},
     'refseq': {},
     'regexp': {},
-    'resource': {'file_format': 'data'},
+    'resource': {},
     'scop': {},
     'sequence': {'file_format': 'fasta'},
     'seqall': {'file_format': 'fasta'},
@@ -42,6 +42,15 @@ INPUT_TYPE_MAPPING = {
 
 def unbreak_strings(data):
     return re.sub('\s*[\r\n]\s*', ' ', data)
+
+
+def extract_test_cases(html):
+    print html
+    pass
+
+
+def extract_useful_help(html):
+    pass
 
 
 def valid_xml_char_ordinal(c):
@@ -83,23 +92,45 @@ version_command.text = "%s -version" % root.attrib['id']
 tool.append(version_command)
 
 
-def __input_file(child):
-    #<param label="Genome" name="positional_1" type="data" format="fasta"/>
+def __default_kwargs(child):
     kwargs = {
-        'type': 'data'
+        'name': child.attrib['name'],
+        'label': child.attrib['name'],
     }
+
+    if child.find('information') is not None:
+        kwargs['label'] = unbreak_strings(child.find('information').text)
+
+    if child.attrib['type'] in INPUT_TYPE_MAPPING.keys():
+        kwargs['type'] = 'data'
+    elif child.attrib['type'] in ('integer', 'float'):
+        kwargs['type'] = child.attrib['type']
+    elif child.attrib['type'] in ('boolean', 'toggle'):
+        kwargs['type'] = 'boolean'
+        if 'default' in child.attrib and child.attrib['default'] == 'Y':
+            kwargs['selected'] = 'True'
+    elif child.attrib['type'] in ('string',):
+        kwargs['type'] = 'text'
+    #elif child.attrib['type'] == 'list':
+    #elif child.attrib['type'] == 'selection':
+    #elif child.attrib['type'] == 'range':
+    return kwargs
+
+def __file_input(child):
+    #<param label="Genome" name="positional_1" type="data" format="fasta"/>
+    kwargs = __default_kwargs(child)
+
     if child.find('knowntype') is not None:
         kwargs['file_format'] = child.find('knowntype').text
-
-    #if child.find('information') is not None:
-        #kwargs['help'] = child.find('information').text
 
     if child.find('help') is not None:
         kwargs['help'] = unbreak_strings(child.find('help').text)
     # Unhandled: additional, default, nullok, relations, ... ?
 
     kwargs.update(INPUT_TYPE_MAPPING[child.attrib['type']])
-    return kwargs
+    parameter = ET.Element('parameter', **kwargs)
+    cmd = "-{0} ${0}".format(child.attrib['name'])
+    return parameter, cmd
 
 
 def __numeric_input(child):
@@ -128,11 +159,10 @@ def __numeric_input(child):
             num_max = int(num_max)
         num_default = int(num_default)
 
-    kwargs = {
-        'maximum': str(num_max),
+    kwargs = __default_kwargs(child)
+    kwargs.update({
         'default': str(num_default),
-        'type': child.attrib['type']
-    }
+    })
 
     if num_min is not None:
         kwargs['minimum'] = str(num_min)
@@ -140,17 +170,25 @@ def __numeric_input(child):
     if num_max is not None:
         kwargs['maximum'] = str(num_max)
 
-    return kwargs
+    parameter = ET.Element('parameter', **kwargs)
+    cmd = "-{0} ${0}".format(child.attrib['name'])
+    return parameter, cmd
 
+def __text_input(child):
+    kwargs = __default_kwargs(child)
+    parameter = ET.Element('parameter', **kwargs)
+    cmd = '-{0} "${0}"'.format(child.attrib['name'])
+    return parameter, cmd
 
 def __boolean_input(child):
-    kwargs = {
-        'type': 'boolean',
-        'name': child.attrib['name'],
+    kwargs = __default_kwargs(child)
+    kwargs.update({
         'truevalue': '-%s' % child.attrib['name'],
         'falsevalue': '',
-    }
-    return kwargs
+    })
+    parameter = ET.Element('parameter', **kwargs)
+    cmd = "${0}".format(child.attrib['name'])
+    return parameter, cmd
 
 
 def __list_input(child):
@@ -177,13 +215,24 @@ def __list_input(child):
 
             kv[key.strip()] = value.strip()
 
-    kwargs['type'] = "string"
+    kwargs['type'] = "select"
     #kwargs['choices'] = [kv[k] for k in kv.keys()]
-    return kwargs
+    parameter = ET.Element('parameter', **kwargs)
+    for key in kv:
+        tmpkw = {'value': key}
+
+        if child.find('default') is not None and child.find('default').text == key:
+            tmpkw['checked'] = "True"
+
+        option = ET.Element('option', **tmpkw)
+        option.text = kv[key]
+        parameter.append(option)
+    cmd = '-{0} "${0}"'.format(child.attrib['name'])
+    return parameter, cmd
 
 
 def __selection_input(child):
-    kwargs = {}
+    kwargs = {'name': child.attrib['name']}
     if child.find('delimiter') is not None:
         delimiter = child.find('delimiter').text
     else:
@@ -196,47 +245,33 @@ def __selection_input(child):
 
     kwargs['type'] = str
     #kwargs['choices'] = [kv[k] for k in kv.keys()]
-    return kwargs
-
-
-def handle_parameter(child):
-    kwargs = {'name': child.attrib['name']}
-    if child.attrib['type'] in INPUT_TYPE_MAPPING.keys():
-        kwargs.update(__input_file(child))
-        parameter = ET.Element('parameter', **kwargs)
-    elif child.attrib['type'] in ('integer', 'float'):
-        kwargs.update(__numeric_input(child))
-        parameter = ET.Element('parameter', **kwargs)
-    elif child.attrib['type'] in ('boolean', 'toggle'):
-        kwargs.update(__boolean_input(child))
-        parameter = ET.Element('parameter', **kwargs)
-    elif child.attrib['type'] == 'list':
-        kwargs.update(__list_input(child))
-        parameter = ET.Element('parameter', **kwargs)
-    elif child.attrib['type'] == 'selection':
-        kwargs.update(__selection_input(child))
-        parameter = ET.Element('parameter', **kwargs)
-    elif child.attrib['type'] == 'range':
-        # TODO
-        kwargs['type'] = 'string'
-        parameter = ET.Element('parameter', **kwargs)
-    elif child.attrib['type'] == 'array':
-        # TODO
-        kwargs['type'] = 'string'
-
-    if child.find('information') is not None:
-        kwargs['label'] = unbreak_strings(child.find('information').text)
-        parameter = ET.Element('parameter', **kwargs)
-
+    parameter = ET.Element('parameter', **kwargs)
     return parameter, None
 
 
+def handle_parameter(child):
+    if child.attrib['type'] in INPUT_TYPE_MAPPING.keys():
+        return __file_input(child)
+    elif child.attrib['type'] in ('integer', 'float'):
+        return __numeric_input(child)
+    elif child.attrib['type'] in ('string'):
+        return __text_input(child)
+    elif child.attrib['type'] in ('boolean', 'toggle'):
+        return __boolean_input(child)
+    elif child.attrib['type'] == 'list':
+        return __list_input(child)
+    elif child.attrib['type'] == 'selection':
+        return __selection_input(child)
+    else:
+        return ET.Comment("Unhanlded %s" % child.attrib['type']), None
+
+
 def build_section(acd_xml_section):
-    log.debug('build_section %s', acd_xml_section.tag)
     if acd_xml_section.tag == 'parameter':
         parameter, command_string = handle_parameter(acd_xml_section)
-        command_string = "## $%s\n" % acd_xml_section.attrib['name']
-        return command_string, parameter
+        if command_string is None:
+            command_string = "## $%s\n" % acd_xml_section.attrib['name']
+        return command_string + "\n", parameter
     elif acd_xml_section.tag == 'section':
         # Get section information
         metadata = acd_xml_section.find('metadata')
@@ -244,7 +279,6 @@ def build_section(acd_xml_section):
             section_title = metadata.find('information').text
         else:
             section_title = "None"  # acd_xml_section.attrib['id']
-        log.info('X %s', pprint.pformat(acd_xml_section.attrib))
 
         section = ET.Element('section',
                              name=acd_xml_section.attrib['id'],
@@ -273,7 +307,7 @@ for section in root.findall('section'):
     # Top level attributes
     if section.attrib['id'] in ACD_INPUTS:
         command_string, input_additions = build_section(section)
-        command.text += command_string
+        command.text += command_string + "\n"
         inputs.append(input_additions)
     else:
         for parameter in section.findall('parameter'):
@@ -290,14 +324,21 @@ for section in root.findall('section'):
 
                 output_parameter = ET.Element('data', **kwargs)
                 outputs.append(output_parameter)
-                command.text += '-%s $%s' % (parameter.attrib['name'], parameter.attrib['name'])
+                command.text += '-%s $%s\n' % (parameter.attrib['name'], parameter.attrib['name'])
+
+
+tool_help = ET.Element("help")
+with open(sys.argv[2], 'r') as handle:
+    tool_help_unparsed_html = handle.read()
+
+testnode = ET.Element('tests')
+test_cases = extract_test_cases(tool_help.text)
+tool_help.text = ET.CData("\n" + clean_string(extract_useful_help(tool_help_unparsed_html)))
 
 tool.append(command)
 tool.append(inputs)
 tool.append(outputs)
-tool_help = ET.Element("help")
-with open(sys.argv[2], 'r') as handle:
-    tool_help.text = ET.CDATA("\n" + clean_string(handle.read()))
+tool.append(testnode)
 citations = ET.Element("expand", macros="citation")
 
 tool.append(tool_help)
