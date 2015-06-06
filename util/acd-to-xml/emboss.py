@@ -2,7 +2,6 @@
 from lxml import etree as ET
 import shlex
 import subprocess
-#import argparse
 import re
 import sys
 from bs4 import BeautifulSoup
@@ -66,10 +65,15 @@ class EPL(object):
         'text': {'type': str},
     }
 
+    KNOWNTYPE_MAPPING = {
+        'abi trace': 'abi'
+    }
+
     def __init__(self, html_file, acd_file):
         self.html_file = html_file
         self.acd_file = acd_file
-        self.html = BeautifulSoup(self.html_file.read())
+        with open(self.html_file, 'r') as handle:
+            self.html = BeautifulSoup(handle.read())
 
         tree = ET.parse(self.acd_file)
         root = tree.getroot()
@@ -123,7 +127,7 @@ class EPL(object):
 
         tool_help = ET.Element("help")
         testnode = ET.Element('tests')
-        test_cases = self.extract_test_cases(self.html)
+        #test_cases = self.extract_test_cases(self.html)
         tool_help.text = ET.CDATA("\n" + self.clean_string(self.extract_useful_help(self.html)))
 
         tool.append(command)
@@ -137,8 +141,7 @@ class EPL(object):
 
         print ET.tostring(tool)
 
-    @classmethod
-    def parse_cli(cls, command_line):
+    def parse_cli(self, command_line):
         # Ignore the first two parts, as they're useless (% and appname)
         parts = shlex.split(command_line)[2:]
 
@@ -218,13 +221,11 @@ class EPL(object):
                         data[category].append(col_dict)
         return data
 
-    def extract_useful_help(self):
+    def extract_useful_help(self, html):
         p = subprocess.Popen(['pandoc', '-f', 'html', '-t', 'rst'],
-                            stdout=subprocess.PIPE,
-                            stdin=subprocess.PIPE
-                            )
+                             stdout=subprocess.PIPE, stdin=subprocess.PIPE)
         good_html = ""
-        h2s = self.html.find_all('h2')
+        h2s = html.find_all('h2')
         for i, h2 in enumerate(h2s):
             # Get bounds for fetching HTML
             left_bound = h2
@@ -238,7 +239,7 @@ class EPL(object):
                 continue
 
             good_html += str(h2)
-            good_html += str(html_between_bounds(left_bound, right_bound))
+            good_html += str(self.html_between_bounds(left_bound, right_bound))
 
         # TODO References should be transferred to citations automatically
         out, err = p.communicate(input=good_html)
@@ -253,7 +254,7 @@ class EPL(object):
         for code in code_statements:
             for line in code.text.strip().split('\n'):
                 if line.startswith('%'):
-                    args, kwargs = self.__parse_cli(line)
+                    args, kwargs = self.parse_cli(line)
                     log.debug(pprint.pformat(args))
                     log.debug(pprint.pformat(kwargs))
         pass
@@ -299,17 +300,16 @@ class EPL(object):
     def clean_string(cls, data):
         return ''.join(c for c in data if EPL.valid_xml_char_ordinal(c)).decode('utf8')
 
-    @classmethod
-    def __default_kwargs(cls, child):
+    def __default_kwargs(self, child):
         kwargs = {
             'name': child.attrib['name'],
             'label': child.attrib['name'],
         }
 
         if child.find('information') is not None:
-            kwargs['label'] = unbreak_strings(child.find('information').text)
+            kwargs['label'] = self.unbreak_strings(child.find('information').text)
 
-        if child.attrib['type'] in INPUT_TYPE_MAPPING.keys():
+        if child.attrib['type'] in self.INPUT_TYPE_MAPPING.keys():
             kwargs['type'] = 'data'
         elif child.attrib['type'] in ('integer', 'float'):
             kwargs['type'] = child.attrib['type']
@@ -324,25 +324,24 @@ class EPL(object):
         #elif child.attrib['type'] == 'range':
         return kwargs
 
-    @classmethod
-    def __file_input(cls, child):
+    def __file_input(self, child):
         #<param label="Genome" name="positional_1" type="data" format="fasta"/>
-        kwargs = __default_kwargs(child)
+        kwargs = self.__default_kwargs(child)
 
         if child.find('knowntype') is not None:
-            kwargs['file_format'] = child.find('knowntype').text
+            kwargs['file_format'] = self.KNOWNTYPE_MAPPING.get(child.find('knowntype').text, 'UNKNOWN')
 
         if child.find('help') is not None:
-            kwargs['help'] = unbreak_strings(child.find('help').text)
+            kwargs['help'] = self.unbreak_strings(child.find('help').text)
         # Unhandled: additional, default, nullok, relations, ... ?
 
-        kwargs.update(INPUT_TYPE_MAPPING[child.attrib['type']])
+        kwargs.update(self.INPUT_TYPE_MAPPING[child.attrib['type']])
         parameter = ET.Element('parameter', **kwargs)
         cmd = "-{0} ${0}".format(child.attrib['name'])
         return parameter, cmd
 
     @classmethod
-    def __numeric_input(cls, child):
+    def __numeric_input(self, child):
         num_min = None
         num_max = None
         if child.find('minimum') is not None:
@@ -368,7 +367,7 @@ class EPL(object):
                 num_max = int(num_max)
             num_default = int(num_default)
 
-        kwargs = __default_kwargs(child)
+        kwargs = self.__default_kwargs(child)
         kwargs.update({
             'default': str(num_default),
         })
@@ -383,16 +382,14 @@ class EPL(object):
         cmd = "-{0} ${0}".format(child.attrib['name'])
         return parameter, cmd
 
-    @classmethod
-    def __text_input(cls, child):
-        kwargs = __default_kwargs(child)
+    def __text_input(self, child):
+        kwargs = self.__default_kwargs(child)
         parameter = ET.Element('parameter', **kwargs)
         cmd = '-{0} "${0}"'.format(child.attrib['name'])
         return parameter, cmd
 
-    @classmethod
-    def __boolean_input(cls, child):
-        kwargs = __default_kwargs(child)
+    def __boolean_input(self, child):
+        kwargs = self.__default_kwargs(child)
         kwargs.update({
             'truevalue': '-%s' % child.attrib['name'],
             'falsevalue': '',
@@ -401,8 +398,7 @@ class EPL(object):
         cmd = "${0}".format(child.attrib['name'])
         return parameter, cmd
 
-    @classmethod
-    def __list_input(cls, child):
+    def __list_input(self, child):
         kwargs = {}
         if child.find('delimiter') is not None:
             delimiter = child.find('delimiter').text
@@ -459,27 +455,25 @@ class EPL(object):
         parameter = ET.Element('parameter', **kwargs)
         return parameter, None
 
-    @classmethod
-    def handle_parameter(cls, child):
-        if child.attrib['type'] in INPUT_TYPE_MAPPING.keys():
-            return __file_input(child)
+    def handle_parameter(self, child):
+        if child.attrib['type'] in self.INPUT_TYPE_MAPPING.keys():
+            return self.__file_input(child)
         elif child.attrib['type'] in ('integer', 'float'):
-            return __numeric_input(child)
+            return self.__numeric_input(child)
         elif child.attrib['type'] in ('string'):
-            return __text_input(child)
+            return self.__text_input(child)
         elif child.attrib['type'] in ('boolean', 'toggle'):
-            return __boolean_input(child)
+            return self.__boolean_input(child)
         elif child.attrib['type'] == 'list':
-            return __list_input(child)
+            return self.__list_input(child)
         elif child.attrib['type'] == 'selection':
-            return __selection_input(child)
+            return self.__selection_input(child)
         else:
             return ET.Comment("Unhanlded %s" % child.attrib['type']), None
 
-    @classmethod
-    def build_section(cls, acd_xml_section):
+    def build_section(self, acd_xml_section):
         if acd_xml_section.tag == 'parameter':
-            parameter, command_string = handle_parameter(acd_xml_section)
+            parameter, command_string = self.handle_parameter(acd_xml_section)
             if command_string is None:
                 command_string = "## $%s\n" % acd_xml_section.attrib['name']
             return command_string + "\n", parameter
@@ -491,15 +485,14 @@ class EPL(object):
             else:
                 section_title = "None"  # acd_xml_section.attrib['id']
 
-            section = ET.Element('section',
-                                name=acd_xml_section.attrib['id'],
-                                title=section_title)
+            section = ET.Element('section', name=acd_xml_section.attrib['id'],
+                                 title=section_title)
             section_cmd = ""
             for child in acd_xml_section.getchildren():
                 if child.tag == 'metadata':
                     continue
                 else:
-                    command_string, parameter = build_section(child)
+                    command_string, parameter = self.build_section(child)
                     if parameter is not None:
                         section_cmd += command_string
                         section.append(parameter)
@@ -508,3 +501,6 @@ class EPL(object):
             return None, None
             log.warn("Unhanlded section %s", acd_xml_section.tag)
 
+
+if __name__ == '__main__':
+    epl = EPL(sys.argv[1], sys.argv[2])
