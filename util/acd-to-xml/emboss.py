@@ -69,6 +69,14 @@ class EPL(object):
         'abi trace': 'abi'
     }
 
+    SECTION_ORDERING = (
+        'Standard (Mandatory) qualifiers',
+        'Additional (Optional) qualifiers',
+        'Advanced (Unprompted) qualifiers',
+        # 'Associated qualifiers',  # Hidden, usually
+        # 'General qualifiers',  # Also unused, -debug/-help/-version
+    )
+
     def __init__(self, html_file, acd_file):
         self.html_file = html_file
         self.acd_file = acd_file
@@ -113,6 +121,11 @@ class EPL(object):
 
         if param_table is None:
             raise Exception("Couldn't parse out html command table")
+        log.info(pprint.pformat(self._reassociate_associated_quals(param_table)))
+
+
+        for section in self.SECTION_ORDERING:
+            pass
 
         for section in root.findall('section'):
             log.info(section.attrib)
@@ -153,6 +166,32 @@ class EPL(object):
         tool.append(citations)
 
         print ET.tostring(tool)
+
+    def _old_section_parsing(self):
+        pass
+        #for section in root.findall('section'):
+            #log.info(section.attrib)
+            ## Top level attributes
+            #if section.attrib['id'] in self.ACD_INPUTS:
+                #command_string, input_additions = self.build_section(section)
+                #command.text += command_string + "\n"
+                #inputs.append(input_additions)
+            #else:
+                #for parameter in section.findall('parameter'):
+                    #if parameter.attrib['type'] in ('toggle', ):
+                        #log.warn("Unhandled output toggle")
+                    #else:
+                        #kwargs = {
+                            #'name': parameter.attrib['name']
+                        #}
+                        #if parameter.find('aformat') is not None:
+                            #kwargs['format'] = parameter.find('aformat').text
+                        #elif parameter.find('extension') is not None:
+                            #kwargs['format'] = parameter.find('extension').text
+
+                        #output_parameter = ET.Element('data', **kwargs)
+                        #outputs.append(output_parameter)
+                        #command.text += '-%s $%s\n' % (parameter.attrib['name'], parameter.attrib['name'])
 
     def parse_cli(self, command_line):
         # Ignore the first two parts, as they're useless (% and appname)
@@ -200,6 +239,32 @@ class EPL(object):
                     right_bound = None
 
                 return BeautifulSoup(EPL.html_between_bounds(node, right_bound))
+
+    @classmethod
+    def _reassociate_associated_quals(cls, clitable):
+        keyed_params = {}
+        for section in cls.SECTION_ORDERING:
+            for param in clitable[section]:
+                param_key = param['Qualifier']
+                log.debug(param_key)
+                if '[-' in param_key:
+                    param_key = param_key[1:param_key.index(']')]
+                elif '-[' in param_key:
+                    if ' ' in param_key:
+                        param_key = param_key[0:param_key.index(' ')]
+                else:
+                    log.warn(param_key)
+
+                keyed_params[param_key] = param
+                keyed_params[param_key]['section'] = section
+
+        for key in clitable['Associated qualifiers']:
+            real_param = key[1:key.rindex('"')]
+            keyed_params[real_param]['extra'] = []
+
+            for extra in clitable['Associated qualifiers'][key]:
+                keyed_params[real_param]['extra'].append(extra)
+        log.debug(pprint.pformat(keyed_params))
 
     @classmethod
     def parse_cli_table(cls, soup):
