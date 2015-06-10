@@ -143,10 +143,8 @@ class JbrowseConnector(object):
             for line in handle:
                 try:
                     value = float(line.split('\t')[5])
-                    if min_val is None:
-                        min_val = value
-                    if max_val is None:
-                        max_val = value
+                    min_val = min(value, (min_val or value))
+                    max_val = max(value, (max_val or value))
 
                     if value < min_val:
                         min_val = value
@@ -160,7 +158,6 @@ class JbrowseConnector(object):
     def add_bigwig(self, data, key, **kwargs):
         label = hashlib.md5(data).hexdigest()
         dest = os.path.join('data', 'raw', os.path.basename(data))
-        # ln?
         cmd = ['ln', '-s', data, dest]
         self.subprocess_check_call(cmd)
 
