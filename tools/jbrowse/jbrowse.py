@@ -161,7 +161,7 @@ class JbrowseConnector(object):
         label = hashlib.md5(data).hexdigest()
         dest = os.path.join('data', 'raw', os.path.basename(data))
         # ln?
-        cmd = ['cp', data, dest]
+        cmd = ['ln', '-s', data, dest]
         self.subprocess_check_call(cmd)
 
         track_data = {
@@ -184,11 +184,11 @@ class JbrowseConnector(object):
         label = hashlib.md5(data).hexdigest()
         dest = os.path.join('data', 'raw', os.path.basename(data))
         # ln?
-        cmd = ['cp', data, dest]
+        cmd = ['ln', '-s', data, dest]
         self.subprocess_check_call(cmd)
 
         bai_source = kwargs['bam_index']
-        cmd = ['cp', bai_source, dest + '.bai']
+        cmd = ['ln', '-s', bai_source, dest + '.bai']
         self.subprocess_check_call(cmd)
 
         track_data = {
@@ -218,7 +218,7 @@ class JbrowseConnector(object):
         label = hashlib.md5(data).hexdigest()
         dest = os.path.join('data', 'raw', os.path.basename(data))
         # ln?
-        cmd = ['cp', data, dest]
+        cmd = ['ln', '-s', data, dest]
         self.subprocess_check_call(cmd)
         cmd = ['bgzip', dest]
         self.subprocess_check_call(cmd)
