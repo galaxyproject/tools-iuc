@@ -52,8 +52,6 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
                 # may be longer than the parent feature, so we use the supplied
                 # subject/hit length to calculate the real ending of the target
                 # protein.
-                #print hsp.align_length, hit.length
-                #parent_match_end = parent_match_start + hit.length
                 parent_match_end = hsp.query_start + hit.length + hsp.query.count('-')
 
                 # However, if the user requests that we trim the feature, then
