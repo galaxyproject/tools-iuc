@@ -2,15 +2,14 @@ htseq-count wrapper for Galaxy
 ==============================
 
 Galaxy wrapper for
-[htseq-count](http://www-huber.embl.de/users/anders/HTSeq/doc/count.html)
+`htseq-count <http://www-huber.embl.de/users/anders/HTSeq/doc/count.html>`_
 script from python
-[HTSeq](http://www-huber.embl.de/users/anders/HTSeq/doc/index.html) package.
+`HTSeq <http://www-huber.embl.de/users/anders/HTSeq/doc/index.html>`_ package.
 
 Installation
 ------------
 
-Installation directly from the [Galaxy
-Toolshed](http://toolshed.g2.bx.psu.edu/view/lparsons/htseq_count) is
+Installation directly from the `Galaxy Toolshed                                                                                                                                                                 <http://toolshed.g2.bx.psu.edu/view/lparsons/htseq_count>`_ is
 recommended.
 
 Development
@@ -18,27 +17,26 @@ Development
 
 Repository-Maintainer: Lance Parsons <lparsons@princeton.edu>
 
-Repository-Development: <https://bitbucket.org/lance_parsons/htseq_count_galaxy_wrapper>
-
+Repository-Development: `https://bitbucket.org/lance_parsons/htseq_count_galaxy_wrapper <https://bitbucket.org/lance_parsons/htseq_count_galaxy_wrapper>`_
 
 License
 -------
 
-Copyright (c) 2012-2014, Lance R. Parsons <lparsons@princeton.edu>  
+Copyright (c) 2012-2014, Lance R. Parsons <lparsons@princeton.edu>
 All rights reserved.
 
 Licensed under the BSD 2-Clause License: <http://opensource.org/licenses/BSD-2-Clause>
-    
+
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
-    
+
         * Redistributions of source code must retain the above copyright notice,
           this list of conditions and the following disclaimer.
-    
+
         * Redistributions in binary form must reproduce the above copyright notice,
           this list of conditions and the following disclaimer in the documentation
           and/or other materials provided with the distribution.
-    
+
     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
     ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
     WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
