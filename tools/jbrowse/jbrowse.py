@@ -349,8 +349,9 @@ if __name__ == '__main__':
         </script>
         <a href="JBrowse-1.11.6/index.html">Go to JBrowse</a>
         <p>Please note that JBrowse functions best on production Galaxy
-        instances. The paste server used in development instances has issues
-        serving the volumes of data regularly involved in JBrowse</p>
+        instances, under X-Sendfile. The paste server used in development
+        instances has issues serving the volumes of data regularly involved in
+        JBrowse, and handling subrange requests needed for BAM files.</p>
         </body>
     </html>
     """
