@@ -17,15 +17,15 @@ class OxliBinary(Binary):
 
     def sniff(self, filename, filetype):
         try:
-            fileobj = open(filename)
-            header = open(filename).read(4)
-            if binascii.b2a_hex(header) == binascii.hexlify('OXLI'):
-                fileobj.seek(1)
-                ftype = fileobj.read(1)
-                if binascii.b2a_hex(ftype) == filetype:
-                    return True
+            with open(filename) as fileobj:
+                header = fileobj.read(4)
+                if binascii.b2a_hex(header) == binascii.hexlify('OXLI'):
+                    fileobj.seek(1)
+                    ftype = fileobj.read(1)
+                    if binascii.b2a_hex(ftype) == filetype:
+                        return True
             return False
-        except:
+        except IOError:
             return False
 
 
