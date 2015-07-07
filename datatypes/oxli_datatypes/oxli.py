@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 class OxliBinary(Binary):
 
     def __init__(self, **kwd):
-        OxliBinary.__init__(self, **kwd)
+        Binary.__init__(self, **kwd)
 
     def sniff(self, filename, filetype):
         try:
@@ -47,5 +47,5 @@ class Presence(OxliBinary):
         return OxliBinary.sniff(self, filename, "02")
 
 
-Binary.register_sniffable_binary_ext("ct", "ct", Count)
-Binary.register_sniffable_binary_ext("pt", "pt", Presence)
+Binary.register_sniffable_binary_format("ct", "ct", Count)
+Binary.register_sniffable_binary_format("pt", "pt", Presence)
