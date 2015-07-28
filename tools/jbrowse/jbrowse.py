@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-from string import Template
 import os
 import argparse
 import subprocess
@@ -11,13 +10,13 @@ import logging
 logging.basicConfig()
 log = logging.getLogger(__name__)
 
-COLOR_FUNCTION_TEMPLATE = Template("""
+COLOR_FUNCTION_TEMPLATE = """
 function(feature, variableName, glyphObject, track) {
-    var score = ${score};
-    ${opacity}
-    return 'rgba(${red}, ${green}, ${blue}, ' + opacity + ')';
+    var score = {score};
+    {opacity}
+    return 'rgba({red}, {green}, {blue}, ' + opacity + ')';
 }
-""")
+"""
 
 BLAST_OPACITY_MATH = """
 var opacity = 0;
@@ -30,11 +29,23 @@ if(score == 0.0) {
 
 BREWER_COLOUR_IDX = 0
 BREWER_COLOUR_SCHEMES = [
-    (228, 26, 28),
-    (55, 126, 184),
-    (77, 175, 74),
-    (152, 78, 163),
+    (166, 206, 227),
+    (31, 120, 180),
+    (178, 223, 138),
+    (51, 160, 44),
+    (251, 154, 153),
+    (227, 26, 28),
+    (253, 191, 111),
     (255, 127, 0),
+    (202, 178, 214),
+    (106, 61, 154),
+    (255, 255, 153),
+    (177, 89, 40)
+    # (228, 26, 28),
+    # (55, 126, 184),
+    # (77, 175, 74),
+    # (152, 78, 163),
+    # (255, 127, 0),
 ]
 
 
@@ -45,7 +56,7 @@ TN_TABLE = {
     'gff3': '--gff',
     'gff': '--gff',
     'bed': '--bed',
-    # 'genbank': '--gbk',
+    'genbank': '--gbk',
 }
 
 INSTALLED_TO = os.path.dirname(os.path.realpath(__file__))
@@ -106,7 +117,7 @@ class JbrowseConnector(object):
         label = hashlib.md5(data).hexdigest()
 
         red, green, blue = self._get_colours()
-        color_function = COLOR_FUNCTION_TEMPLATE.substitute({
+        color_function = COLOR_FUNCTION_TEMPLATE.format({
             'score': "feature._parent.get('score')",
             'opacity': BLAST_OPACITY_MATH,
             'red': red,
@@ -115,9 +126,9 @@ class JbrowseConnector(object):
         })
 
         clientConfig = {
-            'label': 'description',
+            'label': kwargs['options']['style']['label'],
             'color': color_function.replace('\n', ''),
-            'description': 'Hit_titles',
+            'description': kwargs['options']['style']['description'],
         }
         config = {'glyph': 'JBrowse/View/FeatureGlyph/Segments'}
         if 'category' in kwargs:
@@ -253,15 +264,15 @@ class JbrowseConnector(object):
             min_val, max_val = self._min_max_gff(data)
 
             if min_val is not None and max_val is not None:
-                MIN_MAX_OPACITY_MATH = Template("""
+                MIN_MAX_OPACITY_MATH = """
                 var opacity = (score - ${min}) * (1/(${max} - ${min}));
-                """).substitute({
+                """.format(**{
                     'max': max_val,
                     'min': min_val,
                 })
 
                 red, green, blue = self._get_colours()
-                color_function = COLOR_FUNCTION_TEMPLATE.substitute({
+                color_function = COLOR_FUNCTION_TEMPLATE.format({
                     'score': "feature.get('score')",
                     'opacity': MIN_MAX_OPACITY_MATH,
                     'red': red,
@@ -282,6 +293,19 @@ class JbrowseConnector(object):
         self.subprocess_check_call(cmd)
 
     def process_annotations(self, data, key, format, **kwargs):
+        clientConfig = {
+            'label': kwargs['options']['style']['label'],
+            'color': kwargs['options']['style']['color'],
+            'classname': kwargs['options']['style']['classname'],
+            'description': kwargs['options']['style']['description'],
+        }
+
+        if clientConfig['color'] == '__auto__':
+            # Automatically generate the next brewer colour
+            red, green, blue = self._get_colours()
+            clientConfig['color'] = 'rgba(${red}, ${green}, ${blue}, 1)' \
+                .format(red=red, green=green, blue=blue)
+
         if format in ('gff', 'gff3', 'bed'):
             self.add_features(data, key, format, **kwargs)
         elif format == 'bigwig':
@@ -330,8 +354,6 @@ if __name__ == '__main__':
     for track in track_data:
         path = os.path.realpath(track['file'])
         extra = track.get('options', {})
-        if '__unused__' in extra:
-            del extra['__unused__']
 
         for possible_partial_path in ('bam_index', 'parent'):
             if possible_partial_path in extra:
