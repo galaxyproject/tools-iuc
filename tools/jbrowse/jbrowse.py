@@ -8,7 +8,7 @@ import tempfile
 import json
 import yaml
 import logging
-logging.basicConfig()
+logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
 COLOR_FUNCTION_TEMPLATE = """
@@ -203,7 +203,7 @@ class JbrowseConnector(object):
 
     def add_bigwig(self, data, trackData, **kwargs):
         dest = os.path.join('data', 'raw', os.path.basename(data))
-        cmd = ['ln', '-s', data, dest]
+        cmd = ['ln', data, dest]
         self.subprocess_check_call(cmd)
 
         trackData.update({
@@ -321,13 +321,11 @@ class JbrowseConnector(object):
         self.subprocess_check_call(cmd)
 
     def process_annotations(self, data, track):
-        format = track['ext']
+        format = track['ext'][0]
         kwargs = track['options']
 
         # Base trackData section is pretty universally similar
         trackData = {
-            "label": hashlib.md5(data).hexdigest(),
-            "key": track['label'],
         }
 
         clientConfig = {
@@ -341,27 +339,34 @@ class JbrowseConnector(object):
         # different colour options.
         clientConfig.update(self._parse_colours(track))
 
-        if format == 'bigwig':
-            trackData
-
         # Load clientConfig into trackData
         trackData['style'] = clientConfig
 
-        print "TrackData"
-        import pprint; pprint.pprint(trackData)
-        print "kwargs"
-        import pprint; pprint.pprint(kwargs)
+        zipped_tracks = zip(track['files'], track['labels'])
+        zipped_tracks.sort(key = lambda x: x[0])
+        for i, (dataset, track_human_label) in enumerate(zipped_tracks):
+            trackData['key'] = track_human_label
+            trackData['label'] = hashlib.md5(dataset).hexdigest() + '_%s' % i
 
-        if format in ('gff', 'gff3', 'bed'):
-            self.add_features(data, format, trackData, **kwargs)
-        elif format == 'bigwig':
-            self.add_bigwig(data, trackData, **kwargs)
-        elif format == 'bam':
-            self.add_bam(data, trackData, **kwargs)
-        elif format == 'blastxml':
-            self.add_blastxml(data, trackData, **kwargs)
-        elif format == 'vcf':
-            self.add_vcf(data, trackData, **kwargs)
+            # If a list of indices are available, set a variable with just the correct one.
+            if 'bam_indexes' in track:
+                track['bam_index'] = track['bam_indexes'][i]
+
+            print "TrackData"
+            import pprint; pprint.pprint(trackData)
+            print "kwargs"
+            import pprint; pprint.pprint(kwargs)
+
+            if format in ('gff', 'gff3', 'bed'):
+                self.add_features(dataset, format, trackData, **kwargs)
+            elif format == 'bigwig':
+                self.add_bigwig(dataset, trackData, **kwargs)
+            elif format == 'bam':
+                self.add_bam(dataset, trackData, **kwargs)
+            elif format == 'blastxml':
+                self.add_blastxml(dataset, trackData, **kwargs)
+            elif format == 'vcf':
+                self.add_vcf(dataset, trackData, **kwargs)
 
     def clone_jbrowse(self, jbrowse_dir, destination):
         # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
@@ -398,20 +403,22 @@ if __name__ == '__main__':
 
     track_data = yaml.load(args.yaml)
     for track in track_data:
-        path = os.path.realpath(track['file'])
+        paths = [os.path.realpath(x) for x in track['files']]
         extra = track.get('options', {})
 
-        for possible_partial_path in ('bam_index', 'parent'):
+        for possible_partial_path in ('bam_indexes', 'parent'):
             if possible_partial_path in extra:
-                extra[possible_partial_path] = os.path.realpath(
-                    extra[possible_partial_path])
+                if isinstance(extra[possible_partial_path], list):
+                    extra[possible_partial_path] = [os.path.realpath(x) for x in extra[possible_partial_path]]
+                else:
+                    extra[possible_partial_path] = os.path.realpath(extra[possible_partial_path])
         extra['category'] = track.get('category', 'Default')
 
         # Push modified options back into the track config
         track['options'] = extra
         # More data was needed in process_annotations so it becomes a little
         # bit less clean.
-        jc.process_annotations(path, track)
+        jc.process_annotations(paths, track)
 
     print """
     <html>
