@@ -77,15 +77,15 @@ INSTALLED_TO = os.path.dirname(os.path.realpath(__file__))
 
 class JbrowseConnector(object):
 
-    def __init__(self, jbrowse, jbrowse_dir, outdir, genome):
+    def __init__(self, jbrowse, jbrowse_dir, outdir, genomes):
         self.jbrowse = jbrowse
         self.jbrowse_dir = jbrowse_dir
         self.outdir = outdir
-        self.genome_path = genome
+        self.genome_paths = genomes
         self.brewer_colour_idx = 0
 
         self.clone_jbrowse(self.jbrowse, self.outdir)
-        self.process_genome()
+        self.process_genomes()
 
     def subprocess_check_call(self, command):
         log.debug('cd %s && %s', self.jbrowse_dir, ' '.join(command))
@@ -96,9 +96,11 @@ class JbrowseConnector(object):
         self.brewer_colour_idx += 1
         return r, g, b
 
-    def process_genome(self):
-        self.subprocess_check_call(['perl', 'bin/prepare-refseqs.pl',
-                                    '--fasta', self.genome_path])
+    def process_genomes(self):
+        for genome_path in self.genome_paths:
+            self.subprocess_check_call([
+                'perl', 'bin/prepare-refseqs.pl',
+                '--fasta', genome_path])
 
     def _add_json(self, json_data):
         if len(json_data.keys()) == 0:
@@ -388,7 +390,7 @@ class JbrowseConnector(object):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
     parser.add_argument('yaml', type=file, help='Track Configuration')
-    parser.add_argument('genome', type=file, nargs='+', help='Input genome file')
+    parser.add_argument('genomes', type=file, nargs='+', help='Input genome file')
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
@@ -398,7 +400,7 @@ if __name__ == '__main__':
         jbrowse=args.jbrowse,
         jbrowse_dir=os.path.join(args.outdir, 'JBrowse-1.11.6'),
         outdir=args.outdir,
-        genome=os.path.realpath(args.genome.name),
+        genomes=[os.path.realpath(x.name) for x in args.genomes],
     )
 
     track_data = yaml.load(args.yaml)
