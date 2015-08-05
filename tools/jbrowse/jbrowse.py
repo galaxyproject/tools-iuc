@@ -387,8 +387,8 @@ class JbrowseConnector(object):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
-    parser.add_argument('genome', type=file, help='Input genome file')
     parser.add_argument('yaml', type=file, help='Track Configuration')
+    parser.add_argument('genome', type=file, nargs='+', help='Input genome file')
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
