@@ -5,12 +5,16 @@ import xml.etree.cElementTree as etree
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger()
 
-SINGLE_OPTION_PARAM = re.compile('^-(?P<option_short_a>.),\s+--(?P<option_long_a>[^ ]+) (?P<option_param>[^ ]*[<\[][^ ]*[>\]][^ ]*)\s{2,}(?P<help_text>.*)$')
-SINGLE_OPTION_FLAG = re.compile('^-(?P<option_short_a>.),\s+--(?P<option_long_a>[^ ]+)\s{2,}(?P<help_text>.*)$')
-ONLY_LONG_FLAG = re.compile('^--(?P<option_long_a>[^ ]+)\s{2,}(?P<help_text>.*)$')
+PARAMETER_REGEX = '(?P<option_param>[^ ]*[<\[][^ ]*[>\]][^ ]*)'
+SPACES_THEN_HELP = '\s{2,}(?P<help_text>.*)$'
 
-DUAL_OPTION_PARAM = re.compile('^-(?P<option_short_a>.)/(?P<option_short_b>.),\s+--(?P<option_long_a>[^ ]+)/--(?P<option_long_b>[^ ]+) (?P<option_param>[^ ]*[<\[][^ ]*[>\]][^ ]*)\s{2,}(?P<help_text>.*)$')
-DUAL_OPTION_FLAG = re.compile('^-(?P<option_short_a>.)/(?P<option_short_b>.),\s+--(?P<option_long_a>[^ ]+)/--(?P<option_long_b>[^ ]+)\s{2,}(?P<help_text>.*)$')
+SINGLE_OPTION_PARAM = re.compile('^-(?P<option_short_a>.),\s+--(?P<option_long_a>[^ ]+) ' + PARAMETER_REGEX + SPACES_THEN_HELP)
+SINGLE_OPTION_FLAG = re.compile('^-(?P<option_short_a>.),\s+--(?P<option_long_a>[^ ]+)' + SPACES_THEN_HELP)
+ONLY_LONG_FLAG = re.compile('^--(?P<option_long_a>[^ ]+)' + SPACES_THEN_HELP)
+ONLY_LONG_PARAM = re.compile('^--(?P<option_long_a>[^ ]+) ' + PARAMETER_REGEX + SPACES_THEN_HELP)
+
+DUAL_OPTION_PARAM = re.compile('^-(?P<option_short_a>.)/(?P<option_short_b>.),\s+--(?P<option_long_a>[^ ]+)/--(?P<option_long_b>[^ ]+) ' + PARAMETER_REGEX + SPACES_THEN_HELP)
+DUAL_OPTION_FLAG = re.compile('^-(?P<option_short_a>.)/(?P<option_short_b>.),\s+--(?P<option_long_a>[^ ]+)/--(?P<option_long_b>[^ ]+)' + SPACES_THEN_HELP)
 
 DEFAULT_VALUE = re.compile('^(?P<help_text>.*) \[(?P<default_value>[^\]]*)\]$')
 
@@ -67,7 +71,7 @@ help.text = about_line
 etree.SubElement(tool, 'expand', macro='citations')
 
 def parse_param(help_text):
-    m = re.match(SINGLE_OPTION_FLAG, help_text)
+    m = (re.match(SINGLE_OPTION_FLAG, help_text) or re.match(ONLY_LONG_FLAG, help_text))
     if m:
         return [{
             'type': 'flag',
@@ -75,21 +79,13 @@ def parse_param(help_text):
             'help': m.group('help_text')
         }]
 
-    m = re.match(SINGLE_OPTION_PARAM, help_text)
+    m = (re.match(SINGLE_OPTION_PARAM, help_text) or re.match(ONLY_LONG_PARAM, help_text))
     if m:
         return [{
             'type': 'param',
             'long': m.group('option_long_a'),
             'help': m.group('help_text'),
             'param': m.group('option_param'),
-        }]
-
-    m = re.match(ONLY_LONG_FLAG, help_text)
-    if m:
-        return [{
-            'type': 'flag',
-            'long': m.group('option_long_a'),
-            'help': m.group('help_text'),
         }]
 
     m = re.match(DUAL_OPTION_FLAG, help_text)
