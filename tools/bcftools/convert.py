@@ -194,6 +194,10 @@ for section_name in sorted(param_ds.keys()):
                 elif '<float>' in parsed_command['param']:
                     pkw['type'] = 'float'
                     pkw['optional'] = 'True'
+                    m = re.match(DEFAULT_VALUE, pkw['help'])
+                    if m:
+                        pkw['help'] = m.group('help_text')
+                        pkw['default'] = m.group('default_value')
                 elif '<' in parsed_command['param'] and '|' in parsed_command['param']:
                     parsed_command['select'] = True
                     help_text = pkw['help']
