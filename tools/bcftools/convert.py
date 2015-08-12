@@ -57,12 +57,12 @@ tool = etree.Element("tool",
                      version="@VERSION@.0")
 desc = etree.SubElement(tool, 'description')
 desc.text = about_line.split('. ')[0]
-etree.SubElement(tool, 'expand', macro="requirements")
-etree.SubElement(tool, 'expand', macro="version_command")
-etree.SubElement(tool, 'expand', macro="stdio")
 macros = etree.SubElement(tool, 'macros')
 etree.SubElement(macros, 'token', name='@EXECUTABLE@').text = 'view'
-etree.SubElement(macros, 'import').text = 'bcftools_macros.xml'
+etree.SubElement(macros, 'import').text = 'macros.xml'
+etree.SubElement(tool, 'expand', macro="requirements")
+etree.SubElement(tool, 'expand', macro="stdio")
+etree.SubElement(tool, 'expand', macro="version_command")
 command = etree.SubElement(tool, 'command')
 command.text = 'bcftools @EXECUTABLE@\n'
 inputs = etree.SubElement(tool, 'inputs')
