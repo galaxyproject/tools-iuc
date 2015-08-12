@@ -43,6 +43,8 @@ for line in fileinput.input():
                 param_ds[section][-1] += ' ' + line.strip()
             else:
                 param_ds[section].append(line.strip())
+    elif line.startswith('Examples:'):
+        break
     else:
         section = line.replace(' options:', '').strip()
         section = 'Default'
