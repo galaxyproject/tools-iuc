@@ -10,5 +10,5 @@ python util/macroify.py --macros macros.xml bcftools_*.xml
 git checkout -- macros.xml
 
 # Prettify
-for i in *.xml; do cat $i | xmllint --pretty 1 - > $i.pretty; mv $i.pretty $i; done;
+for i in *.xml; do cat $i | xmllint --pretty 1 - > $i.pretty; mv $i.pretty $i; python util/reformat.py $i; done;
 
