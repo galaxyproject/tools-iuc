@@ -46,10 +46,13 @@ for line in fileinput.input():
     elif line.startswith('Examples:'):
         break
     else:
-        section = line.replace(' options:', '').strip()
-        section = 'Default'
+        section = line.replace('options:', '').replace('Options:', '').strip()
+        if len(section) == 0:
+            section = 'Default'
         log.debug("Saw section %s" % section)
 
+import pprint
+log.debug(pprint.pformat(param_ds))
 
 tool = etree.Element("tool",
                      id="bcftools_@EXECUTABLE@",
@@ -140,7 +143,7 @@ def parse_param(help_text):
 
 
 for section_name in sorted(param_ds.keys()):
-    safe_sec_name = 'sec_' + section_name.replace(' ', '_').lower()
+    safe_sec_name = 'sec_' + section_name.replace(' ', '_').replace('/', '_').lower()
     section = etree.SubElement(inputs, 'section', name=safe_sec_name,
                                title=section_name + ' Options', expanded="true")
 
@@ -288,6 +291,7 @@ for section_name in sorted(param_ds.keys()):
                         command.text += "  --%s \"${%s}\"\n" % (parsed_command['long'], command_id)
                     command.text += "#end if\n"
                 else:
+                    pkw['__TODO__'] = 'TODO'
                     log.warn("Unknown type: %s", parsed_command['param'])
 
                 # Lists are repeats and handled elsewhere.
