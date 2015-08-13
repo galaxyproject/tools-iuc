@@ -1,4 +1,5 @@
 import xml.etree.ElementTree as ET
+import gtree
 import copy
 import os
 import argparse
@@ -75,4 +76,5 @@ if __name__ == '__main__':
                     section.remove(child)
 
         xml_file.seek(0)
-        tree.write(xml_file.name)
+        outtree = gtree.GElementTree(root)
+        outtree.gwrite(xml_file.name)

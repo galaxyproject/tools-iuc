@@ -2,8 +2,10 @@ import re
 import logging
 import fileinput
 import xml.etree.ElementTree as etree
+import gtree
+
 logging.basicConfig(level=logging.DEBUG)
-log = logging.getLogger()
+log = logging.getLogger(name=__name__)
 
 PARAMETER_REGEX = '(?P<option_param>[^ ]*[<\[][^ ]*[>\]][^ ]*)'
 SPACES_THEN_HELP = '\s{2,}(?P<help_text>.*)$'
@@ -415,75 +417,6 @@ else:
 for elem in elements[::-1]:
     inputs.insert(0, elem)
 
-starter = {
-    'name': -100,
-    'label': -99,
-    'type': -80,
-    'help': -50,
-    'truevalue': -30,
-    'falsevalue': -29,
-}
-
-def priority(key):
-    if key in starter:
-        return starter[key]
-    else:
-        return ord(key[0])
-
-#http://stackoverflow.com/questions/2741480/can-elementtree-be-told-to-preserve-the-order-of-attributes
-def _serialize_xml(write, elem, encoding, qnames, namespaces):
-    tag = elem.tag
-    text = elem.text
-    if tag is etree.Comment:
-        write("<!--%s-->" % etree._encode(text, encoding))
-    elif tag is etree.ProcessingInstruction:
-        write("<?%s?>" % etree._encode(text, encoding))
-    else:
-        tag = qnames[tag]
-        if tag is None:
-            if text:
-                write(etree._escape_cdata(text, encoding))
-            for e in elem:
-                _serialize_xml(write, e, encoding, qnames, None)
-        else:
-            write("<" + tag)
-            items = elem.items()
-            if items or namespaces:
-                if namespaces:
-                    for v, k in sorted(namespaces.items(),
-                                       key=lambda x: x[1]):  # sort on prefix
-                        if k:
-                            k = ":" + k
-                        write(" xmlns%s=\"%s\"" % (
-                            k.encode(encoding),
-                            etree._escape_attrib(v, encoding)
-                            ))
-                #for k, v in sorted(items):  # lexical order
-                #for k, v in items: # Monkey patch
-                log.debug('LOOP')
-                for k, v in sorted(items, key=lambda x: priority(x[0])):
-                    log.debug(k)
-                    if isinstance(k, etree.QName):
-                        k = k.text
-                    if isinstance(v, etree.QName):
-                        v = qnames[v.text]
-                    else:
-                        v = etree._escape_attrib(v, encoding)
-                    write(" %s=\"%s\"" % (qnames[k], v))
-            if text or len(elem):
-                write(">")
-                if text:
-                    write(etree._escape_cdata(text, encoding))
-                for e in elem:
-                    _serialize_xml(write, e, encoding, qnames, None)
-                write("</" + tag + ">")
-            else:
-                write(" />")
-    if elem.tail:
-        write(etree._escape_cdata(elem.tail, encoding))
-
-etree._serialize_xml = _serialize_xml
-
 import sys
-tree = etree.ElementTree(tool)
-tree.write(sys.stdout)
+tree = gtree.GElementTree(tool)
+tree.gwrite(sys.stdout)
