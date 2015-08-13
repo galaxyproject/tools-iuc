@@ -334,7 +334,68 @@ for section_name in sorted(param_ds.keys()):
             else:
                 print parsed_command
 
+# Rest of command parsing
+#         bcftools   annotate    [options]   <in.vcf.gz>
+#         bcftools   call        [options]   <in.vcf.gz>
+#         bcftools   filter      [options]   <in.vcf.gz>
+#         bcftools   norm        [options]   <in.vcf.gz>
+#         bcftools   reheader    [OPTIONS]   <in.vcf.gz>
+#         bcftools   roh         [options]   <in.vcf.gz>
+#         bcftools   view        [options]   <in.vcf.gz>   [region1              [...]]
 
+#         bcftools   consensus   [OPTIONS]   <file.vcf>
+
+#         bcftools   gtcheck     [options]   [-g           <genotypes.vcf.gz>]   <query.vcf.gz>
+
+#         bcftools   isec        [options]   <A.vcf.gz>    <B.vcf.gz>            [...]
+#         bcftools   merge       [options]   <A.vcf.gz>    <B.vcf.gz>            [...]
+
+#         bcftools   concat      [options]   <A.vcf.gz>    [<B.vcf.gz>           [...]]
+#         bcftools   query       [options]   <A.vcf.gz>    [<B.vcf.gz>           [...]]
+
+#         bcftools   stats       [options]   <A.vcf.gz>    [<B.vcf.gz>]
+
+command.text += "\n## Primary Input/Outputs\n\n"
+elements = []
+if '-g' in usage_line:
+    # Special case, only happens once
+    elements = [
+        etree.Element('param', type="data", format="vcf,bcf", name="genotypes_file", label="Genotypes VCF/BCF Data", optional="True"),
+        etree.Element('param', type="data", format="vcf,bcf", name="query_file", label="Query VCF/BCF Data")
+    ]
+
+    etree.SubElement(outputs, 'data', format="tabular", name="output_file")
+    command.text += "#if $genotypes_file:\n  -g $genotypes_file\n#end if\n"
+    command.text += "$query_file\n>\n$output_file"
+
+else:
+    if '<in.vcf.gz>' in usage_line or '<file.vcf>' in usage_line:
+        elements = [
+            etree.Element('param', type="data", format="vcf,bcf", name="input_file", label="VCF/BCF Data")
+        ]
+        etree.SubElement(outputs, 'data', format="tabular", name="output_file")
+        command.text += "$input_file\n>\n$output_file"
+
+    elif '<A.vcf.gz> [<B.vcf.gz>]' in usage_line:
+        elements = [
+            etree.Element('param', type="data", format="vcf,bcf", name="input_file1", label="VCF/BCF Data"),
+            etree.Element('param', type="data", format="vcf,bcf", name="input_file2", label="Second VCF/BCF Data", optional="True"),
+        ]
+    elif '<A.vcf.gz> [<B.vcf.gz [...]]' in usage_line:
+        elements = [
+            etree.Element('param', type="data", format="vcf,bcf", name="input_file1", label="VCF/BCF Data", multiple="True"),
+        ]
+    elif '<A.vcf.gz> <B.vcf.gz> [...]':
+        elements = [
+            etree.Element('param', type="data", format="vcf,bcf", name="input_file1", label="VCF/BCF Data"),
+            etree.Element('param', type="data", format="vcf,bcf", name="input_file2", label="Other VCF/BCF Datasets", multiple="True"),
+        ]
+    else:
+        log.warning("Unhandled input files from command line usage: %s", usage_line)
+
+
+for elem in elements[::-1]:
+    inputs.insert(0, elem)
 
 
 print etree.tostring(tool)
