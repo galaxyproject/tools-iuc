@@ -58,7 +58,8 @@ tool = etree.Element("tool",
 desc = etree.SubElement(tool, 'description')
 desc.text = about_line.split('. ')[0]
 macros = etree.SubElement(tool, 'macros')
-etree.SubElement(macros, 'token', name='@EXECUTABLE@').text = 'view'
+tool_id = usage_line.split()[1]
+etree.SubElement(macros, 'token', name='@EXECUTABLE@').text = tool_id
 etree.SubElement(macros, 'import').text = 'macros.xml'
 etree.SubElement(tool, 'expand', macro="requirements")
 etree.SubElement(tool, 'expand', macro="stdio")

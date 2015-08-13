@@ -51,9 +51,11 @@ if __name__ == '__main__':
         hashes[dupe_key]['mid'] = macro_id
 
 
+    em = [hash_param(elem) for elem in macros.findall('.//macros/*')]
 
     for me in macro_elements:
-        macros.append(copy.deepcopy(me))
+        if hash_param(me) not in em:
+            macros.append(copy.deepcopy(me))
 
     with open(args.macros, 'w') as handle:
         handle.write(ET.tostring(macros))
