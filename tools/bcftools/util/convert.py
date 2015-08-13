@@ -157,7 +157,13 @@ for section_name in sorted(param_ds.keys()):
                     'help': parsed_command['help'],
                 }
                 param = etree.SubElement(section, 'param', **pkw)
+                # These we really don't have a choice about applying/not,
+                # without turning them into ternaries.
+                # However, it looks like bcftools is well behaved in this respect.
+                #command.text += "#if $%s.%s:\n" % (safe_sec_name, pkw['name'])
                 command.text += "${%s.%s}\n" % (safe_sec_name, pkw['name'])
+                #command.text += "#end if\n"
+
             elif parsed_command['type'] == 'flag/exclude':
                 pkw = {
                     'name': parsed_command['long'].replace('-', '_').replace('/', '_'),
@@ -168,7 +174,10 @@ for section_name in sorted(param_ds.keys()):
                     'help': parsed_command['help'],
                 }
                 param = etree.SubElement(section, 'param', **pkw)
+                #command.text += "#if $%s.%s:\n" % (safe_sec_name, pkw['name'])
                 command.text += "${%s.%s}\n" % (safe_sec_name, pkw['name'])
+                #command.text += "#end if\n"
+
             elif parsed_command['type'].startswith('param'):
                 pkw = {
                     'name': parsed_command['long'].replace('-', '_'),
@@ -209,12 +218,17 @@ for section_name in sorted(param_ds.keys()):
                         help_text = m.group('help_text')
                         default = m.group('default_value')
 
-                    if default is None:
-                        pkw['optional'] = 'True'
 
                     select = etree.SubElement(section, 'param',
                                               type='select',
                                               name='select_' + pkw['name'])
+
+                    # Disabled until https://github.com/galaxyproject/galaxy/issues/599
+                    #if default is None:
+                        #pkw['optional'] = 'True'
+                    if default is None:
+                        etree.SubElement(select, 'option', value='__none__', selected="True").text = "No selection"
+
 
                     for kv in help_text.split(', '):
                         kvd = kv.split(': ')
@@ -227,7 +241,9 @@ for section_name in sorted(param_ds.keys()):
 
                         etree.SubElement(select, 'option', **sokwd).text = v
 
-                    command.text += "--%s \"${%s.%s}\"\n" % (parsed_command['long'], safe_sec_name, 'select_' + pkw['name'])
+                    command.text += "#if str($%s.%s) != \"__none__\":\n" % (safe_sec_name, 'select_' + pkw['name'])
+                    command.text += "  --%s \"${%s.%s}\"\n" % (parsed_command['long'], safe_sec_name, 'select_' + pkw['name'])
+                    command.text += "#end if\n"
 
                 elif '<region>' in parsed_command['param']:
                     repeat = etree.SubElement(section, 'repeat',
@@ -236,7 +252,9 @@ for section_name in sorted(param_ds.keys()):
                     etree.SubElement(repeat, 'param', **pkw)
                     command_id = 'values_%s_%s' % (safe_sec_name, pkw['name'])
                     command.text += """#set %s = '","'.join([str($value) for $value in $%s.%s])\n""" % (command_id, safe_sec_name, pkw['name'] + "_repeat")
-                    command.text += "--%s \"${%s}\"\n" % (parsed_command['long'], command_id)
+                    command.text += "#if $%s:\n" % (command_id)
+                    command.text += "  --%s \"${%s}\"\n" % (parsed_command['long'], command_id)
+                    command.text += "#end if\n"
 
                 elif '<list>' in parsed_command['param']:
                     repeat = etree.SubElement(section, 'repeat',
@@ -246,6 +264,7 @@ for section_name in sorted(param_ds.keys()):
 
                     command_id = 'values_%s_%s' % (safe_sec_name, pkw['name'])
                     command.text += """#set %s = '","'.join([str($value) for $value in $%s.%s])\n""" % (command_id, safe_sec_name, pkw['name'] + "_repeat")
+                    command.text += "#if $%s:\n" % (command_id)
                     if '[^]' in parsed_command['param']:
                         mpkw = {
                             'name': 'invert_' + pkw['name'],
@@ -256,9 +275,10 @@ for section_name in sorted(param_ds.keys()):
                             'falsevalue': '',
                         }
                         etree.SubElement(section, 'param', **mpkw)
-                        command.text += "--%s \"${%s.%s}${%s}\"\n" % (parsed_command['long'], safe_sec_name, mpkw['name'], command_id)
+                        command.text += "  --%s \"${%s.%s}${%s}\"\n" % (parsed_command['long'], safe_sec_name, mpkw['name'], command_id)
                     else:
-                        command.text += "--%s \"${%s}\"\n" % (parsed_command['long'], command_id)
+                        command.text += "  --%s \"${%s}\"\n" % (parsed_command['long'], command_id)
+                    command.text += "#end if\n"
                 else:
                     log.warn("Unknown type: %s", parsed_command['param'])
 
@@ -276,6 +296,7 @@ for section_name in sorted(param_ds.keys()):
                             'falsevalue': '',
                         }
 
+                        command.text += "#if $%s.%s:\n" % (safe_sec_name, pkw['name'])
                         if parsed_command['type'] == 'param/exclude':
                             # If it's an exclude instead of a carat, we've
                             # reduced the two flags into a single real option
@@ -284,29 +305,32 @@ for section_name in sorted(param_ds.keys()):
                                 'truevalue': parsed_command['flag_choices'][0],
                                 'falsevalue': parsed_command['flag_choices'][1],
                             })
-                            command.text += "--{%s.%s} \"${%s.%s}\"\n" % (
+                            command.text += "  --{%s.%s} \"${%s.%s}\"\n" % (
                                 safe_sec_name,
                                 mpkw['name'],
                                 safe_sec_name,
                                 pkw['name']
                             )
                         else:
-                            command.text += "--%s \"${%s.%s}${%s.%s}\"\n" % (
+                            command.text += "  --%s \"${%s.%s}${%s.%s}\"\n" % (
                                 parsed_command['long'],
                                 safe_sec_name,
                                 mpkw['name'],
                                 safe_sec_name,
                                 pkw['name']
                             )
+                        command.text += "#end if\n"
 
                         etree.SubElement(section, 'param', **mpkw)
 
                     else:
-                        command.text += "--%s \"${%s.%s}\"\n" % (
+                        command.text += "#if $%s.%s:\n" % (safe_sec_name, pkw['name'])
+                        command.text += "  --%s \"${%s.%s}\"\n" % (
                             parsed_command['long'],
                             safe_sec_name,
                             pkw['name']
                         )
+                        command.text += "#end if\n"
             else:
                 print parsed_command
 
