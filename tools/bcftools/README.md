@@ -18,4 +18,4 @@ The wrappers were automatically generated in bulk. That doesn't get them 100%
 of the way there (e.g. meaningful test cases), so the rest of the process is a
 bit slower.
 
-- ...
+- bcftools call
