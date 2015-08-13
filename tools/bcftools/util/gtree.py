@@ -8,7 +8,8 @@ starter = {
     'label': -99,
     'type': -80,
 
-    'input': -52,
+    'input': -53,
+    'value': -52,
     'format': -51,
     'truevalue': -30,
     'falsevalue': -29,
