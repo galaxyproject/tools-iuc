@@ -245,6 +245,14 @@ for section_name in sorted(param_ds.keys()):
                     command.text += "  --%s \"${%s.%s}\"\n" % (parsed_command['long'], safe_sec_name, 'select_' + pkw['name'])
                     command.text += "#end if\n"
 
+                    if pkw['name'] == 'output_type':
+                        out = etree.SubElement(outputs, 'data', format="vcf", name="output_file")
+                        cf = etree.SubElement(out, 'change_format')
+                        etree.SubElement(cf, 'when', input=safe_sec_name + "|select_output_type", value="b", format="bcf_bgz")
+                        etree.SubElement(cf, 'when', input=safe_sec_name + "|select_output_type", value="u", format="bcf")
+                        etree.SubElement(cf, 'when', input=safe_sec_name + "|select_output_type", value="z", format="vcf_bgz")
+                        etree.SubElement(cf, 'when', input=safe_sec_name + "|select_output_type", value="v", format="vcf")
+
                 elif '<region>' in parsed_command['param']:
                     repeat = etree.SubElement(section, 'repeat',
                                               name=pkw['name'] + '_repeat',
@@ -369,13 +377,19 @@ if '-g' in usage_line:
     command.text += "$query_file\n>\n$output_file"
 
 else:
-    if '<in.vcf.gz>' in usage_line or '<file.vcf>' in usage_line:
+    if '<in.vcf.gz>' in usage_line:
         elements = [
             etree.Element('param', type="data", format="vcf,bcf", name="input_file", label="VCF/BCF Data")
         ]
-        etree.SubElement(outputs, 'data', format="tabular", name="output_file")
         command.text += "$input_file\n>\n$output_file"
-
+    elif '<file.vcf>' in usage_line:
+        elements = [
+            etree.Element('param', type="data", format="fasta", name="reference_fasta", label="Reference Fasta"),
+            etree.Element('param', type="data", format="vcf_bgz,bcf_bgz", name="input_file", label="VCF/BCF Data")
+        ]
+        etree.SubElement(outputs, 'data', format="fasta", name="output_file")
+        command.text = "cat $reference_fasta | " + command.text
+        command.text += "$input_file\n>\n$output_file"
     elif '<A.vcf.gz> [<B.vcf.gz>]' in usage_line:
         elements = [
             etree.Element('param', type="data", format="vcf,bcf", name="input_file1", label="VCF/BCF Data"),
