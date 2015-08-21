@@ -253,4 +253,5 @@ if __name__ == '__main__':
 
     result = blastxml2gff3(**vars(args))
 
+    result.annotations = {}
     GFF.write(result, sys.stdout)

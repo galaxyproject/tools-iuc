@@ -93,6 +93,7 @@ def rebase(parent, child, interpro=False, protein2dna=False):
         # We do this so we don't include the original set of features that we
         # were rebasing against in our result.
         rec.features = replacement_features
+        rec.annotations = {}
         GFF.write([rec], sys.stdout)
 
 
