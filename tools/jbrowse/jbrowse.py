@@ -8,15 +8,39 @@ import tempfile
 import json
 import yaml
 import logging
+import pprint
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
 COLOR_FUNCTION_TEMPLATE = """
-function(feature, variableName, glyphObject, track) {
+function(feature, variableName, glyphObject, track) {{
     var score = {score};
     {opacity}
     return 'rgba({red}, {green}, {blue}, ' + opacity + ')';
-}
+}}
+"""
+
+COLOR_FUNCTION_TEMPLATE_QUAL = """
+function(feature, variableName, glyphObject, track) {{
+
+    var rec_color_search = function self(feature) {
+        // If we have a color, return that and propagate up
+        if(feature.get('color') !== undefined) {
+            return feature.get('color');
+        }
+        // otherwise keep searchin'
+        if('Subfeatures' in feature.tags()){
+            for(var subidx in feature.children()){
+                return rec_color_search()
+            }
+        }
+    }
+
+
+    var score = {score};
+    {opacity}
+    return 'rgba({red}, {green}, {blue}, ' + opacity + ')';
+}}
 """
 
 BLAST_OPACITY_MATH = """
@@ -130,13 +154,16 @@ class JbrowseConnector(object):
         gff3_rebased.close()
 
         red, green, blue = self._get_colours()
-        color_function = COLOR_FUNCTION_TEMPLATE.format({
+        log.debug('RGB: %s %s %s', red, green, blue)
+        log.debug(COLOR_FUNCTION_TEMPLATE)
+        color_function = COLOR_FUNCTION_TEMPLATE.format(**{
             'score': "feature._parent.get('score')",
             'opacity': BLAST_OPACITY_MATH,
             'red': red,
             'green': green,
             'blue': blue,
         })
+        log.debug(color_function)
 
         clientConfig = trackData['style']
         clientConfig['color'] = color_function.replace('\n', '')
@@ -187,8 +214,8 @@ class JbrowseConnector(object):
 
                 pos_color, neg_color = BREWER_DIVERGING_PALLETES[scheme]
             else:
-                pos_color = track['options']['style']['color_pos'].replace('__pd__', '#')
-                neg_color = track['options']['style']['color_neg'].replace('__pd__', '#')
+                pos_color = track['options']['style']['color_pos']
+                neg_color = track['options']['style']['color_neg']
 
             clientConfig['pos_color'] = pos_color
             clientConfig['neg_color'] = neg_color
@@ -200,7 +227,7 @@ class JbrowseConnector(object):
                 clientConfig['color'] = 'rgba({red}, {green}, {blue}, 1)' \
                     .format(red=red, green=green, blue=blue)
             else:
-                clientConfig['color'] = track['options']['style']['color'].replace('__pd__', '#')
+                clientConfig['color'] = track['options']['style']['color']
         return clientConfig
 
     def add_bigwig(self, data, trackData, **kwargs):
@@ -258,7 +285,7 @@ class JbrowseConnector(object):
 
             self._add_json(trackData)
 
-    def add_vcf(self, data, clientConfig, **kwargs):
+    def add_vcf(self, data, trackData, **kwargs):
         dest = os.path.join('data', 'raw', os.path.basename(data))
         # ln?
         cmd = ['ln', '-s', data, dest]
@@ -281,6 +308,7 @@ class JbrowseConnector(object):
             TN_TABLE.get(format, 'gff'),
             data,
             '--trackLabel', trackData['label'],
+            '--trackType', 'JBrowse/View/Track/CanvasFeatures',
             '--key', trackData['key']
         ]
 
@@ -289,34 +317,41 @@ class JbrowseConnector(object):
         if 'category' in kwargs:
             config['category'] = kwargs['category']
 
-        if kwargs.get('match', False):
-            # Get min/max and build a scoring function since JBrowse doesn't
-            min_val, max_val = self._min_max_gff(data)
+        # Get min/max and build a scoring function since JBrowse doesn't
+        min_val, max_val = self._min_max_gff(data)
 
-            if min_val is not None and max_val is not None:
-                MIN_MAX_OPACITY_MATH = """
-                var opacity = (score - ${min}) * (1/(${max} - ${min}));
-                """.format(**{
-                    'max': max_val,
-                    'min': min_val,
-                })
+        if min_val is not None and max_val is not None:
+            MIN_MAX_OPACITY_MATH = """
+            var opacity = (score - ${min}) * (1/(${max} - ${min}));
+            """.format(**{
+                'max': max_val,
+                'min': min_val,
+            })
 
-                red, green, blue = self._get_colours()
-                color_function = COLOR_FUNCTION_TEMPLATE.format({
-                    'score': "feature.get('score')",
-                    'opacity': MIN_MAX_OPACITY_MATH,
-                    'red': red,
-                    'green': green,
-                    'blue': blue,
-                })
+            red, green, blue = self._get_colours()
+            color_function = COLOR_FUNCTION_TEMPLATE.format(**{
+                'score': "feature.get('score')",
+                'opacity': MIN_MAX_OPACITY_MATH,
+                'red': red,
+                'green': green,
+                'blue': blue,
+            })
 
-                clientConfig['color'] = color_function.replace('\n', '')
+            clientConfig['color'] = color_function.replace('\n', '')
+        else:
+            pass
+            #red, green, blue = self._get_colours()
+            #color_function = COLOR_FUNCTION_TEMPLATE_QUAL.format(**{
+                #'red': red,
+                #'green': green,
+                #'blue': blue,
+            #})
 
-            config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
+        config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
 
-            cmd += ['--clientConfig', json.dumps(clientConfig),
-                    '--trackType', 'JBrowse/View/Track/CanvasFeatures'
-                    ]
+        cmd += ['--clientConfig', json.dumps(clientConfig),
+                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
+                ]
 
         cmd.extend(['--config', json.dumps(config)])
 
@@ -324,7 +359,10 @@ class JbrowseConnector(object):
 
     def process_annotations(self, data, track):
         format = track['ext'][0]
-        kwargs = track['options']
+        kwargs = copy.deepcopy(track['options'])
+
+        if 'bam_indexes' in kwargs:
+            del kwargs['bam_indexes']
 
         # Base trackData section is pretty universally similar
         trackData = {
@@ -337,6 +375,11 @@ class JbrowseConnector(object):
             'height': kwargs['style'].get('height', '100px')
         }
 
+        del kwargs['style']['className']
+        del kwargs['style']['height']
+        del track['options']['style']['className']
+        del track['options']['style']['height']
+
         # Colour parsing is complex due to different track types having
         # different colour options.
         clientConfig.update(self._parse_colours(track))
@@ -344,20 +387,19 @@ class JbrowseConnector(object):
         # Load clientConfig into trackData
         trackData['style'] = clientConfig
 
-        zipped_tracks = zip(track['files'], track['labels'])
+        log.debug('Track\n' + pprint.pformat(track))
+        zipped_tracks = zip(data, track['labels'])
         zipped_tracks.sort(key = lambda x: x[0])
         for i, (dataset, track_human_label) in enumerate(zipped_tracks):
             trackData['key'] = track_human_label
             trackData['label'] = hashlib.md5(dataset).hexdigest() + '_%s' % i
 
             # If a list of indices are available, set a variable with just the correct one.
-            if 'bam_indexes' in track:
-                track['bam_index'] = track['bam_indexes'][i]
+            if 'bam_indexes' in track['options']:
+                kwargs['bam_index'] = track['options']['bam_indexes'][i]
 
-            print "TrackData"
-            import pprint; pprint.pprint(trackData)
-            print "kwargs"
-            import pprint; pprint.pprint(kwargs)
+            log.debug('TrackData\n' + pprint.pformat(trackData))
+            log.debug('kwargs\n' + pprint.pformat(kwargs))
 
             if format in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset, format, trackData, **kwargs)
@@ -425,14 +467,10 @@ if __name__ == '__main__':
     print """
     <html>
         <body>
-        <script type="text/javascript">
-            window.location=JBrowse-1.11.6/index.html
-        </script>
         <a href="JBrowse-1.11.6/index.html">Go to JBrowse</a>
         <p>Please note that JBrowse functions best on production Galaxy
         instances, under X-Sendfile. The paste server used in development
-        instances has issues serving the volumes of data regularly involved in
-        JBrowse, and handling subrange requests needed for BAM files.</p>
+        instances has issues handling subrange requests needed for BAM files.</p>
         </body>
     </html>
     """

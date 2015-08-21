@@ -108,6 +108,7 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
                     )
 
                 rec.features.append(top_feature)
+        rec.annotations = {}
         records.append(rec)
     return records
 
@@ -252,6 +253,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     result = blastxml2gff3(**vars(args))
-
-    result.annotations = {}
     GFF.write(result, sys.stdout)
