@@ -23,21 +23,36 @@ function(feature, variableName, glyphObject, track) {{
 COLOR_FUNCTION_TEMPLATE_QUAL = """
 function(feature, variableName, glyphObject, track) {{
 
-    var rec_color_search = function self(feature) {
-        // If we have a color, return that and propagate up
-        if(feature.get('color') !== undefined) {
-            return feature.get('color');
+    var search_up = function self(sf, attr){
+        if(sf.get(attr) !== undefined){
+            return sf.get(attr);
         }
-        // otherwise keep searchin'
-        if('Subfeatures' in feature.tags()){
-            for(var subidx in feature.children()){
-                return rec_color_search()
-            }
+        if(sf.parent() === undefined) {
+            return;
+        }else{
+            return self(sf.parent(), attr);
         }
     }
 
+    var search_down = function self(sf, attr){
+        if(sf.get(attr) !== undefined){
+            return sf.get(attr);
+        }
+        if(sf.children() === undefined) {
+            return;
+        }else{
+            for(var child_idx in sf.children()){
+                var x = self(sf.children()[child_idx];
+                if(x !== undefined){
+                    return x;
+                }
+            }
+            return;
+        }
+    }
 
-    var score = {score};
+    var color = (search_up(feature, 'color') || search_down(feature, 'color') || {user_spec_color});
+    var score = (search_up(feature, 'score') || search_down(feature, 'score'));
     {opacity}
     return 'rgba({red}, {green}, {blue}, ' + opacity + ')';
 }}
@@ -84,6 +99,11 @@ BREWER_DIVERGING_PALLETES = {
     'RdYlGn': ("#a50026", "#006837"),
     'Spectral': ("#9e0142", "#5e4fa2"),
 }
+
+# http://stackoverflow.com/questions/4296249/how-do-i-convert-a-hex-triplet-to-an-rgb-tuple-and-back
+import struct
+def rgb_from_hex(hexstr):
+    return struct.unpack('BBB',hexstr.decode('hex'))
 
 
 # score comes from feature._parent.get('score') or feature.get('score')
@@ -138,52 +158,6 @@ class JbrowseConnector(object):
         self.subprocess_check_call(cmd)
         os.unlink(tmp.name)
 
-    def add_blastxml(self, data, trackData, **kwargs):
-        gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
-        cmd = ['python', os.path.join(INSTALLED_TO, 'blastxml_to_gapped_gff3.py'),
-               '--trim_end', '--min_gap', str(kwargs['min_gap']), data]
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_unrebased)
-        gff3_unrebased.close()
-
-        gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
-        cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
-        if kwargs['protein']:
-            cmd.append('--protein2dna')
-        cmd.extend([kwargs['parent'], gff3_unrebased.name])
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_rebased)
-        gff3_rebased.close()
-
-        red, green, blue = self._get_colours()
-        log.debug('RGB: %s %s %s', red, green, blue)
-        log.debug(COLOR_FUNCTION_TEMPLATE)
-        color_function = COLOR_FUNCTION_TEMPLATE.format(**{
-            'score': "feature._parent.get('score')",
-            'opacity': BLAST_OPACITY_MATH,
-            'red': red,
-            'green': green,
-            'blue': blue,
-        })
-        log.debug(color_function)
-
-        clientConfig = trackData['style']
-        clientConfig['color'] = color_function.replace('\n', '')
-        config = {'glyph': 'JBrowse/View/FeatureGlyph/Segments'}
-        if 'category' in kwargs:
-            config['category'] = kwargs['category']
-
-        cmd = ['perl', 'bin/flatfile-to-json.pl',
-               '--gff', gff3_rebased.name,
-               '--trackLabel', trackData['label'],
-               '--key', trackData['key'],
-               '--clientConfig', json.dumps(clientConfig),
-               '--config', json.dumps(config),
-               '--trackType', 'JBrowse/View/Track/CanvasFeatures'
-               ]
-
-        self.subprocess_check_call(cmd)
-        os.unlink(gff3_rebased.name)
-        os.unlink(gff3_unrebased.name)
-
     def _min_max_gff(self, gff_file):
         min_val = None
         max_val = None
@@ -229,6 +203,52 @@ class JbrowseConnector(object):
             else:
                 clientConfig['color'] = track['options']['style']['color']
         return clientConfig
+
+    def add_blastxml(self, data, trackData, **kwargs):
+        gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
+        cmd = ['python', os.path.join(INSTALLED_TO, 'blastxml_to_gapped_gff3.py'),
+               '--trim_end', '--min_gap', str(kwargs['min_gap']), data]
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_unrebased)
+        gff3_unrebased.close()
+
+        gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
+        cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
+        if kwargs['protein']:
+            cmd.append('--protein2dna')
+        cmd.extend([kwargs['parent'], gff3_unrebased.name])
+        subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_rebased)
+        gff3_rebased.close()
+
+        red, green, blue = self._get_colours()
+        log.debug('RGB: %s %s %s', red, green, blue)
+        log.debug(COLOR_FUNCTION_TEMPLATE)
+        color_function = COLOR_FUNCTION_TEMPLATE.format(**{
+            'score': "feature._parent.get('score')",
+            'opacity': BLAST_OPACITY_MATH,
+            'red': red,
+            'green': green,
+            'blue': blue,
+        })
+        log.debug(color_function)
+
+        clientConfig = trackData['style']
+        clientConfig['color'] = color_function.replace('\n', '')
+        config = {'glyph': 'JBrowse/View/FeatureGlyph/Segments'}
+        if 'category' in kwargs:
+            config['category'] = kwargs['category']
+
+        cmd = ['perl', 'bin/flatfile-to-json.pl',
+               '--gff', gff3_rebased.name,
+               '--trackLabel', trackData['label'],
+               '--key', trackData['key'],
+               '--clientConfig', json.dumps(clientConfig),
+               '--config', json.dumps(config),
+               '--trackType', 'JBrowse/View/Track/CanvasFeatures'
+               ]
+
+        self.subprocess_check_call(cmd)
+        os.unlink(gff3_rebased.name)
+        os.unlink(gff3_unrebased.name)
 
     def add_bigwig(self, data, trackData, **kwargs):
         dest = os.path.join('data', 'raw', os.path.basename(data))
@@ -322,13 +342,17 @@ class JbrowseConnector(object):
 
         if min_val is not None and max_val is not None:
             MIN_MAX_OPACITY_MATH = """
-            var opacity = (score - ${min}) * (1/(${max} - ${min}));
+            var opacity = (score - ({min})) * (1/(({max}) - ({min})));
             """.format(**{
                 'max': max_val,
                 'min': min_val,
             })
 
             red, green, blue = self._get_colours()
+            if 'color' in clientConfig:
+                if clientConfig['color'].startswith('#'):
+                    red, green, blue = rgb_from_hex(clientConfig['color'][1:])
+
             color_function = COLOR_FUNCTION_TEMPLATE.format(**{
                 'score': "feature.get('score')",
                 'opacity': MIN_MAX_OPACITY_MATH,
@@ -336,16 +360,13 @@ class JbrowseConnector(object):
                 'green': green,
                 'blue': blue,
             })
-
-            clientConfig['color'] = color_function.replace('\n', '')
         else:
             pass
-            #red, green, blue = self._get_colours()
-            #color_function = COLOR_FUNCTION_TEMPLATE_QUAL.format(**{
-                #'red': red,
-                #'green': green,
-                #'blue': blue,
-            #})
+            #if color in clientConfig:
+            #(r, g, b) = rgb(mag)
+            #color_function = COLOR_FUNCTION_TEMPLATE
+
+        clientConfig['color'] = color_function.replace('\n', '')
 
         config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
 
@@ -357,62 +378,53 @@ class JbrowseConnector(object):
 
         self.subprocess_check_call(cmd)
 
-    def process_annotations(self, data, track):
-        format = track['ext'][0]
-        kwargs = copy.deepcopy(track['options'])
-
-        if 'bam_indexes' in kwargs:
-            del kwargs['bam_indexes']
-
-        # Base trackData section is pretty universally similar
-        trackData = {
-        }
+    def process_annotations(self, track):
+        kwargs = {}
+        outputTrackConfig = {}
 
         clientConfig = {
-            'label': kwargs['style'].get('label', 'description'),
-            'classname': kwargs['style'].get('className', 'feature'),
-            'description': kwargs['style'].get('description', ''),
-            'height': kwargs['style'].get('height', '100px')
+            'label': track['options']['style'].get('label', 'description'),
+            'className': track['options']['style'].get('className', 'feature'),
+            'description': track['options']['style'].get('description', ''),
         }
-
-        del kwargs['style']['className']
-        del kwargs['style']['height']
-        del track['options']['style']['className']
-        del track['options']['style']['height']
 
         # Colour parsing is complex due to different track types having
         # different colour options.
         clientConfig.update(self._parse_colours(track))
 
-        # Load clientConfig into trackData
-        trackData['style'] = clientConfig
+        # Load clientConfig into outputTrackConfig
+        outputTrackConfig['style'] = clientConfig
 
         log.debug('Track\n' + pprint.pformat(track))
-        zipped_tracks = zip(data, track['labels'])
+        zipped_tracks = zip(track['files'], track['ext'], track['labels'])
         zipped_tracks.sort(key = lambda x: x[0])
-        for i, (dataset, track_human_label) in enumerate(zipped_tracks):
-            trackData['key'] = track_human_label
-            trackData['label'] = hashlib.md5(dataset).hexdigest() + '_%s' % i
+        for i, (dataset_path, dataset_ext, track_human_label) in enumerate(zipped_tracks):
+            outputTrackConfig['key'] = track_human_label
+            outputTrackConfig['label'] = hashlib.md5(dataset_path).hexdigest() + '_%s' % i
 
             # If a list of indices are available, set a variable with just the correct one.
             if 'bam_indexes' in track['options']:
                 kwargs['bam_index'] = track['options']['bam_indexes'][i]
 
-            log.debug('TrackData\n' + pprint.pformat(trackData))
+            log.debug('outputTrackConfig\n' + pprint.pformat(outputTrackConfig))
             log.debug('kwargs\n' + pprint.pformat(kwargs))
 
-            if format in ('gff', 'gff3', 'bed'):
-                self.add_features(dataset, format, trackData, **kwargs)
-            elif format == 'bigwig':
-                self.add_bigwig(dataset, trackData, **kwargs)
-            elif format == 'bam':
-                self.add_bam(dataset, trackData, **kwargs)
-            elif format == 'blastxml':
-                self.add_blastxml(dataset, trackData, **kwargs)
-            elif format == 'vcf':
-                self.add_vcf(dataset, trackData, **kwargs)
+            if dataset_ext in ('gff', 'gff3', 'bed'):
+                self.add_features(dataset_path, dataset_ext, outputTrackConfig, **kwargs)
+            #elif dataset_ext == 'bigwig':
+                #self.add_bigwig(dataset, outputTrackConfig, **kwargs)
+            #elif dataset_ext == 'bam':
+                #self.add_bam(dataset, outputTrackConfig, **kwargs)
+            #elif dataset_ext == 'blastxml':
+                #self.add_blastxml(dataset, outputTrackConfig, **kwargs)
+            #elif dataset_ext == 'vcf':
+                #self.add_vcf(dataset, outputTrackConfig, **kwargs)
 
     def clone_jbrowse(self, jbrowse_dir, destination):
+        """Clone a JBrowse directory into a destination directory.
+
+        TODO: remove the JBrowse-1.11.6 from the output directory
+        """
         # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
         # unlike copytree
         cmd = ['mkdir', '-p', destination]
@@ -447,7 +459,7 @@ if __name__ == '__main__':
 
     track_data = yaml.load(args.yaml)
     for track in track_data:
-        paths = [os.path.realpath(x) for x in track['files']]
+        track['files'] = [os.path.realpath(x) for x in track['files']]
         extra = track.get('options', {})
 
         for possible_partial_path in ('bam_indexes', 'parent'):
@@ -462,7 +474,7 @@ if __name__ == '__main__':
         track['options'] = extra
         # More data was needed in process_annotations so it becomes a little
         # bit less clean.
-        jc.process_annotations(paths, track)
+        jc.process_annotations(track)
 
     print """
     <html>
