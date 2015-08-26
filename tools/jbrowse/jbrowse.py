@@ -6,9 +6,10 @@ import subprocess
 import hashlib
 import tempfile
 import json
-import yaml
+import xml.etree.ElementTree as ET
 import logging
 import pprint
+from collections import defaultdict
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
@@ -104,6 +105,27 @@ BREWER_DIVERGING_PALLETES = {
 import struct
 def rgb_from_hex(hexstr):
     return struct.unpack('BBB',hexstr.decode('hex'))
+
+
+def etree_to_dict(t):
+    d = {t.tag: {} if t.attrib else None}
+    children = list(t)
+    if children:
+        dd = defaultdict(list)
+        for dc in map(etree_to_dict, children):
+            for k, v in dc.iteritems():
+                dd[k].append(v)
+        d = {t.tag: {k:v[0] if len(v) == 1 else v for k, v in dd.iteritems()}}
+    if t.attrib:
+        d[t.tag].update(('@' + k, v) for k, v in t.attrib.iteritems())
+    if t.text:
+        text = t.text.strip()
+        if children or t.attrib:
+            if text:
+              d[t.tag]['#text'] = text
+        else:
+            d[t.tag] = text
+    return d
 
 
 # score comes from feature._parent.get('score') or feature.get('score')
@@ -443,7 +465,7 @@ class JbrowseConnector(object):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
-    parser.add_argument('yaml', type=file, help='Track Configuration')
+    parser.add_argument('xml', type=file, help='Track Configuration')
     parser.add_argument('genomes', type=file, nargs='+', help='Input genome file')
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
@@ -457,24 +479,40 @@ if __name__ == '__main__':
         genomes=[os.path.realpath(x.name) for x in args.genomes],
     )
 
-    track_data = yaml.load(args.yaml)
-    for track in track_data:
-        track['files'] = [os.path.realpath(x) for x in track['files']]
-        extra = track.get('options', {})
+    tree = ET.parse(args.xml.name)
+    root = tree.getroot()
 
-        for possible_partial_path in ('bam_indexes', 'parent'):
-            if possible_partial_path in extra:
-                if isinstance(extra[possible_partial_path], list):
-                    extra[possible_partial_path] = [os.path.realpath(x) for x in extra[possible_partial_path]]
-                else:
-                    extra[possible_partial_path] = os.path.realpath(extra[possible_partial_path])
-        extra['category'] = track.get('category', 'Default')
+    for track in root:
+        track_conf = {}
+        track_conf['trackfiles'] = zip(
+            [os.path.realpath(x.text) for x in track.findall('files/trackFile/file')],
+            [x.text.strip() for x in track.findall('files/trackFile/extension')],
+            [x.text.strip() for x in track.findall('files/trackFile/label')],
+        )
 
-        # Push modified options back into the track config
-        track['options'] = extra
-        # More data was needed in process_annotations so it becomes a little
-        # bit less clean.
-        jc.process_annotations(track)
+        track_conf['category'] = track.find('category').text
+        track_conf['format'] = track.find('format').text
+        track_conf['style'] = {t.tag: t.text for t in track.find('options/style')}
+        track_conf['conf'] = etree_to_dict(track.find('options'))['options']
+
+        extra = {}
+        if 'options' in track_conf['conf']:
+            if 'pileup' in track_conf['conf']:
+                if 'bam_indices' in track_conf['conf']['pileup']:
+                    corrected = []
+                    if isinstance(track_conf['conf']['pileup']['bam_indices']['bam_index'], list):
+                        for bam_index in track_conf['conf']['pileup']['bam_indices']['bam_index']:
+                            corrected.append(os.path.realpath(bam_index))
+                    else:
+                        corrected.append(os.path.realpath(track_conf['conf']['pileup']['bam_indices']['bam_index']))
+                    track_conf['conf']['pileup']['bam_indices'] = corrected
+            elif 'blast' in track_conf['conf']:
+                if 'parent' in track_conf['conf']['blast']:
+                    track_conf['conf']['blast']['parent'] = os.path.realpath(track_conf['conf']['blast']['parent'])
+
+        log.debug('Parsed Track: \n%s', pprint.pformat(track_conf))
+
+        #jc.process_annotations(track)
 
     print """
     <html>
