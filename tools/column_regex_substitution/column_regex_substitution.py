@@ -67,10 +67,10 @@ def __main__():
         column_str = 'all'
     print "With delimiter %s, on columns: %s" % ( repr( options.delimiter ), column_str )
     if options.delimiter is None:
-        split_func = lambda x: [ x ]
+        split_func = lambda x: [ x.rstrip( '\n\r' ) ]
         join_char = ""
     else:
-        split_func = lambda x: x.split( options.delimiter )
+        split_func = lambda x: x.rstrip( '\n\r' ).split( options.delimiter )
         join_char = options.delimiter
     with open( options.input, 'rb' ) as fin:
         with open( options.output, 'w') as fout:
