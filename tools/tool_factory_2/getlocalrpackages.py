@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import os
 import subprocess
 import sys
@@ -14,10 +16,15 @@ def find_packages(prefix="package_r_"):
     eprefix = prefix
     if prefix.find('/') <> -1:
         eprefix = prefix.replace('/','\/') # for grep
+<<<<<<< HEAD
+    #cl = ['locate env.sh | grep -i %s' % eprefix,   ]
+    cl = ['find . -name "env.sh" | grep -i %s' % eprefix,]
+=======
     path = '.'
     # fails on nitesh's recent mac - locate not working 
     # cl = ['locate env.sh | grep -i %s' % eprefix,]
     cl = ['find %s -iname "env.sh" | grep -i %s' % (path,eprefix),]
+>>>>>>> 955957c2b80ccbc5dae784ca0f14124ca4aa7a5d
     p = subprocess.Popen(cl, stdout=subprocess.PIPE, stderr=subprocess.PIPE,shell=True)
     out, err = p.communicate()
     fpaths = out.split('\n')
