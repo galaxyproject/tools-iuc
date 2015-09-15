@@ -19,7 +19,7 @@ class SnpEffDb( Text ):
     def __init__( self, **kwd ):
         Text.__init__( self, **kwd )
 
-    "" The SnpEff version line was added in SnpEff version 4.1 
+    " The SnpEff version line was added in SnpEff version 4.1 
     def getSnpeffVersionFromFile(self, path):
         snpeff_version = None
         try:

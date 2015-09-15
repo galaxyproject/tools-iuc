@@ -130,8 +130,8 @@ def htseqMX(gff_filename,sam_filenames,colnames,sam_exts,sam_bais,opts):
            hasbai = sam_bais[sami] > ''
            if hasbai:
                tempname = os.path.splitext(os.path.basename(sam_filename))[0]
-               tempbam = '%s.bam' % tempname
-               tempbai = '%s.bai' % tempname
+               tempbam = '%s_TEMP.bam' % tempname
+               tempbai = '%s_TEMP.bai' % tempname
                os.link(sam_filename,tempbam)
                os.link(sam_bais[sami],tempbai)
            try:
