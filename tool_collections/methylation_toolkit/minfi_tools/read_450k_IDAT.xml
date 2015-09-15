@@ -1,0 +1,144 @@
+<tool id="read_450k_IDAT" name="Read 450K IDAT files" version="1.0">
+    <description>Read in Illumina's 450k methylation arrays which are in IDAT format</description>
+    <requirements>
+        <requirement type="R-module" version="1.15.7">minfi</requirement>
+    </requirements>
+    <stdio>
+        <exit_code range="1:" />
+    </stdio>
+    <command>
+      cp "${minfi_get_files}" $__new_file_path__/minfi_config.txt;
+        Rscript "${minfi_read_450k_script}"
+    </command>
+       <configfiles>
+        <configfile name="minfi_get_files"><![CDATA[
+          ### Parse the HDA's to get the path of each forward and reverse dataset
+          #for $key in $control.keys()
+          control $control[$key].forward  $control[$key].reverse $control[$key].name
+          #end for
+          #for $key in $case.keys()
+          case  $case[$key].forward $case[$key].reverse $case[$key].name
+          #end for
+      ]]></configfile>
+        <configfile name="minfi_read_450k_script"><![CDATA[
+
+          ### Start time for code, approximate
+          timeStart <- as.character(Sys.time())
+          ### code chunk number 2: Load all required libraries
+          library(minfi, quietly=TRUE, warn.conflicts=FALSE,verbose = FALSE)
+          ### code chunk number 3: Update package version
+          if (packageVersion("minfi") < "1.15.6") {
+            stop("Please update 'minfi' to version >= 1.15.7  to run this tool")
+          }
+
+          ### Parse cheetah code and make dataframe for creating tmp dir
+          minfi_config_path = paste0("$__new_file_path__","/minfi_config.txt")
+          minfi_config = read.table(minfi_config_path)
+          colnames(minfi_config) = c("status","green","red","name")
+
+          ### Make the tmpdir for symlinking data
+          base_dir = paste0("$__new_file_path__","/base")
+          system(paste0("mkdir ",base_dir))
+
+          ### Make symlinks of files
+          for (i in 1:nrow(minfi_config)){
+            stopifnot(nrow(minfi_config) == nrow(minfi_config["name"]))
+
+            ### Make green idat file symlinks
+            file_green = paste0(base_dir,"/",as.character(minfi_config[i,"name"]),"_Grn.idat")
+            cmd_green = paste("ln -s",as.character(minfi_config[i,"green"]),file_green,sep=" ")
+            cat("Reading file ",i,"GREEN Channel ", file_green)
+            system(cmd_green)
+
+            ### Make red idat file symlinks
+            file_red = paste0(base_dir,"/",as.character(minfi_config[i,"name"]),"_Red.idat")
+            cmd_red = paste("ln -s",as.character(minfi_config[i,"red"]),file_red,sep=" ")
+            cat("Reading file ",i,"RED Channel ", file_red)
+            system(cmd_red)
+          }
+
+          ### Make dataframe with Basenames
+          Basename = paste0(base_dir,"/",unique(substr(list.files(base_dir),1,17)))
+          status = minfi_config[match(gsub(".+/","",Basename), minfi_config\$name),"status"]
+          targets = data.frame(Basename=Basename,status=status)
+
+          ### Read 450k files
+          RGset = read.450k.exp(targets=targets,verbose=T)
+          RGset
+
+
+          ## Preprocess data with the normalization method chosen
+          if("${preprocess.preprocess_method}" == "quantile"){
+              normalized_RGset = preprocessQuantile(RGset)
+          } else if ("${preprocess.preprocess_method}" == "noob"){
+              normalized_RGset = preprocessNoob(RGset)
+          } else if ("${preprocess.preprocess_method}" == "raw"){
+              normalized_RGset = preprocessRaw(RGset)
+          } else if ("${preprocess.preprocess_method}" == "illumina"){
+              normalized_RGset = preprocessIllumina(RGset,bg.correct = TRUE, normalize = c("controls", "no"),reference = 1))
+          } else {
+              normalized_RGset = RGset
+          }
+          ### else if ("${preprocess.preprocess_method}" == "swan"){
+          ###    normalized_RGset = preprocessSWAN(RGset)
+
+
+          ### Save file as RGset in the working directory OUTPUT-1
+          save(RGset, file="RGset.rdata")
+
+
+          ## Get beta values from Proprocessed data
+          beta = getBeta(normalized_RGset)
+          ## Save beta values OUTPUT-2
+          write.table(beta,file = "beta_values.txt",quote=FALSE,row.names=FALSE)
+
+      ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="control" type="data_collection" format="idat" label="Control" collection_type="list:paired"/>
+        <param name="case" type="data_collection" format="idat" label="Case" collection_type="list:paired"/>
+        <conditional name="preprocess">
+           <param name="preprocess_method" type="select" label="Select Preprocessing Method">
+              <option value="no_normalization">NO Normalization</option>
+              <option value="quantile">Quantile Normalization</option>
+              <option value="raw">Raw Normalization</option>
+              <option value="noob">Noob Normalization</option>
+              <!-- <option value="swan">SWAN normalization</option> -->
+              <option value="illumina">Illumina:Genome Studio Normalization</option>
+              <!-- <option value="funnnorm">Functional normalization</option> -->
+           </param>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="RGset" format="rdata" label="RGset from input IDAT files" from_work_dir="RGset.rdata"/>
+        <data name="beta_values" format="txt" label="Beta value matrix from input IDAT files" from_work_dir="beta_values.txt"/>
+    </outputs>
+    <!-- WRITE TESTS -->
+    <help>
+
+** What it does**
+
+Reads in Illumina 450K file which are in IDAT format. Each sample needs both the
+Red and Green channel IDAT files.
+
+**Input**: IDAT files (Both Red and Green channel). Make paired dataset collections,
+with RED and GREEN channel IDAT files.
+
+1. Upload IDAT(Both Red and green channel) files using the upload tool in Galaxy.
+
+2. Once the upload is completed, select the "Operations on Multiple Datasets" in the history panel.
+
+3. Select the pairs of IDAT files to be analyzed, and click "For all selected".
+
+4. Choose the "Build List of Dataset pairs". Make the pairs and label the collections.
+
+5. Once the two dataset collections are prepared, run the tool to build the RGset.
+
+**Output**: RData file, which contains the RGset for IDAT files.
+
+    </help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btu049</citation>
+    </citations>
+</tool>
+
