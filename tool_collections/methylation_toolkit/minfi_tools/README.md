@@ -4,7 +4,7 @@ Minfi (for galaxy)
 ====
 
 The minfi package provides tools for analyzing Illumina’s Methylation arrays, with a special
-focus on the new 450k array for humans. 
+focus on the new 450k array for humans.
 
 In this package we refer to differentially methylated positions (DMPs) by which we mean
 a single genomic position that has a different methylation level in two different groups of
@@ -13,9 +13,9 @@ which imply more that more than one methylation positions are different between 
 
 User Guide: http://www.bioconductor.org/packages/release/bioc/vignettes/minfi/inst/doc/minfi.pdf
 
-How to use
-===
 
+Functions provided
+===
 
 
 Test Data

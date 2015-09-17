@@ -74,7 +74,7 @@ result=cbind(bumps,genes)
 ############################################################
 # Save result, which contains DRM's and closest genes
 ############################################################
-save(result,file = "bumps.rda",compress=TRUE)
+save(result,file = "bumps.RData",compress=TRUE)
 write.csv(result,file = "bumps.csv")
 
 
