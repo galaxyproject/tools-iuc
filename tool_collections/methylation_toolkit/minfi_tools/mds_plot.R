@@ -20,11 +20,6 @@ option_specification = matrix(c(
 # Parse options
 options = getopt(option_specification);
 
-options$rgset
-options$numPositions
-options$mainTitle
-options$pdffile
-
 # Load the RGset data
 if(!is.null(options$rgset)){
 	load(options$rgset)
