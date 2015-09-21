@@ -27,11 +27,20 @@ if(!is.null(options$rgset)){
 pd = pData(options$rgset)
 files = gsub(".+/","",pd$filenames)
 
-if(class(options$rgset) != "GenomicRatioSet"){
-	stop("You need to normalize your RGset, please select a normalization method and rerun it.")
+
+### Preprocess data with the normalization method chosen
+
+if("${preprocess.preprocess_method}" == "quantile"){
+    object = preprocessQuantile(options$rgset)
+} else if ("${preprocess.preprocess_method}" == "noob"){
+    object = preprocessNoob(options$rgset)
+} else if ("${preprocess.preprocess_method}" == "raw"){
+    object = preprocessRaw(options$rgset)
+} else {
+    object = options$rgset
 }
 
-object = options$rgset
+
 M = getM(object)
 Beta = getBeta(object)
 CN = getCN(object)
