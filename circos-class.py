@@ -46,20 +46,36 @@ class DataInterpreter():
 			i = 0
 			currentchrom = ''
 			currentspan = 0
+			start = 1
+			step = 1
+			m = 1
+			mode = ''
 			locidict = {}
 			for line in handle.readlines():
 				l = line.split()
 				if l[0] == 'variableStep':
+					mode = 'variable'
 					currentchrom = l[1].split('=')[1]
 					try:
 						currentspan = int(l[2].split('=')[1])
 					except IndexError:
 						currentspan = 0
 				elif l[0] == 'fixedStep':
-					#TODO: Add fixedStep parse option
+					mode = 'fixed'
+					m = 1
+					currentchrom = l[1].split('=')[1]
+					start = int(l[2].split()[1])
+					step = int(l[3].split()[1])
+					try:
+						currentspan = int(l[4].split('=')[1]
+					except IndexError:
+						currentspan = 0
 					pass
-				else:
+				elif mode == 'variable':
 					locidict[currentchrom+'_'+l[0]+'-'+str(int(l[0])+currentspan)] = {'chromosome':currentchrom,'start':int(l[0]),'end':int(l[0])+currentspan,'val':l[1]}
+				elif mode == 'fixed':
+					locidict[currentchrom+'_'+str(start+m*step)+'-'+str(start+m*step+currentspan)] = {'chromosome':currentchrom,'start':start+m*step,'end':start+m*step+currentspan,'val':l[0]}
+					m+=1
 				i+=1
 		self.files_dict[f] = locidict
 
