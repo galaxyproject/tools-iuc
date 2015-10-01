@@ -24,17 +24,10 @@ prokka tool may be configured to use more than one CPU core by selecting an appr
 
 If you are using Galaxy release_2013.11.04 or later, this tool will automatically use the number of CPU cores allocated by the job runner according to the configuration of the destination selected for this tool.
 
-If instead you are using an older Galaxy release, you should also add a line
-
-  GALAXY_SLOTS=N; export GALAXY_SLOTS
-
-(where N is the number of CPU cores allocated by the job runner for this tool) to the file
-
-  <tool_dependencies_dir>/prokka/1.10/crs4/prokka/<hash_string>/env.sh
-
 Version history
 ---------------
 
+- Release 7 (prokka 1.11.0): Support Prokka 1.11. Upgrade dependencies to package_barrnap_0_7, package_blast_plus_2_2_31, package_hmmer_3_1b2, package_tbl2asn_24_3.
 - Release 6 (prokka 1.4.0): Use <stdio> because prokka writes some warnings on stderr. Update Orione citation. Update Prokka citation. Support Prokka 1.10. Upgrade dependencies to package_minced_0_1_6, package_barrnap_0_5 and package_tbl2asn_23_7. Added --proteins option. Add <citations>.
 - Release 5 (prokka 1.3.0): Fix Prokka 1.8 dependency installation.
 - Release 4 (prokka 1.3.0): Support Prokka 1.8. Depend on package_minced_0_1_4 and package_tbl2asn_22_4 (requires Galaxy release_2013.11.04 or later). Update citation.
