@@ -16,11 +16,15 @@ class DataInterpreter():
 	def make_files_dict(self):
 		pass
 
-	def parse_gff3(self,input_file):
-		input_handle = open(input_file)
-		for rec in GFF.parse(input_handle):
-			pprint(rec)
-		input_handle.close()
+	def parse_gff3(self,files_list):
+		for f in files_list:
+			input_handle = open(f)
+			for rec in GFF.parse(input_handle):
+				features_dict = {}
+				tmpdict = {'id':rec.id,'seq':rec.seq,'description':rec.description,'dbxrefs':rec.dbxrefs,'features':rec.features,'annotations':rec.annotations,'name':rec.name,'letter_annotations':rec.letter_annotations}
+				features_dict[rec.id] = tmpdict
+			input_handle.close()
+			self.files_dict[f] = features_dict
 
 	def parse_bigwig(self):
 		pass
@@ -40,7 +44,6 @@ class DataInterpreter():
 				features_dict[identifier] = tmpdict
 			tmp.close()
 			self.files_dict[f] = features_dict
-			dprint(self.files_dict)
 		pass
 
 	def integrate_mauve_data(self,data):
@@ -73,5 +76,7 @@ class CircosPlot():
 
 if __name__ == "__main__":
 	D = DataInterpreter()
+	D.parse_bed(['./test-data/ColorByStrandDemo.bed'])
 	D.parse_gff3(['./test-data/GCF_000146045.2_R64_genomic.gff'])
+	dprint(D.files_dict)
 	
