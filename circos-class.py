@@ -1,50 +1,81 @@
 from pprint import pprint
 from Bio.Seq import Seq
 from BCBio import GFF
+from subprocess import call
+import os
 
 def dprint(obj):
 	pprint(obj)
 	x = raw_input("<RETURN>")
 
 class DataInterpreter():
-	def __init__(self):
+	def __init__(self,files_list=[]):
 		self.files_dict = {}
+		if files_list == []:
+			files_list = self._get_files_from_xml()
+		for f in files_list:
+			name,ext = os.path.splitext(f)
+			if ext == ".bed":
+				self.parse_bed(f)
+			elif ext in (".bw",".bigWig"):
+				self.parse_bigWig(f)
+			elif ext == ".gff":
+				self.parse_gff3(f)
+			else:
+				raise ValueError('Unsupported File Format')
 
-	def add_file(self, f):
-		self.files_dict[f] = ''
-		
-	def make_files_dict(self):
+	def _get_files_from_xml(self):
 		pass
 
-	def parse_gff3(self,files_list):
-		for f in files_list:
-			input_handle = open(f)
+	def parse_gff3(self,f):
+		with open(f) as input_handle:
 			for rec in GFF.parse(input_handle):
 				features_dict = {}
 				tmpdict = {'id':rec.id,'seq':rec.seq,'description':rec.description,'dbxrefs':rec.dbxrefs,'features':rec.features,'annotations':rec.annotations,'name':rec.name,'letter_annotations':rec.letter_annotations}
 				features_dict[rec.id] = tmpdict
-			input_handle.close()
-			self.files_dict[f] = features_dict
+		self.files_dict[f] = features_dict
 
-	def parse_bigwig(self):
-		pass
+	def parse_bigWig(self,f):
+		features_dict = {}
+		locidict = {}
+		path = os.path.dirname(f)
+		name,ext = os.path.splitext(f)
+		newfile = name + '.wig'
+		call('./bigWigToWig '+ f +' '+newfile,shell=True) #obviously needs changing
+		with open(newfile) as handle:
+			i = 0
+			currentchrom = ''
+			currentspan = 0
+			locidict = {}
+			for line in handle.readlines():
+				l = line.split()
+				if l[0] == 'variableStep':
+					currentchrom = l[1].split('=')[1]
+					try:
+						currentspan = int(l[2].split('=')[1])
+					except IndexError:
+						currentspan = 0
+				elif l[0] == 'fixedStep':
+					#TODO: Add fixedStep parse option
+					pass
+				else:
+					locidict[currentchrom+'_'+l[0]+'-'+str(int(l[0])+currentspan)] = {'chromosome':currentchrom,'start':int(l[0]),'end':int(l[0])+currentspan,'val':l[1]}
+				i+=1
+		self.files_dict[f] = locidict
 
-	def parse_bed(self, files_list):
+	def parse_bed(self, f):
 		bed_standard_fields = ['chromosome','start','end',
 				       'name','score','strand',
 				       'thickstart','thickend','rgb',
 				       'blockcount','blocksizes','blockstarts']
-		for f in files_list:
-			features_dict = {}
-			tmp = open(f,'r')
+		features_dict = {}
+		with open(f) as tmp:
 			for l in tmp.readlines():
 				data = l.strip().split()	
 				tmpdict = dict(zip(bed_standard_fields,data))
 				identifier = tmpdict['chromosome']+'_'+tmpdict['start']+'-'+tmpdict['end']
 				features_dict[identifier] = tmpdict
-			tmp.close()
-			self.files_dict[f] = features_dict
-		pass
+		self.files_dict[f] = features_dict
 
 	def integrate_mauve_data(self,data):
 		#This method may be required to integrate whatever that parser outputs, or it may be deprecated depending on what that data looks like.
@@ -75,8 +106,5 @@ class CircosPlot():
 
 
 if __name__ == "__main__":
-	D = DataInterpreter()
-	D.parse_bed(['./test-data/ColorByStrandDemo.bed'])
-	D.parse_gff3(['./test-data/GCF_000146045.2_R64_genomic.gff'])
-	dprint(D.files_dict)
-	
+	D = DataInterpreter(['./test-data/ColorByStrandDemo.bed','./test-data/GCF_000146045.2_R64_genomic.gff','./test-data/GSM646567_hg19_wgEncodeUwDgfK562Raw.bigWig'])
+	pprint(D.files_dict)
