@@ -90,6 +90,7 @@ class DataInterpreter():
 			m = 1
 			mode = ''
 			locidict = {}
+			tmpdict = {}
 			for line in handle.readlines():
 				l = line.split()
 				if l[0] == 'variableStep':
@@ -110,11 +111,16 @@ class DataInterpreter():
 					except IndexError:
 						currentspan = 0
 				elif mode == 'variable':
-					locidict[currentchrom+'_'+l[0]+'-'+str(int(l[0])+currentspan)] = {'chromosome':currentchrom,'start':int(l[0]),'end':int(l[0])+currentspan,'val':l[1]}
+					tmpdict[currentchrom+'_'+l[0]+'-'+str(int(l[0])+currentspan)] = {'chromosome':currentchrom,'start':int(l[0]),'end':int(l[0])+currentspan,'val':l[1]}
 				elif mode == 'fixed':
-					locidict[currentchrom+'_'+str(start+m*step)+'-'+str(start+m*step+currentspan)] = {'chromosome':currentchrom,'start':start+m*step,'end':start+m*step+currentspan,'val':l[0]}
+					tmpdict[currentchrom+'_'+str(start+m*step)+'-'+str(start+m*step+currentspan)] = {'chromosome':currentchrom,'start':start+m*step,'end':start+m*step+currentspan,'val':l[0]}
 					m+=1
 				i+=1
+			for key in tmpdict:
+				if tmpdict[key]['chromosome'] not in locidict.keys():
+					locidict[tmpdict[key]['chromosome']] = tmpdict[key]
+				else:
+					locidict[tmpdict[key]['chromosome']].update({key:tmpdict[key]})
 		self.files_dict[f] = locidict
 		
 
@@ -162,3 +168,4 @@ class CircosPlot():
 
 if __name__ == "__main__":
 	D = DataInterpreter(['./test-data/miro.fa','./test-data/miro.gff3','./test-data/miro.wig'])
+	pprint(D.files_dict)
