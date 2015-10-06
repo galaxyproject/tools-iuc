@@ -148,17 +148,23 @@ class CircosPlot():
 		self.data_dict = {}
 		self.basename = basefilename
 		self.track_dict = {} #Temporary -- will be obviated by XML at later stage.
+		self.last_filled_radius = 1.1
+		self.plots = ['<plots>']
 
 	def append_data(self, interpreter):
 		#Add interpreter data to ConfWriter dict. Depends on what kind of data structure we decide on... 
 		self.raw_dict = interpreter.files_dict
 		self.seq_dict = interpreter.seq_dict
 
-	def create_base_conf(self,color_opt=[]):
+	def create_base_conf(self,spacing_opt='0.005r',radius_opt='0.9r',thickness_opt='20p',fill_opt='yes',color_opt=[]):
 		self._make_karyotype()
+		boilerplate = ['karyotype = '+self.karyotype_filename,
+			       '<ideogram>','<spacing>','default = '+spacing_opt,
+			       '</spacing>','radius = '+radius_opt,'thickness = '+thickness_opt,'fill = '+fill_opt,'</ideogram>','<image>','<<include etc/image.conf>>','</image>','<<include etc/colors_fonts_patterns.conf>>','<<include etc/housekeeping.conf>>']
 		self.mainconf = self.basename + '.conf'
 		with open(self.mainconf,'w') as conf:
-			pass
+			for line in boilerplate:
+				conf.write(line+'\n')
 
 	def _make_karyotype(self,colors_list=[]):
 		if colors_list == []:
@@ -167,9 +173,9 @@ class CircosPlot():
 				       'chr13','chr14','chr15','chr16','chr17','chr18'
 				       'chr19','chr20','chr21','chr22','chrx','chry'
 					] #Temporary -- will update to include more diverse list of colors, Brewer...
-		filename = self.basename + '-karyotype.txt'
+		self.karyotype_filename = self.basename + '-karyotype.txt'
 		i = 0
-		with open(filename,'w') as karyotype:
+		with open(self.karyotype_filename,'w') as karyotype:
 			for element in self.seq_dict:
 				karyotype.write('chr - '+element+' '+element+' 0 '+str(len(self.seq_dict[element]))+' '+colors_list[i]+'\n')
 				if i < len(colors_list)-1:
@@ -192,6 +198,7 @@ class CircosPlot():
 			f = filename
 		self.track_dict[key] = []
 		self._four_element_processing(f,key)
+		self._add_plot(type_,f)
 
 	def _four_element_processing(self,file_,key):
 		#Heatmaps, scatterplots, and histograms share the same 4-element format...
@@ -205,7 +212,26 @@ class CircosPlot():
 							self.track_dict[key].append(datastring.split())
 
 	def update_master_conf(self):
-		pass
+		self.plots.append('</plots>')
+		with open(self.mainconf,'a') as conf:
+			for element in self.plots:
+				dprint(element)
+				conf.write(element+'\n')
+	
+	def _add_plot(self,block_type,filename,extend_bin='no'):
+		r1 = str(self.last_filled_radius + 0.01)
+		r2 = str(self.last_filled_radius + 0.02)
+		self.last_filled_radius += 0.02
+		if block_type == 'hist':
+			block = ['<plot>',
+				 'type = histogram',
+				 'file = '+filename,
+				 'r1 = '+r1,
+				 'r2 = '+r2,
+				 'extend_bin = '+extend_bin,
+				 '</plot>']
+			for line in block:
+				self.plots.append(line)
 					
 	def add_links(self):
 		pass
@@ -213,7 +239,7 @@ class CircosPlot():
 	def call_circos(self):
 		subprocess.call('circos -conf ' + self.config ,shell=True)
 
-class XML_parse():
+class XML_parser():
 	#Reads the XML file and manages user-specified options
 	def __init__(self):
 		pass	
@@ -224,3 +250,4 @@ if __name__ == "__main__":
 	C.append_data(D)
 	C.create_base_conf()
 	C.add_four_elem_track('hist')
+	C.update_master_conf()
