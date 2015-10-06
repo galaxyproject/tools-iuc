@@ -118,7 +118,8 @@ class DataInterpreter():
 				i+=1
 			for key in tmpdict:
 				if tmpdict[key]['chromosome'] not in locidict.keys():
-					locidict[tmpdict[key]['chromosome']] = tmpdict[key]
+					locidict[tmpdict[key]['chromosome']] = {}
+					locidict[tmpdict[key]['chromosome']].update({key:tmpdict[key]})
 				else:
 					locidict[tmpdict[key]['chromosome']].update({key:tmpdict[key]})
 		self.files_dict[f] = locidict
@@ -143,24 +144,47 @@ class DataInterpreter():
 		pass
 
 class CircosPlot():
-	def __init__(self):
+	def __init__(self,basefilename):
 		self.data_dict = {}
+		self.basename = basefilename
+		self.track_dict = {}
 
 	def append_data(self, interpreter):
 		#Add interpreter data to ConfWriter dict. Depends on what kind of data structure we decide on... 
-		pass
+		self.raw_dict = interpreter.files_dict
 
 	def write_base_conf(self):
 		pass
 
-	def add_histogram(self):
-		pass
+	def add_four_elem_track(self,type_='four-element',filename=''):
+		#Generic for heatmap, scatterplot, and histogram
+		if filename == '':
+			f = self.basename+' '+type_+'.txt'
+		else:
+			f = filename
+		if type_ not in self.track_dict:
+			key = type_
+		else:
+			i = 1
+			while type_ +'-'+str(i) in self.track_dict:
+				i+=1
+			key = type_+'-'+str(i)
+		self.track_dict[key] = []
+		self._four_element_processing(f,key)
 
+	def _four_element_processing(self,file_,key):
+		#Heatmaps, scatterplots, and histograms share the same 4-element format...
+		with open(file_,'w') as handle:
+			for f in self.raw_dict:
+				if os.path.splitext(f)[1] in ('.wig','.bw','.bigWig'):
+					for chromosome in self.raw_dict[f]:
+						for feature in self.raw_dict[f][chromosome]:
+							datastring = chromosome+' '+str(self.raw_dict[f][chromosome][feature]['start'])+' '+str(self.raw_dict[f][chromosome][feature]['end'])+' '+str(self.raw_dict[f][chromosome][feature]['val'])+'\n'
+							handle.write(datastring)
+							self.track_dict[key].append(datastring.split())
+					
 	def add_links(self):
 		pass
-
-	def add_heatmap(self):
-		pass	
 
 	def call_circos(self):
 		subprocess.call('circos -conf ' + self.config ,shell=True)
@@ -168,4 +192,6 @@ class CircosPlot():
 
 if __name__ == "__main__":
 	D = DataInterpreter(['./test-data/miro.fa','./test-data/miro.gff3','./test-data/miro.wig'])
-	pprint(D.files_dict)
+	C = CircosPlot('miro')
+	C.append_data(D)
+	C.add_four_elem_track('hist')
