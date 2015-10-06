@@ -17,10 +17,12 @@ class DataInterpreter():
 			name,ext = os.path.splitext(f)
 			if ext == ".bed":
 				self.parse_bed(f)
-			elif ext in (".bw",".bigWig"):
+			elif ext in (".bw",".bigWig",'.wig'):
 				self.parse_bigWig(f)
-			elif ext == ".gff":
+			elif ext in (".gff",".gff3"):
 				self.parse_gff3(f)
+			elif ext == ".fa":
+				self.parse_fastA(f)
 			else:
 				raise ValueError('Unsupported File Format')
 
@@ -30,10 +32,44 @@ class DataInterpreter():
 	def parse_gff3(self,f):
 		with open(f) as input_handle:
 			for rec in GFF.parse(input_handle):
+				flat_list = []
 				features_dict = {}
-				tmpdict = {'id':rec.id,'seq':rec.seq,'description':rec.description,'dbxrefs':rec.dbxrefs,'features':rec.features,'annotations':rec.annotations,'name':rec.name,'letter_annotations':rec.letter_annotations}
+				tmpdict = {'id':rec.id,'seq':rec.seq,'description':rec.description,'dbxrefs':rec.dbxrefs,'annotations':rec.annotations,'name':rec.name,'letter_annotations':rec.letter_annotations}
+				for obj in rec.features:
+					if obj.sub_features == []:
+						flat_list.append(obj)
+					else:
+						flat_list = self._process_obj_subfeatures(obj,flat_list)
+				tmpdict['features'] = flat_list
 				features_dict[rec.id] = tmpdict
 		self.files_dict[f] = features_dict
+
+	def _process_obj_subfeatures(self,obj,flist):
+		flist.append(obj)
+		l = obj.sub_features
+		for element in l:
+			if l != []:
+				self._process_obj_subfeatures(element,flist)
+			else:
+				flist.append(element)
+		return flist
+		
+	
+	def parse_fastA(self,f):
+		self.seq_dict = {}
+		seqname = ''
+		seqres = ''
+		with open(f) as input_handle:
+			for line in input_handle.readlines():
+				if line[0] == '>':
+					if seqname != '':
+						self.seq_dict[seqname] = seqres
+						seqres = ''
+					seqname = line[1:].strip()
+				else:
+					seqres += line.strip()
+		self.seq_dict[seqname] = seqres
+		
 
 	def parse_bigWig(self,f):
 		features_dict = {}
@@ -41,7 +77,10 @@ class DataInterpreter():
 		path = os.path.dirname(f)
 		name,ext = os.path.splitext(f)
 		newfile = name + '.wig'
-		call('./bigWigToWig '+ f +' '+newfile,shell=True) #obviously needs changing
+		if ext != '.wig':
+			call('./bigWigToWig '+ f +' '+newfile,shell=True) #obviously needs changing
+		else:
+			call('cp '+ f + ' .',shell=True)
 		with open(newfile) as handle:
 			i = 0
 			currentchrom = ''
@@ -67,10 +106,9 @@ class DataInterpreter():
 					start = int(l[2].split()[1])
 					step = int(l[3].split()[1])
 					try:
-						currentspan = int(l[4].split('=')[1]
+						currentspan = int(l[4].split('=')[1])
 					except IndexError:
 						currentspan = 0
-					pass
 				elif mode == 'variable':
 					locidict[currentchrom+'_'+l[0]+'-'+str(int(l[0])+currentspan)] = {'chromosome':currentchrom,'start':int(l[0]),'end':int(l[0])+currentspan,'val':l[1]}
 				elif mode == 'fixed':
@@ -78,6 +116,7 @@ class DataInterpreter():
 					m+=1
 				i+=1
 		self.files_dict[f] = locidict
+		
 
 	def parse_bed(self, f):
 		bed_standard_fields = ['chromosome','start','end',
@@ -122,5 +161,4 @@ class CircosPlot():
 
 
 if __name__ == "__main__":
-	D = DataInterpreter(['./test-data/ColorByStrandDemo.bed','./test-data/GCF_000146045.2_R64_genomic.gff','./test-data/GSM646567_hg19_wgEncodeUwDgfK562Raw.bigWig'])
-	pprint(D.files_dict)
+	D = DataInterpreter(['./test-data/miro.fa','./test-data/miro.gff3','./test-data/miro.wig'])
