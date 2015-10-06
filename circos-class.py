@@ -147,21 +147,38 @@ class CircosPlot():
 	def __init__(self,basefilename):
 		self.data_dict = {}
 		self.basename = basefilename
-		self.track_dict = {}
+		self.track_dict = {} #Temporary -- will be obviated by XML at later stage.
 
 	def append_data(self, interpreter):
 		#Add interpreter data to ConfWriter dict. Depends on what kind of data structure we decide on... 
 		self.raw_dict = interpreter.files_dict
+		self.seq_dict = interpreter.seq_dict
 
-	def write_base_conf(self):
-		pass
+	def create_base_conf(self,color_opt=[]):
+		self._make_karyotype()
+		self.mainconf = self.basename + '.conf'
+		with open(self.mainconf,'w') as conf:
+			pass
+
+	def _make_karyotype(self,colors_list=[]):
+		if colors_list == []:
+			colors_list = ['chr1','chr2','chr3','chr4','chr5','chr6',
+				       'chr7','chr8','chr9','chr10','chr11','chr12',
+				       'chr13','chr14','chr15','chr16','chr17','chr18'
+				       'chr19','chr20','chr21','chr22','chrx','chry'
+					] #Temporary -- will update to include more diverse list of colors, Brewer...
+		filename = self.basename + '-karyotype.txt'
+		i = 0
+		with open(filename,'w') as karyotype:
+			for element in self.seq_dict:
+				karyotype.write('chr - '+element+' '+element+' 0 '+str(len(self.seq_dict[element]))+' '+colors_list[i]+'\n')
+				if i < len(colors_list)-1:
+					i+=1
+				else:
+					raise ValueError('Colors list exhausted')
 
 	def add_four_elem_track(self,type_='four-element',filename=''):
 		#Generic for heatmap, scatterplot, and histogram
-		if filename == '':
-			f = self.basename+' '+type_+'.txt'
-		else:
-			f = filename
 		if type_ not in self.track_dict:
 			key = type_
 		else:
@@ -169,6 +186,10 @@ class CircosPlot():
 			while type_ +'-'+str(i) in self.track_dict:
 				i+=1
 			key = type_+'-'+str(i)
+		if filename == '':
+			f = self.basename+'-'+key+'.txt'
+		else:
+			f = filename
 		self.track_dict[key] = []
 		self._four_element_processing(f,key)
 
@@ -182,6 +203,9 @@ class CircosPlot():
 							datastring = chromosome+' '+str(self.raw_dict[f][chromosome][feature]['start'])+' '+str(self.raw_dict[f][chromosome][feature]['end'])+' '+str(self.raw_dict[f][chromosome][feature]['val'])+'\n'
 							handle.write(datastring)
 							self.track_dict[key].append(datastring.split())
+
+	def update_master_conf(self):
+		pass
 					
 	def add_links(self):
 		pass
@@ -189,9 +213,14 @@ class CircosPlot():
 	def call_circos(self):
 		subprocess.call('circos -conf ' + self.config ,shell=True)
 
+class XML_parse():
+	#Reads the XML file and manages user-specified options
+	def __init__(self):
+		pass	
 
 if __name__ == "__main__":
 	D = DataInterpreter(['./test-data/miro.fa','./test-data/miro.gff3','./test-data/miro.wig'])
 	C = CircosPlot('miro')
 	C.append_data(D)
+	C.create_base_conf()
 	C.add_four_elem_track('hist')
