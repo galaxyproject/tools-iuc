@@ -100,7 +100,11 @@ table(res$padj <= opt$fdr)
 resSorted <- res[order(res$padj),]
 head(resSorted)
 
-write.table(as.data.frame(resSorted), file = opt$outfile, sep="\t", quote = FALSE, col.names = FALSE)
+export_table <- as.data.frame(resSorted)
+for(i in 1:nrow(export_table)) {
+  export_table[i,22] <- paste(export_table[i,22][[1]],collapse=", ")
+}
+write.table(export_table, file = opt$outfile, sep="\t", quote = FALSE, col.names = FALSE)
 print("Written Results")
 
 if ( !is.null(opt$reportdir) ) {
