@@ -21,9 +21,9 @@ def validate_input( trans, error_map, param_values, page_param_map ):
         level_name_list = list()
         factor_index_list = list()
 
-        for level in factor['rep_factorLevel']:
+        for level in ['factorLevel1', 'factorLevel2']:
             # level names under one factor should be unique
-            fl = level['factorLevel']
+            fl = factor[level]
             if fl in level_name_list:
                 level_duplication = True
             level_name_list.append( fl )
@@ -31,7 +31,7 @@ def validate_input( trans, error_map, param_values, page_param_map ):
         if level_duplication:
             error_map['rep_factorName'] = [ dict() for t in factors ]
             for i in range( len( factors ) ):
-                error_map['rep_factorName'][i]['rep_factorLevel'] = [ {'factorLevel': 'Factor levels for each factor need to be unique'} for t in factor['rep_factorLevel'] ]
+                error_map['rep_factorName'][i]['FactorLevel1'] = [ {'factorLevel': 'Factor levels for each factor need to be unique'} for t in [factor['factorLevel1'], factor['factorLevel2']] ]
             break
 
     if factor_duplication:
