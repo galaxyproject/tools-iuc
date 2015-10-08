@@ -101,8 +101,9 @@ resSorted <- res[order(res$padj),]
 head(resSorted)
 
 export_table <- as.data.frame(resSorted)
+last_column <- ncol(export_table)
 for(i in 1:nrow(export_table)) {
-  export_table[i,22] <- paste(export_table[i,22][[1]],collapse=", ")
+  export_table[i,last_column] <- paste(export_table[i,last_column][[1]],collapse=", ")
 }
 write.table(export_table, file = opt$outfile, sep="\t", quote = FALSE, col.names = FALSE)
 print("Written Results")
