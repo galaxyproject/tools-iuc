@@ -1,4 +1,5 @@
 from pprint import pprint
+from jinja2 import Template
 from Bio.Seq import Seq
 from BCBio import GFF
 from subprocess import call
@@ -148,6 +149,8 @@ class CircosPlot():
 		self.data_dict = {}
 		self.basename = basefilename
 		self.track_dict = {} #Temporary -- will be obviated by XML at later stage.
+		self.master_struct = {'ideograms':{}}
+					} #Will be loop-able for jinja2 
 		self.last_filled_radius = 1.1
 		self.plots = ['<plots>']
 
@@ -160,11 +163,51 @@ class CircosPlot():
 		self._make_karyotype()
 		boilerplate = ['karyotype = '+self.karyotype_filename,
 			       '<ideogram>','<spacing>','default = '+spacing_opt,
-			       '</spacing>','radius = '+radius_opt,'thickness = '+thickness_opt,'fill = '+fill_opt,'</ideogram>','<image>','<<include etc/image.conf>>','</image>','<<include etc/colors_fonts_patterns.conf>>','<<include etc/housekeeping.conf>>']
+			       '</spacing>','radius = '+radius_opt,'thickness = '+thickness_opt,'fill = '+fill_opt,'</ideogram>','<image>','<<include etc/image.conf>>','file*= '+self.basename,'</image>','<<include etc/colors_fonts_patterns.conf>>','<<include etc/housekeeping.conf>>']
 		self.mainconf = self.basename + '.conf'
 		with open(self.mainconf,'w') as conf:
 			for line in boilerplate:
 				conf.write(line+'\n')
+
+	def create_base_conf_template(self):
+		T = Template("""karyotype = {{karyotype_filename}}
+				<ideogram>
+				<spacing>
+				</spacing>
+				{% if zooms in self.master_struct %}
+					{% for zoom in self.master_struct[zooms] %}
+					{% endfor %}
+				{% endif %}
+				{% if highlights in self.master_struct %}
+					{% for highlight in self.master_struct[highlights] %}
+						{% if rules in self.master_struct[highlights][highlight]%}
+							{% for rule in self.master_struct[highlights][highlight][rules] %}
+							{% endfor %}
+						{% endif %}
+					{% endfor %}
+				{% endif %}
+				{% if plots in self.master_struct %}
+					{% for plot in self.master_struct[plots] %}
+					{% endfor %}
+				{% endif %}
+				{% if links in self.master_struct %}
+					{% for link in self.master_struct[links] %}
+					{% endfor %}
+				{% endif %}
+				{% if ticks in self.master_struct %}
+					{% for tick in self.master_struct[ticks] %}
+					{% endfor %}
+				{% endif %}
+				{% for ideogram in self.master_struct[ideograms] %}
+				</ideogram>
+				<image>
+				<<include etc/image.conf>>
+				file* = {{filename}}
+				</image>
+				<<include etc/colors_fonts_patterns.conf>>
+				<<include etc/houskeeping.conf>>
+				""")
+		T.render(self.master_struct)
 
 	def _make_karyotype(self,colors_list=[]):
 		if colors_list == []:
@@ -215,10 +258,11 @@ class CircosPlot():
 		self.plots.append('</plots>')
 		with open(self.mainconf,'a') as conf:
 			for element in self.plots:
-				dprint(element)
 				conf.write(element+'\n')
 	
-	def _add_plot(self,block_type,filename,extend_bin='no'):
+	def _add_plot(self,block_type,filename,extend_bin='no',
+		      max_ = '1.0', min_ = '0.0', glyph='rectangle', glyph_size='8', color_list='spectral-5-div', 
+		      stroke_color='dred', thickness='1',color='red'):
 		r1 = str(self.last_filled_radius + 0.01)
 		r2 = str(self.last_filled_radius + 0.02)
 		self.last_filled_radius += 0.02
@@ -230,14 +274,40 @@ class CircosPlot():
 				 'r2 = '+r2,
 				 'extend_bin = '+extend_bin,
 				 '</plot>']
-			for line in block:
-				self.plots.append(line)
+		elif block_type == 'heat':
+			block = ['<plot>',
+				 'show = yes',
+				 'type = heatmap',
+				 'file = '+filename,
+				 'color = '+color_list,
+				 'r0 = '+r1,
+				 'r1 = '+r2,
+				 '</plot>']
+		elif block_type == 'scatter':
+			block = ['<plot>',
+				 'show = yes',
+				 'type = scatter',
+				 'file = '+filename,
+				 'r0 = '+r1,
+				 'r1 = '+r2,
+				 'max = '+max_,
+				 'min = '+min_,
+				 'glyph = '+glyph,
+				 'glyph_size = '+glyph_size,
+				 'color = '+color,
+				 'stroke_color = '+stroke_color,
+				 'stroke_thickness = '+thickness,
+				 '</plot>']
+		else:
+			raise ValueError('Unsupported plot type.')
+		for line in block:
+			self.plots.append(line)
 					
 	def add_links(self):
 		pass
 
 	def call_circos(self):
-		subprocess.call('circos -conf ' + self.config ,shell=True)
+		call('circos -conf ' + self.mainconf ,shell=True)
 
 class XML_parser():
 	#Reads the XML file and manages user-specified options
@@ -249,5 +319,5 @@ if __name__ == "__main__":
 	C = CircosPlot('miro')
 	C.append_data(D)
 	C.create_base_conf()
-	C.add_four_elem_track('hist')
+	C.add_four_elem_track('scatter')
 	C.update_master_conf()
