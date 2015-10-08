@@ -1,5 +1,5 @@
 from pprint import pprint
-from jinja2 import Template
+from jinja2 import Template, Environment, PackageLoader
 from Bio.Seq import Seq
 from BCBio import GFF
 from subprocess import call
@@ -170,43 +170,8 @@ class CircosPlot():
 				conf.write(line+'\n')
 
 	def create_base_conf_template(self):
-		T = Template("""karyotype = {{karyotype_filename}}
-				<ideogram>
-				<spacing>
-				</spacing>
-				{% if zooms in self.master_struct %}
-					{% for zoom in self.master_struct[zooms] %}
-					{% endfor %}
-				{% endif %}
-				{% if highlights in self.master_struct %}
-					{% for highlight in self.master_struct[highlights] %}
-						{% if rules in self.master_struct[highlights][highlight]%}
-							{% for rule in self.master_struct[highlights][highlight][rules] %}
-							{% endfor %}
-						{% endif %}
-					{% endfor %}
-				{% endif %}
-				{% if plots in self.master_struct %}
-					{% for plot in self.master_struct[plots] %}
-					{% endfor %}
-				{% endif %}
-				{% if links in self.master_struct %}
-					{% for link in self.master_struct[links] %}
-					{% endfor %}
-				{% endif %}
-				{% if ticks in self.master_struct %}
-					{% for tick in self.master_struct[ticks] %}
-					{% endfor %}
-				{% endif %}
-				{% for ideogram in self.master_struct[ideograms] %}
-				</ideogram>
-				<image>
-				<<include etc/image.conf>>
-				file* = {{filename}}
-				</image>
-				<<include etc/colors_fonts_patterns.conf>>
-				<<include etc/houskeeping.conf>>
-				""")
+		E = Environment(loader=PackageLoader('Graphics-With-Circos','Templates'))
+		T = E.get_template('template.conf')
 		T.render(self.master_struct)
 
 	def _make_karyotype(self,colors_list=[]):
