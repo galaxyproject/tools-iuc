@@ -12,6 +12,7 @@ def dprint(obj):
 class DataInterpreter():
 	def __init__(self,files_list=[]):
 		self.files_dict = {}
+		#TODO Associate each file in the dict with a user-given name in the XML allowing relevant data to be aggregated together.
 		if files_list == []:
 			files_list = self._get_files_from_xml()
 		for f in files_list:
@@ -179,7 +180,6 @@ class CircosPlot():
 			 'thickness':thickness_opt,
 			 'fill':fill_opt}
 		self.master_struct['ideograms'][ideogramid].update(block)
-		dprint(self.master_struct)
 
 	def add_spacing(self,spacing_opt,ideogramid):
 		self.master_struct['ideograms'][ideogramid].update({'spacing':{'default':spacing_opt}})
@@ -248,11 +248,11 @@ class CircosPlot():
 	
 	def _add_plot(self,block_type,filename,plotname,extend_bin='no',
 		      max_ = '1.0', min_ = '0.0', glyph='rectangle',
-		      glyph_size='8', color_list='spectral-5-div', 
-		      stroke_color='dred', thickness='1',color='red'):
-		r1 = str(self.last_filled_radius + 0.01)
-		r2 = str(self.last_filled_radius + 0.02)
-		self.last_filled_radius += 0.02
+		      glyph_size='8', color_list='spectral-9-div', 
+		      stroke_color='dred', thickness='1',color='red',log_base_opt='1'):
+		r1 = str(self.last_filled_radius + 0.025) + 'r'
+		r2 = str(self.last_filled_radius + 0.050) + 'r'
+		self.last_filled_radius += 0.05
 		if block_type == 'hist':
 			block = {'type':'histogram',
 				 'file':filename,
@@ -265,8 +265,10 @@ class CircosPlot():
 				 'type':'heatmap',
 				 'file':filename,
 				 'color':color_list,
+				 'stroke_thickness':thickness,
 				 'r0':r1,
-				 'r1':r2
+				 'r1':r2,
+				 'scale_log_base':log_base_opt
 				 }
 		elif block_type == 'scatter':
 			block = {'show':'yes',
@@ -301,5 +303,7 @@ if __name__ == "__main__":
 	D = DataInterpreter(['./test-data/miro.fa','./test-data/miro.gff3','./test-data/miro.wig'])
 	C = CircosPlot('miro')
 	C.append_data(D)
+	C.add_four_elem_track('hist')
+	C.add_four_elem_track('heat')
 	C.add_four_elem_track('scatter')
 	C.create_base_conf_template()
