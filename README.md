@@ -7,9 +7,10 @@ These repositories are maintained and developed by the [Intergalactic Utilities 
 
 Other repositories with Galaxy tools:
  * [Björn Grüning repo](https://github.com/bgruening/galaxytools)
- * [devteam repo](https://github.com/galaxyproject/tools-devteam)
+ * [Galaxy devteam repo](https://github.com/galaxyproject/tools-devteam)
 
-CI      | Test               |  Status
-------- |------------------- | -------
-Jenkins | Planemo Tool Tests | [![Build Status](http://gx.hx42.org/buildStatus/icon?job=IUC-Github)](http://gx.hx42.org/job/IUC-Github/)
-Travis  | Linting            | [![Build Status](https://travis-ci.org/galaxyproject/tools-iuc.svg?branch=master)](https://travis-ci.org/galaxyproject/tools-iuc)
+Test               |  Status
+------------------ | -------
+Up to date on TTS  | https://jenkins.galaxyproject.org/view/Tools/job/iuc-TTS-GH-diff/
+Up to date on MTS  | Not available yet.
+Planemo Tool Tests | [![Build Status](http:/jenorg/buildStatus/icon?job=IUC-Github)](http://gx.hx42.org/job/IUC-Github/)
