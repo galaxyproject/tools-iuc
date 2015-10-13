@@ -62,7 +62,7 @@ def main():
     parser.add_argument( '--fasta_dbkey', dest='fasta_dbkey', action='store', type=str, default=None )
     parser.add_argument( '--fasta_description', dest='fasta_description', action='store', type=str, default=None )
     parser.add_argument( '--data_table_name', dest='data_table_name', action='store', type=str, default='hisat2_indexes' )
-    parser.add_argument( '--indexer_options', dest='indexer_options', action='store', type=str, required=True, default=None )
+    parser.add_argument( '--indexer_options', dest='indexer_options', action='store', type=str, default=None )
     options = parser.parse_args()
 
     filename = options.output

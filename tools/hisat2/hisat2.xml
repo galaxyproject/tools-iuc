@@ -1,0 +1,404 @@
+<?xml version="1.0"?>
+<tool id="hisat2" name="HISAT2" version="1.0.0">
+    <description>A fast and sensitive alignment program</description>
+    <macros>
+        <import>hisat2_macros.xml</import>
+    </macros>
+    <requirements>
+        <requirement type="package" version="2.0">hisat</requirement>
+        <requirement type="package" version="1.2">samtools</requirement>
+    </requirements>
+    <stdio>
+        <regex match="hisat2-align exited with value 1" source="both" level="fatal"/>
+        <exit_code range="1:" />
+    </stdio>
+    <version_command>hisat2 --version</version_command>
+    <command>
+        <![CDATA[
+        #if str($spliced_options.spliced_options_selector) == "advanced" and str($spliced_options.known_splice_gtf) != 'None':
+            ln -s "${spliced_options.known_splice_gtf}" splice_sites.gtf &&
+            extract_splice_sites.py splice_sites.gtf > splice_sites.txt &&
+        #end if
+        #if $reference_genome.reference_genome_source == "history":
+            ln -s "$reference_genome.history_item" genome.fa &&
+            hisat2-build genome.fa genome && 
+            #set index_path = 'genome'
+        #else:
+            #set index_path = $reference_genome.index.fields.path
+        #end if
+        hisat2 -p \${GALAXY_SLOTS:-1} -x "${index_path}"
+        #if str($input_format.paired.paired_selector) == 'paired':
+            -1 "${reads_f}" -2 "${reads_r}"
+            @paired_end_options@
+        #else if str($input_format.paired.paired_selector) == 'paired_collection':
+            -1 "${input_format.paired.reads.forward}" -2 "${input_format.paired.reads.reverse}"
+            @paired_end_options@
+        #else:
+            -U "${input_format.paired.reads}"
+        #end if
+        #if $input_format.input_format_selector == 'fasta':
+            -f
+        #end if
+        #if $max_primary:
+            -k ${max_primary}
+        #end if
+        #if str($input_options.input_options_selector) == "advanced":
+            #if int( $input_options.skip ) > 0:
+                -s ${input_options.skip}
+            #end if
+            #if int( $input_options.stop_after ) > 0:
+                -u ${input_options.stop_after}
+            #end if
+            -5 ${input_options.trim_five} -3 ${input_options.trim_three}
+        #end if
+        #if str($scoring_options.scoring_options_selector) == "advanced":
+            --ma ${scoring_options.match_bonus} --np ${scoring_options.ambiguous_penalty}
+            --mp ${scoring_options.max_mismatch},${scoring_options.min_mismatch}
+            --rdg ${scoring_options.read_open_penalty},${scoring_options.read_extend_penalty}
+            --rfg ${scoring_options.ref_open_penalty},${scoring_options.ref_extend_penalty}
+            --sp ${scoring_options.soft_clip_penalty_max},${scoring_options.soft_clip_penalty_min}
+            --score-min ${scoring_options.function_type},${scoring_options.constant_term},${scoring_options.coefficient}
+        #end if
+        #if str($alignment_options.alignment_options_selector) == "advanced":
+            --n-ceil ${alignment_options.function_type},${alignment_options.constant_term},${alignment_options.coefficient}
+            ${alignment_options.skip_forward} ${alignment_options.skip_reverse}
+        #end if
+        #if str($spliced_options.spliced_options_selector) == "advanced":
+            --pen-cansplice ${spliced_options.canonical_penalty} --pen-noncansplice ${spliced_options.noncanonical_penalty}
+            --pen-canintronlen ${spliced_options.function_type},${spliced_options.constant_term},${spliced_options.coefficient}
+            --pen-noncanintronlen ${spliced_options.nc_function_type},${spliced_options.nc_constant_term},${spliced_options.nc_coefficient}
+            #if str($spliced_options.known_splice_gtf) != 'None':
+                --known-splicesite-infile splice_sites.txt
+            #end if
+            ${spliced_options.no_spliced_alignment}
+            --min-intronlen ${spliced_options.min_intron}
+            --max-intronlen ${spliced_options.max_intron}
+            ${spliced_options.tma}
+            @strandedness_parameters@
+        #end if
+        #if str($paired_options.paired_options_selector) == "advanced":
+            --minins ${paired_options.minins} --maxins ${paired_options.maxins} ${paired_options.no_mixed} ${paired_options.no_discordant}
+            ${paired_options.dovetail} ${paired_options.contain} ${paired_options.overlap}
+        #end if
+        | samtools view -bS - | samtools sort - -o hsbam > "${output_alignments}"
+        ]]>
+    </command>
+    <inputs>
+        <conditional name="input_format">
+            <param label="Input data format" name="input_format_selector" type="select">
+                <option selected="selected" value="fastq">FASTQ</option>
+                <option value="fasta">FASTA</option>
+            </param>
+            <when value="fasta">
+                <expand ftype="fasta" macro="paired_input_conditional" />
+            </when>
+            <when value="fastq">
+                <expand ftype="fastq" macro="paired_input_conditional" />
+            </when>
+        </conditional>
+        <conditional name="reference_genome">
+            <param help="Built-in references were created using default options" label="Source for the reference genome to align against" name="reference_genome_source" type="select">
+                <option selected="True" value="indexed">Use a built-in genome</option>
+                <option value="history">Use a genome from history</option>
+            </param>
+            <when value="indexed">
+                <param help="If your genome of interest is not listed, contact the Galaxy team" label="Select a reference genome" name="index" type="select">
+                    <options from_data_table="hisat2_indexes">
+                        <filter column="2" type="sort_by" />
+                        <validator message="No genomes are available for the selected input dataset" type="no_options" />
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param format="fasta" label="Select the reference genome" metadata_name="dbkey" name="history_item" type="data" />
+            </when>
+        </conditional>
+        <param argument="-k" name="max_primary" optional="True" type="integer" value="5" help="Search for at most K distinct, primary alignments for each read. Primary alignments mean alignments whose alignment score is equal or higher than any other alignments. The search terminates when it can't find more distinct valid alignments, or when it finds K, whichever happens first." label="Primary alignments" />
+        <conditional name="alignment_options">
+            <param label="Alignment options" name="alignment_options_selector" type="select">
+                <option value="defaults">Use default values</option>
+                <option value="advanced">Specify alignment parameters</option>
+            </param>
+            <when value="defaults" />
+            <when value="advanced">
+                <expand macro="function" helptext="Sets a function governing the maximum number of ambiguous characters" />
+                <param argument="--ignore-quals" falsevalue="" help="When calculating a mismatch penalty, always consider the quality value at the mismatched position to be the highest possible, regardless of the actual value. I.e. input is treated as though all quality values are high. This is also the default behavior when the input doesn't specify quality values." label="Ignore quality values" name="ignore_quals" truevalue="--ignore-quals" type="boolean" />
+                <param argument="--nofw" falsevalue="" help="If --nofw is specified, hisat will not attempt to align unpaired reads to the forward (Watson) reference strand. In paired-end mode, --nofw and --norc pertain to the fragments; i.e. specifying --nofw causes hisat to explore only those paired-end configurations corresponding to fragments from the reverse-complement (Crick) strand." label="Skip forward strand of reference" name="skip_forward" truevalue="--nofw" type="boolean" />
+                <param argument="--norc" falsevalue="" help="If --norc is specified, hisat will not attempt to align unpaired reads against the reverse-complement (Crick) reference strand. In paired-end mode, --nofw and --norc pertain to the fragments; i.e. specifying --nofw causes hisat to explore only those paired-end configurations corresponding to fragments from the reverse-complement (Crick) strand." label="Skip reference strand of reference" name="skip_reverse" truevalue="--norc" type="boolean" />
+            </when>
+        </conditional>
+        <conditional name="input_options">
+            <param label="Input options" name="input_options_selector" type="select">
+                <option value="defaults">Use default values</option>
+                <option value="advanced">Specify input parameters</option>
+            </param>
+            <when value="defaults" />
+            <when value="advanced">
+                <param argument="-s" min="0" label="Skip the first N reads or pairs in the input" name="skip" type="integer" value="0" />
+                <param argument="-u" min="0" help="Align the first N reads or read pairs from the input (after the first N reads or pairs have been skipped), then stop." label="Stop after aligning N reads" name="stop_after" type="integer" value="0" />
+                <param argument="-5" min="0" help="Trim N bases from 5' (left) end of each read before alignment" label="Trim 5' end" name="trim_five" type="integer" value="0" />
+                <param argument="-3" min="0" help="Trim N bases from 3' (right) end of each read before alignment" label="Trim 3' end" name="trim_three" type="integer" value="0" />
+            </when>
+        </conditional>
+        <conditional name="scoring_options">
+            <param label="Scoring options" name="scoring_options_selector" type="select">
+                <option value="defaults">Use default values</option>
+                <option value="advanced">Specify scoring parameters</option>
+            </param>
+            <when value="defaults" />
+            <when value="advanced">
+                <expand macro="function" helptext="Sets a function governing the minimum alignment score needed for an alignment to be considered &quot;valid&quot; (i.e. good enough to report)." />
+                <param argument="--ma" help="In local mode N is added to the alignment score for each position where a read character aligns to a reference character and the characters match. Not used in end-to-end mode" label="Set match bonus" name="match_bonus" type="integer" value="2" />
+                <param argument="--mp" help="Sets the maximum mismatch penalty. A number less than or equal to MX and greater than or equal to MN is subtracted from the alignment score for each position where a read character aligns to a reference character, the characters do not match, and neither is an N. If --ignore-quals is specified, the number subtracted quals MX. Otherwise, the number subtracted is MN + floor( (MX-MN)(MIN(Q, 40.0)/40.0) ) where Q is the Phred quality value." label="Maximum mismatch penalty" name="max_mismatch" type="integer" value="6" />
+                <param argument="--mp" help="Sets the minimum mismatch penalty. A number less than or equal to MX and greater than or equal to MN is subtracted from the alignment score for each position where a read character aligns to a reference character, the characters do not match, and neither is an N. If --ignore-quals is specified, the number subtracted quals MX. Otherwise, the number subtracted is MN + floor( (MX-MN)(MIN(Q, 40.0)/40.0) ) where Q is the Phred quality value." label="Minimum mismatch penalty" name="min_mismatch" type="integer" value="2" />
+                <param argument="--np" help="Sets penalty for positions where the read, reference, or both, contain an ambiguous character such as N" label="Ambiguous read penalty" name="ambiguous_penalty" type="integer" value="1" />
+                <param argument="--sp" help="Sets the maximum (MX) penalty for soft-clipping per base. A number less than or equal to MX and greater than or equal to MN is subtracted from the alignment score for each position. The number subtracted is MN + floor( (MX-MN)(MIN(Q, 40.0)/40.0) ) where Q is the Phred quality value." label="Maximum soft-clipping penalty" name="soft_clip_penalty_max" type="integer" value="2" />
+                <param argument="--sp" help="Sets the minimum (MN) penalty for soft-clipping per base. A number less than or equal to MX and greater than or equal to MN is subtracted from the alignment score for each position. The number subtracted is MN + floor( (MX-MN)(MIN(Q, 40.0)/40.0) ) where Q is the Phred quality value." label="Minimum soft-clipping penalty" name="soft_clip_penalty_min" type="integer" value="1" />
+                <param argument="--rdg" help="A read gap of length N gets a penalty of [open_penalty] + N * [extend_penalty]" label="Read gap open penalty." name="read_open_penalty" type="integer" value="5" />
+                <param argument="--rdg" help="A read gap of length N gets a penalty of [open_penalty] + N * [extend_penalty]" label="Read gap extend penalty." name="read_extend_penalty" type="integer" value="3" />
+                <param argument="--rfg" help="A reference gap of length N gets a penalty of [open_penalty] + N * [extend_penalty]" label="Reference gap open penalty." name="ref_open_penalty" type="integer" value="5" />
+                <param argument="--rfg" help="A reference gap of length N gets a penalty of [open_penalty] + N * [extend_penalty]" label="Reference gap extend penalty." name="ref_extend_penalty" type="integer" value="3" />
+            </when>
+        </conditional>
+        <conditional name="spliced_options">
+            <param label="Spliced alignment parameters" name="spliced_options_selector" type="select">
+                <option value="defaults">Use default values</option>
+                <option value="advanced">Specify spliced alignment parameters</option>
+            </param>
+            <when value="defaults" />
+            <when value="advanced">
+                <param label="Penalty for canonical splice sites" name="canonical_penalty" type="integer" value="0" />
+                <param label="Penalty for non-canonical splice sites" name="noncanonical_penalty" type="integer" value="3" />
+                <param display="radio" label="Penalty for long introns with canonical splice sites" name="function_type" type="select">
+                    <option value="C">Constant</option>
+                    <option value="L">Linear [f(x) = y + z * x]</option>
+                    <option value="S">Square root [f(x) = y + z * x&#178;]</option>
+                    <option value="G">Natural logarithm [f(x) = y + z * log(x)]</option>
+                </param>
+                <param help="Constant term for long canonical introns" label="Constant term (y)" name="constant_term" type="integer" value="0" />
+                <param help="Coefficient for long canonical introns" label="Coefficient (z)" name="coefficient" type="integer" value="0" />
+                <param display="radio" label="Penalty for long introns with noncanonical splice sites." name="nc_function_type" type="select">
+                    <option value="C">Constant</option>
+                    <option value="L">Linear [f(x) = y + z * x]</option>
+                    <option value="S">Square root [f(x) = y + z * x&#178;]</option>
+                    <option selected="selected" value="G">Natural logarithm [f(x) = y + z * log(x)]</option>
+                </param>
+                <param help="Constant term for long non-canonical introns" label="Constant term (y)" name="nc_constant_term" type="integer" value="-8" />
+                <param help="Coefficient for long non-canonical introns" label="Coefficient (z)" name="nc_coefficient" type="integer" value="1" />
+                <param label="Minimum intron length" name="min_intron" type="integer" value="20" />
+                <param label="Maximum intron length" name="max_intron" type="integer" value="500000" />
+                <param argument="--rna-strandness" name="rna_strandness" type="select" label="Specify strand-specific information"
+                    help="'F' means a read corresponds to a transcript. 'R' means a read corresponds to the reverse complemented counterpart of a transcript.">
+                    <option value="">FR Unstranded</option>
+                    <option value="R">First Strand (R/RF)</option>
+                    <option value="F">Second Strand (F/FR)</option>
+                </param>
+                <param argument="--no-spliced-alignment" name="ignore_quals" type="boolean" truevalue="--no-spliced-alignment" falsevalue="" label="Disable spliced alignment" />
+                <param format="gtf" label="GTF file with known splice sites" name="known_splice_gtf" optional="True" type="data" />
+                <param display="radio" label="Transcriptome assembly reporting" name="tma" type="select">
+                    <option value="">Use default reporting.</option>
+                    <option value="--tmo">Report only those alignments within known transcripts.</option>
+                    <option value="--dta">Report alignments tailored for transcript assemblers including StringTie.</option>
+                    <option value="--dta-cufflinks">Report alignments tailored specifically for Cufflinks.</option>
+                </param>
+            </when>
+        </conditional>
+        <conditional name="paired_options">
+            <param label="Paired alignment parameters" name="paired_options_selector" type="select">
+                <option value="defaults">Use default values</option>
+                <option value="advanced">Specify paired alignment parameters</option>
+            </param>
+            <when value="defaults" />
+            <when value="advanced">
+                <param argument="--minins" help="The minimum fragment length for valid paired-end alignments. 0 sets no minimum." label="Minimum fragment length" name="minins" type="integer" value="0" />
+                <param argument="--maxins" help="The maximum fragment length for valid paired-end alignments" label="Maximum fragment length" name="maxins" type="integer" value="500" />
+                <param argument="--no-mixed" falsevalue="" help="By default, when hisat2 cannot find a concordant or discordant alignment for a pair, it then tries to find alignments for the individual mates" label="Disable finding alignments for individual mates." name="no_mixed" truevalue="--no-mixed" type="boolean" />
+                <param argument="--no-discordant" falsevalue="" help="By default, hisat2 looks for discordant alignments if it cannot find any concordant alignments. A discordant alignment is an alignment where both mates align uniquely, but that does not satisfy the paired-end constraints" label="Disable looking for discordant alignments." name="no_discordant" truevalue="--no-discordant" type="boolean" />
+                <param argument="--dovetail" falsevalue="" help="If the mates &quot;dovetail&quot;, that is if one mate alignment extends past the beginning of the other such that the wrong mate begins upstream, consider that to be concordant." label="Mates not dovetail" name="dovetail" truevalue="--dovetail" type="boolean" />
+                <param argument="--no-contain" falsevalue="" help="If one mate alignment contains the other, consider that to be non-concordant." label="Mates cannot contain others" name="contain" truevalue="--no-contain" type="boolean" />
+                <param argument="--no-overlap" falsevalue="" help="If one mate alignment overlaps the other at all, consider that to be non-concordant." label="Mates cannot overlap" name="overlap" truevalue="--no-overlap" type="boolean" />
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data format="bam" name="output_alignments" />
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_format_selector" value="fastq" />
+            <param name="paired_selector" value="paired" />
+            <param name="reference_genome_source" value="history" />
+            <param ftype="fasta" name="history_item" value="phiX.fa" />
+            <param ftype="fastqsanger" name="reads_f" value="hisat_input_1_forward.fastq" />
+            <param ftype="fastqsanger" name="reads_r" value="hisat_input_1_reverse.fastq" />
+            <output file="hisat_output_1.bam" ftype="bam" name="output_alignments" />
+        </test>
+        <test>
+            <param name="input_format_selector" value="fastq" />
+            <param name="paired_selector" value="paired" />
+            <param name="reference_genome_source" value="history" />
+            <param ftype="fasta" name="history_item" value="phiX.fa" />
+            <param name="input_options_selector" value="advanced" />
+            <param name="trim_three" value="15" />
+            <param name="trim_five" value="15" />
+            <param ftype="fastqsanger" name="reads_f" value="hisat_input_2_forward.fastq" />
+            <param ftype="fastqsanger" name="reads_r" value="hisat_input_2_reverse.fastq" />
+            <output file="hisat_output_2.bam" ftype="bam" name="output_alignments" />
+        </test>
+        <test>
+            <param name="input_format_selector" value="fastq" />
+            <param name="paired_selector" value="paired" />
+            <param name="reference_genome_source" value="history" />
+            <param name="history_item" value="phiX.fa" ftype="fasta" />
+            <param name="input_options_selector" value="advanced" />
+            <param name="trim_three" value="15" />
+            <param name="trim_five" value="15" />
+            <param name="reads_f" ftype="fastqsanger" value="hisat_input_2_forward.fastq" />
+            <param name="reads_r" ftype="fastqsanger" value="hisat_input_2_reverse.fastq" />
+            <param name="paired_end_options_selector" value="advanced" />
+            <param name="no_mixed" value="True" />
+            <param name="no_discordant" value="True" />
+            <output name="output_alignments" ftype="bam" file="hisat_output_3.bam" />
+        </test>
+    </tests>
+    <help>
+        <![CDATA[
+Introduction
+============
+
+What is HISAT?
+--------------
+
+`HISAT <http://ccb.jhu.edu/software/hisat>`__ is a fast and sensitive
+spliced alignment program. As part of HISAT, we have developed a new
+indexing scheme based on the Burrows-Wheeler transform
+(`BWT <http://en.wikipedia.org/wiki/Burrows-Wheeler_transform>`__) and
+the `FM index <http://en.wikipedia.org/wiki/FM-index>`__, called
+hierarchical indexing, that employs two types of indexes: (1) one global
+FM index representing the whole genome, and (2) many separate local FM
+indexes for small regions collectively covering the genome. Our
+hierarchical index for the human genome (about 3 billion bp) includes
+~48,000 local FM indexes, each representing a genomic region of
+~64,000bp. As the basis for non-gapped alignment, the FM index is
+extremely fast with a low memory footprint, as demonstrated by
+`Bowtie <http://bowtie-bio.sf.net>`__. In addition, HISAT provides
+several alignment strategies specifically designed for mapping different
+types of RNA-seq reads. All these together, HISAT enables extremely fast
+and sensitive alignment of reads, in particular those spanning two exons
+or more. As a result, HISAT is much faster >50 times than
+`TopHat2 <http://ccb.jhu.edu/software/tophat>`__ with better alignment
+quality. Although it uses a large number of indexes, the memory
+requirement of HISAT is still modest, approximately 4.3 GB for human.
+HISAT uses the `Bowtie2 <http://bowtie-bio.sf.net/bowtie2>`__
+implementation to handle most of the operations on the FM index. In
+addition to spliced alignment, HISAT handles reads involving indels and
+supports a paired-end alignment mode. Multiple processors can be used
+simultaneously to achieve greater alignment speed. HISAT outputs
+alignments in `SAM <http://samtools.sourceforge.net/SAM1.pdf>`__ format,
+enabling interoperation with a large number of other tools (e.g.
+`SAMtools <http://samtools.sourceforge.net>`__,
+`GATK <http://www.broadinstitute.org/gsa/wiki/index.php/The_Genome_Analysis_Toolkit>`__)
+that use SAM. HISAT is distributed under the `GPLv3
+license <http://www.gnu.org/licenses/gpl-3.0.html>`__, and it runs on
+the command line under Linux, Mac OS X and Windows.
+
+Running HISAT
+=============
+
+Reporting
+---------
+
+The reporting mode governs how many alignments HISAT looks for, and how
+to report them.
+
+In general, when we say that a read has an alignment, we mean that it
+has a `valid
+alignment <#valid-alignments-meet-or-exceed-the-minimum-score-threshold>`__.
+When we say that a read has multiple alignments, we mean that it has
+multiple alignments that are valid and distinct from one another.
+
+Distinct alignments map a read to different places
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Two alignments for the same individual read are "distinct" if they map
+the same read to different places. Specifically, we say that two
+alignments are distinct if there are no alignment positions where a
+particular read offset is aligned opposite a particular reference offset
+in both alignments with the same orientation. E.g. if the first
+alignment is in the forward orientation and aligns the read character at
+read offset 10 to the reference character at chromosome 3, offset
+3,445,245, and the second alignment is also in the forward orientation
+and also aligns the read character at read offset 10 to the reference
+character at chromosome 3, offset 3,445,245, they are not distinct
+alignments.
+
+Two alignments for the same pair are distinct if either the mate 1s in
+the two paired-end alignments are distinct or the mate 2s in the two
+alignments are distinct or both.
+
+Default mode: search for one or more alignments, report each
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+HISAT searches for up to N distinct, primary alignments for each read,
+where N equals the integer specified with the ``-k`` parameter. Primary
+alignments mean alignments whose alignment score is equal or higher than
+any other alignments. It is possible that multiple distinct alignments
+whave the same score. That is, if ``-k 2`` is specified, HISAT will
+search for at most 2 distinct alignments. The alignment score for a
+paired-end alignment equals the sum of the alignment scores of the
+individual mates. Each reported read or pair alignment beyond the first
+has the SAM 'secondary' bit (which equals 256) set in its FLAGS field.
+See the `SAM specification <http://samtools.sourceforge.net/SAM1.pdf>`__
+for details.
+
+HISAT does not "find" alignments in any specific order, so for reads
+that have more than N distinct, valid alignments, HISAT does not
+gaurantee that the N alignments reported are the best possible in terms
+of alignment score. Still, this mode can be effective and fast in
+situations where the user cares more about whether a read aligns (or
+aligns a certain number of times) than where exactly it originated.
+
+Alignment summmary
+------------------
+
+When HISAT finishes running, it prints messages summarizing what
+happened. These messages are printed to the "standard error" ("stderr")
+filehandle. For datasets consisting of unpaired reads, the summary might
+look like this:
+
+::
+
+    20000 reads; of these:
+      20000 (100.00%) were unpaired; of these:
+        1247 (6.24%) aligned 0 times
+        18739 (93.69%) aligned exactly 1 time
+        14 (0.07%) aligned >1 times
+    93.77% overall alignment rate
+
+For datasets consisting of pairs, the summary might look like this:
+
+::
+
+    10000 reads; of these:
+      10000 (100.00%) were paired; of these:
+        650 (6.50%) aligned concordantly 0 times
+        8823 (88.23%) aligned concordantly exactly 1 time
+        527 (5.27%) aligned concordantly >1 times
+        ----
+        650 pairs aligned concordantly 0 times; of these:
+          34 (5.23%) aligned discordantly 1 time
+        ----
+        616 pairs aligned 0 times concordantly or discordantly; of these:
+          1232 mates make up the pairs; of these:
+            660 (53.57%) aligned 0 times
+            571 (46.35%) aligned exactly 1 time
+            1 (0.08%) aligned >1 times
+    96.70% overall alignment rate
+
+The indentation indicates how subtotals relate to totals.
+        ]]>
+    </help>
+    <citations>
+        <citation type="doi">10.1038/nmeth.3317</citation>
+    </citations>
+</tool>
