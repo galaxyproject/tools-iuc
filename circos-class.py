@@ -149,8 +149,8 @@ class CircosPlot():
 		self.data_dict = {}
 		self.basename = basefilename
 		self.track_dict = {} #Temporary -- will be obviated by XML at later stage.
-		self.master_struct = {'ideograms':{}}
-					} #Will be loop-able for jinja2 
+		self.master_struct = {'ideograms':{}} #Will be loop-able for jinja2 
+		self.add_ideogram()
 		self.last_filled_radius = 1.1
 		self.plots = ['<plots>']
 
@@ -158,6 +158,7 @@ class CircosPlot():
 		#Add interpreter data to ConfWriter dict. Depends on what kind of data structure we decide on... 
 		self.raw_dict = interpreter.files_dict
 		self.seq_dict = interpreter.seq_dict
+		self._make_karyotype()
 
 	def create_base_conf(self,spacing_opt='0.005r',radius_opt='0.9r',thickness_opt='20p',fill_opt='yes',color_opt=[]):
 		self._make_karyotype()
@@ -169,10 +170,26 @@ class CircosPlot():
 			for line in boilerplate:
 				conf.write(line+'\n')
 
+	def add_ideogram(self,spacing_opt='0.005r',radius_opt='0.9r',thickness_opt='20p',fill_opt='yes',color_opt=[]):
+		l = len(self.master_struct['ideograms']) + 1
+		ideogramid = 'ideogram-'+str(l)
+		self.master_struct['ideograms'][ideogramid] = {}
+		self.add_spacing(spacing_opt,ideogramid)
+		block = {'radius':radius_opt,
+			 'thickness':thickness_opt,
+			 'fill':fill_opt}
+		self.master_struct['ideograms'][ideogramid].update(block)
+		dprint(self.master_struct)
+
+	def add_spacing(self,spacing_opt,ideogramid):
+		self.master_struct['ideograms'][ideogramid].update({'spacing':{'default':spacing_opt}})
+
 	def create_base_conf_template(self):
-		E = Environment(loader=PackageLoader('Graphics-With-Circos','Templates'))
+		E = Environment(loader=PackageLoader('dummy','Templates'))
 		T = E.get_template('template.conf')
-		T.render(master_struct = self.master_struct, filename = basename + '.png', karyotype_filename = self.karyotype_filename)
+		with open(self.basename + '.conf','w') as f:
+			rendering = T.render(master_struct = self.master_struct, filename = self.basename + '.png', karyotype_filename = self.karyotype_filename)
+			f.write(rendering)
 
 	def _make_karyotype(self,colors_list=[]):
 		if colors_list == []:
@@ -193,6 +210,11 @@ class CircosPlot():
 
 	def add_four_elem_track(self,type_='four-element',filename=''):
 		#Generic for heatmap, scatterplot, and histogram
+		if 'plots' not in self.master_struct:
+			self.master_struct['plots'] = {}
+		l = len(self.master_struct['plots']) + 1
+		plotname = 'plot-'+type_+'-'+str(l)
+		self.master_struct['plots'][plotname] = {}
 		if type_ not in self.track_dict:
 			key = type_
 		else:
@@ -204,9 +226,9 @@ class CircosPlot():
 			f = self.basename+'-'+key+'.txt'
 		else:
 			f = filename
-		self.track_dict[key] = []
+		self.track_dict[key] = '' 
 		self._four_element_processing(f,key)
-		self._add_plot(type_,f)
+		self._add_plot(type_,f,plotname)
 
 	def _four_element_processing(self,file_,key):
 		#Heatmaps, scatterplots, and histograms share the same 4-element format...
@@ -217,7 +239,6 @@ class CircosPlot():
 						for feature in self.raw_dict[f][chromosome]:
 							datastring = chromosome+' '+str(self.raw_dict[f][chromosome][feature]['start'])+' '+str(self.raw_dict[f][chromosome][feature]['end'])+' '+str(self.raw_dict[f][chromosome][feature]['val'])+'\n'
 							handle.write(datastring)
-							self.track_dict[key].append(datastring.split())
 
 	def update_master_conf(self):
 		self.plots.append('</plots>')
@@ -225,48 +246,45 @@ class CircosPlot():
 			for element in self.plots:
 				conf.write(element+'\n')
 	
-	def _add_plot(self,block_type,filename,extend_bin='no',
-		      max_ = '1.0', min_ = '0.0', glyph='rectangle', glyph_size='8', color_list='spectral-5-div', 
+	def _add_plot(self,block_type,filename,plotname,extend_bin='no',
+		      max_ = '1.0', min_ = '0.0', glyph='rectangle',
+		      glyph_size='8', color_list='spectral-5-div', 
 		      stroke_color='dred', thickness='1',color='red'):
 		r1 = str(self.last_filled_radius + 0.01)
 		r2 = str(self.last_filled_radius + 0.02)
 		self.last_filled_radius += 0.02
 		if block_type == 'hist':
-			block = ['<plot>',
-				 'type = histogram',
-				 'file = '+filename,
-				 'r1 = '+r1,
-				 'r2 = '+r2,
-				 'extend_bin = '+extend_bin,
-				 '</plot>']
+			block = {'type':'histogram',
+				 'file':filename,
+				 'r1':r1,
+				 'r2':r2,
+				 'extend_bin':extend_bin}
+				 
 		elif block_type == 'heat':
-			block = ['<plot>',
-				 'show = yes',
-				 'type = heatmap',
-				 'file = '+filename,
-				 'color = '+color_list,
-				 'r0 = '+r1,
-				 'r1 = '+r2,
-				 '</plot>']
+			block = {'show':'yes',
+				 'type':'heatmap',
+				 'file':filename,
+				 'color':color_list,
+				 'r0':r1,
+				 'r1':r2
+				 }
 		elif block_type == 'scatter':
-			block = ['<plot>',
-				 'show = yes',
-				 'type = scatter',
-				 'file = '+filename,
-				 'r0 = '+r1,
-				 'r1 = '+r2,
-				 'max = '+max_,
-				 'min = '+min_,
-				 'glyph = '+glyph,
-				 'glyph_size = '+glyph_size,
-				 'color = '+color,
-				 'stroke_color = '+stroke_color,
-				 'stroke_thickness = '+thickness,
-				 '</plot>']
+			block = {'show':'yes',
+				 'type':'scatter',
+				 'file':filename,
+				 'r0':r1,
+				 'r1':r2,
+				 'max':max_,
+				 'min':min_,
+				 'glyph':glyph,
+				 'glyph_size':glyph_size,
+				 'color':color,
+				 'stroke_color':stroke_color,
+				 'stroke_thickness':thickness,
+				 }
 		else:
 			raise ValueError('Unsupported plot type.')
-		for line in block:
-			self.plots.append(line)
+		self.master_struct['plots'][plotname] = block
 					
 	def add_links(self):
 		pass
@@ -283,6 +301,5 @@ if __name__ == "__main__":
 	D = DataInterpreter(['./test-data/miro.fa','./test-data/miro.gff3','./test-data/miro.wig'])
 	C = CircosPlot('miro')
 	C.append_data(D)
-	C.create_base_conf_template()
 	C.add_four_elem_track('scatter')
-	C.update_master_conf()
+	C.create_base_conf_template()
