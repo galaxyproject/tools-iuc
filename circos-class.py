@@ -172,7 +172,7 @@ class CircosPlot():
 	def create_base_conf_template(self):
 		E = Environment(loader=PackageLoader('Graphics-With-Circos','Templates'))
 		T = E.get_template('template.conf')
-		T.render(self.master_struct)
+		T.render(master_struct = self.master_struct, filename = basename + '.png', karyotype_filename = self.karyotype_filename)
 
 	def _make_karyotype(self,colors_list=[]):
 		if colors_list == []:
@@ -283,6 +283,6 @@ if __name__ == "__main__":
 	D = DataInterpreter(['./test-data/miro.fa','./test-data/miro.gff3','./test-data/miro.wig'])
 	C = CircosPlot('miro')
 	C.append_data(D)
-	C.create_base_conf()
+	C.create_base_conf_template()
 	C.add_four_elem_track('scatter')
 	C.update_master_conf()
