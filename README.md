@@ -11,6 +11,6 @@ Other repositories with Galaxy tools:
 
 Test               |  Status
 ------------------ | -------
-Up to date on TTS  | [![Build Status](https://jenkins.galaxyproject.org/buildStatus/icon?job=iuc-TTS-GH-update)](https://jenkins.galaxyproject.org/view/Tools/job/iuc-TTS-GH-update/)
-Up to date on MTS  | Not available yet.
+All packages and tools up-to-date on TTS  | [![Build Status](https://jenkins.galaxyproject.org/buildStatus/icon?job=iuc-TTS-GH-update)](https://jenkins.galaxyproject.org/view/Tools/job/iuc-TTS-GH-update/)
+All packages and tools up-to-date on MTS  | Not available yet.
 Planemo Tool Tests | [![Build Status](http:/jenorg/buildStatus/icon?job=IUC-Github)](http://gx.hx42.org/job/IUC-Github/)
