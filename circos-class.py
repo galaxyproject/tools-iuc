@@ -161,7 +161,7 @@ class CircosPlot():
 		self.seq_dict = interpreter.seq_dict
 		self._make_karyotype()
 
-	def create_base_conf(self,spacing_opt='0.005r',radius_opt='0.9r',thickness_opt='20p',fill_opt='yes',color_opt=[]):
+	def create_base_conf(self,spacing_opt='0.005r',radius_opt='0.1r',thickness_opt='20p',fill_opt='yes',color_opt=[]):
 		self._make_karyotype()
 		boilerplate = ['karyotype = '+self.karyotype_filename,
 			       '<ideogram>','<spacing>','default = '+spacing_opt,
@@ -171,7 +171,7 @@ class CircosPlot():
 			for line in boilerplate:
 				conf.write(line+'\n')
 
-	def add_ideogram(self,spacing_opt='0.005r',radius_opt='0.9r',thickness_opt='20p',fill_opt='yes',color_opt=[]):
+	def add_ideogram(self,spacing_opt='0.005r',radius_opt='0.5r',thickness_opt='20p',fill_opt='yes',color_opt=[]):
 		l = len(self.master_struct['ideograms']) + 1
 		ideogramid = 'ideogram-'+str(l)
 		self.master_struct['ideograms'][ideogramid] = {}
@@ -250,14 +250,14 @@ class CircosPlot():
 		      max_ = '1.0', min_ = '0.0', glyph='rectangle',
 		      glyph_size='8', color_list='spectral-9-div', 
 		      stroke_color='dred', thickness='1',color='red',log_base_opt='1'):
-		r1 = str(self.last_filled_radius + 0.025) + 'r'
-		r2 = str(self.last_filled_radius + 0.050) + 'r'
-		self.last_filled_radius += 0.05
+		r1 = str(self.last_filled_radius + 0.100) + 'r'
+		r2 = str(self.last_filled_radius + 0.200) + 'r'
+		self.last_filled_radius += 0.20
 		if block_type == 'hist':
 			block = {'type':'histogram',
 				 'file':filename,
-				 'r1':r1,
-				 'r2':r2,
+				 'r0':r1,
+				 'r1':r2,
 				 'extend_bin':extend_bin}
 				 
 		elif block_type == 'heat':
