@@ -5,15 +5,94 @@
     </requirements>
     <stdio>
     </stdio>
-
+    
+    <version_command>STAR-Fusion --version  2>&amp;1 | grep version | grep -o -E "software version.*?"</version_command>
+    
     <command><![CDATA[
-    STAR-Fusion
+        ## Create temporary index for custom reference
+        #if str($refGenomeSource.genomeSource) == 'history':
+            mkdir -p tempstargenomedir;
+            STAR
+                --runMode genomeGenerate
+                --genomeDir "tempstargenomedir"
+                --genomeFastaFiles "$refGenomeSource.ownFile"
+                --runThreadN \${GALAXY_SLOTS:-4}
+            
+            #if str($refGenomeSource.geneModel) != 'None':
+                --sjdbOverhang "100"
+                --sjdbGTFfile "$refGenomeSource.geneModel"
+                
+                #if str($refGenomeSource.geneModel.ext) == 'gff3':
+                    --sjdbGTFtagExonParentTranscript Parent
+                #end if
+            #end if
+            ;
+        #end if
+        
+        
+        STAR-Fusion
+            --chimeric_junction $chimeric_junction
+        #if str($refGenomeSource.genomeSource) == 'history':
+            --genome_lib_dir "tempstargenomedir"
+        #else
+            --genome_lib_dir "$refGenomeSource.index.fields.path"
+        #end if
+        
+        #if str($params.settingsType) == "full":
+            --min_junction_reads $params.min_junction_reads
+            --min_sum_frags $params.min_sum_frags
+            --max_promiscuity $params.max_promiscuity
+            --min_novel_junction_support $params.min_novel_junction_support
+            --min_alt_pct_junction $params.min_alt_pct_junction
+            --aggregate_novel_junction_dist $params.aggregate_novel_junction_dist
+            --E $params.E
+        #end if
     ]]></command>
 
     <inputs>
+        <param name="chimeric_junction" type="data" format="interval" label="Chimeric junction file from STAR (with STAR-Fusion settings)" />
+        
+        <!-- Genome source. -->
+        <conditional name="refGenomeSource">
+            <param name="genomeSource" type="select" label="Custom or built-in reference genome" help="Built-ins were indexed using default options">
+                <option value="indexed" selected="True">Use a built-in index</option>
+                <option value="history">Index and use a genome fasta and GTF file from history</option>
+            </param>
+            <when value="indexed">
+            <param name="index" type="select" label="Select a reference genome">
+                <options from_data_table="rnastar_index">
+                    <filter type="sort_by" column="2"/>
+                    <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                </options>
+            </param>
+            </when>
+            <when value="history">
+                <param name="ownFile" type="data" format="fasta" metadata_name="dbkey" label="Select the reference genome" />
+                <param name="geneModel" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions. Leave blank for none"
+                    optional="true" help="Optional. If supplied, the index file will retain exon junction information for mapping splices" />
+            </when>
+        </conditional>
+        
+        <conditional name="params">
+            <param name="settingsType" type="select" label="Settings to use" help="You can use the default settings or set custom values for any STAR Fusion parameter.">
+                <option value="default" selected="true">Use Defaults</option>
+                <option value="full">Full parameter list</option>
+            </param>
+            <when value="default" />
+            <when value="full"><!-- Full/advanced params. -->
+                <param name="min_junction_reads" type="integer" value="1" label="minimum number of junction-spanning reads required." help="(--min_junction_reads)" />
+                <param name="min_sum_frags" type="integer" value="2" label="minimum fusion support = (#junction_reads + #spanning_frags)" help="(--min_sum_frags)" />
+                <param name="max_promiscuity" type="integer" value="3" label="maximum number of partners allowed for a given fusion" help="(--max_promiscuity)" />
+                <param name="min_novel_junction_support" type="integer" value="3" label="minimum of 3 junction reads required if breakpoint lacks involvement of only reference junctions" help="(--min_novel_junction_support)" />
+                <param name="min_alt_pct_junction" type="float" value="10" label="10% of the dominant isoform junction support" help="(--min_alt_pct_junction)" />
+                <param name="aggregate_novel_junction_dist" type="integer" value="5" label="non-ref junctions within 5 are merged into single calls" help="(--aggregate_novel_junction_dist)" />
+                <param name="E" type="float" value="0.001" label="E-value threshold for blast searches" help="(-E)" />
+            </when>
+        </conditional>
     </inputs>
 
     <outputs>
+        <data format="tabular" name="output_final" label=".fusion_candidates.final" from_work_dir=".fusion_candidates.final"/>
     </outputs>
 
     <tests>
@@ -22,9 +101,10 @@
 **What it does**
 
 </help>
+
     <citations>
         <citation type="bibtex">
-           @unpublished{fuma,
+           @unpublished{star_fusion,
               author = {Brian Haas and Nicolas Stransky and Daniel Nicorici}, 
               title  = {STAR-Fusion},
               url    = {https://github.com/STAR-Fusion/STAR-Fusion}
