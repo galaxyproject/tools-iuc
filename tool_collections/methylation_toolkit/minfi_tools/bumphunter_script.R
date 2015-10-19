@@ -1,4 +1,4 @@
-#!/usr/bin/Rscript
+#!/usr/bin/env RScript
 
 # Import required libraries
 require('getopt');
@@ -52,7 +52,7 @@ pos = start(object)
 # Model Matrix to pass into the bumphunter function
 ############################################################
 pd=pData(object)
-T1="control";T2="case"
+T1= as.character(pd$status[2]);T2= as.character(pd$status[1])
 keep=pd$status%in%c(T1,T2)
 tt=factor(pd$status[keep],c(T1,T2))
 design=model.matrix(~tt)
