@@ -55,7 +55,6 @@ class DataInterpreter():
 			else:
 				flist.append(element)
 		return flist
-		
 	
 	def parse_fastA(self,f):
 		self.seq_dict = {}
@@ -71,7 +70,6 @@ class DataInterpreter():
 				else:
 					seqres += line.strip()
 		self.seq_dict[seqname] = seqres
-		
 
 	def parse_bigWig(self,f):
 		features_dict = {}
@@ -126,7 +124,6 @@ class DataInterpreter():
 					locidict[tmpdict[key]['chromosome']].update({key:tmpdict[key]})
 		self.files_dict[f] = locidict
 		
-
 	def parse_bed(self, f):
 		bed_standard_fields = ['chromosome','start','end',
 				       'name','score','strand',
@@ -145,15 +142,228 @@ class DataInterpreter():
 		#This method may be required to integrate whatever that parser outputs, or it may be deprecated depending on what that data looks like.
 		pass
 
+class CircosObj():
+	def __init__(self):
+		pass
+	
+	def set_param(self,param,val):
+		vars(self)[param] = val
+
+class TopLevelObj(CircosObj):
+	def __init__(self):
+		self.llo = []
+		pass
+
+	def add_rule(self):
+		pass
+
+class Highlight(TopLevelObj):
+	def __init__(self):
+		self.file_ = None
+		self.fill_color = None
+		self.ideogram = None
+		self.r0 = None
+		self.r1 = None
+		self.stroke_color = None
+		self.stroke_thickness = None
+		self.z = None
+	
+	def make_data_file(self):
+		pass
+
+class Ideogram(TopLevelObj):
+	def __init__(self):
+		TopLevelObj.__init__(self)
+		self.band_stroke_color = None
+		self.band_stroke_thickness = None
+		self.band_transparency = None
+		self.fill = None
+		self.fill_bands = None
+		self.fill_color = None
+		self.label_case = None
+		self.label_center = None
+		self.label_font = None
+		self.label_format = None
+		self.label_parallel = None
+		self.label_radius = None
+		self.label_size = None
+		self.label_with_tag = None
+		self.radius = None
+		self.show = None
+		self.show_bands = None
+		self.show_label = None
+		self.stroke_color = None
+		self.stroke_thickness = None
+		self.thickness = None
+		self.add_spacing()
+
+	def add_spacing(self):
+		self.llo += [Spacing()]
+
+class Plot(TopLevelObj):
+	def __init__(self):
+		TopLevelObj.__init__(self)
+
+class Zoom(TopLevelObj):
+	def __init__(self):
+		self.chr_ = None
+		self.start = None
+		self.end = None
+		self.scale = None
+		self.smooth_steps = None
+		self.smooth_distance = None
+
+class Link(TopLevelObj):
+	def __init__(self):
+		self.bezier_radius = None
+		self.bezier_radius_purity = None
+		self.color = None
+		self.crest = None
+		self.data_out_of_range* = None
+		self.file_ = None
+		self.perturb = None
+		self.perturb_crest = None
+		self.perturb_bezier_radius = None
+		self.perturb_bezier_radius_purity = None
+		self.radius = None
+		self.record_limit = None
+		self.ribbon = None
+		self.thickness = None
+		self.z = None
+	
+	def make_file(self):
+		pass
+
+class Tick(TopLevelObj):
+	def __init__(self):
+		self.chromosomes = None
+		self.color = None
+		self.force_display = None
+		self.format_ = None
+		self.grid = None
+		self.grid_color = None
+		self.grid_end = None
+		self.grid_start = None
+		self.grid_thickness = None
+		self.label = None
+		self.label_color = None
+		self.label_multiplier = None
+		self.label_offset = None
+		self.label_relative = None
+		self.label_separation = None
+		self.label_size = None
+		self.mod = None
+		self.min_distance_to_edge = None
+		self.min_label_distance_to_edge = None
+		self.multiplier = None
+		self.offset = None
+		self.position = None
+		self.prefix = None
+		self.radius = None #May be a list...
+		self.rdivisor = None
+		self.rmultiplier = None
+		self.rposition = None
+		self.rspacing = None
+		self.show = None
+		self.show_label = None
+		self.size = None
+		self.skip_first_label = None
+		self.skip_last_label = None
+		self.spacing = None
+		self.spacing_type = None
+		self.suffix = None
+		self.thickness = None
+		self.thousands_sep = None
+		self.tick_separation = None
+
+class Image(TopLevelObj):
+	def __init__(self):
+		self.24bit* = None
+		self.auto_alpha_colors* = None
+		self.auto_alpha_steps* = None
+		self.angle_offset* = None
+		self.angle_orientation* = None
+		self.background* = None
+		self.dir* = None
+		self.file* = None
+		self.radius* = None
+
+class LowLevelObj(CircosObj):
+	def __init__(self):
+		pass
+
+class Pairwise(LowLevelObj):
+	def __init__(self):
+		self.chromosome_pair = ['','']
+		self.spacing = None
+
+class Spacing(LowLevelObj):
+	def __init__(self):
+		self.axis_break = None
+		self.axis_break_at_edge = None
+		self.axis_break_style = None
+		self.break_ = None
+		self.default = None
+		self.llo = [Break_Style() for num in range(int(axis_break_style))]
+		
+
+class Break_Style(LowLevelObj):
+	def __init__(self):
+		self.fill_color = None
+		self.stroke_color = None
+		self.stroke_thickness = None
+		self.thickness = None
+
+class Rule(LowLevelObj):
+	def __init__(self):
+		self.condition = None
+		self.flow = None
+		self.importance = None
+		self.show = None
+		self.show_bands = None
+		self.show_ticks = None
+	
+	def associate_parent(self,parent):
+		self.Parent = parent #Not to be added to conf file.
+
+	def add_params(self,param,val):
+		l = vars(self.Parent).keys
+		if param in l:
+			vars(self)[param] = val
+		else:
+			pass
+		
+
+
 class CircosPlot():
 	def __init__(self,basefilename):
-		self.data_dict = {}
 		self.basename = basefilename
-		self.track_dict = {} #Temporary -- will be obviated by XML at later stage.
-		self.master_struct = {'ideograms':{}} #Will be loop-able for jinja2 
-		self.add_ideogram()
+		self.data_dict = {}
 		self.last_filled_radius = 1.1
+		self.master_struct = {'ideograms':{}} #Will be loop-able for jinja2 
 		self.plots = ['<plots>']
+		self.track_dict = {} #Temporary -- will be obviated by XML at later stage.
+		self.add_ideogram()
+		self.add_top_lvl_params()
+
+	def add_top_lvl_params():
+		self.anglestep = None
+		self.beziersamples = None
+		self.chromosomes_display_default = None
+		self.chromosomes = None
+		self.chromosomes_breaks = None
+		self.chromosomes_order = None
+		self.chromosomes_radius = None
+		self.chromosomes_reverse = None
+		self.chromosomes_units = None
+		self.debug = None
+		self.imagemap = None
+		self.minslicestep = None
+		self.show_ticks = None
+		self.show_tick_labels = None
+		self.units_nounit = None
+		self.units_ok = None
+		self.warnings = None
 
 	def append_data(self, interpreter):
 		#Add interpreter data to ConfWriter dict. Depends on what kind of data structure we decide on... 
@@ -287,10 +497,5 @@ class XML_parser():
 		pass	
 
 if __name__ == "__main__":
-	D = DataInterpreter(['./test-data/miro.fa','./test-data/miro.gff3','./test-data/miro.wig'])
-	C = CircosPlot('miro')
-	C.append_data(D)
-	C.add_four_elem_track('hist')
-	C.add_four_elem_track('heat')
-	C.add_four_elem_track('scatter')
-	C.create_base_conf_template()
+	I = Ideogram()
+	pprint(vars(I))
