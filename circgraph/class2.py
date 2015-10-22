@@ -3,6 +3,7 @@ from jinja2 import Template, Environment, PackageLoader
 from Bio.Seq import Seq
 from BCBio import GFF
 from subprocess import call
+import sys
 import os
 
 def dprint(obj):
@@ -219,7 +220,7 @@ class Link(TopLevelObj):
 		self.bezier_radius_purity = None
 		self.color = None
 		self.crest = None
-		self.data_out_of_range* = None
+		self.data_out_of_range = None
 		self.file_ = None
 		self.perturb = None
 		self.perturb_crest = None
@@ -278,15 +279,15 @@ class Tick(TopLevelObj):
 
 class Image(TopLevelObj):
 	def __init__(self):
-		self.24bit* = None
-		self.auto_alpha_colors* = None
-		self.auto_alpha_steps* = None
-		self.angle_offset* = None
-		self.angle_orientation* = None
-		self.background* = None
-		self.dir* = None
-		self.file* = None
-		self.radius* = None
+		self.24bit = None
+		self.auto_alpha_colors = None
+		self.auto_alpha_steps = None
+		self.angle_offset = None
+		self.angle_orientation = None
+		self.background = None
+		self.dir = None
+		self.file = None
+		self.radius = None
 
 class LowLevelObj(CircosObj):
 	def __init__(self):
@@ -497,5 +498,7 @@ class XML_parser():
 		pass	
 
 if __name__ == "__main__":
-	I = Ideogram()
-	pprint(vars(I))
+	f = open(sys.argv[1],'r')
+	with open('debugconf.txt','w') as f2:
+		for line in f.readlines()
+		f2.write(line)
