@@ -143,19 +143,27 @@ INSTALLED_TO = os.path.dirname(os.path.realpath(__file__))
 
 class JbrowseConnector(object):
 
-    def __init__(self, jbrowse, jbrowse_dir, outdir, genomes):
+    def __init__(self, jbrowse, outdir, genomes, standalone=False, gencode=1):
         self.jbrowse = jbrowse
-        self.jbrowse_dir = jbrowse_dir
         self.outdir = outdir
         self.genome_paths = genomes
         self.brewer_colour_idx = 0
+        self.standalone = standalone
+        self.gencode = gencode
 
-        self.clone_jbrowse(self.jbrowse, self.outdir)
+        if standalone:
+            self.clone_jbrowse(self.jbrowse, self.outdir)
+        else:
+            os.makedirs(self.outdir)
+
         self.process_genomes()
 
     def subprocess_check_call(self, command):
-        log.debug('cd %s && %s', self.jbrowse_dir, ' '.join(command))
-        subprocess.check_call(command, cwd=self.jbrowse_dir)
+        log.debug('cd %s && %s', self.outdir, ' '.join(command))
+        subprocess.check_call(command, cwd=self.outdir)
+
+    def _jbrowse_bin(self, command):
+        return os.path.realpath(os.path.join(self.jbrowse, 'bin', command))
 
     def _get_colours(self):
         r, g, b = BREWER_COLOUR_SCHEMES[self.brewer_colour_idx]
@@ -165,7 +173,7 @@ class JbrowseConnector(object):
     def process_genomes(self):
         for genome_path in self.genome_paths:
             self.subprocess_check_call([
-                'perl', 'bin/prepare-refseqs.pl',
+                'perl', self._jbrowse_bin('prepare-refseqs.pl'),
                 '--fasta', genome_path])
 
     def _add_json(self, json_data):
@@ -175,7 +183,19 @@ class JbrowseConnector(object):
         tmp = tempfile.NamedTemporaryFile(delete=False)
         tmp.write(json.dumps(json_data))
         tmp.close()
-        cmd = ['perl', 'bin/add-track-json.pl', tmp.name,
+        cmd = ['perl', self._jbrowse_bin('add-track-json.pl'), tmp.name,
+               os.path.join('data', 'trackList.json')]
+        self.subprocess_check_call(cmd)
+        os.unlink(tmp.name)
+
+    def _add_track_json(self, json_data):
+        if len(json_data.keys()) == 0:
+            return
+
+        tmp = tempfile.NamedTemporaryFile(delete=False)
+        tmp.write(json.dumps(json_data))
+        tmp.close()
+        cmd = ['perl', self._jbrowse_bin('add-track-json.pl'), tmp.name,
                os.path.join('data', 'trackList.json')]
         self.subprocess_check_call(cmd)
         os.unlink(tmp.name)
@@ -203,34 +223,34 @@ class JbrowseConnector(object):
         # Wiggle tracks have a bicolor pallete
         clientConfig = {}
         if track['format'] == 'wiggle':
-            if track['options']['style']['color_config'] == 'brewer':
-                scheme = track['options']['style']['color']
+            if track['style']['color_config'] == 'brewer':
+                scheme = track['style']['color']
                 if scheme not in BREWER_DIVERGING_PALLETES:
                     raise Exception("Unknown pallete")
 
                 pos_color, neg_color = BREWER_DIVERGING_PALLETES[scheme]
             else:
-                pos_color = track['options']['style']['color_pos']
-                neg_color = track['options']['style']['color_neg']
+                pos_color = track['style']['color_pos']
+                neg_color = track['style']['color_neg']
 
             clientConfig['pos_color'] = pos_color
             clientConfig['neg_color'] = neg_color
         else:
             # Other tracks either use "__auto__" or specify a colour
-            if track['options']['style']['color'] == '__auto__':
+            if track['style'].get('color', '__auto__') == '__auto__':
                 # Automatically generate the next brewer colour
                 red, green, blue = self._get_colours()
                 clientConfig['color'] = 'rgba({red}, {green}, {blue}, 1)' \
                     .format(red=red, green=green, blue=blue)
             else:
-                clientConfig['color'] = track['options']['style']['color']
+                clientConfig['color'] = track['style']['color']
         return clientConfig
 
     def add_blastxml(self, data, trackData, **kwargs):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
         cmd = ['python', os.path.join(INSTALLED_TO, 'blastxml_to_gapped_gff3.py'),
                '--trim_end', '--min_gap', str(kwargs['min_gap']), data]
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_unrebased)
+        subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_unrebased)
         gff3_unrebased.close()
 
         gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
@@ -238,7 +258,7 @@ class JbrowseConnector(object):
         if kwargs['protein']:
             cmd.append('--protein2dna')
         cmd.extend([kwargs['parent'], gff3_unrebased.name])
-        subprocess.check_call(cmd, cwd=self.jbrowse_dir, stdout=gff3_rebased)
+        subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_rebased)
         gff3_rebased.close()
 
         red, green, blue = self._get_colours()
@@ -259,7 +279,7 @@ class JbrowseConnector(object):
         if 'category' in kwargs:
             config['category'] = kwargs['category']
 
-        cmd = ['perl', 'bin/flatfile-to-json.pl',
+        cmd = ['perl', self._jbrowse_bin('flatfile-to-json.pl'),
                '--gff', gff3_rebased.name,
                '--trackLabel', trackData['label'],
                '--key', trackData['key'],
@@ -295,7 +315,7 @@ class JbrowseConnector(object):
         else:
             trackData['autoscale'] = kwargs.get('autoscale', 'local')
 
-        self._add_json(trackData)
+        self._add_track_json(trackData)
 
     def add_bam(self, data, trackData, **kwargs):
         dest = os.path.join('data', 'raw', os.path.basename(data))
@@ -315,7 +335,7 @@ class JbrowseConnector(object):
         if 'category' in kwargs:
             trackData['category'] = kwargs['category']
 
-        self._add_json(trackData)
+        self._add_track_json(trackData)
 
         if kwargs.get('auto_snp', False):
             trackData2 = copy.copy(trackData)
@@ -325,7 +345,7 @@ class JbrowseConnector(object):
                 "label": trackData['label']  + "_autosnp",
             })
 
-            self._add_json(trackData)
+            self._add_track_json(trackData)
 
     def add_vcf(self, data, trackData, **kwargs):
         dest = os.path.join('data', 'raw', os.path.basename(data))
@@ -342,11 +362,11 @@ class JbrowseConnector(object):
             "type": "JBrowse/View/Track/HTMLVariants",
             "storeClass": "JBrowse/Store/SeqFeature/VCFTabix",
         })
-        self._add_json(trackData)
+        self._add_track_json(trackData)
 
     def add_features(self, data, format, trackData, **kwargs):
         cmd = [
-            'perl', 'bin/flatfile-to-json.pl',
+            'perl', self._jbrowse_bin('flatfile-to-json.pl'),
             TN_TABLE.get(format, 'gff'),
             data,
             '--trackLabel', trackData['label'],
@@ -405,9 +425,9 @@ class JbrowseConnector(object):
         outputTrackConfig = {}
 
         clientConfig = {
-            'label': track['options']['style'].get('label', 'description'),
-            'className': track['options']['style'].get('className', 'feature'),
-            'description': track['options']['style'].get('description', ''),
+            'label':       track['style'].get('label', 'description'),
+            'className':   track['style'].get('className', 'feature'),
+            'description': track['style'].get('description', ''),
         }
 
         # Colour parsing is complex due to different track types having
@@ -418,15 +438,13 @@ class JbrowseConnector(object):
         outputTrackConfig['style'] = clientConfig
 
         log.debug('Track\n' + pprint.pformat(track))
-        zipped_tracks = zip(track['files'], track['ext'], track['labels'])
-        zipped_tracks.sort(key = lambda x: x[0])
-        for i, (dataset_path, dataset_ext, track_human_label) in enumerate(zipped_tracks):
+        for i, (dataset_path, dataset_ext, track_human_label) in enumerate(track['trackfiles']):
             outputTrackConfig['key'] = track_human_label
             outputTrackConfig['label'] = hashlib.md5(dataset_path).hexdigest() + '_%s' % i
 
             # If a list of indices are available, set a variable with just the correct one.
-            if 'bam_indexes' in track['options']:
-                kwargs['bam_index'] = track['options']['bam_indexes'][i]
+            if 'bam_indexes' in track:
+                kwargs['bam_index'] = track['bam_indexes'][i]
 
             log.debug('outputTrackConfig\n' + pprint.pformat(outputTrackConfig))
             log.debug('kwargs\n' + pprint.pformat(kwargs))
@@ -444,17 +462,12 @@ class JbrowseConnector(object):
 
     def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory.
-
-        TODO: remove the JBrowse-1.11.6 from the output directory
         """
         # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
         # unlike copytree
-        cmd = ['mkdir', '-p', destination]
-        subprocess.check_call(cmd)
         cmd = ['cp', '-r', jbrowse_dir, destination]
         subprocess.check_call(cmd)
-        cmd = ['mkdir', '-p', os.path.join(destination, 'JBrowse-1.11.6',
-                                           'data', 'raw')]
+        cmd = ['mkdir', '-p', os.path.join(destination, 'data', 'raw')]
         subprocess.check_call(cmd)
 
         # http://unix.stackexchange.com/a/38691/22785
@@ -466,34 +479,34 @@ class JbrowseConnector(object):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
     parser.add_argument('xml', type=file, help='Track Configuration')
-    parser.add_argument('genomes', type=file, nargs='+', help='Input genome file')
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
+    parser.add_argument('--standalone', help='Standalone mode includes a copy of JBrowse', action='store_true')
     args = parser.parse_args()
-
-    jc = JbrowseConnector(
-        jbrowse=args.jbrowse,
-        jbrowse_dir=os.path.join(args.outdir, 'JBrowse-1.11.6'),
-        outdir=args.outdir,
-        genomes=[os.path.realpath(x.name) for x in args.genomes],
-    )
 
     tree = ET.parse(args.xml.name)
     root = tree.getroot()
 
-    for track in root:
-        track_conf = {}
-        track_conf['trackfiles'] = zip(
-            [os.path.realpath(x.text) for x in track.findall('files/trackFile/file')],
-            [x.text.strip() for x in track.findall('files/trackFile/extension')],
-            [x.text.strip() for x in track.findall('files/trackFile/label')],
-        )
+    jc = JbrowseConnector(
+        jbrowse=args.jbrowse,
+        outdir=args.outdir,
+        genomes=[os.path.realpath(x.text) for x in root.findall('metadata/genomes/genome')],
+        standalone=args.standalone,
+        gencode=root.find('metadata/gencode').text
+    )
 
-        track_conf['category'] = track.find('category').text
-        track_conf['format'] = track.find('format').text
+    for track in root.findall('tracks/track'):
+        track_conf = {}
+        track_conf['trackfiles'] = [
+            (os.path.realpath(x.attrib['path']), x.attrib['ext'], x.attrib['label'])
+            for x in track.findall('files/trackFile')
+        ]
+
+        track_conf['category'] = track.attrib['cat']
+        track_conf['format'] = track.attrib['format']
         track_conf['style'] = {t.tag: t.text for t in track.find('options/style')}
-        track_conf['conf'] = etree_to_dict(track.find('options'))['options']
+        track_conf['conf'] = etree_to_dict(track.find('options'))
 
         extra = {}
         if 'options' in track_conf['conf']:
@@ -512,12 +525,12 @@ if __name__ == '__main__':
 
         log.debug('Parsed Track: \n%s', pprint.pformat(track_conf))
 
-        #jc.process_annotations(track)
+        jc.process_annotations(track_conf)
 
     print """
     <html>
         <body>
-        <a href="JBrowse-1.11.6/index.html">Go to JBrowse</a>
+        <a href="index.html">Go to JBrowse</a>
         <p>Please note that JBrowse functions best on production Galaxy
         instances, under X-Sendfile. The paste server used in development
         instances has issues handling subrange requests needed for BAM files.</p>
