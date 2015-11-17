@@ -306,7 +306,7 @@ class Spacing(LowLevelObj):
 		self.axis_break_style = None
 		self.break_ = None
 		self.default = None
-		self.llo = [Break_Style() for num in range(int(axis_break_style))]
+		#self.llo = [Break_Style() for num in range(int(axis_break_style))]
 		
 
 class Break_Style(LowLevelObj):
@@ -499,47 +499,98 @@ class XML_parser():
 		self.data = xml_file
 		self.postprocess = [] 
 		self.recognized_objects = ['tick','link','rule','ideogram','plot','highlight']
+		self.flat_tags = []
 
 	def parse(self):
+		current_obj = ''
 		with open(self.data,'r') as handle:
 			for line in handle.readlines():
-				self.read_xml_line(line)
+				#print 'Line:'
+				#pprint(line.strip())
+				current_obj = self.read_xml_line(line.strip(),current_obj)
 
-	def read_xml_line(self,line):
+	def read_xml_line(self,line,current_obj):
 		tags = self.get_tags(line)
-		pprint(line)
-		dprint(tags)
+		#print 'Tags:'
+		#dprint(tags)
+		for tag in tags:
+			self.flat_tags.append(tag)
+			if '/' in tag:
+				tagtype = 'close'
+			else:
+				tagtype = 'open'
 		if len(tags) == 1:
-			pass
+			if tagtype == 'close':
+				prev_obj = current_obj
+				self.postprocess.append(current_obj)
+			elif tagtype == 'open':
+				txt = tag[1:len(tag)-1]
+				if txt == 'tick':
+					current_obj = Tick()
+				elif txt == 'rule':
+					current_obj = Rule()
+				elif txt == 'link':
+					current_obj = Link()
+				elif txt == 'ideogram':
+					current_obj = Ideogram()
+				elif txt == 'plot':
+					current_obj = Plot()
+				elif txt == 'highlight':
+					current_obj = Highlight()
+				else:
+					current_obj = '' 
+				
 		elif len(tags) ==2:
-			pass
-	
+			i = 0
+			attr = tags[0][1:len(tag)-2]
+			while i < len(line):
+				if line[i] == '>':
+					break
+				else:
+					i+=1
+			j = i
+			while j < len(line):
+				if line[j] == '<':
+					break
+				else:
+					j+=1
+			if attr in dir(current_obj):
+				setattr(current_obj,attr,line[i:j])
+		return current_obj
+		
 	def get_tags(self,line):
-		open_tag = re.compile('<[a-z]*>')
-		close_tag_1 = re.compile('</[a-z]*>')
+		open_tag = re.compile('<[^/]*>')
+		close_tag_1 = re.compile('</.*>')
 		close_tag_2 = re.compile('/>')
 		l = []
 		o = open_tag.match(line)
-		c1 = close_tag_1.match(line)
-		c2 = close_tag_1.match(line)
+		c1 = close_tag_1.search(line)
+		c2 = close_tag_2.match(line)
 		if o is not None:
-			dprint(o)
+			#print 'Open tag:'
+			#dprint(o)
 			open_tag_txt = o.group()
 			l.append(open_tag_txt)
 		if c1 is not None:
-			dprint(c)
-			close_tag_txt = c.group()
+			#print 'Close tag:'
+			#dprint(c1)
+			close_tag_txt = c1.group()
 			l.append(close_tag_txt)
 		if c2 is not None:
-			dprint(c)
-			close_tag_txt = c.group()
+			#print 'Close tag:'
+			#dprint(c2)
+			close_tag_txt = c2.group()
 			l.append(close_tag_txt)
 		return l
-		
-		
-
+	
 if __name__ == "__main__":
 	xml = sys.argv[1]
 	X = XML_parser(xml)
 	X.parse()
-	
+	for item in X.postprocess:
+		attr_list = []
+		for attr in dir(item):
+			if getattr(item,attr) is not None:
+				attr_list.append(attr)
+		dprint(item)
+		dprint(len(attr_list))
