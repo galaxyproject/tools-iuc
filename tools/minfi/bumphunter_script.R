@@ -1,7 +1,7 @@
 #!/usr/bin/env RScript
 
 # Import required libraries
-require('getopt');
+require('getopt')
 library('minfi', quietly=TRUE, warn.conflicts=FALSE,verbose = FALSE)
 
 # Make an option specification, with the following arguments:
@@ -10,34 +10,35 @@ library('minfi', quietly=TRUE, warn.conflicts=FALSE,verbose = FALSE)
 # 3. argument type: 0: No argument, 1: required, 2: optional
 # 4. target data type
 option_specification = matrix(c(
-  'rgset','i',1,'character',
-  'preprocess','p',2,'character',
-  'cores','c',1,'integer',
-), byrow=TRUE, ncol=4);
+  'rgset','i',1,"character",
+  'preprocess','p',2,"character",
+  'cores','c',1,"integer"
+), byrow=TRUE, ncol=4)
 
 # Parse options
-options = getopt(option_specification);
+options = getopt(option_specification)
 
 # Load the RGset data
 if(!is.null(options$rgset)){
 	load(options$rgset)
 }
+#load() now gave us an object named 'RGset'
 
 # Set phenotype data
-pd = pData(options$rgset)
+pd = pData(RGset)
 files = gsub(".+/","",pd$filenames)
 
 
 ### Preprocess data with the normalization method chosen
 
-if("${preprocess.preprocess_method}" == "quantile"){
-    object = preprocessQuantile(options$rgset)
-} else if ("${preprocess.preprocess_method}" == "noob"){
-    object = preprocessNoob(options$rgset)
-} else if ("${preprocess.preprocess_method}" == "raw"){
-    object = preprocessRaw(options$rgset)
+if(options$preprocess == "quantile"){
+    object = preprocessQuantile(RGset)
+} else if (options$preprocess == "noob"){
+    object = preprocessNoob(RGset)
+} else if (options$preprocess == "raw"){
+    object = preprocessRaw(RGset)
 } else {
-    object = options$rgset
+    object = RGset
 }
 
 
