@@ -112,8 +112,9 @@ def __main__():
     binary = options.binary
     cmd.append(binary)
     # Threads
-    threads = "-T %d" % options.threads
-    cmd.append(threads)
+    if options.threads > 1:
+        threads = "-T %d" % options.threads
+        cmd.append(threads)
     # Source
     source = "-s %s" % options.source
     cmd.append(source)
