@@ -5,6 +5,7 @@ from subprocess import call
 import sys
 import os
 import re
+import xml
 from Bio.Seq import Seq
 
 def dprint(obj):
@@ -161,6 +162,7 @@ class TopLevelObj(CircosObj):
 
 class Highlight(TopLevelObj):
 	def __init__(self):
+		TopLevelObj.__init__(self)
 		self.file_ = None
 		self.fill_color = None
 		self.ideogram = None
@@ -208,6 +210,7 @@ class Plot(TopLevelObj):
 
 class Zoom(TopLevelObj):
 	def __init__(self):
+		TopLevelObj.__init__(self)
 		self.chr_ = None
 		self.start = None
 		self.end = None
@@ -217,6 +220,7 @@ class Zoom(TopLevelObj):
 
 class Link(TopLevelObj):
 	def __init__(self):
+		TopLevelObj.__init__(self)
 		self.bezier_radius = None
 		self.bezier_radius_purity = None
 		self.color = None
@@ -238,6 +242,7 @@ class Link(TopLevelObj):
 
 class Tick(TopLevelObj):
 	def __init__(self):
+		TopLevelObj.__init__(self)
 		self.chromosomes = None
 		self.color = None
 		self.force_display = None
@@ -280,6 +285,7 @@ class Tick(TopLevelObj):
 
 class Image(TopLevelObj):
 	def __init__(self):
+		TopLevelObj.__init__(self)
 		self.twentyfourbit = None
 		self.auto_alpha_colors = None
 		self.auto_alpha_steps = None
@@ -289,6 +295,7 @@ class Image(TopLevelObj):
 		self.dir = None
 		self.file = None
 		self.radius = None
+		self.bcolor = None
 
 class LowLevelObj(CircosObj):
 	def __init__(self):
@@ -498,33 +505,26 @@ class XML_parser():
 	def __init__(self,xml_file):
 		self.data = xml_file
 		self.postprocess = [] 
-		self.recognized_objects = ['tick','link','rule','ideogram','plot','highlight']
-		self.flat_tags = []
+		self.recognized_objects = ['image','tick','link','rule','ideogram','plot','highlight']
 
 	def parse(self):
 		current_obj = ''
 		with open(self.data,'r') as handle:
 			for line in handle.readlines():
-				#print 'Line:'
-				#pprint(line.strip())
+				pre_obj = current_obj
 				current_obj = self.read_xml_line(line.strip(),current_obj)
+				if pre_obj != current_obj:
+					print 'Current Object:'
+					dprint(current_obj)
 
 	def read_xml_line(self,line,current_obj):
 		tags = self.get_tags(line)
-		#print 'Tags:'
-		#dprint(tags)
-		for tag in tags:
-			self.flat_tags.append(tag)
-			if '/' in tag:
-				tagtype = 'close'
-			else:
-				tagtype = 'open'
 		if len(tags) == 1:
-			if tagtype == 'close':
+			if '/' in tags[0]:
 				prev_obj = current_obj
 				self.postprocess.append(current_obj)
-			elif tagtype == 'open':
-				txt = tag[1:len(tag)-1]
+			else:
+				txt = tags[0][1:len(tags[0])-1]
 				if txt == 'tick':
 					current_obj = Tick()
 				elif txt == 'rule':
@@ -537,12 +537,14 @@ class XML_parser():
 					current_obj = Plot()
 				elif txt == 'highlight':
 					current_obj = Highlight()
+				elif txt == 'image':
+					current_obj = Image()
 				else:
 					current_obj = '' 
 				
-		elif len(tags) ==2:
+		elif len(tags) == 2:
 			i = 0
-			attr = tags[0][1:len(tag)-2]
+			attr = tags[0][1:len(tags[0])-1]
 			while i < len(line):
 				if line[i] == '>':
 					break
@@ -567,30 +569,75 @@ class XML_parser():
 		c1 = close_tag_1.search(line)
 		c2 = close_tag_2.match(line)
 		if o is not None:
-			#print 'Open tag:'
-			#dprint(o)
 			open_tag_txt = o.group()
 			l.append(open_tag_txt)
 		if c1 is not None:
-			#print 'Close tag:'
-			#dprint(c1)
 			close_tag_txt = c1.group()
 			l.append(close_tag_txt)
 		if c2 is not None:
-			#print 'Close tag:'
-			#dprint(c2)
 			close_tag_txt = c2.group()
 			l.append(close_tag_txt)
 		return l
 	
 if __name__ == "__main__":
-	xml = sys.argv[1]
-	X = XML_parser(xml)
-	X.parse()
-	for item in X.postprocess:
-		attr_list = []
-		for attr in dir(item):
-			if getattr(item,attr) is not None:
-				attr_list.append(attr)
-		dprint(item)
-		dprint(len(attr_list))
+	X = sys.argv[1]
+	T = xml.etree.ElementTree.parse(X)
+	R = T.getroot()
+	O = []
+	current_obj = None 
+	current_sub = None
+	subobjind= 0
+	for element in R.iter():
+		if element.tag == 'ideogram':
+			O.append(current_obj)
+			current_obj = Ideogram()
+			subobjind = 0
+		elif element.tag == 'highlight':
+			O.append(current_obj)
+			current_obj = Highlight()
+			subobjind = 0
+		elif element.tag == 'image':
+			O.append(current_obj)
+			current_obj = Image()
+			subobjind = 0
+		elif element.tag == 'tick':
+			O.append(current_obj)
+			current_obj = Tick()
+			subobjind = 0
+		elif element.tag == 'link':
+			O.append(current_obj)
+			current_obj = Link()
+			subobjind = 0
+		elif element.tag == 'zoom':
+			O.append(current_obj)
+			current_obj = Zoom()
+			subobjind = 0
+		elif element.tag == 'plot':
+			O.append(current_obj)
+			current_obj = Plot()
+			subobjind = 0
+		elif element.tag == 'rule':
+			current_sub = Rule()
+			subobjind = 1
+		elif element.tag == 'break_style':
+			current_sub = Break_Style()
+			subobjind = 1
+		elif element.tag == 'spacing':
+			current_sub = Spacing()
+			subobjind = 1
+		elif element.tag == 'pairwise':
+			current_sub = Pairwise()
+			subobjind = 1
+		elif current_obj is not None:
+			if subobjind == 0:
+				setattr(current_obj,element.tag,element.text)
+			elif subobjind == 1:
+				setattr(current_sub,element.tag,element.text)
+				current_obj.llo.append(current_sub)
+	pprint(O)
+#TODO
+"""
+XML cannot have more than one top-level element.
+Fix error causing extra "plots" block end tags.
+"""
+	
