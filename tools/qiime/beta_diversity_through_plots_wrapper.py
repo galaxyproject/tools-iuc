@@ -24,12 +24,12 @@ def html_maker(metrics):
         <script  type="text/javascript" src="/galaxy/static/scripts/libs/jquery/jquery.js"></script>
 </head>
 <body>
-	<label for="outputs">Select a beta-diversity metric :</label>
+    <label for="outputs">Select a beta-diversity metric :</label>
         <select id="outputs" name="outputs">
 %s
         </select>
-	<br/>
-	<br/>
+    <br/>
+    <br/>
         <iframe id="plot" name="plot" style="position:absolute; width: 90%%; height: 90%%;" src="" frameborder="0"></iframe>
         <script>
         $(document).ready(function(){
@@ -49,7 +49,7 @@ def html_maker(metrics):
         }).change();
 </script>
 </body>
-</html>	""" % (tag)
+</html>    """ % (tag)
     return template_html
 
 
@@ -72,7 +72,7 @@ def html_matrix_maker(metrics):
 
 
 def main():
-    
+
     #On importe l environnemnent envqiime
     pipe = subprocess.Popen(". /home12/caparmor/bioinfo/GALAXY_DEV/ourenv/envqiime; python -c 'import os; print \"newenv = %r\" % os.environ'", stdout=subprocess.PIPE, shell=True)
     exec(pipe.communicate()[0])
@@ -80,7 +80,7 @@ def main():
 
     #New parser
     parser = optparse.OptionParser()
-    #beta diversity options 
+    #beta diversity options
     parser.add_option('--metrics',dest='metrics')
     parser.add_option('--biom',dest='biom')
     parser.add_option('--mapping',dest='mapping')
@@ -91,7 +91,7 @@ def main():
     parser.add_option('--matrixhtml',dest='matrixhtml')
 
     (options,args) = parser.parse_args()
-    
+
     #New hmtl template
     master = open('./master.html', 'w')
     master.write(html_maker(options.metrics))
@@ -99,7 +99,7 @@ def main():
     #On lance le fichier avec les options precisees pour l'affichage html
     os.system("mv master.html %s" % options.masterhtml)
 
-	#parameter file, which specifies changes to the default behavior
+    #parameter file, which specifies changes to the default behavior
     parameters = open('./parameters.txt','w')
     parameters.write("beta_diversity:metrics %s" % options.metrics)
     parameters.close()
@@ -112,13 +112,13 @@ def main():
     else:
         if options.tree :
             os.system("beta_diversity_through_plots.py -i %s -m %s -t %s -o %s -p ./parameters.txt >& file_log.txt" % (options.biom, options.mapping, options.tree, options.outputfolder))
-        else :  
+        else :
             os.system("beta_diversity_through_plots.py -i %s -m %s -o %s -p ./parameters.txt >& file_log.txt" % (options.biom, options.mapping, options.outputfolder))
-    
+
     os.system("mkdir %s/txt" % (options.outputfolder))
     os.system("mv %s/*_dm.txt %s/txt" %(options.outputfolder,options.outputfolder))
     os.system("compress_path.py -i %s/txt -o %s" % (options.outputfolder,options.matrixhtml))
- 
-if __name__=="__main__": 
-	main()
+
+if __name__=="__main__":
+    main()
 
