@@ -85,28 +85,6 @@ class Otu( Text ):
             fh.close()
         return False
 
-class OtuList( Otu ):
-    file_ext = 'list'
-    def __init__(self, **kwd):
-        """
-        # http://www.mothur.org/wiki/List_file
-        The first column is a label that represents the distance that sequences were assigned to OTUs.
-        The number in the second column is the number of OTUs that have been formed. 
-        Subsequent columns contain the names of sequences within each OTU separated by a comma.
-        distance_label	otu_count	OTU1	OTU2	OTUn
-        """
-        Otu.__init__( self, **kwd )
-    def init_meta( self, dataset, copy_from=None ):
-        Otu.init_meta( self, dataset, copy_from=copy_from )
-    def set_meta( self, dataset, overwrite = True, **kwd ):
-        Otu.set_meta(self,dataset, overwrite = True, **kwd )
-        """
-        # too many columns to be stored in metadata
-        if dataset != None and dataset.metadata.columns > 2:
-            for i in range(2,dataset.metadata.columns):
-               dataset.metadata.column_types[i] = 'str'
-        """
-
 class Sabund( Otu ):
     file_ext = 'sabund'
     def __init__(self, **kwd):
@@ -154,16 +132,6 @@ class Sabund( Otu ):
         finally:
             fh.close()
         return False
-
-class Rabund( Sabund ):
-    file_ext = 'rabund'
-    def __init__(self, **kwd):
-        """
-        # http://www.mothur.org/wiki/Rabund_file
-        """
-        Sabund.__init__( self, **kwd )
-    def init_meta( self, dataset, copy_from=None ):
-        Sabund.init_meta( self, dataset, copy_from=copy_from )
 
 class GroupAbund( Otu ):
     file_ext = 'grpabund'
@@ -261,56 +229,6 @@ class GroupAbund( Otu ):
         finally:
             fh.close()
         return False
-
-class SharedRabund( GroupAbund ):
-    file_ext = 'shared'
-    def __init__(self, **kwd):
-        """
-        # http://www.mothur.org/wiki/Shared_file
-        A shared file is analogous to an rabund file. 
-        The data in a shared file represent the number of times that an OTU is observed in multiple samples. 
-        The structure of a shared file is analogous to an rabund file. 
-        The first column contains the label for the comparison - this will be the value for the first column of each line from the original list file. 
-        The second column contains the group name that designates where the data is coming from for that row. 
-        The third column is the number of OTUs that were found between each of the groups and is the number of columns that follow. 
-        Finally, the remaining columns indicate the number of sequences that belonged to each OTU from that group. 
-        """
-        GroupAbund.__init__( self, **kwd )
-    def init_meta( self, dataset, copy_from=None ):
-        GroupAbund.init_meta( self, dataset, copy_from=copy_from )
-    def sniff( self, filename ):
-        """
-        Determines whether the file is a otu (operational taxonomic unit) Shared format
-        label<TAB>group<TAB>count[<TAB>value(1..n)]
-        The first line is column headings as of Mothur v 1.20
-        """
-        # return GroupAbund.sniff(self,filename,True)
-        isme = GroupAbund.sniff(self,filename,True)
-        return isme
-        
-
-class RelAbund( GroupAbund ):
-    file_ext = 'relabund'
-    def __init__(self, **kwd):
-        """
-        # http://www.mothur.org/wiki/Relabund_file
-        The structure of a relabund file is analogous to an shared file. 
-        The first column contains the label for the comparison - this will be the value for the first column of each line from the original list file (e.g. final.an.list). 
-        The second column contains the group name that designates where the data is coming from for that row. Next is the number of OTUs that were found between each of the groups and is the number of columns that follow. 
-        Finally, the remaining columns indicate the relative abundance of each OTU from that group.
-        """
-        GroupAbund.__init__( self, **kwd )
-    def init_meta( self, dataset, copy_from=None ):
-        GroupAbund.init_meta( self, dataset, copy_from=copy_from )
-    def sniff( self, filename ):
-        """
-        Determines whether the file is a otu (operational taxonomic unit) Relative Abundance format
-        label<TAB>group<TAB>count[<TAB>value(1..n)]
-        The first line is column headings as of Mothur v 1.20
-        """
-        # return GroupAbund.sniff(self,filename,False)
-        isme = GroupAbund.sniff(self,filename,False)
-        return isme
 
 class SecondaryStructureMap(Tabular):
     file_ext = 'map'
@@ -697,15 +615,6 @@ class Group(Tabular):
         finally:
             fh.close()
 
-class Design(Group):
-    file_ext = 'design'
-    def __init__(self, **kwd):
-        """
-        # http://www.mothur.org/wiki/Design_File
-        Design file shows the relationship between a group(col 1) and a grouping (col 2), providing a way to merge groups.
-        """
-        Group.__init__( self, **kwd )
-
 class AccNos(Tabular):
     file_ext = 'accnos'
     def __init__(self, **kwd):
@@ -845,29 +754,6 @@ class Quantile(Tabular):
         finally:
             fh.close()
         return False
-
-class FilteredQuantile(Quantile):
-    file_ext = 'filtered.quan'
-    def __init__(self, **kwd):
-        """Quantiles for chimera analysis"""
-        Quantile.__init__( self, **kwd )
-        self.filtered = True
-
-class MaskedQuantile(Quantile):
-    file_ext = 'masked.quan'
-    def __init__(self, **kwd):
-        """Quantiles for chimera analysis"""
-        Quantile.__init__( self, **kwd )
-        self.masked = True
-        self.filtered = False
-
-class FilteredMaskedQuantile(Quantile):
-    file_ext = 'filtered.masked.quan'
-    def __init__(self, **kwd):
-        """Quantiles for chimera analysis"""
-        Quantile.__init__( self, **kwd )
-        self.masked = True
-        self.filtered = True
 
 class LaneMask(Text):
     file_ext = 'filter'
