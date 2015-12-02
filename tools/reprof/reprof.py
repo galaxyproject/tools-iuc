@@ -102,23 +102,24 @@ def main(fasta, modeldir):
         for col in ('RI_S', 'P10', 'RI_A', 'PACC', 'PREL', 'pH', 'pE', 'pL'):
             storeWigData(data['idx'], data[col], record.id, col + '.wig')
 
+        eco = ['{ECO:0000255|reprof_1.0.1}']
         storeGff3Data(
             'secondary_structure.gff3', record.id, data['idx'], data['PHEL'],
             {
                 'H': {
                     'type': 'peptide_helix',
-                    'label': ['Helix'],
-                    'evidence': ['ECO:0000255']
+                    'description': ['Helix'],
+                    'evidence': eco,
                 },
                 'E': {
                     'type': 'beta_strand',
-                    'label': ['Extended/Sheet'],
-                    'evidence': ['ECO:0000255']
+                    'description': ['Extended/Sheet'],
+                    'evidence': eco,
                 },
                 'L': {
                     'type': 'loop',
-                    'label': ['Loop'],
-                    'evidence': ['ECO:0000255']
+                    'description': ['Loop'],
+                    'evidence': eco,
                 }
             }
         )
@@ -128,13 +129,13 @@ def main(fasta, modeldir):
             {
                 'B': {
                     'type': 'experimental_result_region',
-                    'label': ['Buried'],
-                    'evidence': ['ECO:0000255']
+                    'description': ['Buried'],
+                    'evidence': eco,
                 },
                 'E': {
                     'type': 'experimental_result_region',
-                    'label': ['Exposed'],
-                    'evidence': ['ECO:0000255']
+                    'description': ['Exposed'],
+                    'evidence': eco,
                 },
             }
         )
