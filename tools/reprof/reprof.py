@@ -13,7 +13,7 @@ from Bio.SeqFeature import SeqFeature, FeatureLocation
 def run_reprof(query_path, modeldir):
     outtmp = tempfile.NamedTemporaryFile(delete=False)
     cmd = [
-        './reprof/scripts/reprof',
+        'reprof',
         '-i', query_path,
         '--modeldir=%s' % modeldir,
         '-o', outtmp.name
@@ -75,6 +75,22 @@ def storeGff3Data(path, id, positions, values, decodeMap):
     with open(path, 'a') as handle:
         GFF.write([rec], handle)
 
+def storeClassData(path, id, phel):
+    h = float(phel.count('H')) / float(len(phel))
+    e = float(phel.count('E')) / float(len(phel))
+
+    if h > .45 and e < .05:
+        classification = 'all-alpha'
+    elif h < .05 and e > .45:
+        classification = 'all-beta'
+    elif h > .3 and e > .2:
+        classification = 'alpha-beta'
+    else:
+        classification = 'mixed'
+
+    with open(path, 'a') as handle:
+        handle.write("{0}\t{1}\n".format(id, classification))
+
 def main(fasta, modeldir):
     for record in SeqIO.parse(fasta, 'fasta'):
         tmp = tempfile.NamedTemporaryFile(delete=False)
@@ -122,6 +138,8 @@ def main(fasta, modeldir):
                 },
             }
         )
+
+        storeClassData('report.tsv', record.id, data['PHEL'])
 
 
 if __name__ == '__main__':
