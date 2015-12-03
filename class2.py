@@ -149,153 +149,47 @@ class CircosObj():
 	def __init__(self):
 		pass
 	
-	def set_param(self,param,val):
-		vars(self)[param] = val
 
 class TopLevelObj(CircosObj):
 	def __init__(self):
 		self.llo = []
 		pass
 
-	def add_rule(self):
-		pass
-
 class Highlight(TopLevelObj):
 	def __init__(self):
 		TopLevelObj.__init__(self)
-		self.file_ = None
-		self.fill_color = None
-		self.ideogram = None
-		self.r0 = None
-		self.r1 = None
-		self.stroke_color = None
-		self.stroke_thickness = None
-		self.z = None
+		self.__name__ = 'highlight'
 	
-	def make_data_file(self):
-		pass
-
 class Ideogram(TopLevelObj):
 	def __init__(self):
 		TopLevelObj.__init__(self)
-		self.band_stroke_color = None
-		self.band_stroke_thickness = None
-		self.band_transparency = None
-		self.fill = None
-		self.fill_bands = None
-		self.fill_color = None
-		self.label_case = None
-		self.label_center = None
-		self.label_font = None
-		self.label_format = None
-		self.label_parallel = None
-		self.label_radius = None
-		self.label_size = None
-		self.label_with_tag = None
-		self.radius = None
-		self.show = None
-		self.show_bands = None
-		self.show_label = None
-		self.stroke_color = None
-		self.stroke_thickness = None
-		self.thickness = None
-		self.add_spacing()
-
-	def add_spacing(self):
-		self.llo += [Spacing()]
+		self.__name__ = 'ideogram'
 
 class Plot(TopLevelObj):
 	def __init__(self):
 		TopLevelObj.__init__(self)
+		self.__name__ = 'plot'
 
 class Zoom(TopLevelObj):
 	def __init__(self):
 		TopLevelObj.__init__(self)
-		self.chr_ = None
-		self.start = None
-		self.end = None
-		self.scale = None
-		self.smooth_steps = None
-		self.smooth_distance = None
+		self.__name__ = 'zoom'
 
 class Link(TopLevelObj):
 	def __init__(self):
 		TopLevelObj.__init__(self)
-		self.bezier_radius = None
-		self.bezier_radius_purity = None
-		self.color = None
-		self.crest = None
-		self.data_out_of_range = None
-		self.file_ = None
-		self.perturb = None
-		self.perturb_crest = None
-		self.perturb_bezier_radius = None
-		self.perturb_bezier_radius_purity = None
-		self.radius = None
-		self.record_limit = None
-		self.ribbon = None
-		self.thickness = None
-		self.z = None
-	
-	def make_file(self):
-		pass
+		self.__name__ = 'link'
 
 class Tick(TopLevelObj):
 	def __init__(self):
 		TopLevelObj.__init__(self)
-		self.chromosomes = None
-		self.color = None
-		self.force_display = None
-		self.format_ = None
-		self.grid = None
-		self.grid_color = None
-		self.grid_end = None
-		self.grid_start = None
-		self.grid_thickness = None
-		self.label = None
-		self.label_color = None
-		self.label_multiplier = None
-		self.label_offset = None
-		self.label_relative = None
-		self.label_separation = None
-		self.label_size = None
-		self.mod = None
-		self.min_distance_to_edge = None
-		self.min_label_distance_to_edge = None
-		self.multiplier = None
-		self.offset = None
-		self.position = None
-		self.prefix = None
-		self.radius = None #May be a list...
-		self.rdivisor = None
-		self.rmultiplier = None
-		self.rposition = None
-		self.rspacing = None
-		self.show = None
-		self.show_label = None
-		self.size = None
-		self.skip_first_label = None
-		self.skip_last_label = None
-		self.spacing = None
-		self.spacing_type = None
-		self.suffix = None
-		self.thickness = None
-		self.thousands_sep = None
-		self.tick_separation = None
+		self.__name__ = 'tick'
 
 class Image(TopLevelObj):
 	def __init__(self):
 		TopLevelObj.__init__(self)
-		self.twentyfourbit = None
-		self.auto_alpha_colors = None
-		self.auto_alpha_steps = None
-		self.angle_offset = None
-		self.angle_orientation = None
-		self.background = None
-		self.dir = None
-		self.file = None
-		self.radius = None
-		self.bcolor = None
+		self.__name__ = 'image'
+		self.boilerplate = '<<include etc/image.conf>>'
 
 class LowLevelObj(CircosObj):
 	def __init__(self):
@@ -304,33 +198,20 @@ class LowLevelObj(CircosObj):
 class Pairwise(LowLevelObj):
 	def __init__(self):
 		self.chromosome_pair = ['','']
-		self.spacing = None
+		self.__name__ = 'pairwise'
 
 class Spacing(LowLevelObj):
 	def __init__(self):
-		self.axis_break = None
-		self.axis_break_at_edge = None
-		self.axis_break_style = None
-		self.break_ = None
-		self.default = None
-		#self.llo = [Break_Style() for num in range(int(axis_break_style))]
+		self.__name__ = 'spacing'
 		
 
 class Break_Style(LowLevelObj):
 	def __init__(self):
-		self.fill_color = None
-		self.stroke_color = None
-		self.stroke_thickness = None
-		self.thickness = None
+		self.__name__ = 'break_style'
 
 class Rule(LowLevelObj):
 	def __init__(self):
-		self.condition = None
-		self.flow = None
-		self.importance = None
-		self.show = None
-		self.show_bands = None
-		self.show_ticks = None
+		self.__name__ = 'rule'
 	
 	def associate_parent(self,parent):
 		self.Parent = parent #Not to be added to conf file.
@@ -345,7 +226,7 @@ class Rule(LowLevelObj):
 
 
 class CircosPlot():
-	def __init__(self,basefilename):
+	def __init__(self,basefilename,obj_list):
 		self.basename = basefilename
 		self.data_dict = {}
 		self.last_filled_radius = 1.1
@@ -354,8 +235,44 @@ class CircosPlot():
 		self.track_dict = {} #Temporary -- will be obviated by XML at later stage.
 		self.add_ideogram()
 		self.add_top_lvl_params()
+		self.obj_list = obj_list
+		#FIXME Karyotype file handling!!!
+		self.boilerplate = ['<<include ideogram.conf>>\n',
+				    '<<include ticks.conf>>\n',
+				    '<<include colors_fonts_patterns.conf>>\n',
+				    '<<include housekeeping.conf>>\n'
+					]
 
-	def add_top_lvl_params():
+	def write_conf(self):
+		current_obj = None
+		f = open(self.basename+'.conf','w') 
+		for elem in self.boilerplate:
+			f.write(elem)
+		for obj in self.obj_list:
+			if obj.__name__ in ('ideogram','rule','image','plot','zoom','highlight','tick','link'):
+				if current_obj is not None:
+					f.write('<\\'+current_obj+'>'+'\n')
+				current_obj = obj.__name__
+				f.write('\n<'+current_obj+'>'+'\n')
+			for att in dir(obj):
+				if att[0:2] != '__' and att not in ['llo','boilerplate'] and getattr(obj,att) is not None and hasattr(att,'__call__') == False:
+					if getattr(obj,att)[:2] == '__':
+						val = str(getattr(obj,att)).strip()[len(str(getattr(obj,att)).strip())-6:]
+						h = [val[0:2],val[2:4],val[4:6]]
+						rgb = []
+						for num in h:
+							rgb.append(str(int(str(num),16)))
+						s = ','
+						val = s.join(rgb)
+					else:
+						val = str(getattr(obj,att)).strip()	
+					f.write(att+' = '+val.strip()+'\n')
+				elif att == 'boilerplate':
+					f.write(str(getattr(obj,att)).strip()+'\n')
+		f.close()
+			
+
+	def add_top_lvl_params(self):
 		self.anglestep = None
 		self.beziersamples = None
 		self.chromosomes_display_default = None
@@ -634,10 +551,16 @@ if __name__ == "__main__":
 			elif subobjind == 1:
 				setattr(current_sub,element.tag,element.text)
 				current_obj.llo.append(current_sub)
-	pprint(O)
+	O = O[1:]
+	dprint(O)
+	P = CircosPlot('test',O)
+	P.write_conf()
+
 #TODO
 """
-XML cannot have more than one top-level element.
-Fix error causing extra "plots" block end tags.
+Figure out how to specify karyotype file.
+Update track specifications.
+Find allowed fonts and label formats.
+LAST: Write paper as Application Note...
 """
 	
