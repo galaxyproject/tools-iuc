@@ -39,12 +39,12 @@ On a Mac with [command line tools](https://developer.apple.com/downloads/index.a
 
     brew install libxml2
 
-# Installation of ascp
+# Installation of Aspera connect ascp binary
 
 The sra-tools suite is ready to benefit from increased transfer speed and reliability by using Aspera Connect ascp.
 To benefit, download the ascp commandline client, and place ascp and the required ssh keys into a PATH accessible to galaxys job handler.
 
-A convinience package for linux and OS X is available at https://toolshed.g2.bx.psu.edu/view/mvdbeek/package_ascp_3/e109f0ec22c3 .
+A convenience package for linux and OS X is available at https://toolshed.g2.bx.psu.edu/view/mvdbeek/package_ascp_3/e109f0ec22c3 .
 It suffices to copy the contents of the $INSTALL_DIR/bin into PATH.
 
 Alternatively go to http://downloads.asperasoft.com/connect2/ .
