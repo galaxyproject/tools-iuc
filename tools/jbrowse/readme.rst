@@ -8,6 +8,12 @@ Thus, it makes an ideal fit with Galaxy, especially for use as a
 workflow summary. E.g. annotate a genome, then visualise all of the
 associated datasets as an interactive HTML page.
 
+TODO
+====
+
+- Remove this before release
+- blastXML needs to support protein, not just gff3 mapped-to-parent dna
+
 Installation
 ============
 
@@ -24,11 +30,11 @@ at any time.
 History
 =======
 
--  0.1 Initial public release
--  0.2 Added support for BAM, Blast, VCF
--  0.3 Added support for BigWig, etc
 -  0.4 Support for dataset collections and customisation of tracks including
    labelling, colours, styling.
+-  0.3 Added support for BigWig, etc
+-  0.2 Added support for BAM, Blast, VCF
+-  0.1 Initial public release
 
 Wrapper License (MIT/BSD Style)
 ===============================
