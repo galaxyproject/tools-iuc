@@ -1,8 +1,8 @@
 #!/usr/local/bin/python
 
 import sys
-from math import *
-from rpy import *
+import math
+import rpy2
 
 
 if ((len(sys.argv)-1) != 6):
