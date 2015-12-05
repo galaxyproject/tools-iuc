@@ -89,7 +89,8 @@ def storeClassData(path, id, phel):
         classification = 'mixed'
 
     with open(path, 'a') as handle:
-        handle.write("{0}\t{1}\n".format(id, classification))
+        handle.write('# id\t% alpha\t% beta\tclass\n')
+        handle.write('{0}\t{1:.2f}\t{2:.2f}\t{3}'.format(id, h, e, classification))
 
 def main(fasta, modeldir):
     for record in SeqIO.parse(fasta, 'fasta'):
