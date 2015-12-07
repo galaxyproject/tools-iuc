@@ -27,7 +27,7 @@ Functions provided and description
 Steps to use "Minfi Pipeline" (*minfi_pipeline.xml*) tool
 ===
 
-![alt tag](https://raw.github.com/username/projectname/branch/path/to/img.png)
+![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.43.07%20PM.png)
 
 
 Test Data
