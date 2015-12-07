@@ -1,6 +1,3 @@
-# TODO: Remove print statements
-# TODO: Make sure to Garbage collect
-
 # setup R error handling to go to stderr
 options(show.error.messages=F, error=function(){cat(geterrmessage(),file=stderr());q("no",1,F)})
 
@@ -14,35 +11,49 @@ args <- commandArgs(trailingOnly = TRUE)
 # get options, using the spec as defined by the enclosed list.
 # we read the options from the default: commandArgs(TRUE).
 spec <- matrix(c(
-    "quiet", "q", 0, "logicall",
-    "help", "h", 0, "logical",
-    "preprocess","p",2,"character",
-    "cores","c",1,"integer")
+    'quiet', 'q', 2, "logical",
+    'help' , 'h', 0, "logical",
+    "preprocess","p",1,"character",
+    "cores","c",1,"integer",
+    "numPositions","n",2,"integer",
+    "shrinkVar","s",2,"logical",
+    "b_permutations","b",2,"integer",
+    "smooth","m",2,"logical",
+    "cutoff","t",2,"double",
+    "l_value","l",2,"integer")
     ,byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
-# if help was asked for print a friendly message
+# If help was asked for print a friendly message
 # and exit with a non-zero error code
 if (!is.null(opt$help)) {
     cat(getopt(spec, usage=TRUE))
     q(status=1)
 }
 
-# enforce the following required arguments
 
+## Set verbose mode
+verbose = if(is.null(opt$quiet)){TRUE}else{FALSE}
+if(verbose){
+    cat("Verbose mode is ON\n\n")
+}
+
+# Enforce the following required arguments
 if (is.null(opt$preprocess)) {
-    cat("'preprocess' is required\n")
+    cat("'--preprocess' is required\n")
     q(status=1)
 }
+cat("preprocess = ",opt$preprocess,"\n")
+cat("cores = ", opt$cores, "\n")
+cat("b_permutations = ",opt$b_permutations,"\n")
+cat("smooth = ",opt$smooth,"\n")
+cat("cutoff = ",opt$cutoff,"\n")
+cat("l_value = ",opt$l_value,"\n")
+cat("numPositions = ",opt$numPositions,"\n")
+cat("shrinkVar = ",opt$shrinkVar,"\n")
 
-verbose <- if (is.null(opt$quiet)) {
-    TRUE
-} else {
-    FALSE
-}
 
 # Load required libraries
-
 suppressPackageStartupMessages({
     library("minfi")
     library("FlowSorted.Blood.450k")
@@ -56,7 +67,6 @@ minfi_config_file = paste0("minfi_temp","/minfi_config.txt")
 minfi_config = read.table(minfi_config_file)
 colnames(minfi_config) = c("status","green","red","name")
 
-minfi_config
 
 ## Make the tmpdir for symlinking data
 base_dir = paste0("minfi_temp","/base")
@@ -85,40 +95,48 @@ Basename = paste0(base_dir,"/",unique(substr(list.files(base_dir),1,17)))
 status = minfi_config[match(gsub(".+/","",Basename), minfi_config$name),"status"]
 targets = data.frame(Basename=Basename,status=status)
 
-targets
+if ( verbose ) {
+    cat("Minfi targets file:\n\n ")
+    print(targets)
+}
 
 ## Read 450k files
 RGset = read.450k.exp(targets=targets,verbose=T)
-RGset
+
+if (verbose){
+    cat("RGset has been read: \n\n")
+    print(RGset)
+}
 
 
 ## Preprocess data with the normalization method chosen
 if(opt$preprocess == "quantile"){
     normalized_RGset = preprocessQuantile(RGset)
-    print("Data has been normalized using Quantile Normalization")
+    if (verbose){cat("Preprocessed using Quantile normalization")};
 } else if (opt$preprocess == "noob"){
     normalized_RGset = preprocessNoob(RGset)
-    print("Data has been normalized using Noob Normalization")
+    if (verbose){cat("Preprocessed using Noob normalization")};
 } else if (opt$preprocess == "raw"){
     normalized_RGset = preprocessRaw(RGset)
-    print("Data has been normalized using Raw Normalization")
+    if (verbose){print("Preprocessed using Raw normalization")};
 } else if (opt$preprocess == "illumina"){
     normalized_RGset = preprocessIllumina(RGset,bg.correct = TRUE, normalize = c("controls", "no"),reference = 1)
-    print("Data has been normalized using Illumina Normalization")
-} else if (opt$preprocess == "preprocessFunnorm"){
+    if(verbose){print("Preprocessed using Illumina normalization")}
+} else if (opt$preprocess == "funnorm"){
     normalized_RGset = preprocessFunnorm(RGset)
-    print("Data has been normalized using Functional Normalization")
-} else {
+    if(verbose){print("Preprocessed using Functional normalization")}
+} else if (opt$preprocess == "swan"){ 
+    normalized_RGset = preprocessSWAN(RGset)
+    if(verbose){print("Preprocessed using SWAN normalization")}
+}else {
     normalized_RGset = RGset
-    print("No Normalization applied")
+    if(verbose){print("Preprocessed using No normalization")}
 }
-
 
 ## Get beta values from Proprocessed data
 beta = getBeta(normalized_RGset)
-
 ## Set phenotype data
-pd = pData(RGset)
+pd = pData(normalized_RGset)
 
 
 ## QC REPORT
@@ -139,34 +157,35 @@ files = gsub(".+/","",pd$filenames)
 if (!is.null(RGset)) {
     ## Make PDF of MDS plot
     pdf("mds_plot.pdf")
-    minfi::mdsPlot(dat=RGset,sampNames=files,sampGroups=pd$status,main="Beta MDS",numPositions=1000,pch=19)
+    minfi::mdsPlot(dat=RGset,sampNames=files,sampGroups=pd$status,main="Beta MDS",numPositions = opt$numPositions,pch=19)
     dev.off()
 }
 
+if(verbose){
+    cat("Made plot of QC report and MDS plot\n\n")
+}
+
+
 ## TODO: Fix Estimate cell counts!
 # Estimate Cell counts
-#result = minfi::estimateCellCounts(dat=RGset,meanPlot="${meanplot}")
-#write.table(result,file="estimated_cell_counts.txt",quote=FALSE,row.names=FALSE)
+#if(!is.null(RGset)){
+    #cell_counts = minfi::estimateCellCounts(rgSet=RGset,meanPlot=TRUE)
+    #write.csv(cell_counts,file="estimated_cell_counts.csv",quote=FALSE,row.names=TRUE)
+#}
+#if(verbose){
+    #cat("Cell Counts estimated\n\n")
+#}
 
-print("Plot making finished")
 
 ## DMP finder
-dmp = dmpFinder(dat=beta,pheno=pd$status,type="categorical")
-#,shrinkVar="${shrinkVar}")
-write.table(dmp,file="dmps.csv",quote=FALSE,row.names=TRUE)
-print("DMP Finder successful")
+dmp = dmpFinder(dat=beta,pheno=pd$status,type="categorical",shrinkVar=opt$shrinkVar)
+write.csv(dmp,file="dmps.csv",quote=FALSE,row.names=TRUE)
+if(verbose){
+    cat("DMP Finder successful \n")
+}
 
-
-#M = getM(normalized_RGset)
-#Beta = getBeta(normalized_RGset)
-#CN = getCN(normalized_RGset)
-#chr = seqnames(normalized_RGset)
-#pos = start(normalized_RGset)
-
-#print("retrieved Beta and meth values")
 
 # Model Matrix to pass into the bumphunter function
-pd=pData(normalized_RGset)
 T1= levels(pd$status)[2]
 T2= levels(pd$status)[1]
 
@@ -177,27 +196,40 @@ keep=pd$status%in%c(T1,T2)
 tt=factor(pd$status[keep],c(T1,T2))
 design=model.matrix(~tt)
 
-design
+if(verbose){
+    cat("Model matrix is: \n")
+    design
+}
 
 # Start bumphunter in a parallel environment
 # Parallelize over cores on machine
 registerDoParallel(cores = opt$cores)
 
 ## Bumphunter Run with normalized_RGset processed with Quantile Normalization
-res=bumphunter(normalized_RGset[,keep],design,B=25,smooth=FALSE,cutoff= 0.3,type="Beta")
+res=bumphunter(normalized_RGset[,keep],design,B=opt$b_permutations,smooth=opt$smooth,cutoff= opt$cutoff,type="Beta")
 bumps= res$tab
 
-print("DMRs found with bumphunter")
-head(bumps)
+if(verbose){
+    cat("Bumphunter result", "\n")
+    head(bumps)
+}
+
 
 ## Choose DMR's of a certain length threshold.
 ## This helps reduce the size of DMRs early, and match
 ## with genes closest to region
-print("Excluding DMR's with length smaller than 4")
-bumps = bumps[bumps$L>4,]
+bumps = bumps[bumps$L > opt$l_value,]
+genes <- annotateTranscripts(TxDb.Hsapiens.UCSC.hg19.knownGene)
+tab=matchGenes(bumps,genes)
+annotated_dmrs=cbind(bumps,tab)
+
+if(verbose){
+    cat("Match with annotation\n")
+    head(annotated_dmrs)
+}
 
 # Save result, which contains DMR's and closest genes
-write.table(bumps,file = "dmrs.csv",quote=FALSE)
+write.table(annotated_dmrs,file = "dmrs.csv",quote=FALSE,row.names=TRUE)
 
 # Garbage collect
 gc()
