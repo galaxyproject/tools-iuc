@@ -20,23 +20,14 @@ https://bioconductor.org/help/course-materials/2014/BioC2014/minfi_BioC2014.pdf
 Functions provided and description
 ===
 
-1. Read 450K IDAT (read_450k_idat.xml) :
+1. Analyze Custom Illumina 450k IDAT files (minfi_pipeline.xml)
 
-2. Read TCGA 450k IDAT files (read_TCGA.xml) :
+2. Analyze TCGA 450k IDAT files (minfi_TCGA_pipeline.xml) 
 
-3. Density plot (density_plot.xml) :
+Steps to use *minfi_pipeline.xml*
+===
 
-4. Multidimentional scaling plot (mds_plot.xml) :
 
-5. QC Report (qc_report.xml) :
-
-6. Differentially Methylated Position Finder (dmp_finder.xml) :
-
-7. Bumphunter (bumphunter_script.xml) :
-
-8. Block Finder (block_finder.xml) :
-
-9. Estimating Cell Counts (estimate_cell_counts.xml) :
 
 
 Test Data
