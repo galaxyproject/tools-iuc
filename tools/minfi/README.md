@@ -24,10 +24,10 @@ Functions provided and description
 
 2. Analyze TCGA 450k IDAT files (minfi_TCGA_pipeline.xml) 
 
-Steps to use *minfi_pipeline.xml*
+Steps to use "Minfi Pipeline" (*minfi_pipeline.xml*) tool
 ===
 
-
+![alt tag](https://raw.github.com/username/projectname/branch/path/to/img.png)
 
 
 Test Data
