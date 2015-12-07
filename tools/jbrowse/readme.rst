@@ -6,18 +6,21 @@ JBrowse in Galaxy
 
 Thus, it makes an ideal fit with Galaxy, especially for use as a
 workflow summary. E.g. annotate a genome, then visualise all of the
-associated datasets as an interactive HTML page.
+associated datasets as an interactive HTML page. This tool MUST be whitelisted
+(or ``sanitize_all_html=False``) to function correctly.
 
 TODO
 ====
 
 - Remove this before release
 - blastXML needs to support protein, not just gff3 mapped-to-parent dna
+- support blastxml nucleotide queries
+- check feature parity with Trackster
 
 Installation
 ============
 
-It is recommended to install this wrapper via the Galaxy Tool Shed
+It is recommended to install this wrapper via the Galaxy Tool Shed.
 
 Running Locally
 ===============
@@ -31,10 +34,11 @@ History
 =======
 
 -  0.4 Support for dataset collections and customisation of tracks including
-   labelling, colours, styling.
--  0.3 Added support for BigWig, etc
--  0.2 Added support for BAM, Blast, VCF
--  0.1 Initial public release
+   labelling, colours, styling. Added support for genetic code selection.
+   Fixed package installation recipe issues.
+-  0.3 Added support for BigWig, etc.
+-  0.2 Added support for BAM, Blast, VCF.
+-  0.1 Initial public release.
 
 Wrapper License (MIT/BSD Style)
 ===============================

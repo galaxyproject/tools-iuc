@@ -154,7 +154,11 @@ class JbrowseConnector(object):
         if standalone:
             self.clone_jbrowse(self.jbrowse, self.outdir)
         else:
-            os.makedirs(self.outdir)
+            try:
+                os.makedirs(self.outdir)
+            except OSError:
+                # Ignore if the folder exists
+                pass
 
         self.process_genomes()
 
@@ -465,7 +469,7 @@ class JbrowseConnector(object):
         """
         # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
         # unlike copytree
-        cmd = ['cp', '-r', jbrowse_dir, destination]
+        cmd = ['rsync', '-r', os.path.join(jbrowse_dir, ''), destination]
         subprocess.check_call(cmd)
         cmd = ['mkdir', '-p', os.path.join(destination, 'data', 'raw')]
         subprocess.check_call(cmd)
@@ -526,14 +530,3 @@ if __name__ == '__main__':
         log.debug('Parsed Track: \n%s', pprint.pformat(track_conf))
 
         jc.process_annotations(track_conf)
-
-    print """
-    <html>
-        <body>
-        <a href="index.html">Go to JBrowse</a>
-        <p>Please note that JBrowse functions best on production Galaxy
-        instances, under X-Sendfile. The paste server used in development
-        instances has issues handling subrange requests needed for BAM files.</p>
-        </body>
-    </html>
-    """
