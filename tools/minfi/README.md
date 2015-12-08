@@ -29,6 +29,28 @@ Steps to use "Minfi Pipeline" (*minfi_pipeline.xml*) tool
 
 ![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.43.07%20PM.png)
 
+![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.43.28%20PM.png)
+
+![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.43.41%20PM.png)
+
+![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.44.32%20PM.png)
+
+![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.45.18%20PM.png)
+
+![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.46.59%20PM.png)
+
+![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.47.30%20PM.png)
+
+![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.47.59%20PM.png)
+
+![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.48.22%20PM.png)
+
+![Upload](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.48.53%20PM.png)
+
+![pen](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.53.03%20PM.png)
+
+![ult](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.55.57%20PM.png)
+
 
 Test Data
 ====
