@@ -5,10 +5,6 @@ Least Common Ancestor tool.
 """
 import sys, string, re, commands, tempfile, random
 
-def stop_err(msg):
-    sys.stderr.write(msg)
-    sys.exit()
-
 def main():
     try:
         inputfile = sys.argv[1]
@@ -40,13 +36,13 @@ def main():
         subspecies  :23,
         """
     except:
-        stop_err("Syntax error: Use correct syntax: program infile outfile")
+        sys.exit("Syntax error: Use correct syntax: program infile outfile")
     
     fin = open(sys.argv[1],'r')
     for j, line in enumerate( fin ):
         elems = line.strip().split('\t')
         if len(elems) < 24:
-            stop_err("The format of the input dataset is incorrect. Taxonomy datatype should contain at least 24 columns.")
+            sys.exit("The format of the input dataset is incorrect. Taxonomy datatype should contain at least 24 columns.")
         if j > 30:
             break
         cols = range(1,len(elems))
@@ -66,12 +62,12 @@ def main():
         """
         command_line = "sort -f -k " + str(group_col+1) +"," + str(group_col+1) + " -o " + tmpfile.name + " " + inputfile
     except Exception, exc:
-        stop_err( 'Initialization error -> %s' %str(exc) )
+        sys.exit( 'Initialization error -> %s' %str(exc) )
         
     error_code, stdout = commands.getstatusoutput(command_line)
     
     if error_code != 0:
-        stop_err( "Sorting input dataset resulted in error: %s: %s" %( error_code, stdout ))    
+        sys.exit( "Sorting input dataset resulted in error: %s: %s" %( error_code, stdout ))    
 
     prev_item = ""
     prev_vals = []
