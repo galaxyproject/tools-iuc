@@ -72,19 +72,13 @@ taxRank = {
         'order'       :13
     }
 
-
-def stop_err(msg):
-    sys.stderr.write(msg)
-    sys.exit()
-
-
 db = tempfile.NamedTemporaryFile('w')
 
 try:
     con = sqlite.connect(db.name)
     cur = con.cursor()
 except:
-    stop_err('Cannot connect to %s\n') % db.name
+    sys.exit('Cannot connect to %s\n') % db.name
     
 try:
     tax_file   = open(sys.argv[1], 'r')
@@ -96,18 +90,19 @@ try:
     elif sys.argv[4] == 'counts':
         out_format = False
     else:
-        stop_err('Please specify "reads" or "counts" for output format\n')
+        sys.exit('Please specify "reads" or "counts" for output format\n')
+    
     out_file = open(sys.argv[5], 'w')
     
 except:
-    stop_err('Check arguments\n')
+    sys.exit('Check arguments\n')
     
-if taxa[0] == 'None': stop_err('Please, use checkboxes to specify taxonomic ranks.\n')
+if taxa[0] == 'None': sys.exit('Please, use checkboxes to specify taxonomic ranks.\n')
 
 sql = ""
 for i in range(len(taxa)):
-        if taxa[i] == 'order': taxa[i] = 'ord' # SQL does not like fields to be named 'order'
-        sql += '%s text, ' % taxa[i]
+    if taxa[i] == 'order': taxa[i] = 'ord' # SQL does not like fields to be named 'order'
+    sql += '%s text, ' % taxa[i]
 
 sql = sql.strip(', ')
 sql = 'create table tax (name varchar(50) not null, ' + sql + ')'
@@ -134,7 +129,7 @@ try:
         val_string = "insert into tax values(" + val_string + ")"
         cur.execute(val_string)
 except Exception, e:
-    stop_err('%s\n' % e)
+    sys.exit('%s\n' % e)
 
 tax_file.close()    
 
@@ -163,5 +158,5 @@ try:
                 out_string += rankName
                 print >>out_file, out_string
 except Exception, e:
-    stop_err("%s\n" % e)
+    sys.exit("%s\n" % e)
     
