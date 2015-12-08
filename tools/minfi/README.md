@@ -26,9 +26,10 @@ https://www.bioconductor.org/help/course-materials/2015/BioC2015/methylation450k
 Functions provided and description
 ===
 
-1. Analyze Custom Illumina 450k IDAT files (minfi_pipeline.xml)
+1. **Minfi** **Pipeline** to analyze illumina 450k data. (minfi_pipeline.xml)
 
-2. Analyze TCGA 450k IDAT files (minfi_TCGA_pipeline.xml) 
+2. **Minfi** **Analysis** **pipeline** for TCGA data hosted on GDAC-Broad Institute.(minfi_TCGA_pipeline.xml) 
+
 
 Steps to use "Minfi Pipeline to analyze illumina 450k data" (*minfi_pipeline.xml*) tool
 ===
