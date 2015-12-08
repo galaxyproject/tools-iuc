@@ -3,7 +3,12 @@
 """
 Least Common Ancestor tool.
 """
-import sys, string, re, commands, tempfile, random
+import sys
+import string
+import re
+import commands
+import tempfile
+import random
 
 def main():
     try:
@@ -45,7 +50,7 @@ def main():
             sys.exit("The format of the input dataset is incorrect. Taxonomy datatype should contain at least 24 columns.")
         if j > 30:
             break
-        cols = range(1,len(elems))
+        cols = range(1, len(elems))
     fin.close()
        
     group_col = 0
@@ -115,7 +120,7 @@ def main():
                         while k < 23:
                             out_list[k+1] = 'n' 
                             k += 1
-                        
+
                         j = 0
                         while True:
                             try:
@@ -123,13 +128,13 @@ def main():
                                 j += 1
                             except:
                                 break
-                            
+  
                         if rank_bound == 0:     
-                            print >>fout, '\t'.join(out_list).strip()
+                            fout.write('\t'.join(out_list).strip())
                         else:
                             if ''.join(out_list[rank_bound:24]) != 'n'*( 24 - rank_bound ):
-                                print >>fout, '\t'.join(out_list).strip()
-                        
+                                fout.write('\t'.join(out_list).strip())
+ 
                         block_valid = True
                         prev_item = item   
                         prev_vals = [] 
@@ -137,7 +142,7 @@ def main():
                             val_list = []
                             val_list.append(fields[col].strip())
                             prev_vals.append(val_list)
-                        
+ 
                 else:
                     # This only occurs once, right at the start of the iteration.
                     block_valid = True
@@ -146,12 +151,12 @@ def main():
                         val_list = []
                         val_list.append(fields[col].strip())
                         prev_vals.append(val_list)
-            
+
             except:
                 skipped_lines += 1
         else:
             skipped_lines += 1
-            
+  
     # Handle the last grouped value
     out_list = ['']*24
     out_list[0] = str(prev_item)
@@ -177,11 +182,11 @@ def main():
             break
         
     if rank_bound == 0:     
-        print >>fout, '\t'.join(out_list).strip()
+        fout.write('\t'.join(out_list).strip())
     else:
-        if ''.join(out_list[rank_bound:24]) != 'n'*( 24 - rank_bound ):
-            print >>fout, '\t'.join(out_list).strip()
-        
+        if ''.join(out_list[rank_bound:24]) != 'n' * ( 24 - rank_bound ):
+            fout.write('\t'.join(out_list).strip())
+
     if skipped_lines > 0:
         print "Skipped %d invalid lines." % ( skipped_lines )
     
