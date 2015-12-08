@@ -80,7 +80,7 @@ try:
     con = sqlite.connect(db.name)
     cur = con.cursor()
 except:
-    sys.exit('Cannot connect to %s\n') % db.name
+    sys.exit('Cannot connect to %s\n' % db.name)
     
 try:
     tax_file   = open(sys.argv[1], 'r')
