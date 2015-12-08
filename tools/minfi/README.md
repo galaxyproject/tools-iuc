@@ -61,8 +61,7 @@ Steps to use "Minfi Pipeline" (*minfi_pipeline.xml*) tool
 
 9. From the "Minfi" tools, choose "Minfi pipeline to analyse Illumina 450k data". In the tool form, we select, "Condition1/Treatment" as Case, and "Condition2/Wildtype" as Contorl. After choosing a preprocessing method "Qunatile" and Basic parameters, we run the tool.
 
-![minfitoolform](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.48.53%20PM.png)
-
+![minfitoolform](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-08%20at%205.30.54%20AM.png)
 
 10. This shows the successful run of the tool, with Basic parameters, and shows 4 results in your history panel. QC report, MDS plot, Differentially methylated positions and differentially methylated regions.
 
