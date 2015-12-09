@@ -36,6 +36,8 @@ def test_routine():
 			'histogram':args.b}
 	D._parse_files()
 	dprint(D.files_dict)
+	D.files_dict['heatmap'].pop(0)
+	dprint(D.files_dict)
 	P = CircosPlot('plot',D.object_list,D.karyotype,D.files_dict)
 	#P.files_list = D.txtlist
 	P.write_conf()
@@ -510,6 +512,9 @@ class CircosPlot():
 				f.write('\n<'+current_obj+'>'+'\n')
 				if current_obj == 'ideogram':
 					f.write('<spacing>\ndefault = 0.25r\n</spacing>\n')
+				if current_obj == 'plot':
+					obj.file = self.files_dict[obj.type][0]
+					self.files_dict[obj.type].pop(0)
 			for att in dir(obj):
 				if att[0:2] != '__' and att not in ['llo','boilerplate'] and getattr(obj,att) is not None and hasattr(att,'__call__') == False:
 					if getattr(obj,att)[:2] == '__':
