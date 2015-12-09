@@ -1,4 +1,6 @@
 from pprint import pprint
+import brewer2mpl
+import argparse
 from jinja2 import Template, Environment, PackageLoader
 from BCBio import GFF
 from subprocess import call
@@ -31,7 +33,7 @@ class DataInterpreter():
 				self._make_karyotype(self.files_dict[f])
 			elif f == "scatter":
 				if ext in ('.gff','.gff3'):
-					self.files_dict[f] = self.parse_gff3(self.files_dict[f])
+					self.parse_gff3(f)
 				elif ext in ('.wig','.bigWig','.bw'):
 					self.parse_bigWig(f)
 			elif ext == ".bed":
@@ -41,7 +43,7 @@ class DataInterpreter():
 			elif ext in (".gff",".gff3"):
 				self.files_dict[f] = self.parse_gff3(f)
 			elif ext == ".fa":
-				self.files_dict[f] = self.parse_fastA(self.files_dict[f])
+				self.files_dict[f] = self.parse_fasta(self.files_dict[f])
 			else:
 				raise ValueError('Unsupported File Format')
 		
@@ -96,7 +98,9 @@ class DataInterpreter():
 			
 
 	def parse_gff3(self,key):
-		with open(self.files_dict[key]) as input_handle:
+		#FIXME Seems there's no nontrivial way to move gff3 file info into Circos... For now...
+		raise Exception()
+		with open(self.files_dict[key],'r') as input_handle:
 			for rec in GFF.parse(input_handle):
 				flat_list = []
 				features_dict = {}
@@ -108,7 +112,9 @@ class DataInterpreter():
 						flat_list = self._process_obj_subfeatures(obj,flat_list)
 				tmpdict['features'] = flat_list
 				features_dict[rec.id] = tmpdict
-		if key == scatter:
+			for element in tmpdict['features']:
+				dprint(element.qualifiers)
+		if key == 'scatter':
 			filename = str(key)+'.txt'
 			g = open(filename,'w')
 			g.close()
@@ -128,7 +134,7 @@ class DataInterpreter():
 				flist.append(element)
 		return flist
 	
-	def parse_fastA(self,f):
+	def parse_fasta(self,f):
 		self.seq_dict = {}
 		seqname = ''
 		seqres = ''
@@ -510,6 +516,8 @@ class CircosPlot():
 		pass
 
 if __name__ == "__main__":
+	brewer2mpl.print_maps()
+	dprint('x')
 	X = sys.argv[1]
 	files_list = sys.argv[2:]
 	T = xml.etree.ElementTree.parse(X)
@@ -524,12 +532,7 @@ if __name__ == "__main__":
 
 #TODO
 """
-Figure out how to specify karyotype file.
-Get data input files turned into text files...
-Update track specifications.
-Add Brewer palette to heatmaps.
-Find allowed fonts and label formats.
-Change "parse_fasta" to produce a text karyotype file.
+Add support for sub-objects.
 LAST: Write paper as Application Note...
 """
 	
