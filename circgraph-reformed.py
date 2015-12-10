@@ -3,6 +3,7 @@ from jinja2 import Template, Environment, PackageLoader
 from BCBio import GFF
 from subprocess import call
 from Bio.Seq import Seq
+import itertools
 import sys
 import copy
 import os
@@ -27,6 +28,7 @@ def test_routine():
 	A.add_argument('-I',nargs='*')
 	A.add_argument('-s',nargs='*')
 	A.add_argument('-b',nargs='*')
+	A.add_argument('-l',nargs='*')
 	args = A.parse_args()
 	X = args.xml[0] 
 	T = xml.etree.ElementTree.parse(X)
@@ -36,9 +38,12 @@ def test_routine():
 			'scatter':args.s,
 			'heatmap':args.H,
 			'histogram':args.b,
-			'highlight':args.I}
+			'highlight':args.I,
+			'link':[args.l[0]]}
+	D.assoc_chromosomes = args.l[1:]
 	D._parse_files()
-	P = CircosPlot('plot',D.object_list,D.karyotype,D.files_dict)
+	dprint(D.files_dict)
+	P = CircosPlot('link',D.object_list,D.karyotype,D.files_dict)
 	#P.files_list = D.txtlist
 	P.write_conf()
 
@@ -50,7 +55,7 @@ class DataInterpreter():
 		if self.files_dict == {}:
 		#FIXME
 			files_dict = self._get_files_from_xml()
-		self._parse_files()
+		#self._parse_files()
 
 	def _create_object_list(self):
 		self.object_list = []
@@ -91,6 +96,7 @@ class DataInterpreter():
 
 	def _make_karyotype(self,f,filename="karyotype"):
 		self.karyotype = filename+'.txt'
+		self.chromosomes = []
 		i = 0
 		seqlen = 0
 		space = ' '
@@ -103,11 +109,32 @@ class DataInterpreter():
 						seqlen = 0
 					i+=1
 					cname = line[1:].strip()
+					self.chromosomes.append(cname)
 				else:
 					seqlen += len(line.strip())
 			g.write(space.join(['chr','-',cname,str(i),str(0),str(seqlen),COLORS_LIST[i]+'\n']))
 			g.close()
 		return self.karyotype
+
+	def parse_backbone(self,key,f,index):
+		filename = str(key)+'-'+str(index)+'.txt'
+		chrom_list = [self.chromosomes[int(c)] for c in self.assoc_chromosomes]
+		with open(f,'r') as input_handle:
+			g = open(filename,'w')
+			for line in input_handle:
+				links = []
+				i = 0
+				data = line.split()
+				for element in range(0,len(data),2):
+					if data[element] != '0' and data[element][0]!='s':
+						links.append((chrom_list[element/2],data[element],data[element+1]))
+				for n in itertools.combinations([i for i in range(len(links))],2):
+					for j in n:
+						g.write(' '.join([word for word in links[j]]))
+						g.write(' ')
+					g.write('\n')
+			g.close()
+		return filename 
 
 	def parse_bed(self, key,f,index):
 		bed_standard_fields = ['chromosome','start','end',
@@ -190,22 +217,25 @@ class DataInterpreter():
 		return filename
 
 	def _parse_files(self):
-		tmp = {'karyotype':[],'scatter':[],'heatmap':[],'histogram':[],'highlight':[]}
+		tmp = {'karyotype':[],'scatter':[],'heatmap':[],'histogram':[],'highlight':[],'link':[]}
 		i = 1
+		tmp['karyotype'] = self._make_karyotype(self.files_dict['karyotype'][0])
 		for key in self.files_dict:
 			if self.files_dict[key] is not None:
 				for f in self.files_dict[key]:
 				#TODO Each parse method needs to update self.files_dict to a text file compatible with Circos.
 					ext = os.path.splitext(f)[1]
 					if key == "karyotype":
-						tmp[key] = self._make_karyotype(f)
-					elif key in ("scatter","heatmap","histogram","highlight"):
+						continue
+					elif key in ("link","scatter","heatmap","histogram","highlight"):
 						if ext in ('.gff','.gff3'):
 							tmp[key].append(self.parse_gff3(key,f,i))
 						elif ext in ('.wig','.bigWig','.bw'):
 							tmp[key].append(self.parse_bigWig(key,f,i))
 						elif ext == ".bed":
 							tmp[key].append(self.parse_bed(key,f,i))
+						elif ext == ".backbone":
+							tmp[key].append(self.parse_backbone(key,f,i))
 						else:
 							raise Exception('Unsupported File Format')
 						i+=1
@@ -288,6 +318,7 @@ class Link(TopLevelObj):
 	def __init__(self):
 		TopLevelObj.__init__(self)
 		self.__name__ = 'link'
+		self.type = 'link'
 
 class Tick(TopLevelObj):
 	def __init__(self):
@@ -501,14 +532,14 @@ class CircosPlot():
 					f.write('</'+current_obj+'>'+'\n')
 				prev_obj = current_obj
 				current_obj = obj.__name__
-				if current_obj != prev_obj and prev_obj in ('plot','highlight'):
+				if current_obj != prev_obj and prev_obj in ('link','plot','highlight'):
 					f.write('</'+prev_obj+'s>\n')
-				if current_obj in ('plot','highlight') and prev_obj != current_obj:
+				if current_obj in ('plot','highlight','link') and prev_obj != current_obj:
 					f.write('<'+current_obj+'s>\n')
 				f.write('\n<'+current_obj+'>'+'\n')
 				if current_obj == 'ideogram':
 					f.write('<spacing>\ndefault = 0.25r\n</spacing>\n')
-				if current_obj in ('plot','highlight') and 'file' not in dir(obj):
+				if current_obj in ('plot','highlight','link') and 'file' not in dir(obj):
 					obj.file = self.files_dict[obj.type][0]
 					self.files_dict[obj.type].pop(0)
 			for att in dir(obj):
@@ -533,7 +564,7 @@ class CircosPlot():
 				elif att == 'boilerplate':
 					f.write(str(getattr(obj,att)).strip()+'\n')
 		f.write('</'+current_obj+'>'+'\n')
-		if current_obj in ('plot','highlight'):
+		if current_obj in ('plot','highlight','link'):
 			f.write('</'+current_obj+'s>\n')
 		f.close()
 	
