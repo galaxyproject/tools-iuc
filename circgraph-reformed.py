@@ -4,6 +4,7 @@ from BCBio import GFF
 from subprocess import call
 from Bio.Seq import Seq
 import sys
+import copy
 import os
 import re
 import xml
@@ -20,11 +21,12 @@ def dprint(obj):
 
 def test_routine():
 	A = argparse.ArgumentParser()
-	A.add_argument('xml',metavar="X",type=str,nargs=1)
-	A.add_argument('-k',metavar="K",type=str,nargs='*')
-	A.add_argument('-H',metavar="H",type=str,nargs='*')
-	A.add_argument('-s',metavar="S",type=str,nargs='*')
-	A.add_argument('-b',metavar="B",type=str,nargs='*')
+	A.add_argument('xml',nargs=1)
+	A.add_argument('-k',nargs='*')
+	A.add_argument('-H',nargs='*')
+	A.add_argument('-I',nargs='*')
+	A.add_argument('-s',nargs='*')
+	A.add_argument('-b',nargs='*')
 	args = A.parse_args()
 	X = args.xml[0] 
 	T = xml.etree.ElementTree.parse(X)
@@ -33,11 +35,9 @@ def test_routine():
 	D.files_dict = {'karyotype':args.k,
 			'scatter':args.s,
 			'heatmap':args.H,
-			'histogram':args.b}
+			'histogram':args.b,
+			'highlight':args.I}
 	D._parse_files()
-	dprint(D.files_dict)
-	D.files_dict['heatmap'].pop(0)
-	dprint(D.files_dict)
 	P = CircosPlot('plot',D.object_list,D.karyotype,D.files_dict)
 	#P.files_list = D.txtlist
 	P.write_conf()
@@ -64,22 +64,22 @@ class DataInterpreter():
 		for element in self.xmlroot.iter():
 			if element.tag in recognized_objects:
 				if current_sub is not None:
-					current_obj.llo.append(current_sub)
+					current_obj.llo.append(copy.copy(current_sub))
 				if current_obj is not None:
-					self.object_list.append(current_obj)
+					self.object_list.append(copy.copy(current_obj))
 				current_obj = recognized_objects[element.tag]
 				subobjind = 0
 			elif current_obj is not None:
 				if element.tag in recognized_subobjects:
 					subobjind = 1
 					if current_sub is not None:
-						current_obj.llo.append(current_sub)
+						current_obj.llo.append(copy.copy(current_sub))
 					current_sub = recognized_subobjects[element.tag]
 				if subobjind == 0:
 					setattr(current_obj,element.tag,element.text)
 				elif subobjind == 1:
 					setattr(current_sub,element.tag,element.text)
-		self.object_list.append(current_obj)
+		self.object_list.append(copy.copy(current_obj))
 	
 	def _get_files_from_xml(self):
 		#TODO When the time comes to create the final Galaxy tool...
@@ -190,33 +190,34 @@ class DataInterpreter():
 		return filename
 
 	def _parse_files(self):
-		tmp = {'karyotype':[],'scatter':[],'heatmap':[],'histogram':[]}
+		tmp = {'karyotype':[],'scatter':[],'heatmap':[],'histogram':[],'highlight':[]}
 		i = 1
 		for key in self.files_dict:
-			for f in self.files_dict[key]:
-			#TODO Each parse method needs to update self.files_dict to a text file compatible with Circos.
-				ext = os.path.splitext(f)[1]
-				if key == "karyotype":
-					tmp[key] = self._make_karyotype(f)
-				elif key in ("scatter","heatmap","histogram"):
-					if ext in ('.gff','.gff3'):
-						tmp[key].append(self.parse_gff3(key,f,i))
-					elif ext in ('.wig','.bigWig','.bw'):
-						tmp[key].append(self.parse_bigWig(key,f,i))
-					elif ext == ".bed":
-						tmp[key].append(self.parse_bed(key,f,i))
+			if self.files_dict[key] is not None:
+				for f in self.files_dict[key]:
+				#TODO Each parse method needs to update self.files_dict to a text file compatible with Circos.
+					ext = os.path.splitext(f)[1]
+					if key == "karyotype":
+						tmp[key] = self._make_karyotype(f)
+					elif key in ("scatter","heatmap","histogram","highlight"):
+						if ext in ('.gff','.gff3'):
+							tmp[key].append(self.parse_gff3(key,f,i))
+						elif ext in ('.wig','.bigWig','.bw'):
+							tmp[key].append(self.parse_bigWig(key,f,i))
+						elif ext == ".bed":
+							tmp[key].append(self.parse_bed(key,f,i))
+						else:
+							raise Exception('Unsupported File Format')
+						i+=1
 					else:
-						raise Exception('Unsupported File Format')
-					i+=1
-				else:
-					raise Exception('Unsupported Data Type')
+						raise Exception('Unsupported Data Type')
 		self.files_dict = tmp
 
 	def parse_gff3(self,key,f,index):
 		#FIXME Seems there's no nontrivial way to represent gff3 file info in Circos... 
 		#For now...
-		raise Exception()
-		with open(self.files_dict[key],'r') as input_handle:
+		filename = str(key)+'-'+str(index)+'.txt'
+		with open(f,'r') as input_handle:
 			for rec in GFF.parse(input_handle):
 				flat_list = []
 				features_dict = {}
@@ -230,17 +231,11 @@ class DataInterpreter():
 						flat_list = self._process_obj_subfeatures(obj,flat_list)
 				tmpdict['features'] = flat_list
 				features_dict[rec.id] = tmpdict
-			for element in tmpdict['features']:
-				dprint(element.qualifiers)
-		if key == 'scatter':
-			filename = str(key)+'-'+str(index)+'.txt'
 			g = open(filename,'w')
+			for element in tmpdict['features']:
+				g.write(' '.join([rec.id,str(int(element.location.start)),str(int(element.location.end))+'\n']))
 			g.close()
-		elif key == 'heat':
-			pass
-		else:
-			pass
-		self.files_dict[key] = g 
+		return filename
 
 		
 	def _process_obj_subfeatures(self,obj,flist):
@@ -267,6 +262,7 @@ class Highlight(TopLevelObj):
 	def __init__(self):
 		TopLevelObj.__init__(self)
 		self.__name__ = 'highlight'
+		self.type = 'highlight'
 
 class Karyotype(TopLevelObj):
 	def __init__(self):
@@ -505,14 +501,14 @@ class CircosPlot():
 					f.write('</'+current_obj+'>'+'\n')
 				prev_obj = current_obj
 				current_obj = obj.__name__
-				if current_obj == 'plot' and prev_obj != 'plot':
-					f.write('<plots>\n')
-				elif current_obj != 'plot' and prev_obj == 'plot':
-					f.write('</plots>\n')
+				if current_obj != prev_obj and prev_obj in ('plot','highlight'):
+					f.write('</'+prev_obj+'s>\n')
+				if current_obj in ('plot','highlight') and prev_obj != current_obj:
+					f.write('<'+current_obj+'s>\n')
 				f.write('\n<'+current_obj+'>'+'\n')
 				if current_obj == 'ideogram':
 					f.write('<spacing>\ndefault = 0.25r\n</spacing>\n')
-				if current_obj == 'plot':
+				if current_obj in ('plot','highlight') and 'file' not in dir(obj):
 					obj.file = self.files_dict[obj.type][0]
 					self.files_dict[obj.type].pop(0)
 			for att in dir(obj):
@@ -537,8 +533,8 @@ class CircosPlot():
 				elif att == 'boilerplate':
 					f.write(str(getattr(obj,att)).strip()+'\n')
 		f.write('</'+current_obj+'>'+'\n')
-		if current_obj == 'plot':
-			f.write('</plots>\n')
+		if current_obj in ('plot','highlight'):
+			f.write('</'+current_obj+'s>\n')
 		f.close()
 	
 	def _add_plot(self,block_type,filename,plotname,extend_bin='no',
