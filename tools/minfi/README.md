@@ -13,8 +13,15 @@ a single genomic position that has a different methylation level in two differen
 samples (or conditions). This is different from differentially methylated regions (DMRs)
 which imply more that more than one methylation positions are different between conditions.
 
-User Guides:
-====
+### Table of Contents
+**[User Guides](#user-guides)**  
+**[Functions provided and description](#functions-provided-and-description)**  
+**[Minfi Pipeline to analyze illumina 450k data](#minfi-pipeline-to-analyze-illumina-450k-data)**  
+**[Minfi Analysis Pipeline for TCGA data hosted on GDAC Broad Institute](#minfi-analysis-pipeline-for-tcga-data-hosted-on-gdac-broad-institute)**  
+**[Test Data](#test-data)**  
+
+
+##User Guides
 Here are some excellent user guides about minfi, written by the contributors.
 
 http://www.bioconductor.org/packages/release/bioc/vignettes/minfi/inst/doc/minfi.pdf
@@ -23,16 +30,19 @@ https://bioconductor.org/help/course-materials/2014/BioC2014/minfi_BioC2014.pdf
 
 https://www.bioconductor.org/help/course-materials/2015/BioC2015/methylation450k.html#bumphunter-to-find-differentially-methylated-regions-dmrs
 
-Functions provided and description
-===
+##Functions provided and description
 
 1. **Minfi** **Pipeline** to analyze illumina 450k data. (minfi_pipeline.xml)
 
 2. **Minfi** **Analysis** **pipeline** for TCGA data hosted on GDAC-Broad Institute.(minfi_TCGA_pipeline.xml) 
 
 
-Steps to use "Minfi Pipeline to analyze illumina 450k data" (*minfi_pipeline.xml*) tool
-===
+##Minfi Pipeline to analyze illumina 450k data 
+
+####Tool xml name: *minfi_pipeline.xml* 
+
+####How to use:
+
 
 * The first step is to upload your Illumina 450k IDAT files using the Galaxy Upload feature.
 
@@ -78,9 +88,15 @@ Steps to use "Minfi Pipeline to analyze illumina 450k data" (*minfi_pipeline.xml
 
 ![resultview](https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-07%20at%205.55.57%20PM.png)
 
+##Minfi Analysis Pipeline for TCGA data hosted on GDAC Broad Institute 
 
-Test Data
-====
+####Tool xml name: *minfi_TCGA_pipeline.xml* 
+
+####How to use:
+
+
+
+##Test Data
 
 The test_data folder contains some test files which are,
 
