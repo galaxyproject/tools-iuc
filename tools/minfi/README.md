@@ -96,17 +96,40 @@ https://www.bioconductor.org/help/course-materials/2015/BioC2015/methylation450k
 
 The minfi analysis pipeline for TCGA data provides only two functions as of now, to find differentially methylated regions and differentially methylated positions. This is because the data which is provided/used for this tool has been put through quality control measures. The Level 3 data is ready to use for analysis. 
 
-* The first step of this process will be to fetch TCGA data from http://gdac.broadinstitute.org/runs/ , where we would need Standard data from a particular date, or the latest which is available at http://gdac.broadinstitute.org/runs/stddata__latest/ .
+* The first step of this process will be to fetch TCGA data from http://gdac.broadinstitute.org/runs/ , where we would need Standard data from a particular date, or the latest which is available at http://gdac.broadinstitute.org/runs/stddata__latest/ . We want the "Open" data avaiable to download.
+
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-09%20at%202.42.17%20PM.png" width="200">
+
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-09%20at%202.42.42%20PM.png">
 
 
 * Choose the cancer type with the Illumina 450K methylation data, for the sake of this example we will use "UCEC" - Uterine Corpus Endometrial Carcinoma. In the directory structure, we want the data with the suffix ```__Level_3__within_bioassay_data_set_function__data.Level_3```. This file is usually the largest in the directory and can be easily spotted by sorting the directory based on Size. So for the example, we will choose the file ```gdac.broadinstitute.org_UCEC.Merge_methylation__humanmethylation450__jhu_usc_edu__Level_3__within_bioassay_data_set_function__data.Level_3.2015110100.0.0.tar.gz```. 
 
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-09%20at%202.41.05%20PM.png">
+
 * There are two options to obtain the data, 1. Get the link to that file, and paste it in your Galaxy Upload tool to fetch the data. 2. Download the data on to your local machine, and upload the whole file.
+
+Fetch the data at the URL directly to galaxy.
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-11%20at%204.30.15%20PM.png">
+
+Upload your local file: 
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-11%20at%204.34.30%20PM.png">
 
 * Once the upload is finished, it should be available in the History panel of the session. Choose the tool "Minfi Analysis pipeline for TCGA data". Galaxy at one step uncompresses your dataset to show you only a ".tar" file, choose that file as the input to your tool. 
 
-* This example will show the tool run, with the Basic Default settings. After the tool is executed, the tool will show two results in the history panel. Differentially methylated Regions, and Differentially methylated Positions. You can "View" the results by clicking on the *eye* icon. 
 
+
+* This example will show the tool run, with the Basic Default settings. 
+
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-11%20at%204.34.53%20PM.png">
+
+* After the tool is executed, the tool will show two results in the history panel.
+
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-11%20at%204.59.32%20PM.png" width="150">
+
+* This shows the two results "Differentially methylated Regions", and "Differentially methylated Positions". You can ```View``` the results by clicking on the ```eye``` icon. 
+
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-11%20at%204.59.59%20PM.png">
 
 
 ##Test Data
