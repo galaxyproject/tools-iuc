@@ -98,7 +98,7 @@ The minfi analysis pipeline for TCGA data provides only two functions as of now,
 
 * The first step of this process will be to fetch TCGA data from http://gdac.broadinstitute.org/runs/ , where we would need Standard data from a particular date, or the latest which is available at http://gdac.broadinstitute.org/runs/stddata__latest/ . We want the "Open" data avaiable to download.
 
-<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-09%20at%202.42.17%20PM.png" width="200">
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-09%20at%202.42.17%20PM.png">
 
 <img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-09%20at%202.42.42%20PM.png">
 
@@ -109,14 +109,17 @@ The minfi analysis pipeline for TCGA data provides only two functions as of now,
 
 * There are two options to obtain the data, 1. Get the link to that file, and paste it in your Galaxy Upload tool to fetch the data. 2. Download the data on to your local machine, and upload the whole file.
 
-Fetch the data at the URL directly to galaxy.
+Option 1 : Fetch the data at the URL directly to galaxy
+
 <img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-11%20at%204.30.15%20PM.png">
 
-Upload your local file: 
+Option 2: Upload your local file
+
 <img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-11%20at%204.34.30%20PM.png">
 
 * Once the upload is finished, it should be available in the History panel of the session. Choose the tool "Minfi Analysis pipeline for TCGA data". Galaxy at one step uncompresses your dataset to show you only a ".tar" file, choose that file as the input to your tool. 
 
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-12%20at%205.17.44%20PM.png">
 
 
 * This example will show the tool run, with the Basic Default settings. 
