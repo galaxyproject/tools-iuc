@@ -98,7 +98,7 @@ The minfi analysis pipeline for TCGA data provides only two functions as of now,
 
 * The first step of this process will be to fetch TCGA data from http://gdac.broadinstitute.org/runs/ , where we would need Standard data from a particular date, or the latest which is available at http://gdac.broadinstitute.org/runs/stddata__latest/ . We want the "Open" data avaiable to download.
 
-<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-09%20at%202.42.17%20PM.png">
+<img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-09%20at%202.42.17%20PM.png" width="300">
 
 <img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-09%20at%202.42.42%20PM.png">
 
@@ -117,12 +117,12 @@ Option 2: Upload your local file
 
 <img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-11%20at%204.34.30%20PM.png">
 
-* Once the upload is finished, it should be available in the History panel of the session. Choose the tool "Minfi Analysis pipeline for TCGA data". Galaxy at one step uncompresses your dataset to show you only a ".tar" file, choose that file as the input to your tool. 
+* Once the upload is finished, it should be available in the History panel of the session. Choose the tool "Minfi Analysis pipeline for TCGA data". 
 
 <img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-12%20at%205.17.44%20PM.png">
 
 
-* This example will show the tool run, with the Basic Default settings. 
+* Galaxy will step uncompresses your dataset to show you only a ".tar" file, choose that file as the input to your tool. This example will show the tool run, with the Basic Default settings.
 
 <img src="https://github.com/nitesh1989/tools-iuc/blob/methylation_2/tools/minfi/help/help-images/Screen%20Shot%202015-12-11%20at%204.34.53%20PM.png">
 
@@ -143,9 +143,4 @@ The test_data folder contains some test files which are,
 
 2. 572364053 : One Illumina slide with 6 IDAT files (3 samples with red/green channel pairs)
 
-3. RGset.RData : RGChannelSet in RData format, containing Illumina slides 572364052 and 572364053,
-divided by phenotype (Case and Control).
-
-4. example.tar.gz : Sample archived and compressed file containing two dummy samples. This is to test if the galaxy upload feature unarchives files.
-
-5. bumps.csv : Differentially methylated regions as output.
+3. dmrs.csv : Differentially methylated regions as output.
