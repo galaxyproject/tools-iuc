@@ -94,6 +94,19 @@ https://www.bioconductor.org/help/course-materials/2015/BioC2015/methylation450k
 
 ####How to use:
 
+The minfi analysis pipeline for TCGA data provides only two functions as of now, to find differentially methylated regions and differentially methylated positions. This is because the data which is provided/used for this tool has been put through quality control measures. The Level 3 data is ready to use for analysis. 
+
+* The first step of this process will be to fetch TCGA data from http://gdac.broadinstitute.org/runs/ , where we would need Standard data from a particular date, or the latest which is available at http://gdac.broadinstitute.org/runs/stddata__latest/ .
+
+
+* Choose the cancer type with the Illumina 450K methylation data, for the sake of this example we will use "UCEC" - Uterine Corpus Endometrial Carcinoma. In the directory structure, we want the data with the suffix ```__Level_3__within_bioassay_data_set_function__data.Level_3```. This file is usually the largest in the directory and can be easily spotted by sorting the directory based on Size. So for the example, we will choose the file ```gdac.broadinstitute.org_UCEC.Merge_methylation__humanmethylation450__jhu_usc_edu__Level_3__within_bioassay_data_set_function__data.Level_3.2015110100.0.0.tar.gz```. 
+
+* There are two options to obtain the data, 1. Get the link to that file, and paste it in your Galaxy Upload tool to fetch the data. 2. Download the data on to your local machine, and upload the whole file.
+
+* Once the upload is finished, it should be available in the History panel of the session. Choose the tool "Minfi Analysis pipeline for TCGA data". Galaxy at one step uncompresses your dataset to show you only a ".tar" file, choose that file as the input to your tool. 
+
+* This example will show the tool run, with the Basic Default settings. After the tool is executed, the tool will show two results in the history panel. Differentially methylated Regions, and Differentially methylated Positions. You can "View" the results by clicking on the *eye* icon. 
+
 
 
 ##Test Data
