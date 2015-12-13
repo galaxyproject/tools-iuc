@@ -233,7 +233,7 @@ if(verbose){
 }
 
 # Save result, which contains DMR's and closest genes
-write.table(annotated_dmrs,file = "dmrs.csv",quote=FALSE,row.names=TRUE)
+write.csv(annotated_dmrs,file = "dmrs.csv",quote=FALSE,row.names=FALSE)
 
 # Garbage collect
 gc()
