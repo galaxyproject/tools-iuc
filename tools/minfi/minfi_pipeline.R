@@ -108,37 +108,9 @@ if (verbose){
     print(RGset)
 }
 
+pd = pData(RGset)
 
-## Preprocess data with the normalization method chosen
-if(opt$preprocess == "quantile"){
-    normalized_RGset = preprocessQuantile(RGset)
-    if (verbose){cat("Preprocessed using Quantile normalization")};
-} else if (opt$preprocess == "noob"){
-    normalized_RGset = preprocessNoob(RGset)
-    if (verbose){cat("Preprocessed using Noob normalization")};
-} else if (opt$preprocess == "raw"){
-    normalized_RGset = preprocessRaw(RGset)
-    if (verbose){print("Preprocessed using Raw normalization")};
-} else if (opt$preprocess == "illumina"){
-    normalized_RGset = preprocessIllumina(RGset,bg.correct = TRUE, normalize = c("controls", "no"),reference = 1)
-    if(verbose){print("Preprocessed using Illumina normalization")}
-} else if (opt$preprocess == "funnorm"){
-    normalized_RGset = preprocessFunnorm(RGset)
-    if(verbose){print("Preprocessed using Functional normalization")}
-} else if (opt$preprocess == "swan"){ 
-    normalized_RGset = preprocessSWAN(RGset)
-    if(verbose){print("Preprocessed using SWAN normalization")}
-}else {
-    normalized_RGset = RGset
-    if(verbose){print("Preprocessed using No normalization")}
-}
-
-## Get beta values from Proprocessed data
-beta = getBeta(normalized_RGset)
-## Set phenotype data
-pd = pData(normalized_RGset)
-
-
+## NOTE: QC report is for samples before normalization
 ## QC REPORT
 files = gsub(".+/","",pd$filenames)
 ## Produce PDF file
@@ -166,22 +138,40 @@ if(verbose){
 }
 
 
-## TODO: Fix Estimate cell counts!
-# Estimate Cell counts
-#if(!is.null(RGset)){
-    #cell_counts = minfi::estimateCellCounts(rgSet=RGset,meanPlot=TRUE)
-    #write.csv(cell_counts,file="estimated_cell_counts.csv",quote=FALSE,row.names=TRUE)
-#}
-#if(verbose){
-    #cat("Cell Counts estimated\n\n")
-#}
+## Preprocess data with the normalization method chosen
+if(opt$preprocess == "quantile"){
+    normalized_RGset = preprocessQuantile(RGset)
+    if (verbose){cat("Preprocessed using Quantile normalization")};
+} else if (opt$preprocess == "funnorm"){
+    normalized_RGset = preprocessFunnorm(RGset)
+    if(verbose){print("Preprocessed using Functional normalization")}
+} else if (opt$preprocess == "noob"){
+    normalized_RGset = preprocessNoob(RGset)
+    if (verbose){cat("Preprocessed using Noob normalization")};
+} else if (opt$preprocess == "illumina"){
+    normalized_RGset = preprocessIllumina(RGset,bg.correct = TRUE, normalize = c("controls", "no"),reference = 1)
+    if(verbose){print("Preprocessed using Illumina normalization")}
+} else if (opt$preprocess == "swan"){ 
+    normalized_RGset = preprocessSWAN(RGset)
+    if(verbose){print("Preprocessed using SWAN normalization")}
+}else {
+    normalized_RGset = RGset
+    if(verbose){print("Preprocessed using No normalization")}
+}
+
+
+
+## Get beta values from Proprocessed data
+beta = getBeta(normalized_RGset)
+## Set phenotype data
+pd = pData(normalized_RGset)
 
 
 ## DMP finder
 dmp = dmpFinder(dat=beta,pheno=pd$status,type="categorical",shrinkVar=opt$shrinkVar)
 write.csv(dmp,file="dmps.csv",quote=FALSE,row.names=TRUE)
 if(verbose){
-    cat("DMP Finder successful \n")
+    cat("\n","DMP Finder successful \n")
 }
 
 
@@ -206,8 +196,22 @@ if(verbose){
 registerDoParallel(cores = opt$cores)
 
 ## Bumphunter Run with normalized_RGset processed with Quantile Normalization
-res=bumphunter(normalized_RGset[,keep],design,B=opt$b_permutations,smooth=opt$smooth,cutoff= opt$cutoff,type="Beta")
-bumps= res$tab
+if (is(normalized_RGset,"GenomicRatioSet")) {
+    res=bumphunter(normalized_RGset[,keep],design,B=opt$b_permutations,smooth=opt$smooth,cutoff= opt$cutoff,type="Beta")
+    bumps= res$tab
+} else if(is(normalized_RGset,"MethylSet")) {
+    # convert MethylSet (norm.swan) into GenomicRatioSet through Ratioset
+    normalized_RGset = ratioConvert(normalized_RGset, what = "both", keepCN = TRUE)
+    normalized_RGset = mapToGenome(normalized_RGset)
+    res = bumphunter(normalized_RGset[,keep],design=design,B=opt$b_permutations,smooth=opt$smooth,cutoff=opt$cutoff)
+    bumps = res$tab
+} else {
+    # This else case is never supposed to run,
+    # it will run only if the normalized_RGset object
+    # did not have the expected class type   
+    cat("Bumphunter did not run properly","\n")
+    stopifnot(!is.null(bumps))
+}
 
 if(verbose){
     cat("Bumphunter result", "\n")
