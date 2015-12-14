@@ -28,7 +28,7 @@ http://www.bioconductor.org/packages/release/bioc/vignettes/minfi/inst/doc/minfi
 
 https://bioconductor.org/help/course-materials/2014/BioC2014/minfi_BioC2014.pdf
 
-https://www.bioconductor.org/help/course-materials/2015/BioC2015/methylation450k.html#bumphunter-to-find-differentially-methylated-regions-dmrs
+https://www.bioconductor.org/help/course-materials/2015/BioC2015/methylation450k.html
 
 ##Functions provided and description
 
