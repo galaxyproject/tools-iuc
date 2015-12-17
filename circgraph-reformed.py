@@ -23,12 +23,8 @@ def dprint(obj):
 def test_routine():
 	A = argparse.ArgumentParser()
 	A.add_argument('xml',nargs=1)
-	A.add_argument('-k',nargs='*')
-	A.add_argument('-H',nargs='*')
-	A.add_argument('-I',nargs='*')
-	A.add_argument('-s',nargs='*')
-	A.add_argument('-b',nargs='*')
-	A.add_argument('-l',nargs='*')
+	for argument in ['-k','-H','-I','-s','-b','-l']:
+		A.add_argument(argument,nargs='*')
 	args = A.parse_args()
 	X = args.xml[0] 
 	T = xml.etree.ElementTree.parse(X)
@@ -42,9 +38,7 @@ def test_routine():
 			'link':[args.l[0]]}
 	D.assoc_chromosomes = args.l[1:]
 	D._parse_files()
-	dprint(D.files_dict)
-	P = CircosPlot('link',D.object_list,D.karyotype,D.files_dict)
-	#P.files_list = D.txtlist
+	P = CircosPlot('christmas',D.object_list,D.karyotype,D.files_dict)
 	P.write_conf()
 
 class DataInterpreter():
@@ -62,24 +56,22 @@ class DataInterpreter():
 		current_obj = None 
 		current_sub = None
 		subobjind= 0
-		recognized_objects = {'ideogram':Ideogram(),'image':Image(),'link':Link(),
-                                      'tick':Tick(),'zoom':Zoom(),'highlight':Highlight(),
-				      'plot':Plot()}
-		recognized_subobjects = {'pairwise':Pairwise(),'rule':Rule(),'break_style':Break_Style(),'spacing':Spacing()}
+		recognized_objects = ['ideogram','image','link','tick','zoom','highlight','plot']
+		recognized_subobjects = ['pairwise','rule','break_style','spacing']
 		for element in self.xmlroot.iter():
 			if element.tag in recognized_objects:
 				if current_sub is not None:
 					current_obj.llo.append(copy.copy(current_sub))
 				if current_obj is not None:
 					self.object_list.append(copy.copy(current_obj))
-				current_obj = recognized_objects[element.tag]
+				current_obj = CircosObj(element.tag) 
 				subobjind = 0
 			elif current_obj is not None:
 				if element.tag in recognized_subobjects:
 					subobjind = 1
 					if current_sub is not None:
 						current_obj.llo.append(copy.copy(current_sub))
-					current_sub = recognized_subobjects[element.tag]
+					current_sub = CircosObj(element.tag)
 				if subobjind == 0:
 					setattr(current_obj,element.tag,element.text)
 				elif subobjind == 1:
@@ -88,10 +80,6 @@ class DataInterpreter():
 	
 	def _get_files_from_xml(self):
 		#TODO When the time comes to create the final Galaxy tool...
-		pass
-
-	def integrate_mauve_data(self,data):
-		#This method may be required to integrate whatever that parser outputs, or it may be deprecated depending on what that data looks like.
 		pass
 
 	def _make_karyotype(self,f,filename="karyotype"):
@@ -244,8 +232,6 @@ class DataInterpreter():
 		self.files_dict = tmp
 
 	def parse_gff3(self,key,f,index):
-		#FIXME Seems there's no nontrivial way to represent gff3 file info in Circos... 
-		#For now...
 		filename = str(key)+'-'+str(index)+'.txt'
 		with open(f,'r') as input_handle:
 			for rec in GFF.parse(input_handle):
@@ -279,83 +265,12 @@ class DataInterpreter():
 		return flist
 	
 class CircosObj():
-	def __init__(self):
-		pass
-	
-
-class TopLevelObj(CircosObj):
-	def __init__(self):
+	def __init__(self,name):
 		self.llo = []
-		pass
-
-class Highlight(TopLevelObj):
-	def __init__(self):
-		TopLevelObj.__init__(self)
-		self.__name__ = 'highlight'
-		self.type = 'highlight'
-
-class Karyotype(TopLevelObj):
-	def __init__(self):
-		TopLevelObj.__init__(self)
-		self.__name__ = 'karyotype'
-	
-class Ideogram(TopLevelObj):
-	def __init__(self):
-		TopLevelObj.__init__(self)
-		self.__name__ = 'ideogram'
-
-class Plot(TopLevelObj):
-	def __init__(self):
-		TopLevelObj.__init__(self)
-		self.__name__ = 'plot'
-
-class Zoom(TopLevelObj):
-	def __init__(self):
-		TopLevelObj.__init__(self)
-		self.__name__ = 'zoom'
-
-class Link(TopLevelObj):
-	def __init__(self):
-		TopLevelObj.__init__(self)
-		self.__name__ = 'link'
-		self.type = 'link'
-
-class Tick(TopLevelObj):
-	def __init__(self):
-		TopLevelObj.__init__(self)
-		self.__name__ = 'tick'
-
-class Image(TopLevelObj):
-	def __init__(self):
-		TopLevelObj.__init__(self)
-		self.__name__ = 'image'
-		self.boilerplate = '<<include etc/image.conf>>'
-
-class LowLevelObj(CircosObj):
-	def __init__(self):
-		pass
-
-class Pairwise(LowLevelObj):
-	def __init__(self):
-		self.chromosome_pair = ['','']
-		self.__name__ = 'pairwise'
-
-class Spacing(LowLevelObj):
-	def __init__(self):
-		self.__name__ = 'spacing'
-		
-
-class Break_Style(LowLevelObj):
-	def __init__(self):
-		self.__name__ = 'break_style'
-
-class Rule(LowLevelObj):
-	def __init__(self):
-		self.__name__ = 'rule'
-	
-	def associate_parent(self,parent):
-		self.Parent = parent #Not to be added to conf file.
-
+		self.__name__ = name
+		self.type = name
+		if self.__name__ == 'image':
+			self.boilerplate = '<<include etc/image.conf>>'
 class CircosPlot():
 	def __init__(self,basefilename,obj_list,karyotype,files_dict):
 		self.files_dict = files_dict
@@ -371,30 +286,7 @@ class CircosPlot():
 		self.add_top_lvl_params()
 		self.obj_list = obj_list
 		self.boilerplate = ['<<include colors_fonts_patterns.conf>>\n',
-				    '<<include housekeeping.conf>>\n'
-					]
-
-	def add_four_elem_track(self,type_='four-element',filename=''):
-		#Generic for heatmap, scatterplot, and histogram
-		if 'plots' not in self.master_struct:
-			self.master_struct['plots'] = {}
-		l = len(self.master_struct['plots']) + 1
-		plotname = 'plot-'+type_+'-'+str(l)
-		self.master_struct['plots'][plotname] = {}
-		if type_ not in self.track_dict:
-			key = type_
-		else:
-			i = 1
-			while type_ +'-'+str(i) in self.track_dict:
-				i+=1
-			key = type_+'-'+str(i)
-		if filename == '':
-			f = self.basename+'-'+key+'.txt'
-		else:
-			f = filename
-		self.track_dict[key] = '' 
-		self._four_element_processing(f,key)
-		self._add_plot(type_,f,plotname)
+				    '<<include housekeeping.conf>>\n']
 
 	def add_ideogram(self,spacing_opt='0.005r',radius_opt='0.5r',thickness_opt='20p',fill_opt='yes',color_opt=[]):
 		l = len(self.master_struct['ideograms']) + 1
@@ -405,51 +297,6 @@ class CircosPlot():
 			 'thickness':thickness_opt,
 			 'fill':fill_opt}
 		self.master_struct['ideograms'][ideogramid].update(block)
-
-	def add_links(self):
-		pass
-
-	def _add_plot(self,block_type,filename,plotname,extend_bin='no',
-		      max_ = '1.0', min_ = '0.0', glyph='rectangle',
-		      glyph_size='8', color_list='spectral-9-div', 
-		      stroke_color='dred', thickness='1',color='red',log_base_opt='1'):
-		r1 = str(self.last_filled_radius + 0.100) + 'r'
-		r2 = str(self.last_filled_radius + 0.200) + 'r'
-		self.last_filled_radius += 0.20
-		if block_type == 'hist':
-			block = {'type':'histogram',
-				 'file':filename,
-				 'r0':r1,
-				 'r1':r2,
-				 'extend_bin':extend_bin}
-				 
-		elif block_type == 'heat':
-			block = {'show':'yes',
-				 'type':'heatmap',
-				 'file':filename,
-				 'color':color_list,
-				 'stroke_thickness':thickness,
-				 'r0':r1,
-				 'r1':r2,
-				 'scale_log_base':log_base_opt
-				 }
-		elif block_type == 'scatter':
-			block = {'show':'yes',
-				 'type':'scatter',
-				 'file':filename,
-				 'r0':r1,
-				 'r1':r2,
-				 'max':max_,
-				 'min':min_,
-				 'glyph':glyph,
-				 'glyph_size':glyph_size,
-				 'color':color,
-				 'stroke_color':stroke_color,
-				 'stroke_thickness':thickness,
-				 }
-		else:
-			raise ValueError('Unsupported plot type.')
-		self.master_struct['plots'][plotname] = block
 
 	def add_spacing(self,spacing_opt,ideogramid):
 		self.master_struct['ideograms'][ideogramid].update({'spacing':{'default':spacing_opt}})
@@ -473,52 +320,6 @@ class CircosPlot():
 		self.units_ok = None
 		self.warnings = None
 			
-	def append_data(self, interpreter):
-		#Add interpreter data to ConfWriter dict. Depends on what kind of data structure we decide on... 
-		self.raw_dict = interpreter.files_dict
-		self.seq_dict = interpreter.seq_dict
-		self._make_karyotype()
-
-	def create_base_conf_template(self):
-		E = Environment(loader=PackageLoader('dummy','Templates'))
-		T = E.get_template('template.conf')
-		with open(self.basename + '.conf','w') as f:
-			rendering = T.render(master_struct = self.master_struct, filename = self.basename + '.png', karyotype_filename = self.karyotype_filename)
-			f.write(rendering)
-
-	def _four_element_processing(self,file_,key):
-		#Heatmaps, scatterplots, and histograms share the same 4-element format...
-		with open(file_,'w') as handle:
-			for f in self.raw_dict:
-				if os.path.splitext(f)[1] in ('.wig','.bw','.bigWig'):
-					for chromosome in self.raw_dict[f]:
-						for feature in self.raw_dict[f][chromosome]:
-							datastring = chromosome+' '+str(self.raw_dict[f][chromosome][feature]['start'])+' '+str(self.raw_dict[f][chromosome][feature]['end'])+' '+str(self.raw_dict[f][chromosome][feature]['val'])+'\n'
-							handle.write(datastring)
-
-	def _make_karyotype(self,colors_list=[]):
-		if colors_list == []:
-			colors_list = ['chr1','chr2','chr3','chr4','chr5','chr6',
-				       'chr7','chr8','chr9','chr10','chr11','chr12',
-				       'chr13','chr14','chr15','chr16','chr17','chr18'
-				       'chr19','chr20','chr21','chr22','chrx','chry'
-					] #Temporary -- will update to include more diverse list of colors, Brewer...
-		self.karyotype_filename = self.basename + '-karyotype.txt'
-		i = 0
-		with open(self.karyotype_filename,'w') as karyotype:
-			for element in self.seq_dict:
-				karyotype.write('chr - '+element+' '+element+' 0 '+str(len(self.seq_dict[element]))+' '+colors_list[i]+'\n')
-				if i < len(colors_list)-1:
-					i+=1
-				else:
-					raise ValueError('Colors list exhausted')
-
-	def update_master_conf(self):
-		self.plots.append('</plots>')
-		with open(self.mainconf,'a') as conf:
-			for element in self.plots:
-				conf.write(element+'\n')
-
 	def write_conf(self):
 		current_obj = None
 		prev_obj = None
@@ -538,12 +339,12 @@ class CircosPlot():
 					f.write('<'+current_obj+'s>\n')
 				f.write('\n<'+current_obj+'>'+'\n')
 				if current_obj == 'ideogram':
-					f.write('<spacing>\ndefault = 0.25r\n</spacing>\n')
+					f.write('\n'.join(['<spacing>','default = 0.25r','</spacing>\n']))
 				if current_obj in ('plot','highlight','link') and 'file' not in dir(obj):
 					obj.file = self.files_dict[obj.type][0]
 					self.files_dict[obj.type].pop(0)
 			for att in dir(obj):
-				if att[0:2] != '__' and att not in ['llo','boilerplate'] and getattr(obj,att) is not None and hasattr(att,'__call__') == False:
+				if att[0:2] != '__' and att not in ['llo','boilerplate','rules'] and getattr(obj,att) is not None and hasattr(att,'__call__') == False:
 					if getattr(obj,att)[:2] == '__':
 						val = str(getattr(obj,att)).strip()[len(str(getattr(obj,att)).strip())-6:]
 						h = [val[0:2],val[2:4],val[4:6]]
@@ -567,48 +368,6 @@ class CircosPlot():
 		if current_obj in ('plot','highlight','link'):
 			f.write('</'+current_obj+'s>\n')
 		f.close()
-	
-	def _add_plot(self,block_type,filename,plotname,extend_bin='no',
-		      max_ = '1.0', min_ = '0.0', glyph='rectangle',
-		      glyph_size='8', color_list='spectral-9-div', 
-		      stroke_color='dred', thickness='1',color='red',log_base_opt='1'):
-		r1 = str(self.last_filled_radius + 0.100) + 'r'
-		r2 = str(self.last_filled_radius + 0.200) + 'r'
-		self.last_filled_radius += 0.20
-		if block_type == 'hist':
-			block = {'type':'histogram',
-				 'file':filename,
-				 'r0':r1,
-				 'r1':r2,
-				 'extend_bin':extend_bin}
-				 
-		elif block_type == 'heat':
-			block = {'show':'yes',
-				 'type':'heatmap',
-				 'file':filename,
-				 'color':color_list,
-				 'stroke_thickness':thickness,
-				 'r0':r1,
-				 'r1':r2,
-				 'scale_log_base':log_base_opt
-				 }
-		elif block_type == 'scatter':
-			block = {'show':'yes',
-				 'type':'scatter',
-				 'file':filename,
-				 'r0':r1,
-				 'r1':r2,
-				 'max':max_,
-				 'min':min_,
-				 'glyph':glyph,
-				 'glyph_size':glyph_size,
-				 'color':color,
-				 'stroke_color':stroke_color,
-				 'stroke_thickness':thickness,
-				 }
-		else:
-			raise ValueError('Unsupported plot type.')
-		self.master_struct['plots'][plotname] = block
 
 if __name__ == "__main__":
 	test_routine()
@@ -616,5 +375,4 @@ if __name__ == "__main__":
 #TODO
 """
 Add support for sub-objects.
-LAST: Write paper as Application Note...
 """
