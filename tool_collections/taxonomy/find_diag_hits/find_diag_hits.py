@@ -42,8 +42,10 @@ tax_read_grouping.py <file in taxonomy format> <id column> <taxonomic ranks> <ou
 
 """
 
+import sys
+import string
+import tempfile
 import sqlite3 as sqlite
-import string, sys, tempfile
 
 # This dictionary maps taxonomic ranks to fields of Taxonomy file
 taxRank = {
@@ -78,7 +80,7 @@ try:
     con = sqlite.connect(db.name)
     cur = con.cursor()
 except:
-    sys.exit('Cannot connect to %s\n') % db.name
+    sys.exit('Cannot connect to %s\n' % db.name)
     
 try:
     tax_file   = open(sys.argv[1], 'r')
@@ -119,7 +121,7 @@ try:
             invalid_line_number += 1
             continue # Skipping malformed taxonomy lines
         
-        val_string = '"' + fields[id_col] + '", '
+        val_string = '"%s", ' % fields[id_col]
         
         for rank in taxa:
             taxon = fields[taxRank[rank]]
