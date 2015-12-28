@@ -28,6 +28,7 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
     blast_records = NCBIXML.parse(blastxml)
     records = []
     for record in blast_records:
+        # http://www.sequenceontology.org/browser/release_2.4/term/SO:0000343
         match_type = {  # Currently we can only handle BLASTN, BLASTP
             'BLASTN': 'nucleotide_match',
             'BLASTP': 'protein_match',
