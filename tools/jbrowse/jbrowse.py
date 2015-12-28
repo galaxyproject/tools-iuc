@@ -157,7 +157,6 @@ class ColorScaling(object):
         # Wiggle tracks have a bicolor pallete
         trackConfig = {'style': {}}
         if trackFormat == 'wiggle':
-            import pprint; pprint.pprint(track)
 
             trackConfig['style']['pos_color'] = track['wiggle']['color_pos']
             trackConfig['style']['neg_color'] = track['wiggle']['color_neg']
@@ -445,6 +444,7 @@ class JbrowseConnector(object):
                 and 'gff' in kwargs['__original_data']['conf']['options'] \
                 and 'match' in kwargs['__original_data']['conf']['options']['gff']:
             config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
+            cmd += ['--type', kwargs['__original_data']['conf']['options']['gff']['match']]
 
         cmd += ['--clientConfig', json.dumps(clientConfig),
                 '--trackType', 'JBrowse/View/Track/CanvasFeatures'
@@ -474,7 +474,6 @@ class JbrowseConnector(object):
             # different colour options.
             colourOptions = self.cs.parse_colours(track['conf']['options'], track['format'], gff3=dataset_path)
             outputTrackConfig.update(colourOptions)
-            import pprint; pprint.pprint(colourOptions)
 
             kwargs.update({
                 'category': track['category'],
