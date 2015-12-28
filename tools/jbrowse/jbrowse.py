@@ -6,6 +6,7 @@ import subprocess
 import hashlib
 import struct
 import tempfile
+import shutil
 import json
 import xml.etree.ElementTree as ET
 import logging
@@ -323,37 +324,51 @@ class JbrowseConnector(object):
         os.unlink(tmp.name)
 
 
-    def add_blastxml(self, data, trackData, **kwargs):
+    def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
         cmd = ['python', os.path.join(INSTALLED_TO, 'blastxml_to_gapped_gff3.py'),
-               '--trim_end', '--min_gap', str(kwargs['min_gap']), data]
+               '--trim', '--trim_end', '--min_gap', str(min_gap), xml]
+        log.debug('cd %s && %s > %s', self.outdir, ' '.join(cmd), gff3_unrebased.name)
         subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_unrebased)
         gff3_unrebased.close()
+        return gff3_unrebased.name
 
-        gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
-        cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
-        if kwargs['protein']:
-            cmd.append('--protein2dna')
-        cmd.extend([kwargs['parent'], gff3_unrebased.name])
-        subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_rebased)
-        gff3_rebased.close()
+    def add_blastxml(self, data, trackData, blastOpts, **kwargs):
+        gff3 = self._blastxml_to_gff3(data, min_gap=blastOpts['min_gap'])
 
-        config = {'glyph': 'JBrowse/View/FeatureGlyph/Segments'}
-        if 'category' in kwargs:
-            config['category'] = kwargs['category']
+        if 'parent' in blastOpts:
+            gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
+            cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
+            if blastOpts.get('protein', 'false') == 'true':
+                cmd.append('--protein2dna')
+            cmd.extend([os.path.realpath(blastOpts['parent']), gff3])
+            log.debug('cd %s && %s > %s', self.outdir, ' '.join(cmd), gff3_rebased.name)
+            subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_rebased)
+            gff3_rebased.close()
+
+            # Replace original gff3 file
+            shutil.copy(gff3_rebased.name, gff3)
+            os.unlink(gff3_rebased.name)
+
+        config = {
+            'glyph': 'JBrowse/View/FeatureGlyph/Segments',
+            "category": kwargs['category'],
+        }
+
+        clientConfig = trackData['style']
+        import pprint; pprint.pprint(trackData)
 
         cmd = ['perl', self._jbrowse_bin('flatfile-to-json.pl'),
-               '--gff', gff3_rebased.name,
+               '--gff', gff3,
                '--trackLabel', trackData['label'],
                '--key', trackData['key'],
-               '--clientConfig', json.dumps({}),
+               '--clientConfig', json.dumps(clientConfig),
                '--config', json.dumps(config),
                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                ]
 
         self.subprocess_check_call(cmd)
-        os.unlink(gff3_rebased.name)
-        os.unlink(gff3_unrebased.name)
+        os.unlink(gff3)
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
@@ -424,7 +439,7 @@ class JbrowseConnector(object):
         })
         self._add_track_json(trackData)
 
-    def add_features(self, data, format, trackData, **kwargs):
+    def add_features(self, data, format, trackData, gffOpts, **kwargs):
         cmd = [
             'perl', self._jbrowse_bin('flatfile-to-json.pl'),
             self.TN_TABLE.get(format, 'gff'),
@@ -439,12 +454,9 @@ class JbrowseConnector(object):
         }
         clientConfig = trackData['style']
 
-        if 'conf' in kwargs['__original_data'] \
-                and 'options' in kwargs['__original_data']['conf'] \
-                and 'gff' in kwargs['__original_data']['conf']['options'] \
-                and 'match' in kwargs['__original_data']['conf']['options']['gff']:
+        if  'match' in gffOpts:
             config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
-            cmd += ['--type', kwargs['__original_data']['conf']['options']['gff']['match']]
+            cmd += ['--type', gffOpts['match']]
 
         cmd += ['--clientConfig', json.dumps(clientConfig),
                 '--trackType', 'JBrowse/View/Track/CanvasFeatures'
@@ -473,7 +485,13 @@ class JbrowseConnector(object):
             # Colour parsing is complex due to different track types having
             # different colour options.
             colourOptions = self.cs.parse_colours(track['conf']['options'], track['format'], gff3=dataset_path)
-            outputTrackConfig.update(colourOptions)
+            # This used to be done with a dict.update() call, however that wiped out any previous style settings...
+            for key in colourOptions:
+                if key == 'style':
+                    for subkey in colourOptions['style']:
+                        outputTrackConfig['style'][subkey] = colourOptions['style'][subkey]
+                else:
+                    outputTrackConfig[subkey] = colourOptions[subkey]
 
             kwargs.update({
                 'category': track['category'],
@@ -484,14 +502,14 @@ class JbrowseConnector(object):
             # log.debug('kwargs\n' + pprint.pformat(kwargs))
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
-                                  **kwargs)
+                                track['conf']['options']['gff'], **kwargs)
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
                                 track['conf']['options']['wiggle'], **kwargs)
             #elif dataset_ext == 'bam':
                 #self.add_bam(dataset, outputTrackConfig, bam_index=track['bam_indexes'][i], **kwargs)
-            #elif dataset_ext == 'blastxml':
-                #self.add_blastxml(dataset, outputTrackConfig, **kwargs)
+            elif dataset_ext == 'blastxml':
+                self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'], **kwargs)
             #elif dataset_ext == 'vcf':
                 #self.add_vcf(dataset, outputTrackConfig, **kwargs)
 
