@@ -155,15 +155,17 @@ class ColorScaling(object):
 
     def parse_colours(self, track, trackFormat, gff3=None):
         # Wiggle tracks have a bicolor pallete
-
         trackConfig = {'style': {}}
         if trackFormat == 'wiggle':
-            if track['wiggle']['color_config'] == 'manual':
-                trackConfig['style']['pos_color'] = track['wiggle']['color_pos']
-                trackConfig['style']['neg_color'] = track['wiggle']['color_neg']
-            else:
-                trackConfig['style']['pos_color'] = 'blue'
-                trackConfig['style']['neg_color'] = 'red'
+            import pprint; pprint.pprint(track)
+
+            trackConfig['style']['pos_color'] = track['wiggle']['color_pos']
+            trackConfig['style']['neg_color'] = track['wiggle']['color_neg']
+
+            if trackConfig['style']['pos_color'] == '__auto__':
+                trackConfig['style']['neg_color'] = self.hex_from_rgb(*self._get_colours())
+                trackConfig['style']['pos_color'] = self.hex_from_rgb(*self._get_colours())
+
 
             # Wiggle tracks can change colour at a specified place
             bc_pivot = track['wiggle']['bicolor_pivot']
@@ -354,8 +356,8 @@ class JbrowseConnector(object):
         os.unlink(gff3_rebased.name)
         os.unlink(gff3_unrebased.name)
 
-    def add_bigwig(self, data, trackData, **kwargs):
-        dest = os.path.join('data', 'raw', os.path.basename(data))
+    def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
+        dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
         cmd = ['ln', data, dest]
         self.subprocess_check_call(cmd)
 
@@ -363,16 +365,17 @@ class JbrowseConnector(object):
             "urlTemplate": os.path.join('..', dest),
             "storeClass": "JBrowse/Store/SeqFeature/BigWig",
             "type": "JBrowse/View/Track/Wiggle/Density",
+            "category": kwargs['category'],
         })
 
-        if 'type' in kwargs:
-            trackData['type'] = kwargs['type']
+        trackData['type'] = wiggleOpts['type']
+        trackData['variance_band'] = True if wiggleOpts['variance_band'] == 'true' else False
 
-        if 'min' in kwargs and 'max' in kwargs:
-            trackData['min'] = kwargs['min']
-            trackData['max'] = kwargs['max']
+        if 'min' in wiggleOpts and 'max' in wiggleOpts:
+            trackData['min_score'] = wiggleOpts['min']
+            trackData['max_score'] = wiggleOpts['max']
         else:
-            trackData['autoscale'] = kwargs.get('autoscale', 'local')
+            trackData['autoscale'] = wiggleOpts.get('autoscale', 'local')
 
         self._add_track_json(trackData)
 
@@ -389,10 +392,9 @@ class JbrowseConnector(object):
             "urlTemplate": os.path.join('..', dest),
             "type": "JBrowse/View/Track/Alignments2",
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
+            "category": kwargs["category"],
         })
 
-        if 'category' in kwargs:
-            trackData['category'] = kwargs['category']
 
         self._add_track_json(trackData)
 
@@ -433,11 +435,10 @@ class JbrowseConnector(object):
             '--key', trackData['key']
         ]
 
-        config = {}
+        config = {
+            'category': kwargs['category'],
+        }
         clientConfig = trackData['style']
-        if 'category' in kwargs:
-            config['category'] = kwargs['category']
-
 
         if 'conf' in kwargs['__original_data'] \
                 and 'options' in kwargs['__original_data']['conf'] \
@@ -452,6 +453,7 @@ class JbrowseConnector(object):
         cmd.extend(['--config', json.dumps(config)])
 
         self.subprocess_check_call(cmd)
+
 
     def process_annotations(self, track):
         kwargs = {}
@@ -470,7 +472,9 @@ class JbrowseConnector(object):
 
             # Colour parsing is complex due to different track types having
             # different colour options.
-            outputTrackConfig.update(self.cs.parse_colours(track['conf']['options'], track['format'], gff3=dataset_path))
+            colourOptions = self.cs.parse_colours(track['conf']['options'], track['format'], gff3=dataset_path)
+            outputTrackConfig.update(colourOptions)
+            import pprint; pprint.pprint(colourOptions)
 
             kwargs.update({
                 'category': track['category'],
@@ -480,9 +484,11 @@ class JbrowseConnector(object):
             # log.debug('outputTrackConfig\n' + pprint.pformat(outputTrackConfig))
             # log.debug('kwargs\n' + pprint.pformat(kwargs))
             if dataset_ext in ('gff', 'gff3', 'bed'):
-                self.add_features(dataset_path, dataset_ext, outputTrackConfig, **kwargs)
-            #elif dataset_ext == 'bigwig':
-                #self.add_bigwig(dataset, outputTrackConfig, **kwargs)
+                self.add_features(dataset_path, dataset_ext, outputTrackConfig,
+                                  **kwargs)
+            elif dataset_ext == 'bigwig':
+                self.add_bigwig(dataset_path, outputTrackConfig,
+                                track['conf']['options']['wiggle'], **kwargs)
             #elif dataset_ext == 'bam':
                 #self.add_bam(dataset, outputTrackConfig, bam_index=track['bam_indexes'][i], **kwargs)
             #elif dataset_ext == 'blastxml':
