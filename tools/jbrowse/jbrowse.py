@@ -10,10 +10,9 @@ import shutil
 import json
 import xml.etree.ElementTree as ET
 import logging
-import pprint
 from collections import defaultdict
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger(__name__)
+log = logging.getLogger('jbrowse')
 
 
 class ColorScaling(object):
@@ -477,6 +476,7 @@ class JbrowseConnector(object):
         }
 
         for i, (dataset_path, dataset_ext, track_human_label) in enumerate(track['trackfiles']):
+            log.info('Processing %s / %s', track['category'], track_human_label)
             outputTrackConfig['key'] = track_human_label
             hashData = [dataset_path, track_human_label, track['category']]
             outputTrackConfig['label'] = hashlib.md5('|'.join(hashData)).hexdigest() + '_%s' % i
