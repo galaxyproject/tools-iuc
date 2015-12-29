@@ -8,6 +8,7 @@ import struct
 import tempfile
 import shutil
 import json
+from Bio.Data import CodonTable
 import xml.etree.ElementTree as ET
 import logging
 from collections import defaultdict
@@ -284,6 +285,23 @@ class JbrowseConnector(object):
                 pass
 
         self.process_genomes()
+        self.update_gencode()
+
+    def update_gencode(self):
+        table = CodonTable.unambiguous_dna_by_id[int(self.gencode)]
+        trackList = os.path.join(self.outdir, 'data', 'trackList.json')
+        with open(trackList, 'r') as handle:
+            trackListData = json.load(handle)
+
+        trackListData['tracks'][0].update({
+            'codonStarts': table.start_codons,
+            'codonStops': table.stop_codons,
+            'codonTable': table.forward_table,
+        })
+
+        with open(trackList, 'w') as handle:
+            json.dump(trackListData, handle, indent=2)
+
 
     def subprocess_check_call(self, command):
         log.debug('cd %s && %s', self.outdir, ' '.join(command))
@@ -565,20 +583,4 @@ if __name__ == '__main__':
             track_conf['style'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
-
-        extra = {}
-        # if 'options' in track_conf['conf']:
-            # if 'pileup' in track_conf['conf']:
-                # if 'bam_indices' in track_conf['conf']['pileup']:
-                    # corrected = []
-                    # if isinstance(track_conf['conf']['pileup']['bam_indices']['bam_index'], list):
-                        # for bam_index in track_conf['conf']['pileup']['bam_indices']['bam_index']:
-                            # corrected.append(os.path.realpath(bam_index))
-                    # else:
-                        # corrected.append(os.path.realpath(track_conf['conf']['pileup']['bam_indices']['bam_index']))
-                    # track_conf['conf']['pileup']['bam_indices'] = corrected
-            # elif 'blast' in track_conf['conf']:
-                # if 'parent' in track_conf['conf']['blast']:
-                    # track_conf['conf']['blast']['parent'] = os.path.realpath(track_conf['conf']['blast']['parent'])
-
         jc.process_annotations(track_conf)
