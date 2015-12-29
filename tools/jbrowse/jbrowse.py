@@ -391,13 +391,12 @@ class JbrowseConnector(object):
 
         self._add_track_json(trackData)
 
-    def add_bam(self, data, trackData, **kwargs):
-        dest = os.path.join('data', 'raw', os.path.basename(data))
-        cmd = ['ln', '-s', data, dest]
+    def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
+        dest = os.path.join('data', 'raw', trackData['label'] + '.bam')
+        cmd = ['ln', '-s', os.path.realpath(data), dest]
         self.subprocess_check_call(cmd)
 
-        bai_source = kwargs['bam_index']
-        cmd = ['ln', '-s', bai_source, dest + '.bai']
+        cmd = ['ln', '-s', os.path.realpath(bam_index), dest + '.bai']
         self.subprocess_check_call(cmd)
 
         trackData.update({
@@ -410,15 +409,14 @@ class JbrowseConnector(object):
 
         self._add_track_json(trackData)
 
-        if kwargs.get('auto_snp', False):
+        if bamOpts.get('auto_snp', 'false') == 'true':
             trackData2 = copy.copy(trackData)
             trackData2.update({
                 "type": "JBrowse/View/Track/SNPCoverage",
                 "key": trackData['key'] + " - SNPs/Coverage",
                 "label": trackData['label']  + "_autosnp",
             })
-
-            self._add_track_json(trackData)
+            self._add_track_json(trackData2)
 
     def add_vcf(self, data, trackData, **kwargs):
         dest = os.path.join('data', 'raw', os.path.basename(data))
@@ -466,7 +464,6 @@ class JbrowseConnector(object):
 
 
     def process_annotations(self, track):
-        kwargs = {}
         outputTrackConfig = {
             'style': {
                 'label':       track['style'].get('label', 'description'),
@@ -492,21 +489,31 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
-            kwargs.update({
+            kwargs = {
                 'category': track['category'],
-                '__original_data': track,
-            })
+            }
 
-            # log.debug('outputTrackConfig\n' + pprint.pformat(outputTrackConfig))
-            # log.debug('kwargs\n' + pprint.pformat(kwargs))
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
                                 track['conf']['options']['gff'], **kwargs)
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
                                 track['conf']['options']['wiggle'], **kwargs)
-            #elif dataset_ext == 'bam':
-                #self.add_bam(dataset, outputTrackConfig, bam_index=track['bam_indexes'][i], **kwargs)
+            elif dataset_ext == 'bam':
+                real_indexes = track['conf']['options']['pileup']['bam_indices']['bam_index']
+                if not isinstance(real_indexes, list):
+                    # <bam_indices>
+                    #  <bam_index>/path/to/a.bam.bai</bam_index>
+                    # </bam_indices>
+                    #
+                    # The above will result in the 'bam_index' key containing a
+                    # string. If there are two or more indices, the container
+                    # becomes a list. Fun!
+                    real_indexes = [real_indexes]
+
+                self.add_bam(dataset_path, outputTrackConfig,
+                             track['conf']['options']['pileup'],
+                             bam_index=real_indexes[i], **kwargs)
             elif dataset_ext == 'blastxml':
                 self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'], **kwargs)
             #elif dataset_ext == 'vcf':
@@ -557,7 +564,12 @@ if __name__ == '__main__':
 
         track_conf['category'] = track.attrib['cat']
         track_conf['format'] = track.attrib['format']
-        track_conf['style'] = {t.tag: t.text for t in track.find('options/style')}
+        try:
+            # Only pertains to gff3 + blastxml. TODO?
+            track_conf['style'] = {t.tag: t.text for t in track.find('options/style')}
+        except TypeError, te:
+            track_conf['style'] = {}
+            pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
 
         extra = {}
