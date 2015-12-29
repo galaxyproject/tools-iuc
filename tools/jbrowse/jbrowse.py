@@ -356,7 +356,6 @@ class JbrowseConnector(object):
         }
 
         clientConfig = trackData['style']
-        import pprint; pprint.pprint(trackData)
 
         cmd = ['perl', self._jbrowse_bin('flatfile-to-json.pl'),
                '--gff', gff3,
