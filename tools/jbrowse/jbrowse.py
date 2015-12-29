@@ -11,7 +11,7 @@ import json
 import xml.etree.ElementTree as ET
 import logging
 from collections import defaultdict
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger('jbrowse')
 
 
@@ -416,7 +416,7 @@ class JbrowseConnector(object):
             })
             self._add_track_json(trackData2)
 
-    def add_vcf(self, data, trackData, vcfOpts, **kwargs):
+    def add_vcf(self, data, trackData, vcfOpts={}, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.vcf')
         # ln?
         cmd = ['ln', '-s', data, dest]
@@ -510,8 +510,8 @@ class JbrowseConnector(object):
                              bam_index=real_indexes[i])
             elif dataset_ext == 'blastxml':
                 self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'])
-            #elif dataset_ext == 'vcf':
-                #self.add_vcf(dataset, outputTrackConfig, **kwargs)
+            elif dataset_ext == 'vcf':
+                self.add_vcf(dataset_path, outputTrackConfig)
 
     def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory.
