@@ -490,7 +490,7 @@ class JbrowseConnector(object):
                     for subkey in colourOptions['style']:
                         outputTrackConfig['style'][subkey] = colourOptions['style'][subkey]
                 else:
-                    outputTrackConfig[subkey] = colourOptions[subkey]
+                    outputTrackConfig[key] = colourOptions[key]
 
             kwargs.update({
                 'category': track['category'],
