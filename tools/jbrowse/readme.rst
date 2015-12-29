@@ -9,14 +9,6 @@ workflow summary. E.g. annotate a genome, then visualise all of the
 associated datasets as an interactive HTML page. This tool MUST be whitelisted
 (or ``sanitize_all_html=False``) to function correctly.
 
-TODO
-====
-
-- Remove this before release
-- blastXML needs to support protein, not just gff3 mapped-to-parent dna
-- support blastxml nucleotide queries
-- check feature parity with Trackster
-
 Installation
 ============
 
