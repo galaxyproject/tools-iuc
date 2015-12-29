@@ -12,7 +12,7 @@ from Bio.Data import CodonTable
 import xml.etree.ElementTree as ET
 import logging
 from collections import defaultdict
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('jbrowse')
 
 
