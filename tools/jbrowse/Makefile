@@ -1,33 +1,36 @@
 TEMPDIR=/tmp/jbrowse-guarunteed-non-conflicting-temp-dir
+TARGETS:=test-data/bam/trackList.json.comparable test-data/blastxml/trackList.json.comparable test-data/bw/trackList.json.comparable test-data/gencode/trackList.json.comparable test-data/gff3/trackList.json.comparable test-data/vcf/trackList.json.comparable
 
-all: test-data/bam/trackList.json test-data/blastxml/trackList.json test-data/bw/trackList.json test-data/gencode/trackList.json test-data/gff3/trackList.json test-data/vcf/trackList.json 
+all: $(TARGETS)
+clean:
+	rm $(TARGETS)
 
-test-data/vcf/trackList.json:
+test-data/vcf/trackList.json.comparable:
 	python jbrowse.py --jbrowse JBrowse-1.12.0 --outdir ${TEMPDIR} --standalone test-data/vcf/test.xml
-	cp ${TEMPDIR}/data/trackList.json test-data/vcf/
+	cat ${TEMPDIR}/data/trackList.json  | sed 's/,\s*$$//g' | sort > test-data/vcf/trackList.json.comparable
 	rm -rf ${TEMPDIR}
 
-test-data/blastxml/trackList.json:
+test-data/blastxml/trackList.json.comparable:
 	python jbrowse.py --jbrowse JBrowse-1.12.0 --outdir ${TEMPDIR} --standalone test-data/blastxml/test.xml
-	cp ${TEMPDIR}/data/trackList.json test-data/blastxml/
+	cat ${TEMPDIR}/data/trackList.json  | sed 's/,\s*$$//g' | sort > test-data/blastxml/trackList.json.comparable
 	rm -rf ${TEMPDIR}
 
-test-data/bw/trackList.json:
+test-data/bw/trackList.json.comparable:
 	python jbrowse.py --jbrowse JBrowse-1.12.0 --outdir ${TEMPDIR} --standalone test-data/bw/test.xml
-	cp ${TEMPDIR}/data/trackList.json test-data/bw/
+	cat ${TEMPDIR}/data/trackList.json  | sed 's/,\s*$$//g' | sort > test-data/bw/trackList.json.comparable
 	rm -rf ${TEMPDIR}
 
-test-data/bam/trackList.json:
+test-data/bam/trackList.json.comparable:
 	python jbrowse.py --jbrowse JBrowse-1.12.0 --outdir ${TEMPDIR} --standalone test-data/bam/test.xml
-	cp ${TEMPDIR}/data/trackList.json test-data/bam/
+	cat ${TEMPDIR}/data/trackList.json  | sed 's/,\s*$$//g' | sort > test-data/bam/trackList.json.comparable
 	rm -rf ${TEMPDIR}
 
-test-data/gff3/trackList.json:
+test-data/gff3/trackList.json.comparable:
 	python jbrowse.py --jbrowse JBrowse-1.12.0 --outdir ${TEMPDIR} --standalone test-data/gff3/test.xml
-	cp ${TEMPDIR}/data/trackList.json test-data/gff3/
+	cat ${TEMPDIR}/data/trackList.json  | sed 's/,\s*$$//g' | sort > test-data/gff3/trackList.json.comparable
 	rm -rf ${TEMPDIR}
 
-test-data/gencode/trackList.json:
+test-data/gencode/trackList.json.comparable:
 	python jbrowse.py --jbrowse JBrowse-1.12.0 --outdir ${TEMPDIR} --standalone test-data/gencode/test.xml
-	cp ${TEMPDIR}/data/trackList.json test-data/gencode/
+	cat ${TEMPDIR}/data/trackList.json  | sed 's/,\s*$$//g' | sort > test-data/gencode/trackList.json.comparable
 	rm -rf ${TEMPDIR}
