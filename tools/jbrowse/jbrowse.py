@@ -351,7 +351,7 @@ class JbrowseConnector(object):
 
         config = {
             'glyph': 'JBrowse/View/FeatureGlyph/Segments',
-            "category": kwargs['category'],
+            "category": trackData['category'],
         }
 
         clientConfig = trackData['style']
@@ -377,7 +377,6 @@ class JbrowseConnector(object):
             "urlTemplate": os.path.join('..', dest),
             "storeClass": "JBrowse/Store/SeqFeature/BigWig",
             "type": "JBrowse/View/Track/Wiggle/Density",
-            "category": kwargs['category'],
         })
 
         trackData['type'] = wiggleOpts['type']
@@ -403,7 +402,6 @@ class JbrowseConnector(object):
             "urlTemplate": os.path.join('..', dest),
             "type": "JBrowse/View/Track/Alignments2",
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
-            "category": kwargs["category"],
         })
 
 
@@ -418,8 +416,8 @@ class JbrowseConnector(object):
             })
             self._add_track_json(trackData2)
 
-    def add_vcf(self, data, trackData, **kwargs):
-        dest = os.path.join('data', 'raw', os.path.basename(data))
+    def add_vcf(self, data, trackData, vcfOpts, **kwargs):
+        dest = os.path.join('data', 'raw', trackData['label'] + '.vcf')
         # ln?
         cmd = ['ln', '-s', data, dest]
         self.subprocess_check_call(cmd)
@@ -445,10 +443,9 @@ class JbrowseConnector(object):
             '--key', trackData['key']
         ]
 
-        config = {
-            'category': kwargs['category'],
-        }
+        config = copy.copy(trackData)
         clientConfig = trackData['style']
+        del config['style']
 
         if  'match' in gffOpts:
             config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
@@ -469,7 +466,8 @@ class JbrowseConnector(object):
                 'label':       track['style'].get('label', 'description'),
                 'className':   track['style'].get('className', 'feature'),
                 'description': track['style'].get('description', ''),
-            }
+            },
+            'category': track['category'],
         }
 
         for i, (dataset_path, dataset_ext, track_human_label) in enumerate(track['trackfiles']):
@@ -489,16 +487,12 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
-            kwargs = {
-                'category': track['category'],
-            }
-
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
-                                track['conf']['options']['gff'], **kwargs)
+                                track['conf']['options']['gff'])
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
-                                track['conf']['options']['wiggle'], **kwargs)
+                                track['conf']['options']['wiggle'])
             elif dataset_ext == 'bam':
                 real_indexes = track['conf']['options']['pileup']['bam_indices']['bam_index']
                 if not isinstance(real_indexes, list):
@@ -513,9 +507,9 @@ class JbrowseConnector(object):
 
                 self.add_bam(dataset_path, outputTrackConfig,
                              track['conf']['options']['pileup'],
-                             bam_index=real_indexes[i], **kwargs)
+                             bam_index=real_indexes[i])
             elif dataset_ext == 'blastxml':
-                self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'], **kwargs)
+                self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'])
             #elif dataset_ext == 'vcf':
                 #self.add_vcf(dataset, outputTrackConfig, **kwargs)
 
