@@ -206,7 +206,7 @@ class ColorScaling(object):
                     min_val = 0
                     max_val = 1000
                     # Get min/max and build a scoring function since JBrowse doesn't
-                    if scales['type'] == '__auto__':
+                    if scales['type'] == 'automatic':
                         min_val, max_val = self.min_max_gff(gff3)
                     else:
                         min_val = scales['min']
