@@ -536,14 +536,17 @@ class JbrowseConnector(object):
         """
         # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
         # unlike copytree
-        cmd = ['rsync', '-r', os.path.join(jbrowse_dir, ''), destination]
+        cmd = ['cp', '-r', os.path.join(jbrowse_dir, '.'), destination]
+        log.debug(' '.join(cmd))
         subprocess.check_call(cmd)
         cmd = ['mkdir', '-p', os.path.join(destination, 'data', 'raw')]
+        log.debug(' '.join(cmd))
         subprocess.check_call(cmd)
 
         # http://unix.stackexchange.com/a/38691/22785
         # JBrowse releases come with some broken symlinks
         cmd = ['find', destination, '-type', 'l', '-xtype', 'l', '-exec', 'rm', "'{}'", '+']
+        log.debug(' '.join(cmd))
         subprocess.check_call(cmd)
 
 
