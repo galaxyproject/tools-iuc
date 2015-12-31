@@ -28,6 +28,12 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
     blast_records = NCBIXML.parse(blastxml)
     records = []
     for record in blast_records:
+        # http://www.sequenceontology.org/browser/release_2.4/term/SO:0000343
+        match_type = {  # Currently we can only handle BLASTN, BLASTP
+            'BLASTN': 'nucleotide_match',
+            'BLASTP': 'protein_match',
+        }.get(record.application, 'match')
+
         rec = SeqRecord(Seq("ACTG"), id=record.query)
         for hit in record.alignments:
             for hsp in hit.hsps:
@@ -67,10 +73,10 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
                     if parent_match_end > hsp.query_end:
                         parent_match_end = hsp.query_end + 1
 
-                # The ``protein_match`` feature will hold one or more ``match_part``s
+                # The ``match`` feature will hold one or more ``match_part``s
                 top_feature = SeqFeature(
                     FeatureLocation(parent_match_start, parent_match_end),
-                    type="protein_match", strand=0,
+                    type=match_type, strand=0,
                     qualifiers=qualifiers
                 )
 
@@ -87,7 +93,7 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
 
                     if trim:
                         # If trimming, then we start relative to the
-                        # protein_match's start
+                        # match's start
                         match_part_start = parent_match_start + start
                     else:
                         # Otherwise, we have to account for the subject start's location
@@ -108,6 +114,7 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
                     )
 
                 rec.features.append(top_feature)
+        rec.annotations = {}
         records.append(rec)
     return records
 
@@ -252,5 +259,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     result = blastxml2gff3(**vars(args))
-
     GFF.write(result, sys.stdout)
