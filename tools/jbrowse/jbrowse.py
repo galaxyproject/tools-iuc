@@ -206,11 +206,11 @@ class ColorScaling(object):
                     min_val = 0
                     max_val = 1000
                     # Get min/max and build a scoring function since JBrowse doesn't
-                    if scales['type'] == 'automatic':
+                    if scales['type'] == 'automatic' or scales['type'] == '__auto__':
                         min_val, max_val = self.min_max_gff(gff3)
                     else:
-                        min_val = scales['min']
-                        max_val = scales['max']
+                        min_val = scales.get('min', 0)
+                        max_val = scales.get('max', 1000)
 
                     if scheme['color'] == '__auto__':
                         user_color = 'undefined'
@@ -315,6 +315,11 @@ class JbrowseConnector(object):
             self.subprocess_check_call([
                 'perl', self._jbrowse_bin('prepare-refseqs.pl'),
                 '--fasta', genome_path])
+
+        # Generate name
+        self.subprocess_check_call([
+            'perl', self._jbrowse_bin('generate-names.pl')
+        ])
 
     def _add_json(self, json_data):
         if len(json_data.keys()) == 0:
