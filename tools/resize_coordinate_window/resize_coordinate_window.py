@@ -1,4 +1,10 @@
 import argparse
+import sys
+
+
+def stop_err( msg ):
+    sys.stderr.write( msg )
+    sys.exit(1)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', dest='input', help="Input dataset")
@@ -26,6 +32,10 @@ for line in open(args.input):
         midpoint = (start + end) // 2
         start = midpoint - args.subtract_from_start
         end = midpoint + args.add_to_end
+    if start < 1:
+        out.close()
+        stop_err('Requested expansion places region beyond chromosome bounds.')
     new_line = '\t'.join([items[0], items[1], items[2], str(start), str(end), items[5], items[6], items[7], items[8]])
     out.write(new_line)
 out.close()
+
