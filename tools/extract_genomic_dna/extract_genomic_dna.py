@@ -1,69 +1,12 @@
 #!/usr/bin/env python
 import argparse
 import os
-import subprocess
-import sys
-import tempfile
 
+import extract_genomic_dna_utils as egdu
 import bx.seq.nib
 import bx.seq.twobit
 from bx.intervals.io import Header, Comment
-from galaxy.datatypes.util import gff_util
-from galaxy.tools.util.galaxyops import parse_cols_arg
 
-
-def convert_to_twobit(reference_genome):
-    """
-    Create 2bit file history fasta dataset.
-    """
-    try:
-        seq_path = tempfile.NamedTemporaryFile(dir=".").name
-        cmd = "faToTwoBit %s %s" % (reference_genome, seq_path)
-        tmp_name = tempfile.NamedTemporaryFile(dir=".").name
-        tmp_stderr = open(tmp_name, 'wb')
-        proc = subprocess.Popen(args=cmd, shell=True, stderr=tmp_stderr.fileno())
-        returncode = proc.wait()
-        tmp_stderr.close()
-        if returncode != 0:
-            # Get stderr, allowing for case where it's very large.
-            tmp_stderr = open(tmp_name, 'rb')
-            stderr = ''
-            buffsize = 1048576
-            try:
-                while True:
-                    stderr += tmp_stderr.read(buffsize)
-                    if not stderr or len(stderr) % buffsize != 0:
-                        break
-            except OverflowError:
-                pass
-            tmp_stderr.close()
-            os.remove(tmp_name)
-            stop_err(stderr)
-        return seq_path
-    except Exception, e:
-        stop_err('Error running faToTwoBit. ' + str(e))
-
-
-def get_lines(feature):
-    # Get feature's line(s).
-    if isinstance(feature, gff_util.GFFFeature):
-        return feature.lines()
-    else:
-        return [feature.rstrip('\r\n')]
-
-
-def reverse_complement(s):
-    complement_dna = {"A": "T", "T": "A", "C": "G", "G": "C", "a": "t", "t": "a", "c": "g", "g": "c", "N": "N", "n": "n"}
-    reversed_s = []
-    for i in s:
-        reversed_s.append(complement_dna[i])
-    reversed_s.reverse()
-    return "".join(reversed_s)
-
-
-def stop_err(msg):
-    sys.stderr.write(msg)
-    sys.exit(1)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_format', dest='input_format', help="Input dataset format")
@@ -81,14 +24,14 @@ input_is_gff = args.input_format == 'gff'
 interpret_features = input_is_gff and args.interpret_features == "yes"
 if len(args.columns.split(',')) == 5:
     # Bed file.
-    chrom_col, start_col, end_col, strand_col, name_col = parse_cols_arg(args.columns)
+    chrom_col, start_col, end_col, strand_col, name_col = egdu.parse_cols_arg(args.columns)
 else:
     # Gff file.
-    chrom_col, start_col, end_col, strand_col = parse_cols_arg(args.columns)
+    chrom_col, start_col, end_col, strand_col = egdu.parse_cols_arg(args.columns)
     name_col = False
 
 if args.reference_genome_source == "history":
-    seq_path = convert_to_twobit(args.reference_genome)
+    seq_path = egdu.convert_to_twobit(args.reference_genome)
 else:
     seq_path = args.reference_genome
 seq_dir = os.path.split(seq_path)[0]
@@ -105,7 +48,7 @@ twobitfile = None
 line_count = 1
 file_iterator = open(args.input)
 if interpret_features:
-    file_iterator = gff_util.GFFReaderWrapper(file_iterator, fix_strand=False)
+    file_iterator = egdu.GFFReaderWrapper(file_iterator, fix_strand=False)
 out = open(args.output, 'wt')
 
 for feature in file_iterator:
@@ -116,7 +59,7 @@ for feature in file_iterator:
     name = ""
     if interpret_features:
         # Processing features.
-        gff_util.convert_gff_coords_to_bed(feature)
+        egdu.convert_gff_coords_to_bed(feature)
         chrom = feature.chrom
         start = feature.start
         end = feature.end
@@ -133,14 +76,14 @@ for feature in file_iterator:
                 if name_col:
                     name = fields[name_col]
                 if input_is_gff:
-                    start, end = gff_util.convert_gff_coords_to_bed([start, end])
+                    start, end = egdu.convert_gff_coords_to_bed([start, end])
                 if includes_strand_col:
                     strand = fields[strand_col]
             except:
                 warning = "Invalid chrom, start or end column values. "
                 warnings.append(warning)
                 if not invalid_lines:
-                    invalid_lines = get_lines(feature)
+                    invalid_lines = egdu.get_lines(feature)
                     first_invalid_line = line_count
                 skipped_lines += len(invalid_lines)
                 continue
@@ -148,7 +91,7 @@ for feature in file_iterator:
                 warning = "Invalid interval, start '%d' > end '%d'.  " % (start, end)
                 warnings.append(warning)
                 if not invalid_lines:
-                    invalid_lines = get_lines(feature)
+                    invalid_lines = egdu.get_lines(feature)
                     first_invalid_line = line_count
                 skipped_lines += len(invalid_lines)
                 continue
@@ -162,20 +105,20 @@ for feature in file_iterator:
         if chrom in nibs:
             nib = nibs[chrom]
         else:
-            nibs[chrom] = nib = bx.seq.nib.NibFile(file("%s/%s.nib" % (seq_path, chrom)))
+            nibs[chrom] = nib = bx.seq.nib.NibFile(open("%s/%s.nib" % (seq_path, chrom)))
         try:
             sequence = nib.get(start, end - start)
         except Exception, e:
             warning = "Unable to fetch the sequence from '%d' to '%d' for build '%s'. " % (start, end - start, args.genome)
             warnings.append(warning)
             if not invalid_lines:
-                invalid_lines = get_lines(feature)
+                invalid_lines = egdu.get_lines(feature)
                 first_invalid_line = line_count
             skipped_lines += len(invalid_lines)
             continue
     elif os.path.isfile(seq_path):
         if not(twobitfile):
-            twobitfile = bx.seq.twobit.TwoBitFile(file(seq_path))
+            twobitfile = bx.seq.twobit.TwoBitFile(open(seq_path))
         try:
             if interpret_features:
                 # Create sequence from intervals within a feature.
@@ -188,7 +131,7 @@ for feature in file_iterator:
             warning = "Unable to fetch the sequence from '%d' to '%d' for chrom '%s'. " % (start, end - start, chrom)
             warnings.append(warning)
             if not invalid_lines:
-                invalid_lines = get_lines(feature)
+                invalid_lines = egdu.get_lines(feature)
                 first_invalid_line = line_count
             skipped_lines += len(invalid_lines)
             continue
@@ -196,7 +139,7 @@ for feature in file_iterator:
         warning = "Chromosome by name '%s' was not found for build '%s'. " % (chrom, args.genome)
         warnings.append(warning)
         if not invalid_lines:
-            invalid_lines = get_lines(feature)
+            invalid_lines = egdu.get_lines(feature)
             first_invalid_line = line_count
         skipped_lines += len(invalid_lines)
         continue
@@ -204,17 +147,17 @@ for feature in file_iterator:
         warning = "Chrom: '%s', start: '%d', end: '%d' is either invalid or not present in build '%s'. " % (chrom, start, end, args.genome)
         warnings.append(warning)
         if not invalid_lines:
-            invalid_lines = get_lines(feature)
+            invalid_lines = egdu.get_lines(feature)
             first_invalid_line = line_count
         skipped_lines += len(invalid_lines)
         continue
     if includes_strand_col and strand == "-":
-        sequence = reverse_complement(sequence)
+        sequence = egdu.reverse_complement(sequence)
     if args.output_format == "fasta":
         l = len(sequence)
         c = 0
         if input_is_gff:
-            start, end = gff_util.convert_bed_coords_to_gff([start, end])
+            start, end = egdu.convert_bed_coords_to_gff([start, end])
         fields = [args.genome, str(chrom), str(start), str(end), strand]
         meta_data = "_".join(fields)
         if name.strip():
@@ -236,7 +179,7 @@ for feature in file_iterator:
                                    feature.score,
                                    feature.strand,
                                    ".",
-                                   gff_util.gff_attributes_to_str(feature.attributes, "GTF")])
+                                   egdu.gff_attributes_to_str(feature.attributes, "GTF")])
         else:
             # Where is fields being set here?
             meta_data = "\t".join(fields)
@@ -246,7 +189,7 @@ for feature in file_iterator:
             format_str = "%s\t%s\n"
         out.write(format_str % (meta_data, str(sequence)))
     # Update line count.
-    if isinstance(feature, gff_util.GFFFeature):
+    if isinstance(feature, egdu.GFFFeature):
         line_count += len(feature.intervals)
     else:
         line_count += 1
