@@ -150,7 +150,7 @@ class ColorScaling(object):
         return '#%02x%02x%02x' % (r, g, b)
 
     def _get_colours(self):
-        r, g, b = self.BREWER_COLOUR_SCHEMES[self.brewer_colour_idx]
+        r, g, b = self.BREWER_COLOUR_SCHEMES[self.brewer_colour_idx % len(self.BREWER_COLOUR_SCHEMES)]
         self.brewer_colour_idx += 1
         return r, g, b
 
