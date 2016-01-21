@@ -358,7 +358,7 @@ class JbrowseConnector(object):
     def add_blastxml(self, data, trackData, blastOpts, **kwargs):
         gff3 = self._blastxml_to_gff3(data, min_gap=blastOpts['min_gap'])
 
-        if 'parent' in blastOpts:
+        if 'parent' in blastOpts and blastOpts['parent'] != 'None':
             gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
             cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
             if blastOpts.get('protein', 'false') == 'true':
