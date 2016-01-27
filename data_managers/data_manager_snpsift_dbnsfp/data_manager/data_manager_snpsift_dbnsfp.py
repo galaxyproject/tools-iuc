@@ -97,10 +97,9 @@ def download_dbnsfp_database(url, output_file):
     dbnsfp_tsv = None
     file_path = 'downloaded_file'
     urllib.urlretrieve(url, file_path)
-    if zipfile.is_zipfile(file_path):
+    with zipfile.ZipFile(file_path, 'r') as my_zip:
         dbnsfp_tsv = output_file if output_file else 'dbnsfp_tsv'
         wtr = open(dbnsfp_tsv, 'w')
-        my_zip = zipfile.ZipFile(file_path, 'r')
         allfiles = [info.filename for info in my_zip.infolist()]
         files = [f for f in allfiles if re.match(dbNSFP_file_pat, f)]
         files = sorted(files, key=natural_sortkey)
