@@ -3,7 +3,8 @@
 import os
 import sys
 
-bl = [tool.strip() for tool in open('.tt_blacklist', 'r')]
+with open('.tt_blacklist') as handle:
+    bl = [tool.strip() for tool in handle]
 
 for directory in sys.stdin:
     directory = directory.strip()
