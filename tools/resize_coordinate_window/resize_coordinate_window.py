@@ -27,13 +27,15 @@ out = open(args.output, 'wb')
 chrom_start = int(args.start_coordinate)
 chrom_lens = dict()
 # Determine the length of each chromosome and add it to the chrom_lens dictionary.
+len_file_missing = False
+len_file_error = None
 len_file = fileinput.FileInput(args.chrom_len_file)
 try:
     for line in len_file:
         fields = line.split("\t")
         chrom_lens[fields[0]] = int(fields[1])
-except:
-    pass
+except Exception, e:
+    len_file_error = str(e)
 
 with open(args.input) as fhi:
     for line in fhi:
@@ -64,7 +66,10 @@ with open(args.input) as fhi:
                 out.close()
                 stop_err('Requested expansion places region beyond chromosome start boundary of 0.')
         # Check end boundary.
-        chrom_len = chrom_lens.get(chrom, MAX_CHROM_LEN)
+        chrom_len = chrom_lens.get(chrom, None)
+        if chrom_len is None:
+            len_file_missing = True
+            chrom_len = MAX_CHROM_LEN
         if new_end > chrom_len:
             if args.region_boundaries == 'discard':
                 continue
@@ -76,3 +81,8 @@ with open(args.input) as fhi:
         new_line = '\t'.join([chrom, items[1], items[2], str(new_start), str(new_end), items[5], items[6], items[7], items[8]])
         out.write(new_line)
 out.close()
+
+if len_file_error is not None:
+    print "All chrom lengths set to %d, error in chrom len file: %s" % (MAX_CHROM_LEN, len_file_error)
+if len_file_missing:
+    print "All chrom lengths set to %d, chrom len files are not installed." % MAX_CHROM_LEN
