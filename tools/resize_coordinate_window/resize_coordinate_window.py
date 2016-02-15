@@ -64,7 +64,7 @@ with open(args.input) as fhi:
                 new_start = chrom_start
             elif args.region_boundaries == 'error':
                 out.close()
-                stop_err('Requested expansion places region beyond chromosome start boundary of 0.')
+                stop_err('Requested expansion places region beyond chromosome start boundary of %d.' % chrom_start)
         # Check end boundary.
         chrom_len = chrom_lens.get(chrom, None)
         if chrom_len is None:
