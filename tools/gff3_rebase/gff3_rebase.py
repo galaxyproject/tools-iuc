@@ -145,7 +145,6 @@ def rebase(parent, child, interpro=False, protein2dna=False):
                 subfeatures=False):
 
             new_subfeatures = child_features[feature.id]
-            # TODO: update starts
             fixed_subfeatures = []
             for x in new_subfeatures:
                 # Then update the location of the actual feature
