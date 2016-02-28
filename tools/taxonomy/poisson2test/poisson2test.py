@@ -6,7 +6,7 @@ import rpy2
 
 
 if len(sys.argv) -1 != 6:
-    print 'Too few parameters.' 
+    print 'Too few parameters.'
     print 'Usage: inputfile, col1, col2, d-value(not 0), p-val correction method(0 or 1)'
     sys.exit()
     
@@ -14,7 +14,7 @@ try:
     lines_arr = open(sys.argv[1]).readlines()
 except IOError:
     print 'Cannot open',sys.argv[1]
-    sys.exit()  
+    sys.exit()
  
 try:
     i = int(sys.argv[2]) #first column to compare
@@ -93,7 +93,7 @@ for p in z1:
     pz1.append(float(r.pnorm(-abs(float(p)))))
 
 for q in z2:
-    pz2.append(float(r.pnorm(-abs(float(q)))))    
+    pz2.append(float(r.pnorm(-abs(float(q)))))
 
 # P-value correction for pz1 and pz2
 if k == 0:
