@@ -292,6 +292,22 @@ def convert_to_twobit(reference_genome):
         stop_err('Error running faToTwoBit. ' + str(e))
 
 
+def get_description_field_delimiter(description_field_delimiter):
+    # Convert a word to an appropriate character.
+    if description_field_delimiter == 'underscore':
+        return '_'
+    if description_field_delimiter == 'semicolon':
+        return ';'
+    if description_field_delimiter == 'comma':
+        return ','
+    if description_field_delimiter == 'tilda':
+        return '~'
+    if description_field_delimiter == 'vetical_bar':
+        return '|'
+    # Set the default to underscore.
+    return '_'
+
+
 def get_lines(feature):
     # Get feature's line(s).
     if isinstance(feature, GFFFeature):

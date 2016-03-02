@@ -17,6 +17,7 @@ parser.add_argument('--columns', dest='columns', help="Columns to use in input f
 parser.add_argument('--reference_genome_source', dest='reference_genome_source', help="Source of reference genome file")
 parser.add_argument('--reference_genome', dest='reference_genome', help="Reference genome file")
 parser.add_argument('--output_format', dest='output_format', help="Output format")
+parser.add_argument('--description_field_delimiter', dest='description_field_delimiter', default=None, help="Fasta description field delimiter")
 parser.add_argument('--output', dest='output', help="Output dataset")
 args = parser.parse_args()
 
@@ -159,7 +160,8 @@ for feature in file_iterator:
         if input_is_gff:
             start, end = egdu.convert_bed_coords_to_gff([start, end])
         fields = [args.genome, str(chrom), str(start), str(end), strand]
-        meta_data = "_".join(fields)
+        field_delimiter = egdu.get_description_field_delimiter(args.description_field_delimiter)
+        meta_data = field_delimiter.join(fields)
         if name.strip():
             out.write(">%s %s\n" % (meta_data, name))
         else:
