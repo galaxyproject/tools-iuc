@@ -292,17 +292,34 @@ def convert_to_twobit(reference_genome):
         stop_err('Error running faToTwoBit. ' + str(e))
 
 
-def get_description_field_delimiter(description_field_delimiter):
-    # Convert a word to an appropriate character.
-    if description_field_delimiter == 'underscore':
+def get_bedtools_getfasta_default_header(chrom, start, end, strand, includes_strand_col):
+    """
+    Return a fasta header that is the default produced by the bedtools
+    getfasta tool, assuming "force strandedness".  This will produce a
+    header with this format: <chrom>:<start>-<end>(strand).  If the input
+    data includes a strand column and the strand is '+' or '-', then use it.
+    If the input data includes a strand column and the value of strand is
+    anything but '+' or '-', set strand to '.' in the header.  If the input
+    data does not include a strand column, set strand to '.' in the header.
+    """
+    if includes_strand_col and strand in ['+', '-']:
+        strand_val = strand
+    else:
+        strand_val = '.'
+    return '%s:%s-%s(%s)' % (chrom, start, end, strand_val)
+
+
+def get_fasta_header_delimiter(delimiter):
+    # Return a specified fasta header delimiter.
+    if delimiter == 'underscore':
         return '_'
-    if description_field_delimiter == 'semicolon':
+    if delimiter == 'semicolon':
         return ';'
-    if description_field_delimiter == 'comma':
+    if delimiter == 'comma':
         return ','
-    if description_field_delimiter == 'tilda':
+    if delimiter == 'tilda':
         return '~'
-    if description_field_delimiter == 'vetical_bar':
+    if delimiter == 'vetical_bar':
         return '|'
     # Set the default to underscore.
     return '_'
