@@ -317,9 +317,9 @@ def get_fasta_header_delimiter(delimiter):
         return ';'
     if delimiter == 'comma':
         return ','
-    if delimiter == 'tilda':
+    if delimiter == 'tilde':
         return '~'
-    if delimiter == 'vetical_bar':
+    if delimiter == 'vertical_bar':
         return '|'
     # Set the default to underscore.
     return '_'
