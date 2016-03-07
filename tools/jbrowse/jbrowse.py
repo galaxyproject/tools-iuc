@@ -318,7 +318,8 @@ class JbrowseConnector(object):
 
         # Generate name
         self.subprocess_check_call([
-            'perl', self._jbrowse_bin('generate-names.pl')
+            'perl', self._jbrowse_bin('generate-names.pl'),
+            '--hashBits', '16'
         ])
 
     def _add_json(self, json_data):
