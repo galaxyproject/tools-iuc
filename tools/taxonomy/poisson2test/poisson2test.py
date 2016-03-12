@@ -6,9 +6,7 @@ import rpy2
 
 
 if len(sys.argv) -1 != 6:
-    print 'Too few parameters.'
-    print 'Usage: inputfile, col1, col2, d-value(not 0), p-val correction method(0 or 1)'
-    sys.exit()
+    raise ValueError("Too few parameters.\nUsage: inputfile, col1, col2, d-value(not 0), p-val correction method(0 or 1)")
     
 try:
     lines_arr = open(sys.argv[1]).readlines()
