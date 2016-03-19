@@ -68,9 +68,9 @@ def main():
         command_line = "sort -f -k " + str(group_col+1) +"," + str(group_col+1) + " -o " + tmpfile.name + " " + inputfile
     except Exception, exc:
         sys.exit( 'Initialization error -> %s' %str(exc) )
-        
+
     error_code, stdout = commands.getstatusoutput(command_line)
-    
+
     if error_code != 0:
         sys.exit( "Sorting input dataset resulted in error: %s: %s" %( error_code, stdout ))    
 
@@ -80,9 +80,8 @@ def main():
     skipped_lines = 0
     fout = open(outfile, "w")
     block_valid = False
-    
-    
-    for ii, line in enumerate( file( tmpfile.name )):
+
+    for ii, line in enumerate( open( tmpfile.name )):
         if line and not line.startswith( '#' ) and len(line.split('\t')) >= 24: #Taxonomy datatype should have at least 24 columns
             line = line.rstrip( '\r\n' )
             try:
@@ -99,8 +98,8 @@ def main():
                                     if len(set(prev_vals[i])) > 1:
                                         block_valid = False
                                         break
-                            
-                    else:   
+
+                    else:
                         """
                         When a new value is encountered, write the previous value and the 
                         corresponding aggregate values into the output file.  This works 
@@ -128,21 +127,21 @@ def main():
                                 j += 1
                             except:
                                 break
-  
-                        if rank_bound == 0:     
+
+                        if rank_bound == 0:
                             fout.write('\t'.join(out_list).strip())
                         else:
                             if ''.join(out_list[rank_bound:24]) != 'n'*( 24 - rank_bound ):
                                 fout.write('\t'.join(out_list).strip())
- 
+
                         block_valid = True
-                        prev_item = item   
-                        prev_vals = [] 
+                        prev_item = item
+                        prev_vals = []
                         for col in cols:
                             val_list = []
                             val_list.append(fields[col].strip())
                             prev_vals.append(val_list)
- 
+
                 else:
                     # This only occurs once, right at the start of the iteration.
                     block_valid = True
