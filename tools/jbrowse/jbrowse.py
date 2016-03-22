@@ -458,12 +458,13 @@ class JbrowseConnector(object):
         self._add_track_json(trackData)
 
     def add_features(self, data, format, trackData, gffOpts, **kwargs):
+        import pprint; pprint.pprint(gffOpts)
         cmd = [
             'perl', self._jbrowse_bin('flatfile-to-json.pl'),
             self.TN_TABLE.get(format, 'gff'),
             data,
             '--trackLabel', trackData['label'],
-            '--trackType', 'JBrowse/View/Track/CanvasFeatures',
+            # '--trackType', 'JBrowse/View/Track/CanvasFeatures',
             '--key', trackData['key']
         ]
 
@@ -476,8 +477,16 @@ class JbrowseConnector(object):
             cmd += ['--type', gffOpts['match']]
 
         cmd += ['--clientConfig', json.dumps(clientConfig),
-                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                 ]
+
+        if 'trackType' in gffOpts:
+            cmd += [
+                '--trackType', gffOpts['trackType']
+            ]
+        else:
+            cmd += [
+                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
+            ]
 
         cmd.extend(['--config', json.dumps(config)])
 
