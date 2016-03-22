@@ -458,7 +458,6 @@ class JbrowseConnector(object):
         self._add_track_json(trackData)
 
     def add_features(self, data, format, trackData, gffOpts, **kwargs):
-        import pprint; pprint.pprint(gffOpts)
         cmd = [
             'perl', self._jbrowse_bin('flatfile-to-json.pl'),
             self.TN_TABLE.get(format, 'gff'),
