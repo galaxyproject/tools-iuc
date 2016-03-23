@@ -550,13 +550,13 @@ class JbrowseConnector(object):
     def add_final_data(self, data):
         viz_data = {}
         if len(data['visibility']['default_on']) > 0:
-            viz_data['defaultTracks'] = data['visibility']['default_on']
+            viz_data['defaultTracks'] = ','.join(data['visibility']['default_on'])
 
         if len(data['visibility']['always']) > 0:
-            viz_data['alwaysOnTracks'] = data['visibility']['always']
+            viz_data['alwaysOnTracks'] = ','.join(data['visibility']['always'])
 
         if len(data['visibility']['force']) > 0:
-            viz_data['forceTracks'] = data['visibility']['force']
+            viz_data['forceTracks'] = ','.join(data['visibility']['force'])
 
         generalData = {}
         if data['general']['aboutDescription'] is not None:
