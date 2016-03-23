@@ -558,6 +558,21 @@ class JbrowseConnector(object):
         if len(data['visibility']['force']) > 0:
             viz_data['forceTracks'] = data['visibility']['force']
 
+        generalData = {}
+        if data['general']['aboutDescription'] is not None:
+            generalData['aboutThisBrowser'] = {'description': data['general']['aboutDescription'].strip()}
+
+        generalData['view'] = {
+            'trackPadding': data['general']['trackPadding']
+        }
+        generalData['shareLink'] = (data['general']['shareLink'] == 'true')
+        generalData['show_tracklist'] = (data['general']['show_tracklist'] == 'true')
+        generalData['show_nav'] = (data['general']['show_nav'] == 'true')
+        generalData['show_overview'] = (data['general']['show_overview'] == 'true')
+        generalData['show_menu'] = (data['general']['show_menu'] == 'true')
+        generalData['hideGenomeOptions'] = (data['general']['hideGenomeOptions'] == 'true')
+
+        viz_data.update(generalData)
         self._add_json(viz_data)
 
     def clone_jbrowse(self, jbrowse_dir, destination):
@@ -605,6 +620,17 @@ if __name__ == '__main__':
             'default_off': [],
             'force': [],
             'always': [],
+        },
+        'general': {
+            'defaultLocation': root.find('metadata/general/defaultLocation').text,
+            'trackPadding': int(root.find('metadata/general/trackPadding').text),
+            'shareLink': root.find('metadata/general/shareLink').text,
+            'aboutDescription': root.find('metadata/general/aboutDescription').text,
+            'show_tracklist': root.find('metadata/general/show_tracklist').text,
+            'show_nav': root.find('metadata/general/show_nav').text,
+            'show_overview': root.find('metadata/general/show_overview').text,
+            'show_menu': root.find('metadata/general/show_menu').text,
+            'hideGenomeOptions': root.find('metadata/general/hideGenomeOptions').text,
         }
     }
     for track in root.findall('tracks/track'):
