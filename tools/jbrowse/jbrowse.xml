@@ -1,4 +1,4 @@
-<tool id="jbrowse" name="JBrowse" version="0.4">
+<tool id="jbrowse" name="JBrowse" version="0.5">
   <description>genome browser</description>
   <macros>
     <import>macros.xml</import>
@@ -7,20 +7,27 @@
   <expand macro="stdio"/>
   <version_command>python jbrowse.py --version</version_command>
   <command><![CDATA[
-mkdir -p $output.files_path &&
+
+#if $action.action_select == "create":
+    mkdir -p $output.files_path;
+#else:
+    cp -R $action.update_jbrowse.extra_files_path $output.files_path;
+#end if
+
 ## Copy the XML file into the directory, mostly for debugging
 ## but nice if users want to reproduce locally
 cp $trackxml $output.files_path/galaxy.xml &&
 
 ## Once that's done, we run the python script to handle the real work
 python $__tool_directory__/jbrowse.py
-$trackxml
 
 --jbrowse \${JBROWSE_SOURCE_DIR}
 #if str($standalone) == "Complete":
     --standalone
 #end if
---outdir $output.files_path;
+
+--outdir $output.files_path
+$trackxml;
 
 #if str($standalone) == "Complete":
     mv $output.files_path/index.html $output;
@@ -69,11 +76,23 @@ $trackxml
                 <genome>$genome</genome>
             #end for
         </genomes>
+        <general>
+            <defaultLocation>${jbgen.defaultLocation}</defaultLocation>
+            <trackPadding>${jbgen.trackPadding}</trackPadding>
+
+            <shareLink>${jbgen.shareLink}</shareLink>
+            <aboutDescription>${jbgen.aboutDescription}</aboutDescription>
+            <show_tracklist>${jbgen.show_tracklist}</show_tracklist>
+            <show_nav>${jbgen.show_nav}</show_nav>
+            <show_overview>${jbgen.show_overview}</show_overview>
+            <show_menu>${jbgen.show_menu}</show_menu>
+            <hideGenomeOptions>${jbgen.hideGenomeOptions}</hideGenomeOptions>
+        </general>
     </metadata>
     <tracks>
         #for $tg in $track_groups:
         #for $track in $tg.data_tracks:
-        <track cat="${tg.category}" format="${track.data_format.data_format_select}">
+        <track cat="${tg.category}" format="${track.data_format.data_format_select}" visibility="${track.data_format.track_visibility}">
             <files>
               #for $dataset in $track.data_format.annotation:
               <trackFile path="${dataset}" ext="${dataset.ext}" label="${dataset.element_identifier}" />
@@ -174,10 +193,18 @@ $trackxml
                 </blast>
             #else if str($track.data_format.data_format_select) == "gene_calls":
                 <gff>
+                    <trackType>${track.data_format.track_class}</trackType>
                   #if $track.data_format.match_part.match_part_select:
                     <match>${track.data_format.match_part.name}</match>
                   #end if
                 </gff>
+##            #else if str($track.data_format.data_format_select) == "sparql":
+##                <sparql>
+##                    <url>${track.data_format.url}</url>
+##                    <label>${track.data_format.label}</label>
+##                    <!-- This is going to be an absolutey nightmare -->
+##                    <query>${track.data_format.query}</query>
+##                </sparql>
             #end if
             </options>
         </track>
@@ -217,6 +244,20 @@ $trackxml
       <option value="25">25. Candidate Division SR1 and Gracilibacteria Code</option>
    </param>
 
+    <conditional name="action" label="Action">
+        <param type="select" label="JBrowse-in-Galaxy Action" name="action_select">
+            <option value="create">New JBrowse Instance</option>
+            <option value="update">Update exising JBrowse Instance</option>
+        </param>
+        <when value="create" />
+        <when value="update">
+            <param label="Previous JBrowse Instance"
+                   name="update_jbrowse"
+                   type="data"
+                   format="html" />
+        </when>
+    </conditional>
+
     <repeat name="track_groups" title="Track Group">
         <param label="Track Category"
                name="category"
@@ -231,6 +272,7 @@ $trackxml
                 <option value="blast">Blast XML</option>
                 <option value="wiggle">BigWig XY</option>
                 <option value="vcf">VCF SNPs</option>
+                <!--<option value="sparql">SPARQL</option>-->
             </param>
             <when value="blast">
                 <expand macro="input_conditional" label="BlastXML Track Data" format="blastxml" />
@@ -262,9 +304,11 @@ $trackxml
                 <expand macro="color_selection"
                         token_scaling_lin_select="false"
                         token_scaling_log_select="true" />
+                <expand macro="track_display" />
             </when>
             <when value="vcf">
                 <expand macro="input_conditional" label="SNP Track Data" format="vcf" />
+                <expand macro="track_display" />
             </when>
             <when value="gene_calls">
                 <expand macro="input_conditional" label="GFF/GFF3/BED Track Data" format="gff,gff3,bed" />
@@ -284,8 +328,13 @@ $trackxml
                     </when>
                     <when value="false" />
                 </conditional>
+                <param type="select" label="JBrowse Track Type [Advanced]" name="track_class">
+                  <option value="JBrowse/View/Track/HTMLFeatures">HTML Features</option>
+                  <option value="JBrowse/View/Track/CanvasFeatures" selected="true">Canvas Features</option>
+                </param>
                 <expand macro="track_styling" />
                 <expand macro="color_selection" />
+                <expand macro="track_display" />
             </when>
             <when value="pileup">
                 <expand macro="input_conditional" label="BAM Track Data" format="bam" />
@@ -295,6 +344,7 @@ $trackxml
                        name="auto_snp"
                        truevalue="true"
                        falsevalue="false" />
+                <expand macro="track_display" />
             </when>
             <when value="wiggle">
                 <expand macro="input_conditional" label="BigWig Track Data" format="bigwig" />
@@ -328,11 +378,21 @@ $trackxml
                     </when>
                 </conditional>
                 <expand macro="color_selection_minmax" />
+                <expand macro="track_display" />
             </when>
+            <!--
+            <when value="sparql">
+                <param type="text" label="SPARQL Server URL" name="url" />
+                <param type="text" label="Track Label" name="key" value="SPARQL Genes" />
+                <param type="text" label="SPARQL Query" name="query" area="true" />
+                <expand macro="track_display" />
+            </when>
+            -->
         </conditional>
     </repeat>
     </repeat>
 
+    <expand macro="general_options" />
     <param type="hidden" name="uglyTestingHack" value="" />
   </inputs>
   <outputs>

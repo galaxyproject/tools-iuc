@@ -150,7 +150,7 @@ class ColorScaling(object):
         return '#%02x%02x%02x' % (r, g, b)
 
     def _get_colours(self):
-        r, g, b = self.BREWER_COLOUR_SCHEMES[self.brewer_colour_idx]
+        r, g, b = self.BREWER_COLOUR_SCHEMES[self.brewer_colour_idx % len(self.BREWER_COLOUR_SCHEMES)]
         self.brewer_colour_idx += 1
         return r, g, b
 
@@ -206,11 +206,11 @@ class ColorScaling(object):
                     min_val = 0
                     max_val = 1000
                     # Get min/max and build a scoring function since JBrowse doesn't
-                    if scales['type'] == 'automatic':
+                    if scales['type'] == 'automatic' or scales['type'] == '__auto__':
                         min_val, max_val = self.min_max_gff(gff3)
                     else:
-                        min_val = scales['min']
-                        max_val = scales['max']
+                        min_val = scales.get('min', 0)
+                        max_val = scales.get('max', 1000)
 
                     if scheme['color'] == '__auto__':
                         user_color = 'undefined'
@@ -316,17 +316,20 @@ class JbrowseConnector(object):
                 'perl', self._jbrowse_bin('prepare-refseqs.pl'),
                 '--fasta', genome_path])
 
-    def _add_json(self, json_data):
-        if len(json_data.keys()) == 0:
-            return
+        # Generate name
+        self.subprocess_check_call([
+            'perl', self._jbrowse_bin('generate-names.pl'),
+            '--hashBits', '16'
+        ])
 
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        tmp.write(json.dumps(json_data))
-        tmp.close()
-        cmd = ['perl', self._jbrowse_bin('add-track-json.pl'), tmp.name,
-               os.path.join('data', 'trackList.json')]
+    def _add_json(self, json_data):
+
+        cmd = [
+            'perl', self._jbrowse_bin('add-json.pl'),
+            json.dumps(json_data),
+            os.path.join('data', 'trackList.json')
+        ]
         self.subprocess_check_call(cmd)
-        os.unlink(tmp.name)
 
     def _add_track_json(self, json_data):
         if len(json_data.keys()) == 0:
@@ -353,7 +356,7 @@ class JbrowseConnector(object):
     def add_blastxml(self, data, trackData, blastOpts, **kwargs):
         gff3 = self._blastxml_to_gff3(data, min_gap=blastOpts['min_gap'])
 
-        if 'parent' in blastOpts:
+        if 'parent' in blastOpts and blastOpts['parent'] != 'None':
             gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
             cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
             if blastOpts.get('protein', 'false') == 'true':
@@ -457,7 +460,7 @@ class JbrowseConnector(object):
             self.TN_TABLE.get(format, 'gff'),
             data,
             '--trackLabel', trackData['label'],
-            '--trackType', 'JBrowse/View/Track/CanvasFeatures',
+            # '--trackType', 'JBrowse/View/Track/CanvasFeatures',
             '--key', trackData['key']
         ]
 
@@ -470,8 +473,16 @@ class JbrowseConnector(object):
             cmd += ['--type', gffOpts['match']]
 
         cmd += ['--clientConfig', json.dumps(clientConfig),
-                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                 ]
+
+        if 'trackType' in gffOpts:
+            cmd += [
+                '--trackType', gffOpts['trackType']
+            ]
+        else:
+            cmd += [
+                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
+            ]
 
         cmd.extend(['--config', json.dumps(config)])
 
@@ -505,6 +516,8 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
+            # import pprint; pprint.pprint(track)
+            # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
                                 track['conf']['options']['gff'])
@@ -530,6 +543,37 @@ class JbrowseConnector(object):
                 self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'])
             elif dataset_ext == 'vcf':
                 self.add_vcf(dataset_path, outputTrackConfig)
+
+            # Return non-human label for use in other fields
+            yield outputTrackConfig['label']
+
+    def add_final_data(self, data):
+        viz_data = {}
+        if len(data['visibility']['default_on']) > 0:
+            viz_data['defaultTracks'] = ','.join(data['visibility']['default_on'])
+
+        if len(data['visibility']['always']) > 0:
+            viz_data['alwaysOnTracks'] = ','.join(data['visibility']['always'])
+
+        if len(data['visibility']['force']) > 0:
+            viz_data['forceTracks'] = ','.join(data['visibility']['force'])
+
+        generalData = {}
+        if data['general']['aboutDescription'] is not None:
+            generalData['aboutThisBrowser'] = {'description': data['general']['aboutDescription'].strip()}
+
+        generalData['view'] = {
+            'trackPadding': data['general']['trackPadding']
+        }
+        generalData['shareLink'] = (data['general']['shareLink'] == 'true')
+        generalData['show_tracklist'] = (data['general']['show_tracklist'] == 'true')
+        generalData['show_nav'] = (data['general']['show_nav'] == 'true')
+        generalData['show_overview'] = (data['general']['show_overview'] == 'true')
+        generalData['show_menu'] = (data['general']['show_menu'] == 'true')
+        generalData['hideGenomeOptions'] = (data['general']['hideGenomeOptions'] == 'true')
+
+        viz_data.update(generalData)
+        self._add_json(viz_data)
 
     def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory.
@@ -570,6 +614,25 @@ if __name__ == '__main__':
         gencode=root.find('metadata/gencode').text
     )
 
+    extra_data = {
+        'visibility': {
+            'default_on': [],
+            'default_off': [],
+            'force': [],
+            'always': [],
+        },
+        'general': {
+            'defaultLocation': root.find('metadata/general/defaultLocation').text,
+            'trackPadding': int(root.find('metadata/general/trackPadding').text),
+            'shareLink': root.find('metadata/general/shareLink').text,
+            'aboutDescription': root.find('metadata/general/aboutDescription').text,
+            'show_tracklist': root.find('metadata/general/show_tracklist').text,
+            'show_nav': root.find('metadata/general/show_nav').text,
+            'show_overview': root.find('metadata/general/show_overview').text,
+            'show_menu': root.find('metadata/general/show_menu').text,
+            'hideGenomeOptions': root.find('metadata/general/hideGenomeOptions').text,
+        }
+    }
     for track in root.findall('tracks/track'):
         track_conf = {}
         track_conf['trackfiles'] = [
@@ -586,4 +649,10 @@ if __name__ == '__main__':
             track_conf['style'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
-        jc.process_annotations(track_conf)
+        keys = jc.process_annotations(track_conf)
+
+
+        for key in keys:
+            extra_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
+
+    jc.add_final_data(extra_data)
