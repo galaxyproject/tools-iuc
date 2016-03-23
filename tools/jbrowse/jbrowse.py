@@ -323,16 +323,13 @@ class JbrowseConnector(object):
         ])
 
     def _add_json(self, json_data):
-        if len(json_data.keys()) == 0:
-            return
 
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        tmp.write(json.dumps(json_data))
-        tmp.close()
-        cmd = ['perl', self._jbrowse_bin('add-track-json.pl'), tmp.name,
-               os.path.join('data', 'trackList.json')]
+        cmd = [
+            'perl', self._jbrowse_bin('add-json.pl'),
+            json.dumps(json_data),
+            os.path.join('data', 'trackList.json')
+        ]
         self.subprocess_check_call(cmd)
-        os.unlink(tmp.name)
 
     def _add_track_json(self, json_data):
         if len(json_data.keys()) == 0:
@@ -519,6 +516,8 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
+            # import pprint; pprint.pprint(track)
+            # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
                                 track['conf']['options']['gff'])
@@ -544,6 +543,22 @@ class JbrowseConnector(object):
                 self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'])
             elif dataset_ext == 'vcf':
                 self.add_vcf(dataset_path, outputTrackConfig)
+
+            # Return non-human label for use in other fields
+            yield outputTrackConfig['label']
+
+    def add_final_data(self, data):
+        viz_data = {}
+        if len(data['visibility']['default_on']) > 0:
+            viz_data['defaultTracks'] = data['visibility']['default_on']
+
+        if len(data['visibility']['always']) > 0:
+            viz_data['alwaysOnTracks'] = data['visibility']['always']
+
+        if len(data['visibility']['force']) > 0:
+            viz_data['forceTracks'] = data['visibility']['force']
+
+        self._add_json(viz_data)
 
     def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory.
@@ -584,6 +599,14 @@ if __name__ == '__main__':
         gencode=root.find('metadata/gencode').text
     )
 
+    extra_data = {
+        'visibility': {
+            'default_on': [],
+            'default_off': [],
+            'force': [],
+            'always': [],
+        }
+    }
     for track in root.findall('tracks/track'):
         track_conf = {}
         track_conf['trackfiles'] = [
@@ -600,4 +623,10 @@ if __name__ == '__main__':
             track_conf['style'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
-        jc.process_annotations(track_conf)
+        keys = jc.process_annotations(track_conf)
+
+
+        for key in keys:
+            extra_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
+
+    jc.add_final_data(extra_data)
