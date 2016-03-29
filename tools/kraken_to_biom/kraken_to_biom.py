@@ -59,7 +59,7 @@ def main( args ):
             clean_taxonomy.append( tr )
         if len( clean_taxonomy ) == 0:
             continue
-        biom_data['rows'].append( { 'id': idx, 'metadata': { 'taxonomy': clean_taxonomy, 'tax_id': taxon } } )
+        biom_data['rows'].append( { 'id': str( idx ), 'metadata': { 'taxonomy': clean_taxonomy, 'tax_id': taxon } } )
 
     rows = []
 
