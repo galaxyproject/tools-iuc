@@ -317,10 +317,10 @@ class JbrowseConnector(object):
                 '--fasta', genome_path])
 
         # Generate name
-        self.subprocess_check_call([
-            'perl', self._jbrowse_bin('generate-names.pl'),
-            '--hashBits', '16'
-        ])
+        # self.subprocess_check_call([
+            # 'perl', self._jbrowse_bin('generate-names.pl'),
+            # '--hashBits', '16'
+        # ])
 
     def _add_json(self, json_data):
 
