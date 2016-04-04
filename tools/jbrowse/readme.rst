@@ -6,26 +6,31 @@ JBrowse in Galaxy
 
 Thus, it makes an ideal fit with Galaxy, especially for use as a
 workflow summary. E.g. annotate a genome, then visualise all of the
-associated datasets as an interactive HTML page.
+associated datasets as an interactive HTML page. This tool MUST be whitelisted
+(or ``sanitize_all_html=False``) to function correctly.
 
 Installation
 ============
 
-It is recommended to install this wrapper via the Galaxy Tool Shed
+It is recommended to install this wrapper via the Galaxy Tool Shed.
 
 Running Locally
 ===============
 
 The Galaxy tool interface writes out a yaml file which is then used to generate
 the visualizations. An example used during development/testing can be seen in
-`test.yml`. The format is in no way rigorously defined and is likely to change
-at any time.
+`test-data/*/test.xml`. The format is in no way rigorously defined and is
+likely to change at any time! Beware. ;)
 
 History
 =======
 
--  0.1 Initial public release
--  0.2 Added support for BAM, Blast, VCF
+-  0.4 Support for dataset collections and customisation of tracks including
+   labelling, colours, styling. Added support for genetic code selection.
+   Fixed package installation recipe issues.
+-  0.3 Added support for BigWig, etc.
+-  0.2 Added support for BAM, Blast, VCF.
+-  0.1 Initial public release.
 
 Wrapper License (MIT/BSD Style)
 ===============================
