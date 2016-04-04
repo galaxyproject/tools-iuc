@@ -1,0 +1,472 @@
+<tool id="crossmap" name="CrossMap" version="0.2.2-0">
+    <description>Convert genome coordinates or annotation files between genome assemblies</description>
+    
+    <requirements>
+        <requirement type="package" version="312">ucsc_tools</requirement>
+        <requirement type="package" version="2.7">python</requirement>
+        <requirement type="package" version="0.2">crossmap</requirement>
+        
+        <!-- This one should fit the bio-conda repo -->
+        <requirement type="package" version="0.2.2">crossmap</requirement>
+    </requirements>
+    
+    <stdio>
+        <regex match="Aborted (core dumped)" source="stdout" level="fatal"/>
+        <regex match=".*" source="both" level="log"/>
+        <exit_code range="1:" />
+    </stdio>
+    
+    <version_command>CrossMap.py 2&gt;&amp;1 | head -n 1 | grep -E --only-matching 'CrossMap.*'</version_command>
+    
+    <command><![CDATA[
+        CrossMap.py
+            ${multiple.input_format.replace("sam","bam")}
+            
+            #if $multiple.input_format == "vcf" and $multiple.seq_source.index_source == "cached"
+                <!-- This is the 2nd dbkey, and the corresponding value has to be looked up -->
+                "${filter(lambda x: str( x[1] ) == str($multiple.seq_source.input_chain ), $__app__.tool_data_tables['liftOver'].get_fields())[0][2] }"
+            #else
+                "$multiple.seq_source.input_chain"
+            #end if
+            
+            #if $multiple.input_format in ["bam", "sam"]
+                -m $multiple.insert_size
+                -s $multiple.insert_size_stdev
+                -t $multiple.insert_size_fold
+            #end if
+            
+            "$multiple.seq_source.input"
+            
+            #if $multiple.input_format == "vcf"
+                "$multiple.seq_source.input_fasta"
+            #end if 
+            
+            #if str($multiple.include_fails) == "True"
+            >
+            #end if
+            
+            "$output"
+            
+            #if $multiple.input_format in ["bam", "sam"]
+                && mv "${output}.${multiple.input_format}" "$output"
+                && mv "${output}.unmap.${multiple.input_format}" "$output_unmapped"
+            #else if $multiple.input_format in ["vcf"]
+                && mv "${output}" "$output"
+                && mv "${output}.unmap" "$output_unmapped"
+            #else if $multiple.input_format in ["wig", "bigwig"]
+                && mv "${output}.bw" "$output"
+                && mv "${output}.sorted.bgr" "$output2"
+            #end if
+    ]]></command>
+
+    <inputs>
+        <conditional name="multiple">
+            <param name="input_format" type="select" label="Convert a file of the following format">
+                <option value="bam">BAM</option>
+                <option value="sam">SAM</option>
+                <option value="bed">BED or BED-like</option>
+                <option value="bigwig">BigWig</option>
+                <option value="gff">GFF or GTF</option>
+                <option value="vcf">VCF</option>
+                <option value="wig">Wiggle or bedGraph</option>
+            </param>
+            <when value="bam">
+                <conditional name="seq_source">
+                    <param name="index_source" type="select" label="Source for LiftOver Data (chain file)">
+                        <option value="cached">Local data (in galaxy)</option>
+                        <option value="history">From History</option>
+                    </param>
+                        <when value="cached">
+                            <param type="data" format="bam" name="input" label="BAM file">
+                                <validator type="unspecified_build" />
+                                <validator type="dataset_metadata_in_file" filename="liftOver.loc" metadata_name="dbkey" metadata_column="0" message="LiftOver mapping (chain file) is not available for the specified build." />
+                            </param>
+                            <param name="input_chain" type="select" label="Lift Over To">
+                                <options from_file="liftOver.loc">
+                                    <column name="name" index="1"/>
+                                    <column name="value" index="2"/>
+                                    <column name="dbkey" index="0"/>
+                                    <filter type="data_meta" ref="input" key="dbkey" column="0" />
+                                </options>
+                            </param>
+                        </when>
+                        <when value="history">
+                            <param type="data" format="bam,sam" name="input" label="BAM/SAM file" />
+                            <param type="data" format="csv" name="input_chain" label="LiftOver chain file" />
+                        </when>
+                </conditional>
+                
+                <param name="insert_size" type="float" value="200.0" label="Insert size (-m)" help="Average insert size of pair-end sequencing (bp) [default=200.0]" />
+                <param name="insert_size_stdev" type="float" value="30.0" label="Insert size std. dev (-s)" help="Stanadard deviation of insert size. [default=30.0]" />
+                <param name="insert_size_fold" type="float" value="3.0" label="Insert size std. dev foldchange (-t)" help="A mapped pair is considered as 'proper pair' if both ends mapped to different strand and the distance between them is less then '-t' * stdev from the mean. [default=3.0]" />
+                
+                <param name="include_fails" type="hidden" tvalue="False" />
+            </when>
+            <when value="sam"><!-- BAM and SAM are exactly the same conditions, but they need to be separate to get the proper output format -->
+                <conditional name="seq_source">
+                    <param name="index_source" type="select" label="Source for LiftOver Data (chain file)">
+                        <option value="cached">Local data (in galaxy)</option>
+                        <option value="history">From History</option>
+                    </param>
+                        <when value="cached">
+                            <param type="data" format="sam" name="input" label="SAM file">
+                                <validator type="unspecified_build" />
+                                <validator type="dataset_metadata_in_file" filename="liftOver.loc" metadata_name="dbkey" metadata_column="0" message="LiftOver mapping (chain file) is not available for the specified build." />
+                            </param>
+                            <param name="input_chain" type="select" label="Lift Over To">
+                                <options from_file="liftOver.loc">
+                                    <column name="name" index="1"/>
+                                    <column name="value" index="2"/>
+                                    <column name="dbkey" index="0"/>
+                                    <filter type="data_meta" ref="input" key="dbkey" column="0" />
+                                </options>
+                            </param>
+                        </when>
+                        <when value="history">
+                            <param type="data" format="bam,sam" name="input" label="BAM/SAM file" />
+                            <param type="data" format="csv" name="input_chain" label="LiftOver chain file" />
+                        </when>
+                </conditional>
+                
+                <param name="insert_size" type="float" value="200.0" label="Insert size (-m)" help="Average insert size of pair-end sequencing (bp) [default=200.0]" />
+                <param name="insert_size_stdev" type="float" value="30.0" label="Insert size std. dev (-s)" help="Stanadard deviation of insert size. [default=30.0]" />
+                <param name="insert_size_fold" type="float" value="3.0" label="Insert size std. dev foldchange (-t)" help="A mapped pair is considered as 'proper pair' if both ends mapped to different strand and the distance between them is less then '-t' * stdev from the mean. [default=3.0]" />
+                
+                <param name="include_fails" type="hidden" tvalue="False" />
+            </when>
+            <when value="bed">
+                <conditional name="seq_source">
+                    <param name="index_source" type="select" label="Source for LiftOver Data (chain file)">
+                        <option value="cached">Local data (in galaxy)</option>
+                        <option value="history">From History</option>
+                    </param>
+                        <when value="cached">
+                            <param format="bed" name="input" type="data" label="BED file" help="BED format file must have at least 3 columns (chrom, start, end) and no more than 12 columns.">
+                                <validator type="unspecified_build" />
+                                <validator type="dataset_metadata_in_file" filename="liftOver.loc" metadata_name="dbkey" metadata_column="0" message="LiftOver mapping (chain file) is not available for the specified build." />
+                            </param>
+                            <param name="input_chain" type="select" label="Lift Over To">
+                                <options from_file="liftOver.loc">
+                                    <column name="name" index="1"/>
+                                    <column name="value" index="2"/>
+                                    <column name="dbkey" index="0"/>
+                                    <filter type="data_meta" ref="input" key="dbkey" column="0" />
+                                </options>
+                            </param>
+                        </when>
+                        <when value="history">
+                            <param type="data" format="bed" name="input"       label="BED file" help="BED format file must have at least 3 columns (chrom, start, end) and no more than 12 columns." />
+                            <param type="data" format="csv" name="input_chain" label="LiftOver chain file" />
+                        </when>
+                </conditional>
+                
+                <param name="include_fails" type="boolean" truevalue="True" checked="false" falsevalue="False" label="Include failed liftovers" help="If a coordinate can not be lift over, do you want to include it in the output (it is still being marked 'fail')" />
+            </when>
+            <when value="bigwig">
+                <conditional name="seq_source">
+                    <param name="index_source" type="select" label="Source for LiftOver Data (chain file)">
+                        <option value="cached">Local data (in galaxy)</option>
+                        <option value="history">From History</option>
+                    </param>
+                        <when value="cached">
+                            <param format="bigwig" name="input" type="data" label="BigWig file">
+                                <validator type="unspecified_build" />
+                                <validator type="dataset_metadata_in_file" filename="liftOver.loc" metadata_name="dbkey" metadata_column="0" message="LiftOver mapping (chain file) is not available for the specified build." />
+                            </param>
+                            <param name="input_chain" type="select" label="Lift Over To">
+                                <options from_file="liftOver.loc">
+                                    <column name="name" index="1"/>
+                                    <column name="value" index="2"/>
+                                    <column name="dbkey" index="0"/>
+                                    <filter type="data_meta" ref="input" key="dbkey" column="0" />
+                                </options>
+                            </param>
+                        </when>
+                        <when value="history">
+                            <param type="data" format="bigwig" name="input"       label="BigWig file" />
+                            <param type="data" format="csv"    name="input_chain" label="LiftOver chain file" />
+                        </when>
+                </conditional>
+                
+                <param name="include_fails" type="hidden" tvalue="False" />
+            </when>
+            <when value="gff">
+                <conditional name="seq_source">
+                    <param name="index_source" type="select" label="Source for LiftOver Data (chain file)">
+                        <option value="cached">Local data (in galaxy)</option>
+                        <option value="history">From History</option>
+                    </param>
+                        <when value="cached">
+                            <param format="gtf,gff,gff3" name="input" type="data" label="GTF/GFF file">
+                                <validator type="unspecified_build" />
+                                <validator type="dataset_metadata_in_file" filename="liftOver.loc" metadata_name="dbkey" metadata_column="0" message="LiftOver mapping (chain file) is not available for the specified build." />
+                            </param>
+                            <param name="input_chain" type="select" label="Lift Over To">
+                                <options from_file="liftOver.loc">
+                                    <column name="name" index="1"/>
+                                    <column name="value" index="2"/>
+                                    <column name="dbkey" index="0"/>
+                                    <filter type="data_meta" ref="input" key="dbkey" column="0" />
+                                </options>
+                            </param>
+                        </when>
+                        <when value="history">
+                            <param type="data" format="gtf,gff,gff3" name="input"       label="GTF/GFF file" />
+                            <param type="data" format="csv"          name="input_chain" label="LiftOver chain file" />
+                        </when>
+                </conditional>
+                
+                <param name="include_fails" type="boolean" truevalue="True" checked="false" falsevalue="False" label="Include failed liftovers" help="If a coordinate can not be lift over, do you want to include it in the output (it is still being marked 'fail')" />
+            </when>
+            <when value="vcf">
+                <conditional name="seq_source">
+                    <param name="index_source" type="select" label="Source for LiftOver Data">
+                        <option value="cached">Local data (in galaxy)</option>
+                        <option value="history_chain">Chain file from History</option>
+                        <option value="history_all">Chain &amp; FASTA files from History</option>
+                    </param>
+                    
+                    <when value="cached">
+                        <param type="data" format="vcf" name="input" label="VCF file">
+                            <validator type="unspecified_build" />
+                            <validator type="dataset_metadata_in_file" filename="liftOver.loc" metadata_name="dbkey" metadata_column="0" message="LiftOver mapping (chain file) is not available for the specified build." />
+                        </param>
+                        
+                        <!-- automatically fetch a FASTA file from the same DBKEY as the chain file -->
+                        <param name="input_chain" type="select" label="Lift Over To (Chain file)">
+                            <options from_file="liftOver.loc">
+                                <column name="name" index="1" />
+                                <column name="value" index="1" /><!-- It is not possible to send the *.chain file as value, and obtain the 2nd dbkey as parameter via a filter -->
+                                <column name="dbkey" index="0" />
+                                <filter type="data_meta" ref="input" key="dbkey" column="0" />
+                            </options>
+                        </param>
+                        
+                        <param name="input_fasta" type="select" label="Lift Over To (FASTA file)" help="The FASTA file must be on the same build (dbkey) as the LiftOver chain file">
+                            <options from_file="all_fasta.loc">
+                                <column name="name" index="2"/>
+                                <column name="value" index="3"/>
+                                <column name="dbkey" index="1"/>
+                                <filter type="param_value" ref="input_chain" column="1" />
+                            </options>
+                        </param>
+                    </when>
+                    
+                    <when value="history_chain">
+                        <param type="data" format="vcf" name="input" label="VCF file">
+                            <validator type="unspecified_build" />
+                            <validator type="dataset_metadata_in_file" filename="all_fasta.loc" metadata_name="dbkey" metadata_column="1" message="LiftOver mapping (FASTA file) is not available for the specified build." />
+                        </param>
+                        <param type="data" format="csv" name="input_chain" multiple="false" label="LiftOver chain file" />
+                        <param name="input_fasta" type="select" label="Lift Over To (FASTA file)" help="The FASTA file must be on the same build (dbkey) as the LiftOver chain file">
+                            <options from_file="all_fasta.loc">
+                                <column name="name" index="2"/>
+                                <column name="value" index="3"/>
+                                <column name="dbkey" index="1"/>
+                            </options>
+                        </param>
+                    </when>
+                    
+                    <when value="history_all">
+                        <param type="data" format="vcf"   name="input" label="VCF file" />
+                        <param type="data" format="csv"   name="input_chain" multiple="false" label="LiftOver chain file" />
+                        <param type="data" format="fasta" name="input_fasta" multiple="false" label="Full genome FASTA file" />
+                    </when>
+                </conditional>
+                
+                <param name="include_fails" type="hidden" tvalue="False" />
+            </when>
+            <when value="wig">
+                <conditional name="seq_source">
+                    <param name="index_source" type="select" label="Source for LiftOver Data (chain file)">
+                        <option value="cached">Local data (in galaxy)</option>
+                        <option value="history">From History</option>
+                    </param>
+                    <when value="cached">
+                        <param format="wig" name="input" type="data" label="Wiggle file">
+                            <validator type="unspecified_build" />
+                            <validator type="dataset_metadata_in_file" filename="liftOver.loc" metadata_name="dbkey" metadata_column="0" message="LiftOver mapping (chain file) is not available for the specified build." />
+                        </param>
+                        <param name="input_chain" type="select" label="Lift Over To">
+                            <options from_file="liftOver.loc">
+                                <column name="name" index="1"/>
+                                <column name="value" index="2"/>
+                                <column name="dbkey" index="0"/>
+                                <filter type="data_meta" ref="input" key="dbkey" column="0" />
+                            </options>
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param format="wig" name="input" type="data" label="Wiggle file" />
+                        <param type="data" format="csv" name="input_chain" label="LiftOver chain file" />
+                    </when>
+                </conditional>
+                
+                <param name="include_fails" type="hidden" tvalue="False" />
+            </when>
+        </conditional>
+    </inputs>
+    
+    <outputs>
+        <data format="text" name="output" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="multiple.input_format" value="bam" format="bam" />
+                <when input="multiple.input_format" value="sam" format="sam" />
+                <when input="multiple.input_format" value="bed" format="bed" />
+                <when input="multiple.input_format" value="bigwig" format="bigwig" />
+                <when input="multiple.input_format" value="gff" format="gff" />
+                <when input="multiple.input_format" value="vcf" format="vcf" />
+                <when input="multiple.input_format" value="wig" format="bigwig" />
+            </change_format>
+        </data>
+        
+        <data format="text" name="output_unmapped" label="${tool.name} (unmapped) on ${on_string}">
+            <filter>multiple['input_format'] in ["bam" , "sam" , "vcf"]</filter>
+            <change_format>
+                <when input="multiple.input_format" value="bam" format="bam" />
+                <when input="multiple.input_format" value="vcf" format="vcf" />
+            </change_format>
+        </data>
+        <data format="text" name="output2" label="${tool.name} (bedgraph) on ${on_string}">
+            <filter>multiple['input_format'] in ["wig"]</filter>
+            <change_format>
+                <when input="multiple.input_format" value="wig" format="bedgraph" />
+            </change_format>
+        </data>
+    </outputs>
+    
+    <tests>
+    <!-- BAM/SAM -->
+        <test>
+            <param name="input_format" value="bam"/>
+            <param name="index_source" value="history"/>
+            <param name="input" value="test_bam_01_input_a.sam" ftype="bam"/>
+            <param name="input_chain" value="aToB.over.chain" ftype="csv"/>
+            <param name="include_fails" value="False"/>
+            
+            <output name="output" file="test_bam_01_output_a.sam" compare="diff" lines_diff="4"/>
+            <output name="output_unmapped" file="test_bam_01_output_a.unmap.sam"/>
+        </test>
+    
+        <test>
+            <param name="input_format" value="sam"/>
+            <param name="index_source" value="history"/>
+            <param name="input" value="test_bam_01_input_a.sam" ftype="sam"/>
+            <param name="input_chain" value="aToB.over.chain" ftype="csv"/>
+            <param name="include_fails" value="False"/>
+            
+            <output name="output" file="test_bam_01_output_a.sam" compare="diff" lines_diff="4"/>
+            <output name="output_unmapped" file="test_bam_01_output_a.unmap.sam"/>
+        </test>
+    
+    <!-- BED -->
+        <test>
+            <param name="input_format" value="bed"/>
+            <param name="index_source" value="history"/>
+            <param name="input" value="test_bed_01_input_a.bed" ftype="bed"/>
+            <param name="input_chain" value="aToB.over.chain" ftype="csv"/>
+            <param name="include_fails" value="False"/>
+            
+            <output name="output" file="test_bed_01_output_a__only-matches.bed"/>
+        </test>
+        <test>
+            <param name="input_format" value="bed"/>
+            <param name="index_source" value="history"/>
+            <param name="input" value="test_bed_01_input_a.bed" ftype="bed"/>
+            <param name="input_chain" value="aToB.over.chain" ftype="txt"/>
+            <param name="include_fails" value="True"/>
+            
+            <output name="output" file="test_bed_01_output_a__all.bed"/>
+        </test>
+        <test>
+            <param name="input_format" value="bed"/>
+            <param name="index_source" value="history"/>
+            <param name="input" value="test_bed_02_input_a.bed" ftype="bed"/>
+            <param name="input_chain" value="aToB.over.chain" ftype="txt"/>
+            <param name="include_fails" value="False"/>
+            
+            <output name="output" file="test_bed_02_output_a__only-matches.bed"/>
+        </test>
+        <test>
+            <param name="input_format" value="bed"/>
+            <param name="index_source" value="history"/>
+            <param name="input" value="test_bed_02_input_a.bed" ftype="bed"/>
+            <param name="input_chain" value="aToB.over.chain" ftype="txt"/>
+            <param name="include_fails" value="True"/>
+            
+            <output name="output" file="test_bed_02_output_a__all.bed"/>
+        </test>
+        
+    <!-- BigWig --><!-- Malfuncioning in CrossMap 0.2, but patched via galaxy toolshed installer -->
+        <test>
+            <param name="input_format" value="bigwig"/>
+            <param name="index_source" value="history"/>
+            <param name="input" value="test_bigwig_01_input_a.bw" ftype="bigwig"/>
+            <param name="input_chain" value="aToB.over.chain" ftype="csv"/>
+            <param name="include_fails" value="False"/>
+            
+            <output name="output" file="test_bigwig_01_output_a.bw"/>
+            <output name="output2" file="test_bigwig_01_output_a.sorted.bgr"/>
+        </test>
+    <!-- GFF -->
+        <test>
+            <param name="input_format" value="gff"/>
+            <param name="index_source" value="history"/>
+            <param name="input" value="test_gff_01_input_a.gtf" ftype="gtf"/>
+            <param name="input_chain" value="aToB.over.chain" ftype="csv"/>
+            <param name="include_fails" value="False"/>
+            
+            <output name="output" file="test_gff_01_output_a__only-matches.gtf"/>
+        </test>
+        <test>
+            <param name="input_format" value="gff"/>
+            <param name="index_source" value="history"/>
+            <param name="input" value="test_gff_01_input_a.gtf" ftype="gtf"/>
+            <param name="input_chain" value="aToB.over.chain" ftype="csv"/>
+            <param name="include_fails" value="True"/>
+            
+            <output name="output" file="test_gff_01_output_a__all.gtf"/>
+        </test>
+        
+    <!-- VCF -->
+        <test>
+            <param name="input_format" value="vcf"/>
+            <param name="index_source" value="history_all"/>
+            <param name="input" value="test_vcf_01_input.vcf" ftype="vcf"/>
+            <param name="input_chain" value="test_vcf_01.over.chain" ftype="csv"/>
+            <param name="input_fasta" value="test_vcf_01.fasta" ftype="fasta"/>
+            <param name="include_fails" value="False"/>
+            
+            <output name="output" file="test_vcf_01_output.vcf" compare="diff" lines_diff="4"/>
+            <output name="output_unmapped" file="test_vcf_01_output.vcf.unmap"/>
+        </test>
+        
+    <!-- WIG - Doesn't understand fixedStep -->
+        <test>
+            <param name="input_format" value="wig"/>
+            <param name="index_source" value="history"/>
+            <param name="input" value="test_wig_01_input_a.wig" ftype="wig"/>
+            <param name="input_chain" value="aToB.over.chain" ftype="csv"/>
+            <param name="include_fails" value="False"/>
+            
+            <output name="output" file="test_wig_01_output_a.bw"/>
+            <output name="output2" file="test_wig_01_output_a.sorted.bgr"/>
+        </test>
+    </tests>
+    
+    <help>
+CrossMap is versatile tool to convert genome coordinates or annotation files between genome
+assemblies. It supports mostly commonly used file types, including BAM, BED,BigWig, GFF,
+GTF, SAM, Wiggle, and VCF formats. For large plain text file types, such as BED, GFF, GTF
+and VCF, reading from remote servers and file compression are supported.
+
+CrossMap bed
+------------
+BED format file must have at least 3 columns (chrom, start, end) and no more than 12 columns.
+BED format: http://genome.ucsc.edu/FAQ/FAQformat.html#format1
+    </help>
+    
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btt730</citation>
+    </citations>
+</tool>
