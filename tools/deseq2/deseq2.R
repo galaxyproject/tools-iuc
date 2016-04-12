@@ -50,6 +50,7 @@ spec <- matrix(c(
   "quiet", "q", 0, "logical",
   "help", "h", 0, "logical",
   "outfile", "o", 1, "character",
+  "countsfile", "n", 1, "character",
   "factors", "f", 1, "character",
   "plots" , "p", 1, "character",
   "sample_table", "s", 1, "character",
@@ -162,9 +163,10 @@ if (verbose) {
 # these are plots which are made once for each analysis
 generateGenericPlots <- function(dds, factors) {
   rld <- rlog(dds)
-  print(plotPCA(rld, intgroup=rev(factors)))
-  # need meaningful labels, because from Galaxy, sample names are random
+  d=plotPCA(rld, intgroup=rev(factors), returnData=TRUE)
   labs <- paste0(seq_len(ncol(dds)), ": ", do.call(paste, as.list(colData(dds)[factors])))
+  library(ggplot2)
+  print(ggplot(d, aes(x=PC1,y=PC2, col=group,label=factor(labs)), environment = environment()) + geom_point() + geom_text(size=3))  
   dat <- assay(rld)
   colnames(dat) <- labs
   distsRL <- dist(t(dat))
@@ -294,6 +296,13 @@ if (!is.null(opt$plots)) {
 
 n <- nlevels(colData(dds)[[primaryFactor]])
 allLevels <- levels(colData(dds)[[primaryFactor]])
+
+if (!is.null(opt$countsfile)) {
+    labs <- paste0(seq_len(ncol(dds)), ": ", do.call(paste, as.list(colData(dds)[factors])))
+    normalizedCounts<-counts(dds,normalized=TRUE)
+    colnames(normalizedCounts)<-labs
+    write.table(normalizedCounts, file=opt$countsfile, sep="\t", col.names=NA, quote=FALSE)
+}
 
 if (is.null(opt$many_contrasts)) {
   # only contrast the first and second level of the primary factor
