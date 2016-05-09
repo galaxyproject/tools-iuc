@@ -45,7 +45,7 @@ def fetch_databases(data_manager_dict, target_directory, jar_path):
                 description = fields[1].strip() + ' : ' + genome_version
                 data_table_entries.append(dict(value=genome_version, name=description))
         data_manager_dict['data_tables']['snpeff4_databases'] = data_table_entries
-    except Exception, e:
+    except Exception as e:
         stop_err( 'Error parsing %s %s\n' % (databases_path, str( e )) )
     else:
         fh.close()
