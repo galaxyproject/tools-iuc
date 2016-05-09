@@ -1,10 +1,12 @@
 #!/usr/bin/perl
+import argparse
+import copy
+import logging
 import re
 import sys
-import copy
-import argparse
+
 from BCBio import GFF
-import logging
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(name='blastxml2gff3')
 
@@ -217,7 +219,6 @@ def _qms_to_matches(query, match, subject, strict_m=True):
                 ret = 'X'
         else:
             log.warn("Bad data: \n\t%s\n\t%s\n\t%s\n" % (query, match, subject))
-
 
         if strict_m:
             if ret == '=' or ret == 'X':

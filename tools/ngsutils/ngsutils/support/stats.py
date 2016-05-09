@@ -2,7 +2,9 @@
 various statistical tests and methods...
 '''
 import math
+
 from ngsutils.support import memoize
+
 
 def median(vals):
     '''
@@ -106,6 +108,7 @@ def counts_mean_stdev(d):
 
     return (mean, stdev)
 
+
 @memoize
 def poisson_prob(x, mean):
     '''
@@ -120,15 +123,16 @@ def poisson_prob(x, mean):
         0.33277427882095645
     '''
     acc = 0.0
-    for i in xrange(1, x+1):
+    for i in xrange(1, x + 1):
         acc += poisson_func(i, mean)
     return acc
+
 
 @memoize
 def poisson_func(mu, lambd):
     '''
         This is the Poisson distribution function
-        
+
         p(mu) = (lambda^mu * e^(-lambda)) / (mu!)
 
         mu is a count
