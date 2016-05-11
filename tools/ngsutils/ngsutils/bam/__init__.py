@@ -1,12 +1,13 @@
-import sys
 import os
 import re
+import sys
+
+import ngsutils.support
 import pysam
 try:
     from eta import ETA
 except:
     pass
-import ngsutils.support
 
 
 def bam_open(fname, mode='r', *args, **kwargs):
@@ -159,7 +160,7 @@ def cigar_tostr(cigar):
     >>> cigar_tostr(((0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)))
     '1M1I1D1N1S1H1P'
     '''
-    
+
     s = ''
 
     for op, size in cigar:
@@ -230,8 +231,9 @@ def _extract_md_matches(md, maxlength):
     md_pos = 0
 
     while md and md_pos < maxlength:
-        tmp = '0'  # preload a zero so that immediate mismatches will be caught
-                   # the zero will have no affect otherwise...
+        # preload a zero so that immediate mismatches will be caught
+        # the zero will have no affect otherwise...
+        tmp = '0'
 
         # look for matches
         while md and md[0] in '0123456789':
@@ -625,7 +627,7 @@ def region_pos_to_genomic_pos(name, start, cigar):
                     cur_pos = frag_end
                     frag_idx += 1
                     if len(fragments) <= frag_idx:
-                        print 'ERROR converting: ', name, fragments 
+                        print 'ERROR converting: ', name, fragments
                         return (chrom, 0, chr_cigar)
                     frag_start, frag_end = fragments[frag_idx]
                     chr_cigar.append((3, frag_start - cur_pos))
@@ -864,14 +866,13 @@ def read_to_unmapped(read, ref=None):
     if not read.is_unmapped and read.is_reverse:
         newread.seq = ngsutils.support.revcomp(read.seq)
         newread.qual = read.qual[::-1]
-    else:        
+    else:
         newread.seq = read.seq
         newread.qual = read.qual
 
     newread.tags = tags
 
     return newread
-
 
 
 if __name__ == '__main__':

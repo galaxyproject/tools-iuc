@@ -4,7 +4,7 @@ import subprocess
 import sys
 import tempfile
 
-from bx.intervals.io import Comment, Header, GenomicInterval
+from bx.intervals.io import Comment, GenomicInterval, Header
 from bx.intervals.io import GenomicIntervalReader, NiceReaderWrapper, ParseError
 
 # Default chrom, start, end, strand cols for a bed file
@@ -288,7 +288,7 @@ def convert_to_twobit(reference_genome):
             os.remove(tmp_name)
             stop_err(stderr)
         return seq_path
-    except Exception, e:
+    except Exception as e:
         stop_err('Error running faToTwoBit. ' + str(e))
 
 

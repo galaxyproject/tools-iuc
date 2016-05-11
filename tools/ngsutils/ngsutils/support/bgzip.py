@@ -6,9 +6,9 @@ BAM files are stored as blocks in a bgzip archive. This class
 will load the bgzip archive and output the block information.
 '''
 
-import sys
 import os
 import struct
+import sys
 
 
 class BGZip(object):
@@ -41,7 +41,7 @@ class BGZip(object):
         if whence == 0:
             self.seek(0, 0)
 
-        ### read into chunk, if not enough data in chunk, read next chunk
+        # read into chunk, if not enough data in chunk, read next chunk
         ret = ''
         while amount and self.pos < self.fsize:
             if len(self.cdata) - self.cpos < amount:
