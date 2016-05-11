@@ -3,11 +3,18 @@
 Runs RAxML on a sequence file.
 For use with RAxML version 8.2.4
 """
-import os, shutil, subprocess, sys, optparse, fnmatch, glob
+import fnmatch
+import glob
+import optparse
+import os
+import subprocess
+import sys
+
 
 def stop_err(msg):
     sys.stderr.write("%s\n" % msg)
     sys.exit()
+
 
 def getint(name):
     basename = name.partition('RUN.')
@@ -15,11 +22,12 @@ def getint(name):
         num = basename[2]
         return int(num)
 
+
 def __main__():
     usage = "usage: %prog -T <threads> -s <input> -n <output> -m <model> [optional arguments]"
 
     # Parse the primary wrapper's command line options
-    parser = optparse.OptionParser(usage = usage)
+    parser = optparse.OptionParser(usage=usage)
     # raxml binary name, hardcoded in the xml file
     parser.add_option("--binary", action="store", type="string", dest="binary", help="Command to run")
     # (-a)
@@ -118,11 +126,11 @@ def __main__():
     # Source
     source = "-s %s" % options.source
     cmd.append(source)
-    #Hardcode to "galaxy" first to simplify the output part of the wrapper
-    #name = "-n %s" % options.name
+    # Hardcode to "galaxy" first to simplify the output part of the wrapper
+    # name = "-n %s" % options.name
     name = "-n galaxy"
     cmd.append(name)
-    ## Model
+    # Model
     model_type = options.model_type
     base_model = options.base_model
     aa_search_matrix = options.aa_search_matrix
@@ -160,7 +168,7 @@ def __main__():
         cmd.append(weightfile)
     # (-A)
     if options.secondary_structure_model:
-        secondary_structure_model  = "-A %s" % options.secondary_structure_model
+        secondary_structure_model = "-A %s" % options.secondary_structure_model
         cmd.append(secondary_structure_model )
     # (-b)
     if options.bootseed:
@@ -191,7 +199,7 @@ def __main__():
         enable_evol_heuristics = "-G %f" % options.enable_evol_heuristics
         cmd.append(enable_evol_heuristics )
     if options.initial_rearrangement_setting:
-        initial_rearrangement_setting  = "-i %s" % options.initial_rearrangement_setting
+        initial_rearrangement_setting = "-i %s" % options.initial_rearrangement_setting
         cmd.append(initial_rearrangement_setting)
     if options.posterior_bootstopping_analysis:
         posterior_bootstopping_analysis = "-I %s" % options.posterior_bootstopping_analysis
@@ -225,7 +233,7 @@ def __main__():
         bin_model_parameter_file_name = "RAxML_binaryModelParameters.galaxy"
         os.symlink(options.bin_model_parameter_file, bin_model_parameter_file_name )
         bin_model_parameter_file = "-R %s" % options.bin_model_parameter_file
-        #Needs testing. Is the hardcoded name or the real path needed?
+        # Needs testing. Is the hardcoded name or the real path needed?
         cmd.append(bin_model_parameter_file)
     if options.secondary_structure_file:
         secondary_structure_file = "-S %s" % options.secondary_structure_file
@@ -260,7 +268,7 @@ def __main__():
 
     try:
         proc = subprocess.Popen(args=full_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except Exception, err:
+    except Exception as err:
         sys.stderr.write("Error invoking command: \n%s\n\n%s\n" % (cmd, err))
         sys.exit(1)
     stdout, stderr = proc.communicate()
@@ -274,13 +282,13 @@ def __main__():
         sys.stdout.write(stdout)
         sys.stdout.write(stderr)
 
-    #Multiple runs - concatenate
+    # Multiple runs - concatenate
     if number_of_runs_opt > 0:
         if (bootseed == 0) and (rapid_bootstrap_random_seed == 0 ):
             runfiles = glob.glob('RAxML*RUN*')
             runfiles.sort(key=getint)
         # Logs
-            outfile = open('RAxML_log.galaxy','w')
+            outfile = open('RAxML_log.galaxy', 'w')
             for filename in runfiles:
                 if fnmatch.fnmatch(filename, 'RAxML_log.galaxy.RUN.*'):
                     infile = open(filename, 'r')
@@ -291,7 +299,7 @@ def __main__():
                     infile.close()
             outfile.close()
         # Parsimony Trees
-            outfile = open('RAxML_parsimonyTree.galaxy','w')
+            outfile = open('RAxML_parsimonyTree.galaxy', 'w')
             for filename in runfiles:
                 if fnmatch.fnmatch(filename, 'RAxML_parsimonyTree.galaxy.RUN.*'):
                     infile = open(filename, 'r')
@@ -302,7 +310,7 @@ def __main__():
                     infile.close()
             outfile.close()
         # Results
-            outfile = open('RAxML_result.galaxy','w')
+            outfile = open('RAxML_result.galaxy', 'w')
             for filename in runfiles:
                 if fnmatch.fnmatch(filename, 'RAxML_result.galaxy.RUN.*'):
                     infile = open(filename, 'r')
@@ -317,7 +325,7 @@ def __main__():
         files = glob.glob('RAxML_bestTree.galaxy.PARTITION.*')
         if len(files) > 0:
             files.sort(key=getint)
-            outfile = open('RAxML_bestTreePartitions.galaxy','w')
+            outfile = open('RAxML_bestTreePartitions.galaxy', 'w')
             # Best Tree Partitions
             for filename in files:
                 if fnmatch.fnmatch(filename, 'RAxML_bestTree.galaxy.PARTITION.*'):
@@ -329,7 +337,7 @@ def __main__():
                     infile.close()
             outfile.close()
         else:
-            outfile = open('RAxML_bestTreePartitions.galaxy','w')
+            outfile = open('RAxML_bestTreePartitions.galaxy', 'w')
             outfile.write("No partition files were produced.\n")
             outfile.close()
 
@@ -337,7 +345,7 @@ def __main__():
         files = glob.glob('RAxML_result.galaxy.PARTITION.*')
         if len(files) > 0:
             files.sort(key=getint)
-            outfile = open('RAxML_resultPartitions.galaxy','w')
+            outfile = open('RAxML_resultPartitions.galaxy', 'w')
             for filename in files:
                 if fnmatch.fnmatch(filename, 'RAxML_result.galaxy.PARTITION.*'):
                     infile = open(filename, 'r')
@@ -348,14 +356,15 @@ def __main__():
                     infile.close()
             outfile.close()
         else:
-            outfile = open('RAxML_resultPartitions.galaxy','w')
+            outfile = open('RAxML_resultPartitions.galaxy', 'w')
             outfile.write("No partition files were produced.\n")
             outfile.close()
 
     # DEBUG options
-    infof = open('RAxML_info.galaxy','a')
+    infof = open('RAxML_info.galaxy', 'a')
     infof.write('\nOM: CLI options DEBUG START:\n')
     infof.write(options.__repr__())
     infof.write('\nOM: CLI options DEBUG END\n')
 
-if __name__=="__main__": __main__()
+if __name__ == "__main__":
+    __main__()

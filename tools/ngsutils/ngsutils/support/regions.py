@@ -4,22 +4,23 @@ class RangeMatch(object):
     particular genomic coordinate maps to any of those ranges.  This is less-
     efficient than an R-Tree, but easier to code.
     '''
+
     def __init__(self, name):
         self.ranges = {}
         self.name = name
 
     def add_range(self, chrom, strand, start, end):
-        if not chrom in self.ranges:
+        if chrom not in self.ranges:
             self.ranges[chrom] = {}
 
         bin = start / 100000
-        if not bin in self.ranges[chrom]:
+        if bin not in self.ranges[chrom]:
             self.ranges[chrom][bin] = []
         self.ranges[chrom][bin].insert(0, (start, end, strand))
 
         if (end / 100000) != bin:
             for bin in xrange(bin + 1, (end / 100000) + 1):
-                if not bin in self.ranges[chrom]:
+                if bin not in self.ranges[chrom]:
                     self.ranges[chrom][bin] = []
                 self.ranges[chrom][bin].insert(0, (start, end, strand))
 
@@ -27,10 +28,10 @@ class RangeMatch(object):
         '''
         returns (region, is_reverse_orientation)
         '''
-        if not chrom in self.ranges:
+        if chrom not in self.ranges:
             return None, False
         bin = pos / 100000
-        if not bin in self.ranges[chrom]:
+        if bin not in self.ranges[chrom]:
             return None, False
         for start, end, r_strand in self.ranges[chrom][bin]:
             if pos >= start and pos <= end:
@@ -54,7 +55,7 @@ class RegionTagger(object):
         promoters = RangeMatch('promoter')
 
         for gene in gtf.genes:
-            if valid_chroms and not gene.chrom in valid_chroms:
+            if valid_chroms and gene.chrom not in valid_chroms:
                 continue
             if gene.strand == '+':
                 promoters.add_range(gene.chrom, gene.strand, gene.start - 2000, gene.start)
@@ -78,7 +79,6 @@ class RegionTagger(object):
                         introns.add_range(gene.chrom, gene.strand, last_end, start)
                     exons.add_range(gene.chrom, gene.strand, start, end)
                     last_end = end
-
 
         self.regions.append(coding)
         self.regions.append(utr_5)
@@ -106,7 +106,7 @@ class RegionTagger(object):
     def add_read(self, read, chrom):
         if read.is_unmapped:
             return
-        
+
         if self.only_first_fragment and read.is_paired and not read.is_read1:
             return
 

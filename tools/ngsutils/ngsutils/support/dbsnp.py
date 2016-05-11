@@ -2,9 +2,10 @@
 Support package for processing a dbSNP tabix dump from UCSC.
 '''
 
-import pysam
 import collections
 import sys
+
+import pysam
 from ngsutils.support import revcomp
 
 
@@ -104,7 +105,7 @@ class DBSNP(object):
 
     def is_valid_variation(self, chrom, op, pos, seq, verbose=False):
         for snp in self.fetch(chrom, pos):
-            if not '/' in snp.observed or snp.clazz not in ['single', 'mixed', 'in-del', 'insertion', 'deletion']:
+            if '/' not in snp.observed or snp.clazz not in ['single', 'mixed', 'in-del', 'insertion', 'deletion']:
                 # these are odd variations that we can't deal with... (microsatellites, tooLongToDisplay members, etc)
                 continue
 
