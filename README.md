@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/galaxyproject/tools-iuc.svg?branch=master)](https://travis-ci.org/galaxyproject/tools-iuc)
+
 Galaxy Tools maintained by IUC
 ==============================
 
@@ -9,8 +11,3 @@ Other repositories with Galaxy tools:
  * [Björn Grüning repo](https://github.com/bgruening/galaxytools)
  * [Galaxy devteam repo](https://github.com/galaxyproject/tools-devteam)
 
-Test               |  Status
------------------- | -------
-All packages and tools up-to-date on TTS  | [![Build Status](https://jenkins.galaxyproject.org/buildStatus/icon?job=iuc-TTS-GH-update)](https://jenkins.galaxyproject.org/view/Tools/job/iuc-TTS-GH-update/)
-All packages and tools up-to-date on MTS  | Coming soon.
-Planemo Tool Tests | Coming soon.
