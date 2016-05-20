@@ -6,48 +6,43 @@
     <expand macro="requirements"/>
     <expand macro="version_command"/>
 
-    <command interpreter="python"><![CDATA[
-        mothur_wrapper.py 
-        --cmd='summary.shared'
-        --result='^mothur.\S+\.logfile$:'$logfile,'^\S+\.summary$:'$summary
-        --outputdir='$logfile.extra_files_path'
-        --datasetid='$logfile.id' --new_file_path='$__new_file_path__'
-        --shared="$otu"
-        #if $groups.__str__ != "None" and len($groups.__str__) > 0:
-            --groups="$groups"
-        #end if
-        #if $label.__str__ != "None" and len($label.__str__) > 0:
-            --label='$label'
-        #end if
-        #if $calc.__str__ != "None" and len($calc.__str__) > 0:
-            --calc='$calc'
-        #end if
-        "$all"
-        "$distance"
-        #if $subsample.use.__str__ == 'yes':
-            #if $subsample.subsample.__str__ != '':
-                    --subsample="$subsample.subsample"
-            #else
-                    --subsample=T
+    <command><![CDATA[
+        echo 'summary.shared(
+            shared=$otu,
+            #if $groups:
+                label=${ str($label).replace(",","-") },
             #end if
-            #if $subsample.iters.__str__ != '':
-                    --iters="$subsample.iters"
+            #if $label:
+                groups=${ str($groups).replace(",","-") },
             #end if
-            #if len($subsample.output.__str__) > 0:
-                --output="$subsample.output"
+            #if $calc:
+                calc=${ str($calc).replace(",","-") },
             #end if
-            #if $subsample.as_datasets.__str__ == 'yes':
-                --datasetid='$logfile.id' --new_file_path='$__new_file_path__'
-                #if $subsample.output.__str__ == 'square':
-                    ## patient70.fn.jest.0.16.lt.ave.dist
-                    --new_datasets='^\S+?\.((\S+)\.(unique|[0-9.]*)(\.(ave|std))?\.dist)$:square.dist'
+            all=$all,
+            distance=$distance,
+            #if $subsample.use == "yes":
+                #if $subsample.subsample:
+                    subsample=$subsample.subsample,
                 #else
-                    ## patient70.fn.jest.0.13.square.std.dist
-                    --new_datasets='^\S+?\.((\S+)\.(unique|[0-9.]*)(\.(ave|std))?\.dist)$:lower.dist'
+                    subsample=T,
+                #end if
+                #if $subsample.iters:
+                    iters=$subsample.iters,
                 #end if
             #end if
+            output=$output,
+            processors='\${GALAXY_SLOTS:-8}'
+        )'
+        | sed 's/ //g'  ## mothur trips over whitespace
+        | mothur &&
+
+        ## move output files to correct destination
+        prefix="$otu" &&
+        mv \${prefix%.dat}*.summary "$summary" &&
+        #if $distance:
+            mv \${prefix%.dat}*.dist . &&
         #end if
-        --processors=\${GALAXY_SLOTS:-8}
+        mv mothur.*.logfile "$logfile"
     ]]></command>
     <inputs>
         <param name="otu" type="data" format="mothur.shared" label="shared - OTU Shared"/>
@@ -101,30 +96,83 @@
             <option value="sharednseqs">sharednseqs - Utility the number of sequences in two samples</option>
             <option value="sharedobserved">sharedobserved - Utility the number of sequences in two samples</option>
         </param>
-        <param name="all" type="boolean" truevalue="--all=true" falsevalue="" checked="false" label="all - Include RAM intensive sharedsobs and sharedchao calculations"/>
-        <param name="distance" type="boolean" truevalue="--distance=true" falsevalue="" checked="false" label="distance - Output a distance file for each calculator at each label"/>
-
+        <param name="all" type="boolean" truevalue="true" falsevalue="false" checked="false" label="all - Include RAM intensive sharedsobs and sharedchao calculations"/>
+        <param name="distance" type="boolean" truevalue="true" falsevalue="false" checked="false" label="distance - Output a distance file for each calculator at each label"/>
         <conditional name="subsample">
-                <param name="use" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="produce subsample distance matrices"/>
-                <when value="yes">
-                        <param name="subsample" type="integer" value="" optional="true" label="subsample - size pergroup of the sample" 
-                                                    help="Leave blank to use the size of your smallest group"/>
-                        <param name="iters" type="integer" value="0" optional="true" label="iters - Number of times to run the subsample"/>
-                </when>
-                <when value="no"/>
-                <param name="output" type="select" label="output - Distance Matrix Output Format" help="">
-                    <option value="lt" selected="true">Phylip formatted Lower Triangle Matrix</option>
-                    <option value="square">Phylip formatted Square Matrix</option>
-                </param>
-                <param name="as_datasets" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Create a new history dataset for each dataset"
-                                            help="the marices can be viewed from links in the logfile"/>
+            <param name="use" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="produce subsample distance matrices"/>
+            <when value="yes">
+                <param name="subsample" type="integer" value="" optional="true" label="subsample - size pergroup of the sample" help="Leave blank to use the size of your smallest group"/>
+                <param name="iters" type="integer" value="" min="1" optional="true" label="iters - Number of times to run the subsample"/>
+            </when>
+            <when value="no"/>
         </conditional>
+        <param name="output" type="select" label="output - Distance Matrix Output Format" help="">
+            <option value="lt" selected="true">Phylip formatted Lower Triangle Matrix</option>
+            <option value="square">Phylip formatted Square Matrix</option>
+        </param>
     </inputs>
     <outputs>
-        <data format="html" name="logfile" label="${tool.name} on ${on_string}: logfile"/>
-        <data format="tabular" name="summary" label="${tool.name} on ${on_string}: shared.summary"/>
+        <data name="logfile" format="txt" label="${tool.name} on ${on_string}: logfile"/>
+        <data name="summary" format="tabular" label="${tool.name} on ${on_string}: shared.summary"/>
+        <collection name="distfiles" type="list" label="${tool.name} on ${on_string}: dist">
+            <filter>distance</filter>
+            <discover_datasets pattern=".*?\.(?P&lt;designation&gt;.*)\.dist" format="mothur.dist">
+                <!-- doesn't seem to work for collection elements yet
+                <change_format>
+                    <when input="output" value="lt" format="mothur.lower.dist"/>
+                    <when input="output" value="square" format="mothur.square.dist"/>
+                </change_format>
+                -->
+            </discover_datasets>
+        </collection>
     </outputs>
     <tests>
+        <test><!-- test with defaults -->
+            <param name="otu" value="amazon.an.shared"/>
+            <output name="summary" md5="29384359e341721b3519fba35b9301e4" ftype="tabular"/>
+            <expand macro="logfile-test"/>
+        </test>
+        <test><!-- test with subsample -->
+            <param name="otu" value="amazon.an.shared"/>
+            <param name="use" value="yes"/>
+            <param name="subsample" value="10"/>
+            <param name="iters" value="42"/>
+            <output name="summary" ftype="tabular">
+                <assert_contents>
+                    <has_text text="forest"/>
+                    <has_text text="pasture"/>
+                </assert_contents>
+            </output>
+            <expand macro="logfile-test"/>
+        </test>
+        <test><!-- test with label and groups select and all calculators -->
+            <param name="otu" value="amazon.an.shared"/>
+            <param name="label" value="0.05,0.22,0.32"/>
+            <param name="groups" value="forest,pasture"/>
+            <param name="calc" value="sharedsobs,sharedchao,sharedace,anderberg,jclass,jest,kulczynski,kulczynskicody,kstest,lennon,ochiai,sorclass,sorest,whittaker,hamming,memchi2,memchord,memeuclidean,mempearson,braycurtis,jabund,morisitahorn,sorabund,thetan,thetayc,canberra,gower,hellinger,manhattan,odum,soergel,spearman,speciesprofile,structchi2,structchord,structeuclidean,structkulczynski,structpearson,sharednseqs,sharedobserved"/>
+            <output name="summary" md5="acd56d4ab09ec1c2117f5e4840a875a1" ftype="tabular"/>
+            <expand macro="logfile-test"/>
+        </test>
+        <test><!-- test with distance output collection -->
+            <param name="otu" value="amazon.an.shared"/>
+            <param name="distance" value="true"/>
+            <output name="summary" ftype="tabular">
+                <assert_contents>
+                    <has_text text="forest"/>
+                    <has_text text="pasture"/>
+                </assert_contents>
+            </output>
+            <param name="calc" value="sorclass"/>
+            <output_collection name="distfiles" count="36">
+                <element name="sorclass.0.29.lt" ftype="mothur.dist">
+                    <assert_contents>
+                        <has_text text="forest"/>
+                        <has_text text="pasture"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <expand macro="logfile-test"/>
+        </test>
     </tests>
     <help>
 <![CDATA[
@@ -133,7 +181,7 @@
 
 **Command Documenation**
 
-The summary.shared_ command produce a summary file that has the calculator value for each line in the OTU data of the shared_ file and for all possible comparisons between the different groups in the group_ file.  This can be useful if you aren't interested in generating collector's or rarefaction curves for your multi-sample data analysis. It would be worth your while, however, to look at the collector's curves for the calculators you are interested in to determine how sensitive the values are to sampling. If the values are not sensitive to sampling, then you can trust the values. Otherwise, you need to keep sampling.  For calc parameter choices see: http://www.mothur.org/wiki/Calculators  
+The summary.shared_ command produce a summary file that has the calculator value for each line in the OTU data of the shared_ file and for all possible comparisons between the different groups in the group_ file.  This can be useful if you aren't interested in generating collector's or rarefaction curves for your multi-sample data analysis. It would be worth your while, however, to look at the collector's curves for the calculators you are interested in to determine how sensitive the values are to sampling. If the values are not sensitive to sampling, then you can trust the values. Otherwise, you need to keep sampling.  For calc parameter choices see: http://www.mothur.org/wiki/Calculators
 
 .. _shared: http://www.mothur.org/wiki/Shared_file
 .. _group: http://www.mothur.org/wiki/Group_file
