@@ -6,7 +6,6 @@
 
 
 import sys
-import os
 import optparse
 import codecs
 from skbio.diversity import beta_diversity
@@ -38,10 +37,10 @@ def __main__():
         sys.exit()
 
     if options.otu_column is not None:
-        otu_column = options.otu_column-1
+        otu_column = options.otu_column - 1
     else:
         otu_column = None
-    
+
     if options.sample_columns is None:
         with open( options.input, 'rb' ) as fh:
             line = fh.readline()
@@ -49,7 +48,7 @@ def __main__():
             if otu_column in columns:
                 columns.remove( otu_column )
     else:
-        columns = map( lambda x: int(x)-1, options.sample_columns.split( "," ) )
+        columns = map( lambda x: int( x ) - 1, options.sample_columns.split( "," ) )
 
     max_col = max( columns + [otu_column] )
     counts = [ [] for x in columns ]
@@ -78,11 +77,12 @@ def __main__():
         extra_kwds['otu_ids'] = otu_names
     if options.distance_metric in NEEDS_TREE:
         assert options.tree, Exception( "You must provide a newick tree when using '%s'" % options.distance_metric )
-        #NB: TreeNode apparently needs unicode files
+        # NB: TreeNode apparently needs unicode files
         with codecs.open( options.tree, 'rb', 'utf-8' ) as fh:
             extra_kwds['tree'] = TreeNode.read( fh )
 
     bd_dm = beta_diversity( options.distance_metric, counts, ids=sample_names, **extra_kwds )
     bd_dm.write( options.output )
 
-if __name__=="__main__": __main__()
+if __name__ == "__main__":
+    __main__()
