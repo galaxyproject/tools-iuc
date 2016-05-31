@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # Reports a beta diversity matrix for tabular input file
+# using scikit-bio
 # Daniel Blankenberg
 
 
@@ -12,7 +13,7 @@ from skbio.diversity import beta_diversity
 from skbio import TreeNode
 
 
-__VERSION__ = "0.0.0"
+__VERSION__ = "0.0.1"
 
 DELIMITER = '\t'
 
