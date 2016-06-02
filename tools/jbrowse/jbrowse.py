@@ -79,11 +79,11 @@ class ColorScaling(object):
         """,
         'blast': """
             var opacity = 0;
-            if(score == 0.0) {
+            if(score == 0.0) {{
                 opacity = 1;
-            } else{
+            }} else {{
                 opacity = (20 - Math.log10(score)) / 180;
-            }
+            }}
         """
     }
 
