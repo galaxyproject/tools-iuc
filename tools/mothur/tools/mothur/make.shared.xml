@@ -1,64 +1,103 @@
-<tool id="mothur_make_shared" name="Make.shared" version="@WRAPPER_VERSION@.0" force_history_refresh="True">
+<tool profile="16.07" id="mothur_make_shared" name="Make.shared" version="@WRAPPER_VERSION@.0" force_history_refresh="True">
     <description>Make a shared file from a list and a group</description>
     <macros>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements" />
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+        echo 'make.shared(
+            #if $intype.infile == "biom":
+                biom=$intype.otu
+            #else
+                #if $intype.group.is_of_type("mothur.groups"):
+                    group=$intype.group,
+                #elif $intype.group.is_of_type("mothur.count_table"):
+                    count=$intype.group,
+                #end if
+                #if $intype.label:
+                    label=${ str($intype.label).replace(",","-") },
+                #end if
+                #if $intype.groups:
+                    groups=${ str($intype.groups).replace(",","-") },
+                #end if
+                list=$intype.otu
+            #end if
+        )'
+        | sed 's/ //g'  ## mothur trips over whitespace
+        | mothur &&
 
-    <command interpreter="python"><![CDATA[
-        mothur_wrapper.py 
-        #import re, os.path
-        --cmd='make.shared'
-        --result='^mothur.\S+\.logfile$:'$logfile,'^\S+\.shared$:'$shared
-        --outputdir='$logfile.extra_files_path'
-        #if $as_datasets.__str__ == "yes":
-            --datasetid='$logfile.id' --new_file_path='$__new_file_path__'
-            --new_datasets='^\S+?\.((\S+)\.rabund)$:rabund'
+        ## move output files to correct destination
+        prefix="$otu" &&
+        mv mothur.*.logfile "$logfile" &&
+        #if $intype.infile == 'otulist' and $intype.groups:
+            mv \${prefix%.dat}*.shared . &&
+            prefix2=\${prefix%.dat} &&
+            mv *.groups "$groupout"
+        #else
+            mv \${prefix%.dat}*.shared "$shared"
         #end if
-        --list="$list"
-
-        #if isinstance($group.datatype, $__app__.datatypes_registry.get_datatype_by_extension('groups').__class__):
-            --group="$group"
-        #else:
-            --count="$group"
-        #end if 
-
-        #if $label.__str__ != "None" and len($label.__str__) > 0:
-            --label='$label'
-        #end if
-        #if $groups.__str__ != "None" and len($groups.__str__) > 0:
-                --groups="$groups"
-        #end if
-        #*
-        #if $ordergroup.__str__ != "None" and len($ordergroup.__str__) > 0:
-            --ordergroup="$ordergroup"
-        #end if
-        *#
     ]]></command>
     <inputs>
-        <param name="list" type="data" format="list" label="list - OTU List"/>
-        <param name="group" type="data" format="groups, count" label="group - "/>
-        <param name="label" type="select" optional="true" label="label - Select OTU Labels to include" multiple="true" 
-                    help="By default all are included if no selection is made.">
-            <options>
-                <filter type="data_meta" ref="list" key="labels" />
-            </options>
-        </param>
-        <param name="groups" type="select" label="groups - Groups to include" multiple="true">
-            <options>
-                <filter type="data_meta" ref="group" key="groups" />
-            </options>
-        </param>
-        <!--
-        <param name="ordergroup" type="data" format="groups" optional="true" label="ordergroup - one column list of group names in desired order"/>
-        -->
-        <param name="as_datasets" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Create a new history dataset for each group rabund"/>
+        <conditional name="intype">
+            <param name="infile" type="select" label="Select input type" help="">
+                <option value="otulist">OTU list</option>
+                <option value="biom">Biom 1.0 file</option>
+            </param>
+            <when value="otulist">
+                <param name="otu" type="data" format="mothur.list" label="list - OTU List"/>
+                <param name="group" type="data" format="mothur.groups, mothur.count_table" label="supply group or count table if you supplied OTU list"/>
+                <param name="label" type="select" optional="true" label="label - Select OTU Labels to include" multiple="true" help="By default all are included if no selection is made.">
+                    <expand macro="labeloptions"/>
+                </param>
+                <param name="groups" type="select" label="groups - Groups to include" multiple="true">
+                    <options>
+                        <filter type="data_meta" ref="group" key="groups"/>
+                    </options>
+                </param>
+            </when>
+            <when value="biom">
+                <param name="otu" type="data" format="biom1" label="Biom 1.0 file"/>
+            </when>
+        </conditional>
     </inputs>
     <outputs>
-        <data format="html" name="logfile" label="${tool.name} on ${on_string}: logfile" />
-        <data format="shared" name="shared" label="${tool.name} on ${on_string}: shared" />
+        <data name="logfile" format="txt" label="${tool.name} on ${on_string}: logfile"/>
+        <data name="shared" format="mothur.shared" label="${tool.name} on ${on_string}: shared"/>
+        <data name="groupout" format="mothur.groups" label="${tool.name} on ${on_string}: groups">
+            <filter>groups</filter>
+        </data>
+        <collection name="labelshares" type="list" label="${tool.name} on ${on_string}: share files per label">
+            <discover_datasets pattern=".*?\.(?P&lt;designation&gt;.*)\.shared"/>
+            <filter>groups</filter>
+        </collection>
     </outputs>
     <tests>
+        <test><!-- test with biom file -->
+            <param name="infile" value="biom"/>
+            <param name="otu" value="example.biom"/>
+            <output name="shared" md5="e44d5ca4e4a5dbc68e8219c5690aa156" ftype="mothur.shared"/>
+            <expand macro="logfile-test"/>
+        </test>
+        <test><!-- test with otu and group file-->
+            <param name="infile" value="otulist"/>
+            <param name="otu" value="amazon.an.list" ftype="mothur.list"/>
+            <param name="group" value="amazon.groups" ftype="mothur.groups"/>
+            <output name="shared" file="amazon.an.shared" ftype="mothur.shared"/>
+            <expand macro="logfile-test"/>
+        </test>
+        <test><!-- test with label and group select-->
+            <param name="infile" value="otulist"/>
+            <param name="otu" value="amazon.an.list" ftype="mothur.list"/>
+            <param name="group" value="amazon.groups" ftype="mothur.groups"/>
+            <param name="label" value="0.03,0.05,0.22"/>
+            <param name="groups" value="forest,pasture"/>
+            <output name="groupout" md5="fb60628ae445e7b06f9833f632b2cd0c" ftype="mothur.groups"/>
+            <output_collection name="labelshares" count="3">
+                <element name="0.22" md5="592b4fb84412de47be18e64ef26b7a80"/>
+            </output_collection>
+            <expand macro="logfile-test"/>
+        </test>
     </tests>
     <help>
 <![CDATA[
@@ -77,5 +116,5 @@ The make.shared_ command takes a list_ and a group_ file and outputs a shared_ f
 .. _make.shared: http://www.mothur.org/wiki/Make.shared
 ]]>
     </help>
-    <expand macro="citations" />
+    <expand macro="citations"/>
 </tool>
