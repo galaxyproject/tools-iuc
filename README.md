@@ -16,4 +16,17 @@ Commits that have [ci skip] anywhere in the commit messages are ignored by Travi
 Other repositories with Galaxy tools:
  * [Björn Grüning repo](https://github.com/bgruening/galaxytools)
  * [Galaxy devteam repo](https://github.com/galaxyproject/tools-devteam)
+ * Peter Cock's repos:
+   * [blast repo](https://github.com/peterjc/galaxy_blast)
+   * [pico repo](https://github.com/peterjc/pico_galaxy)
+   * [mira repo](https://github.com/peterjc/galaxy_mira)
+ * [ENCODE tools](https://github.com/modENCODE-DCC/Galaxy)
+ * [Biopython repo](https://github.com/biopython/galaxy_packages)
+ * [Galaxy Proteomics repo](https://github.com/galaxyproteomics/tools-galaxyp)
+ * [Colibread Galaxy Tools](https://github.com/genouest/tools-colibread)
+ * [Greg von Kuster's repo](https://github.com/gregvonkuster/galaxy-csg)
+ * [TGAC repo](https://github.com/TGAC/tgac-galaxytools)
+ * [AAFC-MBB Canada repo](https://github.com/AAFC-MBB/Galaxy/tree/master/wrappers)
+ * [Mark Einon's repo](https://github.com/einon/galaxy-tools)
 
+ 
