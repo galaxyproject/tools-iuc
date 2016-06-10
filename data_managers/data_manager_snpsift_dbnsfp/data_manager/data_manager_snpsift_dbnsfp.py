@@ -103,11 +103,45 @@ def download_dbnsfp_database(url, output_file):
         files = [f for f in allfiles if re.match(dbNSFP_file_pat, f)]
         files = sorted(files, key=natural_sortkey)
         for j, file in enumerate(files):
+            tempfiles = []
+            tempfiles.append(file + "_%d" % len(tempfiles))
+            tfh = open(tempfiles[-1], 'w')
+            lastpos = None
             fh = my_zip.open(file, 'rU')
             for i, line in enumerate(fh):
-                if j > 0 and i == 0:
+                if i == 0:
+                    if j == 0:
+                        wtr.write(line)
                     continue
-                wtr.write(line)
+                else:
+                    pos = int(line.split('\t')[1])
+                    if lastpos and pos < lastpos:
+                        tfh.close()
+                        tempfiles.append(file + "_%d" % len(tempfiles))
+                        tfh = open(tempfiles[-1], 'w')
+                        print >> sys.stderr, "%s [%d] pos: %d < %d" % (file, i, pos, lastpos)
+                    lastpos = pos
+                tfh.write(line)
+            tfh.close()
+            if len(tempfiles) == 1:
+                with open(tempfiles[0], 'r') as tfh:
+                    wtr.writelines(tfh.readlines())
+            else:
+                tfha = [open(temp, 'r') for temp in tempfiles]
+                lines = [tfh.readline() for tfh in tfha]
+                curpos = [int(line.split('\t')[1]) for line in lines]
+                while len(tfha) > 0:
+                    k = curpos.index(min(curpos))
+                    wtr.write(lines[k])
+                    line = tfha[k].readline()
+                    if line:
+                        lines[k] = line
+                        curpos[k] = int(line.split('\t')[1])
+                    else:
+                        tfha[k].close()
+                        del tfha[k]
+                        del lines[k]
+                        del curpos[k]
     return dbnsfp_tsv
 
 
