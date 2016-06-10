@@ -108,7 +108,7 @@ class Client(object):
         return Entrez.egquery(**kwargs).read()
 
     def citmatch(self, **kwargs):
-        return Entrez.ECitMatch(**kwargs).read()
+        return Entrez.ecitmatch(**kwargs).read()
 
     @classmethod
     def parse_ids(cls, id_list, id, history_file):
