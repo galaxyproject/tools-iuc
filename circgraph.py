@@ -1,8 +1,4 @@
-from pprint import pprint
-from jinja2 import Template, Environment, PackageLoader
-from BCBio import GFF
-from subprocess import call
-from Bio.Seq import Seq
+#!/usr/bin/env python
 import itertools
 import sys
 import copy
@@ -11,21 +7,21 @@ import re
 import xml
 import brewer2mpl
 import argparse
+from jinja2 import Template, Environment, PackageLoader
+from BCBio import GFF
+from subprocess import call
+from Bio.Seq import Seq
 
-COLORS_LIST = ['red', 'green', 'blue', 'purple', 'orange',
-           'yellow', 'black', 'grey', 'white', 'pred', 'pgreen', 'pblue',
-               'ppurple', 'pyellow', 'porange']
+COLORS_LIST = ['red', 'green', 'blue', 'purple', 'orange', 'yellow', 'black',
+    'grey', 'white', 'pred', 'pgreen', 'pblue', 'ppurple', 'pyellow', 'porange']
 
 class DataInterpreter():
     def __init__(self, xmlroot, files_dict=[]):
         self.xmlroot = xmlroot
         self.object_list = []
         self._create_object_list()
-        self.files_dict = {}
-        if self.files_dict == {}:
-        #FIXME
-            files_dict = self._get_files_from_xml()
-        self._parse_files()
+        self.files_dict = self._get_files_from_xml()
+        # self._parse_files()
 
     def _parse_files(self):
         for f in self.files_dict:
@@ -106,8 +102,6 @@ class DataInterpreter():
                     seqlen += len(line.strip())
             g.write(cstring+' - '+cname+' '+str(i)+' 0 '+ ' '+str(seqlen)+' '+colors_list[i]+'\n')
             g.close()
-
-
 
     def parse_gff3(self, key):
         #FIXME Seems there's no nontrivial way to move gff3 file info into Circos... For now...
@@ -361,25 +355,32 @@ class CircosPlot():
                 f.write('\n<'+current_obj+'>'+'\n')
                 if current_obj == 'ideogram':
                     f.write('<spacing>\ndefault = 0.25r\n</spacing>\n')
+
+            import pprint; pprint.pprint(obj)
+            print dir(obj)
             for att in dir(obj):
                 if att[0:2] != '__' and att not in ['llo', 'boilerplate'] and getattr(obj, att) is not None and hasattr(att, '__call__') == False:
-                    if getattr(obj, att)[:2] == '__':
-                        val = str(getattr(obj, att)).strip()[len(str(getattr(obj, att)).strip())-6:]
-                        h = [val[0:2], val[2:4], val[4:6]]
-                        rgb = []
-                        for num in h:
-                            rgb.append(str(int(str(num), 16)))
-                        s = ', '
-                        val = s.join(rgb)
-                    else:
-                        val = str(getattr(obj, att)).strip()
-                    if att[0:4] == obj.__name__[0:4]:
-                        if att[5:] in ['thickness', 'radius', 'r0', 'r1']:
-                            f.write(att[5:]+' = '+val.strip()+'r\n')
+                    try:
+                        if getattr(obj, att)[:2] == '__':
+                            val = str(getattr(obj, att)).strip()[len(str(getattr(obj, att)).strip())-6:]
+                            h = [val[0:2], val[2:4], val[4:6]]
+                            rgb = []
+                            for num in h:
+                                rgb.append(str(int(str(num), 16)))
+                            s = ', '
+                            val = s.join(rgb)
                         else:
-                            f.write(att[5:]+' = '+val.strip()+'\n')
-                    else:
-                        f.write(att+' = '+val.strip()+'\n')
+                            val = str(getattr(obj, att)).strip()
+                        if att[0:4] == obj.__name__[0:4]:
+                            if att[5:] in ['thickness', 'radius', 'r0', 'r1']:
+                                f.write(att[5:]+' = '+val.strip()+'r\n')
+                            else:
+                                f.write(att[5:]+' = '+val.strip()+'\n')
+                        else:
+                            f.write(att+' = '+val.strip()+'\n')
+                    except Exception:
+                        pass
+
                 elif att == 'boilerplate':
                     f.write(str(getattr(obj, att)).strip()+'\n')
         f.write('</'+current_obj+'>'+'\n')
