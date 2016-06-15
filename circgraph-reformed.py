@@ -26,26 +26,20 @@ def test_routine():
 	for argument in ['-k','-H','-I','-s','-b','-l']:
 		A.add_argument(argument,nargs='*')
 	args = A.parse_args()
-	X = args.xml[0] 
+	X = args.xml[0]
 	T = xml.etree.ElementTree.parse(X)
 	R = T.getroot()
 	D = DataInterpreter(R,[])
-	D.files_dict = {'karyotype':args.k,
-			'scatter':args.s,
-			'heatmap':args.H,
-			'histogram':args.b,
-			'highlight':args.I,
-			'link':[args.l[0]]}
 	D.assoc_chromosomes = args.l[1:]
 	D._parse_files()
-	P = CircosPlot('christmas',D.object_list,D.karyotype,D.files_dict)
+	P = CircosPlot('christmas',D.object_list,D.karyotype, {})
 	P.write_conf()
 
 class DataInterpreter():
 	def __init__(self,xmlroot,files_dict={}):
 		self.xmlroot = xmlroot
 		self._create_object_list()
-		self.files_dict = {} 
+		self.files_dict = {}
 		if self.files_dict == {}:
 		#FIXME
 			files_dict = self._get_files_from_xml()
@@ -53,7 +47,7 @@ class DataInterpreter():
 
 	def _create_object_list(self):
 		self.object_list = []
-		current_obj = None 
+		current_obj = None
 		current_sub = None
 		subobjind= 0
 		recognized_objects = ['ideogram','image','link','tick','zoom','highlight','plot']
@@ -64,7 +58,7 @@ class DataInterpreter():
 					current_obj.llo.append(copy.copy(current_sub))
 				if current_obj is not None:
 					self.object_list.append(copy.copy(current_obj))
-				current_obj = CircosObj(element.tag) 
+				current_obj = CircosObj(element.tag)
 				subobjind = 0
 			elif current_obj is not None:
 				if element.tag in recognized_subobjects:
@@ -77,7 +71,7 @@ class DataInterpreter():
 				elif subobjind == 1:
 					setattr(current_sub,element.tag,element.text)
 		self.object_list.append(copy.copy(current_obj))
-	
+
 	def _get_files_from_xml(self):
 		#TODO When the time comes to create the final Galaxy tool...
 		pass
@@ -122,7 +116,7 @@ class DataInterpreter():
 						g.write(' ')
 					g.write('\n')
 			g.close()
-		return filename 
+		return filename
 
 	def parse_bed(self, key,f,index):
 		bed_standard_fields = ['chromosome','start','end',
@@ -132,7 +126,7 @@ class DataInterpreter():
 		features_dict = {}
 		with open(self.files_dict[key]) as tmp:
 			for l in tmp:
-				data = l.strip().split()	
+				data = l.strip().split()
 				tmpdict = dict(zip(bed_standard_fields,data))
 				identifier = tmpdict['chromosome']+'_'+tmpdict['start']+'-'+tmpdict['end']
 				features_dict[identifier] = tmpdict
@@ -253,7 +247,7 @@ class DataInterpreter():
 			g.close()
 		return filename
 
-		
+
 	def _process_obj_subfeatures(self,obj,flist):
 		flist.append(obj)
 		l = obj.sub_features
@@ -263,7 +257,7 @@ class DataInterpreter():
 			else:
 				flist.append(element)
 		return flist
-	
+
 class CircosObj():
 	def __init__(self,name):
 		self.llo = []
@@ -278,7 +272,7 @@ class CircosPlot():
 		self.basename = basefilename
 		self.data_dict = {}
 		self.last_filled_radius = 1.1
-		self.master_struct = {'ideograms':{}} #Will be loop-able for jinja2 
+		self.master_struct = {'ideograms':{}} #Will be loop-able for jinja2
 		self.plots = ['<plots>']
 		self.track_dict = {} #Temporary -- will be obviated by XML at later stage.
 		self.add_ideogram()
@@ -319,11 +313,11 @@ class CircosPlot():
 		self.units_nounit = None
 		self.units_ok = None
 		self.warnings = None
-			
+
 	def write_conf(self):
 		current_obj = None
 		prev_obj = None
-		f = open(self.basename+'.conf','w') 
+		f = open(self.basename+'.conf','w')
 		for elem in self.boilerplate:
 			f.write(elem)
 		f.write('karyotype = '+self.karyotype)
@@ -354,11 +348,11 @@ class CircosPlot():
 						s = ','
 						val = s.join(rgb)
 					else:
-						val = str(getattr(obj,att)).strip()	
+						val = str(getattr(obj,att)).strip()
 					if att[0:4] == obj.__name__[0:4]:
 						if att[5:] in ['thickness','radius','r0','r1']:
 							f.write(att[5:]+' = '+val.strip()+'r\n')
-						else:	
+						else:
 							f.write(att[5:]+' = '+val.strip()+'\n')
 					else:
 						f.write(att+' = '+val.strip()+'\n')
