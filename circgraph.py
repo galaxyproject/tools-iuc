@@ -77,7 +77,7 @@ class CircosPlotter:
             conf_data.append('<%s>' % current_obj)
 
             if current_obj == 'ideogram':
-                conf_data.append('<spacing>\ndefault = 0.25r\n</spacing>')
+                conf_data += ['<spacing>', 'default = 0.25r', '</spacing>']
 
             for attr in dir(obj):
                 if attr == 'boilerplate':
@@ -116,8 +116,25 @@ class CircosPlotter:
             conf_data.append('</plots>')
 
         with open(os.path.join(self.base_path, self.basename+'.conf'), 'w') as handle:
+            indentation_level = 0
             for line in conf_data:
-                handle.write(line + '\n')
+                if line.startswith('<<'):
+                    pass
+                elif line.startswith('</'):
+                    indentation_level -= 1
+                elif line.startswith('<'):
+                    if indentation_level == 0:
+                        handle.write('\n')
+
+                handle.write(('  ' * indentation_level) + line + '\n')
+
+                if line.startswith('<<'):
+                    pass
+                elif line.startswith('</'):
+                    # blank line after closing group
+                    pass
+                elif line.startswith('<'):
+                    indentation_level += 1
 
     def add_top_lvl_params(self):
         self.anglestep = None
@@ -159,28 +176,6 @@ class CircosPlotter:
             'fill':fill_opt,
         }
         self.master_struct['ideograms'][ideogramid] = block
-
-    def create_base_conf_template(self):
-        E = Environment(loader=PackageLoader('dummy', 'Templates'))
-        T = E.get_template('template.conf')
-        with open(self.basename + '.conf', 'w') as f:
-            rendering = T.render(master_struct = self.master_struct, filename = self.basename + '.png', karyotype_filename = self.karyotype_filename)
-            f.write(rendering)
-
-    def _make_karyotype(self):
-        colors_list = [
-            'chr1', 'chr2', 'chr3', 'chr4', 'chr5', 'chr6',
-            'chr7', 'chr8', 'chr9', 'chr10', 'chr11', 'chr12',
-            'chr13', 'chr14', 'chr15', 'chr16', 'chr17', 'chr18'
-            'chr19', 'chr20', 'chr21', 'chr22', 'chrx', 'chry'
-        ] #Temporary -- will update to include more diverse list of colors, Brewer...
-
-        self.karyotype_filename = self.basename + '-karyotype.txt'
-        i = 0
-        with open(self.karyotype_filename, 'w') as karyotype:
-            for idx, element in enumerate(self.seq_dict):
-                karyotype.write('chr - '+element+' '+element+' 0 '+str(len(self.seq_dict[element]))+' '+colors_list[i]+'\n')
-
 
     def _parse_files(self):
         replacement_files_data = {}
