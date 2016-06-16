@@ -61,7 +61,7 @@ parser.add_argument('--motif_pseudo', dest='motif_pseudo', type=float, default=0
 parser.add_argument('--no_qvalue', action='store_true', help='Do not compute a q-value for each p-value')
 parser.add_argument('--norc', action='store_true', help='Do not score the reverse complement DNA strand')
 parser.add_argument('--output_path', dest='output_path', help='Output files directory')
-parser.add_argument('--parse_genomic_coord', action='store_true', help='Check each sequence header for UCSC style genomic coordinates')
+parser.add_argument('--parse_genomic_coord', default='no', help='Check each sequence header for UCSC style genomic coordinates')
 parser.add_argument('--remove_duplicate_coords', default='no', help='Remove duplicate entries in unique GFF coordinates')
 parser.add_argument('--qv_thresh', action='store_true', help='Use q-values for the output threshold')
 parser.add_argument('--thresh', dest='thresh', type=float, help='p-value threshold')
@@ -88,7 +88,7 @@ if args.options_type == 'advanced':
         fimo_cmd_list.append('--no-qvalue')
     if args.norc:
         fimo_cmd_list.append('--norc')
-    if args.parse_genomic_coord:
+    if args.parse_genomic_coord == 'yes':
         fimo_cmd_list.append('--parse-genomic-coord')
     if args.qv_thresh:
         fimo_cmd_list.append('--qv-thresh')
