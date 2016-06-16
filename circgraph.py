@@ -6,65 +6,86 @@ import os
 import re
 import xml
 import brewer2mpl
+import shutil
+import subprocess
 import argparse
 from jinja2 import Template, Environment, PackageLoader
 from BCBio import GFF
 from subprocess import call
 from Bio.Seq import Seq
+from Bio import SeqIO
+import logging
+logging.basicConfig(level=logging.DEBUG)
+log = logging.getLogger()
 
 COLORS_LIST = ['red', 'green', 'blue', 'purple', 'orange', 'yellow', 'black',
     'grey', 'white', 'pred', 'pgreen', 'pblue', 'ppurple', 'pyellow', 'porange']
 
 class DataInterpreter():
+
     def __init__(self, xmlroot, files_dict=[]):
         self.xmlroot = xmlroot
         self.object_list = []
-        self._create_object_list()
+        self.base_path = 'output'
+
+        self._create_object_list(xmlroot)
         self.files_dict = self._get_files_from_xml()
-        # self._parse_files()
 
     def _parse_files(self):
-        for f in self.files_dict:
-        #TODO Each parse method needs to return a txt file compatible with Circos.
-            name, ext = os.path.splitext(self.files_dict[f])
-            if f == "karyotype":
-                self._make_karyotype(self.files_dict[f])
-            elif f == "scatter":
+        replacement_files_data = {}
+        for (file_type, file_path) in self.files_dict.iteritems():
+            log.debug("_parse_files %s %s", file_type, file_path)
+            #TODO Each parse method needs to return a txt file compatible with Circos.
+            name, ext = os.path.splitext(file_path)
+
+            fileinfo = {
+                'name': name,
+                'ext': ext,
+                'type': file_type,
+                'path': file_path,
+            }
+
+            result = None
+
+            if file_type == "karyotype":
+                self._make_karyotype(file_path)
+            elif file_type == "scatter":
                 if ext in ('.gff', '.gff3'):
-                    self.parse_gff3(f)
+                    self.parse_gff3(file_type)
                 elif ext in ('.wig', '.bigWig', '.bw'):
-                    self.parse_bigWig(f)
+                    self.parse_Wig(file_type)
             elif ext == ".bed":
-                self.files_dict[f] = self.parse_bed(self.files_dict[f])
+                result = self.parse_bed(self.files_dict[file_type])
             elif ext in (".bw", ".bigWig", '.wig'):
-                self.files_dict[f] = self.parse_bigWig(self.files_dict[f])
+                result = self.parse_Wig(self.files_dict[file_type])
             elif ext in (".gff", ".gff3"):
-                self.files_dict[f] = self.parse_gff3(f)
+                result = self.parse_gff3(file_type)
             elif ext == ".fa":
-                self.files_dict[f] = self.parse_fasta(self.files_dict[f])
-            else:
-                raise ValueError('Unsupported File Format')
+                result = self.parse_fasta(self.files_dict[file_type])
+
+            if result:
+                replacement_files_data[file_type] = result
 
 
-    def _create_object_list(self):
+    def _create_object_list(self, xmlroot):
         current_obj = None
         current_sub = None
         subobjind= 0
         recognized_objects = {
-            'break_style': Break_Style(),
-            'highlight': Highlight(),
+            # 'break_style': Break_Style(),
+            # 'highlight': Highlight(),
             'ideogram': Ideogram(),
             'image': Image(),
-            'karyotype': Karyotype(),
-            'link': Link(),
-            'pairwise': Pairwise(),
+            # 'karyotype': Karyotype(),
+            # 'link': Link(),
+            # 'pairwise': Pairwise(),
             'plot': Plot(),
-            'rule': Rule(),
-            'tick': Tick(),
-            'zoom': Zoom(),
-            'spacing': Spacing(),
+            # 'rule': Rule(),
+            # 'tick': Tick(),
+            # 'zoom': Zoom(),
+            # 'spacing': Spacing(),
         }
-        for element in R.iter():
+        for element in xmlroot.iter():
             if element.tag in recognized_objects:
                 if current_obj is not None:
                     self.object_list.append(current_obj)
@@ -83,25 +104,22 @@ class DataInterpreter():
         #TODO When the time comes to create the final Galaxy tool...
         pass
 
-    def _make_karyotype(self, f):
+    def _make_karyotype(self, fasta):
         self.karyotype = 'karyotype.txt'
-        i = 0
-        seqlen = 0
-        cstring = 'chr'
-        colors_list = [None, 'red', 'green', 'blue', 'orange', 'violet']
-        with open(f) as input_handle:
-            g = open(self.karyotype, 'w')
-            for line in input_handle.readlines():
-                if line[0] == '>':
-                    if i != 0:
-                        g.write(cstring+' - '+line[1:].strip()+' '+str(i)+' 0 '+ ' '+str(seqlen)+' '+colors_list[i]+'\n')
-                        seqlen = 0
-                    i+=1
-                    cname = line[1:].strip()
-                else:
-                    seqlen += len(line.strip())
-            g.write(cstring+' - '+cname+' '+str(i)+' 0 '+ ' '+str(seqlen)+' '+colors_list[i]+'\n')
-            g.close()
+
+        with open(os.path.join(self.base_path, self.karyotype), 'w') as output:
+            data = []
+            for idx, seq in enumerate(SeqIO.parse(fasta, 'fasta')):
+                data.append(' '.join(map(str, [
+                    'chr',
+                    '-',
+                    seq.id,
+                    idx,
+                    0,
+                    len(seq),
+                    COLORS_LIST[idx % len(COLORS_LIST)]
+                ])))
+            output.write('\n'.join(data))
 
     def parse_gff3(self, key):
         #FIXME Seems there's no nontrivial way to move gff3 file info into Circos... For now...
@@ -162,18 +180,24 @@ class DataInterpreter():
         self.seq_dict[seqname] = seqres
         return
 
-    def parse_bigWig(self, sourcekey):
+    def parse_Wig(self, sourcekey):
         wigfile = self.files_dict[sourcekey]
         features_dict = {}
         locidict = {}
         path = os.path.dirname(wigfile)
         name, ext = os.path.splitext(wigfile)
         newfile = name + '.wig'
+
         if ext != '.wig':
-            call('./bigWigToWig '+ wigfile +' '+newfile, shell=True) #obviously needs changing
+            subprocess.check_call([
+                'bigWigToWig',
+                wigFile,
+                newfile
+            ])
         else:
-            call('cp '+ wigfile + ' .', shell=True)
-        with open(newfile) as handle:
+            shutil.copy(wigfile, self.base_path)
+
+        with open(newfile, 'r') as handle:
             i = 0
             currentchrom = ''
             currentspan = 0
@@ -183,7 +207,7 @@ class DataInterpreter():
             mode = ''
             locidict = {}
             tmpdict = {}
-            for line in handle.readlines():
+            for line in handle:
                 l = line.split()
                 if l[0] == 'variableStep':
                     mode = 'variable'
@@ -203,25 +227,44 @@ class DataInterpreter():
                     except IndexError:
                         currentspan = 0
                 elif mode == 'variable':
-                    tmpdict[currentchrom+'_'+l[0]+'-'+str(int(l[0])+currentspan)] = {'chromosome':currentchrom, 'start':int(l[0]), 'end':int(l[0])+currentspan, 'val':l[1]}
+                    l0 = int(l[0])
+                    key = '%s_%s-%s' % (currentchrom, l[0], l0 + currentspan)
+                    tmpdict[key] = {
+                        'chromosome': currentchrom,
+                        'start': l0,
+                        'end': l0 + currentspan,
+                        'val': l[1]
+                    }
                 elif mode == 'fixed':
-                    tmpdict[currentchrom+'_'+str(start+m*step)+'-'+str(start+m*step+currentspan)] = {'chromosome':currentchrom, 'start':start+m*step, 'end':start+m*step+currentspan, 'val':l[0]}
+                    asdf = start + m * step
+                    key = '%s_%s-%s' % (currentchrom, asdf, asdf + currentspan)
+                    tmpdict[key] = {
+                        'chromosome': currentchrom,
+                        'start': asdf,
+                        'end': asdf + currentspan,
+                        'val': l[0]
+                    }
                     m+=1
                 i+=1
+
             for key in tmpdict:
                 if tmpdict[key]['chromosome'] not in locidict.keys():
                     locidict[tmpdict[key]['chromosome']] = {}
-                    locidict[tmpdict[key]['chromosome']].update({key:tmpdict[key]})
-                else:
-                    locidict[tmpdict[key]['chromosome']].update({key:tmpdict[key]})
+
+                locidict[tmpdict[key]['chromosome']]['key'] = tmpdict[key]
+
         if sourcekey == 'scatter':
-            filename = 'scatter.txt'
-            g = open(filename, 'w')
-            for genome in locidict:
-                for feature in locidict[genome]:
-                    g.write(locidict[genome][feature]['chromosome']+ ' ' +str(locidict[genome][feature]['start']) + ' ' +str(locidict[genome][feature]['end']) + ' ' +locidict[genome][feature]['val']+'\n')
-            g.close()
-        self.files_dict[sourcekey] = filename
+            with open('scatter.txt', 'w') as handle:
+                for genome in locidict:
+                    for feature in locidict[genome]:
+                        handle.write(' '.join(map(str, [
+                            locidict[genome][feature]['chromosome'],
+                            locidict[genome][feature]['start'],
+                            locidict[genome][feature]['end'],
+                            locidict[genome][feature]['val'],
+                        ])) + '\n')
+
+        self.files_dict[sourcekey] = 'scatter.txt'
 
     def parse_bed(self, f):
         bed_standard_fields = ['chromosome', 'start', 'end',
@@ -236,10 +279,6 @@ class DataInterpreter():
                 identifier = tmpdict['chromosome']+'_'+tmpdict['start']+'-'+tmpdict['end']
                 features_dict[identifier] = tmpdict
         self.files_dict[f] = features_dict
-
-    def integrate_mauve_data(self, data):
-        #This method may be required to integrate whatever that parser outputs, or it may be deprecated depending on what that data looks like.
-        pass
 
 class CircosObj():
     def __init__(self):
@@ -319,6 +358,7 @@ class Rule(LowLevelObj):
 
 class CircosPlot():
     def __init__(self, basefilename, obj_list, karyotype, files_dict):
+        self.base_path = 'output'
         self.files_dict = files_dict
         self.karyotype = karyotype
         self.basename = basefilename
@@ -331,62 +371,81 @@ class CircosPlot():
         self.files_list = []
         self.add_top_lvl_params()
         self.obj_list = obj_list
-        self.boilerplate = ['<<include colors_fonts_patterns.conf>>\n',
-                    '<<include housekeeping.conf>>\n'
-                    ]
+        self.boilerplate = [
+            '<<include colors_fonts_patterns.conf>>',
+            '<<include housekeeping.conf>>'
+        ]
 
     def write_conf(self):
+        conf_data = []
+
+        for elem in self.boilerplate:
+            conf_data.append(elem)
+
         current_obj = None
         prev_obj = None
-        f = open(self.basename+'.conf', 'w')
-        for elem in self.boilerplate:
-            f.write(elem)
-        f.write('karyotype = '+self.karyotype)
+
+        conf_data.append('karyotype = %s' % self.karyotype)
         for obj in self.obj_list:
-            if obj.__name__ in ('ideogram', 'rule', 'image', 'plot', 'zoom', 'highlight', 'tick', 'link', 'karyotype'):
-                if current_obj is not None:
-                    f.write('</'+current_obj+'>'+'\n')
-                prev_obj = current_obj
-                current_obj = obj.__name__
-                if current_obj == 'plot' and prev_obj != 'plot':
-                    f.write('<plots>\n')
-                elif current_obj != 'plot' and prev_obj == 'plot':
-                    f.write('</plots>\n')
-                f.write('\n<'+current_obj+'>'+'\n')
-                if current_obj == 'ideogram':
-                    f.write('<spacing>\ndefault = 0.25r\n</spacing>\n')
+            if obj.__name__ not in ('ideogram', 'rule', 'image', 'plot', 'zoom', 'highlight', 'tick', 'link', 'karyotype'):
+                raise Exception()
 
-            import pprint; pprint.pprint(obj)
-            print dir(obj)
-            for att in dir(obj):
-                if att[0:2] != '__' and att not in ['llo', 'boilerplate'] and getattr(obj, att) is not None and hasattr(att, '__call__') == False:
-                    try:
-                        if getattr(obj, att)[:2] == '__':
-                            val = str(getattr(obj, att)).strip()[len(str(getattr(obj, att)).strip())-6:]
-                            h = [val[0:2], val[2:4], val[4:6]]
-                            rgb = []
-                            for num in h:
-                                rgb.append(str(int(str(num), 16)))
-                            s = ', '
-                            val = s.join(rgb)
-                        else:
-                            val = str(getattr(obj, att)).strip()
-                        if att[0:4] == obj.__name__[0:4]:
-                            if att[5:] in ['thickness', 'radius', 'r0', 'r1']:
-                                f.write(att[5:]+' = '+val.strip()+'r\n')
-                            else:
-                                f.write(att[5:]+' = '+val.strip()+'\n')
-                        else:
-                            f.write(att+' = '+val.strip()+'\n')
-                    except Exception:
-                        pass
+            if current_obj is not None:
+                conf_data.append('</%s>' % current_obj)
 
-                elif att == 'boilerplate':
-                    f.write(str(getattr(obj, att)).strip()+'\n')
-        f.write('</'+current_obj+'>'+'\n')
+            prev_obj = current_obj
+            current_obj = obj.__name__
+
+            if current_obj == 'plot':
+                if prev_obj != current_obj:
+                    conf_data.append('<plots>')
+                else:
+                    conf_data.append('</plots>')
+
+            conf_data.append('<%s>' % current_obj)
+
+            if current_obj == 'ideogram':
+                conf_data.append('<spacing>\ndefault = 0.25r\n</spacing>')
+
+            for attr in dir(obj):
+                if attr == 'boilerplate':
+                    conf_data.append(obj.boilerplate.strip())
+
+                elif attr.startswith('__') or \
+                    attr in ('llo',) or \
+                    getattr(obj, attr) is None or \
+                    hasattr(attr, '__call__'):
+                        continue
+
+                try:
+                    # if getattr(obj, attr).endswith('__'):
+                        # val = str(getattr(obj, attr)).strip()[-6:]
+                        # h = [val[0:2], val[2:4], val[4:6]]
+                        # rgb = []
+                        # for num in h:
+                            # rgb.append(str(int(str(num), 16)))
+                        # s = ', '
+                        # val = s.join(rgb)
+                    # else:
+                    val = str(getattr(obj, attr)).strip()
+
+                    if attr[0:4] == obj.__name__[0:4]:
+                        if attr[5:] in ['thickness', 'radius', 'r0', 'r1']:
+                            conf_data.append('%s = %sr' % (attr[5:], val.strip()))
+                        else:
+                            conf_data.append('%s = %s' % (attr[5:], val.strip()))
+                    else:
+                        conf_data.append('%s = %s' % (attr, val.strip()))
+                except Exception:
+                    pass
+
+        conf_data.append('</%s>' % current_obj)
         if current_obj == 'plot':
-            f.write('</plots>\n')
-        f.close()
+            conf_data.append('</plots>')
+
+        with open(os.path.join(self.base_path, self.basename+'.conf'), 'w') as handle:
+            for line in conf_data:
+                handle.write(line + '\n')
 
 
     def add_top_lvl_params(self):
@@ -535,21 +594,16 @@ class CircosPlot():
         pass
 
 if __name__ == "__main__":
-    brewer2mpl.print_maps()
-    X = sys.argv[1]
-    files_list = sys.argv[2:]
-    T = xml.etree.ElementTree.parse(X)
-    R = T.getroot()
-    D = DataInterpreter(R, [])
-    D.files_dict = {'karyotype':'./test-data/miro.fa', 'scatter':'./test-data/miro.wig'}
-    D._parse_files()
-    P = CircosPlot('plot', D.object_list, D.karyotype, D.files_dict)
-    #P.files_list = D.txtlist
-    P.write_conf()
+    xml_file = sys.argv[1]
+    tree = xml.etree.ElementTree.parse(xml_file)
+    root = tree.getroot()
 
-#TODO
-"""
-Add support for sub-objects.
-LAST: Write paper as Application Note...
-"""
+    di = DataInterpreter(root, [])
+    di.files_dict = {
+        'karyotype':'./test-data/miro.fa',
+        'scatter':'./test-data/miro.wig'
+    }
+    di._parse_files()
 
+    plotter = CircosPlot('circos', di.object_list, di.karyotype, di.files_dict)
+    plotter.write_conf()
