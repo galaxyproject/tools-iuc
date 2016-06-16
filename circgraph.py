@@ -28,15 +28,17 @@ BED_STANDARD_FIELDS = [
 
 class CircosPlotter:
 
-    def __init__(self, xmlroot, files_dict=[]):
+    def __init__(self, xmlroot, files_dict=None, output=None):
         self.xmlroot = xmlroot
         self.object_list = []
-        self.base_path = 'output'
 
+        self.directory = output
         self._create_object_list(xmlroot)
-        self.files_dict = self._get_files_from_xml()
+        if files_dict:
+            self.files_dict = files_dict
+        else:
+            self.files_dict = self._get_files_from_xml()
 
-        self.base_path = 'output'
         self.basename = 'circos'
         self.data_dict = {}
         self.last_filled_radius = 1.1
@@ -47,8 +49,12 @@ class CircosPlotter:
         self.files_list = []
         self.add_top_lvl_params()
         self.obj_list = self.object_list
+        self._parse_files()
 
     def write_conf(self):
+        # Write our primary karyotype
+        self._make_karyotype(self.files_dict['karyotype'], self.directory)
+
         conf_data = [
             '<<include colors_fonts_patterns.conf>>',
             '<<include housekeeping.conf>>'
@@ -57,7 +63,7 @@ class CircosPlotter:
         current_obj = None
         prev_obj = None
 
-        conf_data.append('karyotype = %s' % self.karyotype)
+        conf_data.append('karyotype = karyotype.txt')
         for obj in self.obj_list:
             if obj.__name__ not in ('ideogram', 'rule', 'image', 'plot', 'zoom', 'highlight', 'tick', 'link', 'karyotype'):
                 raise Exception()
@@ -115,7 +121,7 @@ class CircosPlotter:
         if current_obj == 'plot':
             conf_data.append('</plots>')
 
-        with open(os.path.join(self.base_path, self.basename+'.conf'), 'w') as handle:
+        with open(os.path.join(self.directory, self.basename + '.conf'), 'w') as handle:
             indentation_level = 0
             for line in conf_data:
                 if line.startswith('<<'):
@@ -155,12 +161,6 @@ class CircosPlotter:
         self.units_ok = None
         self.warnings = None
 
-    def append_data(self, interpreter):
-        #Add interpreter data to ConfWriter dict. Depends on what kind of data structure we decide on...
-        self.raw_dict = interpreter.files_dict
-        self.seq_dict = interpreter.seq_dict
-        self._make_karyotype()
-
     def add_ideogram(self, spacing_opt='0.005r', radius_opt='0.5r',
             thickness_opt='20p', fill_opt='yes'):
 
@@ -193,17 +193,18 @@ class CircosPlotter:
 
             result = None
 
+            print fileinfo
             if file_type == "karyotype":
-                self._make_karyotype(file_path)
+                result = file_path
             elif file_type == "scatter":
                 if ext in ('.gff', '.gff3'):
                     self.parse_gff3(file_type)
                 elif ext in ('.wig', '.bigWig', '.bw'):
-                    self.parse_Wig(fileinfo)
+                    result = self.parse_Wig(fileinfo)
             elif ext == ".bed":
                 result = self.parse_bed(fileinfo)
             elif ext in (".bw", ".bigWig", '.wig'):
-                result = self.parse_Wig(self.files_dict[file_type])
+                result = self.parse_Wig(fileinfo)
             elif ext in (".gff", ".gff3"):
                 result = self.parse_gff3(file_type)
             elif ext == ".fa":
@@ -224,12 +225,12 @@ class CircosPlotter:
             # 'highlight': Highlight(),
             'ideogram': Ideogram(),
             'image': Image(),
-            # 'karyotype': Karyotype(),
+            'karyotype': Karyotype(),
             # 'link': Link(),
             # 'pairwise': Pairwise(),
             'plot': Plot(),
             # 'rule': Rule(),
-            # 'tick': Tick(),
+            'tick': Tick(),
             # 'zoom': Zoom(),
             # 'spacing': Spacing(),
         }
@@ -252,10 +253,8 @@ class CircosPlotter:
         #TODO When the time comes to create the final Galaxy tool...
         pass
 
-    def _make_karyotype(self, fasta):
-        self.karyotype = 'karyotype.txt'
-
-        with open(os.path.join(self.base_path, self.karyotype), 'w') as output:
+    def _make_karyotype(self, fasta, directory):
+        with open(os.path.join(directory, 'karyotype.txt'), 'w') as output:
             for idx, seq in enumerate(SeqIO.parse(fasta, 'fasta')):
                 output.write("chr - {seq_id} {idx} 0 {length} {color}\n".format(
                     seq_id=seq.id, idx=idx, length=len(seq), color=COLORS_LIST[idx % len(COLORS_LIST)]
@@ -383,7 +382,7 @@ class CircosPlotter:
                 locidict[tmpdict[key]['chromosome']][key] = tmpdict[key]
 
         if fileinfo['type'] == 'scatter':
-            with open(os.path.join(self.base_path, 'scatter.txt'), 'w') as handle:
+            with open(os.path.join(self.directory, 'scatter.txt'), 'w') as handle:
                 for genome in locidict:
                     for feature in locidict[genome]:
                         handle.write(' '.join(map(str, [
@@ -502,10 +501,8 @@ if __name__ == "__main__":
     tree = xml.etree.ElementTree.parse(xml_file)
     root = tree.getroot()
 
-    di = CircosPlotter(root, [])
-    di.files_dict = {
+    di = CircosPlotter(root, {
         'karyotype':'./test-data/miro.fa',
         'scatter':'./test-data/miro.wig'
-    }
-    di._parse_files()
+    }, output='output')
     di.write_conf()
