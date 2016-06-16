@@ -52,9 +52,6 @@ class CircosPlotter:
         self._parse_files()
 
     def write_conf(self):
-        # Write our primary karyotype
-        self._make_karyotype(self.files_dict['karyotype'], self.directory)
-
         conf_data = [
             '<<include colors_fonts_patterns.conf>>',
             '<<include housekeeping.conf>>'
@@ -65,7 +62,7 @@ class CircosPlotter:
 
         conf_data.append('karyotype = karyotype.txt')
         for obj in self.obj_list:
-            if obj.__name__ not in ('ideogram', 'rule', 'image', 'plot', 'zoom', 'highlight', 'tick', 'link', 'karyotype'):
+            if obj.__name__ not in ('ideogram', 'rule', 'image', 'plot', 'zoom', 'highlight', 'tick', 'link'):
                 raise Exception()
 
             if current_obj is not None:
@@ -194,9 +191,7 @@ class CircosPlotter:
             result = None
 
             print fileinfo
-            if file_type == "karyotype":
-                result = file_path
-            elif file_type == "scatter":
+            if file_type == "scatter":
                 if ext in ('.gff', '.gff3'):
                     self.parse_gff3(file_type)
                 elif ext in ('.wig', '.bigWig', '.bw'):
@@ -225,7 +220,6 @@ class CircosPlotter:
             # 'highlight': Highlight(),
             'ideogram': Ideogram(),
             'image': Image(),
-            'karyotype': Karyotype(),
             # 'link': Link(),
             # 'pairwise': Pairwise(),
             'plot': Plot(),
@@ -252,13 +246,6 @@ class CircosPlotter:
     def _get_files_from_xml(self):
         #TODO When the time comes to create the final Galaxy tool...
         pass
-
-    def _make_karyotype(self, fasta, directory):
-        with open(os.path.join(directory, 'karyotype.txt'), 'w') as output:
-            for idx, seq in enumerate(SeqIO.parse(fasta, 'fasta')):
-                output.write("chr - {seq_id} {idx} 0 {length} {color}\n".format(
-                    seq_id=seq.id, idx=idx, length=len(seq), color=COLORS_LIST[idx % len(COLORS_LIST)]
-                ))
 
     def parse_gff3(self, key):
         #FIXME Seems there's no nontrivial way to move gff3 file info into Circos... For now...
@@ -423,12 +410,6 @@ class Highlight(TopLevelObj):
         self.__name__ = 'highlight'
 
 
-class Karyotype(TopLevelObj):
-    def __init__(self):
-        TopLevelObj.__init__(self)
-        self.__name__ = 'karyotype'
-
-
 class Ideogram(TopLevelObj):
     def __init__(self):
         TopLevelObj.__init__(self)
@@ -502,7 +483,6 @@ if __name__ == "__main__":
     root = tree.getroot()
 
     di = CircosPlotter(root, {
-        'karyotype':'./test-data/miro.fa',
         'scatter':'./test-data/miro.wig'
     }, output='output')
     di.write_conf()
