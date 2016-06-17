@@ -4,6 +4,7 @@ import sys
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
 from BCBio import GFF
+import wiggle
 
 # Pair up (file, extension) pairs from sys.argv
 files = zip(sys.argv[1:][0::2], sys.argv[1:][1::2])
@@ -27,6 +28,18 @@ def gff3(idx, path):
                         data[record.id][i] = {}
 
                     data[record.id][i][idx] = feature.qualifiers['score'][0]
+
+def wig(idx, path):
+    walker = wiggle.Wiggle()
+    with open(path, 'r') as handle:
+        for region, position, value in walker.walk(handle):
+            if region not in data:
+                data[region] = {}
+
+            if position not in data[region]:
+                data[region][position] = {}
+
+            data[region][position][idx] = value
 
 for idx, (file_path, file_type) in enumerate(files):
     log.info("Processing %s.%s", file_path, file_type)
