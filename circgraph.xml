@@ -5,12 +5,13 @@
     <import>macros.xml</import>
     <import>macros_conffiles.xml</import>
   </macros>
-  <expand macro="requirements"/>
-  <expand macro="stdio"/>
+  <!--<expand macro="requirements"/>-->
+  <!--<expand macro="stdio"/>-->
   <configfiles>
     <expand macro="configfile_circos_conf" />
     <expand macro="configfile_ticks_conf" />
     <expand macro="configfile_ideogram_conf" />
+    <expand macro="configfile_histogram_conf" />
     <configfile name="circos_xml"><![CDATA[
 <root>
 </root>
@@ -33,7 +34,7 @@
             genomeref.fa
         #end if
 
-        #if ${ideogram.bands}:
+        #if $ideogram.bands:
             "${ideogram.bands}"
         #end if
 
@@ -42,13 +43,25 @@
     mv $circos_conf circos/conf/circos.conf;
     mv $ticks_conf circos/conf/ticks.conf;
     mv $ideogram_conf circos/conf/ideogram.conf;
+    mv $histogram_conf circos/conf/histogram.conf;
+
+    ## Histograms
+    #for $hi, $histogram in enumerate($sec_hist.histograms):
+        python $__tool_directory__/unified-histogram.py
+            #for $fi, $file in enumerate($histogram.data_source):
+                "${file}" "${file.ext}"
+            #end for
+        > circos/data/histogram-${hi}.txt
+    #end for
 
     cp $circos_xml circos/conf/galaxy.xml;
     ## Compile image
-    docker run -it -v \$(pwd)/circos:/input circos;
+    ## docker run -it -v \$(pwd)/circos:/input circos;
 
-    cp circos/circos.png $output_png;
-    cp circos/circos.svg $output_svg;
+    tar cvfz circos.tar.gz circos;
+    mv circos.tar.gz /tmp/;
+    ##cp circos/circos.png $output_png;
+    ##cp circos/circos.svg $output_svg;
 ]]></command>
   <inputs>
     <conditional name="reference_genome">
@@ -65,7 +78,6 @@
             <param name="genome_fasta" type="data" format="fasta" label="Source FASTA Sequence"/>
         </when>
     </conditional>
-    <param name="karyotype" title="Genomes" type="data" format="fasta"/>
 
     <section name="ideogram" title="Ideogram Configuration (Genome/Chromosomes)">
         <param type="float" value="0.005" label="Spacing Between Ideograms" name="spacing"/>
@@ -77,7 +89,7 @@
             <param type="boolean" label="Show Label" name="show_label" truevalue="yes" falsevalue="no" />
             <!--<param type="float" value="0.95" label="Radius" name="radius"/>-->
             <!--<param type="float" value="10" label="Thickness" name="thickness"/>-->
-            <param type="boolean" label="Parallel" name="parallel" truevalue="yes" falsevalue="no" />
+            <param type="boolean" label="Parallel" name="parallel" truevalue="yes" falsevalue="no" help="When set to yes/true, labels will be perpendicular to the tangent of the circle at the location of the label. Otherwise, they will be parallel with the tangent of the circle"/>
         </section>
         <!-- TODO: multiple band files? -->
         <param type="data" title="Cytogenetic Bands" format="bed6,bed12,gff3" name="bands"
@@ -88,7 +100,7 @@
         <param type="boolean" label="Show Ticks" name="show_ticks" truevalue="yes" falsevalue="no" />
         <!--<param type="boolean" label="Show Tick Labels" name="show_tick_labels" truevalue="true" falsevalue="false" />-->
         <param type="float" value="1.0" label="Radius" name="radius" />
-        <param type="color" value="#000000" label="Color" name="color" />
+        <expand macro="circos_color" />
         <param type="float" value="1e-6" label="Multiplier" name="multiplier" />
 
         <repeat name="tick_group" title="Tick Group">
@@ -108,6 +120,82 @@
 
     </section>
 
+    <section name="sec_hist" title="Histograms">
+        <repeat name="histograms" title="Histogram">
+            <!-- "bed6,bed12,gff3,bigwig,wig"  -->
+            <param type="data" name="data_source" format="gff3" label="Histogram Data Source" multiple="True" help="If multiple files are selected, they will be treated as a stacked histogram" />
+            <expand macro="circos_color" label="Stroke Color" name="color"/>
+            <expand macro="brewer_scale" label="Fill Color" name="fill_color"/>
+
+            <!-- Positioning -->
+            <param type="float" value="0.89" label="Outside Radius" name="r1" />
+            <param type="float" value="0.8" label="Inside Radius" name="r0" />
+            <param type="boolean" label="Orient Inwards" name="orientation" truevalue="in" falsevalue="out"
+                help="When yes/true, the histogram will face inwards. I.e. lowest values will be to the outside"/>
+
+            <param type="boolean" label="Outline" name="outline" truevalue="1" falsevalue="0" />
+            <param type="boolean" label="Join non-abutting Bins" name="extend_bins" truevalue="yes" falsevalue="no" help="Join histogram bins that do not touch (abut)" />
+
+            <section name="sec_rule" title="Rules">
+                <repeat name="rules" title="Rule">
+                    <repeat name="conditions" title="Conditions to Apply">
+                        <conditional name="application">
+                            <param name="application_select" type="select" label="Condition">
+                                <option value="1">Apply to Every Point</option>
+                                <option value="on">Check for presence/absence per chromosome</option>
+                                <option value="pos">Based on numerical position</option>
+                                <option value="value">Apply based on point value</option>
+                                <option value="var">Apply based on GFF3 qualifier value (when available)</option>
+                            </param>
+                            <when value="1">
+                            </when>
+                            <when value="on">
+                                <param name="on_genomes" type="text" label="Comma separated list of contig IDs"/>
+                            </when>
+                            <when value="pos">
+                                <param name="pos_gt" type="float" label="Greater than this base" value="1000" help="Leave as zero to disable this test"/>
+                                <param name="pos_lt" type="float" label="Less than this base" value="0" help="Leave as zero to disable this test"/>
+                            </when>
+                            <when value="value">
+                                <param name="pos_gt" type="float" label="Points above this value" value="0" help="Leave as zero to disable this test"/>
+                                <param name="pos_lt" type="float" label="Points below this value" value="0" help="Leave as zero to disable this test"/>
+                            </when>
+                            <when value="var">
+                                <param name="varname" type="text" label="Qualifier name"
+                                    help="Set to the name of the qualifier in the GFF3 file you wish to compare against" />
+
+                                <param name="cond_select" type="select" label="Condition">
+                                    <option value="eq">Equal to (string)</option>
+                                    <option value="ne">Not equal to (string)</option>
+                                </param>
+
+                                <param name="varvalue" type="text" label="Qualifier value to compare against"/>
+                            </when>
+                        </conditional>
+                    </repeat>
+                    <repeat name="actions" title="Actions to Apply">
+                        <conditional name="action">
+                            <param name="action_select" type="select" label="Action">
+                                <option value="show">Change Visibility</option>
+                                <option value="fill_color">Change Fill Color</option>
+                                <option value="color">Change Stroke Color</option>
+                            </param>
+                            <when value="show">
+                                <param type="boolean" label="Show" name="action_value" truevalue="yes" falsevalue="no" />
+                            </when>
+                            <when value="fill_color">
+                                <expand macro="circos_color" label="Fill Color" name="action_value"/>
+                            </when>
+                            <when value="color">
+                                <expand macro="circos_color" label="Stroke Color" name="action_value"/>
+                            </when>
+                        </conditional>
+                    </repeat>
+                </repeat>
+            </section>
+
+        </repeat>
+    </section>
   </inputs>
   <outputs>
     <data format="png" name="output_png" label="Circos Plot (png)"/>
