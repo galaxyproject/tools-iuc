@@ -6,8 +6,11 @@ log = logging.getLogger()
 from BCBio import GFF
 import wiggle
 
+MODE = sys.argv[1]
+assert MODE in ('heatmap', 'histogram')
+
 # Pair up (file, extension) pairs from sys.argv
-files = zip(sys.argv[1:][0::2], sys.argv[1:][1::2])
+files = zip(sys.argv[2:][0::2], sys.argv[2:][1::2])
 
 # Our output data structure. This could be much more efficient.
 data = {}
@@ -55,10 +58,10 @@ region_start, region_end = (None, None)
 
 for genome in data:
     for position in sorted(data[genome]):
-        values = ','.join([
+        values = [
             '' if x not in data[genome][position] else data[genome][position][x]
             for x in max_idx
-        ])
+        ]
         if serialized_values is None:
             serialized_values = values
         if region_start is None:
@@ -68,10 +71,28 @@ for genome in data:
         if values == serialized_values:
             region_end = position
         else:
-            print genome, region_start, region_end + 1, values
+            if MODE == 'histogram':
+                print genome, region_start, region_end + 1, ','.join(values)
+            elif MODE == 'heatmap':
+                for x in max_idx:
+                    if x in data[genome][position]:
+                        print genome, region_start, region_end + 1, data[genome][position][x], 'id=hm%s' % x
+                    else:
+                        print genome, region_start, region_end + 1, 0.0, 'id=hm%s' % x
             # Update start of next array
             region_start = position
             region_end = position
             # And update with new array
             serialized_values = values
-        # hs4 0 1999999 5.0000,3.0000,1.0000,19.0000
+
+# histogram
+# hs4 0 1999999 5.0000,3.0000,1.0000,19.0000
+
+# heatmap
+# hs1 2000000 3999999 0.0000 id=hs4
+# hs1 4000000 5999999 2.0000 id=hs1
+# hs1 4000000 5999999 0.0000 id=hs2
+# hs1 4000000 5999999 0.0000 id=hs3
+# hs1 4000000 5999999 0.0000 id=hs4
+# hs1 6000000 7999999 4.0000 id=hs2
+
