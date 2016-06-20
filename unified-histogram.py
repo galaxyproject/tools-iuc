@@ -13,7 +13,6 @@ files = zip(sys.argv[2:][0::2], sys.argv[2:][1::2])
 
 # Our output data structure. This could be much more efficient.
 data = {}
-extraData = {}
 
 def bed(idx, path):
     # chrom - The name of the chromosome (e.g. chr3, chrY, chr2_random) or scaffold (e.g. scaffold10671).
@@ -35,18 +34,12 @@ def bed(idx, path):
 
             if chrom not in data:
                 data[chrom] = {}
-            if chrom not in extraData:
-                extraData[chrom] = {}
 
             for i in xrange(chromStart, chromEnd):
                 if i not in data[chrom]:
                     data[chrom][i] = {}
-                if i not in extraData[chrom]:
-                    extraData[chrom][i] = {}
 
                 data[chrom][i][idx] = lineData[5]
-                # name, strand, color override
-                extraData[chrom][i][idx] = (lineData[4], lineData[6], lineData[9])
 
 
 # Handlers
@@ -57,21 +50,14 @@ def gff3(idx, path):
 
         if record.id not in data:
             data[record.id] = {}
-        if record.id not in extraData:
-            extraData[record.id] = {}
 
         for feature in record.features:
             if 'score' in feature.qualifiers:
                 for i in xrange(feature.location.start, feature.location.end):
                     if i not in data[record.id]:
                         data[record.id][i] = {}
-                    if i not in extraData[record.id]:
-                        extraData[record.id][i] = {}
 
                     data[record.id][i][idx] = feature.qualifiers['score'][0]
-                    extradata[record.id][i][idx] = (feature.id,
-                            feature.location.strand,
-                            feature.qualifiers.get('color', [None])[0])
 
 
 def wig(idx, path):
@@ -147,23 +133,6 @@ if __name__ == '__main__':
                 elif MODE == 'scatter':
                     # multiple=False
                     print genome, region_start, region_end, data[genome][position][0]
-                elif MODE == 'tiles':
-                    # multiple=False
-                    # hs1 10292899 10301003 id=Conrad_993
-                    # hs1 10297766 10301003 id=Conrad_994
-                    # These will NEVER be wig files, so safe to access extraData
-                    try:
-                        ed = extraData[genome][position][0]
-                        ed_output = [
-                            'id=%s' % ed[0],
-                            'strand=%s' % ed[1],
-                        ]
-                        if ed[2] is not None:
-                            ed_output.append('color=%s' % ed[2])
-
-                        print genome, region_start, region_end, data[genome][position][0], ','.join(ed_output)
-                    except KeyError:
-                        pass
 
                 # Update start of next array
                 region_start = position
