@@ -7,7 +7,6 @@ from BCBio import GFF
 import wiggle
 
 MODE = sys.argv[1]
-assert MODE in ('heatmap', 'histogram')
 
 # Pair up (file, extension) pairs from sys.argv
 files = zip(sys.argv[2:][0::2], sys.argv[2:][1::2])
