@@ -23,3 +23,4 @@
 - [ ] Scatter Plots
 - [ ] Line Plots
 - [ ] Tiles
+- [x] Test cases
