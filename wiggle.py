@@ -10,7 +10,13 @@ class Wiggle:
             yield (self.parserConfig['chrom'], position, value)
 
     def variableStepParser(self, line):
-        pass
+        (start, value) = line.strip().split()
+        start = int(start)
+        start_position = start
+        stop_position = start + self.parserConfig['span']
+
+        for position in xrange(start_position, stop_position):
+            yield (self.parserConfig['chrom'], position, value)
 
     def walk(self, handle):
 
@@ -32,7 +38,15 @@ class Wiggle:
                 parser = self.variableStepParser
                 lineData = line.split()
                 fields = {x.split('=')[0]: x.split('=')[1] for x in lineData[1:]}
+                # Default value
+                if 'span' not in fields:
+                    fields['span'] = 1
                 self.parserConfig = fields
+
+                for numField in ('span',):
+                    if numField in self.parserConfig:
+                        self.parserConfig[numField] = int(self.parserConfig[numField])
+
                 self.stepIdx = 0
             elif len(line.strip()) == 0:
                 continue
