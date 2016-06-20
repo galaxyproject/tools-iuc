@@ -10,8 +10,7 @@
     - [x] Stacked histograms
     - [x] gff3 scores
     - [x] wig files
-    - [ ] bigwig
-    - [ ] bed
+    - [x] bed
     - [x] Rules
         - [x] Complex colouring rules
 - [ ] Links
