@@ -1,6 +1,6 @@
 # Galaxy Circos Tool
 
-![](./media/a.png)
+![](./media/example.png)
 
 ## Features
 
@@ -21,9 +21,10 @@
     - [x] Scatter Plots
     - [x] Line Plots
 - [ ] Links
-- [ ] Axes
+- [x] Axes
+- [x] Backgrounds
 - [ ] Highlights
     - [ ] Wedge
 - [ ] Grids?
 - [x] Test cases
-
+- [ ] Fine grained Z-depth control
