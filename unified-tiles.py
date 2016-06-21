@@ -9,6 +9,7 @@ log = logging.getLogger()
 # Pair up (file, extension) pairs from sys.argv
 files = zip(sys.argv[1:][0::2], sys.argv[1:][1::2])
 
+
 # Handlers
 def bed(idx, path):
     # chrom - The name of the chromosome (e.g. chr3, chrY, chr2_random) or scaffold (e.g. scaffold10671).

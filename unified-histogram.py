@@ -15,6 +15,7 @@ files = zip(sys.argv[2:][0::2], sys.argv[2:][1::2])
 # Our output data structure. This could be much more efficient.
 data = {}
 
+
 def bed(idx, path):
     # chrom - The name of the chromosome (e.g. chr3, chrY, chr2_random) or scaffold (e.g. scaffold10671).
     # chromStart - The starting position of the feature in the chromosome or scaffold. The first base in a chromosome is numbered 0.
