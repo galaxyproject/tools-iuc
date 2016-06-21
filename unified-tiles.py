@@ -40,7 +40,7 @@ def gff3(idx, path):
                 record.id,
                 feature.location.start,
                 feature.location.end,
-                feature.id,
+                feature.id or feature.qualifiers.get('Name', [None])[0],
                 feature.location.strand,
                 feature.qualifiers.get('score', [0.0])[0],
                 feature.qualifiers.get('color', [None])[0]
@@ -58,10 +58,11 @@ if __name__ == '__main__':
                 # hs1 10292899 10301003 id=Conrad_993
                 # hs1 10297766 10301003 id=Conrad_994
                 lineExtra = [
-                    'id=%s' % item[3],
                     'strand=%s' % item[4],
                     'score=%s' % item[5],
                 ]
+                if item[3] is not None:
+                    lineExtra.append('id=%s' % item[3])
                 if item[6] is not None:
                     lineExtra.append('color=%s' % item[6])
 
