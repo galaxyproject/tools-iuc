@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-import logging
-import sys
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger()
 from BCBio import GFF
 import wiggle
+import sys
+import logging
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger()
+
 
 MODE = sys.argv[1]
 
@@ -13,6 +14,7 @@ files = zip(sys.argv[2:][0::2], sys.argv[2:][1::2])
 
 # Our output data structure. This could be much more efficient.
 data = {}
+
 
 def bed(idx, path):
     # chrom - The name of the chromosome (e.g. chr3, chrY, chr2_random) or scaffold (e.g. scaffold10671).

@@ -1,12 +1,14 @@
 #!/usr/bin/env python
-import logging
+from BCBio import GFF
 import sys
+import logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
-from BCBio import GFF
+
 
 # Pair up (file, extension) pairs from sys.argv
 files = zip(sys.argv[1:][0::2], sys.argv[1:][1::2])
+
 
 # Handlers
 def bed(idx, path):
@@ -40,7 +42,7 @@ def gff3(idx, path):
                 record.id,
                 feature.location.start,
                 feature.location.end,
-                feature.id,
+                feature.id or feature.qualifiers.get('Name', [None])[0],
                 feature.location.strand,
                 feature.qualifiers.get('score', [0.0])[0],
                 feature.qualifiers.get('color', [None])[0]
@@ -58,10 +60,11 @@ if __name__ == '__main__':
                 # hs1 10292899 10301003 id=Conrad_993
                 # hs1 10297766 10301003 id=Conrad_994
                 lineExtra = [
-                    'id=%s' % item[3],
                     'strand=%s' % item[4],
                     'score=%s' % item[5],
                 ]
+                if item[3] is not None:
+                    lineExtra.append('id=%s' % item[3])
                 if item[6] is not None:
                     lineExtra.append('color=%s' % item[6])
 
