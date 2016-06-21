@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-import logging
+from BCBio import GFF
 import sys
+import logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
-from BCBio import GFF
+
 
 # Pair up (file, extension) pairs from sys.argv
 files = zip(sys.argv[1:][0::2], sys.argv[1:][1::2])

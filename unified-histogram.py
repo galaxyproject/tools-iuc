@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-import logging
-import sys
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger()
 from BCBio import GFF
 import wiggle
+import sys
+import logging
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger()
+
 
 MODE = sys.argv[1]
 
