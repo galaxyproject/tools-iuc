@@ -1,14 +1,12 @@
 #!/usr/bin/env python
 # Based heavily on the Bowtie 2 data manager wrapper script by Dan Blankenberg
 
-import shlex
-import sys
-import os
 import argparse
+import os
+import shlex
 import subprocess
-
-from json import loads, dumps
-
+import sys
+from json import dumps, loads
 
 DEFAULT_DATA_TABLE_NAME = "hisat2_indexes"
 
@@ -62,7 +60,7 @@ def main():
     parser.add_argument( '--fasta_dbkey', dest='fasta_dbkey', action='store', type=str, default=None )
     parser.add_argument( '--fasta_description', dest='fasta_description', action='store', type=str, default=None )
     parser.add_argument( '--data_table_name', dest='data_table_name', action='store', type=str, default='hisat2_indexes' )
-    parser.add_argument( '--indexer_options', dest='indexer_options', action='store', type=str, default=None )
+    parser.add_argument( '--indexer_options', dest='indexer_options', action='store', type=str, default='' )
     options = parser.parse_args()
 
     filename = options.output
@@ -71,7 +69,7 @@ def main():
     data_manager_dict = {}
 
     if options.fasta_dbkey in [ None, '', '?' ]:
-        raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( dbkey ) )
+        raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( options.fasta_dbkey ) )
 
     sequence_id, sequence_name = get_id_name( params, dbkey=options.fasta_dbkey, fasta_description=options.fasta_description )
 
