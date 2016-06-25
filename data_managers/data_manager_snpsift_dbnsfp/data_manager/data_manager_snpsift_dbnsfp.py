@@ -1,18 +1,17 @@
 #!/usr/bin/env python
 
-import sys
-import os
-import re
-import optparse
-import urllib
-import tarfile
 import gzip
 import json
-import pysam
-from pysam import ctabix
-import zipfile
+import optparse
+import os
 import os.path
+import re
 import shutil
+import sys
+import urllib
+import zipfile
+
+from pysam import ctabix
 
 """
 # Install dbNSFP databases
@@ -23,12 +22,12 @@ import shutil
     $ unzip dbNSFP2.4.zip
   # Create a single file version
     $ (head -n 1 dbNSFP2.4_variant.chr1 ; cat dbNSFP2.4_variant.chr* | grep -v "^#") > dbNSFP2.4.txt
-  # Compress using block-gzip algorithm 
-    bgzip dbNSFP2.4.txt  
+  # Compress using block-gzip algorithm
+    bgzip dbNSFP2.4.txt
   # Create tabix index
-    tabix -s 1 -b 2 -e 2 dbNSFP2.4.txt.gz  
+    tabix -s 1 -b 2 -e 2 dbNSFP2.4.txt.gz
 
-data_table: 
+data_table:
 
     <table name="snpsift_dbnsfps" comment_char="#">
         <columns>key, build, name, value, annotations</columns>
@@ -38,9 +37,7 @@ data_table:
 #id     build   description     path    annotations
 #GRCh37_dbNSFP2.4       GRCh37  GRCh37 dbNSFP2.4        /depot/snpeff/dbNSFP2.4.gz  SIFT_pred,Uniprot_acc
 #GRCh38_dbNSFP2.7       GRCh38  GRCh38 dbNSFP2.7        /depot/snpeff/dbNSFP2.7.gz  SIFT_pred,Uniprot_acc
-
 """
-
 
 data_table = 'snpsift_dbnsfps'
 softgenetics_url = 'ftp://dbnsfp:dbnsfp@dbnsfp.softgenetics.com/'
@@ -53,17 +50,19 @@ def stop_err(msg):
     sys.stderr.write(msg)
     sys.exit(1)
 
+
 def get_nsfp_genome_version(name):
     genome_version = 'hg19'
-    dbNSFP_name_pat = '(dbscSNV|dbNSFP(v|_light)?)(\d*).*?'    
-    m = re.match(dbNSFP_name_pat,name)
+    dbNSFP_name_pat = '(dbscSNV|dbNSFP(v|_light)?)(\d*).*?'
+    m = re.match(dbNSFP_name_pat, name)
     if m:
-        (base,mid,ver) = m.groups()
+        (base, mid, ver) = m.groups()
         if base == 'dbscSNV':
             genome_version = 'hg19'
         else:
             genome_version = 'hg38' if ver == '3' else 'hg19' if ver == '2' else 'hg18'
     return genome_version
+
 
 def get_annotations(gzip_path):
     annotations = None
@@ -74,7 +73,7 @@ def get_annotations(gzip_path):
         lines = buf.splitlines()
         headers = lines[0].split('\t')
         annotations = ','.join([x.strip() for x in headers[4:]])
-    except Exception, e:
+    except Exception as e:
         stop_err('Error Reading annotations %s : %s' % (gzip_path, e))
     finally:
         if fh:
@@ -104,11 +103,45 @@ def download_dbnsfp_database(url, output_file):
         files = [f for f in allfiles if re.match(dbNSFP_file_pat, f)]
         files = sorted(files, key=natural_sortkey)
         for j, file in enumerate(files):
+            tempfiles = []
+            tempfiles.append(file + "_%d" % len(tempfiles))
+            tfh = open(tempfiles[-1], 'w')
+            lastpos = None
             fh = my_zip.open(file, 'rU')
             for i, line in enumerate(fh):
-                if j > 0 and i == 0:
+                if i == 0:
+                    if j == 0:
+                        wtr.write(line)
                     continue
-                wtr.write(line)
+                else:
+                    pos = int(line.split('\t')[1])
+                    if lastpos and pos < lastpos:
+                        tfh.close()
+                        tempfiles.append(file + "_%d" % len(tempfiles))
+                        tfh = open(tempfiles[-1], 'w')
+                        print >> sys.stderr, "%s [%d] pos: %d < %d" % (file, i, pos, lastpos)
+                    lastpos = pos
+                tfh.write(line)
+            tfh.close()
+            if len(tempfiles) == 1:
+                with open(tempfiles[0], 'r') as tfh:
+                    wtr.writelines(tfh.readlines())
+            else:
+                tfha = [open(temp, 'r') for temp in tempfiles]
+                lines = [tfh.readline() for tfh in tfha]
+                curpos = [int(line.split('\t')[1]) for line in lines]
+                while len(tfha) > 0:
+                    k = curpos.index(min(curpos))
+                    wtr.write(lines[k])
+                    line = tfha[k].readline()
+                    if line:
+                        lines[k] = line
+                        curpos[k] = int(line.split('\t')[1])
+                    else:
+                        tfha[k].close()
+                        del tfha[k]
+                        del lines[k]
+                        del curpos[k]
     return dbnsfp_tsv
 
 
@@ -131,7 +164,6 @@ def main():
     genome_version = options.dbkey if options.dbkey else 'unknown'
     dbnsfp_tsv = None
     db_name = None
-    bzip_name = None
     bzip_path = None
     if options.softgenetics:
         dbnsfp_url = softgenetics_url + options.softgenetics
@@ -143,18 +175,18 @@ def main():
         db_name = options.db_name
         dbnsfp_tsv = options.dbnsfp_tabular
     elif options.snpsiftdbnsfp:
-        (dirpath,bgzip_name) = os.path.split(options.snpsiftdbnsfp)
+        (dirpath, bgzip_name) = os.path.split(options.snpsiftdbnsfp)
         idxpath = options.snpsiftdbnsfp + '.tbi'
-        shutil.copy(options.snpsiftdbnsfp,target_directory)
-        shutil.copy(idxpath,target_directory)
+        shutil.copy(options.snpsiftdbnsfp, target_directory)
+        shutil.copy(idxpath, target_directory)
         bzip_path = os.path.join(target_directory, bgzip_name)
-        db_name = re.sub('(.txt)?.gz$','',bgzip_name)
+        db_name = re.sub('(.txt)?.gz$', '', bgzip_name)
     else:
         stop_err('Either --softgenetics or --dbnsfp_tabular required')
     if dbnsfp_tsv:
         bgzip_name = '%s.txt.gz' % db_name
         bzip_path = os.path.join(target_directory, bgzip_name)
-        tabix_file(dbnsfp_tsv,bzip_path)
+        tabix_file(dbnsfp_tsv, bzip_path)
     annotations = get_annotations(bzip_path)
     # Create the SnpSift dbNSFP Reference Data
     data_table_entry = dict(key='%s_%s' % (genome_version, db_name), build=genome_version, name='%s %s' % (genome_version, db_name), value=bgzip_name, annotations=annotations)
