@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.org/galaxyproject/tools-iuc.svg?branch=master)](https://travis-ci.org/galaxyproject/tools-iuc)
+[![Gitter](https://badges.gitter.im/galaxyproject/tools-iuc.svg)](https://gitter.im/galaxy-iuc?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) 
 
 Galaxy Tools maintained by IUC
 ==============================
