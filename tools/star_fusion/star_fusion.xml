@@ -1,10 +1,10 @@
-<tool id="star_fusion" name="STAR-Fusion" version="0.5.4-0">
+<tool id="star_fusion" name="STAR-Fusion" version="0.5.4-0" profile="16.07">
     <description>detect fusion genes in RNA-Seq data</description>
     <requirements>
         <!-- Bio-conda -->
         <requirement type="package" version="0.5.4">star-fusion</requirement>
     </requirements>
-    
+
     <stdio>
         <regex match="Warning:" source="stderr" level="warning"/>
         <regex match="CMD:" source="stderr" level="warning"/>
@@ -18,39 +18,44 @@
         
         <regex match="Process complete" source="stderr" level="warning"/>
     </stdio>
-    
+
     <version_command>STAR-Fusion --version  2>&amp;1 | grep version | grep -o -E "software version.*?"</version_command>
-    
+
     <command><![CDATA[
         ## 1. do blastn on the genome reference
-        if file --mime-type '$refGenomeSource.blast_pairs' | grep -q /gzip\$; then
+        if file --mime-type '${blast_pairs}' | grep -q /gzip\$; then
             gzip_suffix='' ;
         else
             ## Older versions of gzip do not support the -k option to keep
             ## the original file - this should be an universion solution
             
-            gzip -1 -c -- '$refGenomeSource.blast_pairs' > '${refGenomeSource.blast_pairs}.gz' &&
+            gzip -1 -c -- '${blast_pairs}' > '${blast_pairs}.gz' &&
             gzip_suffix='.gz' ;
         fi &&
         
         ## 2. create reference index - using \$(pwd) is necessary, probably because the perl script changes work directory
         prep_genome_lib.pl
-            --genome_fa '$refGenomeSource.ownFile'
-            --gtf '$refGenomeSource.geneModel'
-            --blast_pairs "$refGenomeSource.blast_pairs\$gzip_suffix"
+            --genome_fa '${ownFile}'
+            --gtf '${geneModel}'
+            --blast_pairs "${blast_pairs}\$gzip_suffix"
             --CPU \${GALAXY_SLOTS:-1}
             --output_dir "\$(pwd)/tmp_star_fusion_genome_dir"
         &&
         
         ## 3. Run STAR-Fusion
         STAR-Fusion
-            --chimeric_junction $chimeric_junction
-        #if str($refGenomeSource.genomeSource) == 'history':
+
+            #if str($input_params.input_source) == "use_chimeric":
+                --chimeric_junction '${input_params.chimeric_junction}'
+            #else:
+                --left_fq '${input_params.left_fq}'
+                #if $input_params.right_fq:
+                    --right_fq '${input_params.right_fq}'
+                #end if
+            #end if
+
             --genome_lib_dir "\$(pwd)/tmp_star_fusion_genome_dir"
-        #else
-            --genome_lib_dir '$refGenomeSource.index.fields.path'
-        #end if
-        
+
         #if str($params.settingsType) == "full":
             --min_junction_reads $params.min_junction_reads
             --min_sum_frags $params.min_sum_frags
@@ -63,28 +68,50 @@
     ]]></command>
 
     <inputs>
-        <param name="chimeric_junction" type="data" format="interval" label="Chimeric junction file from STAR (with STAR-Fusion settings)" />
-        
-        <!-- Genome source. -->
-        <conditional name="refGenomeSource">
-            <param name="genomeSource" type="select" label="Custom or built-in reference genome" help="Built-ins were indexed using default options">
-                <option value="indexed" selected="True">Use a built-in index</option>
-                <option value="history">Index and use a genome fasta and GTF file from history</option>
+        <conditional name="input_params">
+            <param name="input_source"
+                   type="select"
+                   label="Use output from earlier STAR run or let STAR Fusion control running STAR">
+                <option value="use_chimeric">Use output from earlier STAR</option>
+                <option value="use_fastq">Let STAR Fusion control running STAR</option>
             </param>
-            <when value="indexed">
-                <param name="index" type="select" label="Select a reference genome">
-                    <options from_data_table="rnastar_index">
-                        <filter type="sort_by" column="2"/>
-                        <validator type="no_options" message="No indexes are available for the selected input dataset"/>
-                    </options>
-                </param>
+            <when value="use_chimeric">
+                <param name="chimeric_junction"
+                       type="data"
+                       format="interval"
+                       argument="--chimeric_junction"
+                       label="Chimeric junction file from STAR (with STAR-Fusion settings)"/>
             </when>
-            <when value="history">
-                <param name="ownFile" type="data" format="fasta" metadata_name="dbkey" label="Select the reference genome (STAR index)" />
-                <param name="geneModel" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions and fusion gene detection" />
-                <param name="blast_pairs" type="data" format="tabular" label="Result of BLAST+-blastn of the reference fasta sequence with itself" help="Run blastn with '-outputfmt 6' or choose 'Tabular (standard 12 columns)' in the Galaxy wrapper. For human data please take a look over here: https://data.broadinstitute.org/Trinity/CTAT_RESOURCE_LIB/"/>
+            <when value="use_fastq">
+                <param name="left_fq"
+                       type="data"
+                       format="fastqsanger"
+                       argument="--left_fq"
+                       label="left.fq file"/>
+                <param name="right_fq"
+                       type="data"
+                       format="fastqsanger"
+                       optional="true"
+                       argument="--right_fq"
+                       label="right.fq file (actually optional, but highly recommended)"/>
             </when>
         </conditional>
+
+        <!-- Genome source. -->
+        <param name="ownFile"
+               type="data"
+               format="fasta"
+               metadata_name="dbkey"
+               label="Select the reference genome (FASTA file)"/>
+        <param name="geneModel"
+               type="data"
+               format="gff3,gtf"
+               label="Gene model (gff3,gtf) file for splice junctions and fusion gene detection"/>
+        <param name="blast_pairs"
+               type="data"
+               format="tabular"
+               label="Result of BLAST+-blastn of the reference fasta sequence with itself"
+               help="Run blastn with '-outputfmt 6' or choose 'Tabular (standard 12 columns)' in the Galaxy wrapper. For human data it is recommended to obtain it from here: https://data.broadinstitute.org/Trinity/CTAT_RESOURCE_LIB/"/>
         
         <conditional name="params">
             <param name="settingsType" type="select" label="Settings to use" help="You can use the default settings or set custom values for any STAR Fusion parameter.">
@@ -137,7 +164,25 @@
 
     <tests>
         <test>
+            <param name="input_source" value="use_chimeric" />
             <param name="chimeric_junction" ftype="interval" value="test1.tabular" />
+            <param name="genomeSource" value="history" />
+            <param name="ownFile" ftype="fasta" value="test1.fa" />
+            <param name="geneModel" ftype="gtf" value="test1.gtf" />
+            <param name="blast_pairs" ftype="tabular" value="test1-test1.blastn.tabular" />
+            <param name="settingsType" value="default" />
+            
+            <!-- Last column of the results contains data in a random order so exact matching is not feasible -->
+            <output name="output_final">
+                <assert_contents>
+                    <has_line line="#fusion_name&#009;JunctionReads&#009;SpanningFrags&#009;Splice_type&#009;LeftGene&#009;LeftBreakpoint&#009;RightGene&#009;RightBreakpoint&#009;JunctionReads&#009;SpanningFrags" />
+                    <has_text text="GENE1--GENE2&#009;24&#009;0&#009;INCL_NON_REF_SPLICE&#009;GENE1^GENE1&#009;chr1:240:+&#009;GENE2^GENE2&#009;chr2:241:+" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_source" value="use_fastq" />
+            <param name="left_fq" ftype="fastqsanger" value="test1.fastqsanger"/>
             <param name="genomeSource" value="history" />
             <param name="ownFile" ftype="fasta" value="test1.fa" />
             <param name="geneModel" ftype="gtf" value="test1.gtf" />
