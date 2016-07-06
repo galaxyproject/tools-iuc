@@ -1,159 +1,239 @@
 <?xml version='1.0' encoding='utf-8'?>
 <tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@VERSION@.0">
-  <description>SNP/indel variant calling from VCF/BCF</description>
-  <macros>
-    <token name="@EXECUTABLE@">call</token>
-    <import>macros.xml</import>
-  </macros>
-  <expand macro="requirements" />
-  <expand macro="version_command" />
-  <command detect_errors="aggressive"><![CDATA[
+    <description>SNP/indel variant calling from VCF/BCF</description>
+    <macros>
+        <token name="@EXECUTABLE@">call</token>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <expand macro="version_command" />
+    <command detect_errors="aggressive"><![CDATA[
+@PREPARE_ENV@
+@PREPARE_INPUT_FILE@
+#set $section = $sec_consensus_variant_calling.variant_calling
+#set $targets_path = None
+#if $section.method == 'multiallelic':
+ #if $section.genotypes.constrain == 'alleles':  
+  #set $section = $sec_consensus_variant_calling.variant_calling.genotypes
+  @PREPARE_TARGETS_FILE@
+ #end if
+#end if
+
 bcftools @EXECUTABLE@
 
-## Consensus/variant calling section
-#if $sec_consensus_variant_calling.select_caller == "consensus":
-    --consensus-caller
-#else:
-    --multiallelic-caller
+#set $section = $sec_consensus_variant_calling.variant_calling
+#if $section.method == 'multiallelic':
+ -m
+ #if str($section.gvcf) != '':
+  --gvcf $section.gvcf
+ #end if
+ #if $section.genotypes.constrain == 'alleles':  
+  --constrain alleles $section.genotypes.insert_missed
+  #set $section = $sec_consensus_variant_calling.variant_calling.genotypes
+  @TARGETS_FILE@
+ #else
+   #if $section.genotypes.constrain == 'trio':
+    --constrain trio
+    #if $section.genotypes.novel_rate:
+     --novel-rate '$section.genotypes.novel_rate'
+    #end if
+   #end if
+   #set $section = $sec_consensus_variant_calling.variant_calling.genotypes
+   @TARGETS@
+ #end if
+#else 
+ -c
 #end if
 
-#if $sec_consensus_variant_calling.constraints.constrain_select == "alleles":
-  --constrain alleles
-#elif $sec_consensus_variant_calling.constraints.constrain_select == "trio":
-  --constrain trio
-  --novel-rate ${sec_consensus_variant_calling.constraints.novel_snp},${sec_consensus_variant_calling.constraints.novel_ins},${sec_consensus_variant_calling.constraints.novel_del}
-  --pval-threshold "${sec_consensus_variant_calling.constraints.pval_threshold}"
-#end if
+#set $section = $sec_restrict
+@REGIONS@
+@SAMPLES@
 
-#if $sec_consensus_variant_calling.prior:
-  --prior "${sec_consensus_variant_calling.prior}"
+#set $section = $sec_consensus_variant_calling
+#if $section.pval_threshold:
+  --pval-threshold  "$section.pval_threshold"
 #end if
-${sec_consensus_variant_calling.chromosome_X}
-${sec_consensus_variant_calling.chromosome_Y}
-
+#if $section.prior:
+  --prior "$section.prior"
+#end if
 
 ## File format section
-#if str($sec_default.select_output_type) != "__none__":
-  --output-type "${sec_default.select_output_type}"
+#set $section = $sec_file_format
+#if $section.ploidy:
+  --ploidy "${section.ploidy}"
 #end if
-@SEC_DEF_REGIONS@
-@SEC_DEF_SAMPLES@
-@SEC_DEF_TARGETS@
-
+#if $section.ploidy_file:
+  --ploidy-file "${section.ploidy_file}"
+#end if
 
 ## Input/output section
-${sec_input_output.keep_alts}
-#set values_sec_input_output_format_fields = '","'.join([str($value) for $value in $sec_input_output.format_fields_repeat])
-#if $values_sec_input_output_format_fields:
-  --format-fields "${values_sec_input_output_format_fields}"
+#set $section = $sec_input_output
+${section.keep_alts}
+## #if section.format_fields:
+##   --format-fields "${section.format_fields}"
+## #end if
+${section.keep_masked_ref}
+#if $section.skip_variants:
+  --skip-variants "${section.skip_variants}"
 #end if
+${section.variants_only}
 
-#if str($sec_input_output.gvcf) != "":
-  --gvcf "${sec_input_output.gvcf}"
-#end if
-
-${sec_input_output.insert_missed}
-${sec_input_output.keep_masked_ref}
-
-#if str($sec_input_output.skip_variants) != "__none__":
-  --skip-variants "${sec_input_output.skip_variants}"
-#end if
-
-${sec_input_output.variants_only}
+@OUTPUT_TYPE@
+@THREADS@
 
 ## Primary Input/Outputs
-
-$input_file
->
-$output_file
+@INPUT_FILE@
+> "$output_file"
 ]]>
-</command>
-  <inputs>
-    <param name="input_file" label="VCF/BCF Data" type="data" format="vcf,bcf,vcf_bgz,bcf_bgz" />
-    <section name="sec_consensus_variant_calling" expanded="true" title="Consensus/variant calling Options">
-      <param name="select_caller" label="Calling Method" type="select">
-        <option value="consensus">the original calling method (-c, --consensus-caller)</option>
-        <option value="multiallelic">alternative model for multiallelic and rare-variant calling (-m, --multiallelic-caller)</option>
-      </param>
-      <conditional name="constraints" label="Constraints">
-        <param name="constrain_select" label="Constraints" type="select" argument="-C">
-          <option value="__none__" selected="True">No constraints</option>
-          <option value="alleles">call genotypes given alleles (alleles)</option>
-          <option value="trio">call genotypes given the father-mother-child constraint (trio)</option>
-        </param>
-        <when value="__none__" />
-        <when value="alleles" />
-        <when value="trio">
-          <param name="novel_snp" label="Novel Rate: SNPs" type="float" default="1e-8" optional="True" help="mutation rate of SNPs" argument="--novel-rate"/>
-          <param name="novel_ins" label="Novel Rate: Insertions" type="float" default="1e-9" optional="True" help="mutation rate of insertions according to their length" argument="--novel-rate" />
-          <param name="novel_del" label="Novel Rate: Deletions" type="float" default="1e-9" optional="True" help="mutation rate of deletions according to their length" argument="--novel-rate" />
-          <param name="pval_threshold" label="Pval Threshold" type="float" default="0.5" optional="True" help="variant if P(ref|D)&lt;FLOAT with -c" argument="--pval-treshold"/>
-        </when>
-      </conditional>
-      <param name="prior" label="Prior" type="float" default="1.1e-3" optional="True" help="mutation rate (use bigger for greater sensitivity)" argument="--prior" />
-      <param name="chromosome_X" label="Chromosome X" type="boolean" truevalue="--chromosome-X" falsevalue="" help="haploid output for male samples (requires PED file with -s)" argument="--chromosome-X"/>
-      <param name="chromosome_Y" label="Chromosome Y" type="boolean" truevalue="--chromosome-Y" falsevalue="" help="haploid output for males and skips females (requires PED file with -s)" argument="--chromosome-Y"/>
-    </section>
-    <section name="sec_default" expanded="true" title="Default Options">
-      <expand macro="macro_select_output_type" />
-      <expand macro="macro_regions" />
-      <expand macro="macro_samples" />
-      <expand macro="macro_targets" />
-    </section>
-    <section name="sec_input_output" expanded="true" title="Input/output Options">
-      <param name="keep_alts" label="Keep Alts" type="boolean" truevalue="--keep-alts" falsevalue="" help="keep all possible alternate alleles at variant sites" argument="--keep-alts"/>
-      <repeat name="format_fields_repeat" title="Format Fields">
-        <param name="format_fields" type="text" label="Format Fields" help="output format fields: e.g. GQ, GP (lowercase allowed)" argument="--format-fields" />
-      </repeat>
-      <param name="gvcf" label="Gvcf" type="integer" optional="True" help="output gVCF blocks of homozygous REF calls. The parameter is the minimum per-sample depth required to include a site in the non-variant block." argument="--gvcf"/>
-      <param name="insert_missed" label="Insert Missed" type="boolean" truevalue="--insert-missed" falsevalue="" help="output also sites missed by mpileup but present in -T" argument="--insert-missed"/>
-      <param name="keep_masked_ref" label="Keep Masked Ref" type="boolean" truevalue="--keep-masked-ref" falsevalue="" help="keep sites with masked reference allele (REF=N)" argument="--keep-masked-ref"/>
-      <param name="skip_variants" label="Skip Variants" type="select" help="Skip indels/SNP sites" argument="--skip-variants">
-        <option value="__none__" selected="True">Don't skip any</option>
-        <option value="indels">Skip indels</option>
-        <option value="snps">Skip snps</option>
-      </param>
-      <param name="variants_only" label="Variants Only" type="boolean" truevalue="--variants-only" falsevalue="" help="output variant sites only" argument="--variants-only"/>
-    </section>
-  </inputs>
-  <outputs>
-    <data name="output_file" format="vcf">
-      <change_format>
-        <when input="sec_file_format|select_output_type" value="b" format="bcf_bgz" />
-        <when input="sec_file_format|select_output_type" value="u" format="bcf" />
-        <when input="sec_file_format|select_output_type" value="z" format="vcf_bgz" />
-        <when input="sec_file_format|select_output_type" value="v" format="vcf" />
-      </change_format>
-    </data>
-  </outputs>
-  <tests>
-      <test>
-          <param name="input_file" value="mpileup.vcf" />
-          <param name="sec_consensus_variant_calling|select_caller" value="multiallelic" />
-          <param name="sec_input_output|variants_only" value="--variants-only" />
-          <param name="sec_file_format|select_output_type" value="v" />
-          <output name="output_file" file="mpileup.1.out" lines_diff="2" ftype="vcf" />
-      </test>
-      <test>
-          <param name="input_file" value="mpileup.vcf" />
-          <param name="sec_consensus_variant_calling|select_caller" value="multiallelic" />
-          <param name="sec_input_output|variants_only" value="--variants-only" />
-          <param name="sec_input_output|gvcf" value="0" />
-          <param name="sec_file_format|select_output_type" value="v" />
-          <output name="output_file" file="mpileup.2.out" lines_diff="2" ftype="vcf" />
-      </test>
-  </tests>
-  <help>
-      <![CDATA[
-      **bcftools call**
+    </command>
+    <inputs>
+        <expand macro="macro_input" />
+        <section name="sec_restrict" expanded="false" title="Restrict to">
+            <expand macro="macro_regions" />
+            <expand macro="macro_samples" />
+        </section>
+        <section name="sec_consensus_variant_calling" expanded="true" title="Consensus/variant calling Options">
+            <conditional name="variant_calling">
+                <param name="method" type="select" label="calling method">
+                    <option value="multiallelic">Multiallelic and rare-variant Caller</option>
+                    <option value="consensus">Consensus Caller</option>
+                </param>
+                <when value="multiallelic">
+                    <conditional name="genotypes">
+                        <param name="constrain" type="select" label="Constrain" help="one of: alleles, trio (see manual)">
+                            <option value="none">Do not constrain</option>
+                            <option value="alleles">alleles - call genotypes given alleles</option>
+                            <option value="trio">trio - call genotypes given the father-mother-child constraint</option>
+                        </param>
+                        <when value="none">
+                            <expand macro="macro_targets" />
+                        </when>
+                        <when value="alleles">
+                            <expand macro="macro_targets_file"/>
+                            <param name="insert_missed" type="boolean" truevalue="--insert-missed" falsevalue="" label="Insert Missed" help="output also sites missed by mpileup but present in -T" />
+                        </when>
+                        <when value="trio">
+                            <expand macro="macro_targets" />
+                            <param name="novel_rate" type="float" label="Novel Rate" default="1e-8,1e-9,1e-9" optional="true" help="likelihood of novel mutation for constrained trio calling, see man page for details" />
+                        </when>
+                    </conditional>
+                    <param name="gvcf" type="integer" label="gvcf" optional="True" help="group non-variant sites into gVCF blocks by minimum per-sample DP" />
+                </when>
+                <when value="consensus">
+                    <conditional name="genotypes">
+                        <param name="constrain" type="select" label="Constrain" help="one of: alleles, trio (see manual)">
+                            <option value="none">Do not constrain</option>
+                            <option value="trio">trio - call genotypes given the father-mother-child constraint</option>
+                        </param>
+                        <when value="none">
+                        </when>
+                        <when value="trio">
+                            <param name="novel_rate" type="float" label="Novel Rate" default="1e-8,1e-9,1e-9" optional="true" help="likelihood of novel mutation for constrained trio calling, see man page for details" />
+                        </when>
+                    </conditional>
+                    <expand macro="macro_targets" />
+                </when>
+            </conditional>
+            <param name="pval_threshold" type="float" label="Pval Threshold" default="0.5" optional="True" help="variant if P(ref|D)&lt;FLOAT with -c" />
+            <param name="prior" type="float" label="Prior" default="1.1e-3" optional="True" help="mutation rate (use bigger for greater sensitivity)" />
+        </section>
+        <section name="sec_file_format" expanded="false" title="File format Options">
+            <param name="ploidy" type="select" label="Select Predefined Ploidy" optional="true">
+                <option value="GRCh37">GRCh37 - Human Genome reference assembly GRCh37 / hg19</option>
+                <option value="GRCh38">GRCh37 - Human Genome reference assembly GRCh38 / hg38</option>
+                <option value="X">X - Treat male samples as haploid and female as diploid regardless of the chromosome name</option>
+                <option value="Y">Y - Treat male samples as haploid and female as no-copy, regardless of the chromosome name"</option>
+                <option value="1">1 - Treat all samples as haploid</option>
+            </param>
+            <param name="ploidy_file" type="data" format="tabular" label="Ploidy File" optional="True" help="space/tab-delimited list of CHROM,FROM,TO,SEX,PLOIDY" />
+            <expand macro="macro_regions" />
+            <expand macro="macro_samples" />
+        </section>
+        <section name="sec_input_output" expanded="false" title="Input/output Options">
+            <param name="keep_alts" type="boolean" truevalue="--keep-alts" falsevalue="" label="Keep Alts" help="keep all possible alternate alleles at variant sites" />
+            <param name="format_fields" type="text" value="" optional="true" label="Format Fields" 
+               help="output format fields: GQ,GP" >
+                <validator type="regex" message="FORMAT terms separated by commas">^([A-Za-z]+(,[A-Za-z]+)*)?$</validator>
+            </param>
+            <param name="keep_masked_ref" type="boolean" truevalue="--keep-masked-ref" falsevalue="" label="Keep Masked Ref" help="keep sites with masked reference allele (REF=N)" />
+            <param name="skip_variants" type="select" label="Skip Variants" optional="True" help="skip indels/snps">
+                <option value="indels">indels</option>
+                <option value="snps">snps</option>
+            </param>
+            <param name="variants_only" type="boolean" truevalue="--variants-only" falsevalue="" label="Variants Only" help="output variant sites only" />
+        </section>
+        <expand macro="macro_select_output_type" />
+    </inputs>
+    <outputs>
+        <expand macro="macro_vcf_output"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_file" ftype="vcf" value="mpileup.vcf" />
+            <param name="method" value="multiallelic" />
+            <param name="variants_only" value="true" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="DP4=2,4,8,11;MQ=49" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="mpileup.vcf" />
+            <param name="method" value="multiallelic" />
+            <param name="gvcf" value="0" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="MinDP" />
+                    <has_text text="DP4=2,4,8,11;MQ=49" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="mpileup.X.vcf" />
+            <param name="method" value="multiallelic" />
+            <param name="ploidy_file" value="mpileup.ploidy" />
+            <param name="samples_file" value="mpileup.samples" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="DP4=2,4,8,11;MQ=49" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="mpileup.X.vcf" />
+            <param name="method" value="consensus" />
+            <param name="output_type" value="v" />
+            <param name="ploidy_file" value="mpileup.ploidy" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="DP4=2,4,8,11" />
+                    <has_text text="PV4=1,1,1,1" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+==================================
+ bcftools @EXECUTABLE@
+==================================
 
-      SNP/indel variant calling from VCF/BCF. To be used in conjunction with
-      samtools mpileup. This command replaces the former "bcftools view"
-      caller. Some of the original functionality has been temporarily lost in
-      the process of transition to htslib, but will be added back on popular
-      demand. The original calling model can be invoked with the -c
-      option.
-      ]]>
-  </help>
-  <expand macro="citations" />
+SNP/indel variant calling from VCF/BCF. To be used in conjunction with samtools mpileup. 
+
+  - This command replaces the former "bcftools view" caller. 
+  - Some of the original functionality has been temporarily lost in the process of transition to htslib, but will be added back on popular demand. 
+  - The original calling model can be invoked with the -c option.
+
+@REGIONS_HELP@
+@TARGETS_HELP@
+
+@BCFTOOLS_MANPAGE@#@EXECUTABLE@
+
+@BCFTOOLS_WIKI@
+]]>
+    </help>
+    <expand macro="citations" />
 </tool>
