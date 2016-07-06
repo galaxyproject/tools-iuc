@@ -34,4 +34,4 @@ if __name__ == '__main__':
         if getattr(args, attr, None) is not None:
             payload[attr] = getattr(args, attr)
 
-    c.fetch(args.db, whole=args.whole, **payload)
+    c.fetch(args.db, whole=args.whole, ftype=args.retmode, **payload)

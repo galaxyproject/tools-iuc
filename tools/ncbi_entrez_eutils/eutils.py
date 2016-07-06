@@ -43,7 +43,7 @@ class Client(object):
     def post(self, database, **payload):
         return json.dumps(Entrez.read(Entrez.epost(database, **payload)), indent=4)
 
-    def fetch(self, db, whole=False, **payload):
+    def fetch(self, db, whole=False, ftype=None, **payload):
         if whole:
             if 'id' in payload:
                 summary = self.id_summary(db, payload['id'])
@@ -60,7 +60,11 @@ class Client(object):
             for i in range(BATCH_SIZE, count, BATCH_SIZE):
                 payload['retstart'] = i
                 # TODO: output multiple files??? Collection?
-                with open('%s.out' % i, 'w') as handle:
+                out_path = '%s.out' % i
+                if ftype:
+                    out_path = '%s.%s' % (i, ftype)
+
+                with open(out_path, 'w') as handle:
                     handle.write(Entrez.efetch(db, **payload).read())
         else:
             print Entrez.efetch(db, **payload).read()
