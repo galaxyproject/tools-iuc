@@ -43,31 +43,23 @@ class Client(object):
     def post(self, database, **payload):
         return json.dumps(Entrez.read(Entrez.epost(database, **payload)), indent=4)
 
-    def fetch(self, db, whole=False, ftype=None, **payload):
-        if whole:
-            if 'id' in payload:
-                summary = self.id_summary(db, payload['id'])
-            else:
-                summary = self.history_summary(db)
+    def fetch(self, db, ftype=None, **payload):
+        os.makedirs("downloads")
 
-            count = len(summary)
-
-            payload['retmax'] = BATCH_SIZE
-
-            # Print the first one
-            print Entrez.efetch(db, **payload).read()
-            # Then write subsequent to files for <discover datasets>
-            for i in range(BATCH_SIZE, count, BATCH_SIZE):
-                payload['retstart'] = i
-                # TODO: output multiple files??? Collection?
-                out_path = '%s.out' % i
-                if ftype:
-                    out_path = '%s.%s' % (i, ftype)
-
-                with open(out_path, 'w') as handle:
-                    handle.write(Entrez.efetch(db, **payload).read())
+        if 'id' in payload:
+            summary = self.id_summary(db, payload['id'])
         else:
-            print Entrez.efetch(db, **payload).read()
+            summary = self.history_summary(db)
+
+        count = len(summary)
+        payload['retmax'] = BATCH_SIZE
+
+        # This may be bad. I'm not sure yet. I think it will be ... but UGH.
+        for i in range(0, count, BATCH_SIZE):
+            payload['retstart'] = i
+            file_path = os.path.join('downloads', 'EFetch Results Chunk %s.%s' % (i, ftype))
+            with open(file_path, 'w') as handle:
+                handle.write(Entrez.efetch(db, **payload).read())
 
     def id_summary(self, db, id_list):
         payload = {
