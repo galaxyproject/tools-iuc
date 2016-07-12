@@ -562,6 +562,8 @@ class JbrowseConnector(object):
                 self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'])
             elif dataset_ext == 'vcf':
                 self.add_vcf(dataset_path, outputTrackConfig)
+            else:
+                log.warn('Do not know how to handle %s', dataset_ext)
 
             # Return non-human label for use in other fields
             yield outputTrackConfig['label']
