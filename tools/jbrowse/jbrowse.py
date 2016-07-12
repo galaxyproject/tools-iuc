@@ -409,6 +409,8 @@ class JbrowseConnector(object):
         else:
             trackData['autoscale'] = wiggleOpts.get('autoscale', 'local')
 
+        trackData['scale'] = wiggleOpts['scale']
+
         self._add_track_json(trackData)
 
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
