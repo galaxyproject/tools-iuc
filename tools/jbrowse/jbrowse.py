@@ -490,6 +490,20 @@ class JbrowseConnector(object):
 
         self.subprocess_check_call(cmd)
 
+    def add_rest(self, url, trackData):
+        data ={
+            "label": trackData['label'],
+            "key": trackData['key'],
+            "category": trackData['category'],
+            "type": "JBrowse/View/Track/HTMLFeatures",
+            "storeClass": "JBrowse/Store/SeqFeature/REST",
+            "baseUrl": url,
+            "query": {
+                "organism": "tyrannosaurus"
+            }
+        }
+        self._add_track_json(data)
+
 
     def process_annotations(self, track):
         outputTrackConfig = {
@@ -521,7 +535,12 @@ class JbrowseConnector(object):
 
             log.info('Processing %s / %s', track['category'], track_human_label)
             outputTrackConfig['key'] = track_human_label
-            hashData = [dataset_path, track_human_label, track['category']]
+            # We add extra data to hash for the case of REST + SPARQL.
+            try:
+                rest_url = track['conf']['options']['url']
+            except KeyError:
+                rest_url = ''
+            hashData = [dataset_path, track_human_label, track['category'], rest_url]
             outputTrackConfig['label'] = hashlib.md5('|'.join(hashData)).hexdigest() + '_%s' % i
 
             # Colour parsing is complex due to different track types having
@@ -535,11 +554,13 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
-            # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
                                 track['conf']['options']['gff'])
+            elif dataset_ext == 'bigwig':
+                self.add_bigwig(dataset_path, outputTrackConfig,
+                                track['conf']['options']['wiggle'])
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
                                 track['conf']['options']['wiggle'])
@@ -562,6 +583,8 @@ class JbrowseConnector(object):
                 self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'])
             elif dataset_ext == 'vcf':
                 self.add_vcf(dataset_path, outputTrackConfig)
+            elif dataset_ext == 'rest':
+                self.add_rest(track['conf']['options']['url'], outputTrackConfig)
             else:
                 log.warn('Do not know how to handle %s', dataset_ext)
 
@@ -670,6 +693,7 @@ if __name__ == '__main__':
             track_conf['style'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
+
         keys = jc.process_annotations(track_conf)
 
 
