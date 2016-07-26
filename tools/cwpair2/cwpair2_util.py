@@ -5,8 +5,8 @@ import sys
 import traceback
 
 import matplotlib
-matplotlib.use('Agg')  # noqa
-from matplotlib import pyplot
+matplotlib.use('Agg')
+from matplotlib import pyplot  # noqa: E402
 
 # Data outputs
 DETAILS = 'D'
