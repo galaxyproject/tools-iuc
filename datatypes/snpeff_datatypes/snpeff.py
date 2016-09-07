@@ -57,6 +57,9 @@ class SnpEffDb( Text ):
                         # if snpEffectPredictor.bin download succeeded
                         genome_version = os.path.basename(root)
                         dataset.metadata.genome_version = genome_version
+                        snpeff_version = self.getSnpeffVersionFromFile('{}/{}/snpEffectPredictor.bin'.format(data_dir,genome_version))
+                        if snpeff_version:
+                            dataset.metadata.snpeff_version = snpeff_version
                     else:
                         m = re.match(regulation_pattern, fname)
                         if m:
