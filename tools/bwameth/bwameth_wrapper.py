@@ -4,11 +4,12 @@ import subprocess
 import os
 import shlex
 
+
 def createIndex(fname):
     """
     Create an index for a file, return where it is
     """
-    d = os.mkdir("index_dir")
+    os.mkdir("index_dir")
     os.link(fname, "index_dir/genome.fa")
     cmd = "{}/bwameth.py index {}/index_dir/genome.fa".format(os.path.dirname(__file__), os.getcwd())
     proc = subprocess.Popen(args=shlex.split(cmd))
