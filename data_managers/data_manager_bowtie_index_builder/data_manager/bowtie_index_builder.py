@@ -32,7 +32,7 @@ def build_bowtie_index( data_manager_dict, fasta_filename, params, target_direct
     os.symlink( fasta_filename, sym_linked_fasta_filename )
     args = [ 'bowtie-build' ]
     if color_space:
-        args.append( '-c' )
+        args.append( '-C' )
     args.append( sym_linked_fasta_filename)
     args.append( fasta_base_name )
     args.append( sym_linked_fasta_filename )
