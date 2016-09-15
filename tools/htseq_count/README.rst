@@ -17,7 +17,7 @@ Development
 
 Repository-Maintainer: Lance Parsons <lparsons@princeton.edu>
 
-Repository-Development: `https://bitbucket.org/lance_parsons/htseq_count_galaxy_wrapper <https://bitbucket.org/lance_parsons/htseq_count_galaxy_wrapper>`_
+Repository-Development: `https://github.com/galaxyproject/tools-iuc/tree/master/tools/htseq_count <https://github.com/galaxyproject/tools-iuc/tree/master/tools/htseq_count>`_
 
 License
 -------
