@@ -6,6 +6,8 @@
 # Licensed under the Academic Free License version 3.0
 # https://github.com/blankenberg/Kraken-Taxonomy-Report
 
+from __future__ import print_function
+
 import sys
 import os
 import optparse
@@ -96,19 +98,19 @@ def load_taxonomy( db_path, sanitize_names=False ):
             name_type = fields[3]
             if name_type == "scientific name":
                 if name in names:
-                    print >> sys.stderr, 'Warning: name "%s" found at node "%s" but already exists originally for node "%s".' % ( name, node_id, names[name][0] )
+                    print( 'Warning: name "%s" found at node "%s" but already exists originally for node "%s".' % ( name, node_id, names[name][0] ), file=sys.stderr )
                     new_name = "%s_%s" % ( name, node_id )
-                    print >> sys.stderr, 'Transforming node "%s" named "%s" to "%s".' % ( node_id, name, new_name )
+                    print( 'Transforming node "%s" named "%s" to "%s".' % ( node_id, name, new_name ), file=sys.stderr )
                     assert new_name not in names, 'Transformed Name "%s" already exists. Cannot recover at this time.' % new_name
                     if not names[name][1]:
                         orig_new_name = "%s_%s" % ( name, names[name][0] )
-                        print >> sys.stderr, 'Transforming node "%s" named "%s" to "%s".' % ( names[name][0], name, orig_new_name )
+                        print( 'Transforming node "%s" named "%s" to "%s".' % ( names[name][0], name, orig_new_name ), file=sys.stderr )
                         assert orig_new_name not in names, 'Transformed Name "%s" already exists. Cannot recover at this time.' % orig_new_name
                         name_map[names[name][0]] = orig_new_name
                         names[name] = ( names[name][0], True )
                     name = new_name
                 else:
-                    names[name] = (node_id, False )
+                    names[name] = ( node_id, False )
                 name_map[ node_id ] = name
 
     with open( os.path.join( db_path, "taxonomy/nodes.dmp" ) ) as fh:
@@ -120,7 +122,7 @@ def load_taxonomy( db_path, sanitize_names=False ):
             rank = RANK_NAME_TO_INTS.get( fields[2].lower(), None )
             if rank is None:
                 # This should never happen, unless new taxonomy ranks are created
-                print >> sys.stderr, 'Unrecognized rank: Node "%s" is "%s", setting to "%s"' % ( node_id, fields[2], NO_RANK_NAME )
+                print( 'Unrecognized rank: Node "%s" is "%s", setting to "%s"' % ( node_id, fields[2], NO_RANK_NAME ), file=sys.stderr )
                 rank = NO_RANK_INT
             if node_id == '1':
                 parent_id = '0'
@@ -223,10 +225,10 @@ def __main__():
     parser.add_option( '', '--output-tree', dest='output_tree', action='store', type="string", default=None, help='Name of output file to place newick tree' )
     (options, args) = parser.parse_args()
     if options.version:
-        print >> sys.stderr, "Kraken Taxonomy Report (%s) version %s" % ( __URL__, __VERSION__ )
+        print( "Kraken Taxonomy Report (%s) version %s" % ( __URL__, __VERSION__ ), file=sys.stderr )
         sys.exit()
     if not args:
-        print >> sys.stderr, parser.get_usage()
+        print( parser.get_usage(), file=sys.stderr )
         sys.exit()
 
     if options.cluster:
