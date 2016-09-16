@@ -3,7 +3,6 @@
 
 import argparse
 import os
-import shlex
 import subprocess
 import sys
 from json import dumps, loads
