@@ -12,15 +12,8 @@ Installation
 Installation directly from the `Galaxy Toolshed                                                                                                                                                                 <http://toolshed.g2.bx.psu.edu/view/lparsons/htseq_count>`_ is
 recommended.
 
-Development
------------
-
-Repository-Maintainer: Lance Parsons <lparsons@princeton.edu>
-
-Repository-Development: `https://github.com/galaxyproject/tools-iuc/tree/master/tools/htseq_count <https://github.com/galaxyproject/tools-iuc/tree/master/tools/htseq_count>`_
-
-License
--------
+Galaxy Wrapper License
+----------------------
 
 Copyright (c) 2012-2014, Lance R. Parsons <lparsons@princeton.edu>
 All rights reserved.
