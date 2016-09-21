@@ -8,7 +8,7 @@ This repo contains a subset of Galaxy repositories used in the Tool Shed (https:
 
 These repositories are maintained and developed by the [Intergalactic Utilities Commission](https://wiki.galaxyproject.org/IUC) ([Github Org](https://github.com/galaxy-iuc/))
 
-Pull Requests with dependencies specified as conda-package will be automatically tested and varified using [planemo](https://github.com/galaxyproject/planemo). If everything passes the tests and the PR request is merged the tool will be automatically uploaded to the [Test](http://testtoolshed.g2.bx.psu.edu/)- and [Main Tool Shed](http://toolshed.g2.bx.psu.edu/).
+Pull Requests with dependencies specified as conda-package will be automatically tested and verified using [planemo](https://github.com/galaxyproject/planemo). If the tests pass and the pull request is merged, the tool will be automatically uploaded to the [Test](http://testtoolshed.g2.bx.psu.edu/)- and [Main Tool Shed](http://toolshed.g2.bx.psu.edu/).
 
 Please note, if you don’t want to run the tests or the automatic upload, add `[ci skip]` to the git commit message.
 Commits that have [ci skip] anywhere in the commit messages are ignored by Travis CI.
