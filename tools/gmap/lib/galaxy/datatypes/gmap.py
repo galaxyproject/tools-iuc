@@ -2,8 +2,11 @@
 GMAP indexes
 """
 import logging
-import os,os.path,re,sys
-import galaxy.datatypes.data
+import os
+import os.path
+import re
+import sys
+from galaxy.datatypes import data
 from galaxy.datatypes.data import Text
 from galaxy import util
 from galaxy.datatypes.metadata import MetadataElement
@@ -334,7 +337,7 @@ class IntervalAnnotation( Text ):
             if dataset.metadata.annotations:
                 dataset.blurb = "%s annotations" % util.commaify( str( dataset.metadata.annotations ) )
             else:
-                dataset.blurb = data.nice_size( dataset.get_size() )
+                dataset.blurb = util.nice_size(dataset.get_size())
         else:
             dataset.peek = 'file does not exist'
             dataset.blurb = 'file purged from disk'
