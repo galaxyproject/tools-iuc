@@ -177,13 +177,13 @@ class GmapDB( Text ):
                             print >> sys.stderr, "GmapDB set_meta iname %s  %s" % (iname,m.groups())
                             assert len(m.groups()) == 10
                             if m.groups()[2] == 'ref':
-                                if m.groups()[-1] != None and m.groups()[-1] != 'offsetscomp':
+                                if m.groups()[-1] is not None and m.groups()[-1] != 'offsetscomp':
                                     dataset.metadata.snps.append(m.groups()[-1])
                                 else:
-                                    if m.groups()[-3] != None:
+                                    if m.groups()[-3] is not None:
                                         k = int(m.groups()[-3])
                                         kmers[k] = k
-                                    if m.groups()[-4] != None:
+                                    if m.groups()[-4] is not None:
                                         dataset.metadata.basesize = int( m.groups()[-4])
                             elif m.groups()[3] == 'met':
                                 dataset.metadata.cmet = True
@@ -367,7 +367,7 @@ class IntervalAnnotation( Text ):
                 if line: #first non-empty line
                     if line.startswith( '>' ):
                         count += 1
-                        if re.match(pat,line) == None: # Failed to match 
+                        if re.match(pat, line) is None:  # Failed to match
                             return False
         finally:
             fh.close()
@@ -414,7 +414,7 @@ class SpliceSiteAnnotation(IntervalAnnotation):
                 line = line.strip()
                 if line: #first non-empty line
                     count += 1
-                    if re.match(pat,line) == None: # Failed to match 
+                    if re.match(pat, line) is None:  # Failed to match
                         return False
         finally:
             fh.close()
@@ -447,7 +447,7 @@ class IntronAnnotation(IntervalAnnotation):
                 line = line.strip()
                 if line: #first non-empty line
                     count += 1
-                    if re.match(pat,line) == None: # Failed to match 
+                    if re.match(pat, line) is None:  # Failed to match
                         return False
         finally:
             fh.close()
@@ -498,7 +498,7 @@ class SNPAnnotation(IntervalAnnotation):
                 line = line.strip()
                 if line: #first non-empty line
                     count += 1
-                    if re.match(pat,line) == None: # Failed to match 
+                    if re.match(pat, line) is None:  # Failed to match
                         return False
         finally:
             fh.close()
@@ -533,7 +533,7 @@ class TallyAnnotation(IntervalAnnotation):
                 line = line.strip()
                 if line: #first non-empty line
                     count += 1
-                    if re.match(pat,line) == None and re.match(pat2,line) == None: # Failed to match 
+                    if re.match(pat, line) is None and re.match(pat2, line) is None:  # Failed to match
                         return False
         finally:
             fh.close()
