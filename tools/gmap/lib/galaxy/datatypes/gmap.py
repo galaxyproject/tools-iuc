@@ -65,7 +65,7 @@ class GmapDB( Text ):
             for i,name in enumerate(dataset.metadata.maps):
                 if name.strip() != '':
                     rval.append( ' %s' % name)
-        f = file(dataset.file_name,'w')
+        f = open(dataset.file_name, 'w')
         f.write("\n".join( rval ))
         f.write('\n')
         f.close()
@@ -224,7 +224,7 @@ class GmapSnpIndex( Text ):
         for i,name in enumerate(dataset.metadata.maps):
             rval.append( '<li>%s' % name)
         rval.append( '</ul></html>' )
-        f = file(dataset.file_name,'w')
+        f = open(dataset.file_name, 'w')
         f.write("\n".join( rval ))
         f.write('\n')
         f.close()
@@ -322,7 +322,7 @@ class IntervalAnnotation( Text ):
         """
         data_lines = 0
         annotations = 0
-        for line in file( dataset.file_name ):
+        for line in open(dataset.file_name):
             line = line.strip()
             if line and line.startswith( '>' ):
                 annotations += 1
