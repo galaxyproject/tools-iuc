@@ -471,7 +471,7 @@ class SpliceSiteAnnotation(IntervalAnnotation):
             pat = '>(\S+\.intron\d+)\s((\S+):(\d+)\.\.(\d+))\s(donor|acceptor)(\s(\d+))?$'
             fh = open(filename)
             count = 0
-            while True and count < 10:
+            while count < 10:
                 line = fh.readline()
                 if not line:
                     break  # EOF
