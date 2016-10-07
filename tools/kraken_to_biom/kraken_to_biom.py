@@ -31,15 +31,15 @@ def main( args ):
                       data=[] )
 
     tax_ids = {}
-    taxa = []
 
     for original_filename, filename, label in input_files:
         biom_data['columns'].append( { 'id': label, 'metadata': None } )
-        lines = file( filename, 'r' ).readlines()
+        ifh = open( filename, 'r' )
+        lines = ifh.readlines()
+        ifh.close()
         filtered_taxons = cluster_taxonomy( [ line.strip() for line in lines ], args.cluster )
         for line in lines:
             line_parts = line.split( '\t' )
-            taxonomy = line_parts[ 5: ]
             tax_id = line_parts[ 2 ]
             if tax_id == '1':
                 continue
@@ -84,16 +84,18 @@ def main( args ):
             if column != 0:
                 biom_data[ 'data' ].append( [ i, j, column ] )
 
-    file( args.output, 'w' ).write( json.dumps( biom_data, indent=2 ) )
+    ofh = open( args.output, 'w' )
+    ofh.write( json.dumps( biom_data, indent=2 ) )
+    ofh.close()
 
 
 def cluster_taxonomy( taxonomies, cluster_by ):
     taxonomy_mapping = {}
     taxonomy_filter = [ 'Classified', 'Read name', 'Tax id', 'Length', 'K-mers',
-             'Superkingdom', 'Kingdom', 'Subkingdom', 'Superphylum', 'Phylum', 'Subphylum',
-             'Superclass', 'Class', 'Subclass', 'Superorder', 'Order', 'Suborder',
-             'Superfamily', 'Family', 'Subfamily', 'Tribe', 'Subtribe', 'Genus',
-             'Subgenus', 'Species', 'Subspecies' ].index( cluster_by )
+                        'Superkingdom', 'Kingdom', 'Subkingdom', 'Superphylum', 'Phylum', 'Subphylum',
+                        'Superclass', 'Class', 'Subclass', 'Superorder', 'Order', 'Suborder',
+                        'Superfamily', 'Family', 'Subfamily', 'Tribe', 'Subtribe', 'Genus',
+                        'Subgenus', 'Species', 'Subspecies' ].index( cluster_by )
     for taxonomy in taxonomies:
         elements = taxonomy.split('\t')
         tax_id = elements[2]
