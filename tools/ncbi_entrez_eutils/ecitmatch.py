@@ -5,7 +5,7 @@ import eutils
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ECitMatch', epilog='')
-    parser.add_argument('--file', help='Tabular file containing citations to search')
+    parser.add_argument('--file', type=argparse.FileType('r'), help='Tabular file containing citations to search')
 
     parser.add_argument('--key', nargs='*', help='Citation Key')
     parser.add_argument('--journal_title', nargs='*', help='Journal Title')
@@ -35,6 +35,7 @@ if __name__ == '__main__':
             })
     else:
         for line in args.file:
+            line = line.strip()
             if not line.startswith('#'):
                 tmp = line.split('\t')
                 try:

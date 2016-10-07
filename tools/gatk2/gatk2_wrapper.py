@@ -1,17 +1,21 @@
 #!/usr/bin/env python
-#David Hoover, based on gatk by Dan Blankenberg
-
+# David Hoover, based on gatk by Dan Blankenberg
 """
 A wrapper script for running the GenomeAnalysisTK.jar commands.
 """
 
-import sys, optparse, os, tempfile, subprocess, shutil
+import optparse
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 from binascii import unhexlify
 
-GALAXY_EXT_TO_GATK_EXT = { 'gatk_interval':'intervals', 'bam_index':'bam.bai', 'gatk_dbsnp':'dbSNP', 'picard_interval_list':'interval_list' } #items not listed here will use the galaxy extension as-is
-GALAXY_EXT_TO_GATK_FILE_TYPE = GALAXY_EXT_TO_GATK_EXT #for now, these are the same, but could be different if needed
+GALAXY_EXT_TO_GATK_EXT = { 'gatk_interval': 'intervals', 'bam_index': 'bam.bai', 'gatk_dbsnp': 'dbSNP', 'picard_interval_list': 'interval_list' }  # items not listed here will use the galaxy extension as-is
+GALAXY_EXT_TO_GATK_FILE_TYPE = GALAXY_EXT_TO_GATK_EXT  # for now, these are the same, but could be different if needed
 DEFAULT_GATK_PREFIX = "gatk_file"
-CHUNK_SIZE = 2**20 #1mb
+CHUNK_SIZE = 2**20  # 1mb
 
 
 def cleanup_before_exit( tmp_dir ):
@@ -19,7 +23,7 @@ def cleanup_before_exit( tmp_dir ):
         shutil.rmtree( tmp_dir )
 
 
-def gatk_filename_from_galaxy( galaxy_filename, galaxy_ext, target_dir = None, prefix = None ):
+def gatk_filename_from_galaxy( galaxy_filename, galaxy_ext, target_dir=None, prefix=None ):
     suffix = GALAXY_EXT_TO_GATK_EXT.get( galaxy_ext, galaxy_ext )
     if prefix is None:
         prefix = DEFAULT_GATK_PREFIX
@@ -31,12 +35,12 @@ def gatk_filename_from_galaxy( galaxy_filename, galaxy_ext, target_dir = None, p
 
 
 def gatk_filetype_argument_substitution( argument, galaxy_ext ):
-    return argument % dict( file_type = GALAXY_EXT_TO_GATK_FILE_TYPE.get( galaxy_ext, galaxy_ext ) )
+    return argument % dict( file_type=GALAXY_EXT_TO_GATK_FILE_TYPE.get( galaxy_ext, galaxy_ext ) )
 
 
-def open_file_from_option( filename, mode = 'rb' ):
+def open_file_from_option( filename, mode='rb' ):
     if filename:
-        return open( filename, mode = mode )
+        return open( filename, mode=mode )
     return None
 
 
@@ -51,8 +55,8 @@ def index_bam_files( bam_filenames ):
     for bam_filename in bam_filenames:
         bam_index_filename = "%s.bai" % bam_filename
         if not os.path.exists( bam_index_filename ):
-            #need to index this bam file
-            stderr_name = tempfile.NamedTemporaryFile( prefix = "bam_index_stderr" ).name
+            # need to index this bam file
+            stderr_name = tempfile.NamedTemporaryFile( prefix="bam_index_stderr" ).name
             command = 'samtools index %s %s' % ( bam_filename, bam_index_filename )
             try:
                 subprocess.check_call( args=command, shell=True, stderr=open( stderr_name, 'wb' ) )
@@ -63,8 +67,9 @@ def index_bam_files( bam_filenames ):
             finally:
                 os.unlink( stderr_name )
 
+
 def __main__():
-    #Parse Command Line
+    # Parse Command Line
     parser = optparse.OptionParser()
     parser.add_option( '-p', '--pass_through', dest='pass_through_options', action='append', type="string", help='These options are passed through directly to GATK, without any modification.' )
     parser.add_option( '-o', '--pass_through_options', dest='pass_through_options_encoded', action='append', type="string", help='These options are passed through directly to GATK, with decoding from binascii.unhexlify.' )
@@ -93,7 +98,7 @@ def __main__():
     try:
         if options.datasets:
             for ( dataset_arg, filename, galaxy_ext, prefix ) in options.datasets:
-                gatk_filename = gatk_filename_from_galaxy( filename, galaxy_ext, target_dir = tmp_dir, prefix = prefix )
+                gatk_filename = gatk_filename_from_galaxy( filename, galaxy_ext, target_dir=tmp_dir, prefix=prefix )
                 if dataset_arg:
                     cmd = '%s %s "%s"' % ( cmd, gatk_filetype_argument_substitution( dataset_arg, galaxy_ext ), gatk_filename )
                 if galaxy_ext == "bam":
@@ -102,10 +107,10 @@ def __main__():
                     subprocess.check_call( 'samtools faidx "%s"' % gatk_filename, shell=True )
                     subprocess.check_call( 'java -jar %s R=%s O=%s QUIET=true' % ( os.path.join(os.environ['JAVA_JAR_PATH'], 'CreateSequenceDictionary.jar'), gatk_filename, os.path.splitext(gatk_filename)[0] + '.dict' ), shell=True )
         index_bam_files( bam_filenames )
-        #set up stdout and stderr output options
-        stdout = open_file_from_option( options.stdout, mode = 'wb' )
-        stderr = open_file_from_option( options.stderr, mode = 'wb' )
-        #if no stderr file is specified, we'll use our own
+        # set up stdout and stderr output options
+        stdout = open_file_from_option( options.stdout, mode='wb' )
+        stderr = open_file_from_option( options.stderr, mode='wb' )
+        # if no stderr file is specified, we'll use our own
         if stderr is None:
             stderr = tempfile.NamedTemporaryFile( prefix="gatk-stderr-", dir=tmp_dir )
 
@@ -128,7 +133,7 @@ def __main__():
     finally:
         cleanup_before_exit( tmp_dir )
 
-    #generate html reports
+    # generate html reports
     if options.html_report_from_directory:
         for ( html_filename, html_dir ) in options.html_report_from_directory:
             html_report_from_directory( open( html_filename, 'wb' ), html_dir )

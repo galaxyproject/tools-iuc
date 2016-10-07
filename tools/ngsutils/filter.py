@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-## category General
-## desc Removes reads from a BAM file based on criteria
+# category General
+# desc Removes reads from a BAM file based on criteria
 """
 Removes reads from a BAM file based on criteria
 
@@ -17,7 +17,7 @@ Currently, the available filters are:
     -maxlen val                Remove reads that are larger than {val}
     -mapped                    Keep only mapped reads
     -unmapped                  Keep only unmapped reads
-    -properpair                Keep only properly paired reads (both mapped, 
+    -properpair                Keep only properly paired reads (both mapped,
                                correct orientation, flag set in BAM)
     -noproperpair              Keep only not-properly paired reads
 
@@ -110,11 +110,11 @@ Common tags to filter by:
 
 import os
 import sys
+
 import pysam
-from ngsutils.bam import bam_iter
-from ngsutils.support.dbsnp import DBSNP
-from ngsutils.bam import read_calc_mismatches, read_calc_mismatches_ref, read_calc_mismatches_gen, read_calc_variations
+from ngsutils.bam import bam_iter, read_calc_mismatches, read_calc_mismatches_gen, read_calc_mismatches_ref, read_calc_variations
 from ngsutils.bed import BedFile
+from ngsutils.support.dbsnp import DBSNP
 
 
 def usage():
@@ -207,7 +207,7 @@ class UniqueStart(object):
                 for k in del_list:
                     self.rev_pos.remove(k)
 
-            if not start_pos in self.rev_pos:
+            if start_pos not in self.rev_pos:
                 self.rev_pos.add(start_pos)
                 return True
             return False
@@ -343,6 +343,7 @@ class ExcludeRef(object):
 
     def close(self):
         pass
+
 
 class IncludeRef(object):
     def __init__(self, ref):
@@ -645,7 +646,7 @@ class NoProperPair(object):
 
 class MaskFlag(object):
     def __init__(self, value):
-        if type(value) == type(1):
+        if isinstance(value, int):
             self.flag = value
         else:
             if value[0:2] == '0x':
@@ -710,7 +711,7 @@ class MaximumMismatchRatio(object):
         return "maximum mismatch ratio: %s" % self.val
 
     def filter(self, bam, read):
-        return read_calc_mismatches(read) <= self.ratio*len(read.seq)
+        return read_calc_mismatches(read) <= self.ratio * len(read.seq)
 
     def close(self):
         pass
@@ -895,7 +896,7 @@ def bam_filter(infile, outfile, criteria, failedfile=None, verbose=False):
                 failed += 1
                 if failed_out:
                     failed_out.write('%s\t%s\n' % (read.qname, criterion))
-                #outfile.write(read_to_unmapped(read))
+                # outfile.write(read_to_unmapped(read))
                 break
         if p:
             passed += 1

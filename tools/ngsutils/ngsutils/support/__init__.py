@@ -1,12 +1,13 @@
 import collections
 import gzip
 import os
-import sys
 import re
+import sys
 try:
     from eta import ETA
 except:
     pass
+
 
 class FASTARead(collections.namedtuple('FASTARecord', 'name comment seq')):
     def __repr__(self):
@@ -142,11 +143,12 @@ def gzip_reader(fname, quiet=False, callback=None, done_callback=None, fileobj=N
 
 class Symbolize(object):
     'Converts strings to symbols - basically a cache of strings'
+
     def __init__(self):
         self.__cache = {}
 
     def __getitem__(self, k):
-        if not k in self.__cache:
+        if k not in self.__cache:
             self.__cache[k] = k
 
         return self.__cache[k]
@@ -154,16 +156,16 @@ class Symbolize(object):
 symbols = Symbolize()
 
 _compliments = {
-'a': 't',
-'A': 'T',
-'c': 'g',
-'C': 'G',
-'g': 'c',
-'G': 'C',
-'t': 'a',
-'T': 'A',
-'n': 'n',
-'N': 'N'
+    'a': 't',
+    'A': 'T',
+    'c': 'g',
+    'C': 'G',
+    'g': 'c',
+    'G': 'C',
+    't': 'a',
+    'T': 'A',
+    'n': 'n',
+    'N': 'N'
 }
 
 
@@ -186,6 +188,7 @@ class Counts(object):
     Setup simple binning.  Bins are continuous 0->max.  Values are added to
     bins and then means / distributions can be calculated.
     '''
+
     def __init__(self):
         self.bins = []
 
@@ -214,9 +217,10 @@ def memoize(func):
         return func
 
     __cache = {}
+
     def inner(*args, **kwargs):
         k = (args, tuple(kwargs.iteritems()))
-        if  k not in __cache:
+        if k not in __cache:
             __cache[k] = func(*args, **kwargs)
         return __cache[k]
 
