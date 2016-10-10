@@ -17,13 +17,6 @@ Dependencies of Prokka which need to be installed separately
 .. _XML::Simple: http://search.cpan.org/dist/XML-Simple/
 .. _SignalP: http://www.cbs.dtu.dk/services/SignalP/
 
-Configuration
--------------
-
-prokka tool may be configured to use more than one CPU core by selecting an appropriate destination for this tool in Galaxy job_conf.xml file (see https://wiki.galaxyproject.org/Admin/Config/Jobs and https://wiki.galaxyproject.org/Admin/Config/Performance/Cluster ).
-
-If you are using Galaxy release_2013.11.04 or later, this tool will automatically use the number of CPU cores allocated by the job runner according to the configuration of the destination selected for this tool.
-
 Version history
 ---------------
 
@@ -41,8 +34,3 @@ Version history of (now deprecated) Lionel Guy's wrapper:
 - prokka 1.1.0: Merge the wrappers by CRS4 and Lionel Guy. Add COPYING file with MIT license. Make all params optional. Add 'gffver' param. Correctly quote text params in command. Use float type for 'evalue' param. Describe output files in help. Upgrade BLAST+ dependency to v. 2.2.28. Depend on package_aragorn_1_2_36 instead of trna_prediction. Depend on package_prodigal_2_60 instead of prodigal. Depend on package_barrnap_0_2 instead of barrnap. Add PROKKA_SITE_OPTIONS to env.sh and remove 'cpus' param.
 - prokka 0.2: Added this readme file. Support Prokka 1.7. Add dependencies management.
 - prokka 0.1: Initial release in the Tool Shed, supports Prokka 1.6.
-
-Development
------------
-
-Development is hosted at https://bitbucket.org/crs4/orione-tools . Contributions and bug reports are very welcome!
