@@ -156,6 +156,27 @@ class ColorScaling(object):
         self.brewer_colour_idx += 1
         return r, g, b
 
+    def parse_menus(self, track):
+        trackConfig = {'menuTemplate': [{},{},{}]}
+
+        menu_list = [track['menus']['menu']]
+        if isinstance(track['menus']['menu'], list):
+            menu_list = track['menus']['menu']
+
+        for m in menu_list:
+            tpl = {
+                'action': m['action'],
+                'label': m['label'],
+                'title': m['title'],
+                'url': m['url'],
+                'content': m['content'],
+                'iconClass': m['iconClass'],
+            }
+            trackConfig['menuTemplate'].append(tpl)
+
+
+        return trackConfig
+
     def parse_colours(self, track, trackFormat, gff3=None):
         # Wiggle tracks have a bicolor pallete
         trackConfig = {'style': {}}
@@ -512,6 +533,9 @@ class JbrowseConnector(object):
                         outputTrackConfig['style'][subkey] = colourOptions['style'][subkey]
                 else:
                     outputTrackConfig[key] = colourOptions[key]
+
+            menus = self.cs.parse_menus(track['conf']['options'])
+            outputTrackConfig.update(menus)
 
             # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
