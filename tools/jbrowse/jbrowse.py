@@ -159,21 +159,25 @@ class ColorScaling(object):
     def parse_menus(self, track):
         trackConfig = {'menuTemplate': [{},{},{}]}
 
-        menu_list = [track['menus']['menu']]
-        if isinstance(track['menus']['menu'], list):
-            menu_list = track['menus']['menu']
+        if 'menu' in track['menus']:
+            menu_list = [track['menus']['menu']]
+            if isinstance(track['menus']['menu'], list):
+                menu_list = track['menus']['menu']
 
-        for m in menu_list:
-            tpl = {
-                'action': m['action'],
-                'label': m['label'],
-                'title': m['title'],
-                'url': m['url'],
-                'content': m['content'],
-                'iconClass': m['iconClass'],
-            }
-            trackConfig['menuTemplate'].append(tpl)
+            for m in menu_list:
+                tpl = {
+                    'action': m['action'],
+                    'label': m.get('label', '{name}'),
+                    'iconClass': m.get('iconClass', 'dijitIconBookmark'),
+                }
+                if 'url' in m:
+                    tpl['url'] = m['url']
+                if 'content' in m:
+                    tpl['content'] = m['content']
+                if 'title' in m:
+                    tpl['title'] = m['title']
 
+                trackConfig['menuTemplate'].append(tpl)
 
         return trackConfig
 
