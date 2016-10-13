@@ -341,6 +341,7 @@ class JbrowseConnector(object):
                 'perl', self._jbrowse_bin('prepare-refseqs.pl'),
                 '--fasta', genome_path])
 
+    def generate_names(self):
         # Generate name
         self.subprocess_check_call([
             'perl', self._jbrowse_bin('generate-names.pl'),
@@ -680,3 +681,4 @@ if __name__ == '__main__':
             extra_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
 
     jc.add_final_data(extra_data)
+    jc.generate_names()
