@@ -345,13 +345,20 @@ class JbrowseConnector(object):
     def generate_names(self):
         # Generate names
 
+        args = [
+            'perl', self._jbrowse_bin('generate-names.pl'),
+            '--hashBits', '16'
+        ]
+
         tracks = ','.join(self.tracksToIndex)
 
-        self.subprocess_check_call([
-            'perl', self._jbrowse_bin('generate-names.pl'),
-            '--hashBits', '16',
-            '--tracks', tracks
-        ])
+        if tracks:
+            args += ['--tracks', tracks]
+        else:
+            # No tracks to index, index only the refseq
+            args += ['--tracks', 'DNA']
+
+        self.subprocess_check_call(args)
 
     def _add_json(self, json_data):
 
@@ -420,7 +427,7 @@ class JbrowseConnector(object):
         os.unlink(gff3)
 
         if blastOpts.get('index', 'false') == 'true':
-            self.tracksToIndex.append("'%s'" % trackData['label'])
+            self.tracksToIndex.append("%s" % trackData['label'])
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
@@ -521,7 +528,7 @@ class JbrowseConnector(object):
         self.subprocess_check_call(cmd)
 
         if gffOpts.get('index', 'false') == 'true':
-            self.tracksToIndex.append("'%s'" % trackData['label'])
+            self.tracksToIndex.append("%s" % trackData['label'])
 
     def process_annotations(self, track):
         outputTrackConfig = {
