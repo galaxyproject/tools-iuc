@@ -420,7 +420,7 @@ class JbrowseConnector(object):
         os.unlink(gff3)
 
         if blastOpts.get('index', 'false') == 'true':
-            self.tracksToIndex.append("'%s'" %s trackData['label'])
+            self.tracksToIndex.append("'%s'" % trackData['label'])
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
@@ -521,7 +521,7 @@ class JbrowseConnector(object):
         self.subprocess_check_call(cmd)
 
         if gffOpts.get('index', 'false') == 'true':
-            self.tracksToIndex.append("'%s'" %s trackData['label'])
+            self.tracksToIndex.append("'%s'" % trackData['label'])
 
     def process_annotations(self, track):
         outputTrackConfig = {
