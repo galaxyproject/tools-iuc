@@ -27,6 +27,7 @@ v2.0.1  - Updated for GMAP version 2011-11-30 (by JJ, November 2011).
 v3.0.0  - Work in progress for GMAP version 2013-05-09 (by JJ, June 2013),
           never released to the main Galaxy Tool Shed.
 v3.0.1  - Various style updates (Peter Cock, October 2016).
+v3.0.2  - Updated to use GMAP version 2016-09-23 (Peter Cock, October 2016).
 ======= ======================================================================
 
 
