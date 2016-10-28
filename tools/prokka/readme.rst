@@ -6,20 +6,10 @@ Warning
 
 Prokka includes custom databases and is thus about a 340 MB download!
 
-Dependencies of Prokka which need to be installed separately
--------------------------------------------------------------
-
-- Perl core modules: File\::Copy, FindBin, Getopt::Long, List::Util, Scalar::Util, Time::Piece, Time::Seconds;
-- Perl modules: Bio::SeqIO from BioPerl_ >= 1.6.900, `XML::Simple`_;
-- SignalP_ >= 3.0 is an optional dependency to find signal peptides. For licensing reasons, it is not used in the tool wrapper.
-
-.. _BioPerl: http://search.cpan.org/dist/BioPerl/
-.. _XML::Simple: http://search.cpan.org/dist/XML-Simple/
-.. _SignalP: http://www.cbs.dtu.dk/services/SignalP/
-
 Version history
 ---------------
 
+- Release 8 (prokka 1.11.1): Use Conda for installing tool dependencies, ToolShed dependencies are not supported anymore. Add a test. The tool is now maintained by the IUC.
 - Release 7 (prokka 1.11.0): Support Prokka 1.11. Upgrade dependencies to package_barrnap_0_7, package_blast_plus_2_2_31, package_hmmer_3_1b2, package_tbl2asn_24_3.
 - Release 6 (prokka 1.4.0): Use <stdio> because prokka writes some warnings on stderr. Update Orione citation. Update Prokka citation. Support Prokka 1.10. Upgrade dependencies to package_minced_0_1_6, package_barrnap_0_5 and package_tbl2asn_23_7. Added --proteins option. Add <citations>.
 - Release 5 (prokka 1.3.0): Fix Prokka 1.8 dependency installation.
