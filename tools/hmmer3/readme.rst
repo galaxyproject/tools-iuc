@@ -29,7 +29,7 @@ The recommended installation is by means of the toolshed_.
 History
 =======
 
-* v0.2      - Add build-in hmm database for hmmscan and hmmsearch
+* v0.1.1    - hmmscan: add the possibility to scan a build-in hmm profile database
 * v0.1      - Initial public release
 
 
