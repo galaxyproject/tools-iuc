@@ -3,9 +3,10 @@ import csv
 import os
 import sys
 import traceback
+
 import matplotlib
 matplotlib.use('Agg')
-from matplotlib import pyplot
+from matplotlib import pyplot  # noqa: E402
 
 # Data outputs
 DETAILS = 'D'
@@ -47,7 +48,7 @@ class FrequencyDistribution(object):
         """
         Returns the bin in which a data point falls
         """
-        return self.start + (x-self.start) // self.binsize * self.binsize + self.binsize/2.0
+        return self.start + (x - self.start) // self.binsize * self.binsize + self.binsize / 2.0
 
     def add(self, x):
         x = self.get_bin(x)
@@ -75,7 +76,7 @@ def stop_err(msg):
 
 
 def distance(peak1, peak2):
-    return (peak2[1]+peak2[2])/2 - (peak1[1]+peak1[2])/2
+    return (peak2[1] + peak2[2]) / 2 - (peak1[1] + peak1[2]) / 2
 
 
 def gff_row(cname, start, end, score, source, type='.', strand='.', phase='.', attrs={}):
@@ -114,7 +115,7 @@ def perc95(chromosomes):
             values.append(peak[3])
     values.sort()
     # Get 95% value
-    return values[int(len(values)*0.95)]
+    return values[int(len(values) * 0.95)]
 
 
 def filter(chromosomes, threshold=0.05):
@@ -149,7 +150,7 @@ def all_pair_distribution(chromosomes, up_distance, down_distance, binsize):
 
 
 def make_keys(crick):
-    return [(data[1] + data[2])//2 for data in crick]
+    return [(data[1] + data[2]) // 2 for data in crick]
 
 
 def get_window(crick, peak, up_distance, down_distance, keys=None):
@@ -190,7 +191,7 @@ def match_closest(window, peak):
 def match_mode(window, peak, mode):
     if not window:
         return None
-    return min(window, key=lambda cpeak: abs(distance(peak, cpeak)-mode))
+    return min(window, key=lambda cpeak: abs(distance(peak, cpeak) - mode))
 
 METHODS = {'mode': match_mode, 'closest': match_closest, 'largest': match_largest}
 
@@ -351,9 +352,9 @@ def perform_process(dataset_path, galaxy_hid, method, threshold, up_distance,
                                               match[2],
                                               match[3], '-',
                                               midpoint,
-                                              peak[3]+match[3],
+                                              peak[3] + match[3],
                                               d))
-                i = bisect.bisect_left(keys, (match[1]+match[2])/2)
+                i = bisect.bisect_left(keys, (match[1] + match[2]) / 2)
                 del crick[i]
                 del keys[i]
             else:

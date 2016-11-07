@@ -34,7 +34,7 @@ try:
     for line in len_file:
         fields = line.split("\t")
         chrom_lens[fields[0]] = int(fields[1])
-except Exception, e:
+except Exception as e:
     len_file_error = str(e)
 
 with open(args.input) as fhi:

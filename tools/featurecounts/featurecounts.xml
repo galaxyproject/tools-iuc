@@ -1,104 +1,91 @@
-<tool id="featurecounts" name="featureCounts" version="1.4.6.p5">
+<tool id="featurecounts" name="featureCounts" version="1.4.6.p5" profile="16.04">
     <description>Measure gene expression in RNA-Seq experiments from SAM or BAM files.</description>
     <requirements>
         <requirement type="package" version="1.4.6p5">subread</requirement>
     </requirements>
-    <stdio>
-        <!-- Anything other than zero is an error -->
-        <exit_code range="1:" />
-        <exit_code range=":-1" />
-    </stdio>
+
     <version_command>featureCounts -v 2&gt;&amp;1 | grep .</version_command>
     <command><![CDATA[
         ## Check whether all alignments are from the same type (bam || sam)
-        #if len({ alignment.extension:True for alignment in $alignments }.keys()) != 1
-            echo "Either all files must be SAM or all files must be BAM, no mixture is allowed." >&2 &&
-            exit 1
+        featureCounts
+            -a "$reference_gene_sets"
+            -o "output"
+            -T \${GALAXY_SLOTS:-2}
+
+            -t "$extended_parameters.gff_feature_type"
+            -g "$extended_parameters.gff_feature_attribute"
+                $extended_parameters.summarization_level
+                $extended_parameters.contribute_to_multiple_features
+            -s  $extended_parameters.strand_specificity
+                $extended_parameters.multimapping_enabled.multimapping_counts
+
+                #if str($extended_parameters.multimapping_enabled.multimapping_counts) == " -M"
+                    $extended_parameters.multimapping_enabled.fraction
+                #end if
+
+            -Q  $extended_parameters.mapping_quality
+                $extended_parameters.largest_overlap
+  --minOverlap  $extended_parameters.min_overlap
+                $extended_parameters.read_reduction
+                $extended_parameters.primary
+                $extended_parameters.ignore_dup
+
+                #if str($extended_parameters.read_extension_5p) != "0"
+                    --readExtension5 $extended_parameters.read_extension_5p
+                #end if
+
+                #if str($extended_parameters.read_extension_3p) != "0"
+                    --readExtension3 $extended_parameters.read_extension_3p
+                #end if
+
+                $pe_parameters.fragment_counting_enabled.fragment_counting
+                #if str($pe_parameters.fragment_counting_enabled.fragment_counting) == " -p"
+                    $pe_parameters.fragment_counting_enabled.check_distance_enabled.check_distance
+                    #if str($pe_parameters.fragment_counting_enabled.check_distance_enabled.check_distance) == " -P"
+                        -d $pe_parameters.fragment_counting_enabled.check_distance_enabled.minimum_fragment_length
+                        -D $pe_parameters.fragment_counting_enabled.check_distance_enabled.maximum_fragment_length
+                    #end if
+                #end if
+
+                $pe_parameters.only_both_ends
+            -S  $pe_parameters.orientation
+                $pe_parameters.exclude_chimerics
+
+        "${alignment}"
+
+        ## Removal of comment and column-header line
+        && grep -v "^#" "output" | tail -n+2 > body.txt
+
+        ## Set the right columns for the tabular formats
+        #if $format.value == "tabdel_medium"
+            && cut -f 1,7 body.txt > expression_matrix.txt
+
+            ## Paste doesn't allow a non ordered list of columns: -f 1,7,8,6 will only return columns 1,7 and 8
+            ## Thus the gene length column (last column) has to be added separately
+            && cut -f 6 body.txt > gene_lengths.txt
+            && paste expression_matrix.txt gene_lengths.txt > expression_matrix.txt.bak
+            && mv -f expression_matrix.txt.bak "${output_medium}"
+        #elif $format.value == "tabdel_short"
+            && cut -f 1,7 body.txt > "${output_short}"
         #else
-            featureCounts
-                -a "$reference_gene_sets"
-                -o "output"
-                -T \${GALAXY_SLOTS:-2}
-
-                -t "$extended_parameters.gff_feature_type"
-                -g "$extended_parameters.gff_feature_attribute"
-                    $extended_parameters.summarization_level
-                    $extended_parameters.contribute_to_multiple_features
-                -s  $extended_parameters.strand_specificity
-                    $extended_parameters.multimapping_enabled.multimapping_counts
-
-                    #if str($extended_parameters.multimapping_enabled.multimapping_counts) == " -M"
-                        $extended_parameters.multimapping_enabled.fraction
-                    #end if
-
-                -Q  $extended_parameters.mapping_quality
-                    $extended_parameters.largest_overlap
-      --minOverlap  $extended_parameters.min_overlap
-                    $extended_parameters.read_reduction
-                    $extended_parameters.primary
-                    $extended_parameters.ignore_dup
-
-                    #if str($extended_parameters.read_extension_5p) != "0"
-                        --readExtension5 $extended_parameters.read_extension_5p
-                    #end if
-
-                    #if str($extended_parameters.read_extension_3p) != "0"
-                        --readExtension3 $extended_parameters.read_extension_3p
-                    #end if
-
-                    $pe_parameters.fragment_counting_enabled.fragment_counting
-                    #if str($pe_parameters.fragment_counting_enabled.fragment_counting) == " -p"
-                        $pe_parameters.fragment_counting_enabled.check_distance_enabled.check_distance
-                        #if str($pe_parameters.fragment_counting_enabled.check_distance_enabled.check_distance) == " -P"
-                            -d $pe_parameters.fragment_counting_enabled.check_distance_enabled.minimum_fragment_length
-                            -D $pe_parameters.fragment_counting_enabled.check_distance_enabled.maximum_fragment_length
-                        #end if
-                    #end if
-
-                    $pe_parameters.only_both_ends
-                -S  $pe_parameters.orientation
-                    $pe_parameters.exclude_chimerics
-
-                #for $alignment in $alignments
-                   "${alignment}"
-                #end for
-
-
-            ## Convert file format(s)
-            #set $columns = [str(i+7) for i, alignment in enumerate($alignments)]
-            #set $columns =",".join($columns)
-
-            ## Separate the comments  and column header from the table, they're added as metadata
-            && grep -v "^#" "output" | tail -n+2 > body.txt
-
-            ## Set the right columns for the tabular formats
-            #if $format.value == "tabdel_default"
-                && cut -f 1,$columns body.txt > expression_matrix.txt
-
-                ## Paste doesn't allow a non ordered list of columns: -f 1,7,8,6 will only return columns 1,7 and 8
-                ## Thus the gene length column (last column) has to be added separately
-                && cut -f 6 body.txt > gene_lengths.txt
-                && paste expression_matrix.txt gene_lengths.txt > expression_matrix.txt.bak
-                && mv -f expression_matrix.txt.bak "${output_default}"
-            #elif $format.value == "tabdel_short"
-                && cut -f 1,$columns body.txt > "${output_short}"
-            #else
-                && cp body.txt "${output_full}"
-            #end if
-
-            #if str($include_feature_length_file) == "true"
-                && cut -f 1,6 body.txt > "${output_feature_lengths}"
-            #end if
-
-            && tail -n+2 "output.summary" > "${output_summary}"
+            && cp body.txt "${output_full}"
         #end if
+        
+
+        #if str($include_feature_length_file) == "true"
+            && cut -f 1,6 body.txt > "${output_feature_lengths}"
+        #end if
+
+        && tail -n+2 "output.summary" > "${output_summary}"
+
     ]]></command>
     <inputs>
-        <param name="alignments"
+        <param name="alignment"
                type="data"
+               multiple="false"
                format="bam,sam"
                label="Alignment file"
-               help="The input alignment file(s) where the gene expression has to be counted. The file can have a SAM or BAM format; but ALL files must be in the same format" multiple="true" />
+               help="The input alignment file(s) where the gene expression has to be counted. The file can have a SAM or BAM format; but ALL files must be in the same format" />
         
         <param name="reference_gene_sets"
                format="gff,gtf,gff3"
@@ -110,8 +97,8 @@
                type="select"
                label="Output format"
                help="The output format will be tabular, select the preferred columns here">
-            <option value="tabdel_default">Gene-ID "\t" read-count "\t" gene-length</option>
-            <option value="tabdel_short" selected="true">Gene-ID "\t" read-count</option>
+            <option value="tabdel_short" selected="true">Gene-ID "\t" read-count (DESeq2 IUC wrapper compatible)</option>
+            <option value="tabdel_medium">Gene-ID "\t" read-count "\t" gene-length</option>
             <option value="tabdel_full">featureCounts 1.4.0+ default (includes regions provided by the GTF file)</option>
         </param>
         
@@ -119,9 +106,78 @@
                type="boolean"
                truevalue="true"
                falsevalue="false"
-               selected="false"
+               checked="false"
                label="Create gene-length file"
                help="Creates a tabular file that contains the effective (nucleotides used for counting reads) length of the feature; might be useful for estimating FPKM/RPKM" />
+
+
+        <section name="pe_parameters" title="Options for paired-end reads">
+            <conditional name="fragment_counting_enabled">
+
+                <param name="fragment_counting"
+                       type="select"
+                       argument="-p"
+                       checked="true"
+                       label="Count fragments instead of reads"
+                       help="If specified, fragments (or templates) will be counted instead of reads.">
+                    <option value="" selected="true">Disabled; all reads/mates will be counted individually</option>
+                    <option value=" -p">Enabled; fragments (or templates) will be counted instead of reads</option>
+                </param>
+
+                <when value=" -p">
+                    <conditional name="check_distance_enabled">
+                        <param name="check_distance"
+                            type="boolean"
+                            truevalue=" -P"
+                            falsevalue=""
+                            argument="-P"
+                            label="Check paired-end distance"
+                            help="If specified, paired-end distance will be checked when assigning fragments to meta-features or features. This option is only applicable when -p (Count fragments instead of reads) is specified. The distance thresholds should be specified using -d and -D (minimum and maximum fragment/template length) options." />
+                        <when value=" -P">
+                            <param name="minimum_fragment_length"
+                                   type="integer"
+                                   value="50"
+                                   argument="-d"
+                                   label="Minimum fragment/template length." />
+                            <param name="maximum_fragment_length"
+                                   type="integer"
+                                   value="600"
+                                   argument="-D"
+                                   label="Maximum fragment/template length." />
+                        </when>
+                        <when value="" />
+                    </conditional>
+                </when>
+                <when value="" />
+            </conditional>
+            
+            <param name="only_both_ends"
+                   type="boolean"
+                   truevalue=" -B"
+                   falsevalue=""
+                   argument="-B"
+                   label="Only allow fragments with both reads aligned"
+                   help="If specified, only fragments that have both ends successfully aligned will be considered for summarization. This option is only applicable for paired-end reads." />
+
+            <param name="orientation"
+                   type="select"
+                   label="Orientation of the two read from the same pair"
+                   argument="-S"
+                   help="Default is 'fr'">
+                <option value="fr" selected="true">Forward, Reverse (fr)</option>
+                <option value="ff">Forward, Forward (ff)</option>
+                <option value="rf">Reverse, Forward (rf)</option>
+            </param>
+
+            <param name="exclude_chimerics"
+                type="boolean"
+                truevalue=" -C"
+                falsevalue=""
+                argument="-C"
+                checked="true"
+                label="Exclude chimeric fragments"
+                help="If specified, the chimeric fragments (those fragments that have their two ends aligned to different chromosomes) will NOT be included for summarization. This option is only applicable for paired-end read data." />
+        </section>
         
         <section name="extended_parameters" title="Advanced options">
             <param name="gff_feature_type"
@@ -166,12 +222,13 @@
 
             <conditional name="multimapping_enabled">
                 <param name="multimapping_counts"
-                       type="boolean"
-                       truevalue=" -M"
-                       falsevalue=""
+                       type="select"
                        argument="-M"
                        label="Count multi-mapping reads/fragments"
-                       help="If specified, multi-mapping reads/fragments will be counted (ie. a multi-mapping read will be counted up to N times if it has N reported mapping locations). The program uses the `NH' tag to find multi-mapping reads." />
+                       help="If specified, multi-mapping reads/fragments will be counted (ie. a multi-mapping read will be counted up to N times if it has N reported mapping locations). The program uses the `NH' tag to find multi-mapping reads.">
+                    <option value="" selected="true">Disabled; multi-mapping reads are excluded (default)</option>
+                    <option value=" -M">Enabled; multi-mapping reads are included</option>
+                </param>
                 <when value=" -M">
                     <param name="fraction"
                            type="boolean"
@@ -254,112 +311,47 @@
                    label="Ignore reads marked as duplicate"
                    help="If specified, only split alignments (CIGARstrings containing letter `N') will be counted. All the otheralignments will be ignored. An example of split alignments isthe exon-spanning reads in RNA-seq data." />
         </section>
-        
-        <section name="pe_parameters" title="Options for paired-end reads">
-            <conditional name="fragment_counting_enabled">
-                <param name="fragment_counting"
-                   type="boolean"
-                   truevalue=" -p"
-                   falsevalue=""
-                   argument="-p"
-                   checked="true"
-                   label="Count fragments instead of reads"
-                   help="If specified, fragments (or templates) will be counted instead of reads." />
-                <when value=" -p">
-                    <conditional name="check_distance_enabled">
-                        <param name="check_distance"
-                            type="boolean"
-                            truevalue=" -P"
-                            falsevalue=""
-                            argument="-P"
-                            label="Check paired-end distance"
-                            help="If specified, paired-end distance will be checked when assigning fragments to meta-features or features. This option is only applicable when -p (Count fragments instead of reads) is specified. The distance thresholds should be specified using -d and -D (minimum and maximum fragment/template length) options." />
-                        <when value=" -P">
-                            <param name="minimum_fragment_length"
-                                   type="integer"
-                                   value="50"
-                                   argument="-d"
-                                   label="Minimum fragment/template length." />
-                            <param name="maximum_fragment_length"
-                                   type="integer"
-                                   value="600"
-                                   argument="-D"
-                                   label="Maximum fragment/template length." />
-                        </when>
-                        <when value="" />
-                    </conditional>
-                </when>
-                <when value="" />
-            </conditional>
-            
-            <param name="only_both_ends"
-                   type="boolean"
-                   truevalue=" -B"
-                   falsevalue=""
-                   argument="-B"
-                   label="Only allow fragments with both reads aligned"
-                   help="If specified, only fragments that have both ends successfully aligned will be considered for summarization. This option is only applicable for paired-end reads." />
-
-            <param name="orientation"
-                   type="select"
-                   label="Orientation of the two read from the same pair"
-                   argument="-S"
-                   help="Default is 'fr'">
-                <option value="fr" selected="true">Forward, Reverse (fr)</option>
-                <option value="ff">Forward, Forward (ff)</option>
-                <option value="rf">Reverse, Forward (ff)</option>
-            </param>
-
-            <param name="exclude_chimerics"
-                type="boolean"
-                truevalue=" -C"
-                falsevalue=""
-                argument="-C"
-                checked="true"
-                label="Exclude chimeric fragments"
-                help="If specified, the chimeric fragments (those fragments that have their two ends aligned to different chromosomes) will NOT be included for summarization. This option is only applicable for paired-end read data." />
-        </section>
     </inputs>
     <outputs>
         <data format="tabular"
-              name="output_default"
-              label="${tool.name} on ${', '.join([ str(a.hid)+': '+a.name for a in $alignments ])}">
-            <filter>format == "tabdel_default"</filter>
+              name="output_medium"
+              label="${tool.name} on ${on_string}">
+            <filter>format == "tabdel_medium"</filter>
             <actions>
-                <action name="column_names" type="metadata" default="Geneid,${','.join([ a.name for a in $alignments  ])},Length" />
+                <action name="column_names" type="metadata" default="Geneid,${alignment.name},Length" />
             </actions>
         </data>
 
         <data format="tabular"
               name="output_short"
-              label="${tool.name} on ${', '.join([ str(a.hid)+': '+a.name for a in $alignments ])}">
+              label="${tool.name} on ${on_string}">
             <filter>format == "tabdel_short"</filter>
             <actions>
-                <action name="column_names" type="metadata" default="Geneid,${','.join([ a.name for a in $alignments  ])}" />
+                <action name="column_names" type="metadata" default="Geneid,${alignment.name}" />
             </actions>
         </data>
 
         <data format="tabular"
               name="output_full"
-              label="${tool.name} on ${', '.join([ str(a.hid)+': '+a.name for a in $alignments ])}">
+              label="${tool.name} on ${on_string}: count table">
             <filter>format == "tabdel_full"</filter>
             <actions>
-                <action name="column_names" type="metadata" default="Geneid,Chr,Start,End,Strand,Length,${','.join([ a.name for a in $alignments  ])}" />
+                <action name="column_names" type="metadata" default="Geneid,Chr,Start,End,Strand,Length,${alignment.name}" />
             </actions>
         </data>
 
         <data format="tabular"
               name="output_summary"
               hidden="true"
-              label="${tool.name} on ${', '.join([ str(a.hid)+': '+a.name for a in $alignments ])} summary">
+              label="${tool.name} on ${on_string}: summary">
             <actions>
-                <action name="column_names" type="metadata" default="Status,${','.join([ a.name for a in $alignments  ])}" />
+                <action name="column_names" type="metadata" default="Status,${alignment.name}" />
             </actions>
         </data>
 
         <data format="tabular"
               name="output_feature_lengths"
-              label="${tool.name} on ${', '.join([ str(a.hid)+': '+a.name for a in $alignments ])} feature lengths">
+              label="${tool.name} on ${on_string}: feature lengths">
               <filter>include_feature_length_file</filter>
             <actions>
                 <action name="column_names" type="metadata" default="Feature,Length" />
@@ -368,34 +360,55 @@
     </outputs>
     <tests>
         <test>
-            <param name="alignments" value="featureCounts_input1.bam,featureCounts_input2.bam" ftype="bam" />
+            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" />
             <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" />
             <param name="format" value="tabdel_short" />
-            <output name="output" file="output__short.tab"/>
-            <output name="output_summary" file="output_summary.tab"/>
+            <param name="include_feature_length_file" value="true"/>
+            <output name="output" file="output_1_short.tab"/>
+            <output name="output_summary" file="output_1_summary.tab"/>
         </test>
         <test>
-            <param name="alignments" value="featureCounts_input1.bam,featureCounts_input2.bam" ftype="bam" />
+            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" />
             <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" />
-            <param name="format" value="tabdel_default" />
-            <output name="output" file="output__tabdel_with_gene_length.tab"/>
-            <output name="output_summary" file="output_summary.tab"/>
+            <param name="format" value="tabdel_medium" />
+            <param name="include_feature_length_file" value="true"/>
+            <output name="output" file="output_1_medium.tab"/>
+            <output name="output_summary" file="output_1_summary.tab"/>
         </test>
         <test>
-            <param name="alignments" value="featureCounts_input1.bam,featureCounts_input2.bam" ftype="bam" />
+            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" />
             <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" />
             <param name="format" value="tabdel_full" />
-            <output name="output" file="output__full.tab"/>
-            <output name="output_summary" file="output_summary.tab"/>
+            <param name="include_feature_length_file" value="true"/>
+            <output name="output" file="output_1_full.tab"/>
+            <output name="output_summary" file="output_1_summary.tab"/>
+            <output name="output_feature_lengths" file="output_feature_lengths.tab"/>
+        </test>
+        
+        <test>
+            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" />
+            <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" />
+            <param name="format" value="tabdel_short" />
+            <param name="include_feature_length_file" value="true"/>
+            <output name="output" file="output_2_short.tab"/>
+            <output name="output_summary" file="output_2_summary.tab"/>
         </test>
         <test>
-            <param name="alignments" value="featureCounts_input1.bam,featureCounts_input2.bam" ftype="bam" />
+            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" />
             <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" />
-            <param name="format" value="tabdel_short"/>
+            <param name="format" value="tabdel_medium" />
             <param name="include_feature_length_file" value="true"/>
-            <output name="output" file="output__short.tab"/>
-            <output name="output_summary" file="output_summary.tab"/>
-            <output name="output_feature_lengths" file="output_feature_length.tab"/>
+            <output name="output" file="output_2_medium.tab"/>
+            <output name="output_summary" file="output_2_summary.tab"/>
+        </test>
+        <test>
+            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" />
+            <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" />
+            <param name="format" value="tabdel_full" />
+            <param name="include_feature_length_file" value="true"/>
+            <output name="output" file="output_2_full.tab"/>
+            <output name="output_summary" file="output_2_summary.tab"/>
+            <output name="output_feature_lengths" file="output_feature_lengths.tab"/>
         </test>
     </tests>
     
@@ -419,6 +432,9 @@ Gene regions should be provided in the GFF/GTF format:
  - http://genome.ucsc.edu/FAQ/FAQformat.html#format3
  - http://www.ensembl.org/info/website/upload/gff.html
 
+Output format
+-------------
+FeatureCounts produces a table containing counted reads, per gene, per row. Optionally the last column can be set to be the effective gene-length. These tables are compatible with the DESeq2 Galaxy wrapper by IUC. Column names are added as metadata object.
     ]]></help>
     <citations>
         <citation type="doi">10.1093/bioinformatics/btt656</citation>

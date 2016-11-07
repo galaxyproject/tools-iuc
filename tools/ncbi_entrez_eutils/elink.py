@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 import argparse
-import eutils
 import json
+
+import eutils
 
 
 if __name__ == '__main__':
@@ -9,8 +10,8 @@ if __name__ == '__main__':
     parser.add_argument('db', help='Database to use, sometimes "none" (e.g. *check)')
     parser.add_argument('dbfrom', help='Database containing input UIDs')
     parser.add_argument('cmd', choices=['neighbor', 'neighbor_score',
-                        'neighbor_history', 'acheck', 'ncheck', 'lcheck',
-                        'llinks', 'llinkslib', 'prlinks'],
+                                        'neighbor_history', 'acheck', 'ncheck', 'lcheck',
+                                        'llinks', 'llinkslib', 'prlinks'],
                         help='ELink command mode')
     # Only used in case of neighbor_history
     parser.add_argument('--history_out', type=argparse.FileType('w'),

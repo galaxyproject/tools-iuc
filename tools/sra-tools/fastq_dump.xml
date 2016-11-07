@@ -1,18 +1,27 @@
-<tool id="fastq_dump" name="Extract reads" version="1.2.5">
+<tool id="fastq_dump" name="Extract reads" version="@VERSION@">
     <description>in FASTQ/A format from NCBI SRA.</description>
     <macros>
         <import>sra_macros.xml</import>
     </macros>
     <expand macro="requirements"/>
-    <stdio>
-        <exit_code range="127" level="fatal" description="Could not locate fastq-dump binary"/>
-    </stdio>
     <version_command>fastq-dump --version</version_command>
-    <command>
+    <command detect_errors="exit_code">
         <![CDATA[
+
+    #if $input.input_select=="file_list":
+      for acc in `cat $input.file_list` ;
+      do
+    #elif $input.input_select=="accession_number":
+      acc="$input.accession" &&
+    #end if
+
+    #if $input.input_select=="file_list" or $input.input_select=="accession_number":
+          [ ""\$acc" =~ ^[E|S|D]RR[0-9]{1,}$" ] && (
+    #end if
+
     ## Need to set the home directory to the current working directory,
-    ## else the tool tries to write to home/.ncbi and fails when used 
-    ## with a cluster manager. 
+    ## else the tool tries to write to home/.ncbi and fails when used
+    ## with a cluster manager.
     export HOME=\$PWD &&
     vdb-config --restore-defaults &&
     #if $input.input_select == "file":
@@ -24,15 +33,16 @@
         #if ( str( $adv.region ) == "" ) and ( str( $adv.minID ) == "" ) and ( str( $adv.maxID ) == "" ):
             ASCP_PATH=`command -v ascp` &&
             ASCP_KEY=`dirname \$ASCP_PATH`/asperaweb_id_dsa.openssh || true &&
-            prefetch --ascp-path "\$ASCP_PATH|\$ASCP_KEY" $input.accession &&
+            prefetch -X 200G --ascp-path "\$ASCP_PATH|\$ASCP_KEY" "\$acc" &&
             ## Duplicate vdb-config, in case settings changed between prefetch and
             ## dump command.
             vdb-config -s "/repository/user/main/public/root=\$PWD" &&
-            #end if
-        fastq-dump --accession "$input.accession"
+        #end if
+        fastq-dump --accession "\$acc"
+        --split-files
     #end if
     --defline-seq '@\$sn[_\$rn]/\$ri'
-    --stdout
+
     $adv.split
     #if str( $adv.alignments ) == "aligned":
         --aligned
@@ -63,14 +73,45 @@
     #end if
     $adv.clip
     $adv.skip_technical
+
     #if str( $outputformat ) == "fasta":
         --fasta
     #end if
     #if $input.input_select=="file":
+        --stdout
         "$input.file" > "$output_file"
+    #elif $input.input_select=="file_list":
+        "\$acc"
     #else:
-        "$input.accession" > "$output_accession"
+         --stdout
+        "\$acc" > "$output_accession" )
     #end if
+
+    #if $input.input_select=="file_list":
+    ) ; done
+
+    ;
+
+
+    #if str( $outputformat ) == "fasta":
+
+        for f in *_2.fasta ; do   mv "\$f" "`basename \$f _2.fasta`_reverse.fasta" ;  mv "`basename \$f _2.fasta`_1.fasta" "`basename \$f _2.fasta`_forward.fasta"  ; done &&
+        for f in *_1.fasta; do mv "\$f" "`basename \$f _1.fasta`__single.fasta"; done
+
+    #else:
+
+        for f in *_2.fastq ; do   mv "\$f" "`basename \$f _2.fastq`_reverse.fastq" ;  mv "`basename \$f _2.fastq`_1.fastq" "`basename \$f _2.fastq`_forward.fastq"  ; done &&
+        for f in *_1.fastq; do mv "\$f" "`basename \$f _1.fastq`__single.fastq"; done
+
+    #end if
+
+
+
+
+
+    #end if
+
+
     ]]>
     </command>
     <inputs>
@@ -105,45 +146,62 @@
         </section>
     </inputs>
     <outputs>
-        <data format="fastq" name="output_accession" label="${input.accession}.${outputformat}">
-            <filter>input['input_select'] == "accession_number"</filter>
-            <change_format>
-                <when input="outputformat" value="fasta" format="fasta"/>
-            </change_format>
-        </data>
-        <data format="fastq" name="output_file" label="${input.file.name}.${outputformat}">
-            <filter>input['input_select'] == "file"</filter>
-            <change_format>
-                <when input="outputformat" value="fasta" format="fasta"/>
-            </change_format>
-        </data>
+      <collection name="list_paired" type="list:paired" label="Pair-end Fast(q|a)">
+        <filter>input['input_select'] == "file_list"</filter>
+        <!-- Use named regex group to grab pattern
+             <identifier_0>_<identifier_1>.fq. Here identifier_0 is the list
+             identifier in the nested collection and identifier_1 is either
+             forward or reverse (for instance samp1_forward.fq).
+        -->
+        <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_(?P&lt;identifier_1&gt;[^_]+)\.fastq" ext="fastqsanger" visible="false" />
+        <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_(?P&lt;identifier_1&gt;[^_]+)\.fasta" ext="fasta" visible="false" />
+      </collection>
+      <collection name="output_collection" type='list' label="Single-end Fast(q|a)">
+        <filter>input['input_select'] == "file_list"</filter>
+        <discover_datasets pattern="(?P&lt;designation&gt;.+)__single\.fastq" directory="." ext='fastqsanger'/>
+        <discover_datasets pattern="(?P&lt;designation&gt;.+)__single\.fasta" directory="." ext='fasta'/>
+      </collection>
+      <data format="fastqsanger" name="output_accession" >
+        <filter>input['input_select'] == "accession_number"</filter>
+        <change_format>
+          <when input="outputformat" value="fasta" format="fasta"/>
+        </change_format>
+      </data>
+      <data format="fastqsanger" name="output_file" label="${input.file.name}.${outputformat}">
+        <filter>input['input_select'] == "file"</filter>
+        <change_format>
+          <when input="outputformat" value="fasta" format="fasta"/>
+        </change_format>
+      </data>
     </outputs>
     <tests>
-        <test>
-            <param name="input_select" value="accession_number"/>
-            <param name="outputformat" value="fastqsanger"/>
-            <param name="accession" value="SRR044777"/>
-            <param name="skip_technical" value="True"/>
-            <output name="output_accession">
-                <assert_contents>
-                    <not_has_text text="rRNA_primer"/>
-                    <has_text text="F47USSH02GNP1D" />
-                </assert_contents>
-            </output>
-        </test>
-        <test>
-            <param name="input_select" value="accession_number"/>
-            <param name="outputformat" value="fastqsanger"/>
-            <param name="accession" value="SRR925743"/>
-            <param name="maxID" value="5"/>
-            <output name="output_accession" file="fastq_dump_result.fastq" ftype="fastq"/>
-        </test>
+      <test>
+        <param name="input_select" value="accession_number"/>
+        <param name="outputformat" value="fastqsanger"/>
+        <param name="accession" value="SRR044777"/>
+        <param name="skip_technical" value="True"/>
+        <output name="output_accession">
+          <assert_contents>
+            <not_has_text text="rRNA_primer"/>
+            <has_text text="F47USSH02GNP1D" />
+          </assert_contents>
+        </output>
+      </test>
+      <test>
+        <param name="input_select" value="accession_number"/>
+        <param name="outputformat" value="fastqsanger"/>
+        <param name="accession" value="SRR925743"/>
+        <param name="maxID" value="5"/>
+        <output name="output_accession" file="fastq_dump_result.fastq" ftype="fastqsanger"/>
+      </test>
     </tests>
     <help>
         This tool extracts reads from SRA archives using fastq-dump.
         The fastq-dump program is developed at NCBI, and is available at
         http://www.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?view=software.
+
+        NB: Single-end or pair-end collections may be empty if given SRRs LibraryLayout contains only either SINGLE or PAIRED respectively
         @SRATOOLS_ATTRRIBUTION@
     </help>
     <expand macro="citation"/>
-</tool>
+  </tool>

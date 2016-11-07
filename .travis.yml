@@ -1,24 +1,52 @@
+sudo: false
 language: python
 python: 2.7
 
+# This is a big repository so break Travis CI work into 4 CI jobs.
+env:
+  - CHUNK=0
+  - CHUNK=1
+  - CHUNK=2
+  - CHUNK=3
+
 before_install:
   - export GALAXY_REPO=https://github.com/galaxyproject/galaxy
-  - export GALAXY_RELEASE=release_16.01
-  - export CONDA_PREFIX=$HOME/conda
+  - export GALAXY_RELEASE=release_16.07
+  - export PLANEMO_CONDA_PREFIX="$HOME/conda"
 
 install:
-  - pip install -q click==5.1
-  - pip install -q https://github.com/galaxyproject/planemo/archive/86328a6a1fd3cc589eeb61337202c49c673ae98a.tar.gz
-  - planemo conda_init --conda_prefix $CONDA_PREFIX
-  - export PATH=$CONDA_PREFIX/bin:$PATH
-  - conda create -y -q -c bioconda --name iuc_conda numpy==1.9.2 samtools bcftools
-  - source activate iuc_conda
+  - pip install flake8 planemo
+  - planemo conda_init
+  - export PATH="$PLANEMO_CONDA_PREFIX/bin:$PATH"
+  - conda create -y -q -c bioconda --name iuc_conda samtools=0.1.19 bcftools
+  - . activate iuc_conda
   - planemo --version
+  - conda --version
+  - git diff --quiet "$TRAVIS_COMMIT_RANGE" -- ; GIT_DIFF_EXIT_CODE=$?
+  - |
+    if [ "$GIT_DIFF_EXIT_CODE" -gt 1 ] ; then
+      git remote set-branches --add origin master;
+      git fetch;
+      TRAVIS_COMMIT_RANGE=origin/master...;
+    fi
   - echo $TRAVIS_COMMIT_RANGE
-  - planemo shed_lint --report_level warn --tools --fail_level error --recursive .
-  - git diff --name-only $TRAVIS_COMMIT_RANGE | xargs -n1 dirname | ./filter_directories.py | sort -u > changed_repositories.list
-  - cat changed_repositories.list
+  - |
+      planemo ci_find_repos --exclude_from .tt_blacklist \
+                            --exclude packages --exclude data_managers \
+                            --changed_in_commit_range "$TRAVIS_COMMIT_RANGE" \
+                            --chunk_count 4 --chunk "${CHUNK}" \
+                            --output changed_repositories_chunk.list
+  - cat changed_repositories_chunk.list
 
 script:
-  - for DIR in `cat changed_repositories.list`; do planemo conda_install --conda_ensure_channels iuc,bioconda,r --conda_prefix $CONDA_PREFIX $DIR ; done
-  - for DIR in `cat changed_repositories.list`; do planemo test --conda_dependency_resolution --conda_prefix $CONDA_PREFIX --galaxy_branch $GALAXY_RELEASE  --galaxy_source $GALAXY_REPO --skip_venv $DIR || exit 1; done
+  - cd "$TRAVIS_BUILD_DIR" && flake8 --exclude=.git .
+  - while read -r DIR; do planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive "$DIR" || exit 1; done < changed_repositories_chunk.list
+  - while read -r DIR; do planemo conda_install "$DIR"; done < changed_repositories_chunk.list
+  - while read -r DIR; do planemo test --conda_dependency_resolution --galaxy_branch "$GALAXY_RELEASE" --galaxy_source "$GALAXY_REPO" "$DIR" || exit 1; done < changed_repositories_chunk.list
+
+after_success:
+  - |
+    if [ "$TRAVIS_PULL_REQUEST" == "false" -a "$TRAVIS_BRANCH" == "master" ]; then
+      while read -r DIR; do planemo shed_update --shed_target testtoolshed --shed_email "$SHED_EMAIL" --shed_password "$SHED_PASSWORD" --force_repository_creation "$DIR" || exit 1; done < changed_repositories_chunk.list
+      while read -r DIR; do planemo shed_update --shed_target toolshed --shed_email "$SHED_EMAIL" --shed_password "$SHED_PASSWORD" --force_repository_creation "$DIR" || exit 1; done < changed_repositories_chunk.list
+    fi
