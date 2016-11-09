@@ -193,13 +193,14 @@ def printNumber(num):
 # Get search results
 def getResults(domain, query, fields, size='', start='', fieldurl='', viewurl='', sortfield='', order='', sort=''):
     printDebugMessage('getResults', 'Begin', 1)
-    requestUrl = baseUrl + '/' + domain + '?query=' + query +'&fields=' + fields + '&size=' + size + '&start=' + start + '&fieldurl=' + fieldurl + '&viewurl=' + viewurl + '&sortfield=' + sortfield + '&order=' + order + '&sort=' + sort
+    requestUrl = baseUrl + '/' + domain + '?query=' + query +'&fields=' + fields + '&size=' + size + '&start=' + start + '&fieldurl=' + fieldurl + '&viewurl=' + viewurl + '&sortfield=' + sortfield + '&order=' + order + '&sort=' + sort + '&format=tsv'
     printDebugMessage('getResults', requestUrl, 2)
-    xmlDoc = restRequest(requestUrl)
-    doc = xmltramp.parse(xmlDoc)
-    entries = doc['entries']['entry':]
-    printEntries(entries)
-    printDebugMessage('getResults', 'End', 1)
+    output = restRequest(requestUrl)
+    #doc = xmltramp.parse(xmlDoc)
+    #entries = doc['entries']['entry':]
+    #printEntries(entries)
+    #printDebugMessage('getResults', 'End', 1)
+    print(output)
 
 def printEntries(entries):
     printDebugMessage('printEntries', 'Begin', 1)
