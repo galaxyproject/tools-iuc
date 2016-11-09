@@ -93,9 +93,9 @@ def add_option(value, name):
     to_write += "</option>\n"
     return to_write
 
-def add_select_parameter(name, label):
+def add_select_parameter(name, label, multiple = "false"):
     to_write = "<param name=\"" + name + "\" type=\"select\" "
-    to_write += "label=\"" + label + "\">\n"
+    to_write += "label=\"" + label + "\" multiple=\"" + multiple + "\">\n"
     return to_write
 
 def write_macros_file(macros_filepath, domains_fields):
@@ -117,8 +117,7 @@ def write_macros_file(macros_filepath, domains_fields):
         to_write += 3*spaces + "<when value=\"" + domain + "\">\n"
 
         to_write += 4*spaces + add_select_parameter("fields",
-        "Fields to extract")
-
+        "Fields to extract", multiple = "true")
         for field in domains_fields[domain]["retrievable_fields"]:
             to_write += 5*spaces + add_option(field, field)
 
