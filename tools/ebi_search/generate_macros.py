@@ -72,8 +72,8 @@ def extract_a_domain_fields(domain):
 
     domain_info = {}
     domain_info["name"] = domain_name
-    domain_info["searchable_fields"] = searchable_fields
-    domain_info["retrievable_fields"] = retrievable_fields
+    domain_info["searchable_fields"] = sorted(searchable_fields)
+    domain_info["retrievable_fields"] = sorted(retrievable_fields)
 
     return domain_id, domain_info
 
@@ -106,13 +106,14 @@ def write_macros_file(macros_filepath, domains_fields):
     to_write += 2*spaces + "<conditional name=\"searched_domain\">\n"
     to_write += 3*spaces + add_select_parameter("domain", "Domain to query")
 
-    for domain in domains_fields:
+    sorted_domains = sorted(list(domains_fields.keys()))
+    for domain in sorted_domains:
         to_write += 4*spaces + add_option(domain,
         domains_fields[domain]["name"])
 
     to_write += 3*spaces + "</param>\n\n"
 
-    for domain in domains_fields:
+    for domain in sorted_domains:
         to_write += 3*spaces + "<when value=\"" + domain + "\">\n"
 
         to_write += 4*spaces + add_select_parameter("fields",
