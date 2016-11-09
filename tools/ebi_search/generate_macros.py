@@ -139,15 +139,34 @@ def write_macros_file(macros_filepath, domains_fields):
             to_write += 6*spaces + add_option(field, field)
         to_write += 5*spaces + "</param>\n"
 
-        to_write += 5*spaces + add_select_parameter("comparison_operation",
+        to_write += 5*spaces + "<conditional name=\"comparison_operation\">\n"
+        to_write += 6*spaces + add_select_parameter("comparison_operation",
         "Comparison operation")
-        to_write += 6*spaces + add_option("equal", "equal")
-        to_write += 6*spaces + add_option("not", "not")
-        to_write += 6*spaces + add_option("range", "range")
-        to_write += 5*spaces + "</param>\n"
+        to_write += 7*spaces + add_option("equal", "equal")
+        to_write += 7*spaces + add_option("not", "not")
+        to_write += 7*spaces + add_option("range", "range")
+        to_write += 6*spaces + "</param>\n"
 
-        to_write += 5*spaces + "<param name=\"query_text\" type=\"text\" "
-        to_write += "label=\"Query\"/>\n"
+        to_write += 6*spaces + "<when value=\"equal\">\n"
+        to_write += 7*spaces + "<param name=\"query_text\" type=\"text\" "
+        to_write += "label=\"Searched term\"/>\n"
+        to_write += 6*spaces + "</when>\n"
+
+        to_write += 6*spaces + "<when value=\"not\">\n"
+        to_write += 7*spaces + "<param name=\"query_text\" type=\"text\" "
+        to_write += "label=\"Searched term\"/>\n"
+        to_write += 7*spaces + "<param name=\"not_query_text\" type=\"text\" "
+        to_write += "label=\"Limiting term\"/>\n"
+        to_write += 6*spaces + "</when>\n"
+
+        to_write += 6*spaces + "<when value=\"range\">\n"
+        to_write += 7*spaces + "<param name=\"min\" type=\"text\" "
+        to_write += "label=\"From\"/>\n"
+        to_write += 7*spaces + "<param name=\"max\" type=\"text\" "
+        to_write += "label=\"To\"/>\n"
+        to_write += 6*spaces + "</when>\n"
+
+        to_write += 5*spaces + "</conditional>\n"
 
         to_write += 4*spaces + "</repeat>\n"
 
