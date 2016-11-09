@@ -2,16 +2,11 @@
 
 import sys
 import ebeye_urllib3
-
-class WritableObject:
-    def __init__(self):
-        self.content = []
-    def write(self, string):
-        self.content.append(string)
+import writableObject
 
 def extract_domains():
     # redirection of sys.stdout
-    domain_hierarchy = WritableObject()
+    domain_hierarchy = writableObject.WritableObject()
     sys.stdout = domain_hierarchy
     ebeye_urllib3.getDomainHierarchy()
     sys.stdout = sys.__stdout__
@@ -68,7 +63,7 @@ def extract_a_domain_fields(domain):
     searchable_fields = []
     retrievable_fields = []
 
-    field_info = WritableObject()
+    field_info = writableObject.WritableObject()
     sys.stdout = field_info
     ebeye_urllib3.getDomainDetails(domain_id)
     sys.stdout = sys.__stdout__
