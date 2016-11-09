@@ -120,7 +120,7 @@ def write_macros_file(macros_filepath, domains_fields):
         "Fields to extract", multiple = "true")
         for field in domains_fields[domain]["retrievable_fields"]:
             to_write += 5*spaces + add_option(field, field)
-
+        to_write += 5*spaces + "<validator type=\"empty_field\" />"
         to_write += 4*spaces + "</param>\n"
 
         to_write += 4*spaces + "<repeat name=\"queries\" "
