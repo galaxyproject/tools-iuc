@@ -87,10 +87,85 @@ def extract_fields(domains):
 
     return domains_fields
 
+def add_option(value, name):
+    to_write = "<option value=\"" + value + "\">"
+    to_write += name
+    to_write += "</option>\n"
+    return to_write
+
+def add_select_parameter(name, label):
+    to_write = "<param name=\"" + name + "\" type=\"select\" "
+    to_write += "label=\"" + label + "\">\n"
+    return to_write
+
+def write_macros_file(macros_filepath, domains_fields):
+    spaces = "    "
+    to_write = "<macros>\n"
+    to_write += spaces + "<xml name=\"inputs\">\n"
+
+    to_write += 2*spaces + "<conditional name=\"searched_domain\">\n"
+    to_write += 3*spaces + add_select_parameter("domain", "Domain to query")
+
+    for domain in domains_fields:
+        to_write += 4*spaces + add_option(domain,
+        domains_fields[domain]["name"])
+
+    to_write += 3*spaces + "</param>\n\n"
+
+    for domain in domains_fields:
+        to_write += 3*spaces + "<when value=\"" + domain + "\">\n"
+
+        to_write += 4*spaces + add_select_parameter("fields",
+        "Fields to extract")
+
+        for field in domains_fields[domain]["retrievable_fields"]:
+            to_write += 5*spaces + add_option(field, field)
+
+        to_write += 4*spaces + "</param>\n"
+
+        to_write += 4*spaces + "<repeat name=\"queries\" "
+        to_write += "title=\"Add a query\">\n"
+
+        to_write += 5*spaces + add_select_parameter("combination_operation",
+        "Combination operation")
+        to_write += 6*spaces + add_option("AND", "AND")
+        to_write += 6*spaces + add_option("OR", "OR")
+        to_write += 6*spaces + add_option("NOT", "NOT")
+        to_write += 5*spaces + "</param>\n"
+
+        to_write += 5*spaces + add_select_parameter("query_field",
+        "Fields")
+        for field in domains_fields[domain]["searchable_fields"]:
+            to_write += 6*spaces + add_option(field, field)
+        to_write += 5*spaces + "</param>\n"
+
+        to_write += 5*spaces + add_select_parameter("comparison_operation",
+        "Comparison operation")
+        to_write += 6*spaces + add_option("equal", "equal")
+        to_write += 6*spaces + add_option("not", "not")
+        to_write += 6*spaces + add_option("range", "range")
+        to_write += 5*spaces + "</param>\n"
+
+        to_write += 5*spaces + "<param name=\"query_text\" type=\"text\" "
+        to_write += "label=\"Query\"/>\n"
+
+        to_write += 4*spaces + "</repeat>\n"
+
+        to_write += 3*spaces + "</when>\n\n"
+
+    to_write += 2*spaces + "</conditional>\n"
+    to_write += spaces + "</xml>\n"
+    to_write += "</macros>\n"
+
+    with open(macros_filepath, "w") as macros_file:
+        macros_file.write(to_write)
+
+
 
 def generate_macros ():
     domains = extract_domains()
     domains_fields = extract_fields(domains)
+    write_macros_file("macros.xml", domains_fields)
 
 if __name__ == '__main__':
     #parser = argparse.ArgumentParser()
