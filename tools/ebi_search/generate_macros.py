@@ -139,8 +139,8 @@ def write_macros_file(macros_filepath, domains_fields):
             to_write += 6*spaces + add_option(field, field)
         to_write += 5*spaces + "</param>\n"
 
-        to_write += 5*spaces + "<conditional name=\"comparison_operation\">\n"
-        to_write += 6*spaces + add_select_parameter("comparison_operation",
+        to_write += 5*spaces + "<conditional name=\"comp_operation\">\n"
+        to_write += 6*spaces + add_select_parameter("operation",
         "Comparison operation")
         to_write += 7*spaces + add_option("equal", "equal")
         to_write += 7*spaces + add_option("not", "not")
