@@ -20,15 +20,16 @@ def extract_domains():
     last_level = 1
     tmp_domains = ""
     for line in domain_hierarchy.content:
-        print(line)
-        domain = line[:-1].split("\t")[-1]
-        level = line[:-1].count("\t")
+        if line == "\n":
+            continue
+        domain = line.split("\t")[-1]
+        level = line.count("\t")
 
         if level <= last_level and tmp_domains != "":
             domains.append(tmp_domains)
         tmp_domains = domain
         last_level = level
-        domains.append(tmp_domains)
+    domains.append(tmp_domains)
     return domains
 
 
