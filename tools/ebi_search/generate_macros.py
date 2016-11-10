@@ -4,6 +4,7 @@ import sys
 import ebeye_urllib3
 import writableObject
 
+
 def extract_domains():
     # redirection of sys.stdout
     domain_hierarchy = writableObject.WritableObject()
@@ -33,7 +34,7 @@ def extract_fiel_info(field_info):
     retrievable_fields = []
 
     for line in field_info:
-        if line == "\n" :
+        if line == "\n":
             continue
 
         if line.find("\t") == -1:
@@ -68,7 +69,8 @@ def extract_a_domain_fields(domain):
     ebeye_urllib3.getDomainDetails(domain_id)
     sys.stdout = sys.__stdout__
 
-    searchable_fields, retrievable_fields = extract_fiel_info(field_info.content)
+    searchable_fields, retrievable_fields = extract_fiel_info(
+        field_info.content)
 
     domain_info = {}
     domain_info["name"] = domain_name
@@ -87,16 +89,19 @@ def extract_fields(domains):
 
     return domains_fields
 
-def add_option(value, name, selected = "false"):
+
+def add_option(value, name, selected="false"):
     to_write = "<option value=\"" + value + "\" selected=\"" + selected + "\">"
     to_write += name
     to_write += "</option>\n"
     return to_write
 
-def add_select_parameter(name, label, multiple = "false"):
+
+def add_select_parameter(name, label, multiple="false"):
     to_write = "<param name=\"" + name + "\" type=\"select\" "
     to_write += "label=\"" + label + "\" multiple=\"" + multiple + "\">\n"
     return to_write
+
 
 def write_macros_file(macros_filepath, domains_fields):
     spaces = "    "
@@ -108,40 +113,46 @@ def write_macros_file(macros_filepath, domains_fields):
 
     sorted_domains = sorted(list(domains_fields.keys()))
     for domain in sorted_domains:
-        to_write += 4*spaces + add_option(domain,
-        domains_fields[domain]["name"])
+        to_write += 4*spaces
+        to_write += add_option(domain, domains_fields[domain]["name"])
 
     to_write += 3*spaces + "</param>\n\n"
 
     for domain in sorted_domains:
         to_write += 3*spaces + "<when value=\"" + domain + "\">\n"
 
-        to_write += 4*spaces + add_select_parameter("fields",
-        "Fields to extract", multiple = "true")
+        to_write += 4*spaces + add_select_parameter(
+            "fields",
+            "Fields to extract",
+            multiple="true")
         for field in domains_fields[domain]["retrievable_fields"]:
-            to_write += 5*spaces + add_option(field, field, selected = "true")
-        to_write += 5*spaces + "<validator type=\"no_options\" message=\"Please select at least one field to extract\" />\n"
+            to_write += 5*spaces + add_option(field, field, selected="true")
+        to_write += 5*spaces + "<validator type=\"no_options\" "
+        to_write += "message=\"Please select at least one field\" />\n"
         to_write += 4*spaces + "</param>\n"
 
         to_write += 4*spaces + "<repeat name=\"queries\" "
         to_write += "title=\"Add a query\">\n"
 
-        to_write += 5*spaces + add_select_parameter("combination_operation",
-        "Combination operation")
+        to_write += 5*spaces + add_select_parameter(
+            "combination_operation",
+            "Combination operation")
         to_write += 6*spaces + add_option("AND", "AND")
         to_write += 6*spaces + add_option("OR", "OR")
         to_write += 6*spaces + add_option("NOT", "NOT")
         to_write += 5*spaces + "</param>\n"
 
-        to_write += 5*spaces + add_select_parameter("query_field",
-        "Fields")
+        to_write += 5*spaces + add_select_parameter(
+            "query_field",
+            "Fields")
         for field in domains_fields[domain]["searchable_fields"]:
             to_write += 6*spaces + add_option(field, field)
         to_write += 5*spaces + "</param>\n"
 
         to_write += 5*spaces + "<conditional name=\"comp_operation\">\n"
-        to_write += 6*spaces + add_select_parameter("operation",
-        "Comparison operation")
+        to_write += 6*spaces + add_select_parameter(
+            "operation",
+            "Comparison operation")
         to_write += 7*spaces + add_option("equal", "equal")
         to_write += 7*spaces + add_option("not", "not")
         to_write += 7*spaces + add_option("range", "range")
@@ -180,15 +191,11 @@ def write_macros_file(macros_filepath, domains_fields):
         macros_file.write(to_write)
 
 
-
-def generate_macros ():
+def generate_macros():
     domains = extract_domains()
     domains_fields = extract_fields(domains)
     write_macros_file("macros.xml", domains_fields)
 
-if __name__ == '__main__':
-    #parser = argparse.ArgumentParser()
-    #parser.add_argument('', required=True)
-    #args = parser.parse_args()
 
+if __name__ == '__main__':
     generate_macros()
