@@ -87,8 +87,8 @@ def extract_fields(domains):
 
     return domains_fields
 
-def add_option(value, name):
-    to_write = "<option value=\"" + value + "\">"
+def add_option(value, name, selected = "false"):
+    to_write = "<option value=\"" + value + "\" selected=\"" + selected + "\">"
     to_write += name
     to_write += "</option>\n"
     return to_write
@@ -119,8 +119,8 @@ def write_macros_file(macros_filepath, domains_fields):
         to_write += 4*spaces + add_select_parameter("fields",
         "Fields to extract", multiple = "true")
         for field in domains_fields[domain]["retrievable_fields"]:
-            to_write += 5*spaces + add_option(field, field)
-        to_write += 5*spaces + "<validator type=\"empty_field\" />"
+            to_write += 5*spaces + add_option(field, field, selected = "true")
+        to_write += 5*spaces + "<validator type=\"no_options\" message=\"Please select at least one field to extract\" />\n"
         to_write += 4*spaces + "</param>\n"
 
         to_write += 4*spaces + "<repeat name=\"queries\" "
