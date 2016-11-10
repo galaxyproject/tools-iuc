@@ -1,31 +1,8 @@
-#!/usr/bin/env python3
-# $Id: dbfetch_urllib2.py 2468 2013-01-25 14:01:01Z hpm $
+#!/usr/bin/env python
 # ======================================================================
-#
-# Copyright 2009-2013 EMBL - European Bioinformatics Institute
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# ======================================================================
-# EB-eye (REST) Python-3 client using urllib3 and xmltramp2
-# (https://pypi.python.org/pypi/xmltramp2/).
-#
-# Tested with:
-#  Python 3.4.3
-#
-# See:
+# Script derived from the EB-eye (REST) Python-3 client available at
 # http://www.ebi.ac.uk/Tools/webservices/services/eb-eye_rest
-# http://www.ebi.ac.uk/Tools/webservices/tutorials/python
+# and distributed under the Apache License
 # ======================================================================
 # Service base URL
 baseUrl = 'http://www.ebi.ac.uk/ebisearch/ws/rest'
@@ -35,7 +12,11 @@ import platform, os, sys, io, gzip, urllib
 from optparse import OptionParser
 from gzip import GzipFile
 from xmltramp2 import xmltramp
-import urllib.request as urllib2
+#python2
+from StringIO import StringIO
+import urllib2, urllib
+#python3
+#import urllib.request as urllib2
 
 # Output level
 outputLevel = 1
@@ -69,7 +50,10 @@ def getUserAgent():
 def restRequest(url):
     printDebugMessage('restRequest', 'Begin', 11)
     printDebugMessage('restRequest', 'url: ' + url, 11)
-    url = urllib.request.quote(url, safe="%/:=&?~#+!$,;'@()*[]")
+    #python 2
+    url = urllib.quote(url, safe="%/:=&?~#+!$,;'@()*[]")
+    #python 3
+    #url = urllib.request.quote(url, safe="%/:=&?~#+!$,;'@()*[]")
 
     try:
         user_agent = getUserAgent()
@@ -79,14 +63,27 @@ def restRequest(url):
         }
         req = urllib2.Request(url, None, http_headers)
         resp = urllib2.urlopen(req)
-        encoding = resp.info().__getitem__('Content-Encoding')
+        #python2
+        encoding = resp.info().getheader('Content-Encoding')
+        #python3
+        #encoding = resp.info().__getitem__('Content-Encoding')
         result = None
         if encoding == None or encoding == 'identity':
-            result = str(resp.read(), 'utf-8')
+            #python2
+            result = resp.read()
+            #python3
+            #result = str(resp.read(), 'utf-8')
         elif encoding == 'gzip':
             result = resp.read()
             printDebugMessage('restRequest', 'result: ' + str(result), 21)
-            result = str(gzip.decompress(result), 'utf-8')
+            # python2
+            gz = GzipFile(
+                fileobj=StringIO(result),
+                mode="r"
+                )
+            result = gz.read()
+            # python3
+            # result = str(gzip.decompress(result), 'utf-8')
         else:
             raise Exception('Unsupported Content-Encoding')
         resp.close()
