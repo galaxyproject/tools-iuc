@@ -178,27 +178,44 @@ def getNumberOfResults(domain, query):
     printDebugMessage('getNumberOfResults', requestUrl, 2)
     xmlDoc = restRequest(requestUrl)
     doc = xmltramp.parse(xmlDoc)
-    numberOfResults = doc['hitCount']
-    printNumber(numberOfResults)
+    numberOfResults = int(str(doc['hitCount']))
     printDebugMessage('getNumberOfResults', 'End', 1)
+    return numberOfResults
 
 def printNumber(num):
     printDebugMessage('printNumber', 'Begin', 1)
     print(num);
     printDebugMessage('printNumber', 'End', 1)
 
+def format_output(output):
+    formatted_output = output.replace('"', "")
+    formatted_output = formatted_output[(formatted_output.find("\n")+1):]
+    return formatted_output
+
 # Get search results
-def getResults(domain, query, fields, size='', start='', fieldurl='', viewurl='', sortfield='', order='', sort=''):
+def getResults(domain, query, fields):
+    numberOfResults = getNumberOfResults(domain, query)
+    maximum_size = 100
+    quotient = numberOfResults / maximum_size
+    start = 0
+
     printDebugMessage('getResults', 'Begin', 1)
-    requestUrl = baseUrl + '/' + domain + '?query=' + query +'&fields=' + fields + '&size=' + size + '&start=' + start + '&fieldurl=' + fieldurl + '&viewurl=' + viewurl + '&sortfield=' + sortfield + '&order=' + order + '&sort=' + sort + '&format=tsv'
-    printDebugMessage('getResults', requestUrl, 2)
-    output = restRequest(requestUrl)
-    output = output.replace('"', "")
-    #doc = xmltramp.parse(xmlDoc)
-    #entries = doc['entries']['entry':]
-    #printEntries(entries)
-    #printDebugMessage('getResults', 'End', 1)
-    print(output)
+    request_output = "%s\n" % (fields.replace(",","\t"))
+    for i in range(quotient):
+        start = maximum_size * i
+        requestUrl = baseUrl + '/' + domain + '?query=' + query +'&fields=' + fields + '&size=' + str(maximum_size) + '&start=' + str(start) + '&format=tsv'
+        subrequest_output = restRequest(requestUrl)
+        request_output += format_output(subrequest_output)
+
+    if (numberOfResults % 100) > 0:
+        start = maximum_size * quotient
+        remainder = numberOfResults - start
+        requestUrl = baseUrl + '/' + domain + '?query=' + query +'&fields=' + fields + '&size=' + str(remainder) + '&start=' + str(start) + '&format=tsv'
+        subrequest_output = restRequest(requestUrl)
+        request_output += format_output(subrequest_output)
+
+    print(request_output)
+
 
 def printEntries(entries):
     printDebugMessage('printEntries', 'Begin', 1)
@@ -274,6 +291,7 @@ def getFacetedResults(domain, query, fields, size='', start='', fieldurl='', vie
 def getEntries(domain, entryids, fields, fieldurl='', viewurl=''):
     printDebugMessage('getEntries', 'Begin', 1)
     requestUrl = baseUrl + '/' + domain + '/entry/' + entryids +'?fields=' + fields + '&fieldurl=' + fieldurl + '&viewurl=' + viewurl
+    print(requestUrl)
     printDebugMessage('getEntries', requestUrl, 2)
     xmlDoc = restRequest(requestUrl)
     doc = xmltramp.parse(xmlDoc)
@@ -476,7 +494,7 @@ if __name__ == '__main__':
             sortfield = options.sortfield if options.sortfield else ''
             order = options.order if options.order else ''
             sort = options.sort if options.sort else ''
-            getResults(args[1], args[2], args[3], size, start, fieldurl, viewurl, sortfield, order, sort)
+            getResults(args[1], args[2], args[3])
     # Get search results with facets
     elif args[0] == 'getFacetedResults':
         if len(args) < 4:
