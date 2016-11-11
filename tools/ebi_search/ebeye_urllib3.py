@@ -193,6 +193,7 @@ def getResults(domain, query, fields, size='', start='', fieldurl='', viewurl=''
     requestUrl = baseUrl + '/' + domain + '?query=' + query +'&fields=' + fields + '&size=' + size + '&start=' + start + '&fieldurl=' + fieldurl + '&viewurl=' + viewurl + '&sortfield=' + sortfield + '&order=' + order + '&sort=' + sort + '&format=tsv'
     printDebugMessage('getResults', requestUrl, 2)
     output = restRequest(requestUrl)
+    output = output.replace('"', "")
     #doc = xmltramp.parse(xmlDoc)
     #entries = doc['entries']['entry':]
     #printEntries(entries)
