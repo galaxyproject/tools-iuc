@@ -32,7 +32,7 @@ gc_content = args$gc_content
 GTF <- import.gff(GTFfile, format="gtf", genome=NA, feature.type="exon")
 grl <- reduce(split(GTF, elementMetadata(GTF)$gene_id))
 reducedGTF <- unlist(grl, use.names=T)
-elementMetadata(reducedGTF)$gene_id <- rep(names(grl), elementLengths(grl))
+elementMetadata(reducedGTF)$gene_id <- rep(names(grl), elementNROWS(grl))
 
 #Open the fasta file
 FASTA <- FaFile(FASTAfile)
