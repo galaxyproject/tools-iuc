@@ -119,19 +119,3 @@ if (repcnt > 0) {
 }
 
 sessionInfo()
-
-# Use the following to get a list of supported genomes / gene ids
-
-# supported_genomes = subset(supportedGenomes(), AvailableGeneIDs != "")
-# write.table(supported_genomes, "available_genomes.tab", row.names = FALSE, quote=FALSE)
-# write.table(supportedGeneIDs(), "supported_gene_ids.tab", row.name = FALSE, quote = FALSE)
-# write.table(table.summary, "input_gene_count_matrix.tab", row.names = FALSE, quote = FALSE)
-
-## get a list of genome db packages to install:
-# library("stringr")
-# orglist = unique(sapply(supported_genomes$db, function(x) str_extract(x, "[a-zA-Z]+" )))
-## install all genome packages
-# sapply(orglist, function(x) biocLite(paste("org", x, "eg.db", sep=".")))
-## get list of packages:
-# org_packages = sapply(orglist, function(x) paste("org", x, "eg.db", sep="."))
-# write.table(org_packages, "org_packages.tab", row.names = FALSE, col.names=FALSE, quote = FALSE)
