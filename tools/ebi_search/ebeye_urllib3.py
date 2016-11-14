@@ -114,6 +114,39 @@ def printDomains(domainInfo, indent):
     printDebugMessage('printDomains', 'End', 1)
 
 
+def extractUsefulFields(fieldInfos):
+    searchable = []
+    retrievable = []
+
+    for fieldInfo in fieldInfos:
+        if fieldInfo('id') == "$facets":
+            continue
+
+        options = fieldInfo['options']['option':]
+        for option in options:
+            if option("name") == "searchable" and str(option) == "true":
+                searchable.append(fieldInfo('id'))
+            if option("name") == "retrievable" and str(option) == "true":
+                retrievable.append(fieldInfo('id'))
+    return searchable, retrievable
+
+def extractLowerLevelDomains(domainInfo, domains):
+    if hasSubdomains(domainInfo):
+        subdomains = domainInfo['subdomains']['domain':]
+        for subdomain in subdomains:
+            domains = extractLowerLevelDomains( subdomain, domains)
+    else:
+        searchable, retrievable = extractUsefulFields(
+            domainInfo['fieldInfos']['fieldInfo':])
+
+        domain_id = domainInfo('id')
+        domains.setdefault(domain_id, {})
+        domains[domain_id]["name"] = domainInfo('name')
+        domains[domain_id]["searchable_fields"] = sorted(searchable)
+        domains[domain_id]["retrievable_fields"] = sorted(retrievable)
+    return domains
+
+
 # Get domain Hierarchy
 def getDomainHierarchy():
     printDebugMessage('getDomainHierarchy', 'Begin', 1)
@@ -122,11 +155,13 @@ def getDomainHierarchy():
     xmlDoc = restRequest(requestUrl)
     doc = xmltramp.parse(xmlDoc)
     allebi = doc['domains']['domain']
-    printDomains(allebi, '')
+    # printDomains(allebi, '')
+    lower_level_domains = extractLowerLevelDomains(allebi, {})
     # domainInfoList = doc['result.domains.domain':]
     # for domainInfo in domainInfoList:
     #    print (domainInfo.id)
     printDebugMessage('getDomainHierarchy', 'End', 1)
+    return lower_level_domains
 
 
 # Check if a databaseInfo matches a database name.

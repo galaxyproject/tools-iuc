@@ -2,7 +2,6 @@
 
 import sys
 import ebeye_urllib3
-import writableObject
 
 
 def add_option(value, name, selected=False):
