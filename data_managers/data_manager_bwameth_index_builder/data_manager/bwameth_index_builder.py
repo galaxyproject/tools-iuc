@@ -59,5 +59,6 @@ def main():
     # save info to json file
     open(filename, 'wb').write(dumps(data_manager_dict))
 
+
 if __name__ == "__main__":
     main()

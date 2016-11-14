@@ -133,5 +133,6 @@ class BGZip(object):
         self.pos += size
         return struct.unpack(field_types, self.fileobj.read(size))
 
+
 if __name__ == '__main__':
     print BGZip(sys.argv[1]).dump()

@@ -88,6 +88,7 @@ class SnpSiftDbNSFP( Text ):
             log.warn("set_meta fname: %s  %s" % (dataset.file_name if dataset and dataset.file_name else 'Unkwown', str(e)))
             traceback.print_stack(file=sys.stderr)
 
+
 if __name__ == '__main__':
     import doctest
     doctest.testmod(sys.modules[__name__])

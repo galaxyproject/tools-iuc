@@ -827,6 +827,7 @@ class TagEqual(_TagCompare):
             return True
         return False
 
+
 _criteria = {
     'mapped': Mapped,
     'unmapped': Unmapped,
@@ -930,6 +931,7 @@ def read_to_unmapped(read):
     read.pos = 0
     read.mapq = 0
     return read
+
 
 if __name__ == '__main__':
     infile = None

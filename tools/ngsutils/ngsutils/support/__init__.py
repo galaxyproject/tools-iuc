@@ -153,6 +153,7 @@ class Symbolize(object):
 
         return self.__cache[k]
 
+
 symbols = Symbolize()
 
 _compliments = {

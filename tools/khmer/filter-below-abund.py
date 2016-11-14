@@ -83,5 +83,6 @@ def main():
 
         tsp.start(verbose_fasta_iter(infile), outfp)
 
+
 if __name__ == '__main__':
     main()

@@ -160,6 +160,7 @@ def _factorial(x):
     '''
     return math.factorial(x)
 
+
 if __name__ == '__main__':
     import doctest
     doctest.testmod()
