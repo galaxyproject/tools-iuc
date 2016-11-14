@@ -84,5 +84,6 @@ def __main__():
     bd_dm = beta_diversity( options.distance_metric, counts, ids=sample_names, **extra_kwds )
     bd_dm.write( options.output )
 
+
 if __name__ == "__main__":
     __main__()

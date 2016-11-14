@@ -93,6 +93,7 @@ def timenow():
     """
     return time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(time.time()))
 
+
 html_escape_table = {
     "&": "&amp;",
     ">": "&gt;",

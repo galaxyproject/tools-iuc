@@ -30,6 +30,7 @@ def make_html( directory, stderr ):
                       '</body>',
                       '</html>'])
 
+
 if __name__ == '__main__':
     if len(sys.argv) == 3:
         directory_path = sys.argv[1]

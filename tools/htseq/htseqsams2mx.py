@@ -271,6 +271,7 @@ def usage():
     print >> sys.stdout, """Usage: python htseqsams2mx.py -w <halfwindowsize> -g <gfffile.gff> -o <outfilename> [-i] [-c] --samf "<sam1.sam>,<sam1.column_header>" --samf "...<samN.column_header>" """
     sys.exit(1)
 
+
 if __name__ == "__main__":
     """
     <command interpreter="python">

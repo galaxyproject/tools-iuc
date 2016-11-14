@@ -26,5 +26,6 @@ def main():
     with open( sys.argv[1], 'wb' ) as out:
         out.write( json.dumps( data_manager_dict ) )
 
+
 if __name__ == "__main__":
     main()

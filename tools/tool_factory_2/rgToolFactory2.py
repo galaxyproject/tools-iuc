@@ -133,6 +133,7 @@ def quote_non_numeric(s):
     except ValueError:
         return '"%s"' % s
 
+
 html_escape_table = {
     "&": "&amp;",
     ">": "&gt;",
