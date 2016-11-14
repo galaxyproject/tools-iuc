@@ -187,9 +187,11 @@ def printNumber(num):
     print(num);
     printDebugMessage('printNumber', 'End', 1)
 
-def format_output(output):
-    formatted_output = output.replace('"', "")
-    formatted_output = formatted_output[(formatted_output.find("\n")+1):]
+def makeRequest(requestUrl):
+    xmlDoc = restRequest(requestUrl)
+    doc = xmltramp.parse(xmlDoc)
+    entries = doc['entries']['entry':]
+    formatted_output = printEntries(entries)
     return formatted_output
 
 # Get search results
@@ -200,40 +202,51 @@ def getResults(domain, query, fields):
     start = 0
 
     printDebugMessage('getResults', 'Begin', 1)
-    request_output = "%s\n" % (fields.replace(",","\t"))
+    request_output = "%s\tlink\n" % (fields.replace(",","\t"))
     for i in range(quotient):
         start = maximum_size * i
-        requestUrl = baseUrl + '/' + domain + '?query=' + query +'&fields=' + fields + '&size=' + str(maximum_size) + '&start=' + str(start) + '&format=tsv'
-        subrequest_output = restRequest(requestUrl)
-        request_output += format_output(subrequest_output)
+        requestUrl = baseUrl + '/' + domain + '?query=' + query +'&fields=' + fields + '&size=' + str(maximum_size) + '&start=' + str(start) + '&fieldurl=true'
+        request_output += makeRequest(requestUrl)
 
     if (numberOfResults % 100) > 0:
         start = maximum_size * quotient
         remainder = numberOfResults - start
-        requestUrl = baseUrl + '/' + domain + '?query=' + query +'&fields=' + fields + '&size=' + str(remainder) + '&start=' + str(start) + '&format=tsv'
-        subrequest_output = restRequest(requestUrl)
-        request_output += format_output(subrequest_output)
+        requestUrl = baseUrl + '/' + domain + '?query=' + query +'&fields=' + fields + '&size=' + str(remainder) + '&start=' + str(start) + '&fieldurl=true'
+        request_output += makeRequest(requestUrl)
 
     print(request_output)
 
-
 def printEntries(entries):
+    output = ""
     printDebugMessage('printEntries', 'Begin', 1)
     for entry in entries:
+        sep = ""
         for field in entry['fields']['field':]:
+            output += "%s" % (sep)
             fields = field['values']['value':]
             if len(fields) > 0:
+                sub_sep = ""
                 for value in field['values']['value':]:
-                    print (value)
-            else:
-                print
+                    output += "%s%s" % (sub_sep,value)
+                    sub_sep = ","
+            sep = "\t"
+
         if hasFieldUrls(entry):
+            output += "%s" % (sep)
+            sub_sep = ""
             for fieldurl in entry['fieldURLs']['fieldURL':]:
-                print (str(fieldurl))
+                output += "%s%s" % (sub_sep,str(fieldurl))
+                sub_sep = ","
+            sep = "\t"
         if hasViewUrls(entry):
+            output += "%s" % (sep)
+            sub_sep = ""
             for viewurl in entry['viewURLs']['viewURL':]:
-                print (str(viewurl))
+                output += "%s%s" % (sub_sep,str(viewurl))
+                sub_sep = ","
+        output += "\n"
     printDebugMessage('printEntries', 'End', 1)
+    return output
 
 def hasFieldUrls(entry):
     for dir in entry._dir:
@@ -281,7 +294,7 @@ def getFacetedResults(domain, query, fields, size='', start='', fieldurl='', vie
     xmlDoc = restRequest(requestUrl)
     doc = xmltramp.parse(xmlDoc)
     entries = doc['entries']['entry':]
-    printEntries(entries)
+    printEntries(request_output)
     print
     facets = doc['facets']['facet':]
     printFacets(facets)
@@ -293,10 +306,8 @@ def getEntries(domain, entryids, fields, fieldurl='', viewurl=''):
     requestUrl = baseUrl + '/' + domain + '/entry/' + entryids +'?fields=' + fields + '&fieldurl=' + fieldurl + '&viewurl=' + viewurl
     print(requestUrl)
     printDebugMessage('getEntries', requestUrl, 2)
-    xmlDoc = restRequest(requestUrl)
-    doc = xmltramp.parse(xmlDoc)
-    entries = doc['entries']['entry':]
-    printEntries(entries)
+    request_output = makeRequest(requestUrl)
+    print(request_output)
     printDebugMessage('getEntries', 'End', 1)
 
 # Get domain ids referenced in a domain
