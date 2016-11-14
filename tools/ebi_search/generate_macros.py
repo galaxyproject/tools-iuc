@@ -5,101 +5,108 @@ import ebeye_urllib3
 import writableObject
 
 
-def add_option(value, name, selected="false"):
-    to_write = "<option value=\"" + value + "\" selected=\"" + selected + "\">"
-    to_write += name
+def add_option(value, name, selected=False):
+    to_write = "<option "
+    to_write += "value=\"%s\"" % (value)
+    if selected:
+        to_write += " selected=\"true\""
+    to_write += ">%s" % (name)
     to_write += "</option>\n"
     return to_write
 
 
-def add_select_parameter(name, label, multiple="false"):
-    to_write = "<param name=\"" + name + "\" type=\"select\" "
-    to_write += "label=\"" + label + "\" multiple=\"" + multiple + "\">\n"
+def add_select_parameter(name, label, multiple=False):
+    to_write = "<param "
+    to_write += "name=\"%s\" " % (name)
+    to_write += "type=\"select\" "
+    to_write += "label=\"%s\" " % (label)
+    if multiple:
+        to_write += "multiple=\"true\""
+    to_write += ">\n"
     return to_write
 
 
 def write_macros_file(macros_filepath, domains_fields):
     spaces = "    "
     to_write = "<macros>\n"
-    to_write += spaces + "<xml name=\"inputs\">\n"
+    to_write += "%s<xml name=\"inputs\">\n" % (spaces)
 
-    to_write += 2*spaces + "<conditional name=\"searched_domain\">\n"
-    to_write += 3*spaces + add_select_parameter("domain", "Domain to query")
+    to_write += "%s<conditional name=\"searched_domain\">\n" % (2*spaces)
+    to_write += "%s%s" % (3*spaces, add_select_parameter(
+        "domain",
+        "Domain to query"))
 
     sorted_domains = sorted(list(domains_fields.keys()))
     for domain in sorted_domains:
-        to_write += 4*spaces
-        to_write += add_option(domain, domains_fields[domain]["name"])
+        to_write += "%s%s" % (4*spaces, add_option(
+            domain,
+            domains_fields[domain]["name"]))
 
-    to_write += 3*spaces + "</param>\n\n"
+    to_write += "%s</param>\n\n" % (3*spaces)
 
     for domain in sorted_domains:
-        to_write += 3*spaces + "<when value=\"" + domain + "\">\n"
+        to_write += "%s<when value=\"%s\">\n" % (3*spaces, domain)
 
-        to_write += 4*spaces + add_select_parameter(
+        to_write += "%s%s" % (4*spaces, add_select_parameter(
             "fields",
             "Fields to extract",
-            multiple="true")
+            multiple=True))
         for field in domains_fields[domain]["retrievable_fields"]:
-            to_write += 5*spaces + add_option(field, field, selected="true")
-        to_write += 5*spaces + "<validator type=\"no_options\" "
-        to_write += "message=\"Please select at least one field\" />\n"
-        to_write += 4*spaces + "</param>\n"
+            to_write += "%s%s" % (5*spaces, add_option(
+                field,
+                field,
+                selected=True))
+        to_write += "%s<validator type=\"no_options\" message=\"Please select at least one field\" />\n" % (5*spaces)
+        to_write += "%s</param>\n" % (4*spaces)
 
-        to_write += 4*spaces + "<repeat name=\"queries\" "
-        to_write += "title=\"Add a query\">\n"
+        to_write += "%s<repeat name=\"queries\" title=\"Add a query\">\n" % (4*spaces)
 
-        to_write += 5*spaces + add_select_parameter(
+        to_write += "%s%s" % (5*spaces, add_select_parameter(
             "combination_operation",
-            "Combination operation")
-        to_write += 6*spaces + add_option("AND", "AND")
-        to_write += 6*spaces + add_option("OR", "OR")
-        to_write += 6*spaces + add_option("NOT", "NOT")
-        to_write += 5*spaces + "</param>\n"
+            "Combination operation"))
+        to_write += "%s%s" % (6*spaces, add_option("AND", "AND"))
+        to_write += "%s%s" % (6*spaces, add_option("OR", "OR"))
+        to_write += "%s%s" % (6*spaces, add_option("NOT", "NOT"))
+        to_write += "%s</param>\n" % (5*spaces)
 
-        to_write += 5*spaces + add_select_parameter(
+        to_write += "%s%s" % (5*spaces, add_select_parameter(
             "query_field",
-            "Fields")
+            "Fields"))
         for field in domains_fields[domain]["searchable_fields"]:
-            to_write += 6*spaces + add_option(field, field)
-        to_write += 5*spaces + "</param>\n"
+            to_write += "%s%s" % (6*spaces, add_option(field, field))
+        to_write += "%s</param>\n" % (5*spaces)
 
-        to_write += 5*spaces + "<conditional name=\"comp_operation\">\n"
-        to_write += 6*spaces + add_select_parameter(
+        to_write += "%s<conditional name=\"comp_operation\">\n"  % (5*spaces)
+        to_write += "%s%s" % (6*spaces, add_select_parameter(
             "operation",
-            "Comparison operation")
-        to_write += 7*spaces + add_option("equal", "equal")
-        to_write += 7*spaces + add_option("not", "not")
-        to_write += 7*spaces + add_option("range", "range")
-        to_write += 6*spaces + "</param>\n"
+            "Comparison operation"))
+        to_write += "%s%s" % (7*spaces, add_option("equal", "equal"))
+        to_write += "%s%s" % (7*spaces, add_option("not", "not"))
+        to_write += "%s%s" % (7*spaces, add_option("range", "range"))
+        to_write += "%s</param>\n" % (6*spaces)
 
-        to_write += 6*spaces + "<when value=\"equal\">\n"
-        to_write += 7*spaces + "<param name=\"query_text\" type=\"text\" "
-        to_write += "label=\"Searched term\"/>\n"
-        to_write += 6*spaces + "</when>\n"
+        to_write += "%s<when value=\"equal\">\n" % (6*spaces)
+        to_write += "%s<param name=\"query_text\" type=\"text\" label=\"Searched term\"/>\n" % (7*spaces)
+        to_write += "%s</when>\n" % (6*spaces)
 
-        to_write += 6*spaces + "<when value=\"not\">\n"
-        to_write += 7*spaces + "<param name=\"query_text\" type=\"text\" "
-        to_write += "label=\"Searched term\"/>\n"
-        to_write += 7*spaces + "<param name=\"not_query_text\" type=\"text\" "
-        to_write += "label=\"Limiting term\"/>\n"
-        to_write += 6*spaces + "</when>\n"
+        to_write += "%s<when value=\"not\">\n" % (6*spaces)
+        to_write += "%s<param name=\"query_text\" type=\"text\" label=\"Searched term\"/>\n" % (7*spaces)
+        to_write += "%s<param name=\"not_query_text\" type=\"text\" label=\"Limiting term\"/>\n" % (7*spaces)
+        to_write += "%s</when>\n" % (6*spaces)
 
-        to_write += 6*spaces + "<when value=\"range\">\n"
-        to_write += 7*spaces + "<param name=\"min\" type=\"text\" "
-        to_write += "label=\"From\"/>\n"
-        to_write += 7*spaces + "<param name=\"max\" type=\"text\" "
-        to_write += "label=\"To\"/>\n"
-        to_write += 6*spaces + "</when>\n"
+        to_write += "%s<when value=\"range\">\n" % (6*spaces)
+        to_write += "%s<param name=\"min\" type=\"text\" label=\"From\"/>\n" % (7*spaces)
+        to_write += "%s<param name=\"max\" type=\"text\" label=\"To\"/>\n" % (7*spaces)
+        to_write += "%s</when>\n" % (6*spaces)
 
-        to_write += 5*spaces + "</conditional>\n"
+        to_write += "%s</conditional>\n" % (5*spaces)
 
-        to_write += 4*spaces + "</repeat>\n"
+        to_write += "%s</repeat>\n" % (4*spaces)
 
-        to_write += 3*spaces + "</when>\n\n"
+        to_write += "%s</when>\n\n" % (3*spaces)
 
-    to_write += 2*spaces + "</conditional>\n"
-    to_write += spaces + "</xml>\n"
+    to_write += "%s</conditional>\n" % (2*spaces)
+    to_write += "%s</xml>\n" % (spaces)
     to_write += "</macros>\n"
 
     with open(macros_filepath, "w") as macros_file:
@@ -107,8 +114,6 @@ def write_macros_file(macros_filepath, domains_fields):
 
 
 def generate_macros():
-    #domains = extract_domains()
-    #domains_fields = extract_fields(domains)
     domains_fields = ebeye_urllib3.getDomainHierarchy()
     write_macros_file("macros.xml", domains_fields)
 
