@@ -130,6 +130,7 @@ def extractUsefulFields(fieldInfos):
                 retrievable.append(fieldInfo('id'))
     return searchable, retrievable
 
+
 def extractLowerLevelDomains(domainInfo, domains):
     if hasSubdomains(domainInfo):
         subdomains = domainInfo['subdomains']['domain':]
