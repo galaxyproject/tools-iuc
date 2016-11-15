@@ -156,6 +156,31 @@ class ColorScaling(object):
         self.brewer_colour_idx += 1
         return r, g, b
 
+    def parse_menus(self, track):
+        trackConfig = {'menuTemplate': [{}, {}, {}]}
+
+        if 'menu' in track['menus']:
+            menu_list = [track['menus']['menu']]
+            if isinstance(track['menus']['menu'], list):
+                menu_list = track['menus']['menu']
+
+            for m in menu_list:
+                tpl = {
+                    'action': m['action'],
+                    'label': m.get('label', '{name}'),
+                    'iconClass': m.get('iconClass', 'dijitIconBookmark'),
+                }
+                if 'url' in m:
+                    tpl['url'] = m['url']
+                if 'content' in m:
+                    tpl['content'] = m['content']
+                if 'title' in m:
+                    tpl['title'] = m['title']
+
+                trackConfig['menuTemplate'].append(tpl)
+
+        return trackConfig
+
     def parse_colours(self, track, trackFormat, gff3=None):
         # Wiggle tracks have a bicolor pallete
         trackConfig = {'style': {}}
@@ -275,6 +300,7 @@ class JbrowseConnector(object):
         self.genome_paths = genomes
         self.standalone = standalone
         self.gencode = gencode
+        self.tracksToIndex = []
 
         if standalone:
             self.clone_jbrowse(self.jbrowse, self.outdir)
@@ -316,11 +342,23 @@ class JbrowseConnector(object):
                 'perl', self._jbrowse_bin('prepare-refseqs.pl'),
                 '--fasta', genome_path])
 
-        # Generate name
-        self.subprocess_check_call([
+    def generate_names(self):
+        # Generate names
+
+        args = [
             'perl', self._jbrowse_bin('generate-names.pl'),
             '--hashBits', '16'
-        ])
+        ]
+
+        tracks = ','.join(self.tracksToIndex)
+
+        if tracks:
+            args += ['--tracks', tracks]
+        else:
+            # No tracks to index, index only the refseq
+            args += ['--tracks', 'DNA']
+
+        self.subprocess_check_call(args)
 
     def _add_json(self, json_data):
 
@@ -387,6 +425,9 @@ class JbrowseConnector(object):
 
         self.subprocess_check_call(cmd)
         os.unlink(gff3)
+
+        if blastOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
@@ -486,6 +527,9 @@ class JbrowseConnector(object):
 
         self.subprocess_check_call(cmd)
 
+        if gffOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
+
     def process_annotations(self, track):
         outputTrackConfig = {
             'style': {
@@ -512,6 +556,9 @@ class JbrowseConnector(object):
                         outputTrackConfig['style'][subkey] = colourOptions['style'][subkey]
                 else:
                     outputTrackConfig[key] = colourOptions[key]
+
+            menus = self.cs.parse_menus(track['conf']['options'])
+            outputTrackConfig.update(menus)
 
             # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
@@ -652,3 +699,4 @@ if __name__ == '__main__':
             extra_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
 
     jc.add_final_data(extra_data)
+    jc.generate_names()
