@@ -25,6 +25,9 @@ likely to change at any time! Beware. ;)
 History
 =======
 
+-  0.5.1 Support for contextual menus. Conda tests.
+-  0.5 Update existing instances on disk. Index names. Support HTML tracks
+   instead of Canvas. Support default tracks. General JBrowse optinos
 -  0.4 Support for dataset collections and customisation of tracks including
    labelling, colours, styling. Added support for genetic code selection.
    Fixed package installation recipe issues.
