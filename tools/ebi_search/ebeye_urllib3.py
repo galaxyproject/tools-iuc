@@ -324,13 +324,6 @@ if __name__ == '__main__':
         if len(args) < 4:
             print ('domain, query and fields should be given.')
         else:
-            size = options.size if options.size else ''
-            start = options.start if options.start else ''
-            fieldurl = options.fieldurl if options.fieldurl else ''
-            viewurl = options.viewurl if options.viewurl else ''
-            sortfield = options.sortfield if options.sortfield else ''
-            order = options.order if options.order else ''
-            sort = options.sort if options.sort else ''
             getResults(args[1], args[2], args[3])
     # Unknown argument combination, display usage
     else:
