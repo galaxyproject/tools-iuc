@@ -34,15 +34,17 @@ def write_macros_file(macros_filepath, domains_fields):
         'domain',
         'Domain to query'))
 
-    sorted_domains = sorted(list(domains_fields.keys()))
+    sorted_domains = [(d, domains_fields[d]['name']) for d in domains_fields.keys()]
+    sorted_domains = sorted(sorted_domains, key=lambda tup: tup[1])
     for domain in sorted_domains:
         to_write += '%s%s' % (4 * spaces, add_option(
-            domain,
-            domains_fields[domain]['name']))
+            domain[0],
+            domain[1]))
 
     to_write += '%s</param>\n\n' % (3 * spaces)
 
-    for domain in sorted_domains:
+    for d in sorted_domains:
+        domain = d[0]
         to_write += '%s<when value="%s">\n' % (3 * spaces, domain)
 
         to_write += '%s%s' % (4 * spaces, add_select_parameter(
