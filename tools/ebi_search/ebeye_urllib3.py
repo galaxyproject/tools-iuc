@@ -163,45 +163,8 @@ def is_database(dbInfo, dbName):
     return retVal
 
 
-# Get domain details
-def getDomainDetails(domain):
-    printDebugMessage('getDomainDetails', 'Begin', 1)
-    requestUrl = baseUrl + '/' + domain
-    printDebugMessage('getDomainDetails', requestUrl, 2)
-    xmlDoc = restRequest(requestUrl)
-    doc = xmltramp.parse(xmlDoc)
-    domainInfo = doc['domains']['domain']
-    printDomainDetails(domainInfo)
-    printDebugMessage('getDomainDetails', 'End', 1)
-
-
-def printDomainDetails(domainInfo):
-    printDebugMessage('printDomainDetails', 'Begin', 1)
-    print (domainInfo('name') + ' (' + domainInfo('id') + ')')
-    if hasSubdomains(domainInfo):
-        subdomains = domainInfo['subdomains']['domain':]
-        for subdomain in subdomains:
-            printDomainDetails(subdomain)
-    else:
-        indexInfos = domainInfo['indexInfos']['indexInfo':]
-        for indexInfo in indexInfos:
-            print (indexInfo('name') + ': ' + str(indexInfo))
-        print
-        fieldInfos = domainInfo['fieldInfos']['fieldInfo':]
-        print ('field_id\tsearchable\tretrievable\tsortable\tfacet')
-        fieldStr = ''
-        for fieldInfo in fieldInfos:
-            fieldStr = fieldInfo('id') + '\t'
-            options = fieldInfo['options']['option':]
-            for option in options:
-                fieldStr += str(option) + '\t'
-            print (fieldStr)
-        print
-    printDebugMessage('printDomainDetails', 'End', 1)
-
-
 # Get number of results
-def getNumberOfResults(domain, query): #used
+def getNumberOfResults(domain, query):
     printDebugMessage('getNumberOfResults', 'Begin', 1)
     requestUrl = baseUrl + '/' + domain + '?query=' + query + '&size=0'
     printDebugMessage('getNumberOfResults', requestUrl, 2)
