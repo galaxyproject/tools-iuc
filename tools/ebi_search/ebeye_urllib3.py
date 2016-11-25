@@ -26,13 +26,13 @@ debugLevel = 0
 
 
 # Debug print
-def printDebugMessage(functionName, message, level): #used
+def printDebugMessage(functionName, message, level):
     if(level <= debugLevel):
         print ('[' + functionName + '] ' + message)
 
 
 # User-agent for request.
-def getUserAgent(): #used
+def getUserAgent():
     printDebugMessage('getUserAgent', 'Begin', 11)
     urllib_agent = 'Python-urllib/%s' % urllib2.__version__
     clientRevision = '$Revision: 2468 $'
@@ -50,7 +50,7 @@ def getUserAgent(): #used
 
 
 # Wrapper for a REST (HTTP GET) request
-def restRequest(url): #used
+def restRequest(url):
     printDebugMessage('restRequest', 'Begin', 11)
     printDebugMessage('restRequest', 'url: ' + url, 11)
     # python 2
@@ -96,14 +96,14 @@ def restRequest(url): #used
     return result
 
 
-def hasSubdomains(domainInfo): #used
+def hasSubdomains(domainInfo):
     for dir in domainInfo._dir:
         if dir._name == 'subdomains':
             return True
     return False
 
 
-def extractUsefulFields(fieldInfos): #used
+def extractUsefulFields(fieldInfos):
     searchable = []
     retrievable = []
 
@@ -120,7 +120,7 @@ def extractUsefulFields(fieldInfos): #used
     return searchable, retrievable
 
 
-def extractLowerLevelDomains(domainInfo, domains): #used
+def extractLowerLevelDomains(domainInfo, domains):
     if hasSubdomains(domainInfo):
         subdomains = domainInfo['subdomains']['domain':]
         for subdomain in subdomains:
@@ -138,7 +138,7 @@ def extractLowerLevelDomains(domainInfo, domains): #used
 
 
 # Get domain Hierarchy
-def getDomainHierarchy(): #used
+def getDomainHierarchy():
     requestUrl = baseUrl + '/allebi'
     xmlDoc = restRequest(requestUrl)
     doc = xmltramp.parse(xmlDoc)
@@ -212,7 +212,7 @@ def getNumberOfResults(domain, query): #used
     return numberOfResults
 
 
-def makeRequest(requestUrl): #used
+def makeRequest(requestUrl):
     xmlDoc = restRequest(requestUrl)
     doc = xmltramp.parse(xmlDoc)
     entries = doc['entries']['entry':]
@@ -221,7 +221,7 @@ def makeRequest(requestUrl): #used
 
 
 # Get search results
-def getResults(domain, query, fields): #used
+def getResults(domain, query, fields):
     numberOfResults = getNumberOfResults(domain, query)
     maximum_size = 100
     quotient = numberOfResults / maximum_size
@@ -247,7 +247,7 @@ def getResults(domain, query, fields): #used
     print(request_output)
 
 
-def printEntries(entries): #used
+def printEntries(entries):
     output = ""
     printDebugMessage('printEntries', 'Begin', 1)
     for entry in entries:
@@ -280,14 +280,14 @@ def printEntries(entries): #used
     return output
 
 
-def hasFieldUrls(entry): #used
+def hasFieldUrls(entry):
     for dir in entry._dir:
         if dir._name == 'fieldURLs':
             return True
     return False
 
 
-def hasViewUrls(entry): #used
+def hasViewUrls(entry):
     for dir in entry._dir:
         if dir._name == 'viewURLs':
             return True
