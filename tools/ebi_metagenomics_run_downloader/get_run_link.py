@@ -25,6 +25,7 @@ baseUrl = 'http://www.ebi.ac.uk/ebisearch/ws/rest'
 # Debug level
 debugLevel = 0
 
+
 # Debug print
 def printDebugMessage(functionName, message, level):
     if(level <= debugLevel):
@@ -99,15 +100,15 @@ def restRequest(url):
 # Get run link
 def get_run_link(run_id):
     printDebugMessage('getEntries', 'Begin', 1)
-    requestUrl = baseUrl + '/metagenomics_runs/entry/' + run_id +'?fieldurl=true'
+    requestUrl = baseUrl + '/metagenomics_runs/entry/' + run_id + '?fieldurl=true'
     printDebugMessage('getEntries', requestUrl, 2)
     xmlDoc = restRequest(requestUrl)
     doc = xmltramp.parse(xmlDoc)
     entries = doc['entries']['entry':]
-    fieldURL=''
+    fieldURL = ''
     for entry in entries:
         for fieldurl in entry['fieldURLs']['fieldURL':]:
-            fieldURL+=str(fieldurl)
+            fieldURL += str(fieldurl)
     printDebugMessage('getEntries', 'End', 1)
     return fieldURL
 
@@ -121,9 +122,3 @@ if __name__ == '__main__':
     p = re.compile('http')
     url = p.sub('https', url)
     print url
-
-
-
-
-
-
