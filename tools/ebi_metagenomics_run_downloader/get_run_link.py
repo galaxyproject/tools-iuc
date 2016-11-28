@@ -11,6 +11,7 @@ import urllib
 import argparse
 from gzip import GzipFile
 from xmltramp2 import xmltramp
+import re
 # python2
 from StringIO import StringIO
 import urllib2
@@ -117,6 +118,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     url = get_run_link(args.run_id)
+    p = re.compile('http')
+    url = p.sub('https', url)
     print url
 
 
