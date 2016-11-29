@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import ebeye_urllib3
+import ebeye_urllib
 
 
 def add_option(value, name, selected=False):
@@ -133,7 +133,7 @@ def write_macros_file(macros_filepath, domains_fields):
 
 
 def generate_macros():
-    domains_fields = ebeye_urllib3.getDomainHierarchy()
+    domains_fields = ebeye_urllib.getDomainHierarchy()
     write_macros_file('macros.xml', domains_fields)
 
 
