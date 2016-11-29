@@ -27,6 +27,15 @@ def add_select_parameter(name, label, multiple=False):
 def write_macros_file(macros_filepath, domains_fields):
     spaces = '    '
     to_write = '<macros>\n'
+
+    to_write += '%s<xml name="requirements">\n' % (spaces)
+    to_write += '%s<requirements>\n' % (2 * spaces)
+    to_write += '%s<requirement type="package" version="3.1.1">xmltramp2</requirement>\n' % (3 * spaces)
+    to_write += '%s<requirement type="package" version="1.12">urllib3</requirement>\n' % (3 * spaces)
+    to_write += '%s<requirement type="package" version="7.49.0">curl</requirement>\n' % (3 * spaces)
+    to_write += '%s</requirements>\n' % (2 * spaces)
+    to_write += '%s</xml>\n' % (spaces)
+
     to_write += '%s<xml name="inputs">\n' % (spaces)
 
     to_write += '%s<conditional name="searched_domain">\n' % (2 * spaces)
@@ -109,6 +118,14 @@ def write_macros_file(macros_filepath, domains_fields):
 
     to_write += '%s</conditional>\n' % (2 * spaces)
     to_write += '%s</xml>\n' % (spaces)
+
+    to_write += '%s<xml name="citations">\n' % (spaces)
+    to_write += '%s<citations>\n' % (2 * spaces)
+    to_write += '%s<citation type="doi">10.1093/bib/bbp065</citation>\n' % (3 * spaces)
+    to_write += '%s<citation type="doi">10.1093/nar/gkv316</citation>\n' % (3 * spaces)
+    to_write += '%s</citations>\n' % (2 * spaces)
+    to_write += '%s</xml>\n' % (spaces)
+
     to_write += '</macros>\n'
 
     with open(macros_filepath, 'w') as macros_file:
