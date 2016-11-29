@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # ======================================================================
-# Script derived from the EB-eye (REST) Python-3 client available at
+# Script derived from the EB-eye (REST) Python client available at
 # http://www.ebi.ac.uk/Tools/webservices/services/eb-eye_rest
 # and distributed under the Apache License
 # ======================================================================
@@ -8,6 +8,7 @@
 import platform
 import os
 import urllib
+import re
 from optparse import OptionParser
 from gzip import GzipFile
 from xmltramp2 import xmltramp
@@ -257,27 +258,45 @@ def hasViewUrls(entry):
     return False
 
 
+def getRunLink(run_id):
+    printDebugMessage('getEntries', 'Begin', 1)
+    requestUrl = baseUrl + '/metagenomics_runs/entry/' + run_id + '?fieldurl=true'
+    printDebugMessage('getEntries', requestUrl, 2)
+    xmlDoc = restRequest(requestUrl)
+    doc = xmltramp.parse(xmlDoc)
+    entries = doc['entries']['entry':]
+    fieldURL = ''
+    for entry in entries:
+        for fieldurl in entry['fieldURLs']['fieldURL':]:
+            fieldURL += str(fieldurl)
+    printDebugMessage('getEntries', 'End', 1)
+    p = re.compile('http')
+    fieldURL = p.sub('https', fieldURL)
+    print fieldURL
+
+
 if __name__ == '__main__':
     # Usage message
     usage = """
       %prog getDomainHierarchy
       %prog getResults <domain> <query> <fields>
+      %prog getRunLink <runId>
       """
 
-    description = "Search at EMBL-EBI using the EB-eye search engine. "
-    description += "For more information on EB-eye refer to"
-    description += " http://www.ebi.ac.uk/ebisearch/"
-    version = "$Id: dbfetch_urllib2.py 2468 2013-01-25 14:01:01Z hpm $"
+    description = "Tools to query and download data from several EMBL-EBI databases"
+    description += "The searching tools are using the EB-eye search engine. "
+    description += "http://www.ebi.ac.uk/ebisearch/"
     # Process command-line options
     parser = OptionParser(
         usage=usage,
         description=description,
-        version=version)
+        version='1.0')
     (options, args) = parser.parse_args()
 
     # No arguments, print usage
     if len(args) < 1:
         parser.print_help()
+
     # Get domain hierarchy
     elif args[0] == 'getDomainHierarchy':
         getDomainHierarchy()
@@ -288,6 +307,14 @@ if __name__ == '__main__':
             print ('domain, query and fields should be given.')
         else:
             getResults(args[1], args[2], args[3])
+
+    # Get run link results
+    elif args[0] == 'getRunLink':
+        if len(args) < 2:
+            print ('run id should be given.')
+        else:
+            getRunLink(args[1])
+
     # Unknown argument combination, display usage
     else:
         print ('Error: unrecognised argument combination')
