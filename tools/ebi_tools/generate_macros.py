@@ -32,7 +32,7 @@ def write_macros_file(macros_filepath, domains_fields):
     to_write += '%s<requirements>\n' % (2 * spaces)
     to_write += '%s<requirement type="package" version="3.1.1">xmltramp2</requirement>\n' % (3 * spaces)
     to_write += '%s<requirement type="package" version="1.12">urllib3</requirement>\n' % (3 * spaces)
-    to_write += '%s<requirement type="package" version="7.49.0">curl</requirement>\n' % (3 * spaces)
+    to_write += '%s<yield/>\n' % (3 * spaces)
     to_write += '%s</requirements>\n' % (2 * spaces)
     to_write += '%s</xml>\n' % (spaces)
 
