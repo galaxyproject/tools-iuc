@@ -544,7 +544,7 @@ class JbrowseConnector(object):
             log.info('Processing %s / %s', track['category'], track_human_label)
             outputTrackConfig['key'] = track_human_label
             hashData = [dataset_path, track_human_label, track['category']]
-            outputTrackConfig['label'] = hashlib.md5('|'.join(hashData)).hexdigest() + '_%s' % i
+            outputTrackConfig['label'] = hashlib.md5('|'.join(hashData).encode('utf-8')).hexdigest() + '_%s' % i
 
             # Colour parsing is complex due to different track types having
             # different colour options.
