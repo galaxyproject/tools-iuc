@@ -25,6 +25,7 @@ likely to change at any time! Beware. ;)
 History
 =======
 
+-  0.5.2 Support for CanvasFeatures options.
 -  0.5.1 Support for contextual menus. Conda tests.
 -  0.5 Update existing instances on disk. Index names. Support HTML tracks
    instead of Canvas. Support default tracks. General JBrowse optinos

@@ -499,7 +499,6 @@ class JbrowseConnector(object):
             self.TN_TABLE.get(format, 'gff'),
             data,
             '--trackLabel', trackData['label'],
-            # '--trackType', 'JBrowse/View/Track/CanvasFeatures',
             '--key', trackData['key']
         ]
 
@@ -514,14 +513,21 @@ class JbrowseConnector(object):
         cmd += ['--clientConfig', json.dumps(clientConfig),
                 ]
 
+        trackType = 'JBrowse/View/Track/CanvasFeatures'
         if 'trackType' in gffOpts:
-            cmd += [
-                '--trackType', gffOpts['trackType']
-            ]
-        else:
-            cmd += [
-                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
-            ]
+            trackType = gffOpts['trackType']
+
+        if trackType == 'JBrowse/View/Track/CanvasFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                config['transcriptType'] = gffOpts['transcriptType']
+            if 'subParts' in gffOpts and gffOpts['subParts']:
+                config['subParts'] = gffOpts['subParts']
+            if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
+                config['impliedUTRs'] = gffOpts['impliedUTRs']
+
+        cmd += [
+            '--trackType', gffOpts['trackType']
+        ]
 
         cmd.extend(['--config', json.dumps(config)])
 
