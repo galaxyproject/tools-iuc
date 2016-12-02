@@ -370,7 +370,7 @@ class JbrowseConnector(object):
         self.subprocess_check_call(cmd)
 
     def _add_track_json(self, json_data):
-        if len(list(json_data.keys())) == 0:
+        if len(json_data) == 0:
             return
 
         tmp = tempfile.NamedTemporaryFile(delete=False)
