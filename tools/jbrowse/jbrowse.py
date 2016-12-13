@@ -127,7 +127,7 @@ class ColorScaling(object):
 
     def rgb_from_hex(self, hexstr):
         # http://stackoverflow.com/questions/4296249/how-do-i-convert-a-hex-triplet-to-an-rgb-tuple-and-back
-        return struct.unpack('BBB', hexstr.decode('hex'))
+        return struct.unpack('BBB', bytes.fromhex(hexstr))
 
     def min_max_gff(self, gff_file):
         min_val = None
