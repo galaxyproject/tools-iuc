@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import argparse
+import codecs
 import copy
 import hashlib
 import json
@@ -127,7 +128,7 @@ class ColorScaling(object):
 
     def rgb_from_hex(self, hexstr):
         # http://stackoverflow.com/questions/4296249/how-do-i-convert-a-hex-triplet-to-an-rgb-tuple-and-back
-        return struct.unpack('BBB', bytes.fromhex(hexstr))
+        return struct.unpack('BBB', codecs.decode(hexstr, 'hex'))
 
     def min_max_gff(self, gff_file):
         min_val = None
