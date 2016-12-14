@@ -16,10 +16,10 @@ def add_option(value, name, selected=False):
 def add_select_parameter(name, label, multiple=False):
     to_write = '<param '
     to_write += 'name="%s" ' % (name)
-    to_write += 'type="select" '
-    to_write += 'label="%s" ' % (label)
+    to_write += 'type="select"'
     if multiple:
-        to_write += 'multiple=\"true\"'
+        to_write += ' multiple="true" optional="false"'
+    to_write += ' label="%s"' % (label)
     to_write += '>\n'
     return to_write
 
@@ -30,6 +30,7 @@ def write_macros_file(macros_filepath, domains_fields):
 
     to_write += '%s<xml name="requirements">\n' % (spaces)
     to_write += '%s<requirements>\n' % (2 * spaces)
+    to_write += '%s<requirement type="package" version="2.7.12">python</requirement>\n' % (3 * spaces)
     to_write += '%s<requirement type="package" version="3.1.1">xmltramp2</requirement>\n' % (3 * spaces)
     to_write += '%s<requirement type="package" version="1.12">urllib3</requirement>\n' % (3 * spaces)
     to_write += '%s<yield/>\n' % (3 * spaces)
@@ -44,7 +45,7 @@ def write_macros_file(macros_filepath, domains_fields):
         'Domain to query'))
 
     sorted_domains = [(d, domains_fields[d]['name']) for d in domains_fields.keys()]
-    sorted_domains = sorted(sorted_domains, key=lambda tup: tup[1])
+    sorted_domains.sort(key=lambda tup: tup[1])
     for domain in sorted_domains:
         to_write += '%s%s' % (4 * spaces, add_option(
             domain[0],
@@ -65,7 +66,6 @@ def write_macros_file(macros_filepath, domains_fields):
                 field,
                 field,
                 selected=True))
-        to_write += '%s<validator type="no_options" message="Please select at least one field" />\n' % (5 * spaces)
         to_write += '%s</param>\n' % (4 * spaces)
 
         to_write += '%s<repeat name="queries" title="Add a query">\n' % (
