@@ -1,5 +1,4 @@
-README
-======
+# README
 
 ONTO-Toolkit is a collection of Galaxy tools for managing ontologies 
 that are represented in the OBO flat file format (spec 1.2 and 1.4). 
@@ -22,8 +21,7 @@ See also:
      Semantic Web Applications and Tools for Life Sciences (SWAT4LS), London, UK (2011)
 
 
-CITING ONTO-Toolkit
-===================
+## CITING ONTO-Toolkit
 
 If you use ONTO-Toolkit in your work, you are kindly requested to cite:
 
@@ -32,8 +30,7 @@ If you use ONTO-Toolkit in your work, you are kindly requested to cite:
     BMC Bioinformatics 2010, 11(Suppl 12):S8 doi:10.1186/1471-2105-11-S12-S8
 
 
-COPYRIGHT AND LICENCE
-=====================
+## COPYRIGHT AND LICENCE
 
 Copyright (c) 2010-2014 Erick Antezana and Bjoern Gruening.
 OONTO-Toolkit is free software; you can redistribute it and/or
@@ -41,23 +38,14 @@ modify it under the terms GPL3+, see the additional LICENSE file.
 
 
 
-INSTALLATION
-============
+## INSTALLATION
 
 It is recommended to install this wrapper via the `Galaxy Tool Shed`.
 
 .. _`Galaxy Tool Shed`: http://toolshed.g2.bx.psu.edu/view/bgruening/onto_perl_toolkit
 
 
-TODO
-====
-
-- Create and integrate OWL and OBO datatypes into Galaxy
-
-
-=======
-History
-=======
+## History
 
 - v1.41.0: Initial release, forked from https://toolshed.g2.bx.psu.edu/view/erick-antezana/onto-toolkit 
 with kind permission from Erick Antezana, who is the main developer of the underlying PERL library.
