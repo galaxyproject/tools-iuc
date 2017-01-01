@@ -257,7 +257,7 @@ def allocate_array(data, width):
     lo, hi = get_range(data)
     rng = hi - lo
     shift = width - lo
-    return numpy.zeros(rng+width*2, numpy.float), shift
+    return numpy.zeros(rng + width * 2, numpy.float), shift
 
 
 def normal_array(width, sigma, normalize=True):
@@ -274,7 +274,7 @@ def normal_array(width, sigma, normalize=True):
     values = numpy.array(values, numpy.float)
     # normalization
     if normalize:
-        values = 1.0/math.sqrt(2 * numpy.pi * sigma2) * values
+        values = 1.0 / math.sqrt(2 * numpy.pi * sigma2) * values
     return values
 
 
@@ -292,7 +292,7 @@ def call_peaks(array, shift, data, keys, direction, down_width, up_width, exclus
             if direction == 2:
                 # Swap positive and negative widths
                 pos, neg = neg, pos
-            peaks.append(Peak(int(index)-shift, pos, neg))
+            peaks.append(Peak(int(index) - shift, pos, neg))
     find_peaks()
 
     def calculate_reads():
@@ -313,8 +313,8 @@ def call_peaks(array, shift, data, keys, direction, down_width, up_width, exclus
         for peak in peaks_by_value:
             peak.safe = True
             window = get_window(peaks,
-                                peak.index-exclusion//2,
-                                peak.index+exclusion//2,
+                                peak.index - exclusion // 2,
+                                peak.index + exclusion // 2,
                                 peak_keys)
             for excluded in window:
                 if excluded.safe:
@@ -346,9 +346,9 @@ def process_chromosome(cname, data, writer, process_bounds, width, sigma, down_w
             index, forward, reverse = read
             # Add the normals to the appropriate regions
             if forward:
-                forward_array[index+forward_shift-width:index+forward_shift+width] += normal * forward
+                forward_array[index + forward_shift - width:index + forward_shift + width] += normal * forward
             if reverse:
-                reverse_array[index+reverse_shift-width:index+reverse_shift+width] += normal * reverse
+                reverse_array[index + reverse_shift - width:index + reverse_shift + width] += normal * reverse
     populate_array()
     forward_peaks = call_peaks(forward_array, forward_shift, data, keys, 1, down_width, up_width, exclusion)
     reverse_peaks = call_peaks(reverse_array, reverse_shift, data, keys, 2, down_width, up_width, exclusion)

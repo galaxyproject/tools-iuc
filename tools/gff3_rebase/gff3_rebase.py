@@ -1,11 +1,13 @@
 #!/usr/bin/env python
-import sys
-import logging
-logging.basicConfig(level=logging.INFO)
 import argparse
 import copy
+import logging
+import sys
+
 from BCBio import GFF
 from Bio.SeqFeature import FeatureLocation
+
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 __author__ = "Eric Rasche"

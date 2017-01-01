@@ -1,17 +1,20 @@
 #!/usr/bin/env python
-import os
-import copy
 import argparse
-import subprocess
+import codecs
+import copy
 import hashlib
-import struct
-import tempfile
-import shutil
 import json
-from Bio.Data import CodonTable
-import xml.etree.ElementTree as ET
 import logging
+import os
+import shutil
+import struct
+import subprocess
+import tempfile
+import xml.etree.ElementTree as ET
 from collections import defaultdict
+
+from Bio.Data import CodonTable
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('jbrowse')
 
@@ -125,7 +128,7 @@ class ColorScaling(object):
 
     def rgb_from_hex(self, hexstr):
         # http://stackoverflow.com/questions/4296249/how-do-i-convert-a-hex-triplet-to-an-rgb-tuple-and-back
-        return struct.unpack('BBB',hexstr.decode('hex'))
+        return struct.unpack('BBB', codecs.decode(hexstr, 'hex'))
 
     def min_max_gff(self, gff_file):
         min_val = None
@@ -154,6 +157,31 @@ class ColorScaling(object):
         self.brewer_colour_idx += 1
         return r, g, b
 
+    def parse_menus(self, track):
+        trackConfig = {'menuTemplate': [{}, {}, {}]}
+
+        if 'menu' in track['menus']:
+            menu_list = [track['menus']['menu']]
+            if isinstance(track['menus']['menu'], list):
+                menu_list = track['menus']['menu']
+
+            for m in menu_list:
+                tpl = {
+                    'action': m['action'],
+                    'label': m.get('label', '{name}'),
+                    'iconClass': m.get('iconClass', 'dijitIconBookmark'),
+                }
+                if 'url' in m:
+                    tpl['url'] = m['url']
+                if 'content' in m:
+                    tpl['content'] = m['content']
+                if 'title' in m:
+                    tpl['title'] = m['title']
+
+                trackConfig['menuTemplate'].append(tpl)
+
+        return trackConfig
+
     def parse_colours(self, track, trackFormat, gff3=None):
         # Wiggle tracks have a bicolor pallete
         trackConfig = {'style': {}}
@@ -165,7 +193,6 @@ class ColorScaling(object):
             if trackConfig['style']['pos_color'] == '__auto__':
                 trackConfig['style']['neg_color'] = self.hex_from_rgb(*self._get_colours())
                 trackConfig['style']['pos_color'] = self.hex_from_rgb(*self._get_colours())
-
 
             # Wiggle tracks can change colour at a specified place
             bc_pivot = track['wiggle']['bicolor_pivot']
@@ -223,7 +250,7 @@ class ColorScaling(object):
                         auto_color = "'%s'" % self.hex_from_rgb(*self._get_colours())
 
                     color_function = self.COLOR_FUNCTION_TEMPLATE_QUAL.format(**{
-                        'opacity': self.OPACITY_MATH[algo].format(**{'max': max_val,'min': min_val}),
+                        'opacity': self.OPACITY_MATH[algo].format(**{'max': max_val, 'min': min_val}),
                         'user_spec_color': user_color,
                         'auto_gen_color': auto_color,
                     })
@@ -238,16 +265,16 @@ def etree_to_dict(t):
     if children:
         dd = defaultdict(list)
         for dc in map(etree_to_dict, children):
-            for k, v in dc.iteritems():
+            for k, v in dc.items():
                 dd[k].append(v)
-        d = {t.tag: {k:v[0] if len(v) == 1 else v for k, v in dd.iteritems()}}
+        d = {t.tag: {k: v[0] if len(v) == 1 else v for k, v in dd.items()}}
     if t.attrib:
-        d[t.tag].update(('@' + k, v) for k, v in t.attrib.iteritems())
+        d[t.tag].update(('@' + k, v) for k, v in t.attrib.items())
     if t.text:
         text = t.text.strip()
         if children or t.attrib:
             if text:
-              d[t.tag]['#text'] = text
+                d[t.tag]['#text'] = text
         else:
             d[t.tag] = text
     return d
@@ -274,6 +301,7 @@ class JbrowseConnector(object):
         self.genome_paths = genomes
         self.standalone = standalone
         self.gencode = gencode
+        self.tracksToIndex = []
 
         if standalone:
             self.clone_jbrowse(self.jbrowse, self.outdir)
@@ -302,7 +330,6 @@ class JbrowseConnector(object):
         with open(trackList, 'w') as handle:
             json.dump(trackListData, handle, indent=2)
 
-
     def subprocess_check_call(self, command):
         log.debug('cd %s && %s', self.outdir, ' '.join(command))
         subprocess.check_call(command, cwd=self.outdir)
@@ -316,11 +343,23 @@ class JbrowseConnector(object):
                 'perl', self._jbrowse_bin('prepare-refseqs.pl'),
                 '--fasta', genome_path])
 
-        # Generate name
-        self.subprocess_check_call([
+    def generate_names(self):
+        # Generate names
+
+        args = [
             'perl', self._jbrowse_bin('generate-names.pl'),
             '--hashBits', '16'
-        ])
+        ]
+
+        tracks = ','.join(self.tracksToIndex)
+
+        if tracks:
+            args += ['--tracks', tracks]
+        else:
+            # No tracks to index, index only the refseq
+            args += ['--tracks', 'DNA']
+
+        self.subprocess_check_call(args)
 
     def _add_json(self, json_data):
 
@@ -332,7 +371,7 @@ class JbrowseConnector(object):
         self.subprocess_check_call(cmd)
 
     def _add_track_json(self, json_data):
-        if len(json_data.keys()) == 0:
+        if len(json_data) == 0:
             return
 
         tmp = tempfile.NamedTemporaryFile(delete=False)
@@ -342,7 +381,6 @@ class JbrowseConnector(object):
                os.path.join('data', 'trackList.json')]
         self.subprocess_check_call(cmd)
         os.unlink(tmp.name)
-
 
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
@@ -389,6 +427,9 @@ class JbrowseConnector(object):
         self.subprocess_check_call(cmd)
         os.unlink(gff3)
 
+        if blastOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
+
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
         cmd = ['ln', data, dest]
@@ -425,7 +466,6 @@ class JbrowseConnector(object):
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
         })
 
-
         self._add_track_json(trackData)
 
         if bamOpts.get('auto_snp', 'false') == 'true':
@@ -433,7 +473,7 @@ class JbrowseConnector(object):
             trackData2.update({
                 "type": "JBrowse/View/Track/SNPCoverage",
                 "key": trackData['key'] + " - SNPs/Coverage",
-                "label": trackData['label']  + "_autosnp",
+                "label": trackData['label'] + "_autosnp",
             })
             self._add_track_json(trackData2)
 
@@ -460,7 +500,6 @@ class JbrowseConnector(object):
             self.TN_TABLE.get(format, 'gff'),
             data,
             '--trackLabel', trackData['label'],
-            # '--trackType', 'JBrowse/View/Track/CanvasFeatures',
             '--key', trackData['key']
         ]
 
@@ -468,32 +507,41 @@ class JbrowseConnector(object):
         clientConfig = trackData['style']
         del config['style']
 
-        if  'match' in gffOpts:
+        if 'match' in gffOpts:
             config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
             cmd += ['--type', gffOpts['match']]
 
         cmd += ['--clientConfig', json.dumps(clientConfig),
                 ]
 
+        trackType = 'JBrowse/View/Track/CanvasFeatures'
         if 'trackType' in gffOpts:
-            cmd += [
-                '--trackType', gffOpts['trackType']
-            ]
-        else:
-            cmd += [
-                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
-            ]
+            trackType = gffOpts['trackType']
+
+        if trackType == 'JBrowse/View/Track/CanvasFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                config['transcriptType'] = gffOpts['transcriptType']
+            if 'subParts' in gffOpts and gffOpts['subParts']:
+                config['subParts'] = gffOpts['subParts']
+            if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
+                config['impliedUTRs'] = gffOpts['impliedUTRs']
+
+        cmd += [
+            '--trackType', gffOpts['trackType']
+        ]
 
         cmd.extend(['--config', json.dumps(config)])
 
         self.subprocess_check_call(cmd)
 
+        if gffOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
 
     def process_annotations(self, track):
         outputTrackConfig = {
             'style': {
-                'label':       track['style'].get('label', 'description'),
-                'className':   track['style'].get('className', 'feature'),
+                'label': track['style'].get('label', 'description'),
+                'className': track['style'].get('className', 'feature'),
                 'description': track['style'].get('description', ''),
             },
             'category': track['category'],
@@ -503,7 +551,7 @@ class JbrowseConnector(object):
             log.info('Processing %s / %s', track['category'], track_human_label)
             outputTrackConfig['key'] = track_human_label
             hashData = [dataset_path, track_human_label, track['category']]
-            outputTrackConfig['label'] = hashlib.md5('|'.join(hashData)).hexdigest() + '_%s' % i
+            outputTrackConfig['label'] = hashlib.md5('|'.join(hashData).encode('utf-8')).hexdigest() + '_%s' % i
 
             # Colour parsing is complex due to different track types having
             # different colour options.
@@ -516,11 +564,14 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
+            menus = self.cs.parse_menus(track['conf']['options'])
+            outputTrackConfig.update(menus)
+
             # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
-                                track['conf']['options']['gff'])
+                                  track['conf']['options']['gff'])
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
                                 track['conf']['options']['wiggle'])
@@ -596,7 +647,7 @@ class JbrowseConnector(object):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
-    parser.add_argument('xml', type=file, help='Track Configuration')
+    parser.add_argument('xml', type=argparse.FileType('r'), help='Track Configuration')
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
@@ -645,14 +696,14 @@ if __name__ == '__main__':
         try:
             # Only pertains to gff3 + blastxml. TODO?
             track_conf['style'] = {t.tag: t.text for t in track.find('options/style')}
-        except TypeError, te:
+        except TypeError:
             track_conf['style'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
         keys = jc.process_annotations(track_conf)
 
-
         for key in keys:
             extra_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
 
     jc.add_final_data(extra_data)
+    jc.generate_names()

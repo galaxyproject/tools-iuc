@@ -1,6 +1,3 @@
-
-from galaxy.tools.parameters import DataToolParameter
-
 def validate_input( trans, error_map, param_values, page_param_map ):
     """
         Validates the user input, before execution.
@@ -19,7 +16,6 @@ def validate_input( trans, error_map, param_values, page_param_map ):
         factor_name_list.append( fn )
 
         level_name_list = list()
-        factor_index_list = list()
 
         for level in ['factorLevel1', 'factorLevel2']:
             # level names under one factor should be unique
@@ -38,4 +34,3 @@ def validate_input( trans, error_map, param_values, page_param_map ):
         error_map['rep_factorName'] = [ dict() for t in factors ]
         for i in range( len( factors ) ):
             error_map['rep_factorName'][i]['factorName'] = 'Factor names need to be unique.'
-

@@ -2,11 +2,11 @@
 import argparse
 import os
 
-import extract_genomic_dna_utils as egdu
 import bx.seq.nib
 import bx.seq.twobit
-from bx.intervals.io import Header, Comment
+from bx.intervals.io import Comment, Header
 
+import extract_genomic_dna_utils as egdu
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_format', dest='input_format', help="Input dataset format")
@@ -110,7 +110,7 @@ for feature in file_iterator:
             nibs[chrom] = nib = bx.seq.nib.NibFile(open("%s/%s.nib" % (seq_path, chrom)))
         try:
             sequence = nib.get(start, end - start)
-        except Exception, e:
+        except Exception as e:
             warning = "Unable to fetch the sequence from '%d' to '%d' for build '%s'. " % (start, end - start, args.genome)
             warnings.append(warning)
             if not invalid_lines:

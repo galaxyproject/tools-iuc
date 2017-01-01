@@ -17,8 +17,6 @@ if __name__ == '__main__':
     # Output
     parser.add_argument('--retmode', help='Retmode')
     parser.add_argument('--rettype', help='Rettype')
-    parser.add_argument('--whole', action='store_true',
-                        help='Download all records associated with query')
     args = parser.parse_args()
 
     c = eutils.Client(history_file=args.history_file, user_email=args.user_email, admin_email=args.admin_email)
@@ -34,4 +32,4 @@ if __name__ == '__main__':
         if getattr(args, attr, None) is not None:
             payload[attr] = getattr(args, attr)
 
-    c.fetch(args.db, whole=args.whole, **payload)
+    c.fetch(args.db, ftype=args.retmode, **payload)

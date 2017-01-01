@@ -65,6 +65,7 @@ def main(expterm, fasta, gff3):
                         rec.features.append(feature)
             yield rec
 
+
 if __name__ == '__main__':
     for record in main(*sys.argv[1:4]):
         GFF.write([record], sys.stdout)

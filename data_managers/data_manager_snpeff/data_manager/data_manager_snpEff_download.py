@@ -41,7 +41,7 @@ def fetch_databases(jar_path, genome_list=None):
                     continue
                 description = fields[1].strip()
                 snpDBs[genome_version] = description
-    except Exception, e:
+    except Exception as e:
         stop_err( 'Error parsing %s %s\n' % (databases_path, str( e )) )
     else:
         fh.close()
@@ -99,7 +99,7 @@ def getSnpeffVersionFromFile(path):
         if m:
             snpeff_version = m.groups()[0] + m.groups()[1]
         fh.close()
-    except Exception, e:
+    except Exception as e:
         stop_err( 'Error parsing SnpEff version from: %s %s\n' % (path, str( e )) )
     return snpeff_version
 
@@ -195,6 +195,7 @@ def main():
 
     # save info to json file
     open( filename, 'wb' ).write( json.dumps( data_manager_dict ) )
+
 
 if __name__ == "__main__":
     main()
