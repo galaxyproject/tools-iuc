@@ -20,3 +20,55 @@ cp split_libraries/seqs.fna 'test-data/split_fastq_libraries_sequences.fasta'
 cp split_libraries/seqs.qual 'test-data/split_fastq_libraries_sequence_qualities.qual'
 cp split_libraries/seqs.fastq 'test-data/split_fastq_libraries_demultiplexed_sequences.fastq'
 rm -rf split_libraries
+
+# pick_open_reference_otus
+pick_open_reference_otus.py \
+    --input_fps 'test-data/split_fastq_libraries_sequences.fasta' \
+    -o pick_open_reference_otus_1 \
+    --reference_fp 'test-data/gg_13_8_79_otus.fasta' \
+    --otu_picking_method 'uclust' \
+    --new_ref_set_id 'New' \
+    --parallel \
+    --percent_subsample '0.001' \
+    --prefilter_percent_id '0.0' \
+    --minimum_failure_threshold '100000' \
+    --min_otu_size '2'
+cp pick_open_reference_otus_1/final_otu_map.txt 'test-data/pick_open_reference_otus_1_final_otu_map.txt'
+cp pick_open_reference_otus_1/final_otu_map_mc*.txt 'test-data/pick_open_reference_otus_1_final_otu_map_mc.txt'
+cp pick_open_reference_otus_1/rep_set.fna 'test-data/pick_open_reference_otus_1_rep_set.fna'
+cp pick_open_reference_otus_1/rep_set.tre 'test-data/pick_open_reference_otus_1_rep_set_tree.tre'
+rm -rf pick_open_reference_otus_1
+
+pick_open_reference_otus.py \
+    --input_fps 'test-data/split_fastq_libraries_sequences.fasta' \
+    -o pick_open_reference_otus_2 \
+    --reference_fp 'test-data/gg_13_8_79_otus.fasta' \
+    --otu_picking_method 'uclust' \
+    --new_ref_set_id 'New' \
+    --parallel \
+    --percent_subsample '0.001' \
+    --prefilter_percent_id '0.0' \
+    --minimum_failure_threshold '100000' \
+    --min_otu_size '3' \
+    --suppress_taxonomy_assignment \
+    --suppress_align_and_tree
+cp pick_open_reference_otus_2/final_otu_map.txt 'test-data/pick_open_reference_otus_2_final_otu_map.txt'
+cp pick_open_reference_otus_2/final_otu_map_mc*.txt 'test-data/pick_open_reference_otus_2_final_otu_map_mc.txt'
+rm -rf pick_open_reference_otus_2
+
+pick_open_reference_otus.py \
+    --input_fps 'test-data/split_fastq_libraries_sequences.fasta' \
+    -o pick_open_reference_otus_3 \
+    --reference_fp 'test-data/gg_13_8_79_otus.fasta' \
+    --otu_picking_method 'uclust' \
+    --new_ref_set_id 'New' \
+    --parallel \
+    --percent_subsample '0.001' \
+    --prefilter_percent_id '0.0' \
+    --minimum_failure_threshold '100000' \
+    --min_otu_size '10' \
+    --suppress_taxonomy_assignment
+cp pick_open_reference_otus_3/final_otu_map.txt 'test-data/pick_open_reference_otus_3_final_otu_map.txt'
+cp pick_open_reference_otus_3/final_otu_map_mc*.txt 'test-data/pick_open_reference_otus_3_final_otu_map_mc.txt'
+cp pick_open_reference_otus_3/rep_set.tre 'test-data/pick_open_reference_otus_3_rep_set_tree.tre'
+rm -rf pick_open_reference_otus_3
