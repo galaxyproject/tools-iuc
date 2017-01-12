@@ -72,3 +72,25 @@ cp pick_open_reference_otus_3/final_otu_map.txt 'test-data/pick_open_reference_o
 cp pick_open_reference_otus_3/final_otu_map_mc*.txt 'test-data/pick_open_reference_otus_3_final_otu_map_mc.txt'
 cp pick_open_reference_otus_3/rep_set.tre 'test-data/pick_open_reference_otus_3_rep_set_tree.tre'
 rm -rf pick_open_reference_otus_3
+
+# core_diversity_analyses
+# Data are from test data in https://github.com/biocore/qiime
+core_diversity_analyses.py \
+    --input_biom_fp 'test-data/core_diversity_analyses_otu_table.biom' \
+    -o core_diversity_analyses_1 \
+    --mapping_fp 'test-data/core_diversity_analyses_map.txt' \
+    --sampling_depth 22 \
+    --tree_fp 'test-data/core_diversity_analyses_rep_set.tre'
+rm -rf core_diversity_analyses_1
+
+core_diversity_analyses.py \
+    --input_biom_fp 'test-data/core_diversity_analyses_otu_table.biom' \
+    -o core_diversity_analyses_2 \
+    --mapping_fp 'test-data/core_diversity_analyses_map.txt' \
+    --sampling_depth 22 \
+    --nonphylogenetic_diversity \
+    --suppress_taxa_summary \
+    --suppress_beta_diversity \
+    --suppress_alpha_diversity \
+    --suppress_group_significance
+rm -rf core_diversity_analyses_2
