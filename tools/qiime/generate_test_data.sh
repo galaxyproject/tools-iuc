@@ -82,3 +82,24 @@ cp pick_open_reference_otus_3/final_otu_map.txt 'test-data/pick_open_reference_o
 cp pick_open_reference_otus_3/final_otu_map_mc*.txt 'test-data/pick_open_reference_otus_3_final_otu_map_mc.txt'
 cp pick_open_reference_otus_3/rep_set.tre 'test-data/pick_open_reference_otus_3_rep_set_tree.tre'
 rm -rf pick_open_reference_otus_3
+
+# make_emperor
+make_emperor.py \
+    --input_coords 'test-data/core_diversity_analyses_unweighted_unifrac_pc.txt' \
+    -o make_emperor_1 \
+    --map_fp 'test-data/core_diversity_analyses_map.txt' \
+    --number_of_axes '10' \
+    --add_unique_columns \
+    --number_of_segments 8
+rm -rf make_emperor_1
+
+make_emperor.py \
+    --input_coords 'test-data/core_diversity_analyses_unweighted_unifrac_pc.txt' \
+    -o make_emperor_2 \
+    --map_fp 'test-data/core_diversity_analyses_map.txt' \
+    --number_of_axes '10' \
+    --add_unique_columns \
+    --number_of_segments 8 \
+    --taxa_fp 'test-data/summarize_taxa_2_L3.txt' \
+    --n_taxa_to_keep 10
+rm -rf make_emperor_2
