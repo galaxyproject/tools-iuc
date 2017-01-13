@@ -104,3 +104,48 @@ core_diversity_analyses.py \
     --suppress_alpha_diversity \
     --suppress_group_significance
 rm -rf core_diversity_analyses_2
+
+# make_emperor
+make_emperor.py \
+    --input_coords 'test-data/core_diversity_analyses_unweighted_unifrac_pc.txt' \
+    -o make_emperor_1 \
+    --map_fp 'test-data/core_diversity_analyses_map.txt' \
+    --number_of_axes '10' \
+    --add_unique_columns \
+    --number_of_segments 8
+rm -rf make_emperor_1
+
+make_emperor.py \
+    --input_coords 'test-data/core_diversity_analyses_unweighted_unifrac_pc.txt' \
+    -o make_emperor_2 \
+    --map_fp 'test-data/core_diversity_analyses_map.txt' \
+    --number_of_axes '10' \
+    --add_unique_columns \
+    --number_of_segments 8 \
+    --taxa_fp 'test-data/summarize_taxa_2_L3.txt' \
+    --n_taxa_to_keep 10
+rm -rf make_emperor_2
+# summarize_taxa
+summarize_taxa.py \
+    -i 'test-data/core_diversity_analyses_otu_table.biom' \
+    -o summarize_taxa_1 \
+    -L '2,3,4,5,6' \
+    -m 'test-data/core_diversity_analyses_map.txt' \
+    --md_identifier "taxonomy" \
+    --delimiter ";"
+cp summarize_taxa_1/*_L2.txt "test-data/summarize_taxa_1_L2.txt"
+cp summarize_taxa_1/*_L3.txt "test-data/summarize_taxa_1_L3.txt"
+cp summarize_taxa_1/*_L4.txt "test-data/summarize_taxa_1_L4.txt"
+cp summarize_taxa_1/*_L5.txt "test-data/summarize_taxa_1_L5.txt"
+cp summarize_taxa_1/*_L6.txt "test-data/summarize_taxa_1_L6.txt"
+rm -rf summarize_taxa_1
+
+summarize_taxa.py \
+    -i 'test-data/core_diversity_analyses_otu_table.biom' \
+    -o summarize_taxa_2 \
+    -L '3,6' \
+    --md_identifier "taxonomy" \
+    --delimiter ";"
+cp summarize_taxa_2/*_L3.txt "test-data/summarize_taxa_2_L3.txt"
+cp summarize_taxa_2/*_L6.txt "test-data/summarize_taxa_2_L6.txt"
+rm -rf summarize_taxa_2
