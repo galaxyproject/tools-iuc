@@ -82,3 +82,18 @@ cp pick_open_reference_otus_3/final_otu_map.txt 'test-data/pick_open_reference_o
 cp pick_open_reference_otus_3/final_otu_map_mc*.txt 'test-data/pick_open_reference_otus_3_final_otu_map_mc.txt'
 cp pick_open_reference_otus_3/rep_set.tre 'test-data/pick_open_reference_otus_3_rep_set_tree.tre'
 rm -rf pick_open_reference_otus_3
+
+# summarize_taxa
+summarize_taxa.py \
+    -i 'test-data/core_diversity_analyses_otu_table.biom' \
+    -o summarize_taxa \
+    -L '2,3,4,5,6' \
+    -m 'test-data/core_diversity_analyses_map.txt' \
+    --md_identifier "taxonomy" \
+    --delimiter ";"
+cp summarize_taxa/*_L2.txt "test-data/summarize_taxa_L2.txt"
+cp summarize_taxa/*_L3.txt "test-data/summarize_taxa_L3.txt"
+cp summarize_taxa/*_L4.txt "test-data/summarize_taxa_L4.txt"
+cp summarize_taxa/*_L5.txt "test-data/summarize_taxa_L5.txt"
+cp summarize_taxa/*_L6.txt "test-data/summarize_taxa_L6.txt"
+rm -rf summarize_taxa
