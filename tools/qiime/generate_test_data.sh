@@ -31,6 +31,29 @@ cp split_libraries/seqs.qual 'test-data/split_fastq_libraries_sequence_qualities
 cp split_libraries/seqs.fastq 'test-data/split_fastq_libraries_demultiplexed_sequences.fastq'
 rm -rf split_libraries
 
+# split_libraries
+split_libraries.py \
+    --map 'test-data/split_libraries_mapping_file.txt' \
+    -o split_libraries \
+    --fasta 'test-data/split_libraries_reads_1.fna,test-data/split_libraries_reads_2.fna' \
+    --qual 'test-data/split_libraries_reads_1.qual,test-data/split_libraries_reads_2.qual' \
+    --min_qual_score 25 \
+    --qual_score_window 0 \
+    --record_qual_scores \
+    --min_seq_length 200 \
+    --max_seq_length 1000 \
+    --max_ambig 6 \
+    --max_homopolymer 6 \
+    --max_primer_mismatch 0 \
+    --barcode_type 'golay_12' \
+    --max_barcode_errors 1.5 \
+    --start_numbering_at 1
+cp split_libraries/seqs.fna 'test-data/split_libraries_seqs.fna'
+cp split_libraries/split_library_log.txt 'test-data/split_libraries_split_library_log'
+cp split_libraries/histograms.txt 'test-data/split_libraries_histograms.txt'
+cp split_libraries/seqs_filtered.qual 'test-data/split_libraries_seqs_filtered.qual'
+rm -rf split_libraries
+
 # pick_open_reference_otus
 pick_open_reference_otus.py \
     --input_fps 'test-data/split_fastq_libraries_sequences.fasta' \
@@ -125,6 +148,7 @@ make_emperor.py \
     --taxa_fp 'test-data/summarize_taxa_2_L3.txt' \
     --n_taxa_to_keep 10
 rm -rf make_emperor_2
+
 # summarize_taxa
 summarize_taxa.py \
     -i 'test-data/core_diversity_analyses_otu_table.biom' \
