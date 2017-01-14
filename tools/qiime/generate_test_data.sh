@@ -114,6 +114,7 @@ core_diversity_analyses.py \
     --mapping_fp 'test-data/core_diversity_analyses_map.txt' \
     --sampling_depth 22 \
     --tree_fp 'test-data/core_diversity_analyses_rep_set.tre'
+cp core_diversity_analyses_1/bdiv_even22/unweighted_unifrac_pc.txt 'test-data/core_diversity_analyses_unweighted_unifrac_pc.txt'
 rm -rf core_diversity_analyses_1
 
 core_diversity_analyses.py \
