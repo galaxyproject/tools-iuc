@@ -24,7 +24,6 @@ split_libraries_fastq.py \
     --start_seq_id 0 \
     --barcode_type 'golay_12' \
     --max_barcode_errors 1.5
-cp split_libraries/split_library_log.txt 'test-data/split_fastq_libraries_log.txt'
 cp split_libraries/histograms.txt 'test-data/split_fastq_libraries_histograms.tabular'
 cp split_libraries/seqs.fna 'test-data/split_fastq_libraries_sequences.fasta'
 cp split_libraries/seqs.qual 'test-data/split_fastq_libraries_sequence_qualities.qual'
@@ -68,7 +67,6 @@ pick_open_reference_otus.py \
     --min_otu_size '2'
 cp pick_open_reference_otus_1/final_otu_map.txt 'test-data/pick_open_reference_otus_1_final_otu_map.txt'
 cp pick_open_reference_otus_1/final_otu_map_mc*.txt 'test-data/pick_open_reference_otus_1_final_otu_map_mc.txt'
-cp pick_open_reference_otus_1/rep_set.fna 'test-data/pick_open_reference_otus_1_rep_set.fna'
 cp pick_open_reference_otus_1/rep_set.tre 'test-data/pick_open_reference_otus_1_rep_set_tree.tre'
 rm -rf pick_open_reference_otus_1
 
