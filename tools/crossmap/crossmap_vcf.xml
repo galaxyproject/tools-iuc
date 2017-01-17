@@ -1,0 +1,143 @@
+<tool id="crossmap" name="CrossMap" version="0.2.2-0">
+    <description>Convert genome coordinates or annotation files between genome assemblies</description>
+    
+    <requirements>
+        <requirement type="package" version="324">ucsc-wigtobigwig</requirement>
+        <requirement type="package" version="0.2.2">crossmap</requirement>
+    </requirements>
+    
+    <stdio>
+        <regex match="Aborted (core dumped)" source="stdout" level="fatal"/>
+        <regex match=".*" source="both" level="log"/>
+        <exit_code range="1:"/>
+    </stdio>
+    
+    <version_command>CrossMap.py 2&gt;&amp;1 | head -n 1 | grep -E --only-matching 'CrossMap.*'</version_command>
+    
+    <command><![CDATA[
+        #set $input_file = str($seq_source.input)
+        
+        CrossMap.py
+            vcf
+            
+            #if $seq_source.index_source == "cached"
+                <!-- This is the 2nd dbkey, and the corresponding value has to be looked up -->
+                "${filter(lambda x: str( x[1] ) == str($seq_source.input_chain ), $__app__.tool_data_tables['liftOver'].get_fields())[0][2] }"
+            #else
+                "$seq_source.input_chain"
+            #end if
+            
+            '${input_file}'
+            '${seq_source.input_fasta}'
+            
+            '${output}'
+            
+            && mv "${output}.unmap" "$output_unmapped"
+    ]]></command>
+
+    <inputs>
+        <conditional name="seq_source">
+            <param name="index_source" type="select" label="Source for LiftOver Data">
+                <option value="cached">Local data (in galaxy)</option>
+                <option value="history_chain">Chain file from History</option>
+                <option value="history_all">Chain &amp; FASTA files from History</option>
+            </param>
+            
+            <when value="cached">
+                <param type="data" format="vcf" name="input" label="VCF file">
+                    <validator type="unspecified_build"/>
+                    <!-- Gives error in tests
+                    <validator type="dataset_metadata_in_file" filename="liftOver.loc" metadata_name="dbkey" metadata_column="0" message="LiftOver mapping (chain file) is not available for the specified build."/>
+                    -->
+                </param>
+                
+                <!-- automatically fetch a FASTA file from the same DBKEY as the chain file -->
+                <param name="input_chain" type="select" label="Lift Over To (Chain file)">
+                    <options from_file="liftOver.loc">
+                        <column name="name" index="1"/>
+                        <column name="value" index="1"/><!-- It is not possible to send the *.chain file as value, and obtain the 2nd dbkey as parameter via a filter -->
+                        <column name="dbkey" index="0"/>
+                        <filter type="data_meta" ref="input" key="dbkey" column="0"/>
+                    </options>
+                </param>
+                
+                <param name="input_fasta" type="select" label="Lift Over To (FASTA file)" help="The FASTA file must be on the same build (dbkey) as the LiftOver chain file">
+                    <options from_file="all_fasta.loc">
+                        <column name="name" index="2"/>
+                        <column name="value" index="3"/>
+                        <column name="dbkey" index="1"/>
+                        <filter type="param_value" ref="input_chain" column="1"/>
+                    </options>
+                </param>
+            </when>
+            
+            <when value="history_chain">
+                <param type="data" format="vcf" name="input" label="VCF file">
+                    <validator type="unspecified_build"/>
+                    <!-- Gives error in tests
+                    <validator type="dataset_metadata_in_file" filename="all_fasta.loc" metadata_name="dbkey" metadata_column="1" message="LiftOver mapping (FASTA file) is not available for the specified build."/>
+                    -->
+                </param>
+                <param type="data" format="csv" name="input_chain" multiple="false" label="LiftOver chain file"/>
+                <param name="input_fasta" type="select" label="Lift Over To (FASTA file)" help="The FASTA file must be on the same build (dbkey) as the LiftOver chain file">
+                    <options from_file="all_fasta.loc">
+                        <column name="name" index="2"/>
+                        <column name="value" index="3"/>
+                        <column name="dbkey" index="1"/>
+                    </options>
+                </param>
+            </when>
+            
+            <when value="history_all">
+                <param type="data" format="vcf"   name="input" label="VCF file"/>
+                <param type="data" format="csv"   name="input_chain" multiple="false" label="LiftOver chain file"/>
+                <param type="data" format="fasta" name="input_fasta" multiple="false" label="Full genome FASTA file"/>
+            </when>
+        </conditional>
+
+    </inputs>
+    
+    <outputs>
+        <data format="vcf" name="output" label="${tool.name} on ${on_string}" />
+        <data format="vcf" name="output_unmapped" label="${tool.name} (unmapped) on ${on_string}" />
+    </outputs>
+    
+    <tests>
+    <!-- VCF -->
+        <test>
+            <param name="index_source" value="history_all"/>
+            <param name="input" value="test_vcf_01_input.vcf" ftype="vcf"/>
+            <param name="input_chain" value="test_vcf_01.over.chain" ftype="csv"/>
+            <param name="input_fasta" value="test_vcf_01.fasta" ftype="fasta"/>
+            <param name="include_fails" value="False"/>
+            
+            <output name="output">
+                <assert_contents>
+                    <has_text text="##fileformat=VCFv4.2"/>
+                    <has_text text="##liftOverProgram=CrossMap(https://sourceforge.net/projects/crossmap/)"/>
+                    <has_text text="##new_reference_genome="/>
+                    <has_text text="#CHROM"/>
+                    <has_text_matching expression="2.*?rs11449.*?PASS"/>
+                    <has_text_matching expression="2.*?rs84825.*?PASS"/>
+                    <has_text_matching expression="2.*?rs84823.*?PASS"/>
+                </assert_contents>
+            </output>
+            <output name="output_unmapped" file="test_vcf_01_output.vcf.unmap"/>
+        </test>
+    </tests>
+    <help>
+CrossMap is versatile tool to convert genome coordinates or annotation files between genome
+assemblies. It supports mostly commonly used file types, including BAM, BED,BigWig, GFF,
+GTF, SAM, Wiggle, and VCF formats. For large plain text file types, such as BED, GFF, GTF
+and VCF, reading from remote servers and file compression are supported.
+
+CrossMap bed
+------------
+BED format file must have at least 3 columns (chrom, start, end) and no more than 12 columns.
+BED format: http://genome.ucsc.edu/FAQ/FAQformat.html#format1
+    </help>
+    
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btt730</citation>
+    </citations>
+</tool>
