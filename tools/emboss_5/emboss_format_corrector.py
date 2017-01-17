@@ -1,21 +1,18 @@
-#EMBOSS format corrector
-
+# EMBOSS format corrector
 import operator
 
-#Properly set file formats before job run
+
+# Properly set file formats before job run
 def exec_before_job( app, inp_data=None, out_data=None, tool=None, param_dict=None ):
-    #why isn't items an ordered list?
+    # why isn't items an ordered list?
     items = out_data.items()
-    #lets sort it ourselves....
     items = sorted(items, key=operator.itemgetter(0))
-    #items is now sorted...
-    
-    #normal filetype correction
-    data_count=1
+
+    # normal filetype correction
+    data_count = 1
     for name, data in items:
-        outputType = param_dict.get( 'out_format'+str(data_count), None )
-        #print "data_count",data_count, "name", name, "outputType", outputType
-        if outputType !=None:
+        outputType = param_dict.get( 'out_format' + str(data_count), None )
+        if outputType is not None:
             if outputType == 'ncbi':
                 outputType = "fasta"
             elif outputType == 'excel':
@@ -25,26 +22,26 @@ def exec_before_job( app, inp_data=None, out_data=None, tool=None, param_dict=No
             data = app.datatypes_registry.change_datatype(data, outputType)
             app.model.context.add( data )
             app.model.context.flush()
-        data_count+=1
-    
-    #html filetype correction
-    data_count=1
+        data_count += 1
+
+    # html filetype correction
+    data_count = 1
     for name, data in items:
-        wants_plot = param_dict.get( 'html_out'+str(data_count), None )
+        wants_plot = param_dict.get( 'html_out' + str(data_count), None )
         ext = "html"
         if wants_plot == "yes":
             data = app.datatypes_registry.change_datatype(data, ext)
             app.model.context.add( data )
             app.model.context.flush()
-        data_count+=1
-    
-    #png file correction
-    data_count=1
+        data_count += 1
+
+    # png file correction
+    data_count = 1
     for name, data in items:
-        wants_plot = param_dict.get( 'plot'+str(data_count), None )
+        wants_plot = param_dict.get( 'plot' + str(data_count), None )
         ext = "png"
         if wants_plot == "yes":
             data = app.datatypes_registry.change_datatype(data, ext)
             app.model.context.add( data )
             app.model.context.flush()
-        data_count+=1
+        data_count += 1
