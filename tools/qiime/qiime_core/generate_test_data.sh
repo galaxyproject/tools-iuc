@@ -172,3 +172,16 @@ summarize_taxa.py \
 cp summarize_taxa_2/*_L3.txt "test-data/summarize_taxa_2_L3.txt"
 cp summarize_taxa_2/*_L6.txt "test-data/summarize_taxa_2_L6.txt"
 rm -rf summarize_taxa_2
+
+#beta_diversity_through_plots
+beta_diversity_through_plots.py \
+    --otu_table_fp 'test-data/beta_diversity_through_plots/otu_table.biom' \
+    --mapping_fp 'test-data/beta_diversity_through_plots/map.txt' \
+    --output_dir beta_diversity_through_plots \
+    --tree_fp 'test-data/beta_diversity_through_plots/rep_set.tre' \
+    --parallel
+cp beta_diversity_through_plots/unweighted_unifrac_dm.txt 'test-data/beta_diversity_through_plots/'
+cp beta_diversity_through_plots/unweighted_unifrac_pc.txt 'test-data/beta_diversity_through_plots/'
+cp beta_diversity_through_plots/weighted_unifrac_dm.txt 'test-data/beta_diversity_through_plots/'
+cp beta_diversity_through_plots/weighted_unifrac_pc.txt 'test-data/beta_diversity_through_plots/'
+rm -rf beta_diversity_through_plots
