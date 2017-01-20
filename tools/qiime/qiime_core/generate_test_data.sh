@@ -172,3 +172,13 @@ summarize_taxa.py \
 cp summarize_taxa_2/*_L3.txt "test-data/summarize_taxa_2_L3.txt"
 cp summarize_taxa_2/*_L6.txt "test-data/summarize_taxa_2_L6.txt"
 rm -rf summarize_taxa_2
+
+# jackknifed_beta_diversity
+jackknifed_beta_diversity.py \
+    --otu_table_fp 'test-data/jackknifed_beta_diversity/otu_table.biom' \
+    --mapping_fp 'test-data/jackknifed_beta_diversity/map.txt' \
+    -o jackknifed_beta_diversity \
+    --seqs_per_sample '10' \
+    --tree_fp 'test-data/jackknifed_beta_diversity/rep_set.tre' \
+    --master_tree 'consensus' \
+    --parallel
