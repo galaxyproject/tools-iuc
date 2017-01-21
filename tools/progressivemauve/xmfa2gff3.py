@@ -1,12 +1,17 @@
 #!/usr/bin/env python
+import argparse
+import logging
 import sys
+
+from BCBio import GFF
 from Bio import SeqIO
 from Bio.Seq import Seq
+from Bio.SeqFeature import (
+    FeatureLocation,
+    SeqFeature
+)
 from Bio.SeqRecord import SeqRecord
-from Bio.SeqFeature import SeqFeature, FeatureLocation
-import argparse
-from BCBio import GFF
-import logging
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
