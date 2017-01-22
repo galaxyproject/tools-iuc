@@ -44,12 +44,38 @@ def build_html(args):
     generate_index_html(dir_list, args)
 
     os.system('cp -r index.html ' + args.html_dir)
+    os.mkdir(args.data_directory + '/pcoa')
+    os.mkdir(args.data_directory + '/rare_dm')
+    os.mkdir(args.data_directory + '/rare_upgma')
+    os.mkdir(args.data_directory + '/upgma_cmp')
+    os.mkdir(args.data_directory + '/rare_upgma_consensus')
 
     for directory in dir_list:
         if directory == 'rarefaction' or directory == 'unrarefied_bdiv':
             continue
         cmd = 'cp -r ' + args.data_directory + '/' + directory
         cmd += '/emperor_pcoa_plots' + ' ' + args.html_dir + '/' + directory
+        os.system(cmd)
+
+        cmd = 'cp -r ' + args.data_directory + '/' + directory + '/pcoa/* ' 
+        cmd += args.data_directory + '/pcoa'
+        os.system(cmd)
+
+        cmd = 'cp -r ' + args.data_directory + '/' + directory + '/rare_dm/* ' 
+        cmd += args.data_directory + '/rare_dm'
+        os.system(cmd)
+
+        cmd = 'cp -r ' + args.data_directory + '/' + directory + '/rare_upgma/* ' 
+        cmd += args.data_directory + '/rare_upgma'
+        os.system(cmd)
+
+        cmd = 'cp -r ' + args.data_directory + '/' + directory + '/upgma_cmp/* ' 
+        cmd += args.data_directory + '/upgma_cmp'
+        os.system(cmd)
+
+        cmd = 'cp ' + args.data_directory + '/' + directory 
+        cmd += '/rare_upgma_consensus.tre ' + args.data_directory
+        cmd += '/rare_upgma_consensus/' + directory + '.tre' 
         os.system(cmd)
 
     os.system('mv ' + args.html_dir + '/index.html ' + args.html_file)
