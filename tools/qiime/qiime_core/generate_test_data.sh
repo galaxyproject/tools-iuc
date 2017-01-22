@@ -182,3 +182,4 @@ jackknifed_beta_diversity.py \
     --tree_fp 'test-data/jackknifed_beta_diversity/rep_set.tre' \
     --master_tree 'consensus' \
     --parallel
+rm -rf jackknifed_beta_diversity
