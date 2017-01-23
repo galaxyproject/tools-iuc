@@ -180,7 +180,19 @@ make_emperor.py \
     --n_taxa_to_keep 10
 rm -rf make_emperor_2
 
-#beta_diversity
+#alpha_rarefaction
+alpha_rarefaction.py \
+    --otu_table_fp "test-data/alpha_rarefaction/otu_table.biom" \
+    --mapping_fp "test-data/alpha_rarefaction/mapping_file.txt" \
+    -o alpha_rarefaction \
+    --num_steps '2' \
+    --tree_fp "test-data/alpha_rarefaction/rep_set.tre" \
+    --min_rare_depth '10' \
+    --max_rare_depth '50' \
+    --retain_intermediate_files
+rm -rf alpha_rarefaction
+
+##beta_diversity
 beta_diversity.py \
     --input_path 'test-data/beta_diversity/otu_table.biom' \
     -o beta_diversity_1 \
