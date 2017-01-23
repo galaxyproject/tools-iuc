@@ -198,3 +198,24 @@ beta_diversity.py \
 md5 'beta_diversity_2/canberra_otu_table.txt'
 md5 'beta_diversity_2/pearson_otu_table.txt'
 rm -rf beta_diversity_2
+
+# compare_categories
+compare_categories.py \
+    --method 'adonis' \
+    --input_dm 'test-data/compare_categories/unweighted_unifrac_dm.txt' \
+    --mapping_file 'test-data/compare_categories/map.txt' \
+    --categories 'Treatment' \
+    -o compare_categories_1 \
+    --num_permutations '999'
+cp compare_categories_1/adonis_results.txt "test-data/compare_categories/adonis_results.txt"
+rm -rf compare_categories_1
+
+compare_categories.py \
+    --method 'dbrda' \
+    --input_dm 'test-data/compare_categories/unweighted_unifrac_dm.txt' \
+    --mapping_file 'test-data/compare_categories/map.txt' \
+    --categories 'Treatment' \
+    -o compare_categories_2 \
+    --num_permutations '99'
+cp compare_categories_2/* "test-data/compare_categories/"
+rm -rf compare_categories_2
