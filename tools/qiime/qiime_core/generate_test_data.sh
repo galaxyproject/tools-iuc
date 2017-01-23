@@ -199,6 +199,16 @@ md5 'beta_diversity_2/canberra_otu_table.txt'
 md5 'beta_diversity_2/pearson_otu_table.txt'
 rm -rf beta_diversity_2
 
+# jackknifed_beta_diversity
+jackknifed_beta_diversity.py \
+    --otu_table_fp 'test-data/jackknifed_beta_diversity/otu_table.biom' \
+    --mapping_fp 'test-data/jackknifed_beta_diversity/map.txt' \
+    -o jackknifed_beta_diversity \
+    --seqs_per_sample '10' \
+    --tree_fp 'test-data/jackknifed_beta_diversity/rep_set.tre' \
+    --master_tree 'consensus' \
+    --parallel
+rm -rf jackknifed_beta_diversity
 #beta_diversity_through_plots
 beta_diversity_through_plots.py \
     --otu_table_fp 'test-data/beta_diversity_through_plots/otu_table.biom' \
