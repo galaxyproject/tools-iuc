@@ -2,13 +2,14 @@
 
 import os
 import sys
+from __future__ import print_function
 from xml.sax.saxutils import escape
 
 
 def make_table(directory):
     ret = ['<table class="fileList">\n']
-    for file in os.listdir(directory):
-        ret.append('<tr><td class="file"><a href="%s">%s</a></td></tr>\n' % (file, escape(file).replace('MACS2_', '')))
+    for filename in os.listdir(directory):
+        ret.append('<tr><td class="file"><a href="%s">%s</a></td></tr>\n' % (filename, escape(filename).replace('MACS2_', '')))
     ret.append('</table>')
     return ''.join(ret)
 
