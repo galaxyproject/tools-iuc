@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import os
 import argparse
+import os
 import re
 
 
@@ -50,11 +50,13 @@ def build_html(args):
     os.system('cp -r index.html ' + args.html_dir)
 
     for directory in dir_list:
-        cmd = 'cp -r ' + args.data_directory + '/'
-        cmd += directory + ' ' + args.html_dir
+        input_path = os.path.join(args.data_directory, directory)
+        cmd = 'cp -r ' + input_path + ' ' + args.html_dir
         os.system(cmd)
 
-    os.system('mv ' + args.html_dir + '/index.html ' + args.html_file)
+    index_html_path = os.path.join(args.html_dir, "/index.html")
+    os.system('mv ' + index_html_path + ' ' + args.html_file)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
