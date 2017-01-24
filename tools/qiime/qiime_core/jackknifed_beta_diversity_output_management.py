@@ -6,7 +6,7 @@ import os
 
 
 def generate_index_html(dir_list, args):
-    with open('index.html', 'w') as index_html_file:
+    with open(args.html_file, 'w') as index_html_file:
         s = '<html>\n'
         s += '\t<head>\n'
         s += '\t\t<title>Jackknifed beta diversity results</title>\n'
@@ -43,7 +43,6 @@ def build_html(args):
 
     generate_index_html(dir_list, args)
 
-    os.system('cp -r index.html ' + args.html_dir)
     os.mkdir(args.data_directory + '/pcoa')
     os.mkdir(args.data_directory + '/rare_dm')
     os.mkdir(args.data_directory + '/rare_upgma')
@@ -89,8 +88,6 @@ def build_html(args):
         cmd = 'cp ' + input_path + ' ' + output_path
         os.system(cmd)
 
-    index_html_path = os.path.join(args.html_dir, "/index.html")
-    os.system('mv ' + index_html_path + ' ' + args.html_file)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
