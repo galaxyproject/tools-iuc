@@ -211,23 +211,79 @@ md5 'beta_diversity_2/canberra_otu_table.txt'
 md5 'beta_diversity_2/pearson_otu_table.txt'
 rm -rf beta_diversity_2
 
-# compare_categories
-compare_categories.py \
-    --method 'adonis' \
-    --input_dm 'test-data/compare_categories/unweighted_unifrac_dm.txt' \
-    --mapping_file 'test-data/compare_categories/map.txt' \
-    --categories 'Treatment' \
-    -o compare_categories_1 \
-    --num_permutations '999'
-cp compare_categories_1/adonis_results.txt "test-data/compare_categories/adonis_results.txt"
-rm -rf compare_categories_1
+# jackknifed_beta_diversity
+jackknifed_beta_diversity.py \
+    --otu_table_fp 'test-data/jackknifed_beta_diversity/otu_table.biom' \
+    --mapping_fp 'test-data/jackknifed_beta_diversity/map.txt' \
+    -o jackknifed_beta_diversity \
+    --seqs_per_sample '10' \
+    --tree_fp 'test-data/jackknifed_beta_diversity/rep_set.tre' \
+    --master_tree 'consensus' \
+    --parallel
+rm -rf jackknifed_beta_diversity
 
-compare_categories.py \
-    --method 'dbrda' \
-    --input_dm 'test-data/compare_categories/unweighted_unifrac_dm.txt' \
-    --mapping_file 'test-data/compare_categories/map.txt' \
-    --categories 'Treatment' \
-    -o compare_categories_2 \
-    --num_permutations '99'
-cp compare_categories_2/* "test-data/compare_categories/"
-rm -rf compare_categories_2
+#beta_diversity_through_plots
+beta_diversity_through_plots.py \
+    --otu_table_fp 'test-data/beta_diversity_through_plots/otu_table.biom' \
+    --mapping_fp 'test-data/beta_diversity_through_plots/map.txt' \
+    --output_dir beta_diversity_through_plots \
+    --tree_fp 'test-data/beta_diversity_through_plots/rep_set.tre' \
+    --parallel
+cp beta_diversity_through_plots/unweighted_unifrac_dm.txt 'test-data/beta_diversity_through_plots/'
+cp beta_diversity_through_plots/unweighted_unifrac_pc.txt 'test-data/beta_diversity_through_plots/'
+cp beta_diversity_through_plots/weighted_unifrac_dm.txt 'test-data/beta_diversity_through_plots/'
+cp beta_diversity_through_plots/weighted_unifrac_pc.txt 'test-data/beta_diversity_through_plots/'
+rm -rf beta_diversity_through_plots
+
+# assign_taxonomy
+assign_taxonomy.py \
+    --input_fasta_fp 'test-data/assign_taxonomy/uclust_input_seqs.fasta' \
+    --assignment_method 'uclust' \
+    --min_consensus_fraction '0.51' \
+    --similarity '0.9' \
+    --uclust_max_accepts '3' \
+    -o assign_taxonomy_uclust
+cp assign_taxonomy_uclust/uclust_input_seqs_tax_assignments.txt 'test-data/assign_taxonomy/uclust_taxonomic_assignation.txt'
+rm -rf assign_taxonomy_uclust
+
+#assign_taxonomy.py \
+#    --input_fasta_fp 'test-data/assign_taxonomy/rdp_input_seqs.fasta' \
+#    --id_to_taxonomy_fp 'test-data/assign_taxonomy/rdp_id_to_taxonomy.txt' \
+#    --assignment_method 'rdp' \
+#    --confidence '3' \
+#    -o assign_taxonomy_rdp
+
+#assign_taxonomy.py \
+#    --input_fasta_fp 'test-data/assign_taxonomy/rtax_ref_seq_set.fna' \
+#    --id_to_taxonomy_fp 'test-data/assign_taxonomy/rtax_id_to_taxonomy.txt' \
+#    --assignment_method 'rtax' \
+#    --read_1_seqs_fp 'test-data/assign_taxonomy/read_1.seqs.fna' \
+#    --read_2_seqs_fp 'test-data/assign_taxonomy/read_2.seqs.fna'  \
+#    --single_ok \
+#    --no_single_ok_generic \
+#    --read_id_regex "\S+\s+(\S+)" \
+#    --amplicon_id_regex "(\S+)\s+(\S+?)\/" \
+#    --header_id_regex "\S+\s+(\S+?)\/" \
+#    -o assign_taxonomy_rtax
+#ls assign_taxonomy_rtax
+
+#assign_taxonomy.py \
+#    --input_fasta_fp 'test-data/assign_taxonomy/mothur_ref_seq_set.fna' \
+#    --id_to_taxonomy_fp 'test-data/assign_taxonomy/mothur_id_to_taxonomy.txt' \
+#    --assignment_method 'mothur' \
+#    --confidence 0.5  \
+#    -o assign_taxonomy_mothur
+#ls assign_taxonomy_mothur
+
+assign_taxonomy.py \
+    --input_fasta_fp 'test-data/assign_taxonomy/mothur_ref_seq_set.fna' \
+    --assignment_method 'sortmerna' \
+    --min_consensus_fraction "0.51" \
+    --similarity "0.9" \
+    --sortmerna_e_value "1.0" \
+    --sortmerna_coverage "0.9" \
+    --sortmerna_best_N_alignments "5" \
+    -o assign_taxonomy_sortmerna
+cp assign_taxonomy_sortmerna/sortmerna_map.blast 'test-data/assign_taxonomy/sortmerna_map.blast'
+cp assign_taxonomy_sortmerna/mothur_ref_seq_set_tax_assignments.txt 'test-data/assign_taxonomy/sortmerna_taxonomic_assignation.txt'
+rm -rf assign_taxonomy_sortmerna
