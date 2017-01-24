@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import os
 import argparse
+import os
 import re
 
 
 def generate_index_html(dir_list, args):
-    with open('index.html', 'w') as index_html_file:
+    with open(args.html_file, 'w') as index_html_file:
         s = ""
         s += '<html>\n'
         s += '\t<head><title>PCoA beta diversity results</title></head>\n'
@@ -47,14 +47,11 @@ def build_html(args):
 
     generate_index_html(dir_list, args)
 
-    os.system('cp -r index.html ' + args.html_dir)
-
     for directory in dir_list:
-        cmd = 'cp -r ' + args.data_directory + '/'
-        cmd += directory + ' ' + args.html_dir
+        input_path = os.path.join(args.data_directory, directory)
+        cmd = 'cp -r ' + input_path + ' ' + args.html_dir
         os.system(cmd)
 
-    os.system('mv ' + args.html_dir + '/index.html ' + args.html_file)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
