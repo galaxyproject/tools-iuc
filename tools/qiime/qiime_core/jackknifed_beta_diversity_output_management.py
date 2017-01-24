@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import os
 import argparse
+import os
 
 
 def generate_index_html(dir_list, args):
@@ -53,32 +53,44 @@ def build_html(args):
     for directory in dir_list:
         if directory == 'rarefaction' or directory == 'unrarefied_bdiv':
             continue
-        cmd = 'cp -r ' + args.data_directory + '/' + directory
-        cmd += '/emperor_pcoa_plots' + ' ' + args.html_dir + '/' + directory
+
+        input_dir = os.path.join(args.data_directory, directory)
+
+        input_path = os.path.join(input_dir, "emperor_pcoa_plots")
+        output_path = os.path.join(args.html_dir, directory)
+        cmd = 'cp -r ' + input_path + ' ' + output_path
         os.system(cmd)
 
-        cmd = 'cp -r ' + args.data_directory + '/' + directory + '/pcoa/* ' 
-        cmd += args.data_directory + '/pcoa'
+        input_path = os.path.join(input_dir, "pcoa/*")
+        output_path = os.path.join(args.data_directory, "pcoa")
+        cmd = 'cp -r ' + input_path + ' ' + output_path
         os.system(cmd)
 
-        cmd = 'cp -r ' + args.data_directory + '/' + directory + '/rare_dm/* ' 
-        cmd += args.data_directory + '/rare_dm'
+        input_path = os.path.join(input_dir, "rare_dm/*")
+        output_path = os.path.join(args.data_directory, "rare_dm")
+        cmd = 'cp -r ' + input_path + ' ' + output_path
         os.system(cmd)
 
-        cmd = 'cp -r ' + args.data_directory + '/' + directory + '/rare_upgma/* ' 
-        cmd += args.data_directory + '/rare_upgma'
+        input_path = os.path.join(input_dir, "rare_upgma/*")
+        output_path = os.path.join(args.data_directory, "rare_upgma")
+        cmd = 'cp -r ' + input_path + ' ' + output_path
         os.system(cmd)
 
-        cmd = 'cp -r ' + args.data_directory + '/' + directory + '/upgma_cmp/* ' 
-        cmd += args.data_directory + '/upgma_cmp'
+        input_path = os.path.join(input_dir, "upgma_cmp/*")
+        output_path = os.path.join(args.data_directory, "upgma_cmp")
+        cmd = 'cp -r ' + input_path + ' ' + output_path
         os.system(cmd)
 
-        cmd = 'cp ' + args.data_directory + '/' + directory 
-        cmd += '/rare_upgma_consensus.tre ' + args.data_directory
-        cmd += '/rare_upgma_consensus/' + directory + '.tre' 
+        input_path = os.path.join(input_dir, "rare_upgma_consensus.tre")
+        output_path = os.path.join(
+            args.data_directory,
+            "rare_upgma_consensus",
+            directory + '.tre')
+        cmd = 'cp ' + input_path + ' ' + output_path
         os.system(cmd)
 
-    os.system('mv ' + args.html_dir + '/index.html ' + args.html_file)
+    index_html_path = os.path.join(args.html_dir, "/index.html")
+    os.system('mv ' + index_html_path + ' ' + args.html_file)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
