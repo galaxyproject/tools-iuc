@@ -1,1 +1,1 @@
-qiime_core/README.rst
+../qiime_core/README.rst
