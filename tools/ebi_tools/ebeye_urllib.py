@@ -5,19 +5,16 @@
 # and distributed under the Apache License
 # ======================================================================
 # Load libraries
-import platform
 import os
-import urllib
+import platform
 import re
-from optparse import OptionParser
-from gzip import GzipFile
-from xmltramp2 import xmltramp
-# python2
-from StringIO import StringIO
+import urllib
 import urllib2
-# python3
-# import urllib.request as urllib2
+from gzip import GzipFile
+from optparse import OptionParser
+from StringIO import StringIO
 
+from xmltramp2 import xmltramp
 
 # Service base URL
 baseUrl = 'http://www.ebi.ac.uk/ebisearch/ws/rest'

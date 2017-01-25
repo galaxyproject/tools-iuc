@@ -4,12 +4,12 @@
 # using scikit-bio
 # Daniel Blankenberg
 
-
-import sys
-import optparse
 import codecs
-from skbio.diversity import beta_diversity
+import optparse
+import sys
+
 from skbio import TreeNode
+from skbio.diversity import beta_diversity
 
 
 __VERSION__ = "0.0.1"

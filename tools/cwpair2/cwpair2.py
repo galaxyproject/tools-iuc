@@ -14,6 +14,7 @@ C (statistics graph), statistics.tabular
 
 import argparse
 import csv
+
 import cwpair2_util
 
 if __name__ == '__main__':

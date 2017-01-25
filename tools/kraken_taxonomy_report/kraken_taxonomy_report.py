@@ -8,10 +8,10 @@
 
 from __future__ import print_function
 
-import sys
-import os
 import optparse
+import os
 import re
+import sys
 
 __VERSION__ = '0.0.2'
 
