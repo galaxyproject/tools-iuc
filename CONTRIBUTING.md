@@ -12,7 +12,7 @@ inclusion.
 * Fork the repository on [GitHub](https://github.com/galaxyproject/tools-iuc/fork)
 * Make the desired modifications - consider using a [feature branch](https://github.com/Kunena/Kunena-Forum/wiki/Create-a-new-branch-with-git-and-manage-branches).
 * Make sure you have added the necessary tests for your changes and they pass.
-* Make sure submitted tools meet IUC [Best Practices](https://wiki.galaxyproject.org/Tools/BestPractices)
+* Make sure submitted tools meet IUC [Best Practices](https://galaxy-iuc-standards.readthedocs.io/en/latest/)
 * Open a [pull request](https://help.github.com/articles/using-pull-requests)
   with these changes.
 
