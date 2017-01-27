@@ -78,25 +78,25 @@ class FastQCRunner(object):
             infname = os.path.splitext(infname)[0]
 
         # Replace unwanted or problematic charaters in the input file name
-        self.fastqinfilename = re.sub(ur'[^a-zA-Z0-9_\-\.]', '_', os.path.basename(infname))
+        self.fastqinfilename = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', os.path.basename(infname))
         # check that the symbolic link gets a proper ending, fastqc seems to ignore the given format otherwise
-        if 'fastq' in opts.informat:
+        if 'fastq' in self.opts.informat:
             # with fastq the .ext is ignored, but when a format is actually passed it must comply with fastqc's
             # accepted formats..
-            opts.informat = 'fastq'
-        elif not self.fastqinfilename.endswith(opts.informat):
-            self.fastqinfilename += '.%s' % opts.informat
+            self.opts.informat = 'fastq'
+        elif not self.fastqinfilename.endswith(self.opts.informat):
+            self.fastqinfilename += '.%s' % self.opts.informat
 
         # Build the Commandline from the given parameters
-        command_line = [opts.executable, '--outdir %s' % opts.outputdir]
-        if opts.contaminants is not None:
-            command_line.append('--contaminants %s' % opts.contaminants)
-        if opts.limits is not None:
-            command_line.append('--limits %s' % opts.limits)
+        command_line = [opts.executable, '--outdir %s' % self.opts.outputdir]
+        if self.opts.contaminants is not None:
+            command_line.append('--contaminants %s' % self.opts.contaminants)
+        if self.opts.limits is not None:
+            command_line.append('--limits %s' % self.opts.limits)
         command_line.append('--quiet')
         command_line.append('--extract')  # to access the output text file
         if type[-1] != "gzip":
-            command_line.append('-f %s' % opts.informat)
+            command_line.append('-f %s' % self.opts.informat)
         else:
             self.fastqinfilename += ".gz"
         command_line.append(self.fastqinfilename)
@@ -108,20 +108,20 @@ class FastQCRunner(object):
         '''
 
         # retrieve html file
-        result_file = glob.glob(opts.outputdir + '/*html')
+        result_file = glob.glob(self.opts.outputdir + '/*html')
         with open(result_file[0], 'rb') as fsrc:
             with open(self.opts.htmloutput, 'wb') as fdest:
                 shutil.copyfileobj(fsrc, fdest)
 
         # retrieve text file
-        text_file = glob.glob(opts.outputdir + '/*/fastqc_data.txt')
+        text_file = glob.glob(self.opts.outputdir + '/*/fastqc_data.txt')
         with open(text_file[0], 'rb') as fsrc:
             with open(self.opts.textoutput, 'wb') as fdest:
                 shutil.copyfileobj(fsrc, fdest)
 
     def run_fastqc(self):
         '''
-        Executes FastQC. Make sure the mandatory import parameters input, inputfilename, outputdir and htmloutput have been specified in the options (opts)
+        Executes FastQC. Make sure the mandatory import parameters input, inputfilename, outputdir and htmloutput have been specified in the options
         '''
 
         # Create a log file
