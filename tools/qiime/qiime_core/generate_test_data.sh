@@ -211,6 +211,27 @@ md5 'beta_diversity_2/canberra_otu_table.txt'
 md5 'beta_diversity_2/pearson_otu_table.txt'
 rm -rf beta_diversity_2
 
+# compare_categories
+compare_categories.py \
+    --method 'adonis' \
+    --input_dm 'test-data/compare_categories/unweighted_unifrac_dm.txt' \
+    --mapping_file 'test-data/compare_categories/map.txt' \
+    --categories 'Treatment' \
+    -o compare_categories_1 \
+    --num_permutations '999'
+cp compare_categories_1/adonis_results.txt "test-data/compare_categories/adonis_results.txt"
+rm -rf compare_categories_1
+
+compare_categories.py \
+    --method 'dbrda' \
+    --input_dm 'test-data/compare_categories/unweighted_unifrac_dm.txt' \
+    --mapping_file 'test-data/compare_categories/map.txt' \
+    --categories 'Treatment' \
+    -o compare_categories_2 \
+    --num_permutations '99'
+cp compare_categories_2/* "test-data/compare_categories/"
+rm -rf compare_categories_2
+
 # jackknifed_beta_diversity
 jackknifed_beta_diversity.py \
     --otu_table_fp 'test-data/jackknifed_beta_diversity/otu_table.biom' \
@@ -221,6 +242,7 @@ jackknifed_beta_diversity.py \
     --master_tree 'consensus' \
     --parallel
 rm -rf jackknifed_beta_diversity
+
 #beta_diversity_through_plots
 beta_diversity_through_plots.py \
     --otu_table_fp 'test-data/beta_diversity_through_plots/otu_table.biom' \
