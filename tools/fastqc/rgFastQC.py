@@ -60,7 +60,7 @@ class FastQCRunner(object):
                 trimext = True
             f.close()
         elif linf.endswith('bz2'):
-            f = bz2.open(self.opts.input, 'rb')
+            f = bz2.BZ2File(self.opts.input, 'r')
             try:
                 f.readline()
             except:
