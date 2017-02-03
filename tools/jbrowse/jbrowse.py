@@ -158,7 +158,7 @@ class ColorScaling(object):
         return r, g, b
 
     def parse_menus(self, track):
-        trackConfig = {'menuTemplate': [{}, {}, {}]}
+        trackConfig = {'menuTemplate': [{}, {}, {}, {}]}
 
         if 'menu' in track['menus']:
             menu_list = [track['menus']['menu']]
