@@ -435,8 +435,9 @@ class JbrowseConnector(object):
         cmd = ['ln', data, dest]
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.bw')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest),
+            "urlTemplate": url,
             "storeClass": "JBrowse/Store/SeqFeature/BigWig",
             "type": "JBrowse/View/Track/Wiggle/Density",
         })
@@ -460,8 +461,9 @@ class JbrowseConnector(object):
         cmd = ['ln', '-s', os.path.realpath(bam_index), dest + '.bai']
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.bam')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest),
+            "urlTemplate": url,
             "type": "JBrowse/View/Track/Alignments2",
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
         })
@@ -487,8 +489,9 @@ class JbrowseConnector(object):
         cmd = ['tabix', '-p', 'vcf', dest + '.gz']
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.vcf')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest + '.gz'),
+            "urlTemplate": url,
             "type": "JBrowse/View/Track/HTMLVariants",
             "storeClass": "JBrowse/Store/SeqFeature/VCFTabix",
         })
