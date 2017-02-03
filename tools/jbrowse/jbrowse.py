@@ -564,8 +564,9 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
-            menus = self.cs.parse_menus(track['conf']['options'])
-            outputTrackConfig.update(menus)
+            if 'menus' in track['conf']['options']:
+                menus = self.cs.parse_menus(track['conf']['options'])
+                outputTrackConfig.update(menus)
 
             # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
