@@ -158,7 +158,7 @@ class ColorScaling(object):
         return r, g, b
 
     def parse_menus(self, track):
-        trackConfig = {'menuTemplate': [{}, {}, {}]}
+        trackConfig = {'menuTemplate': [{}, {}, {}, {}]}
 
         if 'menu' in track['menus']:
             menu_list = [track['menus']['menu']]
@@ -435,8 +435,9 @@ class JbrowseConnector(object):
         cmd = ['ln', data, dest]
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.bw')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest),
+            "urlTemplate": url,
             "storeClass": "JBrowse/Store/SeqFeature/BigWig",
             "type": "JBrowse/View/Track/Wiggle/Density",
         })
@@ -460,8 +461,9 @@ class JbrowseConnector(object):
         cmd = ['ln', '-s', os.path.realpath(bam_index), dest + '.bai']
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.bam')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest),
+            "urlTemplate": url,
             "type": "JBrowse/View/Track/Alignments2",
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
         })
@@ -487,8 +489,9 @@ class JbrowseConnector(object):
         cmd = ['tabix', '-p', 'vcf', dest + '.gz']
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.vcf')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest + '.gz'),
+            "urlTemplate": url,
             "type": "JBrowse/View/Track/HTMLVariants",
             "storeClass": "JBrowse/Store/SeqFeature/VCFTabix",
         })
@@ -564,8 +567,9 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
-            menus = self.cs.parse_menus(track['conf']['options'])
-            outputTrackConfig.update(menus)
+            if 'menus' in track['conf']['options']:
+                menus = self.cs.parse_menus(track['conf']['options'])
+                outputTrackConfig.update(menus)
 
             # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
