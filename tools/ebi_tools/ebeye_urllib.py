@@ -272,7 +272,7 @@ def getRunLink(run_id):
     printDebugMessage('getEntries', 'End', 1)
     p = re.compile('http')
     fieldURL = p.sub('https', fieldURL)
-    print (fieldURL)
+    print(fieldURL)
 
 
 if __name__ == '__main__':
