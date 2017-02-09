@@ -528,6 +528,9 @@ class JbrowseConnector(object):
                 config['subParts'] = gffOpts['subParts']
             if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
                 config['impliedUTRs'] = gffOpts['impliedUTRs']
+        elif trackType == 'JBrowse/View/Track/HTMLFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                cmd += ['--type', gffOpts['transcriptType']]
 
         cmd += [
             '--trackType', gffOpts['trackType']
