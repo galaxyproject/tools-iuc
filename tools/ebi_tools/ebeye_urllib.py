@@ -5,6 +5,9 @@
 # and distributed under the Apache License
 # ======================================================================
 # Load libraries
+
+from __future__ import print_function
+
 import os
 import platform
 import re
@@ -269,7 +272,7 @@ def getRunLink(run_id):
     printDebugMessage('getEntries', 'End', 1)
     p = re.compile('http')
     fieldURL = p.sub('https', fieldURL)
-    print fieldURL
+    print(fieldURL)
 
 
 if __name__ == '__main__':
