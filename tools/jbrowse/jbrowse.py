@@ -424,6 +424,10 @@ class JbrowseConnector(object):
                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                ]
 
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
+
         self.subprocess_check_call(cmd)
         os.unlink(gff3)
 
@@ -505,6 +509,10 @@ class JbrowseConnector(object):
             '--trackLabel', trackData['label'],
             '--key', trackData['key']
         ]
+
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
 
         config = copy.copy(trackData)
         clientConfig = trackData['style']
