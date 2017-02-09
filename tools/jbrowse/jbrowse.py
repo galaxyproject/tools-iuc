@@ -424,6 +424,10 @@ class JbrowseConnector(object):
                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                ]
 
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
+
         self.subprocess_check_call(cmd)
         os.unlink(gff3)
 
@@ -506,6 +510,10 @@ class JbrowseConnector(object):
             '--key', trackData['key']
         ]
 
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
+
         config = copy.copy(trackData)
         clientConfig = trackData['style']
         del config['style']
@@ -528,6 +536,9 @@ class JbrowseConnector(object):
                 config['subParts'] = gffOpts['subParts']
             if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
                 config['impliedUTRs'] = gffOpts['impliedUTRs']
+        elif trackType == 'JBrowse/View/Track/HTMLFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                cmd += ['--type', gffOpts['transcriptType']]
 
         cmd += [
             '--trackType', gffOpts['trackType']
