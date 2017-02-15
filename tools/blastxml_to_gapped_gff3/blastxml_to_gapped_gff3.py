@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env python
 import argparse
 import copy
 import logging
