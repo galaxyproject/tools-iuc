@@ -508,7 +508,7 @@ class JbrowseConnector(object):
 
 
     def process_annotations(self, track):
-        category = track['category'].replace('#date#', TODAY)
+        category = track['category'].replace('__pd__date__pd__', TODAY)
         outputTrackConfig = {
             'style': {
                 'label':       track['style'].get('label', 'description'),
@@ -543,7 +543,6 @@ class JbrowseConnector(object):
                 rest_url = track['conf']['options']['url']
             except KeyError:
                 rest_url = ''
-
             # I chose to use track['category'] instead of 'category' here. This
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
