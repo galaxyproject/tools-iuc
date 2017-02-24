@@ -14,3 +14,21 @@ make_otu_table.py \
     --exclude_otus_fp 'test-data/make_otu_table/pynast_failures.fna' \
     --mapping_fp 'test-data/make_otu_table/mapping_file.txt' \
     --output_biom_fp 'test-data/make_otu_table/OTU_table_pynast.biom'
+
+# collapse_samples
+collapse_samples.py \
+    --input_biom_fp 'test-data/collapse_samples/table.biom' \
+    --mapping_fp 'test-data/collapse_samples/map.txt' \
+    --collapse_mode 'sum' \
+    --collapse_fields 'SampleType' \
+    --output_biom_fp 'test-data/collapse_samples/collapsed_sum_SampleType_table.biom' \
+    --output_mapping_fp 'test-data/collapse_samples/collapsed_sum_SampleType_map.txt'
+
+collapse_samples.py \
+    --input_biom_fp 'test-data/collapse_samples/table.biom' \
+    --mapping_fp 'test-data/collapse_samples/map.txt' \
+    --collapse_mode 'first' \
+    --collapse_fields 'subject','year' \
+    --normalize \
+    --output_biom_fp 'test-data/collapse_samples/collapsed_first_2fields_table.biom' \
+    --output_mapping_fp 'test-data/collapse_samples/collapsed_first_2fields_map.txt'
