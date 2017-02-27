@@ -309,3 +309,22 @@ cp assign_taxonomy_sortmerna/sortmerna_map.blast 'test-data/assign_taxonomy/sort
 cp assign_taxonomy_sortmerna/mothur_ref_seq_set_tax_assignments.txt 'test-data/assign_taxonomy/sortmerna_taxonomic_assignation.txt'
 rm -rf assign_taxonomy_sortmerna
 
+# filter_otus_from_otu_table
+filter_otus_from_otu_table.py \
+    --input_fp 'test-data/filter_otus_from_otu_table/otu_table.biom' \
+    --min_count '2' \
+    --max_count '1000' \
+    --min_samples '5' \
+    --max_samples '350' \
+    --output_fp 'test-data/filter_otus_from_otu_table/filtered_otu_table.biom'
+
+filter_otus_from_otu_table.py \
+    --input_fp 'test-data/filter_otus_from_otu_table/otu_table.biom' \
+    --otu_ids_to_exclude_fp 'test-data/filter_otus_from_otu_table/chimeric_otus.txt' \
+    --output_fp 'test-data/filter_otus_from_otu_table/chimera_filtered_otu_table.biom'
+
+filter_otus_from_otu_table.py \
+    --input_fp 'test-data/filter_otus_from_otu_table/otu_table.biom' \
+    --otu_ids_to_exclude_fp 'test-data/filter_otus_from_otu_table/chimeric_otus.txt' \
+    --negate_ids_to_exclude \
+    --output_fp 'test-data/filter_otus_from_otu_table/chimera_picked_otu_table.biom'
