@@ -98,7 +98,7 @@ def download_metaphlan2_db(data_tables, build, table_name, target_dir):
     cmd = "download_metaphlan2_db.py --output %s" % (target_dir)
     db_dir = os.path.join(target_dir, build)
     subprocess.check_call(cmd, shell=True)
-    os.rename(os.path.join(target_dir,"db_v20"), db_dir)
+    os.rename(os.path.join(target_dir, "db_v20"), db_dir)
     add_data_table_entry(
         data_tables,
         table_name,
