@@ -121,8 +121,7 @@ def download_humann2_db(data_tables, table_name, database, build, target_dir):
         dict(
             dbkey=build,
             value=today.isoformat(),
-            name=HUMANN2_REFERENCE_DATA[build]),
-            path=db_target_dir)
+            name=HUMANN2_REFERENCE_DATA[build], path=db_target_dir))
 
 
 if __name__ == "__main__":
