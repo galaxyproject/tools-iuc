@@ -95,10 +95,10 @@ def download_metaphlan2_db(data_tables, build, table_name, target_dir):
 
     """
     today = datetime.date.today()
-    db_target_dir = os.path.join(target_dir, build)
-    os.makedirs(db_target_dir)
-    cmd = "download_metaphlan2_db.py --output %s" % (db_target_dir)
+    cmd = "download_metaphlan2_db.py --output %s" % (target_dir)
+    db_dir = os.path.join(target_dir, build)
     subprocess.check_call(cmd, shell=True)
+    os.rename(os.path.join(target_dir,"db_v20"), db_dir)
     add_data_table_entry(
         data_tables,
         table_name,
@@ -106,7 +106,7 @@ def download_metaphlan2_db(data_tables, build, table_name, target_dir):
             dbkey=build,
             value=today.isoformat(),
             name="MetaPhlAn2 clade-specific marker genes",
-            path=db_target_dir))
+            path=db_dir))
 
 
 if __name__ == "__main__":
