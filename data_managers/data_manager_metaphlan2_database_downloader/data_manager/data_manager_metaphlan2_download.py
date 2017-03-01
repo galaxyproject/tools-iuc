@@ -140,7 +140,7 @@ if __name__ == "__main__":
     if options.database == "db_v20":
         download_metaphlan2_db(
             data_tables,
-            "db_v20",
+            "v20",
             "metaphlan2_database",
             target_dir)
 
