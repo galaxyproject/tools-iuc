@@ -14,11 +14,10 @@ import subprocess
 
 from galaxy.datatypes.binary import Binary
 from galaxy.datatypes.tabular import Tabular
+
 from . import data
 
-
 log = logging.getLogger(__name__)
-
 
 def is_number(s):
     try:
