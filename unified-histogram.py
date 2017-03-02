@@ -115,7 +115,9 @@ if __name__ == '__main__':
                 if MODE == 'histogram':
                     # histogram
                     # hs4 0 1999999 5.0000,3.0000,1.0000,19.0000
-                    print genome, region_start, region_end, ','.join(values)
+                    sys.stdout.write(' '.join(
+                        (genome, region_start, region_end, ','.join(values))
+                    ) + '\n')
                 elif MODE == 'heatmap':
                     # heatmap
                     # hs1 2000000 3999999 0.0000 id=hs4
@@ -126,15 +128,23 @@ if __name__ == '__main__':
                     # hs1 6000000 7999999 4.0000 id=hs2
                     for x in max_idx:
                         if x in data[genome][position]:
-                            print genome, region_start, region_end, data[genome][position][x], 'id=hm%s' % x
+                            sys.stdout.write(' '.join(
+                                (genome, region_start, region_end, data[genome][position][x], 'id=hm%s' % x)
+                            ) + '\n')
                         else:
-                            print genome, region_start, region_end, 0.0, 'id=hm%s' % x
+                            sys.stdout.write(' '.join(
+                                (genome, region_start, region_end, 0.0, 'id=hm%s' % x)
+                            ) + '\n')
                 elif MODE == 'line':
                     # multiple=False
-                    print genome, region_start, region_end, data[genome][position][0]
+                    sys.stdout.write(' '.join(
+                        (genome, region_start, region_end, data[genome][position][0])
+                    ) + '\n')
                 elif MODE == 'scatter':
                     # multiple=False
-                    print genome, region_start, region_end, data[genome][position][0]
+                    sys.stdout.write(' '.join(
+                        (genome, region_start, region_end, data[genome][position][0])
+                    ) + '\n')
 
                 # Update start of next array
                 region_start = position

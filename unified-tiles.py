@@ -68,4 +68,4 @@ if __name__ == '__main__':
                 if item[6] is not None:
                     lineExtra.append('color=%s' % item[6])
 
-                print item[0], item[1], item[2], ','.join(lineExtra)
+                sys.stdout.write(' '.join((item[0], item[1], item[2], ','.join(lineExtra))) + '\n')

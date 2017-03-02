@@ -3,9 +3,9 @@ from Bio import SeqIO
 import sys
 
 for idx, seq in enumerate(SeqIO.parse(sys.argv[1], 'fasta')):
-    print "chr - {seq_id} {idx} 0 {length} set3-12-qual-{color}".format(
+    sys.stdout.write("chr - {seq_id} {idx} 0 {length} set3-12-qual-{color}\n".format(
         seq_id=seq.id, idx=idx, length=len(seq), color=((idx + 1) % 12)
-    )
+    ))
 
 if len(sys.argv) > 2:
     # band hs1 p36.32 p36.32 2200000 5100000 gpos25
@@ -16,7 +16,7 @@ if len(sys.argv) > 2:
     with open(sys.argv[2], 'r') as handle:
         for line in handle:
             lineData = dict(zip(COLS, line.split()))
-            print "band {chrom} {name} {name} {chromStart} {chromEnd} {color}".format(
+            sys.stdout.write("band {chrom} {name} {name} {chromStart} {chromEnd} {color}\n".format(
                 # Can access name because requiring >bed3
                 name=lineData['name'],
                 chrom=lineData['chrom'],
@@ -24,7 +24,7 @@ if len(sys.argv) > 2:
                 chromEnd=lineData['chromEnd'],
                 # ????
                 color=lineData.get('itemRgb', 'gpos50'),
-            )
+            ))
     # band
     # ID
     # parentChr
