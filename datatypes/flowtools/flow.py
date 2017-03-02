@@ -19,6 +19,7 @@ from . import data
 
 log = logging.getLogger(__name__)
 
+
 def is_number(s):
     try:
         float(s)
