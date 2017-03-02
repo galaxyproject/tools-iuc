@@ -16,6 +16,7 @@ from galaxy.datatypes.binary import Binary
 from galaxy.datatypes.tabular import Tabular
 from . import data
 
+
 log = logging.getLogger(__name__)
 
 
@@ -62,6 +63,7 @@ class FCS(Binary):
                 return False
         except:
             False
+
     def get_mime(self):
         """Returns the mime type of the datatype"""
         return 'application/octet-stream'
