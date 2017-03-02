@@ -108,20 +108,25 @@ def download_humann2_db(data_tables, table_name, database, build, target_dir):
       target_dir: directory to put copy or link to the data file
 
     """
-    today = datetime.date.today()
-    db_target_dir = os.path.join(target_dir, database, build)
-    os.makedirs(db_target_dir)
+    value = "%s-%s-%s" % (database, build, datetime.date.today().isoformat())
+    db_target_dir = os.path.join(target_dir, database)
+    build_target_dir = os.path.join(db_target_dir, build)
+    os.makedirs(build_target_dir)
     cmd = "humann2_databases --download %s %s %s" % (database,
                                                      build,
                                                      db_target_dir)
     subprocess.check_call(cmd, shell=True)
+    print(os.listdir(db_target_dir))
+    os.rename(os.path.join(db_target_dir, database), build_target_dir)
+    print(os.listdir(db_target_dir))
     add_data_table_entry(
         data_tables,
         table_name,
         dict(
             dbkey=build,
-            value=today.isoformat(),
-            name=HUMANN2_REFERENCE_DATA[build], path=db_target_dir))
+            value=value,
+            name=HUMANN2_REFERENCE_DATA[build],
+            path=build_target_dir))
 
 
 if __name__ == "__main__":
@@ -133,7 +138,6 @@ if __name__ == "__main__":
     parser.add_option('--build', help="Build of the database")
     options, args = parser.parse_args()
     print("args   : %s" % args)
-    
 
     # Check for JSON file
     if len(args) != 1:
