@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<tool id="hisat2" name="HISAT" version="2.0.3">
+<tool id="hisat2" name="HISAT2" version="2.0.3.3">
     <description>A fast and sensitive alignment program</description>
     <macros>
         <import>hisat2_macros.xml</import>
@@ -7,7 +7,6 @@
     <requirements>
         <!-- Conda dependency -->
         <requirement type="package" version="2.0.3">hisat2</requirement>
-        <requirement type="package" version="2.0.3">hisat</requirement>
         <requirement type="package" version="1.2">samtools</requirement>
     </requirements>
     <stdio>
@@ -16,8 +15,7 @@
         <exit_code range="1:" />
     </stdio>
     <version_command>hisat2 --version</version_command>
-    <command>
-        <![CDATA[
+    <command><![CDATA[
         #if str($spliced_options.spliced_options_selector) == "advanced" and str($spliced_options.known_splice_gtf) != 'None':
             ln -s "${spliced_options.known_splice_gtf}" splice_sites.gtf &&
             hisat2_extract_splice_sites.py splice_sites.gtf > splice_sites.txt &&
@@ -38,6 +36,12 @@
             @paired_end_options@
         #else:
             -U "${input_format.paired.reads}"
+            #if str( $input_format.paired.unaligned_file ) == "true":
+                --un '$output_unaligned_reads_l'
+            #end if
+            #if str( $input_format.paired.aligned_file ) == "true":
+                --al '$output_aligned_reads_l'
+            #end if
         #end if
         #if $input_format.input_format_selector == 'fasta':
             -f
@@ -84,12 +88,27 @@
             ${paired_options.dovetail} ${paired_options.contain} ${paired_options.overlap}
         #end if
         | samtools sort - -@ \${GALAXY_SLOTS:-2} -l 6 -o hsbam > "${output_alignments}"
-        ]]>
-    </command>
+
+        ## Rename any output fastq files
+        #if str($input_format.paired.paired_selector) == 'paired' or str($input_format.paired.paired_selector) == 'paired_collection':
+            #if $output_unaligned_reads_l and $output_unaligned_reads_r:
+                #set left = str($output_unaligned_reads_l).replace(".dat", ".1.dat")
+                #set right = str($output_unaligned_reads_l).replace(".dat", ".2.dat")
+                && mv '${left}' '${output_unaligned_reads_l}'
+                && mv '${right}' '${output_unaligned_reads_r}'
+            #end if
+            #if $output_aligned_reads_l and $output_aligned_reads_r:
+                #set left = str($output_aligned_reads_l).replace(".dat", ".1.dat")
+                #set right = str($output_aligned_reads_l).replace(".dat", ".2.dat")
+                && mv '${left}' '${output_aligned_reads_l}'
+                && mv '${right}' '${output_aligned_reads_r}'
+            #end if
+        #end if
+    ]]></command>
     <inputs>
         <conditional name="input_format">
             <param label="Input data format" name="input_format_selector" type="select">
-                <option selected="selected" value="fastq">FASTQ</option>
+                <option selected="true" value="fastq">FASTQ</option>
                 <option value="fasta">FASTA</option>
             </param>
             <when value="fasta">
@@ -113,7 +132,7 @@
                 </param>
             </when>
             <when value="history">
-                <param format="fasta" label="Select the reference genome" metadata_name="dbkey" name="history_item" type="data" />
+                <param format="fasta" label="Select the reference genome" name="history_item" type="data" />
             </when>
         </conditional>
         <param argument="-k" name="max_primary" optional="True" type="integer" value="5" help="Search for at most K distinct, primary alignments for each read. Primary alignments mean alignments whose alignment score is equal or higher than any other alignments. The search terminates when it can't find more distinct valid alignments, or when it finds K, whichever happens first." label="Primary alignments" />
@@ -139,8 +158,8 @@
             <when value="advanced">
                 <param argument="-s" min="0" label="Skip the first N reads or pairs in the input" name="skip" type="integer" value="0" />
                 <param argument="-u" min="0" help="Align the first N reads or read pairs from the input (after the first N reads or pairs have been skipped), then stop." label="Stop after aligning N reads" name="stop_after" type="integer" value="0" />
-                <param argument="-5" min="0" help="Trim N bases from 5' (left) end of each read before alignment" label="Trim 5' end" name="trim_five" type="integer" value="0" />
-                <param argument="-3" min="0" help="Trim N bases from 3' (right) end of each read before alignment" label="Trim 3' end" name="trim_three" type="integer" value="0" />
+                <param name="trim_five" argument="-5" min="0" help="Trim N bases from 5' (left) end of each read before alignment" label="Trim 5' end" type="integer" value="0" />
+                <param name="trim_three" argument="-3" min="0" help="Trim N bases from 3' (right) end of each read before alignment" label="Trim 3' end" type="integer" value="0" />
             </when>
         </conditional>
         <conditional name="scoring_options">
@@ -184,7 +203,7 @@
                     <option value="C">Constant</option>
                     <option value="L">Linear [f(x) = y + z * x]</option>
                     <option value="S">Square root [f(x) = y + z * x&#178;]</option>
-                    <option selected="selected" value="G">Natural logarithm [f(x) = y + z * log(x)]</option>
+                    <option selected="True" value="G">Natural logarithm [f(x) = y + z * log(x)]</option>
                 </param>
                 <param help="Constant term for long non-canonical introns" label="Constant term (y)" name="nc_constant_term" type="integer" value="-8" />
                 <param help="Coefficient for long non-canonical introns" label="Coefficient (z)" name="nc_coefficient" type="integer" value="1" />
@@ -243,6 +262,84 @@
               </conditional>
             </actions>
         </data>
+        <data format="fastqsanger" name="output_unaligned_reads_l" label="${tool.name} on ${on_string}: unaligned reads (L)" >
+            <filter>input_format['paired']['unaligned_file'] is True</filter>
+            <actions>
+                <conditional name="input_format.paired.paired_selector">
+                    <when value="single">
+                        <action type="format">
+                            <option type="from_param" name="input_format.paired.reads" param_attribute="ext" />
+                        </action>
+                    </when>
+                    <when value="paired">
+                        <action type="format">
+                            <option type="from_param" name="input_format.paired.reads_f" param_attribute="ext" />
+                        </action>
+                    </when>
+                    <when value="paired_collection">
+                        <action type="format">
+                            <option type="from_param" name="input_format.paired.reads" param_attribute="forward.ext" />
+                        </action>
+                    </when>
+                </conditional>
+            </actions>
+        </data>
+        <data format="fastqsanger" name="output_unaligned_reads_r" label="${tool.name} on ${on_string}: unaligned reads (R)" >
+            <filter>input_format['paired']['unaligned_file'] is True and input_format['paired']['paired_selector'] != 'single'</filter>
+            <actions>
+                <conditional name="input_format.paired.paired_selector">
+                    <when value="paired">
+                        <action type="format">
+                            <option type="from_param" name="input_format.paired.reads_r" param_attribute="ext" />
+                        </action>
+                    </when>
+                    <when value="paired_collection">
+                        <action type="format">
+                            <option type="from_param" name="input_format.paired.reads" param_attribute="forward.ext" />
+                        </action>
+                    </when>
+                </conditional>
+            </actions>
+        </data>
+        <data format="fastqsanger" name="output_aligned_reads_l" label="${tool.name} on ${on_string}: aligned reads${' (L)' if str($input_format.paired.paired_selector) != 'single' else ''}" >
+            <filter>input_format['paired']['aligned_file'] is True</filter>
+            <actions>
+                <conditional name="input_format.paired.paired_selector">
+                    <when value="single">
+                        <action type="format">
+                            <option type="from_param" name="input_format.paired.reads" param_attribute="ext" />
+                        </action>
+                    </when>
+                    <when value="paired">
+                        <action type="format">
+                            <option type="from_param" name="input_format.paired.reads_f" param_attribute="ext" />
+                        </action>
+                    </when>
+                    <when value="paired_collection">
+                        <action type="format">
+                            <option type="from_param" name="input_format.paired.reads" param_attribute="forward.ext" />
+                        </action>
+                    </when>
+                </conditional>
+            </actions>
+        </data>
+        <data format="fastqsanger" name="output_aligned_reads_r" label="${tool.name} on ${on_string}: aligned reads (R)" >
+            <filter>input_format['paired']['aligned_file'] is True and input_format['paired']['paired_selector'] != 'single'</filter>
+            <actions>
+                <conditional name="input_format.paired.paired_selector">
+                    <when value="paired">
+                        <action type="format">
+                            <option type="from_param" name="input_format.paired.reads_r" param_attribute="ext" />
+                        </action>
+                    </when>
+                    <when value="paired_collection">
+                        <action type="format">
+                            <option type="from_param" name="input_format.paired.reads" param_attribute="forward.ext" />
+                        </action>
+                    </when>
+                </conditional>
+            </actions>
+        </data>
     </outputs>
     <tests>
         <test>
@@ -280,6 +377,35 @@
             <param name="no_mixed" value="True" />
             <param name="no_discordant" value="True" />
             <output name="output_alignments" ftype="bam" file="hisat_output_3.bam" lines_diff="2" />
+        </test>
+        <test><!-- testing unaligned output (single dataset) -->
+            <param name="input_format_selector" value="fasta" />
+            <param name="paired_selector" value="single" />
+            <param name="reference_genome_source" value="history" />
+            <param name="history_item" value="phiX.fa" ftype="fasta" />
+            <param name="unaligned_file" value="true" />
+            <param name="aligned_file" value="true" />
+            <param name="reference_genome_source" value="history" />
+            <param name="history_item" value="phiX.fa" ftype="fasta" />
+            <param name="reads" value="test_unaligned_reads.fasta" ftype="fasta" />
+            
+            <output name="output_unaligned_reads_l" file="test_unaligned_reads.fasta" />
+        </test>
+        
+        <test>
+            <param name="input_format_selector" value="fasta" />
+            <param name="paired_selector" value="paired" />
+            <param name="reference_genome_source" value="history" />
+            <param name="history_item" value="phiX.fa" ftype="fasta" />
+            <param name="unaligned_file" value="true" />
+            <param name="aligned_file" value="true" />
+            <param name="reference_genome_source" value="history" />
+            <param name="history_item" value="phiX.fa" ftype="fasta" />
+            <param name="reads_f" value="test_unaligned_reads.fasta" ftype="fasta" />
+            <param name="reads_r" value="test_unaligned_reads.fasta" ftype="fasta" />
+            
+            <output name="output_unaligned_reads_l" file="test_unaligned_reads.fasta" />
+            <output name="output_unaligned_reads_r" file="test_unaligned_reads.fasta" />
         </test>
     </tests>
     <help>

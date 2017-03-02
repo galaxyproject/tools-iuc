@@ -6,8 +6,8 @@ import sys
 import tempfile
 
 import matplotlib
-matplotlib.use('Agg')  # noqa
-from matplotlib import pyplot
+matplotlib.use('Agg')
+from matplotlib import pyplot  # noqa: E402
 
 # Graph settings
 Y_LABEL = 'Counts'

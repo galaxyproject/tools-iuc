@@ -116,5 +116,6 @@ def main():
         sjdbGTFchrPrefix=options.sjdbGTFchrPrefix, n_threads=options.runThreadN)
     open( filename, 'wb' ).write( json.dumps( data_manager_dict ) )
 
+
 if __name__ == "__main__":
     main()
