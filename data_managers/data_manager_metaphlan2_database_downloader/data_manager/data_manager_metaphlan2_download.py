@@ -104,7 +104,7 @@ def download_metaphlan2_db(data_tables, build, table_name, target_dir):
         table_name,
         dict(
             dbkey=build,
-            value=today.isoformat(),
+            value="mpa_v20_m200",
             name="MetaPhlAn2 clade-specific marker genes",
             path=db_dir))
 
