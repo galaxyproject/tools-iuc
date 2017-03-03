@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 #
 # Data manager for reference data for the 'humann2' Galaxy tools
-import datetime
 import json
 import optparse
 import os
@@ -94,7 +93,6 @@ def download_metaphlan2_db(data_tables, build, table_name, target_dir):
       target_dir: directory to put copy or link to the data file
 
     """
-    today = datetime.date.today()
     cmd = "download_metaphlan2_db.py --output %s" % (target_dir)
     db_dir = os.path.join(target_dir, build)
     subprocess.check_call(cmd, shell=True)
