@@ -37,7 +37,7 @@ def bed(idx, path):
             if chrom not in data:
                 data[chrom] = {}
 
-            for i in xrange(chromStart, chromEnd):
+            for i in range(chromStart, chromEnd):
                 if i not in data[chrom]:
                     data[chrom][i] = {}
 
@@ -55,7 +55,7 @@ def gff3(idx, path):
 
         for feature in record.features:
             if 'score' in feature.qualifiers:
-                for i in xrange(feature.location.start, feature.location.end):
+                for i in range(feature.location.start, feature.location.end):
                     if i not in data[record.id]:
                         data[record.id][i] = {}
 
