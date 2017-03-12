@@ -24,7 +24,7 @@ def build_bwameth_index(data_manager_dict, params, args):
     if return_code:
         print >> sys.stderr, "Error building index."
         sys.exit( return_code )
-    data_table_entry = dict(value=args.dbkey, dbkey=args.dbkey, name=args.name, path=args.dbkey)
+    data_table_entry = dict(value=args.dbkey, dbkey=args.dbkey, name=args.name, path=fasta_base_name)
     _add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
 
 
