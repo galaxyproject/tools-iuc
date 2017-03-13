@@ -27,6 +27,9 @@ It is recommended to install this wrapper via the `Galaxy Tool Shed`.
 
 .. _`Galaxy Tool Shed`:  https://testtoolshed.g2.bx.psu.edu/view/iuc/gemini
 
+This tool uses the GEMINI databases installed by the following tool, which should also be installed via the `Galaxy Tool Shed`.
+
+.. _`Data Manager GEMINI Database Downloader tool`:  https://toolshed.g2.bx.psu.edu/view/iuc/data_manager_gemini_database_downloader
 
 =======
 History
