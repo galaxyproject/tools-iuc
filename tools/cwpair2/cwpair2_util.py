@@ -193,6 +193,7 @@ def match_mode(window, peak, mode):
         return None
     return min(window, key=lambda cpeak: abs(distance(peak, cpeak) - mode))
 
+
 METHODS = {'mode': match_mode, 'closest': match_closest, 'largest': match_largest}
 
 

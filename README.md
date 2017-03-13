@@ -29,5 +29,6 @@ Other repositories with Galaxy tools:
  * [EI repo](https://github.com/TGAC/earlham-galaxytools)
  * [AAFC-MBB Canada repo](https://github.com/AAFC-MBB/Galaxy/tree/master/wrappers)
  * [Mark Einon's repo](https://github.com/einon/galaxy-tools)
+ * [National Microbiology Laboratory's repo](https://github.com/phac-nml/galaxy_tools)
 
  
