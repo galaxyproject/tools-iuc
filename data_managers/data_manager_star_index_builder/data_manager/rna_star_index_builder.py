@@ -4,27 +4,6 @@ import json
 import optparse
 
 
-def _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry ):
-    data_manager_dict['data_tables'] = data_manager_dict.get( 'data_tables', {} )
-    print 'dmd-1: ',data_manager_dict
-    data_manager_dict['data_tables'][ data_table_name ] = data_manager_dict['data_tables'].get( data_table_name, [] )
-    print 'dmd-2: ',data_manager_dict
-    data_manager_dict['data_tables'][ data_table_name ].append( data_table_entry )
-    print 'dmd-3: ',data_manager_dict
-    return data_manager_dict
-
-
-def build_rna_star_index(data_manager_dict,
-# fasta_filename, 
-                        target_directory,
-                        dbkey, sequence_id, sequence_name, data_table_name, subdir):
-    print "td: "+target_directory
-    print "sd: "+subdir
-    #    data_manager_dict = _add_data_table_entry( data_manager_dict, data_table_name,  )
-    
-    return {'data_tables': {data_table_name: [dict( value=sequence_id, dbkey=dbkey, name=sequence_name, path=subdir )]}}
-    
-    return data_manager_dict
 
 
 def main():
@@ -43,15 +22,10 @@ def main():
     if dbkey in [ None, '', '?' ]:
         raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( dbkey ) )
 
-    data_manager_dict = build_rna_star_index(
-        data_manager_dict={},
-#        fasta_filename=options.fasta_filename,
-        target_directory=target_directory,
-        dbkey=dbkey,
-        sequence_id=options.fasta_dbkey,
-        sequence_name=options.fasta_description,
-        data_table_name=options.data_table_name,
-        subdir=options.subdir)
+
+
+    data_manager_dict = {'data_tables': {options.data_table_name: [dict( value=dbkey, dbkey=dbkey, name=options.fasta_description, path=options.subdir )]}}
+
     open( filename, 'wb' ).write( json.dumps( data_manager_dict ) )
 
 
