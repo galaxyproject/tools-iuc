@@ -1,8 +1,5 @@
 #!/usr/bin/env python
-# Dan Blankenberg
-# adapted from Dan's BWA one for rna star
-# ross lazarus sept 2014
-# fixed some stupid bugs January 2015
+
 import json
 import optparse
 import os
@@ -12,8 +9,6 @@ import tempfile
 
 CHUNK_SIZE = 2**20
 ONE_GB = 2**30
-
-DEFAULT_DATA_TABLE_NAME = "RNA_STAR_index"
 
 
 def get_id_name( params, dbkey, fasta_description=None):
@@ -41,37 +36,9 @@ def build_rna_star_index(data_manager_dict, fasta_filename, target_directory,
                         dbkey, sequence_id, sequence_name, data_table_name,
                         sjdbOverhang, sjdbGTFfile, sjdbFileChrStartEnd,
                         sjdbGTFtagExonParentTranscript, sjdbGTFfeatureExon,
-                        sjdbGTFchrPrefix, n_threads):
-    # TODO: allow multiple FASTA input files
-    fasta_base_name = os.path.basename( fasta_filename )
-    sym_linked_fasta_filename = os.path.join( target_directory, fasta_base_name )
-    os.symlink( fasta_filename, sym_linked_fasta_filename )
-    # print >> sys.stdout,'made',sym_linked_fasta_filename
-    cl = ['STAR', '--runMode', 'genomeGenerate', '--genomeFastaFiles', sym_linked_fasta_filename, '--genomeDir', target_directory, '--runThreadN', n_threads ]
+                        sjdbGTFchrPrefix):
 
-    if sjdbGTFfile:
-        cl += [ '--sjdbGTFfeatureExon', sjdbGTFfeatureExon, '--sjdbGTFtagExonParentTranscript', sjdbGTFtagExonParentTranscript]
-        if (sjdbGTFchrPrefix > ''):
-            cl += ['--sjdbGTFchrPrefix', sjdbGTFchrPrefix]
-        cl += ['--sjdbOverhang', sjdbOverhang, '--sjdbGTFfile', sjdbGTFfile]
-    elif sjdbFileChrStartEnd:
-        cl += ['--sjdbFileChrStartEnd', sjdbFileChrStartEnd, '--sjdbOverhang', sjdbOverhang]
-
-    tmp_stderr = tempfile.NamedTemporaryFile( prefix="tmp-data-manager-rna-star-index-builder-stderr" )
-    proc = subprocess.Popen( args=cl, shell=False, cwd=target_directory, stderr=tmp_stderr.fileno() )
-    return_code = proc.wait()
-    if return_code:
-        tmp_stderr.flush()
-        tmp_stderr.seek(0)
-        print >> sys.stderr, "Error building index:"
-        while True:
-            chunk = tmp_stderr.read( CHUNK_SIZE )
-            if not chunk:
-                break
-            sys.stderr.write( chunk )
-        sys.exit( return_code )
-    tmp_stderr.close()
-    data_table_entry = dict( value=sequence_id, dbkey=dbkey, name=sequence_name, path=fasta_base_name )
+    data_table_entry = dict( value=sequence_id, dbkey=dbkey, name=sequence_name, path=target_directory )
     data_manager_dict = _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry )
     return data_manager_dict
 
@@ -89,7 +56,6 @@ def main():
     parser.add_option( '--sjdbGTFtagExonParentTranscript', type="string", default=None )
     parser.add_option( '--sjdbFileChrStartEnd', type="string", default=None )
     parser.add_option( '--sjdbOverhang', type="string", default='100' )
-    parser.add_option( '--runThreadN', type="string", default='4' )
     (options, args) = parser.parse_args()
     filename = args[0]
     params = json.loads( open( filename ).read() )
@@ -98,13 +64,8 @@ def main():
     if dbkey in [ None, '', '?' ]:
         raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( dbkey ) )
 
-    sequence_id, sequence_name = get_id_name( params, dbkey=dbkey, fasta_description=options.fasta_description )
+    sequence_id, sequence_name = options.fasta_dbkey, options.fasta_description
 
-    try:
-        os.mkdir( target_directory )
-    except OSError:
-        pass
-    # build the index
     data_manager_dict = build_rna_star_index(
         data_manager_dict={}, fasta_filename=options.fasta_filename,
         target_directory=target_directory, dbkey=dbkey, sequence_id=sequence_id,
@@ -113,7 +74,7 @@ def main():
         sjdbFileChrStartEnd=options.sjdbFileChrStartEnd,
         sjdbGTFtagExonParentTranscript=options.sjdbGTFtagExonParentTranscript,
         sjdbGTFfeatureExon=options.sjdbGTFfeatureExon,
-        sjdbGTFchrPrefix=options.sjdbGTFchrPrefix, n_threads=options.runThreadN)
+        sjdbGTFchrPrefix=options.sjdbGTFchrPrefix)
     open( filename, 'wb' ).write( json.dumps( data_manager_dict ) )
 
 
