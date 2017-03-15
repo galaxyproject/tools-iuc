@@ -13,7 +13,7 @@ import tempfile
 CHUNK_SIZE = 2**20
 ONE_GB = 2**30
 
-DEFAULT_DATA_TABLE_NAME = "rnastar_index"
+DEFAULT_DATA_TABLE_NAME = "RNA_STAR_index"
 
 
 def get_id_name( params, dbkey, fasta_description=None):
@@ -37,7 +37,7 @@ def _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry 
     return data_manager_dict
 
 
-def build_rnastar_index(data_manager_dict, fasta_filename, target_directory,
+def build_rna_star_index(data_manager_dict, fasta_filename, target_directory,
                         dbkey, sequence_id, sequence_name, data_table_name,
                         sjdbOverhang, sjdbGTFfile, sjdbFileChrStartEnd,
                         sjdbGTFtagExonParentTranscript, sjdbGTFfeatureExon,
@@ -57,7 +57,7 @@ def build_rnastar_index(data_manager_dict, fasta_filename, target_directory,
     elif sjdbFileChrStartEnd:
         cl += ['--sjdbFileChrStartEnd', sjdbFileChrStartEnd, '--sjdbOverhang', sjdbOverhang]
 
-    tmp_stderr = tempfile.NamedTemporaryFile( prefix="tmp-data-manager-rnastar-index-builder-stderr" )
+    tmp_stderr = tempfile.NamedTemporaryFile( prefix="tmp-data-manager-rna-star-index-builder-stderr" )
     proc = subprocess.Popen( args=cl, shell=False, cwd=target_directory, stderr=tmp_stderr.fileno() )
     return_code = proc.wait()
     if return_code:
@@ -105,7 +105,7 @@ def main():
     except OSError:
         pass
     # build the index
-    data_manager_dict = build_rnastar_index(
+    data_manager_dict = build_rna_star_index(
         data_manager_dict={}, fasta_filename=options.fasta_filename,
         target_directory=target_directory, dbkey=dbkey, sequence_id=sequence_id,
         sequence_name=sequence_name, data_table_name=options.data_table_name,
