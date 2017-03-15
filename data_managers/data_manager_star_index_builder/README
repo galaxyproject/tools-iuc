@@ -1,4 +1,4 @@
-*What it does*
+##What it does##
 
 This is a Galaxy datamanager for the rna STAR gap-aware RNA aligner. It's a hack of Dan Blankenberg's BWA data manager
 and works on any fasta file you have already downloaded with the all fasta data manager - start there!
