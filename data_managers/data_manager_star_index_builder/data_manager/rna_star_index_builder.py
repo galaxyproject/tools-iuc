@@ -2,27 +2,6 @@
 
 import json
 import optparse
-import os
-import subprocess
-import sys
-import tempfile
-
-CHUNK_SIZE = 2**20
-ONE_GB = 2**30
-
-
-def get_id_name( params, dbkey, fasta_description=None):
-    # TODO: ensure sequence_id is unique and does not already appear in location file
-    sequence_id = params['param_dict']['sequence_id']
-    if not sequence_id:
-        sequence_id = dbkey
-
-    sequence_name = params['param_dict']['sequence_name']
-    if not sequence_name:
-        sequence_name = fasta_description
-        if not sequence_name:
-            sequence_name = dbkey
-    return sequence_id, sequence_name
 
 
 def _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry ):
@@ -34,7 +13,7 @@ def _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry 
 
 def build_rna_star_index(data_manager_dict, fasta_filename, target_directory,
                         dbkey, sequence_id, sequence_name, data_table_name,
-                        sjdbOverhang, sjdbGTFfile, sjdbFileChrStartEnd,
+                        sjdbOverhang, sjdbFileChrStartEnd,
                         sjdbGTFtagExonParentTranscript, sjdbGTFfeatureExon,
                         sjdbGTFchrPrefix):
 
@@ -50,7 +29,6 @@ def main():
     parser.add_option( '--fasta_dbkey', dest='fasta_dbkey', action='store', type="string", default=None, help='fasta_dbkey' )
     parser.add_option( '--fasta_description', dest='fasta_description', action='store', type="string", default=None, help='fasta_description' )
     parser.add_option( '--data_table_name', dest='data_table_name', action='store', type="string", default=None, help='data_table_name' )
-    parser.add_option( '--sjdbGTFfile', type="string", default=None )
     parser.add_option( '--sjdbGTFchrPrefix', type="string", default=None )
     parser.add_option( '--sjdbGTFfeatureExon', type="string", default=None )
     parser.add_option( '--sjdbGTFtagExonParentTranscript', type="string", default=None )
@@ -70,7 +48,7 @@ def main():
         data_manager_dict={}, fasta_filename=options.fasta_filename,
         target_directory=target_directory, dbkey=dbkey, sequence_id=sequence_id,
         sequence_name=sequence_name, data_table_name=options.data_table_name,
-        sjdbOverhang=options.sjdbOverhang, sjdbGTFfile=options.sjdbGTFfile,
+        sjdbOverhang=options.sjdbOverhang,
         sjdbFileChrStartEnd=options.sjdbFileChrStartEnd,
         sjdbGTFtagExonParentTranscript=options.sjdbGTFtagExonParentTranscript,
         sjdbGTFfeatureExon=options.sjdbGTFfeatureExon,
