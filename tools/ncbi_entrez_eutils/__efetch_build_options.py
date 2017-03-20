@@ -1,267 +1,225 @@
 #!/usr/bin/env python
+
 # Daniel Blankenberg
 # Creates the options for tool interface
-import re
 
 # http://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi
-db_list = '''
+db_list = '''<DbName>pubmed</DbName>
+<DbName>protein</DbName>
+<DbName>nuccore</DbName>
+<DbName>nucleotide</DbName>
+<DbName>nucgss</DbName>
+<DbName>nucest</DbName>
+<DbName>structure</DbName>
+<DbName>genome</DbName>
 <DbName>annotinfo</DbName>
 <DbName>assembly</DbName>
 <DbName>bioproject</DbName>
 <DbName>biosample</DbName>
-<DbName>biosystems</DbName>
 <DbName>blastdbinfo</DbName>
 <DbName>books</DbName>
 <DbName>cdd</DbName>
 <DbName>clinvar</DbName>
 <DbName>clone</DbName>
-<DbName>dbvar</DbName>
 <DbName>gap</DbName>
 <DbName>gapplus</DbName>
-<DbName>gds</DbName>
-<DbName>gencoll</DbName>
-<DbName>gene</DbName>
-<DbName>genome</DbName>
-<DbName>geoprofiles</DbName>
 <DbName>grasp</DbName>
-<DbName>gtr</DbName>
+<DbName>dbvar</DbName>
+<DbName>gene</DbName>
+<DbName>gds</DbName>
+<DbName>geoprofiles</DbName>
 <DbName>homologene</DbName>
 <DbName>medgen</DbName>
 <DbName>mesh</DbName>
 <DbName>ncbisearch</DbName>
 <DbName>nlmcatalog</DbName>
-<DbName>nuccore</DbName>
-<DbName>nucest</DbName>
-<DbName>nucgss</DbName>
-<DbName>nucleotide</DbName>
 <DbName>omim</DbName>
 <DbName>orgtrack</DbName>
-<DbName>pcassay</DbName>
-<DbName>pccompound</DbName>
-<DbName>pcsubstance</DbName>
 <DbName>pmc</DbName>
 <DbName>popset</DbName>
 <DbName>probe</DbName>
-<DbName>protein</DbName>
 <DbName>proteinclusters</DbName>
-<DbName>pubmed</DbName>
+<DbName>pcassay</DbName>
+<DbName>biosystems</DbName>
+<DbName>pccompound</DbName>
+<DbName>pcsubstance</DbName>
 <DbName>pubmedhealth</DbName>
 <DbName>seqannot</DbName>
 <DbName>snp</DbName>
 <DbName>sra</DbName>
-<DbName>structure</DbName>
 <DbName>taxonomy</DbName>
-<DbName>unigene</DbName>'''.replace( "<DbName>", "").replace( "</DbName>", "").split("\n")
+<DbName>unigene</DbName>
+<DbName>gencoll</DbName>
+<DbName>gtr</DbName>'''.replace( "<DbName>", "").replace( "</DbName>", "").split("\n")
 
 
 help = '''  (all)
-                 docsum             xml      Document Summary
-                 docsum             json     Document Summary
-                 full               text     Full Document
-                 uilist             xml      Unique Identifier List
-                 uilist             text     Unique Identifier List
-                 full               xml      Full Document
+                 docsum                      DocumentSummarySet XML
+                 docsum             json     DocumentSummarySet JSON
+                 full                        Same as native except for mesh
+                 uid                         Unique Identifier List
+                 url                         Entrez URL
+                 xml                         Same as -format full -mode xml
 
   bioproject
                  native                      BioProject Report
-                 native             xml      RecordSet
+                 native             xml      RecordSet XML
 
   biosample
                  native                      BioSample Report
-                 native             xml      BioSampleSet
+                 native             xml      BioSampleSet XML
 
   biosystems
-                 native             xml      Sys-set
+                 native             xml      Sys-set XML
 
   gds
-                 native             xml      RecordSet
-                 summary            text     Summary
+                 native             xml      RecordSet XML
+                 summary                     Summary
 
   gene
-                 gene_table         xml      Gene Table
-                 native             text     Gene Report
-                 native             asn.1    Entrezgene
-                 native             xml      Entrezgene-Set
-                 tabular            tabular  Tabular Report
+                 gene_table                  Gene Table
+                 native                      Gene Report
+                 native             asn.1    Entrezgene ASN.1
+                 native             xml      Entrezgene-Set XML
+                 tabular                     Tabular Report
 
   homologene
-                 alignmentscores    text     Alignment Scores
-                 fasta              fasta    FASTA
-                 homologene         text     Homologene Report
-                 native             text     Homologene List
-                 native             asn.1    HG-Entry
-                 native             xml      Entrez-Homologene-Set
+                 alignmentscores             Alignment Scores
+                 fasta                       FASTA
+                 homologene                  Homologene Report
+                 native                      Homologene List
+                 native             asn.1    HG-Entry ASN.1
+                 native             xml      Entrez-Homologene-Set XML
 
   mesh
-                 full               text     Full Record
-                 native             text     MeSH Report
-                 native             xml      RecordSet
+                 full                        Full Record
+                 native                      MeSH Report
+                 native             xml      RecordSet XML
 
   nlmcatalog
-                 native             text     Full Record
-                 native             xml      NLMCatalogRecordSet
+                 native                      Full Record
+                 native             xml      NLMCatalogRecordSet XML
 
   pmc
-                 medline            text     MEDLINE
-                 native             xml      pmc-articleset
+                 medline                     MEDLINE
+                 native             xml      pmc-articleset XML
 
   pubmed
-                 abstract           xml      Abstract
-                 medline            text     MEDLINE
-                 native             asn.1    Pubmed-entry
-                 native             xml      PubmedArticleSet
+                 abstract                    Abstract
+                 medline                     MEDLINE
+                 native             asn.1    Pubmed-entry ASN.1
+                 native             xml      PubmedArticleSet XML
 
   (sequences)
-                 acc                text     Accession Number
-                 est                xml      EST Report
-                 fasta              fasta    FASTA
-                 fasta              xml      TinySeq
-                 fasta_cds_aa       fasta    CDS Products
-                 fasta_cds_na       fasta    Coding Regions
-                 ft                 text     Feature Table
-                 gb                 text     GenBank Flatfile
-                 gb                 xml      GBSet
-                 gbc                xml      INSDSet
-                 gbwithparts        text     GenBank with Contig Sequences
-                 gene_fasta         fasta    FASTA of Gene
-                 gp                 text     GenPept Flatfile
-                 gp                 xml      GBSet
-                 gpc                xml      INSDSet
-                 gss                text     GSS Report
-                 ipg                text     Identical Protein Report
-                 ipg                xml      IPGReportSet
-                 native             text     Seq-entry
-                 native             xml      Bioseq-set
-                 seqid              asn.1    Seq-id
+                 acc                         Accession Number
+                 est                         EST Report
+                 fasta                       FASTA
+                 fasta              xml      TinySeq XML
+                 fasta_cds_aa                FASTA of CDS Products
+                 fasta_cds_na                FASTA of Coding Regions
+                 ft                          Feature Table
+                 gb                          GenBank Flatfile
+                 gb                 xml      GBSet XML
+                 gbc                xml      INSDSet XML
+                 gbwithparts                 GenBank with Contig Sequences
+                 gene_fasta                  FASTA of Gene
+                 gp                          GenPept Flatfile
+                 gp                 xml      GBSet XML
+                 gpc                xml      INSDSet XML
+                 gss                         GSS Report
+                 ipg                         Identical Protein Report
+                 ipg                xml      IPGReportSet XML
+                 native             text     Seq-entry ASN.1
+                 native             xml      Bioseq-set XML
+                 seqid                       Seq-id ASN.1
 
   snp
-                 chr                text     Chromosome Report
-                 docset             text     Summary
-                 fasta              fasta    FASTA
-                 flt                text     Flat File
-                 native             asn.1    Rs
-                 native             xml      ExchangeSet
-                 rsr                tabular  RS Cluster Report
-                 ssexemplar         text     SS Exemplar List
+                 chr                         Chromosome Report
+                 docset                      Summary
+                 fasta                       FASTA
+                 flt                         Flat File
+                 native             asn.1    Rs ASN.1
+                 native             xml      ExchangeSet XML
+                 rsr                         RS Cluster Report
+                 ssexemplar                  SS Exemplar List
 
   sra
-                 native             xml      EXPERIMENT_PACKAGE_SET
-                 runinfo            xml      SraRunInfo
+                 native             xml      EXPERIMENT_PACKAGE_SET XML
+                 runinfo            xml      SraRunInfo XML
 
   structure
-                 mmdb               asn.1    Ncbi-mime-asn1 strucseq
-                 native             text     MMDB Report
-                 native             xml      RecordSet
+                 mmdb                        Ncbi-mime-asn1 strucseq ASN.1
+                 native                      MMDB Report
+                 native             xml      RecordSet XML
 
   taxonomy
-                 native             text     Taxonomy List
-                 native             xml      TaxaSet'''.split("\n")
-
+                 native                      Taxonomy List
+                 native             xml      TaxaSet XML'''.split("\n")
 
 db = {}
-for db_name in db_list:
-    db[db_name] = []
-
-section = None
+name = None
+all = "(all)"
 for line in help:
-    line = re.split('\s{2,}', line.strip())
-    # Ignore empties
-    if len(line) == 0:
+    if line.strip() and line[2] != ' ':
+        name = line.strip()
+        db[name] = {}
+    elif line.strip():
+        format = line[0:len("                 docsum             " ) ].strip()
+        mode = line[len("                 docsum             " ):len( "                 docsum             json     ")].strip()
+        if format not in db[name]:
+            db[name][format] = []
+        db[name][format].append(mode)
+
+for name in db_list:
+    if name not in db:
+        db[name] = {}
+
+db["sequences"] = db["(sequences)"]
+del db["(sequences)"]
+
+print '<conditional name="db">'
+print '    <param name="db" type="select" label="Database" argument="-db">'
+for name in sorted( db.keys()):
+    if name == all:
         continue
-    # Section headers have one item
-    elif len(line) == 1:
-        section = line[0]
-        db[section] = []
-    # Format lines have 2+
-    elif len(line) == 2:
-        parent_format = line[0]
-        description = line[1]
+    print '        <option value="%s">%s</option>' % ( name, name )
+print '        <option value="">Manual Entry</option>'
+print '    </param>'
 
-        if parent_format not in db[section]:
-            db[section].append((parent_format, None, description))
-    elif len(line) == 3:
-        parent_format = line[0]
-        format_modifier = line[1]
-        description = line[2]
+for name in sorted( db.keys()):
+    if name == all:
+        continue
+    my_dict = db[all].copy()
 
-        if parent_format not in db[section]:
-            db[section].append((parent_format, format_modifier, description))
-
-
-all_formats = db['(all)']
-del db['(all)']
-sequences_formats = db['(sequences)']
-del db['(sequences)']
-del db['']
-
-for key in db:
-    db[key] += all_formats
-
-for key in ('nuccore', 'nucest', 'nucgss', 'nucleotide'):
-    db[key] += sequences_formats
-
-MACRO_TPL = '''
-
-'''
-
-WHEN_TPL = '''      <when value="{format}">
-        <param name="output_format" type="select" label="Output Format">
-          {format_options}
-        </param>
-      </when>'''
-
-FORMAT_OPTION_TPL = '''<option value="{name_type}">{name_type_human}</option>'''
-
-format_names = {}
-
-print '''  <xml name="db">
-    <conditional name="db">
-      <expand macro="dbselect" />'''
-for key in sorted(db):
-    format_options = []
-
-    for (parent_format, format_modifier, description) in sorted(db[key]):
-        name_human = description
-        if format_modifier:
-            name_human += ' (%s)' % format_modifier
-        format_string = '%s-%s' % (parent_format, format_modifier)
-
-        format_options.append(FORMAT_OPTION_TPL.format(
-            name_type=format_string,
-            name_type_human=name_human,
-        ))
-
-        format_names[format_string] = format_modifier
-
-    print WHEN_TPL.format(
-        format=key,
-        format_options='\n          '.join(format_options)
-    )
-
-print '''    </conditional>
-  </xml>'''
-
-CHANGE_FORMAT_TPL = '''
-  <xml name="efetch_formats">
-    <change_format>
-      {formats}
-    </change_format>
-  </xml>
-'''
-
-CHANGE_FORMAT_WHEN_TPL = '''<when input="output_format" value="{key}" format="{value}"/>'''
-# Format options
-
-
-whens = []
-for (k, v) in format_names.items():
-    if v is None:
-        v = 'text'
-    elif v == 'asn.1':
-        v = 'asn1'
-
-    whens.append(CHANGE_FORMAT_WHEN_TPL.format(
-        key=k, value=v
-    ))
-
-print CHANGE_FORMAT_TPL.format(formats='\n      '.join(whens))
+    for format, modes in db[name].items():
+        if format in my_dict:
+            for mode in modes:
+                if mode not in my_dict[format]:
+                    my_dict[format].append(mode)
+        else:
+            my_dict[format] = modes
+    if "" not in my_dict:
+        my_dict[""] = [""]
+    print '    <when value="%s">' % name
+    print '        <conditional name="format">'
+    print '            <param name="format" type="select" label="Format" argument="-format">'
+    for format in sorted(my_dict.keys()):
+        print '                <option value="%s">%s</option>' % ( format, format or "None" )
+    print '            </param>'
+    for format in sorted(my_dict.keys()):
+        print '            <when value="%s">' % format
+        print '                <param name="mode" type="select" label="Mode" argument="-mode">'
+        if "" not in my_dict[format]:
+            my_dict[format].append( "" )
+        for mode in sorted(my_dict[format]):
+            print '                    <option value="%s">%s</option>' % ( mode, mode or "None" )
+        print '                </param>'
+        print '            </when>'
+    print '        </conditional>'
+    print '    </when>'
+print '    <when value="">'
+print '        <param name="db_manual" type="text" label="Database" argument="-db"/>'
+print '        <param name="format" type="text" label="Format" argument="-format"/>'
+print '        <param name="mode" type="text" label="Mode" argument="-mode"/>'
+print '    </when>'
+print '</conditional>'

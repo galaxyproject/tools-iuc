@@ -1,5 +1,5 @@
-Galaxy NCBI Entrez Tools
-========================
+Galaxy NCBI Entrez Direct Tools
+===============================
 
 This repo requires a readme as administrators should very aware of some
 restrictions NCBI places on the use of the Entrez service.
@@ -9,8 +9,7 @@ between 9:00 PM and 5:00 AM Eastern time during weekdays. This is not a
 request that the Galaxy tool can easily service, so we've included it in
 the disclaimer on every tool quite prominently.
 
-Failure to comply with NCBI's policies may result in an block until
-you/the user contacts NCBI and registers the tool ID and their email.
+Failure to comply with NCBI's policies may result in an block.
 
 Note that these are *IP* level blocks so the Galaxy tools uses a
 concatenation of the administrator's emails, and the user email, in
