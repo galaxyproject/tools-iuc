@@ -1,6 +1,7 @@
 import argparse
 import os
 import re
+import sys
 
 '''
     File name:          dexseq_bins_to_exons.py
