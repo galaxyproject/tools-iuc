@@ -5,8 +5,8 @@ import sys
 import traceback
 
 import matplotlib
-matplotlib.use('Agg')  # noqa
-from matplotlib import pyplot
+matplotlib.use('Agg')
+from matplotlib import pyplot  # noqa: E402
 
 # Data outputs
 DETAILS = 'D'
@@ -192,6 +192,7 @@ def match_mode(window, peak, mode):
     if not window:
         return None
     return min(window, key=lambda cpeak: abs(distance(peak, cpeak) - mode))
+
 
 METHODS = {'mode': match_mode, 'closest': match_closest, 'largest': match_largest}
 
