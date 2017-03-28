@@ -127,7 +127,7 @@ class ColorScaling(object):
 
     def rgb_from_hex(self, hexstr):
         # http://stackoverflow.com/questions/4296249/how-do-i-convert-a-hex-triplet-to-an-rgb-tuple-and-back
-        return struct.unpack('BBB',hexstr.decode('hex'))
+        return struct.unpack('BBB', hexstr.decode('hex'))
 
     def min_max_gff(self, gff_file):
         min_val = None
@@ -225,7 +225,7 @@ class ColorScaling(object):
                         auto_color = "'%s'" % self.hex_from_rgb(*self._get_colours())
 
                     color_function = self.COLOR_FUNCTION_TEMPLATE_QUAL.format(**{
-                        'opacity': self.OPACITY_MATH[algo].format(**{'max': max_val,'min': min_val}),
+                        'opacity': self.OPACITY_MATH[algo].format(**{'max': max_val, 'min': min_val}),
                         'user_spec_color': user_color,
                         'auto_gen_color': auto_color,
                     })
@@ -242,14 +242,14 @@ def etree_to_dict(t):
         for dc in map(etree_to_dict, children):
             for k, v in dc.iteritems():
                 dd[k].append(v)
-        d = {t.tag: {k:v[0] if len(v) == 1 else v for k, v in dd.iteritems()}}
+        d = {t.tag: {k: v[0] if len(v) == 1 else v for k, v in dd.iteritems()}}
     if t.attrib:
         d[t.tag].update(('@' + k, v) for k, v in t.attrib.iteritems())
     if t.text:
         text = t.text.strip()
         if children or t.attrib:
             if text:
-              d[t.tag]['#text'] = text
+                d[t.tag]['#text'] = text
         else:
             d[t.tag] = text
     return d
@@ -304,7 +304,6 @@ class JbrowseConnector(object):
         with open(trackList, 'w') as handle:
             json.dump(trackListData, handle, indent=2)
 
-
     def subprocess_check_call(self, command):
         log.debug('cd %s && %s', self.outdir, ' '.join(command))
         subprocess.check_call(command, cwd=self.outdir)
@@ -344,7 +343,6 @@ class JbrowseConnector(object):
                os.path.join('data', 'trackList.json')]
         self.subprocess_check_call(cmd)
         os.unlink(tmp.name)
-
 
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
@@ -417,10 +415,10 @@ class JbrowseConnector(object):
 
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bam')
-        cmd = ['ln', '-s', os.path.realpath(data), dest]
+        cmd = ['cp', '-s', os.path.realpath(data), dest]
         self.subprocess_check_call(cmd)
 
-        cmd = ['ln', '-s', os.path.realpath(bam_index), dest + '.bai']
+        cmd = ['cp', '-s', os.path.realpath(bam_index), dest + '.bai']
         self.subprocess_check_call(cmd)
 
         trackData.update({
@@ -429,7 +427,6 @@ class JbrowseConnector(object):
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
         })
 
-
         self._add_track_json(trackData)
 
         if bamOpts.get('auto_snp', 'false') == 'true':
@@ -437,14 +434,14 @@ class JbrowseConnector(object):
             trackData2.update({
                 "type": "JBrowse/View/Track/SNPCoverage",
                 "key": trackData['key'] + " - SNPs/Coverage",
-                "label": trackData['label']  + "_autosnp",
+                "label": trackData['label'] + "_autosnp",
             })
             self._add_track_json(trackData2)
 
     def add_vcf(self, data, trackData, vcfOpts={}, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.vcf')
         # ln?
-        cmd = ['ln', '-s', data, dest]
+        cmd = ['cp', '-s', data, dest]
         self.subprocess_check_call(cmd)
         cmd = ['bgzip', dest]
         self.subprocess_check_call(cmd)
@@ -472,7 +469,7 @@ class JbrowseConnector(object):
         clientConfig = trackData['style']
         del config['style']
 
-        if  'match' in gffOpts:
+        if 'match' in gffOpts:
             config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
             cmd += ['--type', gffOpts['match']]
 
@@ -511,8 +508,8 @@ class JbrowseConnector(object):
         category = track['category'].replace('__pd__date__pd__', TODAY)
         outputTrackConfig = {
             'style': {
-                'label':       track['style'].get('label', 'description'),
-                'className':   track['style'].get('className', 'feature'),
+                'label': track['style'].get('label', 'description'),
+                'className': track['style'].get('className', 'feature'),
                 'description': track['style'].get('description', ''),
             },
             'category': category,
@@ -543,6 +540,7 @@ class JbrowseConnector(object):
                 rest_url = track['conf']['options']['url']
             except KeyError:
                 rest_url = ''
+
             # I chose to use track['category'] instead of 'category' here. This
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
@@ -564,10 +562,7 @@ class JbrowseConnector(object):
             # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
-                                track['conf']['options']['gff'])
-            elif dataset_ext == 'bigwig':
-                self.add_bigwig(dataset_path, outputTrackConfig,
-                                track['conf']['options']['wiggle'])
+                                  track['conf']['options']['gff'])
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
                                 track['conf']['options']['wiggle'])
@@ -700,9 +695,7 @@ if __name__ == '__main__':
             track_conf['style'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
-
         keys = jc.process_annotations(track_conf)
-
 
         for key in keys:
             extra_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
