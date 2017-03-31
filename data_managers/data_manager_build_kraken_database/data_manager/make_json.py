@@ -1,13 +1,8 @@
-import json
 import argparse
+import json
 import os
 import shutil
 
-parser = argparse.ArgumentParser(description='Create data manager json.')
-parser.add_argument('--db', dest='database', action='store', help='Database name')
-parser.add_argument('--out', dest='output', action='store', help='JSON filename')
-
-args = parser.parse_args()
 
 def main(args):
     data_manager_entry = {}
@@ -23,6 +18,10 @@ def main(args):
         shutil.move(os.path.join(output_path, filename), target_directory)
     file(args.output, 'w').write(json.dumps(data_manager_json))
 
-if __name__ == '__main__':
-    main(args)
 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Create data manager json.')
+    parser.add_argument('--db', dest='database', action='store', help='Database name')
+    parser.add_argument('--out', dest='output', action='store', help='JSON filename')
+    args = parser.parse_args()
+    main(args)

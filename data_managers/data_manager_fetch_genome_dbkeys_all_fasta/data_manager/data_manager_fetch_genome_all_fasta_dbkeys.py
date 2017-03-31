@@ -1,28 +1,27 @@
 #!/usr/bin/env python
-#Dan Blankenberg
+# Dan Blankenberg
 
-import sys
-import os
-import tempfile
-import shutil
-import optparse
-from ftplib import FTP
-import tarfile
-import zipfile
-import gzip
 import bz2
+import gzip
+import optparse
+import os
+import shutil
+import sys
+import tarfile
+import tempfile
+import zipfile
+from ftplib import FTP
+from json import dumps, loads
 try:
     # For Python 3.0 and later
-    from urllib.request import urlopen
     from io import BytesIO as StringIO
     from io import UnsupportedOperation
+    from urllib.request import urlopen
 except ImportError:
-    # Fall back to Python 2's urllib2
-    from urllib2 import urlopen
+    # Fall back to Python 2 imports
     from StringIO import StringIO
+    from urllib2 import urlopen
     UnsupportedOperation = AttributeError
-from json import loads, dumps
-
 
 CHUNK_SIZE = 2**20  # 1mb
 
@@ -39,18 +38,18 @@ def stop_err(msg):
 
 def get_dbkey_dbname_id_name( params, dbkey_description=None ):
     dbkey = params['param_dict']['dbkey_source']['dbkey']
-    #TODO: ensure sequence_id is unique and does not already appear in location file
+    # TODO: ensure sequence_id is unique and does not already appear in location file
     sequence_id = params['param_dict']['sequence_id']
     if not sequence_id:
-        sequence_id = dbkey #uuid.uuid4() generate and use an uuid instead?
-    
+        sequence_id = dbkey  # uuid.uuid4() generate and use an uuid instead?
+
     if params['param_dict']['dbkey_source']['dbkey_source_selector'] == 'new':
         dbkey_name = params['param_dict']['dbkey_source']['dbkey_name']
         if not dbkey_name:
             dbkey_name = dbkey
     else:
         dbkey_name = None
-    
+
     sequence_name = params['param_dict']['sequence_name']
     if not sequence_name:
         sequence_name = dbkey_description
@@ -112,14 +111,14 @@ def _move_and_index_fasta_for_sorting( fasta_filename ):
             line = line.split( None, 1 )[0][1:]
             fasta_offsets[ line ] = offset
     unsorted_fh.close()
-    current_order = map( lambda x: x[1], sorted( map( lambda x: ( x[1], x[0] ), fasta_offsets.items() ) ) )
+    current_order = [_[1] for _ in sorted( ( _[1], _[0] ) for _ in fasta_offsets.items() )]
     return ( unsorted_filename, fasta_offsets, current_order )
 
 
 def _write_sorted_fasta( sorted_names, fasta_offsets, sorted_fasta_filename, unsorted_fasta_filename ):
     unsorted_fh = open( unsorted_fasta_filename )
     sorted_fh = open( sorted_fasta_filename, 'wb+' )
-    
+
     for name in sorted_names:
         offset = fasta_offsets[ name ]
         unsorted_fh.seek( offset )
@@ -136,42 +135,42 @@ def _write_sorted_fasta( sorted_names, fasta_offsets, sorted_fasta_filename, uns
 def _sort_fasta_as_is( fasta_filename, params ):
     return
 
+
 def _sort_fasta_lexicographical( fasta_filename, params ):
     ( unsorted_filename, fasta_offsets, current_order ) = _move_and_index_fasta_for_sorting( fasta_filename )
     sorted_names = sorted( fasta_offsets.keys() )
     if sorted_names == current_order:
         shutil.move( unsorted_filename, fasta_filename )
     else:
-        _write_sorted_fasta( sorted_names, fasta_offsets, fasta_filename, unsorted_filename )    
+        _write_sorted_fasta( sorted_names, fasta_offsets, fasta_filename, unsorted_filename )
 
 
 def _sort_fasta_gatk( fasta_filename, params ):
-    #This method was added by reviewer request.
     ( unsorted_filename, fasta_offsets, current_order ) = _move_and_index_fasta_for_sorting( fasta_filename )
-    sorted_names = map( str, range( 1, 23 ) ) + [ 'X', 'Y' ]
-    #detect if we have chrN, or just N
+    sorted_names = list(map( str, range( 1, 23 ) )) + [ 'X', 'Y' ]
+    # detect if we have chrN, or just N
     has_chr = False
     for chrom in sorted_names:
         if "chr%s" % chrom in current_order:
             has_chr = True
             break
-    
+
     if has_chr:
-        sorted_names = map( lambda x: "chr%s" % x, sorted_names)
+        sorted_names = ["chr%s" % x for x in sorted_names]
         sorted_names.insert( 0, "chrM" )
     else:
         sorted_names.insert( 0, "MT" )
-    sorted_names.extend( map( lambda x: "%s_random" % x, sorted_names ) )
-    
+    sorted_names.extend( "%s_random" % x for x in sorted_names )
+
     existing_sorted_names = []
     for name in sorted_names:
         if name in current_order:
             existing_sorted_names.append( name )
     for name in current_order:
-        #TODO: confirm that non-canonical names do not need to be sorted specially
+        # TODO: confirm that non-canonical names do not need to be sorted specially
         if name not in existing_sorted_names:
             existing_sorted_names.append( name )
-    
+
     if existing_sorted_names == current_order:
         shutil.move( unsorted_filename, fasta_filename )
     else:
@@ -225,7 +224,7 @@ def get_stream_reader(fh, tmp_dir):
         fh.seek(0)
     except UnsupportedOperation:  # This is if fh has been created by urlopen
         fh = _download_file(start_of_file, fh)
-    for k,v in magic_dict.items():
+    for k, v in magic_dict.items():
         if start_of_file.startswith(k):
             return v(fh, tmp_dir)
     try:  # Check if file is tar file
@@ -266,6 +265,7 @@ def _get_ucsc_download_address(params, dbkey):
 
     raise Exception('Unable to determine filename for UCSC Genome for %s: %s' % (ucsc_dbkey, path_contents))
 
+
 def add_fasta_to_table(data_manager_dict, fasta_readers, target_directory, dbkey, dbkey_name, sequence_id, sequence_name, params):
     for data_table_name, data_table_entry in _stream_fasta_to_file( fasta_readers, target_directory, dbkey, dbkey_name, sequence_id, sequence_name, params ):
         if data_table_entry:
@@ -279,7 +279,7 @@ def download_from_ucsc( data_manager_dict, params, target_directory, dbkey, dbke
 
 
 def download_from_ncbi( data_manager_dict, params, target_directory, dbkey, dbkey_name, sequence_id, sequence_name, tmp_dir ):
-    NCBI_DOWNLOAD_URL = 'http://togows.dbcls.jp/entry/ncbi-nucleotide/%s.fasta' #FIXME: taken from dave's genome manager...why some japan site?
+    NCBI_DOWNLOAD_URL = 'http://togows.dbcls.jp/entry/ncbi-nucleotide/%s.fasta'  # FIXME: taken from dave's genome manager...why some japan site?
     requested_identifier = params['param_dict']['reference_source']['requested_identifier']
     url = NCBI_DOWNLOAD_URL % requested_identifier
     fasta_readers = get_stream_reader(urlopen(url), tmp_dir)
@@ -287,13 +287,13 @@ def download_from_ncbi( data_manager_dict, params, target_directory, dbkey, dbke
 
 
 def download_from_url( data_manager_dict, params, target_directory, dbkey, dbkey_name, sequence_id, sequence_name, tmp_dir ):
-    urls = filter( bool, map( lambda x: x.strip(), params['param_dict']['reference_source']['user_url'].split( '\n' ) ) )
+    urls = filter( bool, [x.strip() for x in params['param_dict']['reference_source']['user_url'].split( '\n' )] )
     fasta_readers = [ get_stream_reader(urlopen( url ), tmp_dir) for url in urls ]
-    add_fasta_to_table(data_manager_dict, fasta_readers, target_directory, dbkey, dbkey_name, sequence_id,sequence_name, params)
+    add_fasta_to_table(data_manager_dict, fasta_readers, target_directory, dbkey, dbkey_name, sequence_id, sequence_name, params)
 
 
 def download_from_history( data_manager_dict, params, target_directory, dbkey, dbkey_name, sequence_id, sequence_name, tmp_dir ):
-    #TODO: allow multiple FASTA input files
+    # TODO: allow multiple FASTA input files
     input_filename = params['param_dict']['reference_source']['input_fasta']
     if isinstance( input_filename, list ):
         fasta_readers = [ get_stream_reader(open(filename, 'rb'), tmp_dir) for filename in input_filename ]
@@ -358,14 +358,14 @@ def _stream_fasta_to_file( fasta_stream, target_directory, dbkey, dbkey_name, se
                 fasta_stream.close()
 
     sort_fasta( fasta_filename, params['param_dict']['sorting']['sort_selector'], params )
-    
+
     dbkey_dict = None
     if dbkey_name:
-        #do len calc here
+        # do len calc here
         len_base_name = "%s.len" % ( dbkey )
         compute_fasta_length( fasta_filename, os.path.join( target_directory, len_base_name ), keep_first_word=True )
         dbkey_dict = dict( value=dbkey, name=dbkey_name, len_path=len_base_name )
-    
+
     return [ ( '__dbkeys__', dbkey_dict ), ( 'all_fasta', dict( value=sequence_id, dbkey=dbkey, name=sequence_name, path=fasta_base_filename ) ) ]
 
 
@@ -384,7 +384,7 @@ def compute_fasta_length( fasta_file, out_file, keep_first_word=False ):
         if not line or line.startswith( '#' ):
             continue
         if line[0] == '>':
-            if first_entry == False:
+            if not first_entry:
                 if keep_first_word:
                     fasta_title = fasta_title.split()[0]
                 out.write( "%s\t%d\n" % ( fasta_title[ 1: ], seq_len ) )
@@ -406,49 +406,48 @@ def _create_symlink( input_filename, target_directory, dbkey, dbkey_name, sequen
     fasta_base_filename = "%s.fa" % sequence_id
     fasta_filename = os.path.join( target_directory, fasta_base_filename )
     os.symlink( input_filename, fasta_filename )
-    
+
     dbkey_dict = None
     if dbkey_name:
-        #do len calc here
+        # do len calc here
         len_base_name = "%s.len" % ( dbkey )
         compute_fasta_length( fasta_filename, os.path.join( target_directory, len_base_name ), keep_first_word=True )
         dbkey_dict = dict( value=dbkey, name=dbkey_name, len_path=len_base_name )
-    
+
     return [ ( '__dbkeys__', dbkey_dict ), ( 'all_fasta', dict( value=sequence_id, dbkey=dbkey, name=sequence_name, path=fasta_base_filename ) ) ]
 
 
 REFERENCE_SOURCE_TO_DOWNLOAD = dict( ucsc=download_from_ucsc, ncbi=download_from_ncbi, url=download_from_url, history=download_from_history, directory=copy_from_directory )
-
 SORTING_METHODS = dict( as_is=_sort_fasta_as_is, lexicographical=_sort_fasta_lexicographical, gatk=_sort_fasta_gatk, custom=_sort_fasta_custom )
 
 
 def main():
-    #Parse Command Line
     parser = optparse.OptionParser()
     parser.add_option( '-d', '--dbkey_description', dest='dbkey_description', action='store', type="string", default=None, help='dbkey_description' )
     (options, args) = parser.parse_args()
-    
+
     filename = args[0]
-    
+
     params = loads( open( filename ).read() )
     target_directory = params[ 'output_data' ][0]['extra_files_path']
     os.mkdir( target_directory )
     data_manager_dict = {}
-    
-    dbkey, dbkey_name, sequence_id, sequence_name = get_dbkey_dbname_id_name( params, dbkey_description=options.dbkey_description ) 
-    
+
+    dbkey, dbkey_name, sequence_id, sequence_name = get_dbkey_dbname_id_name( params, dbkey_description=options.dbkey_description )
+
     if dbkey in [ None, '', '?' ]:
         raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( dbkey ) )
 
     # Create a tmp_dir, in case a zip file needs to be uncompressed
     tmp_dir = tempfile.mkdtemp()
-    #Fetch the FASTA
+    # Fetch the FASTA
     try:
         REFERENCE_SOURCE_TO_DOWNLOAD[ params['param_dict']['reference_source']['reference_source_selector'] ]( data_manager_dict, params, target_directory, dbkey, dbkey_name, sequence_id, sequence_name, tmp_dir )
     finally:
         cleanup_before_exit(tmp_dir)
-    #save info to json file
+    # save info to json file
     open( filename, 'wb' ).write( dumps( data_manager_dict ).encode() )
-        
+
+
 if __name__ == "__main__":
     main()

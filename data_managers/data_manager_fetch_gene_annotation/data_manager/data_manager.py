@@ -1,9 +1,10 @@
+import argparse
+import datetime
+import json
 import os
 import sys
 import uuid
-import json
-import argparse
-import datetime
+
 import requests
 from requests.exceptions import ContentDecodingError
 
@@ -37,8 +38,6 @@ def url_download(url):
 
 
 def main():
-
-    # Generate and parse command line args
     parser = argparse.ArgumentParser(description='Create data manager JSON.')
     parser.add_argument('--out', dest='output', action='store',
                         help='JSON filename')
@@ -69,6 +68,7 @@ def main():
 
     with open(os.path.join(args.output), "w+") as f:
         f.write(json.dumps(data_manager_entry))
+
 
 if __name__ == '__main__':
     main()
