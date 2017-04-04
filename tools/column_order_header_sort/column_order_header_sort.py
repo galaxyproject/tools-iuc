@@ -3,7 +3,7 @@
 import sys
 import subprocess
 
-AWK_CMD = """BEGIN{FS="%s"; OFS="%s";} {print %s;}""" #%s is del del and then comma sep list of columns 1 based
+AWK_CMD = """BEGIN{FS="%s"; OFS="%s";} {print %s;}"""
 
 input_filename = sys.argv[1]
 output_filename = sys.argv[2]
@@ -19,8 +19,6 @@ header = None
 with open( input_filename, 'r' ) as fh:
     header = fh.readline().strip( '\r\n' )
 header = header.split( delimiter )
-#print 'delimiter', repr(delimiter)
-#print 'header', header
 assert len( header ) == len( set( header ) ), "Header values must be unique"
 sorted_header = list( header )
 if key_column is None:
@@ -34,5 +32,4 @@ for key in sorted_header:
     columns.append( header.index( key ) )
 
 awk_cmd = AWK_CMD % ( delimiter, delimiter, ",".join( map( lambda x: "$%i" % ( x + 1 ), columns ) ) )
-#print repr( [ 'gawk', awk_cmd, input_filename ] )
 sys.exit( subprocess.call( [ 'gawk', awk_cmd, input_filename ], stdout=open( output_filename, 'wb+' ), shell=False ) )
