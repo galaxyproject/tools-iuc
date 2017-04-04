@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-import sys
 import subprocess
+import sys
 
 AWK_CMD = """BEGIN{FS="%s"; OFS="%s";} {print %s;}"""
 
@@ -13,7 +13,7 @@ key_column = sys.argv[4]
 try:
     key_column = int( key_column ) - 1
 except Exception:
-    key_column = None 
+    key_column = None
 
 header = None
 with open( input_filename, 'r' ) as fh:
