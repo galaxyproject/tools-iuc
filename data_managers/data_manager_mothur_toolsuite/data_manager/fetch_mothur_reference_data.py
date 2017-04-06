@@ -1,16 +1,15 @@
 #!/usr/bin/env python
 #
 # Data manager for reference data for the 'mothur_toolsuite' Galaxy tools
-import sys
-import os
+import json
 import optparse
-import tempfile
+import os
 import shutil
+import sys
+import tarfile
+import tempfile
 import urllib2
 import zipfile
-import tarfile
-
-from galaxy.util.json import from_json_string, to_json_string
 
 # When extracting files from archives, skip names that
 # start with the following strings
@@ -137,7 +136,7 @@ def read_input_json(jsonfile):
     to create it if necessary.
 
     """
-    params = from_json_string(open(jsonfile).read())
+    params = json.loads(open(jsonfile).read())
     return (params['param_dict'],
             params['output_data'][0]['extra_files_path'])
 
@@ -149,7 +148,7 @@ def read_input_json(jsonfile):
 # >>> add_data_table(d,'my_data')
 # >>> add_data_table_entry(dict(dbkey='hg19',value='human'))
 # >>> add_data_table_entry(dict(dbkey='mm9',value='mouse'))
-# >>> print str(to_json_string(d))
+# >>> print str(json.dumps(d))
 def create_data_tables_dict():
     """Return a dictionary for storing data table information
 
@@ -532,6 +531,6 @@ if __name__ == "__main__":
         import_from_server(data_tables, target_dir, paths, description, link_to_data=options.link_to_data)
     # Write output JSON
     print "Outputting JSON"
-    print str(to_json_string(data_tables))
-    open(jsonfile, 'wb').write(to_json_string(data_tables))
+    print str(json.dumps(data_tables))
+    open(jsonfile, 'wb').write(json.dumps(data_tables))
     print "Done."

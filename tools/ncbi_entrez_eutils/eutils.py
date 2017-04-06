@@ -1,7 +1,9 @@
-import os
 import json
+import os
 import StringIO
+
 from Bio import Entrez
+
 Entrez.tool = "GalaxyEutils_1_0"
 BATCH_SIZE = 200
 

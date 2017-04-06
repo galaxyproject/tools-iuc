@@ -45,6 +45,7 @@ def stop_err(msg):
     sys.stderr.write(msg)
     sys.exit(1)
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_motifs', dest='input_motifs', help='MEME output formatted files for input to fimo')
 parser.add_argument('--input_fasta', dest='input_fasta', help='Fassta sequence file')
