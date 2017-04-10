@@ -31,7 +31,7 @@ def build_picard_index( data_manager_dict, fasta_filename, params, target_direct
     prefix = os.path.splitext( fasta_base_name )[0]
     sym_linked_fasta_filename = os.path.join( target_directory, fasta_base_name )
     os.symlink( fasta_filename, sym_linked_fasta_filename )
-    args = [ 'java', '-Xmx4G', '-jar', os.path.join( os.environ[ 'JAVA_JAR_PATH' ], 'CreateSequenceDictionary.jar' ), 'R=%s' % sym_linked_fasta_filename, 'O=%s.dict' % prefix ]
+    args = [ 'picard', 'CreateSequenceDictionary', 'R=%s' % sym_linked_fasta_filename, 'O=%s.dict' % prefix ]
     proc = subprocess.Popen( args=args, shell=False, cwd=target_directory )
     return_code = proc.wait()
     if return_code:
