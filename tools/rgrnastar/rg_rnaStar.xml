@@ -30,6 +30,10 @@
             --runMode genomeGenerate
             --genomeDir 'tempstargenomedir'
             --genomeFastaFiles '$refGenomeSource.genomeFastaFiles'
+            #if str($refGenomesource.sjdbGTFfile):
+                --sjdbGTFfile '$refGenomeSource.sjdbGTFfile'
+                --sjdbOverhang '$refGenomeSource.sjdbOverhang'
+            #end if
             --runThreadN \${GALAXY_SLOTS:-4}
         &&
     #end if
@@ -41,7 +45,7 @@
         #if str($refGenomeSource.genomeSource) == 'history':
             'tempstargenomedir'
         #else
-            '${refGenomeSource.genomeDir.fields.path}'
+            '${refGenomeSource.genomeSource.GTFconditional.GTFselect.genomeDir.fields.path}'
         #end if
 
         --readFilesIn
@@ -64,17 +68,22 @@
 
         --outSAMtype BAM SortedByCoordinate
 
-        #if str($refGeneSource.geneSource) == 'yes':
-            --sjdbOverhang "$refGeneSource.sjdbOverhang"
-            --sjdbGTFfile '${refGeneSource.sjdbGTFfile}'
+        ## Handle difference between indices with/without annotations
+        #if str($refGenomeSource.geneSource) == 'indexed':
+            #if str($refGenomeSource.geneSource.GTFconditional.GTFselect) == 'without-gtf':
+                #if str(refGenomeSource.geneSource.GTFconditional.sjdbGTFfile) != '':
+                    --sjdbOverhang '$refGenomeSource.geneSource.GTFconditional.sjdbOverhang'
+                    --sjdbGTFfile '${refGenomeSource.geneSource.GTFconditional.sjdbGTFfile}'
+                #end if
 
-            #if str($refGeneSource.sjdbGTFfile.ext) == 'gff3':
-                --sjdbGTFtagExonParentTranscript Parent
+                #if str($refGenomeSource.geneSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
+                    --sjdbGTFtagExonParentTranscript Parent
+                #end if
             #end if
+        #end if
 
-            #if $refGeneSource.quantMode == "GeneCounts":
-                --quantMode '${refGeneSource.quantMode}'
-            #end if
+        #if $refGeneSource.quantMode == "GeneCounts":
+            --quantMode '${refGeneSource.quantMode}'
         #end if
 
         ## Output parameters
@@ -188,31 +197,39 @@
                 <option value="history">Use reference genome from history and create temporary index</option>
             </param>
             <when value="indexed">
-                <param argument="--genomeDir" type="select" label="Select a reference genome">
-                    <options from_data_table="rnastar_index">
-                        <filter type="sort_by" column="2"/>
-                        <validator type="no_options" message="No indexes are available for the selected input dataset"/>
-                    </options>
-                </param>
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" type="select" label="Reference genome with or without an annotation" help="Must the index have been created WITH a GTF file (if not you can specify one afterward).">
+                        <option value="without-gtf">use genome reference without builtin gene-model</option>
+                        <option value="with-gtf">use genome reference with builtin gene-model</option>
+                    </param>
+                    <when value="with-gtf">
+                        <param argument="--genomeDir" type="select" label="Select reference genome" help="If your genome of interest is not listed, contact the Galaxy team">
+                            <options from_data_table="rna_star_indexes">
+                                <filter type="static_value" column="4" value="1"/>
+                                <filter type="sort_by" column="2" />
+                                <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                            </options>
+                        </param>
+                    </when>
+                    <when value="without-gtf">
+                        <param argument="--genomeDir" type="select" label="Select reference genome" help="If your genome of interest is not listed, contact the Galaxy team">
+                            <options from_data_table="rna_star_indexes">
+                                <filter type="static_value" column="4" value="0"/>
+                                <filter type="sort_by" column="2" />
+                                <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                            </options>
+                        </param>
+                        
+                        <expand macro="@SJDBOPTIONS@" />
+                    </when>
+                </conditional>
             </when>
             <when value="history">
                 <param argument="--genomeFastaFiles" type="data" format="fasta" label="Select a reference genome" />
+                <expand macro="@SJDBOPTIONS@" />
             </when>
         </conditional>
-
-        <conditional name="refGeneSource">
-            <param name="geneSource" type="select" label="Use gene annotation as splice junction database">
-                <option value="no">No</option>
-                <option value="yes" selected="True">Yes</option>
-            </param>
-            <when value="no">
-            </when>
-            <when value="yes">
-                <param argument="--sjdbGTFfile" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions" optional="false" help="Exon junction information for mapping splices"/>
-                <param argument="--sjdbOverhang" type="integer" min="0" value="100" label="Length of the genomic sequence around annotated junctions" help="Used in constructing the splice junctions database. Ideal value is ReadLength-1"/>
-                <param argument="--quantMode" type="boolean" truevalue="GeneCounts" falsevalue="" label="Count number of reads per gene" help="column 1: gene ID, column 2: counts for unstranded RNA-seq, column 3: counts for the 1st read strand aligned with RNA , column 4: counts for the 2nd read strand aligned with RNA"/>
-            </when>
-        </conditional>
+        <param argument="--quantMode" type="boolean" truevalue="GeneCounts" falsevalue="" label="Count number of reads per gene" help="column 1: gene ID, column 2: counts for unstranded RNA-seq, column 3: counts for the 1st read strand aligned with RNA , column 4: counts for the 2nd read strand aligned with RNA. This requires either (A) an index that was built with an annotation (GTF or GFF3 file) or (B) having specified an annotation (GTF or GFF3 file above)."/>
 
         <!-- Output parameter settings. -->
         <conditional name="output_params">
