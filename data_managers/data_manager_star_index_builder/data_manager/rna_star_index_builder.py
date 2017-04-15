@@ -18,7 +18,8 @@ def main():
     if options.dbkey in [ None, '', '?' ]:
         raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( options.dbkey ) )
 
-    data_manager_dict = {'data_tables': {options.data_table: [dict( value=options.value, dbkey=options.dbkey, name=options.name, path=options.subdir, 'with-gtf'=options.withGTF )]}}
+    data_manager_dict = {'data_tables': {options.data_table: [dict( value=options.value, dbkey=options.dbkey, name=options.name, path=options.subdir )]}}
+    data_manager_dict['data_tables']['with-gtf'] = options.withGTF
     open( options.config_file, 'wb' ).write( json.dumps( data_manager_dict ) )
 
 
