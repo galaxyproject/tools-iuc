@@ -94,7 +94,7 @@ def download_database(data_manager_dict, target_directory, genome_version, organ
     # search data_dir/genome_version for files
     regulation_pattern = 'regulation_(.+).bin'
     #  annotation files that are included in SnpEff by a flag
-    annotations_dict = {'nextProt.bin': '-nextprot', 'motif.bin': '-motif', 'interactions.bin' : '-interaction'}
+    annotations_dict = {'nextProt.bin': '-nextprot', 'motif.bin': '-motif', 'interactions.bin': '-interaction'}
     genome_path = os.path.join(data_dir, genome_version)
     snpeff_version = getSnpeffVersion()
     key = snpeff_version + '_' + genome_version
