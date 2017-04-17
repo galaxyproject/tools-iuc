@@ -12,14 +12,17 @@ def main():
     parser.add_option( '--name', dest='name', action='store', type="string" )
     parser.add_option( '--subdir', dest='subdir', action='store', type="string" )
     parser.add_option( '--data-table', dest='data_table', action='store', type="string" )
-    parser.add_option( '--with-gtf', dest='withGTF', action='store', type="int", default="0" )
+    parser.add_option( '--withGTF', dest='withGTF', action='store_true' )
     (options, args) = parser.parse_args()
 
     if options.dbkey in [ None, '', '?' ]:
         raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( options.dbkey ) )
 
-    data_manager_dict = {'data_tables': {options.data_table: [dict( value=options.value, dbkey=options.dbkey, name=options.name, path=options.subdir )]}}
-    data_manager_dict['data_tables']['with-gtf'] = options.withGTF
+    withGTF = "0"
+    if options.withGTF:
+        withGTF = "1"
+
+    data_manager_dict = {'data_tables': {options.data_table: [dict( value=options.value, dbkey=options.dbkey, name=options.name, path=options.subdir, withGTF=withGTF )]}}
     open( options.config_file, 'wb' ).write( json.dumps( data_manager_dict ) )
 
 
