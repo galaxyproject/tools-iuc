@@ -455,7 +455,7 @@ class JbrowseConnector(object):
         })
         self._add_track_json(trackData)
 
-    def add_features(self, data, format, trackData, gffOpts, **kwargs):
+    def add_features(self, data, format, trackData, gffOpts, metadata=None, **kwargs):
         cmd = [
             'perl', self._jbrowse_bin('flatfile-to-json.pl'),
             self.TN_TABLE.get(format, 'gff'),
@@ -485,6 +485,8 @@ class JbrowseConnector(object):
                 '--trackType', 'JBrowse/View/Track/CanvasFeatures'
             ]
 
+        if metadata:
+            config.update({'metadata': metadata})
         cmd.extend(['--config', json.dumps(config)])
 
         self.subprocess_check_call(cmd)
@@ -562,10 +564,10 @@ class JbrowseConnector(object):
             # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
-                                  track['conf']['options']['gff'])
+                                  track['conf']['options']['gff'], metadata=extra_metadata)
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
-                                track['conf']['options']['wiggle'])
+                                track['conf']['options']['wiggle'], metadata=extra_metadata)
             elif dataset_ext == 'bam':
                 real_indexes = track['conf']['options']['pileup']['bam_indices']['bam_index']
                 if not isinstance(real_indexes, list):
@@ -580,13 +582,13 @@ class JbrowseConnector(object):
 
                 self.add_bam(dataset_path, outputTrackConfig,
                              track['conf']['options']['pileup'],
-                             bam_index=real_indexes[i])
+                             bam_index=real_indexes[i], metadata=extra_metadata)
             elif dataset_ext == 'blastxml':
-                self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'])
+                self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'], metadata=extra_metadata)
             elif dataset_ext == 'vcf':
-                self.add_vcf(dataset_path, outputTrackConfig)
+                self.add_vcf(dataset_path, outputTrackConfig, metadata=extra_metadata)
             elif dataset_ext == 'rest':
-                self.add_rest(track['conf']['options']['url'], outputTrackConfig)
+                self.add_rest(track['conf']['options']['url'], outputTrackConfig, metadata=extra_metadata)
             else:
                 log.warn('Do not know how to handle %s', dataset_ext)
 
@@ -617,6 +619,44 @@ class JbrowseConnector(object):
         generalData['show_overview'] = (data['general']['show_overview'] == 'true')
         generalData['show_menu'] = (data['general']['show_menu'] == 'true')
         generalData['hideGenomeOptions'] = (data['general']['hideGenomeOptions'] == 'true')
+
+        if True: # TODO: configure trackselector on/off
+            generalData.update({
+                "trackSelector" : {
+                    "renameFacets" : {
+                        "tool_tool_id": "Tool ID",
+                        "tool_tool_version": "Tool Version",
+                        "dataset_edam_format": "EDAM",
+                        "dataset_hid": "HID",
+                        "dataset_size": "Size",
+                        "history_display_name": "History Name",
+                        "history_user_email": "Owner",
+                        "metadata_dbkey": "Dbkey",
+                    },
+                    "displayColumns" : [
+                        "key",
+                        "tool_tool_id",
+                        "tool_tool_version",
+                        "dataset_edam_format",
+                        "dataset_hid",
+                        "dataset_size",
+                        "history_display_name",
+                        "history_user_email",
+                        "metadata_dbkey",
+                    ],
+                    "type" : "Faceted",
+                    "escapeHTMLInData" : False
+                },
+                "trackMetadata" : {
+                    "indexFacets" : [
+                        "category",
+                        "key",
+                        "dataset_edam_format",
+                        "history_user_email",
+                        "history_display_name"
+                    ]
+                }
+            })
 
         viz_data.update(generalData)
         self._add_json(viz_data)
@@ -679,12 +719,47 @@ if __name__ == '__main__':
             'hideGenomeOptions': root.find('metadata/general/hideGenomeOptions').text,
         }
     }
+    GALAXY_INFRASTRUCTURE_URL = root.find('metadata/galaxyUrl').text,
     for track in root.findall('tracks/track'):
         track_conf = {}
-        track_conf['trackfiles'] = [
-            (os.path.realpath(x.attrib['path']), x.attrib['ext'], x.attrib['label'])
-            for x in track.findall('files/trackFile')
-        ]
+        track_conf['trackfiles'] = []
+
+        for x in track.findall('files/trackFile'):
+            metadata = {}
+
+            for (key, value) in x.findall('metadata/dataset')[0].attrib.items():
+                metadata['dataset_%s' % key] = value
+
+            for (key, value) in x.findall('metadata/history')[0].attrib.items():
+                metadata['history_%s' % key] = value
+
+            for (key, value) in x.findall('metadata/metadata')[0].attrib.items():
+                metadata['metadata_%s' % key] = value
+
+            for (key, value) in x.findall('metadata/tool')[0].attrib.items():
+                metadata['tool_%s' % key] = value
+
+            # Additional Mappings applied:
+            metadata['dataset_edam_format'] = '<a target="_blank" href="http://edamontology.org/{0}">{1}</a>'.format(metadata['dataset_edam_format'], metadata['dataset_file_ext'])
+            metadata['history_user_email'] = '<a href="mailto:{0}">{0}</a>'.format(metadata['history_user_email'])
+            metadata['tool_tool_id'] = '<a href="{galaxy}/dataset/{encoded_id}/show_params">{tool_id}</a>'.format(
+                galaxy=GALAXY_INFRASTRUCTURE_URL,
+                encoded_id=metadata['dataset_id'],
+                tool_id=metadata['tool_tool_id'],
+                tool_version=metadata['tool_tool_version'],
+            )
+
+            track_conf['trackfiles'].append((
+                os.path.realpath(x.attrib['path']),
+                x.attrib['ext'],
+                x.attrib['label'],
+                metadata
+            ))
+
+        # track_conf['trackfiles'] = [
+            # (os.path.realpath(x.attrib['path']), x.attrib['ext'], x.attrib['label'])
+            # for x in track.findall('files/trackFile')
+        # ]
 
         track_conf['category'] = track.attrib['cat']
         track_conf['format'] = track.attrib['format']
