@@ -17,7 +17,7 @@ def fetch_databases(data_manager_dict, target_directory):
         sys.exit( return_code )
     databases_output.close()
     data_manager_dict['data_tables'] = data_manager_dict.get( 'data_tables', {} )
-    data_manager_dict['data_tables']['snpeff4_databases'] = data_manager_dict['data_tables'].get( 'snpeff4_databases', [] )
+    data_manager_dict['data_tables']['snpeffv_databases'] = data_manager_dict['data_tables'].get( 'snpeffv_databases', [] )
     data_table_entries = []
     with open(databases_path, 'r') as fh:
         for i, line in enumerate(fh):
@@ -31,7 +31,7 @@ def fetch_databases(data_manager_dict, target_directory):
                     continue
                 description = fields[1].strip() + ' : ' + genome_version
                 data_table_entries.append(dict(value=genome_version, name=description))
-        data_manager_dict['data_tables']['snpeff4_databases'] = data_table_entries
+    data_manager_dict['data_tables']['snpeffv_databases'] = data_table_entries
     return data_manager_dict
 
 
