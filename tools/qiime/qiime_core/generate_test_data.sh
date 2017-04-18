@@ -328,3 +328,98 @@ filter_otus_from_otu_table.py \
     --otu_ids_to_exclude_fp 'test-data/filter_otus_from_otu_table/chimeric_otus.txt' \
     --negate_ids_to_exclude \
     --output_fp 'test-data/filter_otus_from_otu_table/chimera_picked_otu_table.biom'
+
+# align_seqs
+align_seqs.py \
+    --input_fasta_fp 'test-data/align_seqs/unaligned.fna' \
+    -o 'align_seqs_pynast_uclust' \
+    --alignment_method 'pynast' \
+    --pairwise_alignment_method 'uclust' \
+    --template_fp 'test-data/align_seqs/core_set_aligned.fasta.imputed' \
+    --min_percent_id '0.75'
+md5 'align_seqs_pynast_uclust/unaligned_aligned.fasta'
+md5 'align_seqs_pynast_uclust/unaligned_failures.fasta'
+md5 'align_seqs_pynast_uclust/unaligned_log.txt'
+
+align_seqs.py \
+    --input_fasta_fp 'test-data/align_seqs/unaligned.fna' \
+    -o 'align_seqs_pynast_muscle' \
+    --alignment_method 'pynast' \
+    --pairwise_alignment_method 'muscle' \
+    --min_length '50' \
+    --min_percent_id '0.75'
+md5 'align_seqs_pynast_muscle/unaligned_aligned.fasta'
+md5 'align_seqs_pynast_muscle/unaligned_failures.fasta'
+md5 'align_seqs_pynast_muscle/unaligned_log.txt'
+
+align_seqs.py \
+    --input_fasta_fp 'test-data/align_seqs/unaligned.fna' \
+    -o 'align_seqs_pynast_pair_hmm' \
+    --alignment_method 'pynast' \
+    --pairwise_alignment_method 'pair_hmm' \
+    --min_percent_id '0.75'
+md5 'align_seqs_pynast_pair_hmm/unaligned_aligned.fasta'
+md5 'align_seqs_pynast_pair_hmm/unaligned_failures.fasta'
+md5 'align_seqs_pynast_pair_hmm/unaligned_log.txt'
+
+#align_seqs.py \
+#    --input_fasta_fp 'test-data/align_seqs/unaligned.fna' \
+#    -o 'align_seqs_pynast_clustal' \
+#    --alignment_method 'pynast' \
+#    --pairwise_alignment_method 'clustal' \
+#    --min_percent_id '0.75'
+#md5 'align_seqs_pynast_clustal/unaligned_aligned.fasta'
+#md5 'align_seqs_pynast_clustal/unaligned_failures.fasta'
+#md5 'align_seqs_pynast_clustal/unaligned_log.txt'
+
+#align_seqs.py \
+#    --input_fasta_fp 'test-data/align_seqs/unaligned.fna' \
+#    -o 'align_seqs_pynast_blast' \
+#    --alignment_method 'pynast' \
+#    --pairwise_alignment_method 'blast' \
+#    --min_percent_id '0.75'
+#md5 'align_seqs_pynast_blast/unaligned_aligned.fasta'
+#md5 'align_seqs_pynast_blast/unaligned_failures.fasta'
+#md5 'align_seqs_pynast_blast/unaligned_log.txt'
+
+align_seqs.py \
+    --input_fasta_fp 'test-data/align_seqs/unaligned.fna' \
+    -o 'align_seqs_pynast_mafft' \
+    --alignment_method 'pynast' \
+    --pairwise_alignment_method 'mafft' \
+    --min_percent_id '0.75'
+md5 'align_seqs_pynast_mafft/unaligned_aligned.fasta'
+md5 'align_seqs_pynast_mafft/unaligned_failures.fasta'
+md5 'align_seqs_pynast_mafft/unaligned_log.txt'
+
+#align_seqs.py \
+#    --input_fasta_fp 'test-data/align_seqs/unaligned.fna' \
+#    -o 'align_seqs_infernal' \
+#    --alignment_method 'infernal' \
+#    --min_percent_id '0.75'
+#md5 'align_seqs_infernal/unaligned_aligned.fasta'
+#md5 'align_seqs_infernal/unaligned_log.txt'
+
+#align_seqs.py \
+#    --input_fasta_fp 'test-data/align_seqs/unaligned.fna' \
+#    -o 'align_seqs_clustalw' \
+#    --alignment_method 'clustalw' \
+#    --min_percent_id '0.75'
+#md5 'align_seqs_clustalw/unaligned_aligned.fasta'
+#md5 'align_seqs_clustalw/unaligned_log.txt'
+
+align_seqs.py \
+    --input_fasta_fp 'test-data/align_seqs/unaligned.fna' \
+    -o 'align_seqs_muscle' \
+    --alignment_method 'muscle' \
+    --min_percent_id '0.75'
+md5 'align_seqs_muscle/unaligned_aligned.fasta'
+md5 'align_seqs_muscle/unaligned_log.txt'
+
+align_seqs.py \
+    --input_fasta_fp 'test-data/align_seqs/unaligned.fna' \
+    -o 'align_seqs_mafft' \
+    --alignment_method 'mafft' \
+    --min_percent_id '0.75'
+md5 'align_seqs_mafft/unaligned_aligned.fasta'
+md5 'align_seqs_mafft/unaligned_log.txt'
