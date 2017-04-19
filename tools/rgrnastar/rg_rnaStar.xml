@@ -6,10 +6,10 @@
     <expand macro="requirements"/>
     
     <stdio>
+        <regex match="FATAL error" source="both" level="fatal"/>
         <regex match="EXITING: FATAL INPUT ERROR:" source="both" level="fatal"/>
         <regex match="EXITING: fatal error trying to allocate genome arrays, exception thrown: std::bad_alloc" source="both" level="fatal"/>
         <regex match="\[sam_read1\] missing header\? Abort!" source="both" level="fatal"/>
-        <regex match=".*" source="both" level="warning" description="Some stderr/stdout text"/>
     </stdio>
 
 <!--
@@ -24,12 +24,16 @@
 -->
     <command><![CDATA[
     ## Create temporary index for custom reference
-    #if str($refGenomeSource.genomeSource) == 'history':
+    #if str($refGenomeSource.geneSource) == 'history':
         mkdir -p tempstargenomedir &&
         STAR
             --runMode genomeGenerate
             --genomeDir 'tempstargenomedir'
             --genomeFastaFiles '$refGenomeSource.genomeFastaFiles'
+            #if $refGenomeSource.sjdbGTFfile:
+                --sjdbGTFfile '$refGenomeSource.sjdbGTFfile'
+                --sjdbOverhang '$refGenomeSource.sjdbOverhang'
+            #end if
             --runThreadN \${GALAXY_SLOTS:-4}
         &&
     #end if
@@ -38,10 +42,14 @@
         --runThreadN \${GALAXY_SLOTS:-4}
         --genomeLoad NoSharedMemory
         --genomeDir
-        #if str($refGenomeSource.genomeSource) == 'history':
+        #if str($refGenomeSource.geneSource) == 'history':
             'tempstargenomedir'
+            #if $refGenomeSource.sjdbGTFfile:
+                --sjdbGTFfile '$refGenomeSource.sjdbGTFfile'
+                --sjdbOverhang '$refGenomeSource.sjdbOverhang'
+            #end if
         #else
-            '${refGenomeSource.genomeDir.fields.path}'
+            '${refGenomeSource.GTFconditional.genomeDir.fields.path}'
         #end if
 
         --readFilesIn
@@ -64,17 +72,21 @@
 
         --outSAMtype BAM SortedByCoordinate
 
-        #if str($refGeneSource.geneSource) == 'yes':
-            --sjdbOverhang "$refGeneSource.sjdbOverhang"
-            --sjdbGTFfile '${refGeneSource.sjdbGTFfile}'
-
-            #if str($refGeneSource.sjdbGTFfile.ext) == 'gff3':
-                --sjdbGTFtagExonParentTranscript Parent
+        ## Handle difference between indices with/without annotations
+        #if str($refGenomeSource.geneSource) == 'indexed':
+            #if str($refGenomeSource.GTFconditional.GTFselect) == 'without-gtf':
+                #if $refGenomeSource.GTFconditional.sjdbGTFfile:
+                    --sjdbOverhang '$refGenomeSource.GTFconditional.sjdbOverhang'
+                    --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
+                    #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
+                        --sjdbGTFtagExonParentTranscript Parent
+                    #end if
+                #end if
             #end if
+        #end if
 
-            #if $refGeneSource.quantMode == "GeneCounts":
-                --quantMode '${refGeneSource.quantMode}'
-            #end if
+        #if $quantMode:
+            --quantMode GeneCounts
         #end if
 
         ## Output parameters
@@ -183,36 +195,44 @@
 
         <!-- Genome source. -->
         <conditional name="refGenomeSource">
-            <param name="genomeSource" type="select" label="Custom or built-in reference genome" help="Built-ins were indexed using default options">
+            <param name="geneSource" type="select" label="Custom or built-in reference genome" help="Built-ins were indexed using default options">
                 <option value="indexed" selected="True">Use a built-in index</option>
                 <option value="history">Use reference genome from history and create temporary index</option>
             </param>
             <when value="indexed">
-                <param argument="--genomeDir" type="select" label="Select a reference genome">
-                    <options from_data_table="rnastar_index">
-                        <filter type="sort_by" column="2"/>
-                        <validator type="no_options" message="No indexes are available for the selected input dataset"/>
-                    </options>
-                </param>
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" type="select" label="Reference genome with or without an annotation" help="Must the index have been created WITH a GTF file (if not you can specify one afterward).">
+                        <option value="without-gtf">use genome reference without builtin gene-model</option>
+                        <option value="with-gtf">use genome reference with builtin gene-model</option>
+                    </param>
+                    <when value="with-gtf">
+                        <param name="genomeDir" argument="--genomeDir" type="select" label="Select reference genome" help="If your genome of interest is not listed, contact the Galaxy team">
+                            <options from_data_table="rnastar_index2">
+                                <filter type="static_value" column="4" value="1"/>
+                                <filter type="sort_by" column="2" />
+                                <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                            </options>
+                        </param>
+                    </when>
+                    <when value="without-gtf">
+                        <param argument="--genomeDir" type="select" label="Select reference genome" help="If your genome of interest is not listed, contact the Galaxy team">
+                            <options from_data_table="rnastar_index2">
+                                <filter type="static_value" column="4" value="0"/>
+                                <filter type="sort_by" column="2" />
+                                <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                            </options>
+                        </param>
+                        
+                        <expand macro="@SJDBOPTIONS@" />
+                    </when>
+                </conditional>
             </when>
             <when value="history">
                 <param argument="--genomeFastaFiles" type="data" format="fasta" label="Select a reference genome" />
+                <expand macro="@SJDBOPTIONS@" />
             </when>
         </conditional>
-
-        <conditional name="refGeneSource">
-            <param name="geneSource" type="select" label="Use gene annotation as splice junction database">
-                <option value="no">No</option>
-                <option value="yes" selected="True">Yes</option>
-            </param>
-            <when value="no">
-            </when>
-            <when value="yes">
-                <param argument="--sjdbGTFfile" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions" optional="false" help="Exon junction information for mapping splices"/>
-                <param argument="--sjdbOverhang" type="integer" min="0" value="100" label="Length of the genomic sequence around annotated junctions" help="Used in constructing the splice junctions database. Ideal value is ReadLength-1"/>
-                <param argument="--quantMode" type="boolean" truevalue="GeneCounts" falsevalue="" label="Count number of reads per gene" help="column 1: gene ID, column 2: counts for unstranded RNA-seq, column 3: counts for the 1st read strand aligned with RNA , column 4: counts for the 2nd read strand aligned with RNA"/>
-            </when>
-        </conditional>
+        <param argument="--quantMode" type="boolean" label="Count number of reads per gene" help="column 1: gene ID, column 2: counts for unstranded RNA-seq, column 3: counts for the 1st read strand aligned with RNA , column 4: counts for the 2nd read strand aligned with RNA. This requires either (A) an index that was built with an annotation (GTF or GFF3 file) or (B) having specified an annotation (GTF or GFF3 file above)."/>
 
         <!-- Output parameter settings. -->
         <conditional name="output_params">
@@ -324,12 +344,12 @@
         <data format="interval" name="chimeric_junctions" label="${tool.name} on ${on_string}: chimeric junctions" from_work_dir="Chimeric.out.junction">
             <filter>params['settingsType'] == "star_fusion" or ( params['settingsType'] == "full" and params['chim']['chim_select'] == "yes" and params['chim']['chimSegmentMin'] > 0 )</filter>
             <actions>
-                <conditional name="refGenomeSource.genomeSource">
+                <conditional name="refGenomeSource.geneSource">
                     <when value="indexed">
                         <action type="metadata" name="dbkey">
                             <option type="from_data_table" name="rnastar_index" column="1" offset="0">
                                 <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
-                                <filter type="param_value" ref="refGenomeSource.genomeDir" column="0"/>
+                                <filter type="param_value" ref="refGenomeSource.GTFconditional.genomeDir" column="0"/>
                             </option>
                         </action>
                     </when>
@@ -345,12 +365,12 @@
         <data format="bam" name="chimeric_reads" label="${tool.name} on ${on_string}: chimeric.bam" from_work_dir="ChimericSorted.bam">
             <filter>params['settingsType'] == "star_fusion" or ( params['settingsType'] == "full" and params['chim']['chim_select'] == "yes" and params['chim']['chimSegmentMin'] > 0 )</filter>
             <actions>
-                <conditional name="refGenomeSource.genomeSource">
+                <conditional name="refGenomeSource.geneSource">
                     <when value="indexed">
                         <action type="metadata" name="dbkey">
                             <option type="from_data_table" name="rnastar_index" column="1" offset="0">
                                 <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
-                                <filter type="param_value" ref="refGenomeSource.genomeDir" column="0"/>
+                                <filter type="param_value" ref="refGenomeSource.GTFconditional.genomeDir" column="0"/>
                             </option>
                         </action>
                     </when>
@@ -365,12 +385,12 @@
 
         <data format="interval" name="splice_junctions" label="${tool.name} on ${on_string}: splice junctions.bed" from_work_dir="SJ.out.tab">
             <actions>
-                <conditional name="refGenomeSource.genomeSource">
+                <conditional name="refGenomeSource.geneSource">
                     <when value="indexed">
                         <action type="metadata" name="dbkey">
                             <option type="from_data_table" name="rnastar_index" column="1" offset="0">
                                 <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
-                                <filter type="param_value" ref="refGenomeSource.genomeDir" column="0"/>
+                                <filter type="param_value" ref="refGenomeSource.GTFconditional.genomeDir" column="0"/>
                             </option>
                         </action>
                     </when>
@@ -385,12 +405,12 @@
 
         <data name="mapped_reads" format="bam" label="${tool.name} on ${on_string}: mapped.bam" from_work_dir="Aligned.sortedByCoord.out.bam">
             <actions>
-                <conditional name="refGenomeSource.genomeSource">
+                <conditional name="refGenomeSource.geneSource">
                     <when value="indexed">
                         <action type="metadata" name="dbkey">
                             <option type="from_data_table" name="rnastar_index" column="1" offset="0">
                                 <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
-                                <filter type="param_value" ref="refGenomeSource.genomeDir" column="0"/>
+                                <filter type="param_value" ref="refGenomeSource.GTFconditional.genomeDir" column="0"/>
                             </option>
                         </action>
                     </when>
@@ -404,16 +424,15 @@
         </data>
         
         <data name="reads_per_gene" format="tabular" label="${tool.name} on ${on_string}: reads per gene" from_work_dir="ReadsPerGene.out.tab">
-            <filter>str(refGeneSource.geneSource) == "yes" and str(refGeneSource.quantMode) == "GeneCounts"</filter>
+            <filter>quantMode is True</filter>
         </data>
     </outputs>
 
     <tests>
         <test>
             <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
-            <param name="genomeSource" value="history" />
+            <param name="geneSource" value="history" />
             <param name="genomeFastaFiles" value="tophat_test.fa" />
-            <param name="geneSource" value="no" />
             <param name="sPaired" value="single" />
 
             <param name="output_select" value="yes" />
@@ -427,13 +446,12 @@
         </test>
         <test><!-- tests gtf file and GeneCounts mode -->
             <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
-            <param name="genomeSource" value="history" />
+            <param name="geneSource" value="history" />
             <param name="genomeFastaFiles" value="tophat_test.fa" />
 
-            <param name="geneSource" value="yes" />
             <param name="sjdbOverhang" value="75"/>
-            <param name="sjdbGTFfile" value="test1.gtf"/>
-            <param name="quantMode" value="GeneCounts"/>
+            <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+            <param name="quantMode" value="True"/>
 
             <param name="sPaired" value="single" />
             <param name="output_select" value="yes" />
@@ -448,9 +466,8 @@
         </test>
         <test>
             <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
-            <param name="genomeSource" value="history" />
+            <param name="geneSource" value="history" />
             <param name="genomeFastaFiles" value="tophat_test.fa" />
-            <param name="geneSource" value="no" />
             <param name="sPaired" value="single" />
             
             <param name="output_select" value="yes" />
@@ -470,9 +487,8 @@
         </test>
         <test>
             <param name="input1" value="test3.fastqsanger" ftype="fastqsanger" />
-            <param name="genomeSource" value="history" />
+            <param name="geneSource" value="history" />
             <param name="genomeFastaFiles" value="test3.ref.fa" />
-            <param name="geneSource" value="no" />
             <param name="sPaired" value="single" />
 
             <param name="output_select" value="yes" />
@@ -484,9 +500,8 @@
         </test>
         <test><!-- tests fastqsanger.gz -->
             <param name="input1" value="test3.fastqsanger.gz" ftype="fastqsanger.gz" />
-            <param name="genomeSource" value="history" />
+            <param name="geneSource" value="history" />
             <param name="genomeFastaFiles" value="test3.ref.fa" />
-            <param name="geneSource" value="no" />
             <param name="sPaired" value="single" />
 
             <param name="output_select" value="yes" />
@@ -498,9 +513,8 @@
         </test>
         <test>
             <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
-            <param name="genomeSource" value="history" />
+            <param name="geneSource" value="history" />
             <param name="genomeFastaFiles" value="tophat_test.fa" />
-            <param name="geneSource" value="no" />
             <param name="sPaired" value="single" />
 
             <param name="output_select" value="yes" />
