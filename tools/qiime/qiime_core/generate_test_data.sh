@@ -420,3 +420,40 @@ filter_alignment.py \
     --allowed_gap_frac '0.999999' \
     --threshold '3.0' \
     --entropy_threshold '0.1'
+
+# filter_fasta
+filter_fasta.py \
+    --input_fasta_fp 'test-data/filter_fasta/inseqs.fasta' \
+    --output_fasta_fp 'filter_fasta_otu_map.fasta' \
+    --otu_map 'test-data/filter_fasta/otu_map.txt'
+
+filter_fasta.py \
+    --input_fasta_fp 'test-data/filter_fasta/inseqs.fasta' \
+    --output_fasta_fp 'filter_fasta_otu_map_negate.fasta' \
+    --otu_map 'test-data/filter_fasta/otu_map.txt' \
+    --negate
+
+filter_fasta.py \
+    --input_fasta_fp 'test-data/filter_fasta/inseqs.fasta' \
+    --output_fasta_fp 'filter_fasta_seq_id.fasta' \
+    --seq_id_fp 'test-data/filter_fasta/seqs_to_keep.txt'
+
+filter_fasta.py \
+    --input_fasta_fp 'test-data/filter_fasta/inseqs.fasta' \
+    --output_fasta_fp 'filter_fasta_otu_table.fasta' \
+    --biom_fp 'test-data/filter_fasta/otu_table.biom'
+
+filter_fasta.py \
+    --input_fasta_fp 'test-data/filter_fasta/inseqs.fasta' \
+    --output_fasta_fp 'filter_fasta_subject_fasta.fasta' \
+    --subject_fasta_fp 'test-data/filter_fasta/sl_inseqs.fasta'
+
+filter_fasta.py \
+    --input_fasta_fp 'test-data/filter_fasta/inseqs.fasta' \
+    --output_fasta_fp 'filter_fasta_seq_id_prefix.fasta' \
+    --seq_id_prefix 'S5'
+
+filter_fasta.py \
+    --input_fasta_fp 'test-data/filter_fasta/inseqs.fasta' \
+    --output_fasta_fp 'filter_fasta_sample_id.fasta' \
+    --sample_id_fp 'test-data/filter_fasta/map.txt'
