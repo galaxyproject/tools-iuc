@@ -398,3 +398,25 @@ align_seqs.py \
     -o 'align_seqs_mafft' \
     --alignment_method 'mafft' \
     --min_percent_id '0.75'
+
+# filter_alignment
+filter_alignment.py \
+    --input_fasta_file 'test-data/filter_alignment/alignment.fasta' \
+    -o 'filter_alignment_default' \
+    --allowed_gap_frac '0.999999' \
+    --threshold '3.0'
+
+filter_alignment.py \
+    --input_fasta_file 'test-data/filter_alignment/alignment.fasta' \
+    -o 'filter_alignment_without_mask_filter_and_outliers' \
+    --suppress_lane_mask_filter \
+    --allowed_gap_frac '0.999999' \
+    --remove_outliers \
+    --threshold '3.0'
+
+filter_alignment.py \
+    --input_fasta_file 'test-data/filter_alignment/alignment.fasta' \
+    -o 'filter_alignment_entropy' \
+    --allowed_gap_frac '0.999999' \
+    --threshold '3.0' \
+    --entropy_threshold '0.1'
