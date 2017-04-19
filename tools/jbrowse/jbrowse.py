@@ -16,6 +16,7 @@ from collections import defaultdict
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('jbrowse')
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
+GALAXY_INFRASTRUCTURE_URL = None
 
 
 class ColorScaling(object):
@@ -260,6 +261,41 @@ def etree_to_dict(t):
 INSTALLED_TO = os.path.dirname(os.path.realpath(__file__))
 
 
+def metadata_from_node(node):
+    metadata = {}
+    if len(node.findall('dataset')) != 1:
+        # exit early
+        return metadata
+
+    for (key, value) in node.findall('dataset')[0].attrib.items():
+        metadata['dataset_%s' % key] = value
+
+    for (key, value) in node.findall('history')[0].attrib.items():
+        metadata['history_%s' % key] = value
+
+    for (key, value) in node.findall('metadata')[0].attrib.items():
+        metadata['metadata_%s' % key] = value
+
+    for (key, value) in node.findall('tool')[0].attrib.items():
+        metadata['tool_%s' % key] = value
+
+    # Additional Mappings applied:
+    metadata['dataset_edam_format'] = '<a target="_blank" href="http://edamontology.org/{0}">{1}</a>'.format(metadata['dataset_edam_format'], metadata['dataset_file_ext'])
+    metadata['history_user_email'] = '<a href="mailto:{0}">{0}</a>'.format(metadata['history_user_email'])
+    metadata['history_display_name'] = '<a target="_blank" href="{galaxy}/history/view/{encoded_hist_id}">{hist_name}</a>'.format(
+        galaxy=GALAXY_INFRASTRUCTURE_URL,
+        encoded_hist_id=metadata['history_id'],
+        hist_name=metadata['history_display_name']
+    )
+    metadata['tool_tool'] = '<a target="_blank" href="{galaxy}/datasets/{encoded_id}/show_params">{tool_id}</a>'.format(
+        galaxy=GALAXY_INFRASTRUCTURE_URL,
+        encoded_id=metadata['dataset_id'],
+        tool_id=metadata['tool_tool_id'],
+        tool_version=metadata['tool_tool_version'],
+    )
+    return metadata
+
+
 class JbrowseConnector(object):
 
     def __init__(self, jbrowse, outdir, genomes, standalone=False, gencode=1):
@@ -312,10 +348,11 @@ class JbrowseConnector(object):
         return os.path.realpath(os.path.join(self.jbrowse, 'bin', command))
 
     def process_genomes(self):
-        for genome_path in self.genome_paths:
+        for genome_node in self.genome_paths:
+            # TODO: Waiting on https://github.com/GMOD/jbrowse/pull/884
             self.subprocess_check_call([
                 'perl', self._jbrowse_bin('prepare-refseqs.pl'),
-                '--fasta', genome_path])
+                '--fasta', genome_node['path']])
 
         # Generate name
         # self.subprocess_check_call([
@@ -619,47 +656,64 @@ class JbrowseConnector(object):
         generalData['show_overview'] = (data['general']['show_overview'] == 'true')
         generalData['show_menu'] = (data['general']['show_menu'] == 'true')
         generalData['hideGenomeOptions'] = (data['general']['hideGenomeOptions'] == 'true')
-
-        if True: # TODO: configure trackselector on/off
-            generalData.update({
-                "trackSelector" : {
-                    "renameFacets" : {
-                        "tool_tool_id": "Tool ID",
-                        "tool_tool_version": "Tool Version",
-                        "dataset_edam_format": "EDAM",
-                        "dataset_hid": "HID",
-                        "dataset_size": "Size",
-                        "history_display_name": "History Name",
-                        "history_user_email": "Owner",
-                        "metadata_dbkey": "Dbkey",
-                    },
-                    "displayColumns" : [
-                        "key",
-                        "tool_tool_id",
-                        "tool_tool_version",
-                        "dataset_edam_format",
-                        "dataset_hid",
-                        "dataset_size",
-                        "history_display_name",
-                        "history_user_email",
-                        "metadata_dbkey",
-                    ],
-                    "type" : "Faceted",
-                    "escapeHTMLInData" : False
-                },
-                "trackMetadata" : {
-                    "indexFacets" : [
-                        "category",
-                        "key",
-                        "dataset_edam_format",
-                        "history_user_email",
-                        "history_display_name"
-                    ]
-                }
-            })
+        generalData['plugins'] = data['plugins']
 
         viz_data.update(generalData)
         self._add_json(viz_data)
+
+        if 'GCContent' in data['plugins_python']:
+            self._add_track_json({
+                "storeClass" : "JBrowse/Store/SeqFeature/SequenceChunks",
+                "type": "GCContent/View/Track/GCContentXY",
+                "label" : "GCContentXY",
+                "urlTemplate" : "seq/{refseq_dirpath}/{refseq}-",
+                "bicolor_pivot": 0.5
+                # TODO: Expose params for everyone.
+            })
+
+        if 'ComboTrackSelector' in data['plugins_python']:
+            with open(os.path.join(self.outdir, 'data', 'trackList.json'), 'r') as handle:
+                trackListJson = json.load(handle)
+                trackListJson.update({
+                    "trackSelector" : {
+                        "renameFacets" : {
+                            "tool_tool": "Tool ID",
+                            "tool_tool_id": "Tool ID",
+                            "tool_tool_version": "Tool Version",
+                            "dataset_edam_format": "EDAM",
+                            "dataset_size": "Size",
+                            "history_display_name": "History Name",
+                            "history_user_email": "Owner",
+                            "metadata_dbkey": "Dbkey",
+                        },
+                        "displayColumns" : [
+                            "key",
+                            "tool_tool",
+                            "tool_tool_version",
+                            "dataset_edam_format",
+                            "dataset_size",
+                            "history_display_name",
+                            "history_user_email",
+                            "metadata_dbkey",
+                        ],
+                        "type" : "Faceted",
+                        "title": ["Galaxy Metadata"],
+                        "escapeHTMLInData" : False
+                    },
+                    "trackMetadata" : {
+                        "indexFacets" : [
+                            "category",
+                            "key",
+                            "tool_tool_id",
+                            "tool_tool_version",
+                            "dataset_edam_format",
+                            "history_user_email",
+                            "history_display_name"
+                        ]
+                    }
+                })
+                with open(os.path.join(self.outdir, 'data', 'trackList2.json'), 'w') as handle:
+                    json.dump(trackListJson, handle)
 
     def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory.
@@ -695,7 +749,13 @@ if __name__ == '__main__':
     jc = JbrowseConnector(
         jbrowse=args.jbrowse,
         outdir=args.outdir,
-        genomes=[os.path.realpath(x.text) for x in root.findall('metadata/genomes/genome')],
+        genomes=[
+            {
+                'path': os.path.realpath(x.attrib['path']),
+                'meta': metadata_from_node(x.find('metadata'))
+            }
+            for x in root.findall('metadata/genomes/genome')
+        ],
         standalone=args.standalone,
         gencode=root.find('metadata/gencode').text
     )
@@ -717,37 +777,50 @@ if __name__ == '__main__':
             'show_overview': root.find('metadata/general/show_overview').text,
             'show_menu': root.find('metadata/general/show_menu').text,
             'hideGenomeOptions': root.find('metadata/general/hideGenomeOptions').text,
-        }
+        },
+        'plugins': [],
+        'plugins_python': [],
     }
-    GALAXY_INFRASTRUCTURE_URL = root.find('metadata/galaxyUrl').text,
+
+    plugins = root.find('plugins').attrib
+    if plugins['GCContent'] == 'True':
+        extra_data['plugins_python'].append('GCContent')
+        extra_data['plugins'].append({
+            'location': 'https://cdn.rawgit.com/elsiklab/gccontent/5c8b0582ecebf9edf684c76af8075fb3d30ec3fa/',
+            'name': 'GCContent'
+        })
+
+    if plugins['Bookmarks'] == 'True':
+        extra_data['plugins'].append({
+            'location': 'https://cdn.rawgit.com/TAMU-CPT/bookmarks-jbrowse/5242694120274c86e1ccd5cb0e5e943e78f82393/',
+            'name': 'Bookmarks'
+        })
+
+    if plugins['ComboTrackSelector'] == 'True':
+        extra_data['plugins_python'].append('ComboTrackSelector')
+        extra_data['plugins'].append({
+            'location': 'https://cdn.rawgit.com/TAMU-CPT/ComboTrackSelector/07f4a2d3434e7c8fd1c4cfa24c93b1e07c03029f/',
+            'name': 'ComboTrackSelector'
+        })
+
+    if plugins['theme'] == 'Minimalist':
+        extra_data['plugins'].append({
+            'location': 'https://cdn.rawgit.com/erasche/jbrowse-minimalist-theme/d698718442da306cf87f033c72ddb745f3077775/',
+            'name': 'MinimalistTheme'
+        })
+    elif plugins['theme'] == 'Dark':
+        extra_data['plugins'].append({
+            'location': 'https://cdn.rawgit.com/erasche/jbrowse-dark-theme/689eceb7e33bbc1b9b15518d45a5a79b2e5d0a26/',
+            'name': 'DarkTheme'
+        })
+
+    GALAXY_INFRASTRUCTURE_URL = root.find('metadata/galaxyUrl').text
     for track in root.findall('tracks/track'):
         track_conf = {}
         track_conf['trackfiles'] = []
 
         for x in track.findall('files/trackFile'):
-            metadata = {}
-
-            for (key, value) in x.findall('metadata/dataset')[0].attrib.items():
-                metadata['dataset_%s' % key] = value
-
-            for (key, value) in x.findall('metadata/history')[0].attrib.items():
-                metadata['history_%s' % key] = value
-
-            for (key, value) in x.findall('metadata/metadata')[0].attrib.items():
-                metadata['metadata_%s' % key] = value
-
-            for (key, value) in x.findall('metadata/tool')[0].attrib.items():
-                metadata['tool_%s' % key] = value
-
-            # Additional Mappings applied:
-            metadata['dataset_edam_format'] = '<a target="_blank" href="http://edamontology.org/{0}">{1}</a>'.format(metadata['dataset_edam_format'], metadata['dataset_file_ext'])
-            metadata['history_user_email'] = '<a href="mailto:{0}">{0}</a>'.format(metadata['history_user_email'])
-            metadata['tool_tool_id'] = '<a href="{galaxy}/dataset/{encoded_id}/show_params">{tool_id}</a>'.format(
-                galaxy=GALAXY_INFRASTRUCTURE_URL,
-                encoded_id=metadata['dataset_id'],
-                tool_id=metadata['tool_tool_id'],
-                tool_version=metadata['tool_tool_version'],
-            )
+            metadata = metadata_from_node(x.find('metadata'))
 
             track_conf['trackfiles'].append((
                 os.path.realpath(x.attrib['path']),
