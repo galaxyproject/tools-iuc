@@ -457,3 +457,39 @@ filter_fasta.py \
     --input_fasta_fp 'test-data/filter_fasta/inseqs.fasta' \
     --output_fasta_fp 'filter_fasta_sample_id.fasta' \
     --sample_id_fp 'test-data/filter_fasta/map.txt'
+
+# filter_samples_from_otu_table
+filter_samples_from_otu_table.py \
+    --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/abundance_min.biom' \
+    --min_count '150'
+
+filter_samples_from_otu_table.py \
+    --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/abundance_max.biom' \
+    --min_count '0' \
+    --max_count '149'
+
+filter_samples_from_otu_table.py \
+    --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/metadata_positive.biom' \
+    --mapping_fp 'test-data/filter_samples_from_otu_table/map.txt' \
+    --output_mapping_fp 'test-data/filter_samples_from_otu_table/metadata_positive.txt' \
+    -s 'Treatment:Control'
+
+filter_samples_from_otu_table.py \
+    --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/metadata_negative.biom' \
+    --mapping_fp 'test-data/filter_samples_from_otu_table/map.txt' \
+    -s 'Treatment:*,!Control'
+
+filter_samples_from_otu_table.py \
+    --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/id_positive.biom' \
+    --sample_id_fp 'test-data/filter_samples_from_otu_table/ids.txt'
+
+filter_samples_from_otu_table.py \
+    --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/id_negative.biom' \
+    --sample_id_fp 'test-data/filter_samples_from_otu_table/ids.txt' \
+    --negate_sample_id_fp
