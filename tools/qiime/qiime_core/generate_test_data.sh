@@ -616,7 +616,7 @@ make_otu_heatmap.py \
 make_otu_heatmap.py \
     --otu_table_fp 'test-data/make_otu_heatmap/otu_table.biom' \
     --map_fname 'test-data/make_otu_heatmap/mapping_file.txt' \
-    --category "Treatment"
+    --category "Treatment" \
     --imagetype 'pdf' \
     --color_scheme "YlGn" \
     --width "5" \
