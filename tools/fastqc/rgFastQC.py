@@ -48,20 +48,23 @@ class FastQCRunner(object):
         # This prevents uncompression of already uncompressed files
         infname = self.opts.inputfilename
         linf = infname.lower()
+        informat = self.opts.informat
         trimext = False
         # decompression at upload currently does NOT remove this now bogus ending - fastqc will barf
         # patched may 29 2013 until this is fixed properly
-        type = mimetypes.guess_type(self.opts.input)
-        if linf.endswith('.gz') or linf.endswith('.gzip') or type[-1] == "gzip":
+        ftype = mimetypes.guess_type(self.opts.input)
+        if linf.endswith('.gz') or linf.endswith('.gzip') or ftype[-1] == "gzip" or informat.endswith('.gz'):
             f = gzip.open(self.opts.input)
             try:
                 f.readline()
+                ftype = ['gzip']
             except:
                 trimext = True
             f.close()
-        elif linf.endswith('bz2'):
+        elif linf.endswith('bz2') or informat.endswith('.bz2'):
             f = bz2.BZ2File(self.opts.input, 'r')
             try:
+                ftype = ['bzip2']
                 f.readline()
             except:
                 trimext = True
@@ -95,10 +98,12 @@ class FastQCRunner(object):
             command_line.append('--limits %s' % self.opts.limits)
         command_line.append('--quiet')
         command_line.append('--extract')  # to access the output text file
-        if type[-1] != "gzip":
-            command_line.append('-f %s' % self.opts.informat)
+        if ftype[-1] == 'gzip':
+            self.fastqinfilename += '.gz'
+        elif ftype[-1] == 'bzip2':
+            self.fastqinfilename += '.bz2'
         else:
-            self.fastqinfilename += ".gz"
+            command_line.append('-f %s' % self.opts.informat)
         command_line.append(self.fastqinfilename)
         self.command_line = ' '.join(command_line)
 
