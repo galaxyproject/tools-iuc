@@ -523,3 +523,38 @@ biom convert \
     -o 'test-data/filter_samples_from_otu_table/id_negative.biom' \
     --to-json
 rm 'test-data/filter_samples_from_otu_table/tmp.biom'
+
+# filter_taxa_from_otu_table
+filter_taxa_from_otu_table.py \
+    --input_otu_table_fp 'test-data/filter_taxa_from_otu_table/otu_table.biom' \
+    --output_otu_table_fp 'test-data/filter_taxa_from_otu_table/tmp.biom' \
+    --positive_taxa 'p__Bacteroidetes,p__Firmicutes' \
+    --metadata_field 'taxonomy'
+biom convert \
+    -i 'test-data/filter_taxa_from_otu_table/tmp.biom' \
+    -o 'test-data/filter_taxa_from_otu_table/positive_taxa.biom' \
+    --to-json
+rm 'test-data/filter_taxa_from_otu_table/tmp.biom'
+
+filter_taxa_from_otu_table.py \
+    --input_otu_table_fp 'test-data/filter_taxa_from_otu_table/otu_table.biom' \
+    --output_otu_table_fp 'test-data/filter_taxa_from_otu_table/tmp.biom' \
+    --negative_taxa 'p__Bacteroidetes,p__Firmicutes' \
+    --metadata_field 'taxonomy'
+biom convert \
+    -i 'test-data/filter_taxa_from_otu_table/tmp.biom' \
+    -o 'test-data/filter_taxa_from_otu_table/negative_taxa.biom' \
+    --to-json
+rm 'test-data/filter_taxa_from_otu_table/tmp.biom'
+
+filter_taxa_from_otu_table.py \
+    --input_otu_table_fp 'test-data/filter_taxa_from_otu_table/otu_table.biom' \
+    --output_otu_table_fp 'test-data/filter_taxa_from_otu_table/tmp.biom' \
+    --positive_taxa 'p__Firmicutes' \
+    --negative_taxa 'c__Clostridia' \
+    --metadata_field 'taxonomy'
+biom convert \
+    -i 'test-data/filter_taxa_from_otu_table/tmp.biom' \
+    -o 'test-data/filter_taxa_from_otu_table/positive_negative_taxa.biom' \
+    --to-json
+rm 'test-data/filter_taxa_from_otu_table/tmp.biom'
