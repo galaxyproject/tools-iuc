@@ -558,3 +558,70 @@ biom convert \
     -o 'test-data/filter_taxa_from_otu_table/positive_negative_taxa.biom' \
     --to-json
 rm 'test-data/filter_taxa_from_otu_table/tmp.biom'
+
+# make_otu_heatmap
+make_otu_heatmap.py \
+    --otu_table_fp 'test-data/make_otu_heatmap/otu_table.biom' \
+    --imagetype 'pdf' \
+    --color_scheme "YlGn" \
+    --width "5" \
+    --height "5" \
+    --dpi "200" \
+    --obs_md_category "taxonomy" \
+    --output_fp 'test-data/make_otu_heatmap/basic_heatmap.pdf'
+
+make_otu_heatmap.py \
+    --otu_table_fp 'test-data/make_otu_heatmap/otu_table.biom' \
+    --imagetype 'png' \
+    --color_scheme "YlGn" \
+    --width "5" \
+    --height "5" \
+    --dpi "200" \
+    --obs_md_category "taxonomy" \
+    --output_fp 'test-data/make_otu_heatmap/basic_heatmap.png'
+
+make_otu_heatmap.py \
+    --otu_table_fp 'test-data/make_otu_heatmap/otu_table.biom' \
+    --imagetype 'svg' \
+    --color_scheme "YlGn" \
+    --width "5" \
+    --height "5" \
+    --dpi "200" \
+    --obs_md_category "taxonomy" \
+    --output_fp 'test-data/make_otu_heatmap/basic_heatmap.svg'
+
+make_otu_heatmap.py \
+    --otu_table_fp 'test-data/make_otu_heatmap/otu_table.biom' \
+    --map_fname 'test-data/make_otu_heatmap/mapping_file.txt' \
+    --imagetype 'pdf' \
+    --color_scheme "YlGn" \
+    --width "5" \
+    --height "5" \
+    --dpi "200" \
+    --obs_md_category "taxonomy" \
+    --output_fp 'test-data/make_otu_heatmap/sample_sorted_heatmap.pdf'
+
+make_otu_heatmap.py \
+    --otu_table_fp 'test-data/make_otu_heatmap/otu_table.biom' \
+    --map_fname 'test-data/make_otu_heatmap/mapping_file.txt' \
+    --otu_tree 'test-data/make_otu_heatmap/rep_set.tre' \
+    --imagetype 'pdf' \
+    --color_scheme "YlGn" \
+    --width "5" \
+    --height "5" \
+    --dpi "200" \
+    --obs_md_category "taxonomy" \
+    --output_fp 'test-data/make_otu_heatmap/sample_otu_sorted_heatmap.pdf'
+
+make_otu_heatmap.py \
+    --otu_table_fp 'test-data/make_otu_heatmap/otu_table.biom' \
+    --map_fname 'test-data/make_otu_heatmap/mapping_file.txt' \
+    --category "Treatment" \
+    --imagetype 'pdf' \
+    --color_scheme "YlGn" \
+    --width "5" \
+    --height "5" \
+    --dpi "200" \
+    --obs_md_category "taxonomy" \
+    --output_fp 'test-data/make_otu_heatmap/treatment_sample_sorted_heatmap.pdf'
+
