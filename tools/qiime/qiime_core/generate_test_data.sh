@@ -461,35 +461,65 @@ filter_fasta.py \
 # filter_samples_from_otu_table
 filter_samples_from_otu_table.py \
     --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
-    --output_fp 'test-data/filter_samples_from_otu_table/abundance_min.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/tmp.biom' \
     --min_count '150'
+biom convert \
+    -i 'test-data/filter_samples_from_otu_table/tmp.biom' \
+    -o 'test-data/filter_samples_from_otu_table/abundance_min.biom' \
+    --to-json
+rm 'test-data/filter_samples_from_otu_table/tmp.biom'
 
 filter_samples_from_otu_table.py \
     --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
-    --output_fp 'test-data/filter_samples_from_otu_table/abundance_max.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/tmp.biom' \
     --min_count '0' \
     --max_count '149'
+biom convert \
+    -i 'test-data/filter_samples_from_otu_table/tmp.biom' \
+    -o 'test-data/filter_samples_from_otu_table/abundance_max.biom' \
+    --to-json
+rm 'test-data/filter_samples_from_otu_table/tmp.biom'
 
 filter_samples_from_otu_table.py \
     --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
-    --output_fp 'test-data/filter_samples_from_otu_table/metadata_positive.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/tmp.biom' \
     --mapping_fp 'test-data/filter_samples_from_otu_table/map.txt' \
     --output_mapping_fp 'test-data/filter_samples_from_otu_table/metadata_positive.txt' \
     -s 'Treatment:Control'
+biom convert \
+    -i 'test-data/filter_samples_from_otu_table/tmp.biom' \
+    -o 'test-data/filter_samples_from_otu_table/metadata_positive.biom' \
+    --to-json
+rm 'test-data/filter_samples_from_otu_table/tmp.biom'
 
 filter_samples_from_otu_table.py \
     --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
-    --output_fp 'test-data/filter_samples_from_otu_table/metadata_negative.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/tmp.biom' \
     --mapping_fp 'test-data/filter_samples_from_otu_table/map.txt' \
     -s 'Treatment:*,!Control'
+biom convert \
+    -i 'test-data/filter_samples_from_otu_table/tmp.biom' \
+    -o 'test-data/filter_samples_from_otu_table/metadata_negative.biom' \
+    --to-json
+rm 'test-data/filter_samples_from_otu_table/tmp.biom'
 
 filter_samples_from_otu_table.py \
     --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
-    --output_fp 'test-data/filter_samples_from_otu_table/id_positive.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/tmp.biom' \
     --sample_id_fp 'test-data/filter_samples_from_otu_table/ids.txt'
+biom convert \
+    -i 'test-data/filter_samples_from_otu_table/tmp.biom' \
+    -o 'test-data/filter_samples_from_otu_table/id_positive.biom' \
+    --to-json
+rm 'test-data/filter_samples_from_otu_table/tmp.biom'
 
 filter_samples_from_otu_table.py \
     --input_fp 'test-data/filter_samples_from_otu_table/otu_table.biom' \
-    --output_fp 'test-data/filter_samples_from_otu_table/id_negative.biom' \
+    --output_fp 'test-data/filter_samples_from_otu_table/tmp.biom' \
     --sample_id_fp 'test-data/filter_samples_from_otu_table/ids.txt' \
     --negate_sample_id_fp
+biom convert \
+    -i 'test-data/filter_samples_from_otu_table/tmp.biom' \
+    -o 'test-data/filter_samples_from_otu_table/id_negative.biom' \
+    --to-json
+rm 'test-data/filter_samples_from_otu_table/tmp.biom'
