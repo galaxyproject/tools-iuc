@@ -667,3 +667,53 @@ make_phylogeny.py \
     --tree_method 'fasttree' \
     --log_fp 'fasttree_midpoint.txt' \
     --root_method 'midpoint'
+
+# pick_rep_set
+pick_rep_set.py \
+    --input_file 'test-data/pick_rep_set/seqs_otus.txt' \
+    --fasta_file 'test-data/pick_rep_set/seqs.fna' \
+    --rep_set_picking_method 'first' \
+    --sort_by 'otu' \
+    --result_fp 'test-data/pick_rep_set/first_otu_fasta.fasta' \
+    --log_fp 'test-data/pick_rep_set/first_otu_fasta.txt'
+
+pick_rep_set.py \
+    --input_file 'test-data/pick_rep_set/seqs_otus.txt' \
+    --fasta_file 'test-data/pick_rep_set/seqs.fna' \
+    --reference_seqs_fp 'test-data/pick_rep_set/refseqs.fasta' \
+    --rep_set_picking_method 'first' \
+    --sort_by 'otu' \
+    --result_fp 'test-data/pick_rep_set/first_otu_fasta_ref.fasta' \
+    --log_fp 'test-data/pick_rep_set/first_otu_fasta_ref.txt'
+
+pick_rep_set.py \
+    --input_file 'test-data/pick_rep_set/seqs_otus.txt' \
+    --fasta_file 'test-data/pick_rep_set/seqs.fna' \
+    --rep_set_picking_method 'longest' \
+    --sort_by 'otu' \
+    --result_fp 'test-data/pick_rep_set/longest_otu_fasta.fasta' \
+    --log_fp 'test-data/pick_rep_set/longest_otu_fasta.txt'
+
+pick_rep_set.py \
+    --input_file 'test-data/pick_rep_set/seqs_otus.txt' \
+    --fasta_file 'test-data/pick_rep_set/seqs.fna' \
+    --rep_set_picking_method 'most_abundant' \
+    --sort_by 'otu' \
+    --result_fp 'test-data/pick_rep_set/most_abundant_otu_fasta.fasta' \
+    --log_fp 'test-data/pick_rep_set/most_abundant_otu_fasta.txt'
+
+pick_rep_set.py \
+    --input_file 'test-data/pick_rep_set/seqs_otus.txt' \
+    --fasta_file 'test-data/pick_rep_set/seqs.fna' \
+    --rep_set_picking_method 'random' \
+    --sort_by 'otu' \
+    --result_fp 'test-data/pick_rep_set/random_otu_fasta.fasta' \
+    --log_fp 'test-data/pick_rep_set/random_otu_fasta.txt'
+
+pick_rep_set.py \
+    --input_file 'test-data/pick_rep_set/seqs_otus.txt' \
+    --fasta_file 'test-data/pick_rep_set/seqs.fna' \
+    --rep_set_picking_method 'first' \
+    --sort_by 'seq_id' \
+    --result_fp 'test-data/pick_rep_set/first_seq_id_fasta.fasta' \
+    --log_fp 'test-data/pick_rep_set/first_seq_id_fasta.txt'
