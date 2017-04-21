@@ -630,40 +630,40 @@ make_phylogeny.py \
     --input_fp 'test-data/make_phylogeny/aligned.fasta' \
     --result_fp 'test-data/make_phylogeny/fasttree_tree_method_default.tre' \
     --tree_method 'fasttree' \
-    --log_fp 'test-data/make_phylogeny/fasttree_tree_method_default.txt' \
+    --log_fp 'fasttree_tree_method_default.txt' \
     --root_method 'tree_method_default'
 
 make_phylogeny.py \
     --input_fp 'test-data/make_phylogeny/aligned.fasta' \
-    --result_fp 'test-data/make_phylogeny/raxml_v730.tre' \
+    --result_fp 'raxml_v730.tre' \
     --tree_method 'raxml_v730' \
-    --log_fp 'test-data/make_phylogeny/raxml_v730.txt' \
+    --log_fp 'raxml_v730.txt' \
     --root_method 'tree_method_default'
 
 make_phylogeny.py \
     --input_fp 'test-data/make_phylogeny/aligned.fasta' \
     --result_fp 'test-data/make_phylogeny/muscle.tre' \
     --tree_method 'muscle' \
-    --log_fp 'test-data/make_phylogeny/muscle.txt' \
+    --log_fp 'muscle.txt' \
     --root_method 'tree_method_default'
 
 make_phylogeny.py \
     --input_fp 'test-data/make_phylogeny/aligned.fasta' \
     --result_fp 'test-data/make_phylogeny/clustalw.tre' \
     --tree_method 'clustalw' \
-    --log_fp 'test-data/make_phylogeny/clustalw.txt' \
+    --log_fp 'clustalw.txt' \
     --root_method 'tree_method_default'
 
 make_phylogeny.py \
     --input_fp 'test-data/make_phylogeny/aligned.fasta' \
-    --result_fp 'test-data/make_phylogeny/clearcut.tre' \
+    --result_fp 'clearcut.tre' \
     --tree_method 'clearcut' \
-    --log_fp 'test-data/make_phylogeny/clearcut.txt' \
+    --log_fp 'clearcut.txt' \
     --root_method 'tree_method_default'
 
 make_phylogeny.py \
     --input_fp 'test-data/make_phylogeny/aligned.fasta' \
     --result_fp 'test-data/make_phylogeny/fasttree_midpoint.tre' \
     --tree_method 'fasttree' \
-    --log_fp 'test-data/make_phylogeny/fasttree_midpoint.txt' \
+    --log_fp 'fasttree_midpoint.txt' \
     --root_method 'midpoint'
