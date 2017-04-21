@@ -625,3 +625,45 @@ make_otu_heatmap.py \
     --obs_md_category "taxonomy" \
     --output_fp 'test-data/make_otu_heatmap/treatment_sample_sorted_heatmap.pdf'
 
+# make_phylogeny
+make_phylogeny.py \
+    --input_fp 'test-data/make_phylogeny/aligned.fasta' \
+    --result_fp 'test-data/make_phylogeny/fasttree_tree_method_default.tre' \
+    --tree_method 'fasttree' \
+    --log_fp 'test-data/make_phylogeny/fasttree_tree_method_default.txt' \
+    --root_method 'tree_method_default'
+
+make_phylogeny.py \
+    --input_fp 'test-data/make_phylogeny/aligned.fasta' \
+    --result_fp 'test-data/make_phylogeny/raxml_v730.tre' \
+    --tree_method 'raxml_v730' \
+    --log_fp 'test-data/make_phylogeny/raxml_v730.txt' \
+    --root_method 'tree_method_default'
+
+make_phylogeny.py \
+    --input_fp 'test-data/make_phylogeny/aligned.fasta' \
+    --result_fp 'test-data/make_phylogeny/muscle.tre' \
+    --tree_method 'muscle' \
+    --log_fp 'test-data/make_phylogeny/muscle.txt' \
+    --root_method 'tree_method_default'
+
+make_phylogeny.py \
+    --input_fp 'test-data/make_phylogeny/aligned.fasta' \
+    --result_fp 'test-data/make_phylogeny/clustalw.tre' \
+    --tree_method 'clustalw' \
+    --log_fp 'test-data/make_phylogeny/clustalw.txt' \
+    --root_method 'tree_method_default'
+
+make_phylogeny.py \
+    --input_fp 'test-data/make_phylogeny/aligned.fasta' \
+    --result_fp 'test-data/make_phylogeny/clearcut.tre' \
+    --tree_method 'clearcut' \
+    --log_fp 'test-data/make_phylogeny/clearcut.txt' \
+    --root_method 'tree_method_default'
+
+make_phylogeny.py \
+    --input_fp 'test-data/make_phylogeny/aligned.fasta' \
+    --result_fp 'test-data/make_phylogeny/fasttree_midpoint.tre' \
+    --tree_method 'fasttree' \
+    --log_fp 'test-data/make_phylogeny/fasttree_midpoint.txt' \
+    --root_method 'midpoint'
