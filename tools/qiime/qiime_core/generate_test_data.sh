@@ -717,3 +717,108 @@ pick_rep_set.py \
     --sort_by 'seq_id' \
     --result_fp 'test-data/pick_rep_set/first_seq_id_fasta.fasta' \
     --log_fp 'test-data/pick_rep_set/first_seq_id_fasta.txt'
+
+# pick_otus
+pick_otus.py \
+    -i 'test-data/pick_otus/seqs.fna' \
+    -o 'pick_otus_uclust' \
+    --otu_picking_method 'uclust' \
+    --similarity "0.97" \
+    --denovo_otu_id_prefix "denovo" \
+    --max_accepts "1" \
+    --max_rejects "8" \
+    --stepwords "8" \
+    --word_length "8" \
+    --non_chimeras_retention "union"
+
+pick_otus.py \
+    -i 'test-data/pick_otus/seqs.fna' \
+    -o 'pick_otus_sortmerna' \
+    --otu_picking_method "sortmerna" \
+    --refseqs_fp "test-data/pick_otus/refseqs.fasta" \
+    --sortmerna_e_value "1" \
+    --sortmerna_coverage "0.97" \
+    --sortmerna_tabular \
+    --sortmerna_best_N_alignments "1" \
+    --sortmerna_max_pos "10000" \
+    --similarity "0.97" \
+    --non_chimeras_retention "union"
+
+#pick_otus.py \
+#    -i 'test-data/pick_otus/seqs.fna' \
+#    -o 'pick_otus_mothur' \
+#    --otu_picking_method "mothur" \
+#    --clustering_algorithm "furthest" \
+#    --non_chimeras_retention "union"
+
+pick_otus.py \
+    -i 'test-data/pick_otus/seqs.fna' \
+    -o 'pick_otus_trie' \
+    --otu_picking_method "trie" \
+    --non_chimeras_retention "union"
+
+pick_otus.py \
+    -i 'test-data/pick_otus/seqs.fna' \
+    -o 'pick_otus_uclust_ref' \
+    --otu_picking_method "uclust_ref" \
+    --refseqs_fp "test-data/pick_otus/refseqs.fasta" \
+    --similarity "0.97" \
+    --max_accepts "1" \
+    --max_rejects "8" \
+    --stepwords "8" \
+    --word_length "8" \
+    --non_chimeras_retention "union"
+
+#pick_otus.py \
+#    -i 'test-data/pick_otus/seqs.fna' \
+#    -o 'pick_otus_blast' \
+#    --otu_picking_method "blast" \
+#    --refseqs_fp "test-data/pick_otus/refseqs.fasta" \
+#    --similarity "0.97" \
+#    --max_e_value_blast "1e-10" \
+#    --min_aligned_percent "0.5" \
+#    --non_chimeras_retention "union"
+
+# pick_otus.py \
+#     -i 'test-data/pick_otus/seqs.fna' \
+#     -o 'pick_otus_sumaclust' \
+#     --otu_picking_method "sumaclust" \
+#     --similarity "0.97" \
+#     --sumaclust_l \
+#     --denovo_otu_id_prefix "denovo" \
+#     --non_chimeras_retention "union"
+
+pick_otus.py \
+    -i 'test-data/pick_otus/seqs.fna' \
+    -o 'pick_otus_swarm' \
+    --otu_picking_method "swarm" \
+    --denovo_otu_id_prefix "denovo" \
+    --swarm_resolution "1" \
+    --non_chimeras_retention "union"
+
+pick_otus.py \
+    -i 'test-data/pick_otus/seqs.fna' \
+    -o 'pick_otus_prefix_suffix' \
+    --otu_picking_method "prefix_suffix" \
+    --prefix_length "50" \
+    --suffix_length "50" \
+    --non_chimeras_retention "union"
+
+pick_otus.py \
+    -i 'test-data/pick_otus/seqs.fna' \
+    -o 'pick_otus_cdhit' \
+    --otu_picking_method "cdhit" \
+    --similarity "0.97" \
+    --non_chimeras_retention "union"
+
+pick_otus.py \
+    -i 'test-data/pick_otus/seqs.fna' \
+    -o 'pick_otus_uclust_intersection' \
+    --otu_picking_method "uclust" \
+    --similarity "0.97" \
+    --denovo_otu_id_prefix "denovo" \
+    --max_accepts "1" \
+    --max_rejects "8" \
+    --stepwords "8" \
+    --word_length "8" \
+    --non_chimeras_retention "intersection"
