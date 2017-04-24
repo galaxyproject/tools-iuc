@@ -744,12 +744,12 @@ pick_otus.py \
     --similarity "0.97" \
     --non_chimeras_retention "union"
 
-pick_otus.py \
-    -i 'test-data/pick_otus/seqs.fna' \
-    -o 'pick_otus_mothur' \
-    --otu_picking_method "mothur" \
-    --clustering_algorithm "furthest" \
-    --non_chimeras_retention "union"
+#pick_otus.py \
+#    -i 'test-data/pick_otus/seqs.fna' \
+#    -o 'pick_otus_mothur' \
+#    --otu_picking_method "mothur" \
+#    --clustering_algorithm "furthest" \
+#    --non_chimeras_retention "union"
 
 pick_otus.py \
     -i 'test-data/pick_otus/seqs.fna' \
@@ -769,15 +769,15 @@ pick_otus.py \
     --word_length "8" \
     --non_chimeras_retention "union"
 
-pick_otus.py \
-    -i 'test-data/pick_otus/seqs.fna' \
-    -o 'pick_otus_blast' \
-    --otu_picking_method "blast" \
-    --refseqs_fp "test-data/pick_otus/refseqs.fasta" \
-    --similarity "0.97" \
-    --max_e_value_blast "1e-10" \
-    --min_aligned_percent "0.5" \
-    --non_chimeras_retention "union"
+#pick_otus.py \
+#    -i 'test-data/pick_otus/seqs.fna' \
+#    -o 'pick_otus_blast' \
+#    --otu_picking_method "blast" \
+#    --refseqs_fp "test-data/pick_otus/refseqs.fasta" \
+#    --similarity "0.97" \
+#    --max_e_value_blast "1e-10" \
+#    --min_aligned_percent "0.5" \
+#    --non_chimeras_retention "union"
 
 # pick_otus.py \
 #     -i 'test-data/pick_otus/seqs.fna' \
