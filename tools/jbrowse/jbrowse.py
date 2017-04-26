@@ -63,6 +63,7 @@ class ColorScaling(object):
         var color = ({user_spec_color} || search_up(feature, 'color') || search_down(feature, 'color') || {auto_gen_color});
         var score = (search_up(feature, 'score') || search_down(feature, 'score'));
         {opacity}
+        if(score === undefined){{ opacity = 1; }}
         var result = /^#?([a-f\d]{{2}})([a-f\d]{{2}})([a-f\d]{{2}})$/i.exec(color);
         var red = parseInt(result[1], 16);
         var green = parseInt(result[2], 16);
@@ -168,7 +169,6 @@ class ColorScaling(object):
             if trackConfig['style']['pos_color'] == '__auto__':
                 trackConfig['style']['neg_color'] = self.hex_from_rgb(*self._get_colours())
                 trackConfig['style']['pos_color'] = self.hex_from_rgb(*self._get_colours())
-
 
             # Wiggle tracks can change colour at a specified place
             bc_pivot = track['wiggle']['bicolor_pivot']
@@ -318,6 +318,12 @@ class JbrowseConnector(object):
         else:
             try:
                 os.makedirs(self.outdir)
+            except OSError:
+                # Ignore if the folder exists
+                pass
+
+            try:
+                os.makedirs(os.path.join(self.outdir, 'data', 'raw'))
             except OSError:
                 # Ignore if the folder exists
                 pass
@@ -529,7 +535,7 @@ class JbrowseConnector(object):
         self.subprocess_check_call(cmd)
 
     def add_rest(self, url, trackData):
-        data ={
+        data = {
             "label": trackData['label'],
             "key": trackData['key'],
             "category": trackData['category'],
@@ -542,7 +548,6 @@ class JbrowseConnector(object):
         }
         self._add_track_json(data)
 
-
     def process_annotations(self, track):
         category = track['category'].replace('__pd__date__pd__', TODAY)
         outputTrackConfig = {
@@ -551,6 +556,9 @@ class JbrowseConnector(object):
                 'className': track['style'].get('className', 'feature'),
                 'description': track['style'].get('description', ''),
             },
+            'overridePlugins': track['style'].get('overridePlugins', False) == 'True',
+            'overrideDraggable': track['style'].get('overrideDraggable', False) == 'True',
+            'maxHeight': track['style'].get('maxHeight', '600'),
             'category': category,
         }
 
@@ -585,7 +593,8 @@ class JbrowseConnector(object):
             # will not generate different hashes and make comparison of outputs
             # much simpler.
             hashData = [dataset_path, track_human_label, track['category'], rest_url]
-            outputTrackConfig['label'] = hashlib.md5('|'.join(hashData)).hexdigest() + '_%s' % i
+            hashData = '|'.join(hashData).encode('utf-8')
+            outputTrackConfig['label'] = hashlib.md5(hashData).hexdigest() + '_%s' % i
 
             # Colour parsing is complex due to different track types having
             # different colour options.
@@ -736,7 +745,7 @@ class JbrowseConnector(object):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
-    parser.add_argument('xml', type=file, help='Track Configuration')
+    parser.add_argument('xml', type=argparse.FileType('r'), help='Track Configuration')
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
@@ -800,6 +809,7 @@ if __name__ == '__main__':
         extra_data['plugins_python'].append('ComboTrackSelector')
         extra_data['plugins'].append({
             'location': 'https://cdn.rawgit.com/TAMU-CPT/ComboTrackSelector/07f4a2d3434e7c8fd1c4cfa24c93b1e07c03029f/',
+            'icon': 'https://pbs.twimg.com/profile_images/580742252043100161/x64IwBFv_normal.png',
             'name': 'ComboTrackSelector'
         })
 
@@ -839,7 +849,7 @@ if __name__ == '__main__':
         try:
             # Only pertains to gff3 + blastxml. TODO?
             track_conf['style'] = {t.tag: t.text for t in track.find('options/style')}
-        except TypeError, te:
+        except TypeError as te:
             track_conf['style'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
