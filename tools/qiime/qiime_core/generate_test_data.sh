@@ -822,3 +822,66 @@ pick_otus.py \
     --stepwords "8" \
     --word_length "8" \
     --non_chimeras_retention "intersection"
+
+# plot_taxa_summary
+plot_taxa_summary.py \
+   --counts_fname 'test-data/plot_taxa_summary/phylum.txt' \
+   --dir_path 'test-data/plot_taxa_summary/phylum' \
+   --labels 'phylum' \
+   --num_categories '20' \
+   --background_color 'white' \
+   --dpi '80' \
+   --x_width '12' \
+   --y_height '12' \
+   --bar_width '0.75' \
+   --type_of_file 'png' \
+   --chart_type 'area,bar,pie' \
+   --resize_nth_label '0' \
+   --label_type 'categorical'
+
+plot_taxa_summary.py \
+   --counts_fname 'test-data/plot_taxa_summary/phylum.txt,test-data/plot_taxa_summary/class.txt,test-data/plot_taxa_summary/genus.txt' \
+   --dir_path 'test-data/plot_taxa_summary/phylum_class_genus' \
+   --labels 'Phylum,Class,Genus' \
+   --num_categories '20' \
+   --background_color 'white' \
+   --dpi '80' \
+   --x_width '12' \
+   --y_height '12' \
+   --bar_width '0.75' \
+   --type_of_file 'png' \
+   --chart_type 'area,bar,pie' \
+   --resize_nth_label '0' \
+   --label_type 'categorical'
+
+plot_taxa_summary.py \
+   --counts_fname 'test-data/plot_taxa_summary/class.txt' \
+   --dir_path 'test-data/plot_taxa_summary/class' \
+   --labels 'Class' \
+   --num_categories '10' \
+   --background_color 'white' \
+   --dpi '80' \
+   --x_width '12' \
+   --y_height '12' \
+   --bar_width '0.75' \
+   --chart_type 'pie' \
+   --type_of_file 'svg' \
+   --include_html_legend \
+   --resize_nth_label '0' \
+   --label_type 'categorical'
+
+plot_taxa_summary.py \
+   --counts_fname 'test-data/plot_taxa_summary/class.txt' \
+   --dir_path 'test-data/plot_taxa_summary/class_colorby' \
+   --labels 'Class' \
+   --num_categories '20' \
+   --colorby 'PC.636,PC.635' \
+   --background_color 'white' \
+   --dpi '80' \
+   --x_width '12' \
+   --y_height '12' \
+   --bar_width '0.75' \
+   --type_of_file 'pdf' \
+   --chart_type 'area,bar,pie' \
+   --resize_nth_label '0' \
+   --label_type 'categorical'
