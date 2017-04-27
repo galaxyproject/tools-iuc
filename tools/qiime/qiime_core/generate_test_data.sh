@@ -885,3 +885,8 @@ plot_taxa_summary.py \
    --chart_type 'area,bar,pie' \
    --resize_nth_label '0' \
    --label_type 'categorical'
+
+# upgma_cluster
+upgma_cluster.py \
+    --input_path 'test-data/upgma_cluster/' \
+    --output_path 'test-data/upgma_cluster/'
