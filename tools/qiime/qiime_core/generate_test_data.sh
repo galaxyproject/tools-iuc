@@ -890,3 +890,31 @@ plot_taxa_summary.py \
 upgma_cluster.py \
     --input_path 'test-data/upgma_cluster/' \
     --output_path 'test-data/upgma_cluster/'
+
+# multiple_join_paired_ends
+multiple_join_paired_ends.py \
+    --input_dir 'test-data/multiple_join_paired_ends/without_barcode/' \
+    --output_dir 'test-data/multiple_join_paired_ends/output_without_barcode' \
+    --read1_indicator 'forward_' \
+    --read2_indicator 'reverse_' \
+    --leading_text '' \
+    --trailing_text ''
+
+#multiple_join_paired_ends.py \
+#    --input_dir 'test-data/multiple_join_paired_ends/without_barcode/' \
+#    --output_dir 'multiple_join_paired_ends_without_barcode_parameter_files' \
+#    --parameter_fp 'test-data/multiple_join_paired_ends/qiime_parameters.txt' \
+#    --read1_indicator '_R1_' \
+#    --read2_indicator '_R2_' \
+#    --leading_text '' \
+#    --trailing_text ''
+
+multiple_join_paired_ends.py \
+    --input_dir 'test-data/multiple_join_paired_ends/with_barcode/' \
+    --output_dir 'test-data/multiple_join_paired_ends/output_with_barcode' \
+    --read1_indicator 'forward_' \
+    --read2_indicator 'reverse_' \
+    --match_barcodes \
+    --barcode_indicator 'barcode_' \
+    --leading_text '' \
+    --trailing_text ''
