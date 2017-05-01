@@ -944,3 +944,122 @@ multiple_split_libraries_fastq.py \
     --leading_text '' \
     --trailing_text '' \
     --sampleid_indicator '.'
+
+# summarize_taxa_through_plots
+summarize_taxa_through_plots.py \
+    --otu_table_fp 'test-data/summarize_taxa_through_plots/otu_table.biom' \
+    --output_dir summarize_taxa_through_plots_mapping \
+    --mapping_fp 'test-data/summarize_taxa_through_plots/Fasting_Map.txt'
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping/otu_table_L2.biom' \
+    -o 'summarize_taxa_through_plots_mapping/otu_table_L2_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping/otu_table_L3.biom' \
+    -o 'summarize_taxa_through_plots_mapping/otu_table_L3_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping/otu_table_L4.biom' \
+    -o 'summarize_taxa_through_plots_mapping/otu_table_L4_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping/otu_table_L5.biom' \
+    -o 'summarize_taxa_through_plots_mapping/otu_table_L5_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping/otu_table_L6.biom' \
+    -o 'summarize_taxa_through_plots_mapping/otu_table_L6_json.biom' \
+    --to-json
+cp summarize_taxa_through_plots_mapping/*.txt test-data/summarize_taxa_through_plots/mapping/
+cp summarize_taxa_through_plots_mapping/*_json.biom test-data/summarize_taxa_through_plots/mapping/
+cp summarize_taxa_through_plots_mapping/taxa_summary_plots/area_charts.html 'test-data/summarize_taxa_through_plots/mapping/area_charts.html'
+cp summarize_taxa_through_plots_mapping/taxa_summary_plots/bar_charts.html 'test-data/summarize_taxa_through_plots/mapping/bar_charts.html'
+
+summarize_taxa_through_plots.py \
+    --otu_table_fp 'test-data/summarize_taxa_through_plots/otu_table.biom' \
+    --output_dir summarize_taxa_through_plots_mapping_categories \
+    --mapping_fp 'test-data/summarize_taxa_through_plots/Fasting_Map.txt' \
+    --mapping_category 'Treatment'
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping_categories/Treatment_otu_table_L2.biom' \
+    -o 'summarize_taxa_through_plots_mapping_categories/Treatment_otu_table_L2_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping_categories/Treatment_otu_table_L3.biom' \
+    -o 'summarize_taxa_through_plots_mapping_categories/Treatment_otu_table_L3_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping_categories/Treatment_otu_table_L4.biom' \
+    -o 'summarize_taxa_through_plots_mapping_categories/Treatment_otu_table_L4_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping_categories/Treatment_otu_table_L5.biom' \
+    -o 'summarize_taxa_through_plots_mapping_categories/Treatment_otu_table_L5_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping_categories/Treatment_otu_table_L6.biom' \
+    -o 'summarize_taxa_through_plots_mapping_categories/Treatment_otu_table_L6_json.biom' \
+    --to-json
+cp summarize_taxa_through_plots_mapping_categories/*.txt test-data/summarize_taxa_through_plots/mapping_categories/
+cp summarize_taxa_through_plots_mapping_categories/*_json.biom test-data/summarize_taxa_through_plots/mapping_categories/
+cp summarize_taxa_through_plots_mapping_categories/taxa_summary_plots/area_charts.html 'test-data/summarize_taxa_through_plots/mapping_categories/area_charts.html'
+cp summarize_taxa_through_plots_mapping_categories/taxa_summary_plots/bar_charts.html 'test-data/summarize_taxa_through_plots/mapping_categories/bar_charts.html'
+
+summarize_taxa_through_plots.py \
+    --otu_table_fp 'test-data/summarize_taxa_through_plots/otu_table.biom' \
+    --output_dir summarize_taxa_through_plots_mapping_sort \
+    --mapping_fp 'test-data/summarize_taxa_through_plots/Fasting_Map.txt' \
+    --sort
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping_sort/otu_table_sorted_L2.biom' \
+    -o 'summarize_taxa_through_plots_mapping_sort/otu_table_sorted_L2_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping_sort/otu_table_sorted_L3.biom' \
+    -o 'summarize_taxa_through_plots_mapping_sort/otu_table_sorted_L3_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping_sort/otu_table_sorted_L4.biom' \
+    -o 'summarize_taxa_through_plots_mapping_sort/otu_table_sorted_L4_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping_sort/otu_table_sorted_L5.biom' \
+    -o 'summarize_taxa_through_plots_mapping_sort/otu_table_sorted_L5_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_mapping_sort/otu_table_sorted_L6.biom' \
+    -o 'summarize_taxa_through_plots_mapping_sort/otu_table_sorted_L6_json.biom' \
+    --to-json
+cp summarize_taxa_through_plots_mapping_sort/*.txt test-data/summarize_taxa_through_plots/mapping_sort/
+cp summarize_taxa_through_plots_mapping_sort/*_json.biom test-data/summarize_taxa_through_plots/mapping_sort/
+cp summarize_taxa_through_plots_mapping_sort/taxa_summary_plots/area_charts.html 'test-data/summarize_taxa_through_plots/mapping_sort/area_charts.html'
+cp summarize_taxa_through_plots_mapping_sort/taxa_summary_plots/bar_charts.html 'test-data/summarize_taxa_through_plots/mapping_sort/bar_charts.html'
+
+summarize_taxa_through_plots.py \
+    --otu_table_fp 'test-data/summarize_taxa_through_plots/otu_table.biom' \
+    --output_dir summarize_taxa_through_plots_without_mapping
+biom convert \
+    -i 'summarize_taxa_through_plots_without_mapping/otu_table_L2.biom' \
+    -o 'summarize_taxa_through_plots_without_mapping/otu_table_L2_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_without_mapping/otu_table_L3.biom' \
+    -o 'summarize_taxa_through_plots_without_mapping/otu_table_L3_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_without_mapping/otu_table_L4.biom' \
+    -o 'summarize_taxa_through_plots_without_mapping/otu_table_L4_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_without_mapping/otu_table_L5.biom' \
+    -o 'summarize_taxa_through_plots_without_mapping/otu_table_L5_json.biom' \
+    --to-json
+biom convert \
+    -i 'summarize_taxa_through_plots_without_mapping/otu_table_L6.biom' \
+    -o 'summarize_taxa_through_plots_without_mapping/otu_table_L6_json.biom' \
+    --to-json
+cp summarize_taxa_through_plots_without_mapping/*.txt test-data/summarize_taxa_through_plots/without_mapping/
+cp summarize_taxa_through_plots_without_mapping/*_json.biom test-data/summarize_taxa_through_plots/without_mapping/
+cp summarize_taxa_through_plots_without_mapping/taxa_summary_plots/area_charts.html 'test-data/summarize_taxa_through_plots/without_mapping/area_charts.html'
+cp summarize_taxa_through_plots_without_mapping/taxa_summary_plots/bar_charts.html 'test-data/summarize_taxa_through_plots/without_mapping/bar_charts.html'
+
