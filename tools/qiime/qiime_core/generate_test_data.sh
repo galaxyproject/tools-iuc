@@ -918,3 +918,29 @@ multiple_join_paired_ends.py \
     --barcode_indicator 'barcode_' \
     --leading_text '' \
     --trailing_text ''
+
+# multiple_split_libraries_fastq
+multiple_split_libraries_fastq.py \
+    --input_dir 'test-data/multiple_split_libraries_fastq/input' \
+    --output_dir 'multiple_split_libraries_fastq' \
+    --demultiplexing_method 'mapping_barcode_files' \
+    --read_indicator 'reads_' \
+    --barcode_indicator 'barcodes_' \
+    --mapping_indicator 'mapping_' \
+    --mapping_extensions 'txt' \
+    --leading_text '' \
+    --trailing_text '' \
+    --sampleid_indicator '.'
+
+multiple_split_libraries_fastq.py \
+    --input_dir 'test-data/multiple_split_libraries_fastq/input' \
+    --output_dir 'multiple_split_libraries_fastq_with_parameter_file' \
+    --demultiplexing_method 'mapping_barcode_files' \
+    --parameter_fp 'test-data/multiple_split_libraries_fastq/qiime_parameters.txt' \
+    --read_indicator 'reads_' \
+    --barcode_indicator 'barcodes_' \
+    --mapping_indicator 'mapping_' \
+    --mapping_extensions 'txt' \
+    --leading_text '' \
+    --trailing_text '' \
+    --sampleid_indicator '.'
