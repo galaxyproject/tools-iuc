@@ -39,15 +39,19 @@ ftp_file_suffix = {
 extension = {
     "unite": "zip",
     "greengenes": "tar.gz",
-    "silva": "tgz",
+    "silva": {
+        "104_release": "tgz",
+        "108_release": "tgz",
+        "108_release_curated": "tgz",
+        "111_release": "tgz",
+        "119_consensus_majority_taxonomy": "zip",
+        "119_release": "zip",
+        "119_release_aligned_rep_files": "tar.gz",
+        "123_release": "zip",
+        "128_release": "tgz"},
     "img": "tgz"
 }
-filetypes = {
-    "rep_set": "fasta",
-    "rep_set_aligned": "fasta",
-    "taxonomy": "txt",
-    "trees": "tree"
-}
+filetypes = ["rep_set", "rep_set_aligned", "taxonomy", "trees"]
 
 
 # Utility functions for interacting with Galaxy JSON
@@ -162,9 +166,15 @@ def extract_archive(filepath, ext):
         tar = tarfile.open(filepath)
         tar.extractall(path=archive_content_path)
         tar.close()
-        archive_content_path = os.path.join(
-            archive_content_path,
-            filepath.split(".")[0])
+        content = os.listdir(archive_content_path)
+        archive_content = []
+        for x in content:
+            if not x.startswith("."):
+               archive_content.append(x) 
+        if len(archive_content) == 1:
+            archive_content_path = os.path.join(
+                archive_content_path,
+                archive_content[0])
     elif ext == "zip":
         zip_ref = zipfile.ZipFile(filepath, 'r')
         zip_ref.extractall(archive_content_path)
@@ -172,66 +182,96 @@ def extract_archive(filepath, ext):
     return archive_content_path
 
 
-def build_output_file_info(name_prefix, filename_prefix, suffix, extension, 
-filetype, target_dir):
-    """
-
-    """
-    name = "%s (%s)" %(name_prefix, suffix)
-    filename = "%s_%s.%s" %(filename_prefix, suffix, extension)
-    filepath = os.path.join(target_dir, filetype, output_filename)
-    return (name, filename, filepath)
-
-
-def moving_unite_files(archive_content_path, filename_prefix, 
+def move_unite_files(archive_content_path, filename_prefix, 
 name_prefix, data_tables, target_dir):
     """
 
     """
-
-def moving_silva_files(archive_content_path, filename_prefix, 
-name_prefix, data_tables, target_dir):
-    """
-    """
-    filepath_suffixes = os.listdir(os.path.join(
-        archive_content_path,
-        "rep_set"))
-    for suffix in filepath_suffixes:
-        for filetype in filetypes:
-            input_filedir = os.path.join(
-                archive_content_path,
-                filetype,
-                suffix)
-            files = os.listdir(input_filedir)
-
-
-
-def moving_greengenes_files(archive_content_path, filename_prefix, 
-name_prefix, data_tables, target_dir):
-    """
-    """
-    filepath_suffixes = [x.split(".")[0] for x in os.listdir(
-        os.path.join(archive_content_path, "rep_set"))]
-    for suffix in filepath_suffixes:
-        for filetype in filetypes:
-            input_filepath = os.path.join(
-                archive_content_path,
-                filetype,
-                "%s.%s" %(suffix, filetypes[filetype]))
-            (name, output_filename, output_filepath) = build_output_file_info(
-                name_prefix, 
-                filename_prefix,
-                suffix,
-                filetypes[filetype])
-            os.rename(input_filepath, output_filepath)
-            add_data_table_entry(
+    archive_content = os.listdir(archive_content_path)
+    for content in archive_content:
+        content_filepath = os.path.join(archive_content_path, content)
+        content_name_prefix = "%s - %s" % (name_prefix, content.split(".")[0])
+        content_filename_prefix = "%s_%s" % (filename_prefix, content)
+        if content.find("refs") != -1:
+            move_file(
+                content_filepath,
+                content_filename_prefix,
+                content_name_prefix,
                 data_tables,
-                "qiime_%s" % (filetype),
-                dict(
-                    dbkey=output_filename,
-                    value="1.0",
-                    name=name,
-                    path=output_filepath))
+                os.path.join(target_dir, "rep_set"),
+                "rep_set")
+        elif content.find("taxonomy") != -1:
+            move_file(
+                content_filepath,
+                content_filename_prefix,
+                content_name_prefix,
+                data_tables,
+                os.path.join(target_dir, "taxonomy"),
+                "taxonomy")
+
+
+def move_file(input_filepath, filename, name, data_tables, target_dir,
+filetype):
+    """
+    """
+    output_filepath = os.path.join(target_dir, filename)
+    os.rename(input_filepath, output_filepath)
+    add_data_table_entry(
+        data_tables,
+        "qiime_%s" % (filetype),
+        dict(
+            dbkey=filename.split(".")[0],
+            value="1.0",
+            name=name,
+            path=output_filepath))
+
+
+def move_dir_content(input_path, filename_prefix, name_prefix, data_tables,
+target_dir, filetype):
+    """
+    """
+    for content in os.listdir(input_path):
+        if content.startswith("."):
+            continue
+        content_path = os.path.join(input_path, content)
+        content_name_prefix = "%s - %s" % (name_prefix, content.split(".")[0])
+        content_filename_prefix = "%s_%s" % (filename_prefix, content)
+        if os.path.isdir(content_path):
+            move_dir_content(
+                content_path,
+                content_filename_prefix,
+                content_name_prefix,
+                data_tables,
+                target_dir,
+                filetype)
+        else:
+            move_file(
+                content_path,
+                content_filename_prefix,
+                content_name_prefix,
+                data_tables,
+                target_dir,
+                filetype)
+
+
+def move_files(archive_content_path, filename_prefix, 
+name_prefix, data_tables, target_dir, db):
+    """
+    """
+    for filetype in filetypes:
+        filetype_target_dir = os.path.join(
+            target_dir,
+            filetype)
+        filetype_path = os.path.join(
+            archive_content_path,
+            filetype)
+        move_dir_content(
+            filetype_path,
+            filename_prefix,
+            name_prefix,
+            data_tables,
+            filetype_target_dir,
+            filetype)
 
 
 def download_db(data_tables, db, version, target_dir):
@@ -253,6 +293,8 @@ def download_db(data_tables, db, version, target_dir):
 
     """
     ext = extension[db]
+    if db == "silva":
+        ext = ext[version]
 
     print("Download archive")
     filepath = download_archive(db, version)
@@ -261,28 +303,23 @@ def download_db(data_tables, db, version, target_dir):
     archive_content_path = extract_archive(filepath, ext)
 
     print("Moving file from %s" % archive_content_path)
-    filename_prefix = "%s_%s_" % (db, version)
+    filename_prefix = "%s_%s" % (db, version)
     name_prefix = "%s (%s)" % (db, version)
-    if db == "greengenes":
-        moving_greengenes_files(
+    if db == "greengenes" or db == "silva":
+        move_files(
             archive_content_path,
             filename_prefix,
             name_prefix, 
             data_tables,
             target_dir,
             db)
-    elif db == "silva":
-        moving_silva_files(
+    elif db == "unite":
+        move_unite_files(
             archive_content_path,
             filename_prefix,
             name_prefix,
-            data_tables)
-    elif db == "unite"
-        moving_unite_files(
-            archive_content_path,
-            filename_prefix,
-            name_prefix,
-            data_tables)
+            data_tables,
+            target_dir)
 
 
 if __name__ == "__main__":
@@ -326,6 +363,6 @@ if __name__ == "__main__":
     # Write output JSON
     print("Outputting JSON")
     print(str(json.dumps(data_tables)))
-    with open(jsonfile, 'wb') as out:
-        out.write(json.dumps(data_tables))
+    with open(jsonfile, 'w') as out:
+        json.dump(data_tables, out)
     print("Done.")
