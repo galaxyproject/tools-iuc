@@ -132,13 +132,13 @@ def get_ftp_file(ftp, filename):
         print("Error")
 
 
-def download_archive(db, version):
+def download_archive(db, version, ext):
     """
 
     """
-    filepath = "archive"
+    filepath = "%s_%s.%s" % (db, version, ext)
     if protocol[db] == "http":
-        url = "%s%s.%s" % (baseUrl[db], version, extension[db])
+        url = "%s%s.%s" % (baseUrl[db], version, ext)
         r = requests.get(url, stream=True)
         r.raise_for_status()
         with open(filepath, "wb") as fd:
@@ -147,12 +147,15 @@ def download_archive(db, version):
     elif protocol[db] == "ftp":
         ftp = ftplib.FTP(baseUrl[db])
         ftp.login("anonymous", "ftplib-example-1")
-        ftp.cwd("%s%s" % (ftp_dir[db], version))
+        if db == "greengenes" and version == "13_8":
+            ftp.cwd("%s%s" % (ftp_dir[db], "13_5"))
+        else:
+            ftp.cwd("%s%s" % (ftp_dir[db], version))
         filepath = "%s%s%s.%s" % (
             ftp_file_prefix[db],
             version,
             ftp_file_suffix[db],
-            extension[db])
+            ext)
         get_ftp_file(ftp, filepath)
         ftp.quit()
     return filepath
@@ -220,7 +223,7 @@ filetype):
         data_tables,
         "qiime_%s" % (filetype),
         dict(
-            dbkey=filename.split(".")[0],
+            dbkey=filename,
             value="1.0",
             name=name,
             path=output_filepath))
@@ -255,10 +258,13 @@ target_dir, filetype):
 
 
 def move_files(archive_content_path, filename_prefix, 
-name_prefix, data_tables, target_dir, db):
+name_prefix, data_tables, target_dir, db, version):
     """
     """
     for filetype in filetypes:
+        if filetype == "rep_set_aligned":
+            if db == "greengenes" and version == "12_10":
+                continue
         filetype_target_dir = os.path.join(
             target_dir,
             filetype)
@@ -297,7 +303,7 @@ def download_db(data_tables, db, version, target_dir):
         ext = ext[version]
 
     print("Download archive")
-    filepath = download_archive(db, version)
+    filepath = download_archive(db, version, ext)
 
     print("Extract archive %s" % filepath)
     archive_content_path = extract_archive(filepath, ext)
@@ -312,7 +318,8 @@ def download_db(data_tables, db, version, target_dir):
             name_prefix, 
             data_tables,
             target_dir,
-            db)
+            db,
+            version)
     elif db == "unite":
         move_unite_files(
             archive_content_path,
