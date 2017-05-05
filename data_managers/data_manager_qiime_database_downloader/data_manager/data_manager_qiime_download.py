@@ -161,7 +161,22 @@ def download_archive(db, version, ext):
     return filepath
 
 
-def extract_archive(filepath, ext):
+def find_archive_content_path(archive_content_path):
+    """
+    """
+    content = os.listdir(archive_content_path)
+    archive_content = []
+    for x in content:
+        if not x.startswith(".") and not x.startswith("_"):
+           archive_content.append(x) 
+    if len(archive_content) == 1:
+        archive_content_path = os.path.join(
+            archive_content_path,
+            archive_content[0])
+    return archive_content_path
+
+
+def extract_archive(filepath, ext, db):
     """
     """
     archive_content_path = "tmp"
@@ -169,19 +184,12 @@ def extract_archive(filepath, ext):
         tar = tarfile.open(filepath)
         tar.extractall(path=archive_content_path)
         tar.close()
-        content = os.listdir(archive_content_path)
-        archive_content = []
-        for x in content:
-            if not x.startswith("."):
-               archive_content.append(x) 
-        if len(archive_content) == 1:
-            archive_content_path = os.path.join(
-                archive_content_path,
-                archive_content[0])
+        archive_content_path = find_archive_content_path(archive_content_path)
     elif ext == "zip":
         zip_ref = zipfile.ZipFile(filepath, 'r')
         zip_ref.extractall(archive_content_path)
         zip_ref.close()
+        archive_content_path = find_archive_content_path(archive_content_path)
     return archive_content_path
 
 
@@ -306,7 +314,7 @@ def download_db(data_tables, db, version, target_dir):
     filepath = download_archive(db, version, ext)
 
     print("Extract archive %s" % filepath)
-    archive_content_path = extract_archive(filepath, ext)
+    archive_content_path = extract_archive(filepath, ext, db)
 
     print("Moving file from %s" % archive_content_path)
     filename_prefix = "%s_%s" % (db, version)
