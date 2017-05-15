@@ -1,13 +1,15 @@
 #!/usr/bin/env python
-
 # Data manager for reference data for the QIIME Galaxy tools
+
 import argparse
 import ftplib
 import json
 import os
-import requests
 import tarfile
 import zipfile
+
+import requests
+
 
 protocol = {
     "unite": "http",
