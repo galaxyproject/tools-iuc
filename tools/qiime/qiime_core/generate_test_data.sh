@@ -1063,3 +1063,45 @@ cp summarize_taxa_through_plots_without_mapping/*_json.biom test-data/summarize_
 cp summarize_taxa_through_plots_without_mapping/taxa_summary_plots/area_charts.html 'test-data/summarize_taxa_through_plots/without_mapping/area_charts.html'
 cp summarize_taxa_through_plots_without_mapping/taxa_summary_plots/bar_charts.html 'test-data/summarize_taxa_through_plots/without_mapping/bar_charts.html'
 
+# pick_close_reference_otus
+pick_closed_reference_otus.py \
+    --input_fp 'test-data/pick_closed_reference_otus/seqs.fna' \
+    --output_dir 'pick_closed_reference_otus' \
+    --reference_fp 'test-data/pick_closed_reference_otus/refseqs.fna' \
+    --taxonomy_fp 'test-data/pick_closed_reference_otus/taxa.txt'
+biom convert \
+    -i 'pick_closed_reference_otus/otu_table.biom' \
+    -o 'test-data/pick_closed_reference_otus/basic_otu_table.biom' \
+    --to-json
+
+pick_closed_reference_otus.py \
+    --input_fp 'test-data/pick_closed_reference_otus/seqs.fna' \
+    --output_dir 'pick_closed_reference_otus_sortmerna' \
+    --reference_fp 'test-data/pick_closed_reference_otus/refseqs.fna' \
+    --taxonomy_fp 'test-data/pick_closed_reference_otus/taxa.txt' \
+    --parameter_fp 'test-data/pick_closed_reference_otus/sortmerna_params.txt'
+biom convert \
+    -i 'pick_closed_reference_otus_sortmerna/otu_table.biom' \
+    -o 'test-data/pick_closed_reference_otus/sortmerna_otu_table.biom' \
+    --to-json
+
+pick_closed_reference_otus.py \
+    --input_fp 'test-data/pick_closed_reference_otus/seqs.fna' \
+    --output_dir 'pick_closed_reference_otus_assign_taxonomy' \
+    --reference_fp 'test-data/pick_closed_reference_otus/refseqs.fna' \
+    --assign_taxonomy
+biom convert \
+    -i 'pick_closed_reference_otus_assign_taxonomy/otu_table.biom' \
+    -o 'test-data/pick_closed_reference_otus/assign_taxonomy_otu_table.biom' \
+    --to-json
+
+pick_closed_reference_otus.py \
+    --input_fp 'test-data/pick_closed_reference_otus/seqs.fna' \
+    --output_dir 'pick_closed_reference_otus_suppress_taxonomy_assignment' \
+    --reference_fp 'test-data/pick_closed_reference_otus/refseqs.fna' \
+    --suppress_taxonomy_assignment
+biom convert \
+    -i 'pick_closed_reference_otus_suppress_taxonomy_assignment/otu_table.biom' \
+    -o 'test-data/pick_closed_reference_otus/suppress_taxonomy_assignment_otu_table.biom' \
+    --to-json
+
