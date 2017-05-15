@@ -1,14 +1,12 @@
 #!/usr/bin/env python
 """
-
 Common util classes / functions for the NGS project
-
 """
-import sys
-import os
-import gzip
-import re
 import collections
+import gzip
+import os
+import re
+import sys
 
 
 def format_number(n):
@@ -106,6 +104,7 @@ class gzip_opener:
     A Python 2.6 class to handle 'with' opening of text files that may
     or may not be gzip compressed.
     '''
+
     def __init__(self, fname):
         self.fname = fname
 
@@ -207,6 +206,7 @@ def parse_args(argv, defaults=None, expected_argc=0):
 
 class memoize(object):
     'Simple memoizing decorator to cache results'
+
     def __init__(self, func):
         self.func = func
         self.cache = {}

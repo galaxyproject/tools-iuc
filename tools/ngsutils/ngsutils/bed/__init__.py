@@ -1,4 +1,5 @@
 import os
+
 import ngsutils.support.ngs_utils
 import pysam
 
@@ -31,7 +32,6 @@ class BedStreamer(object):
                     return BedRegion(*cols)
         except:
             raise StopIteration
-
 
 
 class BedFile(object):
@@ -135,11 +135,11 @@ class BedFile(object):
                         if strand and strand != region.strand:
                             continue
                         if start <= region.start <= end or start <= region.end <= end:
-                            if not region in buf:
+                            if region not in buf:
                                 yield region
                                 buf.add(region)
                         elif region.start < start and region.end > end:
-                            if not region in buf:
+                            if region not in buf:
                                 yield region
                                 buf.add(region)
 

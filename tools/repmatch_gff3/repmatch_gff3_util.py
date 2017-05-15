@@ -4,9 +4,10 @@ import os
 import shutil
 import sys
 import tempfile
+
 import matplotlib
 matplotlib.use('Agg')
-from matplotlib import pyplot
+from matplotlib import pyplot  # noqa: E402
 
 # Graph settings
 Y_LABEL = 'Counts'
@@ -172,9 +173,9 @@ def median(data):
         return 0
     sdata = sorted(data)
     if len(data) % 2 == 0:
-        return (sdata[len(data)//2] + sdata[len(data)//2-1]) / 2
+        return (sdata[len(data) // 2] + sdata[len(data) // 2 - 1]) / 2
     else:
-        return sdata[len(data)//2]
+        return sdata[len(data) // 2]
 
 
 def make_keys(peaks):
@@ -219,8 +220,8 @@ def frequency_histogram(freqs, dataset_path, labels=[], title=''):
         xvals, yvals = freq.graph_series()
         # Go from high to low
         xvals.reverse()
-        pyplot.bar([x-0.4 + 0.8/len(freqs)*i for x in xvals], yvals, width=0.8/len(freqs), color=COLORS[i])
-    pyplot.xticks(range(min(xvals), max(xvals)+1), map(str, reversed(range(min(xvals), max(xvals)+1))))
+        pyplot.bar([x - 0.4 + 0.8 / len(freqs) * i for x in xvals], yvals, width=0.8 / len(freqs), color=COLORS[i])
+    pyplot.xticks(range(min(xvals), max(xvals) + 1), map(str, reversed(range(min(xvals), max(xvals) + 1))))
     pyplot.xlabel(X_LABEL)
     pyplot.ylabel(Y_LABEL)
     pyplot.subplots_adjust(left=ADJUST[0], right=ADJUST[1], top=ADJUST[2], bottom=ADJUST[3])
@@ -308,7 +309,7 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
             galaxy_hid = galaxy_hids[i]
             r = Replicate(galaxy_hid, dataset_path)
             replicates.append(r)
-        except Exception, e:
+        except Exception as e:
             stop_err('Unable to parse file "%s", exception: %s' % (dataset_path, str(e)))
     attrs = 'd%sr%s' % (distance, num_required)
     if up_limit != 1000:
@@ -430,7 +431,7 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
         # Output matched_peaks (matched pairs).
         matched_peaks_output.writerow(gff_row(cname=group.chrom,
                                               start=group.midpoint,
-                                              end=group.midpoint+1,
+                                              end=group.midpoint + 1,
                                               source='repmatch',
                                               score=group.normalized_value(med),
                                               attrs={'median_distance': group.median_distance,
@@ -439,19 +440,19 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
         if output_detail_file:
             matched_peaks = (group.chrom,
                              group.midpoint,
-                             group.midpoint+1,
+                             group.midpoint + 1,
                              group.normalized_value(med),
                              group.num_replicates,
                              group.median_distance,
                              group.value_sum)
             for peak in group.peaks.values():
-                matched_peaks += (peak.chrom, peak.midpoint, peak.midpoint+1, peak.value, peak.distance, peak.replicate.id)
+                matched_peaks += (peak.chrom, peak.midpoint, peak.midpoint + 1, peak.value, peak.distance, peak.replicate.id)
             detail_output.writerow(matched_peaks)
     if output_unmatched_peaks_file:
         for unmatched_peak in unmatched_peaks:
             unmatched_peaks_output.writerow((unmatched_peak.chrom,
                                              unmatched_peak.midpoint,
-                                             unmatched_peak.midpoint+1,
+                                             unmatched_peak.midpoint + 1,
                                              unmatched_peak.value,
                                              unmatched_peak.distance,
                                              unmatched_peak.replicate.id))

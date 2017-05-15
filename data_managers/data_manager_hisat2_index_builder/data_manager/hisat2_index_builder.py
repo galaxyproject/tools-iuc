@@ -1,14 +1,13 @@
 #!/usr/bin/env python
 # Based heavily on the Bowtie 2 data manager wrapper script by Dan Blankenberg
+from __future__ import print_function
 
-import shlex
-import sys
-import os
 import argparse
+import os
+import shlex
 import subprocess
-
-from json import loads, dumps
-
+import sys
+from json import dumps, loads
 
 DEFAULT_DATA_TABLE_NAME = "hisat2_indexes"
 
@@ -41,7 +40,7 @@ def build_hisat_index( data_manager_dict, options, params, sequence_id, sequence
     proc = subprocess.Popen( args=args, shell=False, cwd=target_directory )
     return_code = proc.wait()
     if return_code:
-        print >> sys.stderr, "Error building index."
+        print("Error building index.", file=sys.stderr)
         sys.exit( return_code )
     data_table_entry = dict( value=sequence_id, dbkey=options.fasta_dbkey, name=sequence_name, path=sequence_id )
     _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry )
@@ -71,7 +70,7 @@ def main():
     data_manager_dict = {}
 
     if options.fasta_dbkey in [ None, '', '?' ]:
-        raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( dbkey ) )
+        raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( options.fasta_dbkey ) )
 
     sequence_id, sequence_name = get_id_name( params, dbkey=options.fasta_dbkey, fasta_description=options.fasta_description )
 
@@ -79,7 +78,8 @@ def main():
     build_hisat_index( data_manager_dict, options, params, sequence_id, sequence_name )
 
     # save info to json file
-    open( filename, 'wb' ).write( dumps( data_manager_dict ) )
+    open( filename, 'w' ).write( dumps( data_manager_dict ) )
+
 
 if __name__ == "__main__":
     main()

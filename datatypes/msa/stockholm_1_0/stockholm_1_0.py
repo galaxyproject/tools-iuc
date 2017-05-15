@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 
-from galaxy.datatypes.data import Text
-from galaxy.datatypes.sniff import get_headers, get_test_fname
-from galaxy.datatypes.data import get_file_peek
-import subprocess
+import logging
 import os
+import subprocess
 
+from galaxy.datatypes.data import get_file_peek, Text
 from galaxy.datatypes.metadata import MetadataElement
-from galaxy.datatypes import metadata
 
-def count_special_lines( word, filename, invert = False ):
+log = logging.getLogger(__name__)
+
+
+def count_special_lines(word, filename, invert=False):
     """
         searching for special 'words' using the grep tool
         grep is used to speed up the searching and counting
@@ -26,7 +27,8 @@ def count_special_lines( word, filename, invert = False ):
         pass
     return 0
 
-class Stockholm_1_0( Text ):
+
+class Stockholm_1_0(Text):
     file_ext = "stockholm"
 
     MetadataElement( name="number_of_alignments", default=0, desc="Number of multiple alignments", readonly=True, visible=True, optional=True, no_value=0 )
@@ -38,7 +40,6 @@ class Stockholm_1_0( Text ):
                 dataset.blurb = "1 alignment"
             else:
                 dataset.blurb = "%s alignments" % dataset.metadata.number_of_models
-            dataset.peek = data.get_file_peek( dataset.file_name, is_multi_byte=is_multi_byte )
         else:
             dataset.peek = 'file does not exist'
             dataset.blurb = 'file purged from disc'
@@ -96,15 +97,14 @@ class Stockholm_1_0( Text ):
 
             stockholm_records = _read_stockholm_records( input_files[0] )
             stockholm_lines_accumulated = []
-            for counter, stockholm_record in enumerate( stockholm_records, start = 1):
+            for counter, stockholm_record in enumerate( stockholm_records, start=1):
                 stockholm_lines_accumulated.extend( stockholm_record )
                 if counter % chunk_size == 0:
                     _write_part_stockholm_file( stockholm_lines_accumulated )
                     stockholm_lines_accumulated = []
             if stockholm_lines_accumulated:
                 _write_part_stockholm_file( stockholm_lines_accumulated )
-        except Exception,  e:
+        except Exception as e:
             log.error('Unable to split files: %s' % str(e))
             raise
     split = classmethod(split)
-

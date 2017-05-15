@@ -1,20 +1,18 @@
 #!/usr/bin/env python
-
-import sys
-import os
-import tempfile
+import json
 import optparse
+import os
 import subprocess
-
-from galaxy.util.json import from_json_string, to_json_string
-
+import sys
+import tempfile
 
 CHUNK_SIZE = 2**20
 
 DEFAULT_DATA_TABLE_NAME = "bowtie_indexes"
 
+
 def get_id_name( params, dbkey, fasta_description=None):
-    #TODO: ensure sequence_id is unique and does not already appear in location file
+    # TODO: ensure sequence_id is unique and does not already appear in location file
     sequence_id = params['param_dict']['sequence_id']
     if not sequence_id:
         sequence_id = dbkey
@@ -27,19 +25,18 @@ def get_id_name( params, dbkey, fasta_description=None):
     return sequence_id, sequence_name
 
 
-def build_bowtie_index( data_manager_dict, fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name, data_table_name=DEFAULT_DATA_TABLE_NAME, color_space = False ):
-    #TODO: allow multiple FASTA input files
-    #tmp_dir = tempfile.mkdtemp( prefix='tmp-data-manager-bowtie-index-builder-' )
+def build_bowtie_index( data_manager_dict, fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name, data_table_name=DEFAULT_DATA_TABLE_NAME, color_space=False ):
+    # TODO: allow multiple FASTA input files
     fasta_base_name = os.path.split( fasta_filename )[-1]
     sym_linked_fasta_filename = os.path.join( target_directory, fasta_base_name )
     os.symlink( fasta_filename, sym_linked_fasta_filename )
     args = [ 'bowtie-build' ]
     if color_space:
-        args.append( '-c' )
+        args.append( '-C' )
     args.append( sym_linked_fasta_filename)
     args.append( fasta_base_name )
     args.append( sym_linked_fasta_filename )
-    tmp_stderr = tempfile.NamedTemporaryFile( prefix = "tmp-data-manager-bowtie-index-builder-stderr" )
+    tmp_stderr = tempfile.NamedTemporaryFile( prefix="tmp-data-manager-bowtie-index-builder-stderr" )
     proc = subprocess.Popen( args=args, shell=False, cwd=target_directory, stderr=tmp_stderr.fileno() )
     return_code = proc.wait()
     if return_code:
@@ -65,7 +62,7 @@ def _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry 
 
 
 def main():
-    #Parse Command Line
+    # Parse Command Line
     parser = optparse.OptionParser()
     parser.add_option( '-f', '--fasta_filename', dest='fasta_filename', action='store', type="string", default=None, help='fasta_filename' )
     parser.add_option( '-d', '--fasta_dbkey', dest='fasta_dbkey', action='store', type="string", default=None, help='fasta_dbkey' )
@@ -76,7 +73,7 @@ def main():
 
     filename = args[0]
 
-    params = from_json_string( open( filename ).read() )
+    params = json.loads( open( filename ).read() )
     target_directory = params[ 'output_data' ][0]['extra_files_path']
     os.mkdir( target_directory )
     data_manager_dict = {}
@@ -88,11 +85,12 @@ def main():
 
     sequence_id, sequence_name = get_id_name( params, dbkey=dbkey, fasta_description=options.fasta_description )
 
-    #build the index
+    # build the index
     build_bowtie_index( data_manager_dict, options.fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name, data_table_name=options.data_table_name or DEFAULT_DATA_TABLE_NAME, color_space=options.color_space )
 
-    #save info to json file
-    open( filename, 'wb' ).write( to_json_string( data_manager_dict ) )
+    # save info to json file
+    open( filename, 'wb' ).write( json.dumps( data_manager_dict ) )
+
 
 if __name__ == "__main__":
     main()

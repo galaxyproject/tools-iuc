@@ -2,11 +2,11 @@
 import argparse
 import os
 
-import extract_genomic_dna_utils as egdu
 import bx.seq.nib
 import bx.seq.twobit
-from bx.intervals.io import Header, Comment
+from bx.intervals.io import Comment, Header
 
+import extract_genomic_dna_utils as egdu  # noqa: I100
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_format', dest='input_format', help="Input dataset format")
@@ -17,6 +17,8 @@ parser.add_argument('--columns', dest='columns', help="Columns to use in input f
 parser.add_argument('--reference_genome_source', dest='reference_genome_source', help="Source of reference genome file")
 parser.add_argument('--reference_genome', dest='reference_genome', help="Reference genome file")
 parser.add_argument('--output_format', dest='output_format', help="Output format")
+parser.add_argument('--fasta_header_type', dest='fasta_header_type', default=None, help="Fasta header format")
+parser.add_argument('--fasta_header_delimiter', dest='fasta_header_delimiter', default=None, help="Fasta header field delimiter")
 parser.add_argument('--output', dest='output', help="Output dataset")
 args = parser.parse_args()
 
@@ -108,7 +110,7 @@ for feature in file_iterator:
             nibs[chrom] = nib = bx.seq.nib.NibFile(open("%s/%s.nib" % (seq_path, chrom)))
         try:
             sequence = nib.get(start, end - start)
-        except Exception, e:
+        except Exception as e:
             warning = "Unable to fetch the sequence from '%d' to '%d' for build '%s'. " % (start, end - start, args.genome)
             warnings.append(warning)
             if not invalid_lines:
@@ -158,12 +160,21 @@ for feature in file_iterator:
         c = 0
         if input_is_gff:
             start, end = egdu.convert_bed_coords_to_gff([start, end])
-        fields = [args.genome, str(chrom), str(start), str(end), strand]
-        meta_data = "_".join(fields)
-        if name.strip():
-            out.write(">%s %s\n" % (meta_data, name))
+        if args.fasta_header_type == "bedtools_getfasta_default":
+            out.write(">%s\n" % egdu.get_bedtools_getfasta_default_header(str(chrom),
+                                                                          str(start),
+                                                                          str(end),
+                                                                          strand,
+                                                                          includes_strand_col))
         else:
-            out.write(">%s\n" % meta_data)
+            # args.fasta_header_type == "char_delimited":
+            fields = [args.genome, str(chrom), str(start), str(end), strand]
+            field_delimiter = egdu.get_fasta_header_delimiter(args.fasta_header_delimiter)
+            meta_data = field_delimiter.join(fields)
+            if name.strip():
+                out.write(">%s %s\n" % (meta_data, name))
+            else:
+                out.write(">%s\n" % meta_data)
         while c < l:
             b = min(c + 50, l)
             out.write("%s\n" % str(sequence[c:b]))
@@ -181,7 +192,7 @@ for feature in file_iterator:
                                    ".",
                                    egdu.gff_attributes_to_str(feature.attributes, "GTF")])
         else:
-            # Where is fields being set here?
+            # Here fields was set up around line 73.
             meta_data = "\t".join(fields)
         if input_is_gff:
             format_str = "%s seq \"%s\";\n"

@@ -1104,3 +1104,4 @@ biom convert \
     -i 'pick_closed_reference_otus_suppress_taxonomy_assignment/otu_table.biom' \
     -o 'test-data/pick_closed_reference_otus/suppress_taxonomy_assignment_otu_table.biom' \
     --to-json
+

@@ -10,6 +10,7 @@ def stop_err(msg):
     sys.stderr.write(msg)
     sys.exit(1)
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', dest='input', help="Input dataset")
 parser.add_argument('--start_coordinate', dest='start_coordinate', type=int, help='Chromosome start coordinate, either 0 or 1.')
@@ -34,7 +35,7 @@ try:
     for line in len_file:
         fields = line.split("\t")
         chrom_lens[fields[0]] = int(fields[1])
-except Exception, e:
+except Exception as e:
     len_file_error = str(e)
 
 with open(args.input) as fhi:

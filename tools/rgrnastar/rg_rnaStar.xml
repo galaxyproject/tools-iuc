@@ -1,143 +1,175 @@
-<tool id="rna_star" name="RNA STAR" version="2.4.0d-2">
+<tool id="rna_star" name="RNA STAR" version="2.5.2b-0" profile="17.01">
     <description>Gapped-read mapper for RNA-seq data</description>
-    <requirements>
-        <requirement type="package" version="2.4.0d">rnastar</requirement>
-        <requirement type="package" version="0.1.19">samtools</requirement>
-    </requirements>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    
     <stdio>
+        <regex match="FATAL error" source="both" level="fatal"/>
         <regex match="EXITING: FATAL INPUT ERROR:" source="both" level="fatal"/>
         <regex match="EXITING: fatal error trying to allocate genome arrays, exception thrown: std::bad_alloc" source="both" level="fatal"/>
         <regex match="\[sam_read1\] missing header\? Abort!" source="both" level="fatal"/>
-        <regex match=".*" source="both" level="warning" description="Some stderr/stdout text"/>
     </stdio>
 
+<!--
+    important quote (https://groups.google.com/forum/#!topic/rna-star/q4zGzlPgwXY):
+    Hi Gary,
+
+    if you generate the genome with GTF file, and do not specify the value for  - -sjdbOverhang, it will be set to the default 100.
+    If you want to be able to set arbitrary value of  - -sjdbOverhang on the fly, you have to generate the genome without annotations (GTF) - then you supply both the  - -sjdbOverhang and GTF file at the mapping step.
+
+    Cheers
+    Alex
+-->
     <command><![CDATA[
     ## Create temporary index for custom reference
-    #if str($refGenomeSource.genomeSource) == 'history':
+    #if str($refGenomeSource.geneSource) == 'history':
         mkdir -p tempstargenomedir &&
         STAR
             --runMode genomeGenerate
-            --genomeDir "tempstargenomedir"
-            --genomeFastaFiles "$refGenomeSource.ownFile"
+            --genomeDir 'tempstargenomedir'
+            --genomeFastaFiles '$refGenomeSource.genomeFastaFiles'
+            #if $refGenomeSource.sjdbGTFfile:
+                --sjdbGTFfile '$refGenomeSource.sjdbGTFfile'
+                --sjdbOverhang '$refGenomeSource.sjdbOverhang'
+            #end if
             --runThreadN \${GALAXY_SLOTS:-4}
-        
-        #if str($refGenomeSource.geneModel) != 'None':
-            --sjdbOverhang "$refGenomeSource.overhang"
-            --sjdbGTFfile "$refGenomeSource.geneModel"
-            
-            #if str($refGenomeSource.geneModel.ext) == 'gff3':
-                --sjdbGTFtagExonParentTranscript Parent
+        &&
+    #end if
+
+    STAR
+        --runThreadN \${GALAXY_SLOTS:-4}
+        --genomeLoad NoSharedMemory
+        --genomeDir
+        #if str($refGenomeSource.geneSource) == 'history':
+            'tempstargenomedir'
+            #if $refGenomeSource.sjdbGTFfile:
+                --sjdbGTFfile '$refGenomeSource.sjdbGTFfile'
+                --sjdbOverhang '$refGenomeSource.sjdbOverhang'
+            #end if
+        #else
+            '${refGenomeSource.GTFconditional.genomeDir.fields.path}'
+        #end if
+
+        --readFilesIn
+        #if str($singlePaired.sPaired) == "paired_collection"
+            '$singlePaired.input.forward' '$singlePaired.input.reverse'
+
+            #if $singlePaired.input.forward.is_of_type("fastq.gz", "fastqsanger.gz"):
+                @FASTQ_GZ_OPTION@
+            #end if
+        #else
+            '$singlePaired.input1'
+            #if str($singlePaired.sPaired) == "paired"
+                '$singlePaired.input2'
+            #end if
+
+            #if $singlePaired.input1.is_of_type("fastq.gz", "fastqsanger.gz"):
+                @FASTQ_GZ_OPTION@
             #end if
         #end if
-        ;
-    #end if
-    
-    
-    ## Actual alignment
-    STAR
-    --runThreadN \${GALAXY_SLOTS:-4}
-    --genomeLoad NoSharedMemory    
-    #if str($refGenomeSource.genomeSource) == 'history':
-        --genomeDir "tempstargenomedir"
-    #else
-        --genomeDir "$refGenomeSource.index.fields.path"
-    #end if
-    
-    --readFilesIn
-    #if str($singlePaired.sPaired) == "paired_collection"
-        "$singlePaired.input.forward" "$singlePaired.input.reverse"
-    #else
-        "$singlePaired.input1"
-        #if str($singlePaired.sPaired) == "paired"
-            "$singlePaired.input2"
-        #end if
-    #end if
 
-    ## Output parameters
-    #if str( $output_params.output_select ) == "yes":
-        --outSAMattributes $output_params.outSAMattributes
-        --outSAMstrandField $output_params.outSAMstrandField
-        --outFilterIntronMotifs $output_params.outFilterIntronMotifs
-        #if str( $output_params.output_params2.output_select2 ) == "yes":
-            --outSAMunmapped $output_params.output_params2.unmapped_opt
-            --outSAMprimaryFlag $output_params.output_params2.primary_opt
-            --outSAMmapqUnique "$output_params.output_params2.unique"
-            --outFilterType $output_params.output_params2.sjfilter_opt
-            --outFilterMultimapScoreRange "$output_params.output_params2.multiScoreRange"
-            --outFilterMultimapNmax "$output_params.output_params2.multiNmax"
-            --outFilterMismatchNmax "$output_params.output_params2.mismatchNmax"
-            --outFilterMismatchNoverLmax "$output_params.output_params2.mismatchNoverLmax"
-            --outFilterMismatchNoverReadLmax "$output_params.output_params2.mismatchNoverReadLmax"
-            --outFilterScoreMin "$output_params.output_params2.scoreMin"
-            --outFilterScoreMinOverLread "$output_params.output_params2.scoreMinOverLread"
-            --outFilterMatchNmin "$output_params.output_params2.matchNmin"
-            --outFilterMatchNminOverLread "$output_params.output_params2.matchNminOverLread"
-        #end if
-    #end if
+        --outSAMtype BAM SortedByCoordinate
 
-    ## Other parameters
-    #if str( $params.settingsType ) == "star_fusion":
-        ## Preset parameters for STAR-Fusion
-##        --twopass1readsN 100000000
-##        --sjdbOverhang 100
-        --outReadsUnmapped None
-        --chimSegmentMin 12
-        --chimJunctionOverhangMin 12
-        --alignSJDBoverhangMin 10
-        --alignMatesGapMax 200000
-        --alignIntronMax 200000
-        ## --chimSegmentReadGapMax 3              ## not an option in STAR 2.4.0
-        ## --alignSJstitchMismatchNmax 5 -1 5 5   ## not an option in STAR 2.4.0
-
-    #elif str( $params.settingsType ) == "full":
-        ## Extended parameter options
-
-        ## Seed parameter options
-        #if str( $params.seed.seed_select ) == "yes":
-            --seedSearchStartLmax "$params.seed.searchStart"
-            --seedSearchStartLmaxOverLread "$params.seed.searchStartNorm"
-            --seedSearchLmax "$params.seed.searchLmax"
-            --seedMultimapNmax "$params.seed.multimap"
-            --seedPerReadNmax "$params.seed.readMax"
-            --seedPerWindowNmax "$params.seed.windowMax"
-            --seedNoneLociPerWindow "$params.seed.oneSeed"
+        ## Handle difference between indices with/without annotations
+        #if str($refGenomeSource.geneSource) == 'indexed':
+            #if str($refGenomeSource.GTFconditional.GTFselect) == 'without-gtf':
+                #if $refGenomeSource.GTFconditional.sjdbGTFfile:
+                    --sjdbOverhang '$refGenomeSource.GTFconditional.sjdbOverhang'
+                    --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
+                    #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
+                        --sjdbGTFtagExonParentTranscript Parent
+                    #end if
+                #end if
+            #end if
         #end if
 
-        ## Alignment parameter options
-        #if str( $params.align.align_select ) == "yes":
-            --alignIntronMin "$params.align.intronMin"
-            --alignIntronMax "$params.align.intronMax"
-            --alignMatesGapMax "$params.align.gapMax"
-            --alignSJoverhangMin "$params.align.sjOverhang"
-            --alignSJDBoverhangMin "$params.align.sjdbOverhang"
-            --alignSplicedMateMapLmin "$params.align.splicedMate"
-            --alignSplicedMateMapLminOverLmate "$params.align.splicedMateNorm"
-            --alignWindowsPerReadNmax "$params.align.windows"
-            --alignTranscriptsPerWindowNmax "$params.align.transWindow"
-            --alignTranscriptsPerReadNmax "$params.align.transRead"
-            --alignEndsType $params.align.endsType_opt
+        #if $quantMode:
+            --quantMode GeneCounts
         #end if
 
-        ## Chimeric alignment parameter options
-        #if str( $params.chim.chim_select ) == "yes":
-            --chimSegmentMin "$params.chim.segmentMin"
-            --chimScoreMin "$params.chim.scoreMin"
-            --chimScoreDropMax "$params.chim.scoreDrop"
-            --chimScoreSeparation "$params.chim.scoreSep"
-            --chimScoreJunctionNonGTAG "$params.chim.scoreJunction"
-            --chimJunctionOverhangMin "$params.chim.junctionOverhang"
+        ## Output parameters
+        #if str( $output_params.output_select ) == "yes":
+            --outSAMattributes $output_params.outSAMattributes
+            --outSAMstrandField $output_params.outSAMstrandField
+            --outFilterIntronMotifs $output_params.outFilterIntronMotifs
+            #if str( $output_params.output_params2.output_select2 ) == "yes":
+                --outSAMunmapped $output_params.output_params2.outSAMunmapped
+                --outSAMprimaryFlag $output_params.output_params2.outSAMprimaryFlag
+                --outSAMmapqUnique "$output_params.output_params2.outSAMmapqUnique"
+                --outFilterType $output_params.output_params2.outFilterType
+                --outFilterMultimapScoreRange "$output_params.output_params2.outFilterMultimapScoreRange"
+                --outFilterMultimapNmax "$output_params.output_params2.outFilterMultimapNmax"
+                --outFilterMismatchNmax "$output_params.output_params2.outFilterMismatchNmax"
+                --outFilterMismatchNoverLmax "$output_params.output_params2.outFilterMismatchNoverLmax"
+                --outFilterMismatchNoverReadLmax "$output_params.output_params2.outFilterMismatchNoverReadLmax"
+                --outFilterScoreMin "$output_params.output_params2.outFilterScoreMin"
+                --outFilterScoreMinOverLread "$output_params.output_params2.outFilterScoreMinOverLread"
+                --outFilterMatchNmin "$output_params.output_params2.outFilterMatchNmin"
+                --outFilterMatchNminOverLread "$output_params.output_params2.outFilterMatchNminOverLread"
+            #end if
         #end if
 
-    #end if
+        ## Other parameters
+        #if str( $params.settingsType ) == "star_fusion":
+            ## Preset parameters for STAR-Fusion
+            --outReadsUnmapped None
+            --chimSegmentMin 12
+            --chimJunctionOverhangMin 12
+            --alignSJDBoverhangMin 10
+            --alignMatesGapMax 200000
+            --alignIntronMax 200000
 
-    ## BAM conversion.
-    
-    ## Convert aligned reads.
-    && samtools view -@ \${GALAXY_SLOTS:-4} -Shb Aligned.out.sam | samtools sort -@ \${GALAXY_SLOTS:-4} - AlignedSorted 2>/dev/null
-    
+            ## --twopass1readsN 100000000  
+            ## --chimSegmentReadGapMax 3              ## not an option in STAR 2.4.0
+            ## --alignSJstitchMismatchNmax 5 -1 5 5   ## not an option in STAR 2.4.0
+
+        #elif str( $params.settingsType ) == "full":
+            ## Extended parameter options
+
+            ## Seed parameter options
+            --seedSearchStartLmax "$params.seed.seedSearchStartLmax"
+            --seedSearchStartLmaxOverLread "$params.seed.seedSearchStartLmaxOverLread"
+            --seedSearchLmax "$params.seed.seedSearchLmax"
+            --seedMultimapNmax "$params.seed.seedMultimapNmax"
+            --seedPerReadNmax "$params.seed.seedPerReadNmax"
+            --seedPerWindowNmax "$params.seed.seedPerWindowNmax"
+            --seedNoneLociPerWindow "$params.seed.seedNoneLociPerWindow"
+        
+            ## Alignment parameter options
+            --alignIntronMin "$params.align.alignIntronMin"
+            --alignIntronMax "$params.align.alignIntronMax"
+            --alignMatesGapMax "$params.align.alignMatesGapMax"
+            --alignSJoverhangMin "$params.align.alignSJoverhangMin"
+            --alignSJDBoverhangMin "$params.align.alignSJDBoverhangMin"
+            --alignSplicedMateMapLmin "$params.align.alignSplicedMateMapLmin"
+            --alignSplicedMateMapLminOverLmate "$params.align.alignSplicedMateMapLminOverLmate"
+            --alignWindowsPerReadNmax "$params.align.alignWindowsPerReadNmax"
+            --alignTranscriptsPerWindowNmax "$params.align.alignTranscriptsPerWindowNmax"
+            --alignTranscriptsPerReadNmax "$params.align.alignTranscriptsPerReadNmax"
+            --alignEndsType $params.align.alignEndsType
+
+            ## Chimeric alignment parameter options
+            #if str( $params.chim.chim_select ) == "yes":
+                --chimSegmentMin "$params.chim.chimSegmentMin"
+                --chimScoreMin "$params.chim.chimScoreMin"
+                --chimScoreDropMax "$params.chim.chimScoreDropMax"
+                --chimScoreSeparation "$params.chim.chimScoreSeparation"
+                --chimScoreJunctionNonGTAG "$params.chim.chimScoreJunctionNonGTAG"
+                --chimJunctionOverhangMin "$params.chim.chimJunctionOverhangMin"
+            #end if
+        #end if
+
     ## Convert chimeric reads.
-    #if str($params.settingsType) == "star_fusion" or ( str($params.settingsType) == "full" and str($params.chim.chim_select) == "yes" and int($params.chim.segmentMin) > 0 ):
-        && samtools view -@ \${GALAXY_SLOTS:-4} -Shb Chimeric.out.sam | samtools sort -@ \${GALAXY_SLOTS:-4} - ChimericSorted 2>/dev/null
+    #if str($params.settingsType) == "star_fusion" or ( str($params.settingsType) == "full" and str($params.chim.chim_select) == "yes" and int($params.chim.chimSegmentMin) > 0 ):
+        &&
+        samtools view
+            -@ \${GALAXY_SLOTS:-4}
+            -Shb Chimeric.out.sam |
+        
+        samtools sort
+            -@ \${GALAXY_SLOTS:-4} - ChimericSorted
     #end if
     ]]></command>
 
@@ -145,258 +177,262 @@
         <!-- FASTQ input(s) and options specifically for paired-end data. -->
         <conditional name="singlePaired">
             <param name="sPaired" type="select" label="Single-end or paired-end reads">
-              <option value="single" selected="true">Single-end</option>
-              <option value="paired">Paired-end (as individual datasets)</option>
-              <option value="paired_collection">Paired-end (as collection)</option>
+                <option value="single" selected="true">Single-end</option>
+                <option value="paired">Paired-end (as individual datasets)</option>
+                <option value="paired_collection">Paired-end (as collection)</option>
             </param>
             <when value="single">
-                <param format="fastq,fasta" name="input1" type="data" label="RNA-Seq FASTQ/FASTA file"/>
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data" label="RNA-Seq FASTQ/FASTA file"/>
             </when>
             <when value="paired">
-                <param format="fastq,fasta" name="input1" type="data" label="RNA-Seq FASTQ/FASTA file, forward reads"/>
-                <param format="fastq,fasta" name="input2" type="data" label="RNA-Seq FASTQ/FASTA file, reverse reads"/>
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data" label="RNA-Seq FASTQ/FASTA file, forward reads"/>
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input2" type="data" label="RNA-Seq FASTQ/FASTA file, reverse reads"/>
             </when>
             <when value="paired_collection">
-                <param format="fastq,fasta" name="input" type="data_collection" collection_type="paired" label="RNA-Seq FASTQ/FASTA paired reads"/>
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input" type="data_collection" collection_type="paired" label="RNA-Seq FASTQ/FASTA paired reads"/>
             </when>
         </conditional>
 
         <!-- Genome source. -->
         <conditional name="refGenomeSource">
-            <param name="genomeSource" type="select" label="Custom or built-in reference genome" help="Built-ins were indexed using default options">
+            <param name="geneSource" type="select" label="Custom or built-in reference genome" help="Built-ins were indexed using default options">
                 <option value="indexed" selected="True">Use a built-in index</option>
-                <option value="history">Index and use a genome fasta and GTF file from history</option>
+                <option value="history">Use reference genome from history and create temporary index</option>
             </param>
             <when value="indexed">
-            <param name="index" type="select" label="Select a reference genome">
-                <options from_data_table="rnastar_index">
-                    <filter type="sort_by" column="2"/>
-                    <validator type="no_options" message="No indexes are available for the selected input dataset"/>
-                </options>
-            </param>
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" type="select" label="Reference genome with or without an annotation" help="Must the index have been created WITH a GTF file (if not you can specify one afterward).">
+                        <option value="without-gtf">use genome reference without builtin gene-model</option>
+                        <option value="with-gtf">use genome reference with builtin gene-model</option>
+                    </param>
+                    <when value="with-gtf">
+                        <param name="genomeDir" argument="--genomeDir" type="select" label="Select reference genome" help="If your genome of interest is not listed, contact the Galaxy team">
+                            <options from_data_table="rnastar_index2">
+                                <filter type="static_value" column="4" value="1"/>
+                                <filter type="sort_by" column="2" />
+                                <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                            </options>
+                        </param>
+                    </when>
+                    <when value="without-gtf">
+                        <param argument="--genomeDir" type="select" label="Select reference genome" help="If your genome of interest is not listed, contact the Galaxy team">
+                            <options from_data_table="rnastar_index2">
+                                <filter type="static_value" column="4" value="0"/>
+                                <filter type="sort_by" column="2" />
+                                <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                            </options>
+                        </param>
+                        
+                        <expand macro="@SJDBOPTIONS@" />
+                    </when>
+                </conditional>
             </when>
             <when value="history">
-                <param name="ownFile" type="data" format="fasta" metadata_name="dbkey" label="Select the reference genome" />
-                <param name="geneModel" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions. Leave blank for none"
-                    optional="true" help="Optional. If supplied, the index file will retain exon junction information for mapping splices (--sjdbGTFfile)"/>
-                <param name="overhang" type="integer" min="0" value="100" label="Length of the genomic sequence around annotated junctions" help="Used in constructing the splice junctions database. Ideal value is ReadLength-1 (--sjdbOverhang)"/>
+                <param argument="--genomeFastaFiles" type="data" format="fasta" label="Select a reference genome" />
+                <expand macro="@SJDBOPTIONS@" />
             </when>
         </conditional>
-        
+        <param argument="--quantMode" type="boolean" label="Count number of reads per gene" help="column 1: gene ID, column 2: counts for unstranded RNA-seq, column 3: counts for the 1st read strand aligned with RNA , column 4: counts for the 2nd read strand aligned with RNA. This requires either (A) an index that was built with an annotation (GTF or GFF3 file) or (B) having specified an annotation (GTF or GFF3 file above)."/>
+
         <!-- Output parameter settings. -->
         <conditional name="output_params">
-          <param name="output_select" type="select" label="Would you like to set output parameters (formatting and filtering)?">
-            <option value="no" selected="true">No</option>
-            <option value="yes">Yes</option>
-          </param>
-          <when value="yes">
-            <param name="outSAMattributes" type="select" label="Extra SAM attributes to include" help="See &quot;Extra SAM attributes&quot; below (--outSAMattributes)">
-              <option value="Standard" selected="true">Standard</option>
-              <option value="All">All</option>
-              <option value="None">None</option>
-            </param>
-            <param name="outSAMstrandField" type="select" label="Include strand field flag XS" help="For Cufflinks compatibility with unstranded RNA-seq data, this option is required (--outSAMstrandField)">
-              <option value="None" selected="true">No</option>
-              <option value="intronMotif">Yes -- and reads with inconsistent and/or non-canonical introns are filtered out</option>
-            </param>
-            <param name="outFilterIntronMotifs" type="select" label="Filter alignments containing non-canonical junctions" help="For Cufflinks compatibility, removing alignments with non-canonical junctions is recommended (--outFilterIntronMotifs)">
-              <option value="None" selected="true">No</option>
-              <option value="RemoveNoncanonical">Remove alignments with non-canonical junctions</option>
-              <option value="RemoveNoncanonicalUnannotated">Remove alignments with unannotated non-canonical junctions</option>
-            </param>
-
-            <!-- Additional output parameter settings. -->
-            <conditional name="output_params2">
-              <param name="output_select2" type="select" label="Would you like to set additional output parameters (formatting and filtering)?">
+            <param name="output_select" type="select" label="Would you like to set output parameters (formatting and filtering)?">
                 <option value="no" selected="true">No</option>
                 <option value="yes">Yes</option>
-              </param>
-              <when value="yes">
-                <param name="unmapped_opt" type="boolean" truevalue="Within" falsevalue="None" checked="false" label="Would you like unmapped reads included in the SAM?" help="(--outSAMunmapped)"/>
-                <param name="primary_opt" type="boolean" truevalue="AllBestScore" falsevalue="OneBestScore" checked="false" label="Would you like all alignments with the best score labeled primary?" help="(--outSAMprimaryFlag)"/>
-                <param name="unique" type="integer" value="255" min="0" max="255" label="MAPQ value for unique mappers" help="(--outSAMmapqUnique)"/>
-                <param name="sjfilter_opt" type="boolean" truevalue="BySJout" falsevalue="Normal" checked="false" label="Would you like to keep only reads that contain junctions that passed filtering?" help="(--outFilterType)"/>
-                <param name="multiScoreRange" type="integer" value="1" min="0" label="Score range below the maximum score for multimapping alignments" help="(--outFilterMultimapScoreRange)"/>
-                <param name="multiNmax" type="integer" value="10" min="1" label="Maximum number of alignments to output a read's alignment results, plus 1" help="Reads with at least this number of alignments will have no alignments output (--outFilterMultimapNmax)"/>
-                <param name="mismatchNmax" type="integer" value="10" min="0" label="Maximum number of mismatches to output an alignment, plus 1" help="Alignments with at least this number of mismatches will not be output (--outFilterMismatchNmax)"/>
-                <param name="mismatchNoverLmax" type="float" value="0.3" min="0" max="1" label="Maximum ratio of mismatches to mapped length" help="Alignments with a mismatch ratio of at least this value will not be output (--outFilterMismatchNoverLmax)"/>
-                <param name="mismatchNoverReadLmax" type="float" value="1" min="0" max="1" label="Maximum ratio of mismatches to read length" help="Alignments with a mismatch ratio of at least this value will not be output (--outFilterMismatchNoverReadLmax)"/>
-                <param name="scoreMin" type="integer" value="0" min="0" label="Minimum alignment score" help="Alignments must have scores higher than this value to be output (--outFilterScoreMin)"/>
-                <param name="scoreMinOverLread" type="float" value="0.66" min="0" max="1" label="Minimum alignment score, normalized to read length" help="Alignments must have (normalized) scores higher than this value to be output (--outFilterScoreMinOverLread)"/>
-                <param name="matchNmin" type="integer" value="0" min="0" label="Minimum number of matched bases" help="Alignments must have the number of matched bases higher than this value to be output (--outFilterMatchNmin)"/>
-                <param name="matchNminOverLread" type="float" value="0.66" min="0" max="1" label="Minimum number of matched bases, normalized to read length" help="Alignments must have the (normalized) number of matched bases higher than this value to be output (--outFilterMatchNminOverLread)"/>
-              </when>
-              <when value="no"/>
-            </conditional>
-
+            </param>
+            <when value="yes">
+              <param argument="--outSAMattributes" type="select" label="Extra SAM attributes to include" help="See &quot;Extra SAM attributes&quot; below">
+                    <option value="Standard" selected="true">Standard</option>
+                    <option value="All">All</option>
+                    <option value="None">None</option>
+                </param>
+                <param argument="--outSAMstrandField" type="select" label="Include strand field flag XS" help="For Cufflinks compatibility with unstranded RNA-seq data, this option is required">
+                    <option value="None" selected="true">No</option>
+                    <option value="intronMotif">Yes -- and reads with inconsistent and/or non-canonical introns are filtered out</option>
+                </param>
+                <param argument="--outFilterIntronMotifs" type="select" label="Filter alignments containing non-canonical junctions" help="For Cufflinks compatibility, removing alignments with non-canonical junctions is recommended">
+                    <option value="None" selected="true">No</option>
+                    <option value="RemoveNoncanonical">Remove alignments with non-canonical junctions</option>
+                    <option value="RemoveNoncanonicalUnannotated">Remove alignments with unannotated non-canonical junctions</option>
+                </param>
+  
+              <!-- Additional output parameter settings. -->
+              <conditional name="output_params2">
+                  <param name="output_select2" type="select" label="Would you like to set additional output parameters (formatting and filtering)?">
+                      <option value="no" selected="true">No</option>
+                      <option value="yes">Yes</option>
+                  </param>
+                  <when value="yes">
+                      <param argument="--outSAMunmapped" type="boolean" truevalue="Within" falsevalue="None" checked="false" label="Would you like unmapped reads included in the SAM?"/>
+                      <param argument="--outSAMprimaryFlag" type="boolean" truevalue="AllBestScore" falsevalue="OneBestScore" checked="false" label="Would you like all alignments with the best score labeled primary?"/>
+                      <param argument="--outSAMmapqUnique" type="integer" value="255" min="0" max="255" label="MAPQ value for unique mappers"/>
+                      <param argument="--outFilterType" type="boolean" truevalue="BySJout" falsevalue="Normal" checked="false" label="Would you like to keep only reads that contain junctions that passed filtering?"/>
+                      <param argument="--outFilterMultimapScoreRange" type="integer" value="1" min="0" label="Score range below the maximum score for multimapping alignments"/>
+                      <param argument="--outFilterMultimapNmax" type="integer" value="10" min="1" label="Maximum number of alignments to output a read's alignment results, plus 1" help="Reads with at least this number of alignments will have no alignments output"/>
+                      <param argument="--outFilterMismatchNmax" type="integer" value="10" min="0" label="Maximum number of mismatches to output an alignment, plus 1" help="Alignments with at least this number of mismatches will not be output"/>
+                      <param argument="--outFilterMismatchNoverLmax" type="float" value="0.3" min="0" max="1" label="Maximum ratio of mismatches to mapped length" help="Alignments with a mismatch ratio of at least this value will not be output"/>
+                      <param argument="--outFilterMismatchNoverReadLmax" type="float" value="1" min="0" max="1" label="Maximum ratio of mismatches to read length" help="Alignments with a mismatch ratio of at least this value will not be output"/>
+                      <param argument="--outFilterScoreMin" type="integer" value="0" min="0" label="Minimum alignment score" help="Alignments must have scores higher than this value to be output"/>
+                      <param argument="--outFilterScoreMinOverLread" type="float" value="0.66" min="0" max="1" label="Minimum alignment score, normalized to read length" help="Alignments must have (normalized) scores higher than this value to be output"/>
+                      <param argument="--outFilterMatchNmin" type="integer" value="0" min="0" label="Minimum number of matched bases" help="Alignments must have the number of matched bases higher than this value to be output"/>
+                      <param argument="--outFilterMatchNminOverLread" type="float" value="0.66" min="0" max="1" label="Minimum number of matched bases, normalized to read length" help="Alignments must have the (normalized) number of matched bases higher than this value to be output"/>
+                  </when>
+                  <when value="no"/>
+              </conditional>
           </when>
           <when value="no"/>
         </conditional>
 
         <!-- Other parameter settings. -->
         <conditional name="params">
-          <param name="settingsType" type="select" label="Other parameters (seed, alignment, and chimeric alignment)">
-            <option value="default" selected="true">Use Defaults</option>
-            <option value="star_fusion">Use parameters suggested for STAR-Fusion</option>
-            <option value="full">Extended parameter list</option>
-          </param>
-          <when value="default"/>
-          <when value="star_fusion"/> <!-- Set STAR-fusion parameters automatically -->
-
-          <when value="full">
-
-            <!-- Seed parameters -->
-            <conditional name="seed">
-              <param name="seed_select" type="select" label="Would you like to set seed parameters?">
-                <option value="no" selected="true">No</option>
-                <option value="yes">Yes</option>
-              </param>
-              <when value="yes">
-                <param name="searchStart" type="integer" min="1" value="50" label="Search start point through the read" help="(--seedSearchStartLmax)"/>
-                <param name="searchStartNorm" type="float" min="0" value="1.0" label="Search start point through the read, normalized to read length" help="(--seedSearchStartLmaxOverLread)"/>
-                <param name="searchLmax" type="integer" min="0" value="0" label="Maximum length of seeds" help="Default of 0 indicates no maximum length (--seedSearchLmax)"/>
-                <param name="multimap" type="integer" min="1" value="10000" label="Maximum number of mappings to use a piece in stitching" help="(--seedMultimapNmax)"/>
-                <param name="readMax" type="integer" min="1" value="1000" label="Maximum number of seeds per read" help="(--seedPerReadNmax)"/>
-                <param name="windowMax" type="integer" min="1" value="50" label="Maximum number of seeds per window" help="(--seedPerWindowNmax)"/>
-                <param name="oneSeed" type="integer" min="1" value="10" label="Maximum number of one seed loci per window" help="(--seedNoneLociPerWindow)"/>
-              </when>
-              <when value="no"/>
-            </conditional>
-
-            <!-- Alignment parameters -->
-            <conditional name="align">
-              <param name="align_select" type="select" label="Would you like to set alignment parameters?">
-                <option value="no" selected="true">No</option>
-                <option value="yes">Yes</option>
-              </param>
-              <when value="yes">
-                <param name="intronMin" type="integer" min="0" value="21" label="Minimum intron size" help="(--alignIntronMin)"/>
-                <param name="intronMax" type="integer" min="0" value="0" label="Maximum intron size" help="(--alignIntronMax)"/>
-                <param name="gapMax" type="integer" min="0" value="0" label="Maximum gap between two mates" help="(--alignMatesGapMax)"/>
-                <param name="sjOverhang" type="integer" min="1" value="5" label="Minimum overhang for spliced alignments" help="(--alignSJoverhangMin)"/>
-                <param name="sjdbOverhang" type="integer" min="1" value="3" label="Minimum overhang for annotated spliced alignments" help="(--alignSJDBoverhangMin)"/>
-                <param name="splicedMate" type="integer" min="0" value="0" label="Minimum mapped length for a read mate that is spliced" help="(--alignSplicedMateMapLmin)"/>
-                <param name="splicedMateNorm" type="float" min="0" value="0.66" label="Minimum mapped length for a read mate that is spliced, normalized to mate length" help="(--alignSplicedMateMapLminOverLmate)"/>
-                <param name="windows" type="integer" min="1" value="10000" label="Maximum number of windows per read" help="(--alignWindowsPerReadNmax)"/>
-                <param name="transWindow" type="integer" min="1" value="100" label="Maximum number of transcripts per window" help="(--alignTranscriptsPerWindowNmax)"/>
-                <param name="transRead" type="integer" min="1" value="10000" label="Maximum number of different alignments per read to consider" help="(--alignTranscriptsPerReadNmax)"/>
-                <param name="endsType_opt" type="boolean" truevalue="EndToEnd" falsevalue="Local" checked="false" label="Use end-to-end read alignments, with no soft-clipping?" help="(--alignEndsType)"/>
-              </when>
-              <when value="no"/>
-            </conditional>
-
-            <!-- Chimeric alignment parameters -->
-            <conditional name="chim">
-              <param name="chim_select" type="select" label="Would you like to set chimeric alignment parameters?">
-                <option value="no" selected="true">No</option>
-                <option value="yes">Yes</option>
-              </param>
-              <when value="yes">
-                <param name="segmentMin" type="integer" min="0" value="0" label="Minimum length of chimeric segment" help="Default of 0 means no chimeric output (--chimSegmentMin)"/>
-                <param name="scoreMin" type="integer" min="0" value="0" label="Minimum total (summed) score of chimeric segments" help="(--chimScoreMin)"/>
-                <param name="scoreDrop" type="integer" min="0" value="20" label="Maximum difference of chimeric score from read length" help="(--chimScoreDropMax)"/>
-                <param name="scoreSep" type="integer" min="0" value="10" label="Minimum difference between the best chimeric score and the next one" help="(--chimScoreSeparation)"/>
-                <param name="scoreJunction" type="integer" value="-1" label="Penalty for a non-GT/AG chimeric junction" help="(--chimScoreJunctionNonGTAG)"/>
-                <param name="junctionOverhang" type="integer" min="0" value="20" label="Minimum overhang for a chimeric junction" help="(--chimJunctionOverhangMin)"/>
-              </when>
-              <when value="no"/>
-            </conditional>
-
-          </when>
+            <param name="settingsType" type="select" label="Other parameters (seed, alignment, and chimeric alignment)">
+                <option value="default" selected="true">Use Defaults</option>
+                <option value="star_fusion">Use parameters suggested for STAR-Fusion</option>
+                <option value="full">Extended parameter list</option>
+            </param>
+            <when value="default"/>
+            <when value="star_fusion"/><!-- Set STAR-fusion parameters automatically -->
+  
+            <when value="full">
+                <section name="seed" title="Seed parameters" expanded="False">
+                    <param argument="--seedSearchStartLmax" type="integer" min="1" value="50" label="Search start point through the read"/>
+                    <param argument="--seedSearchStartLmaxOverLread" type="float" min="0" value="1.0" label="Search start point through the read, normalized to read length"/>
+                    <param argument="--seedSearchLmax" type="integer" min="0" value="0" label="Maximum length of seeds" help="Default of 0 indicates no maximum length"/>
+                    <param argument="--seedMultimapNmax" type="integer" min="1" value="10000" label="Maximum number of mappings to use a piece in stitching"/>
+                    <param argument="--seedPerReadNmax" type="integer" min="1" value="1000" label="Maximum number of seeds per read"/>
+                    <param argument="--seedPerWindowNmax" type="integer" min="1" value="50" label="Maximum number of seeds per window"/>
+                    <param argument="--seedNoneLociPerWindow" type="integer" min="1" value="10" label="Maximum number of one seed loci per window"/>
+                </section>
+    
+                <section name="align" title="Alignment parameters" expanded="False">
+                    <param argument="--alignIntronMin" name="alignIntronMin" type="integer" min="0" value="21" label="Minimum intron size"/>
+                    <param argument="--alignIntronMax" type="integer" min="0" value="0" label="Maximum intron size"/>
+                    <param argument="--alignMatesGapMax" type="integer" min="0" value="0" label="Maximum gap between two mates"/>
+                    <param argument="--alignSJoverhangMin" type="integer" min="1" value="5" label="Minimum overhang for spliced alignments"/>
+                    <param argument="--alignSJDBoverhangMin" type="integer" min="1" value="3" label="Minimum overhang for annotated spliced alignments"/>
+                    <param argument="--alignSplicedMateMapLmin" type="integer" min="0" value="0" label="Minimum mapped length for a read mate that is spliced"/>
+                    <param argument="--alignSplicedMateMapLminOverLmate" type="float" min="0" value="0.66" label="Minimum mapped length for a read mate that is spliced, normalized to mate length"/>
+                    <param argument="--alignWindowsPerReadNmax" type="integer" min="1" value="10000" label="Maximum number of windows per read"/>
+                    <param argument="--alignTranscriptsPerWindowNmax" type="integer" min="1" value="100" label="Maximum number of transcripts per window"/>
+                    <param argument="--alignTranscriptsPerReadNmax" type="integer" min="1" value="10000" label="Maximum number of different alignments per read to consider"/>
+                    <param argument="--alignEndsType" type="boolean" truevalue="EndToEnd" falsevalue="Local" checked="false" label="Use end-to-end read alignments, with no soft-clipping?"/>
+                </section>
+    
+                <conditional name="chim">
+                    <param name="chim_select" type="select" label="Would you like to set chimeric alignment parameters?">
+                        <option value="no" selected="true">No</option>
+                        <option value="yes">Yes</option>
+                    </param>
+                    <when value="yes">
+                        <param argument="--chimSegmentMin" type="integer" min="0" value="0" label="Minimum length of chimeric segment" help="For small numbers this will cause large number of chimeric alignments. A value of 12 is commonly used. Default of 0 means no chimeric output">
+                            <validator type="in_range" min="1" message="To get chimeric reads this value needs to be larger than 0"/>
+                        </param>
+                        <param argument="--chimScoreMin" type="integer" min="0" value="0" label="Minimum total (summed) score of chimeric segments"/>
+                        <param argument="--chimScoreDropMax" type="integer" min="0" value="20" label="Maximum difference of chimeric score from read length"/>
+                        <param argument="--chimScoreSeparation" type="integer" min="0" value="10" label="Minimum difference between the best chimeric score and the next one"/>
+                        <param argument="--chimScoreJunctionNonGTAG" type="integer" value="-1" label="Penalty for a non-GT/AG chimeric junction"/>
+                        <param argument="--chimJunctionOverhangMin" type="integer" min="0" value="20" label="Minimum overhang for a chimeric junction"/>
+                    </when>
+                    <when value="no"/>
+                </conditional>
+            </when>
         </conditional>
-        
     </inputs>
 
     <outputs>
         <data format="txt" name="output_log" label="${tool.name} on ${on_string}: log" from_work_dir="Log.final.out"/>
-        <data format="interval" name="chimeric_junctions" label="${tool.name} on ${on_string}: starchimjunc" from_work_dir="Chimeric.out.junction">
-            <filter>params['settingsType'] == "star_fusion" or ( params['settingsType'] == "full" and params['chim']['chim_select'] == "yes" and params['chim']['segmentMin'] > 0 )</filter>
+        <data format="interval" name="chimeric_junctions" label="${tool.name} on ${on_string}: chimeric junctions" from_work_dir="Chimeric.out.junction">
+            <filter>params['settingsType'] == "star_fusion" or ( params['settingsType'] == "full" and params['chim']['chim_select'] == "yes" and params['chim']['chimSegmentMin'] > 0 )</filter>
             <actions>
-                <conditional name="refGenomeSource.genomeSource">
+                <conditional name="refGenomeSource.geneSource">
                     <when value="indexed">
                         <action type="metadata" name="dbkey">
                             <option type="from_data_table" name="rnastar_index" column="1" offset="0">
                                 <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
-                                <filter type="param_value" ref="refGenomeSource.index" column="0"/>
+                                <filter type="param_value" ref="refGenomeSource.GTFconditional.genomeDir" column="0"/>
                             </option>
                         </action>
                     </when>
                     <when value="history">
                         <action type="metadata" name="dbkey">
-                            <option type="from_param" name="refGenomeSource.ownFile" param_attribute="dbkey" />
+                            <option type="from_param" name="refGenomeSource.genomeFastaFiles" param_attribute="dbkey" />
                         </action>
                     </when>
                 </conditional>
             </actions>
         </data>
 
-        <data format="bam" name="chimeric_reads" label="${tool.name} on ${on_string}: starmappedchim.bam" from_work_dir="ChimericSorted.bam">
-            <filter>params['settingsType'] == "star_fusion" or ( params['settingsType'] == "full" and params['chim']['chim_select'] == "yes" and params['chim']['segmentMin'] > 0 )</filter>
+        <data format="bam" name="chimeric_reads" label="${tool.name} on ${on_string}: chimeric.bam" from_work_dir="ChimericSorted.bam">
+            <filter>params['settingsType'] == "star_fusion" or ( params['settingsType'] == "full" and params['chim']['chim_select'] == "yes" and params['chim']['chimSegmentMin'] > 0 )</filter>
             <actions>
-                <conditional name="refGenomeSource.genomeSource">
+                <conditional name="refGenomeSource.geneSource">
                     <when value="indexed">
                         <action type="metadata" name="dbkey">
                             <option type="from_data_table" name="rnastar_index" column="1" offset="0">
                                 <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
-                                <filter type="param_value" ref="refGenomeSource.index" column="0"/>
+                                <filter type="param_value" ref="refGenomeSource.GTFconditional.genomeDir" column="0"/>
                             </option>
                         </action>
                     </when>
                     <when value="history">
                         <action type="metadata" name="dbkey">
-                            <option type="from_param" name="refGenomeSource.ownFile" param_attribute="dbkey" />
+                            <option type="from_param" name="refGenomeSource.genomeFastaFiles" param_attribute="dbkey" />
+                        </action>
+                    </when>
+                </conditional>
+            </actions>
+        </data>
+
+        <data format="interval" name="splice_junctions" label="${tool.name} on ${on_string}: splice junctions.bed" from_work_dir="SJ.out.tab">
+            <actions>
+                <conditional name="refGenomeSource.geneSource">
+                    <when value="indexed">
+                        <action type="metadata" name="dbkey">
+                            <option type="from_data_table" name="rnastar_index" column="1" offset="0">
+                                <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
+                                <filter type="param_value" ref="refGenomeSource.GTFconditional.genomeDir" column="0"/>
+                            </option>
+                        </action>
+                    </when>
+                    <when value="history">
+                        <action type="metadata" name="dbkey">
+                            <option type="from_param" name="refGenomeSource.genomeFastaFiles" param_attribute="dbkey" />
+                        </action>
+                    </when>
+                </conditional>
+            </actions>
+        </data>
+
+        <data name="mapped_reads" format="bam" label="${tool.name} on ${on_string}: mapped.bam" from_work_dir="Aligned.sortedByCoord.out.bam">
+            <actions>
+                <conditional name="refGenomeSource.geneSource">
+                    <when value="indexed">
+                        <action type="metadata" name="dbkey">
+                            <option type="from_data_table" name="rnastar_index" column="1" offset="0">
+                                <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
+                                <filter type="param_value" ref="refGenomeSource.GTFconditional.genomeDir" column="0"/>
+                            </option>
+                        </action>
+                    </when>
+                    <when value="history">
+                        <action type="metadata" name="dbkey">
+                            <option type="from_param" name="refGenomeSource.genomeFastaFiles" param_attribute="dbkey" />
                         </action>
                     </when>
                 </conditional>
             </actions>
         </data>
         
-        <data format="interval" name="splice_junctions" label="${tool.name} on ${on_string}: starsplicejunct.bed" from_work_dir="SJ.out.tab">
-            <actions>
-                <conditional name="refGenomeSource.genomeSource">
-                    <when value="indexed">
-                        <action type="metadata" name="dbkey">
-                            <option type="from_data_table" name="rnastar_index" column="1" offset="0">
-                                <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
-                                <filter type="param_value" ref="refGenomeSource.index" column="0"/>
-                            </option>
-                        </action>
-                    </when>
-                    <when value="history">
-                        <action type="metadata" name="dbkey">
-                            <option type="from_param" name="refGenomeSource.ownFile" param_attribute="dbkey" />
-                        </action>
-                    </when>
-                </conditional>
-            </actions>
-        </data>
-        
-        <data format="bam" name="mapped_reads" label="${tool.name} on ${on_string}: starmapped.bam" from_work_dir="AlignedSorted.bam">
-            <actions>
-                <conditional name="refGenomeSource.genomeSource">
-                    <when value="indexed">
-                        <action type="metadata" name="dbkey">
-                            <option type="from_data_table" name="rnastar_index" column="1" offset="0">
-                                <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
-                                <filter type="param_value" ref="refGenomeSource.index" column="0"/>
-                            </option>
-                        </action>
-                    </when>
-                    <when value="history">
-                        <action type="metadata" name="dbkey">
-                            <option type="from_param" name="refGenomeSource.ownFile" param_attribute="dbkey" />
-                        </action>
-                    </when>
-                </conditional>
-            </actions>
+        <data name="reads_per_gene" format="tabular" label="${tool.name} on ${on_string}: reads per gene" from_work_dir="ReadsPerGene.out.tab">
+            <filter>quantMode is True</filter>
         </data>
     </outputs>
 
     <tests>
         <test>
             <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
-            <param name="genomeSource" value="history" />
-            <param name="ownFile" value="tophat_test.fa" />
+            <param name="geneSource" value="history" />
+            <param name="genomeFastaFiles" value="tophat_test.fa" />
             <param name="sPaired" value="single" />
 
             <param name="output_select" value="yes" />
@@ -404,14 +440,34 @@
             <param name="outSAMstrandField" value="intronMotif" />
             <param name="settingsType" value="default" />
             
-            <output name="output_log" file="rnastar_test.log" compare="diff" lines_diff = "10"/>
+            <output name="output_log" file="rnastar_test.log" compare="diff" lines_diff="12"/>
             <output name="splice_junctions" file="rnastar_test_splicejunctions.bed"/>
-            <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="200" />
+            <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" />
+        </test>
+        <test><!-- tests gtf file and GeneCounts mode -->
+            <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
+            <param name="geneSource" value="history" />
+            <param name="genomeFastaFiles" value="tophat_test.fa" />
+
+            <param name="sjdbOverhang" value="75"/>
+            <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+            <param name="quantMode" value="True"/>
+
+            <param name="sPaired" value="single" />
+            <param name="output_select" value="yes" />
+            <param name="outSAMattributes" value="All" />
+            <param name="outSAMstrandField" value="intronMotif" />
+            <param name="settingsType" value="default" />
+            
+            <output name="output_log" file="rnastar_test.log" compare="diff" lines_diff="12"/>
+            <output name="splice_junctions" file="rnastar_test_splicejunctions.bed"/>
+            <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" />
+            <output name="reads_per_gene" file="tophat_test_reads_per_gene.txt" />
         </test>
         <test>
             <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
-            <param name="genomeSource" value="history" />
-            <param name="ownFile" value="tophat_test.fa" />
+            <param name="geneSource" value="history" />
+            <param name="genomeFastaFiles" value="tophat_test.fa" />
             <param name="sPaired" value="single" />
             
             <param name="output_select" value="yes" />
@@ -420,58 +476,65 @@
             <param name="outFilterIntronMotifs" value="RemoveNoncanonical" />
             
             <param name="output_select2" value="yes" />
-            <param name="scoreMinOverLread" value="0.9" />
+            <param name="outFilterScoreMinOverLread" value="0.9" />
             <param name="settingsType" value="full" />
             <param name="seed_select" value="yes" />
-            <param name="searchStart" value="25" />
+            <param name="seedSearchStartLmax" value="25" />
 
-            <output name="output_log" file="rnastar_test2.log" compare="diff" lines_diff="10"/>
+            <output name="output_log" file="rnastar_test2.log" compare="diff" lines_diff="12"/>
             <output name="splice_junctions" file="rnastar_test2_splicejunctions.bed"/>
             <output name="mapped_reads" file="rnastar_test2_mapped_reads.bam" compare="sim_size" delta="200" />
         </test>
-
         <test>
             <param name="input1" value="test3.fastqsanger" ftype="fastqsanger" />
-            <param name="genomeSource" value="history" />
-            <param name="ownFile" value="test3.ref.fa" />
+            <param name="geneSource" value="history" />
+            <param name="genomeFastaFiles" value="test3.ref.fa" />
             <param name="sPaired" value="single" />
 
             <param name="output_select" value="yes" />
             <param name="outSAMattributes" value="All" />
             <param name="outSAMstrandField" value="intronMotif" />
             <param name="settingsType" value="star_fusion" />
-            
+
             <output name="chimeric_junctions" file="test3.chimjunc.tabular"/>
         </test>
-        
+        <test><!-- tests fastqsanger.gz -->
+            <param name="input1" value="test3.fastqsanger.gz" ftype="fastqsanger.gz" />
+            <param name="geneSource" value="history" />
+            <param name="genomeFastaFiles" value="test3.ref.fa" />
+            <param name="sPaired" value="single" />
+
+            <param name="output_select" value="yes" />
+            <param name="outSAMattributes" value="All" />
+            <param name="outSAMstrandField" value="intronMotif" />
+            <param name="settingsType" value="star_fusion" />
+
+            <output name="chimeric_junctions" file="test3.chimjunc.tabular"/>
+        </test>
         <test>
             <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
-            <param name="genomeSource" value="history" />
-            <param name="ownFile" value="tophat_test.fa" />
+            <param name="geneSource" value="history" />
+            <param name="genomeFastaFiles" value="tophat_test.fa" />
             <param name="sPaired" value="single" />
-            
+
             <param name="output_select" value="yes" />
             <param name="outSAMattributes" value="All" />
             <param name="outSAMstrandField" value="intronMotif" />
             <param name="outFilterIntronMotifs" value="RemoveNoncanonical" />
-            
+
             <param name="output_select2" value="yes" />
             <param name="settingsType" value="full" />
-            <param name="seed_select" value="yes" />
-            <param name="align_select" value="yes" />
-            <param name="chim_select" value="yes" />
+            <param name="chim_select" value="false" />
             
-            <!-- Uses default settings, should be similar to test1, but tests the parameters -->
-            <output name="output_log" file="rnastar_test.log" compare="diff" lines_diff="10"/>
+            <output name="output_log" file="rnastar_test.log" compare="diff" lines_diff="12"/>
             <output name="splice_junctions" file="rnastar_test_splicejunctions.bed"/>
-            <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" /><!-- header is 434 bytes larger  -->
+            <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" />
         </test>
-
     </tests>
     <help>
 **What it does**
 
-This tool runs STAR, an ultrafast universal RNA-seq aligner.
+STAR is an ultrafast universal RNA-seq aligner.
 
 **Extra SAM attributes**
 
@@ -500,10 +563,6 @@ STAR prior to STAR-Fusion can be pre-selected, with the following exceptions::
 
 **Attributions**
 
-Note that each component has its own license:
- - RNA STAR: GPLv3
- - samtools: MIT/Expat License
-
 rna_star - see the web site at rna_star_
 
 For details, please see the rna_starMS_
@@ -525,8 +584,6 @@ written by Ross Lazarus and that part is licensed_ the same way as other rgeneti
 .. _rna_star: https://github.com/alexdobin/STAR
 .. _rna_starMS: http://bioinformatics.oxfordjournals.org/content/29/1/15.full
 .. _Galaxy: http://getgalaxy.org
-</help>
-    <citations>
-        <citation type="doi">10.1093/bioinformatics/bts635</citation>
-    </citations>
+    </help>
+    <expand macro="citations"/>
 </tool>

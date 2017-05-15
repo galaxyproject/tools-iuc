@@ -1,13 +1,15 @@
 '''
 Methods for calculating log-likelihoods for nucleotide frequencies
 '''
-import math
 import collections
+import math
+
 from ngsutils.support import memoize
 
 _default_background = {'A': 0.3, 'T': 0.3, 'C': 0.2, 'G': 0.2}
 
 NucleotideLogLikelihood = collections.namedtuple('NucleotideLogLikelihood', 'A C G T pseudo')
+
 
 @memoize
 def pseudo_count(N, bg):
@@ -47,7 +49,6 @@ def calc_llh(A, C, G, T, bg=_default_background, pseudo='auto'):
     freqT = Tp / Np
 
     return NucleotideLogLikelihood(math.log(freqA / bg['A']), math.log(freqC / bg['C']), math.log(freqG / bg['G']), math.log(freqT / bg['T']), pseudo)
-
 
 
 if __name__ == '__main__':

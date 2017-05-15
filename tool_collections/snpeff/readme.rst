@@ -6,14 +6,6 @@ It annotates and predicts the effects of variants on genes (such as amino acid c
 
 .. _SnpEff: http://snpeff.sourceforge.net/
 
-
-This repository let you automatically install SnpEff and SnpSift.
-This will use the default location for genome reference downloads from the ``snpEff.config`` file:
-
-  data_dir = ~/snpEff/data/
-
-You can manually edit the installed ``snpEff.config`` file and change the location, or you can create a symbolic link to the desired data location from ``~/snpEff``.
-
 The genome reference options used by the tools "SnpEff" (snpEff.xml) and "SnpEff Download" (snpEff_download.xml) are taken from the ``tool-data/snpeffect_genomedb.loc`` file.
 You can fill this file by running the following command:
 
@@ -35,4 +27,3 @@ SnpSift citation: |Cingolani2012using|_.
 .. _Cingolani2012using: http://journal.frontiersin.org/Journal/10.3389/fgene.2012.00035/
 
 Wrapper authors: Jim Johnson
-

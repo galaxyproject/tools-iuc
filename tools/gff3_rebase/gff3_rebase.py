@@ -1,11 +1,13 @@
 #!/usr/bin/env python
-import sys
-import logging
-logging.basicConfig(level=logging.INFO)
 import argparse
 import copy
+import logging
+import sys
+
 from BCBio import GFF
 from Bio.SeqFeature import FeatureLocation
+
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 __author__ = "Eric Rasche"
@@ -168,8 +170,8 @@ def rebase(parent, child, interpro=False, protein2dna=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='rebase gff3 features against parent locations', epilog="")
-    parser.add_argument('parent', type=file, help='Parent GFF3 annotations')
-    parser.add_argument('child', help='Child GFF3 annotations to rebase against parent')
+    parser.add_argument('parent', type=argparse.FileType('r'), help='Parent GFF3 annotations')
+    parser.add_argument('child', type=argparse.FileType('r'), help='Child GFF3 annotations to rebase against parent')
     parser.add_argument('--interpro', action='store_true',
                         help='Interpro specific modifications')
     parser.add_argument('--protein2dna', action='store_true',

@@ -1,17 +1,20 @@
 #!/usr/bin/env python
-import os
-import copy
 import argparse
-import subprocess
+import codecs
+import copy
 import hashlib
-import struct
-import tempfile
-import shutil
 import json
-from Bio.Data import CodonTable
-import xml.etree.ElementTree as ET
 import logging
+import os
+import shutil
+import struct
+import subprocess
+import tempfile
+import xml.etree.ElementTree as ET
 from collections import defaultdict
+
+from Bio.Data import CodonTable
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('jbrowse')
 
@@ -125,7 +128,7 @@ class ColorScaling(object):
 
     def rgb_from_hex(self, hexstr):
         # http://stackoverflow.com/questions/4296249/how-do-i-convert-a-hex-triplet-to-an-rgb-tuple-and-back
-        return struct.unpack('BBB',hexstr.decode('hex'))
+        return struct.unpack('BBB', codecs.decode(hexstr, 'hex'))
 
     def min_max_gff(self, gff_file):
         min_val = None
@@ -150,9 +153,34 @@ class ColorScaling(object):
         return '#%02x%02x%02x' % (r, g, b)
 
     def _get_colours(self):
-        r, g, b = self.BREWER_COLOUR_SCHEMES[self.brewer_colour_idx]
+        r, g, b = self.BREWER_COLOUR_SCHEMES[self.brewer_colour_idx % len(self.BREWER_COLOUR_SCHEMES)]
         self.brewer_colour_idx += 1
         return r, g, b
+
+    def parse_menus(self, track):
+        trackConfig = {'menuTemplate': [{}, {}, {}, {}]}
+
+        if 'menu' in track['menus']:
+            menu_list = [track['menus']['menu']]
+            if isinstance(track['menus']['menu'], list):
+                menu_list = track['menus']['menu']
+
+            for m in menu_list:
+                tpl = {
+                    'action': m['action'],
+                    'label': m.get('label', '{name}'),
+                    'iconClass': m.get('iconClass', 'dijitIconBookmark'),
+                }
+                if 'url' in m:
+                    tpl['url'] = m['url']
+                if 'content' in m:
+                    tpl['content'] = m['content']
+                if 'title' in m:
+                    tpl['title'] = m['title']
+
+                trackConfig['menuTemplate'].append(tpl)
+
+        return trackConfig
 
     def parse_colours(self, track, trackFormat, gff3=None):
         # Wiggle tracks have a bicolor pallete
@@ -165,7 +193,6 @@ class ColorScaling(object):
             if trackConfig['style']['pos_color'] == '__auto__':
                 trackConfig['style']['neg_color'] = self.hex_from_rgb(*self._get_colours())
                 trackConfig['style']['pos_color'] = self.hex_from_rgb(*self._get_colours())
-
 
             # Wiggle tracks can change colour at a specified place
             bc_pivot = track['wiggle']['bicolor_pivot']
@@ -206,11 +233,11 @@ class ColorScaling(object):
                     min_val = 0
                     max_val = 1000
                     # Get min/max and build a scoring function since JBrowse doesn't
-                    if scales['type'] == 'automatic':
+                    if scales['type'] == 'automatic' or scales['type'] == '__auto__':
                         min_val, max_val = self.min_max_gff(gff3)
                     else:
-                        min_val = scales['min']
-                        max_val = scales['max']
+                        min_val = scales.get('min', 0)
+                        max_val = scales.get('max', 1000)
 
                     if scheme['color'] == '__auto__':
                         user_color = 'undefined'
@@ -223,7 +250,7 @@ class ColorScaling(object):
                         auto_color = "'%s'" % self.hex_from_rgb(*self._get_colours())
 
                     color_function = self.COLOR_FUNCTION_TEMPLATE_QUAL.format(**{
-                        'opacity': self.OPACITY_MATH[algo].format(**{'max': max_val,'min': min_val}),
+                        'opacity': self.OPACITY_MATH[algo].format(**{'max': max_val, 'min': min_val}),
                         'user_spec_color': user_color,
                         'auto_gen_color': auto_color,
                     })
@@ -238,16 +265,16 @@ def etree_to_dict(t):
     if children:
         dd = defaultdict(list)
         for dc in map(etree_to_dict, children):
-            for k, v in dc.iteritems():
+            for k, v in dc.items():
                 dd[k].append(v)
-        d = {t.tag: {k:v[0] if len(v) == 1 else v for k, v in dd.iteritems()}}
+        d = {t.tag: {k: v[0] if len(v) == 1 else v for k, v in dd.items()}}
     if t.attrib:
-        d[t.tag].update(('@' + k, v) for k, v in t.attrib.iteritems())
+        d[t.tag].update(('@' + k, v) for k, v in t.attrib.items())
     if t.text:
         text = t.text.strip()
         if children or t.attrib:
             if text:
-              d[t.tag]['#text'] = text
+                d[t.tag]['#text'] = text
         else:
             d[t.tag] = text
     return d
@@ -274,6 +301,7 @@ class JbrowseConnector(object):
         self.genome_paths = genomes
         self.standalone = standalone
         self.gencode = gencode
+        self.tracksToIndex = []
 
         if standalone:
             self.clone_jbrowse(self.jbrowse, self.outdir)
@@ -302,7 +330,6 @@ class JbrowseConnector(object):
         with open(trackList, 'w') as handle:
             json.dump(trackListData, handle, indent=2)
 
-
     def subprocess_check_call(self, command):
         log.debug('cd %s && %s', self.outdir, ' '.join(command))
         subprocess.check_call(command, cwd=self.outdir)
@@ -316,20 +343,35 @@ class JbrowseConnector(object):
                 'perl', self._jbrowse_bin('prepare-refseqs.pl'),
                 '--fasta', genome_path])
 
-    def _add_json(self, json_data):
-        if len(json_data.keys()) == 0:
-            return
+    def generate_names(self):
+        # Generate names
 
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        tmp.write(json.dumps(json_data))
-        tmp.close()
-        cmd = ['perl', self._jbrowse_bin('add-track-json.pl'), tmp.name,
-               os.path.join('data', 'trackList.json')]
+        args = [
+            'perl', self._jbrowse_bin('generate-names.pl'),
+            '--hashBits', '16'
+        ]
+
+        tracks = ','.join(self.tracksToIndex)
+
+        if tracks:
+            args += ['--tracks', tracks]
+        else:
+            # No tracks to index, index only the refseq
+            args += ['--tracks', 'DNA']
+
+        self.subprocess_check_call(args)
+
+    def _add_json(self, json_data):
+
+        cmd = [
+            'perl', self._jbrowse_bin('add-json.pl'),
+            json.dumps(json_data),
+            os.path.join('data', 'trackList.json')
+        ]
         self.subprocess_check_call(cmd)
-        os.unlink(tmp.name)
 
     def _add_track_json(self, json_data):
-        if len(json_data.keys()) == 0:
+        if len(json_data) == 0:
             return
 
         tmp = tempfile.NamedTemporaryFile(delete=False)
@@ -339,7 +381,6 @@ class JbrowseConnector(object):
                os.path.join('data', 'trackList.json')]
         self.subprocess_check_call(cmd)
         os.unlink(tmp.name)
-
 
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
@@ -353,7 +394,7 @@ class JbrowseConnector(object):
     def add_blastxml(self, data, trackData, blastOpts, **kwargs):
         gff3 = self._blastxml_to_gff3(data, min_gap=blastOpts['min_gap'])
 
-        if 'parent' in blastOpts:
+        if 'parent' in blastOpts and blastOpts['parent'] != 'None':
             gff3_rebased = tempfile.NamedTemporaryFile(delete=False)
             cmd = ['python', os.path.join(INSTALLED_TO, 'gff3_rebase.py')]
             if blastOpts.get('protein', 'false') == 'true':
@@ -383,16 +424,24 @@ class JbrowseConnector(object):
                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                ]
 
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
+
         self.subprocess_check_call(cmd)
         os.unlink(gff3)
+
+        if blastOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
         cmd = ['ln', data, dest]
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.bw')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest),
+            "urlTemplate": url,
             "storeClass": "JBrowse/Store/SeqFeature/BigWig",
             "type": "JBrowse/View/Track/Wiggle/Density",
         })
@@ -416,12 +465,12 @@ class JbrowseConnector(object):
         cmd = ['ln', '-s', os.path.realpath(bam_index), dest + '.bai']
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.bam')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest),
+            "urlTemplate": url,
             "type": "JBrowse/View/Track/Alignments2",
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
         })
-
 
         self._add_track_json(trackData)
 
@@ -430,7 +479,7 @@ class JbrowseConnector(object):
             trackData2.update({
                 "type": "JBrowse/View/Track/SNPCoverage",
                 "key": trackData['key'] + " - SNPs/Coverage",
-                "label": trackData['label']  + "_autosnp",
+                "label": trackData['label'] + "_autosnp",
             })
             self._add_track_json(trackData2)
 
@@ -444,8 +493,9 @@ class JbrowseConnector(object):
         cmd = ['tabix', '-p', 'vcf', dest + '.gz']
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.vcf')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest + '.gz'),
+            "urlTemplate": url,
             "type": "JBrowse/View/Track/HTMLVariants",
             "storeClass": "JBrowse/Store/SeqFeature/VCFTabix",
         })
@@ -457,32 +507,55 @@ class JbrowseConnector(object):
             self.TN_TABLE.get(format, 'gff'),
             data,
             '--trackLabel', trackData['label'],
-            '--trackType', 'JBrowse/View/Track/CanvasFeatures',
             '--key', trackData['key']
         ]
+
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
 
         config = copy.copy(trackData)
         clientConfig = trackData['style']
         del config['style']
 
-        if  'match' in gffOpts:
+        if 'match' in gffOpts:
             config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
             cmd += ['--type', gffOpts['match']]
 
         cmd += ['--clientConfig', json.dumps(clientConfig),
-                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                 ]
+
+        trackType = 'JBrowse/View/Track/CanvasFeatures'
+        if 'trackType' in gffOpts:
+            trackType = gffOpts['trackType']
+
+        if trackType == 'JBrowse/View/Track/CanvasFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                config['transcriptType'] = gffOpts['transcriptType']
+            if 'subParts' in gffOpts and gffOpts['subParts']:
+                config['subParts'] = gffOpts['subParts']
+            if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
+                config['impliedUTRs'] = gffOpts['impliedUTRs']
+        elif trackType == 'JBrowse/View/Track/HTMLFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                cmd += ['--type', gffOpts['transcriptType']]
+
+        cmd += [
+            '--trackType', gffOpts['trackType']
+        ]
 
         cmd.extend(['--config', json.dumps(config)])
 
         self.subprocess_check_call(cmd)
 
+        if gffOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
 
     def process_annotations(self, track):
         outputTrackConfig = {
             'style': {
-                'label':       track['style'].get('label', 'description'),
-                'className':   track['style'].get('className', 'feature'),
+                'label': track['style'].get('label', 'description'),
+                'className': track['style'].get('className', 'feature'),
                 'description': track['style'].get('description', ''),
             },
             'category': track['category'],
@@ -492,7 +565,7 @@ class JbrowseConnector(object):
             log.info('Processing %s / %s', track['category'], track_human_label)
             outputTrackConfig['key'] = track_human_label
             hashData = [dataset_path, track_human_label, track['category']]
-            outputTrackConfig['label'] = hashlib.md5('|'.join(hashData)).hexdigest() + '_%s' % i
+            outputTrackConfig['label'] = hashlib.md5('|'.join(hashData).encode('utf-8')).hexdigest() + '_%s' % i
 
             # Colour parsing is complex due to different track types having
             # different colour options.
@@ -505,9 +578,15 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
+            if 'menus' in track['conf']['options']:
+                menus = self.cs.parse_menus(track['conf']['options'])
+                outputTrackConfig.update(menus)
+
+            # import pprint; pprint.pprint(track)
+            # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
-                                track['conf']['options']['gff'])
+                                  track['conf']['options']['gff'])
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
                                 track['conf']['options']['wiggle'])
@@ -531,6 +610,37 @@ class JbrowseConnector(object):
             elif dataset_ext == 'vcf':
                 self.add_vcf(dataset_path, outputTrackConfig)
 
+            # Return non-human label for use in other fields
+            yield outputTrackConfig['label']
+
+    def add_final_data(self, data):
+        viz_data = {}
+        if len(data['visibility']['default_on']) > 0:
+            viz_data['defaultTracks'] = ','.join(data['visibility']['default_on'])
+
+        if len(data['visibility']['always']) > 0:
+            viz_data['alwaysOnTracks'] = ','.join(data['visibility']['always'])
+
+        if len(data['visibility']['force']) > 0:
+            viz_data['forceTracks'] = ','.join(data['visibility']['force'])
+
+        generalData = {}
+        if data['general']['aboutDescription'] is not None:
+            generalData['aboutThisBrowser'] = {'description': data['general']['aboutDescription'].strip()}
+
+        generalData['view'] = {
+            'trackPadding': data['general']['trackPadding']
+        }
+        generalData['shareLink'] = (data['general']['shareLink'] == 'true')
+        generalData['show_tracklist'] = (data['general']['show_tracklist'] == 'true')
+        generalData['show_nav'] = (data['general']['show_nav'] == 'true')
+        generalData['show_overview'] = (data['general']['show_overview'] == 'true')
+        generalData['show_menu'] = (data['general']['show_menu'] == 'true')
+        generalData['hideGenomeOptions'] = (data['general']['hideGenomeOptions'] == 'true')
+
+        viz_data.update(generalData)
+        self._add_json(viz_data)
+
     def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory.
         """
@@ -552,7 +662,7 @@ class JbrowseConnector(object):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
-    parser.add_argument('xml', type=file, help='Track Configuration')
+    parser.add_argument('xml', type=argparse.FileType('r'), help='Track Configuration')
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
@@ -570,6 +680,25 @@ if __name__ == '__main__':
         gencode=root.find('metadata/gencode').text
     )
 
+    extra_data = {
+        'visibility': {
+            'default_on': [],
+            'default_off': [],
+            'force': [],
+            'always': [],
+        },
+        'general': {
+            'defaultLocation': root.find('metadata/general/defaultLocation').text,
+            'trackPadding': int(root.find('metadata/general/trackPadding').text),
+            'shareLink': root.find('metadata/general/shareLink').text,
+            'aboutDescription': root.find('metadata/general/aboutDescription').text,
+            'show_tracklist': root.find('metadata/general/show_tracklist').text,
+            'show_nav': root.find('metadata/general/show_nav').text,
+            'show_overview': root.find('metadata/general/show_overview').text,
+            'show_menu': root.find('metadata/general/show_menu').text,
+            'hideGenomeOptions': root.find('metadata/general/hideGenomeOptions').text,
+        }
+    }
     for track in root.findall('tracks/track'):
         track_conf = {}
         track_conf['trackfiles'] = [
@@ -582,8 +711,14 @@ if __name__ == '__main__':
         try:
             # Only pertains to gff3 + blastxml. TODO?
             track_conf['style'] = {t.tag: t.text for t in track.find('options/style')}
-        except TypeError, te:
+        except TypeError:
             track_conf['style'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
-        jc.process_annotations(track_conf)
+        keys = jc.process_annotations(track_conf)
+
+        for key in keys:
+            extra_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
+
+    jc.add_final_data(extra_data)
+    jc.generate_names()

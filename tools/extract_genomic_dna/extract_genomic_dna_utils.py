@@ -4,7 +4,7 @@ import subprocess
 import sys
 import tempfile
 
-from bx.intervals.io import Comment, Header, GenomicInterval
+from bx.intervals.io import Comment, GenomicInterval, Header
 from bx.intervals.io import GenomicIntervalReader, NiceReaderWrapper, ParseError
 
 # Default chrom, start, end, strand cols for a bed file
@@ -288,8 +288,41 @@ def convert_to_twobit(reference_genome):
             os.remove(tmp_name)
             stop_err(stderr)
         return seq_path
-    except Exception, e:
+    except Exception as e:
         stop_err('Error running faToTwoBit. ' + str(e))
+
+
+def get_bedtools_getfasta_default_header(chrom, start, end, strand, includes_strand_col):
+    """
+    Return a fasta header that is the default produced by the bedtools
+    getfasta tool, assuming "force strandedness".  This will produce a
+    header with this format: <chrom>:<start>-<end>(strand).  If the input
+    data includes a strand column and the strand is '+' or '-', then use it.
+    If the input data includes a strand column and the value of strand is
+    anything but '+' or '-', set strand to '.' in the header.  If the input
+    data does not include a strand column, set strand to '.' in the header.
+    """
+    if includes_strand_col and strand in ['+', '-']:
+        strand_val = strand
+    else:
+        strand_val = '.'
+    return '%s:%s-%s(%s)' % (chrom, start, end, strand_val)
+
+
+def get_fasta_header_delimiter(delimiter):
+    # Return a specified fasta header delimiter.
+    if delimiter == 'underscore':
+        return '_'
+    if delimiter == 'semicolon':
+        return ';'
+    if delimiter == 'comma':
+        return ','
+    if delimiter == 'tilde':
+        return '~'
+    if delimiter == 'vertical_bar':
+        return '|'
+    # Set the default to underscore.
+    return '_'
 
 
 def get_lines(feature):
