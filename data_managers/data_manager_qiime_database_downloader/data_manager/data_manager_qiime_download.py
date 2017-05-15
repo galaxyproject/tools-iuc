@@ -1,16 +1,13 @@
 #!/usr/bin/env python
-#
+
 # Data manager for reference data for the QIIME Galaxy tools
-import json
 import argparse
+import ftplib
+import json
 import os
-import subprocess
-import sys
+import requests
 import tarfile
 import zipfile
-import requests
-import ftplib
-
 
 protocol = {
     "unite": "http",
@@ -168,7 +165,7 @@ def find_archive_content_path(archive_content_path):
     archive_content = []
     for x in content:
         if not x.startswith(".") and not x.startswith("_"):
-           archive_content.append(x) 
+            archive_content.append(x)
     if len(archive_content) == 1:
         archive_content_path = os.path.join(
             archive_content_path,
@@ -193,8 +190,7 @@ def extract_archive(filepath, ext, db):
     return archive_content_path
 
 
-def move_unite_files(archive_content_path, filename_prefix, 
-name_prefix, data_tables, target_dir):
+def move_unite_files(archive_content_path, filename_prefix, name_prefix, data_tables, target_dir):
     """
 
     """
@@ -221,8 +217,7 @@ name_prefix, data_tables, target_dir):
                 "taxonomy")
 
 
-def move_file(input_filepath, filename, name, data_tables, target_dir,
-filetype):
+def move_file(input_filepath, filename, name, data_tables, target_dir, filetype):
     """
     """
     output_filepath = os.path.join(target_dir, filename)
@@ -237,8 +232,7 @@ filetype):
             path=output_filepath))
 
 
-def move_dir_content(input_path, filename_prefix, name_prefix, data_tables,
-target_dir, filetype):
+def move_dir_content(input_path, filename_prefix, name_prefix, data_tables, target_dir, filetype):
     """
     """
     for content in os.listdir(input_path):
@@ -265,8 +259,7 @@ target_dir, filetype):
                 filetype)
 
 
-def move_files(archive_content_path, filename_prefix, 
-name_prefix, data_tables, target_dir, db, version):
+def move_files(archive_content_path, filename_prefix, name_prefix, data_tables, target_dir, db, version):
     """
     """
     for filetype in filetypes:
@@ -323,7 +316,7 @@ def download_db(data_tables, db, version, target_dir):
         move_files(
             archive_content_path,
             filename_prefix,
-            name_prefix, 
+            name_prefix,
             data_tables,
             target_dir,
             db,
