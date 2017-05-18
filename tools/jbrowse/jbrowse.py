@@ -738,9 +738,14 @@ class JbrowseConnector(object):
 
         # http://unix.stackexchange.com/a/38691/22785
         # JBrowse releases come with some broken symlinks
-        cmd = ['find', destination, '-type', 'l', '-xtype', 'l', '-exec', 'rm', "{}", '+']
+        cmd = ['find', destination, '-type', 'l', '-xtype', 'l']
         log.debug(' '.join(cmd))
-        subprocess.check_call(cmd)
+        symlinks = subprocess.check_output(cmd)
+        for i in symlinks:
+            try:
+                os.unlink(i)
+            except:
+                pass
 
 
 if __name__ == '__main__':
