@@ -7,6 +7,10 @@ make_otu_table.py \
     --exclude_otus_fp 'test-data/make_otu_table/chimeric_seqs.txt' \
     --mapping_fp 'test-data/make_otu_table/mapping_file.txt' \
     --output_biom_fp 'test-data/make_otu_table/OTU_table_chimeric.biom'
+biom convert \
+    -i 'test-data/make_otu_table/OTU_table_chimeric.biom' \
+    -o 'test-data/make_otu_table/OTU_table_chimeric.biom' \
+    --to-json
 
 make_otu_table.py \
     --otu_map_fp 'test-data/make_otu_table/otu_map.txt' \
@@ -14,6 +18,10 @@ make_otu_table.py \
     --exclude_otus_fp 'test-data/make_otu_table/pynast_failures.fna' \
     --mapping_fp 'test-data/make_otu_table/mapping_file.txt' \
     --output_biom_fp 'test-data/make_otu_table/OTU_table_pynast.biom'
+biom convert \
+    -i 'test-data/make_otu_table/OTU_table_pynast.biom' \
+    -o 'test-data/make_otu_table/OTU_table_pynast.biom' \
+    --to-json
 
 # collapse_samples
 collapse_samples.py \
