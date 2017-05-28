@@ -201,9 +201,9 @@ maOutPdf <- character()   # Initialise character vector
 maOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
-  maOutPdf[i] <- makeOut(paste0("maplot(", contrastData[i], ").pdf"))
-  maOutPng[i] <- makeOut(paste0("maplot(", contrastData[i], ").png"))
-  topOut[i] <- makeOut(paste0("toptab(", contrastData[i], ").tsv"))
+  maOutPdf[i] <- makeOut(paste0("maplot_", contrastData[i], ".pdf"))
+  maOutPng[i] <- makeOut(paste0("maplot_", contrastData[i], ".png"))
+  topOut[i] <- makeOut(paste0("limma-voom_", contrastData[i], ".tsv"))
 }                         # Save output paths for each contrast as vectors
 rdaOut <- makeOut("RData.rda")
 sessionOut <- makeOut("session_info.txt")
@@ -222,8 +222,8 @@ flatCount <- numeric()
                         
 # Read in counts and geneanno data
 counts <- read.table(countPath, header=TRUE, sep="\t")
-row.names(counts) <- counts$GeneID
-counts <- counts[ , !(colnames(counts)=="GeneID")]
+row.names(counts) <- counts[, 1]
+counts <- counts[ , -1]
 countsRows <- nrow(counts)
 if (haveAnno) {
   geneanno <- read.table(annoPath, header=TRUE, sep="\t")
@@ -368,9 +368,9 @@ for (i in 1:length(contrastData)) {
   top <- topTable(voomFit, coef=i, number=Inf, sort.by="P")
   write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
   
-  linkName <- paste0("Top Differential Expressions(", contrastData[i], 
-                     ") (.tsv)")
-  linkAddr <- paste0("toptab(", contrastData[i], ").tsv")
+  linkName <- paste0("Top Differential Expressions_", contrastData[i], 
+                     ".tsv")
+  linkAddr <- paste0("limma-voom_", contrastData[i], ".tsv")
   linkData <- rbind(linkData, c(linkName, linkAddr))
   
   # Plot MA (log ratios vs mean average) using limma package on weighted data
@@ -382,8 +382,8 @@ for (i in 1:length(contrastData)) {
   
   abline(h=0, col="grey", lty=2)
   
-  linkName <- paste0("MA Plot(", contrastData[i], ")", " (.pdf)")
-  linkAddr <- paste0("maplot(", contrastData[i], ").pdf")
+  linkName <- paste0("MA Plot_", contrastData[i], " (.pdf)")
+  linkAddr <- paste0("maplot_", contrastData[i], ".pdf")
   linkData <- rbind(linkData, c(linkName, linkAddr))
   invisible(dev.off())
   
@@ -395,8 +395,8 @@ for (i in 1:length(contrastData)) {
   
   abline(h=0, col="grey", lty=2)
   
-  imgName <- paste0("MA Plot(", contrastData[i], ")")
-  imgAddr <- paste0("maplot(", contrastData[i], ").png")
+  imgName <- paste0("MA Plot_", contrastData[i])
+  imgAddr <- paste0("maplot_", contrastData[i], ".png")
   imageData <- rbind(imageData, c(imgName, imgAddr))
   invisible(dev.off())
 }
@@ -434,7 +434,7 @@ cat("", file=htmlPath)
 cata("<html>\n")
 
 cata("<body>\n")
-cata("<h3>Limma Voom Analysis Output:</h3>\n")
+cata("<h3>Limma-voom Analysis Output:</h3>\n")
 cata("PDF copies of JPEGS available in 'Plots' section.<br />\n")
 if (wantWeight) {
   HtmlImage(imageData$Link[1], imageData$Label[1], width=1000)
