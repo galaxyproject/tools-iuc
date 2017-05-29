@@ -6,15 +6,23 @@ spaces = '    '
 
 def format_name(name, alternative_name):
     """
+    Format name to remove None name and & in name
     """
     if name is None:
         name = alternative_name
     name = name.replace("&", "and")
     return name
 
+def sort_by_name(dict):
+    """
+    Sort a dictionary on the values
+    """
+    return sorted(dict, key=dict.get)
+
 
 def write_domain_options(domains, domain_ids):
     """
+    Write the domains as options
     """
     to_write = '%s<param argument="--domain" type="select" ' % (3 * spaces)
     to_write += 'label="Domain identifier in EBI">\n'
@@ -29,6 +37,7 @@ def write_domain_options(domains, domain_ids):
 
 def add_queries(searchable_fields):
     """
+    Add (free text and constrained) queries on the searchable fields
     """
     to_write = ""
     if len(searchable_fields) == 0:
@@ -52,8 +61,7 @@ def add_queries(searchable_fields):
     to_write += '%s</param>\n' % (7 * spaces)
     # Parameter with the searchable field
     to_write += '%s<param name="query_field" type="select" label="Fields">\n' % (7 * spaces)
-    searchable_field_ids = searchable_fields.keys()
-    searchable_field_ids.sort()
+    searchable_field_ids = sort_by_name(searchable_fields)
     for field in searchable_field_ids:
         to_write += '%s<option value="%s">%s</option>\n' % (
             8 * spaces,
@@ -87,12 +95,12 @@ def add_queries(searchable_fields):
 
 def add_retrievable_field(retrievable_fields):
     """
+    Add fields to extract
     """
     to_write = ''
     if len(retrievable_fields) == 0:
         return to_write
-    retrievable_field_ids = retrievable_fields.keys()
-    retrievable_field_ids.sort()
+    retrievable_field_ids = sort_by_name(retrievable_fields)
     to_write += '%s<repeat name="fields" title="Add field to export">\n' % (4 * spaces)
     to_write += '%s<param argument="--field" type="select" label="Field to export">\n' % (5 * spaces)
     for field in retrievable_field_ids:
@@ -106,12 +114,12 @@ def add_retrievable_field(retrievable_fields):
 
 def add_sorting(sortable_fields):
     """
+    Add sorting possibility (simple or complex) if sortable fields
     """
     to_write = ''
     if len(sortable_fields) == 0:
         return to_write
-    sortable_field_ids = sortable_fields.keys()
-    sortable_field_ids.sort()
+    sortable_field_ids = sort_by_name(sortable_fields)
     to_write += '%s<conditional name="sort">\n' % (4 * spaces)
     to_write += '%s<param name="selection" type="select" label="Sorting?">\n' % (5 * spaces)
     to_write += '%s<option value="none">None</option>\n' % (6 * spaces)
@@ -155,6 +163,7 @@ def add_sorting(sortable_fields):
 
 def fill_when(domains, domain_ids):
     """
+    Fill the conditional parameters for each domain
     """
     to_write = ""
     for domain in domain_ids:
@@ -169,10 +178,10 @@ def fill_when(domains, domain_ids):
 
 def generate_search_macros(filepath):
     """
+    Generate the content of the macro file
     """
     domains = ebisearch.get_domains(verbose=False)
-    domain_ids = domains.keys()
-    domain_ids.sort()
+    domain_ids = sort_by_name(domains)
     to_write = '<?xml version="1.0" ?>\n'
     to_write += '<macros>\n'
     to_write += '%s<xml name="inputs">\n' % (spaces)
