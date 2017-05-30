@@ -165,15 +165,34 @@ def fill_when(domains, domain_ids):
     """
     Fill the conditional parameters for each domain
     """
-    to_write = ""
+    param_to_write = ""
+    command_to_write = "#if "
+    sep = ""
     for domain in domain_ids:
         fields = ebisearch.get_fields(domain, verbose=False)
-        to_write += '%s<when value="%s">\n' % (3 * spaces, domain)
-        to_write += add_queries(fields['searchable'])
-        to_write += add_retrievable_field(fields['retrievable'])
-        to_write += add_sorting(fields['sortable'])
-        to_write += '%s</when>\n' % (3 * spaces)
-    return to_write
+        param_to_write += '%s<when value="%s">\n' % (3 * spaces, domain)
+        param_to_write += add_queries(fields['searchable'])
+        param_to_write += add_retrievable_field(fields['retrievable'])
+        sorting_to_write = add_sorting(fields['sortable'])
+        param_to_write += sorting_to_write
+        param_to_write += '%s</when>\n' % (3 * spaces)
+        if sorting_to_write != '':
+            command_to_write += '%s$searched_domain.domain == "%s" ' % (
+                sep,
+                domain)
+            sep = "or "
+
+    command_to_write += '\n'
+    command_to_write += '%s#if $searched_domain.sort.selection == "simple"\n' % (spaces)
+    command_to_write += "%s--sort_field '$searched_domain.sort.sort_field'\n" % (2 * spaces)
+    command_to_write += "%s--order '$searched_domain.sort.order'\n" % (2 * spaces)
+    command_to_write += '%s#else if $searched_domain.sort.selection == "complex"\n' % (spaces)
+    command_to_write += "%s#for $i, $s in enumerate( $searched_domain.sort.complex_sort )\n" % (2 * spaces)
+    command_to_write += "%s--sort '$s.field:$s.order'\n" % (3 * spaces)
+    command_to_write += "%s#end for\n" % (2 * spaces)
+    command_to_write += "%s#end if\n" % (spaces)
+    command_to_write += "#end if\n"
+    return param_to_write, command_to_write
 
 
 def generate_search_macros(filepath):
@@ -187,9 +206,15 @@ def generate_search_macros(filepath):
     to_write += '%s<xml name="inputs">\n' % (spaces)
     to_write += '%s<conditional name="searched_domain">\n' % (2 * spaces)
     to_write += write_domain_options(domains, domain_ids)
-    to_write += fill_when(domains, domain_ids)
+    param_to_write, command_to_write = fill_when(domains, domain_ids)
+    to_write += param_to_write
     to_write += '%s</conditional>\n' % (2 * spaces)
     to_write += '%s</xml>\n' % (spaces)
+    to_write += '%s<token name="@SORTING@">\n' % (spaces)
+    to_write += '<![CDATA[\n'
+    to_write += '%s' % (command_to_write)
+    to_write += ']]>\n'
+    to_write += '%s</token>\n' % (spaces)
     to_write += '</macros>\n'
     with open(filepath, "w") as file:
         file.write(to_write)
