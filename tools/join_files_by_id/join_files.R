@@ -58,8 +58,11 @@ df_list[[1]] <- data.frame(ids=df_list[[1]])
 
 
 ids <- df_list[[1]]
+ids <- data.frame(ids = ids[order(ids$ids), "ids" ])
 merged_df <- mclapply(2:length(df_list), function(x){
-  merge(x = ids, y = df_list[[x]], by = "ids", all.x = T, sort = F)[-1]
+  merged_sub <- merge(x = ids, y = df_list[[x]], by = "ids", all.x = T, sort = F)
+  merged_sub <- merged_sub[order(merged_sub$ids), ]
+  merged_sub[-1]
 }, mc.cores=4)
 
 df <- cbind(ids, do.call(cbind, merged_df))
