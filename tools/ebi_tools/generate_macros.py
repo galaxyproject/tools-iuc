@@ -4,6 +4,7 @@ import ebisearch
 
 spaces = '    '
 
+
 def format_name(name, alternative_name):
     """
     Format name to remove None name and & in name
@@ -12,6 +13,7 @@ def format_name(name, alternative_name):
         name = alternative_name
     name = name.replace("&", "and")
     return name
+
 
 def sort_by_name(dict):
     """
@@ -111,6 +113,7 @@ def add_retrievable_field(retrievable_fields):
     to_write += '%s</param>\n' % (5 * spaces)
     to_write += '%s</repeat>\n' % (4 * spaces)
     return to_write
+
 
 def add_sorting(sortable_fields):
     """
