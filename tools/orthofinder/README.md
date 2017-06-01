@@ -1,13 +1,21 @@
-Changelog
+Orthofinder only_groups for Galaxy
+
+Version 1.0 - June 2017
+
+  - This tool allows to run the first part of Orthofinder (Emms, D.M. and Kelly, S., 2015).
+    -> runs blastp + MCL to infer orthogroups
+  - Conda dependencies for Orthofinder 1.1.4 and python 2.7.
+
+*******************************************************************************
 
 This readme is currently used for implementation details ; it will be re-writed correctly afterwoods.
 
-01/06/2017 - Version 1.0 - WORK IN PROGRESS 
+June 7th 2017 WORK IN PROGRESS 
 
-  - Started to split the tool in two part
-  - 1st part is finished : it goes up to the -og option : It infers orthogroups (blastp+MCL)
-    Available options : -f, -b, -op, -og, -t, -a
-  - The 2d part is about to start
+  - Tool splitted in two part
+  - 1st part is finished : infers orthogroups (blastp+MCL)
+    implement arguments : -f, -b, -og, -t, -a
+  - 2d part is about to start
 
 *******************************************************************************
 
@@ -26,7 +34,4 @@ This readme is currently used for implementation details ; it will be re-writed 
 
   - About the outputs : according to the selected option, the directory for the output files regularly differs (the tool is written this way in the 1.1.4 version, maybe it has been improved int the recent versions): sometimes, a "Results_MonthDay" directory is created, sometimes not. Acording to this, I had to add multiple if and elif statements in the command, in order to have the outputs files always at the same place for the galaxy outputs.
 
-  - For now, the input files are not send in the tool as a dataset collection : the history quickly becomes messy when using options like -b or -fg (many files required).
-  - Issue about dataset collections for outputs : Some files are missing, and sub-directories are ignored ! Once the bug resolved, I will try to improve that and write the output in order to have only one collection with all the results.
-    - Example of missing file : galaxy does not seem to make the difference between "Orthogroups.txt" and "Orthogroups.csv" : only .txt file is in the collection.
-    - Already Fixed (not sure) : at some point, the working directory output was incomplete (some mising files) when running orthofinder from the very beginning ("orthofinder -f .").
+  - Outputs with multiples subfiles and subfolders. Not easy to implement.
