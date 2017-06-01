@@ -1,20 +1,25 @@
 Changelog
 
-Version 1.0 WORK IN PROGRESS - 26/05/2017
-  - This readme is currently used for implementation details ; it will be re-writed correctly afterwoods.
+This readme is currently used for implementation details ; it will be re-writed correctly afterwoods.
 
+01/06/2017 - Version 1.0 - WORK IN PROGRESS 
+
+  - Started to split the tool in two part
+  - 1st part is finished : it goes up to the -og option : It infers orthogroups (blastp+MCL)
+    Available options : -f, -b, -op, -og, -t, -a
+  - The 2d part is about to start
+
+*******************************************************************************
+
+26/05/2017 - Version 1.0 - WORK IN PROGRESS
+  
   - Conda dependency for Orthofinder 1.1.4
-
   - The wrapper already includes the following tool options : -f, -b, -fg, -op, -og, -I, -s, -t, -a
-
   - Missing options : 
      - -ft (quite hard to implement : it needs inputs with subdirectories and files from all the previous steps), 
      - -x
-
   - No readme for the following options : -os, -oa, -ot, -M
-
   - Tests are made with the Example Dataset of Orthofinder (4 species of Mycoplasma, quick enought to make many tests).
-
   - The wrapper is NOT (yet?) implemented to deal with incompatible options. The user has to know a bit what he is doing.
 
   # BUGs and/or Issues : #
