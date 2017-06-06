@@ -116,7 +116,7 @@ if __name__ == '__main__':
                     # histogram
                     # hs4 0 1999999 5.0000,3.0000,1.0000,19.0000
                     sys.stdout.write(' '.join(
-                        (genome, region_start, region_end, ','.join(values))
+                        (genome, str(region_start), str(region_end), ','.join(map(str, values)))
                     ) + '\n')
                 elif MODE == 'heatmap':
                     # heatmap
@@ -129,21 +129,21 @@ if __name__ == '__main__':
                     for x in max_idx:
                         if x in data[genome][position]:
                             sys.stdout.write(' '.join(
-                                (genome, region_start, region_end, data[genome][position][x], 'id=hm%s' % x)
+                                (genome, str(region_start), str(region_end), data[genome][position][x], 'id=hm%s' % x)
                             ) + '\n')
                         else:
                             sys.stdout.write(' '.join(
-                                (genome, region_start, region_end, 0.0, 'id=hm%s' % x)
+                                (genome, str(region_start), str(region_end), 0.0, 'id=hm%s' % x)
                             ) + '\n')
                 elif MODE == 'line':
                     # multiple=False
                     sys.stdout.write(' '.join(
-                        (genome, region_start, region_end, data[genome][position][0])
+                        (genome, str(region_start), str(region_end), data[genome][position][0])
                     ) + '\n')
                 elif MODE == 'scatter':
                     # multiple=False
                     sys.stdout.write(' '.join(
-                        (genome, region_start, region_end, data[genome][position][0])
+                        (genome, str(region_start), str(region_end), data[genome][position][0])
                     ) + '\n')
 
                 # Update start of next array
