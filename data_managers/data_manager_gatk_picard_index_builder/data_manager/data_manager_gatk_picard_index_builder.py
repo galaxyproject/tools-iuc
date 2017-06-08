@@ -131,7 +131,7 @@ def _sort_fasta_gatk( fasta_filename ):
         sorted_names = ["chr%s" % x for x in sorted_names]
     else:
         sorted_names.insert( 0, "MT" )
-    sorted_names.extend( "%s_random" % x for x in sorted_names )
+    sorted_names.extend( [ "%s_random" % x for x in sorted_names ] )
 
     existing_sorted_names = []
     for name in sorted_names:
