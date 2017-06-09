@@ -368,7 +368,7 @@ for (i in 1:length(contrastData)) {
   top <- topTable(voomFit, coef=i, number=Inf, sort.by="P")
   write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
   
-  linkName <- paste0("Top Differential Expressions_", contrastData[i], 
+  linkName <- paste0("limma-voom_", contrastData[i], 
                      ".tsv")
   linkAddr <- paste0("limma-voom_", contrastData[i], ".tsv")
   linkData <- rbind(linkData, c(linkName, linkAddr))
@@ -566,58 +566,68 @@ link[2] <- paste0("<a href=\"",
                   "vignettes/edgeR/inst/doc/edgeRUsersGuide.pdf",
                   "\">", "edgeR User's Guide", "</a>")
 
-cit[1] <- paste("Please cite the paper below for the limma software itself.",
+cit[1] <- paste("Please cite the following paper for this tool:")
+
+cit[2] <- paste("Liu R, Holik AZ, Su S, Jansz N, Chen K, Leong HS, Blewitt ME,",
+                "Asselin-Labat ML, Smyth GK, Ritchie ME (2015). Why weight? ",
+                "Modelling sample and observational level variability improves power ",
+                "in RNA-seq analyses. Nucleic Acids Research, 43(15), e97.")
+
+cit[3] <- paste("Please cite the paper below for the limma software itself.",
                 "Please also try to cite the appropriate methodology articles",
                 "that describe the statistical methods implemented in limma,",
                 "depending on which limma functions you are using. The",
                 "methodology articles are listed in Section 2.1 of the",
                 link[1],
                 "Cite no. 3 only if sample weights were used.")
-cit[2] <- paste("Smyth, GK (2005). Limma: linear models for microarray data.",
+cit[4] <- paste("Smyth GK (2005). Limma: linear models for microarray data.",
                 "In: 'Bioinformatics and Computational Biology Solutions using",
                 "R and Bioconductor'. R. Gentleman, V. Carey, S. doit,.",
                 "Irizarry, W. Huber (eds), Springer, New York, pages 397-420.")
-cit[3] <- paste("Please cite the first paper for the software itself and the",
+cit[5] <- paste("Please cite the first paper for the software itself and the",
                 "other papers for the various original statistical methods",
                 "implemented in edgeR.  See Section 1.2 in the", link[2],
                 "for more detail.")
-cit[4] <- paste("Robinson MD, McCarthy DJ and Smyth GK (2010). edgeR: a",
+cit[6] <- paste("Robinson MD, McCarthy DJ and Smyth GK (2010). edgeR: a",
                 "Bioconductor package for differential expression analysis",
                 "of digital gene expression data. Bioinformatics 26, 139-140")
-cit[5] <- paste("Robinson MD and Smyth GK (2007). Moderated statistical tests",
+cit[7] <- paste("Robinson MD and Smyth GK (2007). Moderated statistical tests",
                 "for assessing differences in tag abundance. Bioinformatics",
                 "23, 2881-2887")
-cit[6] <- paste("Robinson MD and Smyth GK (2008). Small-sample estimation of",
+cit[8] <- paste("Robinson MD and Smyth GK (2008). Small-sample estimation of",
                 "negative binomial dispersion, with applications to SAGE data.",
                 "Biostatistics, 9, 321-332")
-cit[7] <- paste("McCarthy DJ, Chen Y and Smyth GK (2012). Differential",
+cit[9] <- paste("McCarthy DJ, Chen Y and Smyth GK (2012). Differential",
                 "expression analysis of multifactor RNA-Seq experiments with",
                 "respect to biological variation. Nucleic Acids Research 40,",
                 "4288-4297")
-cit[8] <- paste("Law, CW, Chen, Y, Shi, W, and Smyth, GK (2014). Voom:",
+cit[10] <- paste("Law CW, Chen Y, Shi W, and Smyth GK (2014). Voom:",
                 "precision weights unlock linear model analysis tools for",
                 "RNA-seq read counts. Genome Biology 15, R29.")
-cit[9] <- paste("Ritchie, M. E., Diyagama, D., Neilson, J., van Laar,", 
-                "R., Dobrovic, A., Holloway, A., and Smyth, G. K. (2006).",
+cit[11] <- paste("Ritchie ME, Diyagama D, Neilson J, van Laar R,", 
+                "Dobrovic A, Holloway A and Smyth GK (2006).",
                 "Empirical array quality weights for microarray data.",
                 "BMC Bioinformatics 7, Article 261.")
 cata("<h3>Citations</h3>\n")
+cata(cit[1], "\n")
+cata("<br>\n")
+cata(cit[2], "\n")
 
 cata("<h4>limma</h4>\n")
-cata(cit[1], "\n")
-cata("<ol>\n")
-ListItem(cit[2])
-ListItem(cit[8])
-ListItem(cit[9])
-cata("</ol>\n")
-
-cata("<h4>edgeR</h4>\n")
 cata(cit[3], "\n")
 cata("<ol>\n")
 ListItem(cit[4])
-ListItem(cit[5])
+ListItem(cit[10])
+ListItem(cit[11])
+cata("</ol>\n")
+
+cata("<h4>edgeR</h4>\n")
+cata(cit[5], "\n")
+cata("<ol>\n")
 ListItem(cit[6])
 ListItem(cit[7])
+ListItem(cit[8])
+ListItem(cit[9])
 cata("</ol>\n")
 
 cata("<p>Please report problems or suggestions to: su.s@wehi.edu.au</p>\n")
