@@ -31,13 +31,13 @@ Features
    -  [x] Scatter Plots
    -  [x] Line Plots
 
--  [ ] Links
+-  [x] Links
 -  [x] Axes
 -  [x] Backgrounds
--  [ ] Highlights
+-  [x] Highlights
 
    -  [ ] Wedge
 
--  [ ] Grids?
 -  [x] Test cases
+-  [ ] Grids?
 -  [ ] Fine grained Z-depth control
