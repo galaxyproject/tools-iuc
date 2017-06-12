@@ -15,7 +15,7 @@ HUMANN2_REFERENCE_DATA = {
     "uniref50_diamond": "Full UniRef50",
     "uniref50_ec_filtered_diamond": "EC-filtered UniRef50",
     "uniref50_GO_filtered_rapsearch2": "GO filtered UniRef50 for rapsearch2",
-    "uniref90_diamond": "Full UniRef50",
+    "uniref90_diamond": "Full UniRef90",
     "uniref90_ec_filtered_diamond": "EC-filtered UniRef90",
     "DEMO_diamond": "Demo"
 }
