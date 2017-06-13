@@ -229,7 +229,7 @@ def move_file(input_filepath, filename, name, data_tables, target_dir, filetype)
         "qiime_%s" % (filetype),
         dict(
             dbkey=filename,
-            value="1.0",
+            value=os.path.splitext(filename)[0],
             name=name,
             path=output_filepath))
 
