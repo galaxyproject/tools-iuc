@@ -5,6 +5,7 @@ import datetime
 import json
 import optparse
 import os
+import shutil
 import subprocess
 import sys
 
@@ -116,9 +117,7 @@ def download_humann2_db(data_tables, table_name, database, build, target_dir):
                                                      build,
                                                      db_target_dir)
     subprocess.check_call(cmd, shell=True)
-    print(os.listdir(db_target_dir))
-    os.rename(os.path.join(db_target_dir, database), build_target_dir)
-    print(os.listdir(db_target_dir))
+    shutil.move(os.path.join(db_target_dir, database), build_target_dir)
     add_data_table_entry(
         data_tables,
         table_name,
