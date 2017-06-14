@@ -5,15 +5,16 @@ Input: Any combination of scidx and gff format of reads
 Output: Called peaks in gff format
 """
 
-import csv
-import optparse
 import bisect
-import sys
+import csv
 import math
+import optparse
+import os
 import re
 import subprocess
-import os
+import sys
 import tempfile
+
 import numpy
 
 GFF_EXT = 'gff'
