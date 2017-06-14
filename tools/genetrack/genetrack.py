@@ -4,15 +4,16 @@ genetrack.py
 Input: Any combination of scidx and gff format of reads
 Output: Called peaks in gff format
 """
+
 import csv
 import optparse
-import sys
 import bisect
+import sys
 import math
 import re
 import subprocess
-import tempfile
 import os
+import tempfile
 import numpy
 
 GFF_EXT = 'gff'
