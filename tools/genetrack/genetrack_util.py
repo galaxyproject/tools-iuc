@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import os
 
 import numpy
 
@@ -327,7 +328,7 @@ def call_peaks(array, shift, data, keys, direction, down_width, up_width, exclus
     return peaks
 
 
-def process_chromosome(cname, data, writer, process_bounds, width, sigma, down_width, up_width, exclusion, filter):
+def process(cname, data, writer, process_bounds, width, sigma, down_width, up_width, exclusion, filter):
     """
     Process a chromosome. Takes the chromosome name, list of reads, a CSV
     writer to write processes results to, the bounds (2-tuple) to write
@@ -384,7 +385,10 @@ def sort_chromosome_reads_by_index(input_path):
     Return a gff file with chromosome reads sorted by index.
     """
     # Will this sort produce different results across platforms?
-    output_path = tempfile.NamedTemporaryFile(delete=False).name
+    gff_path = os.path.join(os.getcwd(), 'gff_inputs')
+    if not os.path.exists(gff_path):
+        os.mkdir(gff_path)
+    output_path = tempfile.NamedTemporaryFile(delete=False, dir=gff_path).name
     command = 'sort -k 1,1 -k 4,4n "%s" > "%s"' % (input_path, output_path)
     p = subprocess.Popen(command, shell=True)
     p.wait()
