@@ -205,7 +205,12 @@ def _sort_fasta_custom(fasta_filename, params):
 def _download_file(start, fh):
     tmp = tempfile.NamedTemporaryFile()
     tmp.write(start)
-    tmp.write(fh.read())
+    while True:
+        data = fh.read(CHUNK_SIZE)
+        if data:
+            tmp.write(data)
+        else:
+            break
     tmp.flush()
     tmp.seek(0)
     return tmp
