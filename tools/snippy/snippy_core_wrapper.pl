@@ -18,7 +18,7 @@ use strict;
 use File::Copy;
 use File::Basename;
 
-my(@Options, $indirs, $mincov, $noref);
+my(@Options, $indirs, $noref);
 setOptions();
 
 my @list_of_dirs = split /\s+/, $indirs;
@@ -41,7 +41,6 @@ foreach my $d (@list_of_dirs){
 my $commandline = "snippy-core ";
 
 $commandline .= "--noref " if $noref;
-$commandline .= "--mincov $mincov " if $mincov;
 $commandline .= join(" ", @snippy_outs);
 print STDERR "snippy-core commandline: $commandline\n";
 
@@ -55,7 +54,6 @@ sub setOptions {
 
   @Options = (
     {OPT=>"help",    VAR=>\&usage,             DESC=>"This help"},
-    {OPT=>"mincov=i",  VAR=>\$mincov, DEFAULT=>'10.0', DESC=>"The minimum coverage to consider."},
     {OPT=>"noref!", VAR=>\$noref, DEFAULT=>0, DESC=>"Don't include the reference in the alignment."},
     {OPT=>"indirs=s", VAR=>\$indirs, DEFAULT=>"", DESC=>"A whitespace delimited list of the snippy output zipped dirs."},
   );
