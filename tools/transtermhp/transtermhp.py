@@ -1,10 +1,14 @@
 #!/usr/bin/env python
-import sys
 import re
 import subprocess
-from Bio import SeqIO
+import sys
+
 from BCBio import GFF
-from Bio.SeqFeature import SeqFeature, FeatureLocation
+from Bio import SeqIO
+from Bio.SeqFeature import (
+    FeatureLocation,
+    SeqFeature
+)
 
 
 def main(expterm, fasta, gff3):
@@ -64,6 +68,7 @@ def main(expterm, fasta, gff3):
                         )
                         rec.features.append(feature)
             yield rec
+
 
 if __name__ == '__main__':
     for record in main(*sys.argv[1:4]):

@@ -6,26 +6,22 @@
     <expand macro="requirements"/>
     <expand macro="stdio"/>
     <command><![CDATA[
-        #from os.path import splitext
-        #import re
+
+        @CLEAN_EXT@
 
         mkdir stacks_inputs stacks_outputs
 
         &&
 
-        #if $sample.ext == "sam":
-            #set $data_path = splitext($sample.name)[0]
-            #set $data_path = re.sub(r'\.1$', '', $data_path)
-            #set $data_path = "stacks_inputs/" + $data_path + ".sam"
+        #if $sample.is_of_type('sam')
+            #set $data_path = "stacks_inputs/" + $clean_ext($sample.element_identifier) + ".sam"
             #set inputype = "sam"
-        #else:
-            #set $data_path = splitext($sample.name)[0]
-            #set $data_path = re.sub(r'\.1$', '', $data_path)
-            #set $data_path = "stacks_inputs/" + $data_path + ".bam"
+        #else
+            #set $data_path = "stacks_inputs/" + $clean_ext($sample.element_identifier) + ".bam"
             #set inputype = "bam"
         #end if
 
-        ln -s "${sample}" "${data_path}"
+        ln -s '${sample}' '${data_path}'
 
         &&
 
@@ -42,13 +38,17 @@
 
             -m $m
 
+            --max_clipped $max_clipped
+            --min_mapq $min_mapq
+            $keep_sec_alns
+
             ## snp_model
-            #if str( $snp_options.select_model.model_type) == "bounded":
+            #if str( $snp_options.select_model.model_type) == "bounded"
                 --model_type bounded
                 --bound_low $snp_options.select_model.bound_low
                 --bound_high $snp_options.select_model.bound_high
                 --alpha $snp_options.select_model.alpha
-            #else if str( $snp_options.select_model.model_type) == "snp":
+            #else if str( $snp_options.select_model.model_type) == "snp"
                 --model_type snp
                 --alpha $snp_options.select_model.alpha
             #else
@@ -58,17 +58,28 @@
 
             -o stacks_outputs
 
+             2>&1 | tee pstacks.log
+
             ## If input is in bam format, stacks will output gzipped files (no option to control this)
-            && gunzip stacks_outputs/*.gz
+            && if ls stacks_outputs/*.gz > /dev/null 2>&1; then gunzip stacks_outputs/*.gz; fi
+
+            &&
+
+            stacks_summary.py --stacks-prog pstacks --res-dir stacks_outputs --logfile pstacks.log --summary stacks_outputs/summary.html
     ]]></command>
 
     <inputs>
-        <param name="sample" argument="-f" format="fastqsanger,fasta" type="data" label="Input short reads from an individual" />
+        <param name="sample" argument="-f" format="sam,bam" type="data" label="Input short reads from an individual" />
 
         <param name="sample_id" argument="-i" type="integer" value="" label="Give a unique numeric ID to this sample"/>
 
         <param name="m" argument="-m" type="integer" value="1" label="Minimum depth of coverage required to create a stack"/>
 
+        <param name="max_clipped" argument="--max_clipped" type="float" value="0.15" min="0.0" max="1.0" label="Alignments with more than this fraction of soft-clipped bases are discarded"/>
+
+        <param name="min_mapq" argument="--min_mapq" type="integer" value="10" label="Minimum required mapping quality"/>
+
+        <param name="keep_sec_alns" argument="--keep_sec_alns" type="boolean" checked="false" truevalue="--keep_sec_alns" falsevalue="" label="Keep secondary alignments" />
 
         <!-- SNP Model options -->
         <section name="snp_options" title="SNP Model Options (pstacks options)" expanded="False">
@@ -77,11 +88,15 @@
     </inputs>
 
     <outputs>
+        <data format="txt" name="output_log" label="pstacks.log with ${tool.name} on ${on_string}" from_work_dir="pstacks.log" />
+
+        <data format="html" name="output_summary" label="Summary from ${tool.name} on ${on_string}" from_work_dir="stacks_outputs/summary.html" />
+
         <collection name="tabs" type="list" label="Stacks from ${on_string}">
-            <discover_datasets pattern="(?P&lt;name&gt;.+\.tags)\.tsv" ext="tabular" directory="stacks_outputs" />
-            <discover_datasets pattern="(?P&lt;name&gt;.+\.snps)\.tsv" ext="tabular" directory="stacks_outputs" />>
-            <discover_datasets pattern="(?P&lt;name&gt;.+\.alleles)\.tsv" ext="tabular" directory="stacks_outputs" />
-            <discover_datasets pattern="(?P&lt;name&gt;.+\.models)\.tsv" ext="tabular" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.tags)\.tsv$" ext="tabular" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.snps)\.tsv$" ext="tabular" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.alleles)\.tsv$" ext="tabular" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.models)\.tsv$" ext="tabular" directory="stacks_outputs" />
         </collection>
     </outputs>
 
@@ -89,6 +104,17 @@
         <test>
             <param name="sample" value="refmap/PopA_01.bam" ftype="bam" />
             <param name="sample_id" value="4" />
+
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="done." />
+                </assert_contents>
+            </output>
+            <output name="output_summary">
+                <assert_contents>
+                    <has_text text="Stacks Statistics" />
+                </assert_contents>
+            </output>
 
             <output_collection name="tabs">
                 <element name="PopA_01.tags">
@@ -154,4 +180,3 @@ See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manua
     </help>
     <expand macro="citation" />
 </tool>
-

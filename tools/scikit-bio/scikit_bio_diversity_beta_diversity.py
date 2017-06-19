@@ -4,12 +4,12 @@
 # using scikit-bio
 # Daniel Blankenberg
 
-
-import sys
-import optparse
 import codecs
-from skbio.diversity import beta_diversity
+import optparse
+import sys
+
 from skbio import TreeNode
+from skbio.diversity import beta_diversity
 
 
 __VERSION__ = "0.0.1"
@@ -83,6 +83,7 @@ def __main__():
 
     bd_dm = beta_diversity( options.distance_metric, counts, ids=sample_names, **extra_kwds )
     bd_dm.write( options.output )
+
 
 if __name__ == "__main__":
     __main__()

@@ -1,0 +1,205 @@
+<?xml version='1.0' encoding='utf-8'?>
+<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@VERSION@.0">
+    <description>Left-align and normalize indels; check if REF alleles match the reference; split multiallelic sites into multiple rows; recover multiallelics from multiple rows</description>
+    <macros>
+        <token name="@EXECUTABLE@">norm</token>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements">
+        <expand macro="samtools_requirement"/>
+    </expand>
+    <expand macro="version_command" />
+    <command detect_errors="aggressive"><![CDATA[
+@PREPARE_ENV@
+@PREPARE_INPUT_FILE@
+#set $section = $sec_ref
+@PREPARE_FASTA_REF@
+#set $section = $sec_restrict
+@PREPARE_TARGETS_FILE@
+@PREPARE_REGIONS_FILE@
+
+bcftools @EXECUTABLE@
+
+#set $section = $sec_ref
+@FASTA_REF@
+${section.do_not_normalize}
+#if $section.check_ref:
+  --check-ref "${section.check_ref}"
+#end if
+
+## Default section
+#set $section = $sec_default
+#if $section.rm_dup:
+  --rm-dup "${section.rm_dup}"
+#end if
+#if $section.multiallelics:
+  #set $mtype = ''
+  #if $section.multiallelic_types:
+    #set $mtype = $section.multiallelic_types
+  #end if
+  --multiallelics "${section.multiallelics}${mtype}" 
+#end if
+${section.strict_filter}
+#if $section.site_win:
+  --site-win "${section.site_win}"
+#end if
+
+#set $section = $sec_restrict
+@REGIONS@
+@TARGETS@
+
+@OUTPUT_TYPE@
+@THREADS@
+
+## Primary Input/Outputs
+@INPUT_FILE@
+> '$output_file'
+]]>
+    </command>
+    <inputs>
+        <expand macro="macro_input" />
+        <section name="sec_restrict" expanded="false" title="Restrict to">
+            <expand macro="macro_regions" />
+            <expand macro="macro_targets" />
+        </section>
+        <section name="sec_ref" expanded="false" title="Reference Options">
+            <expand macro="macro_fasta_ref" />
+            <param name="check_ref" type="select" label="Check REF" optional="true" 
+                    help="What to do when incorrect or missing REF allele is encountered">
+                <option value="e">check REF alleles and exit (e)</option>
+                <option value="w">warn (w)</option>
+                <option value="x">exclude (x)</option>
+                <option value="s">set bad sites (s)</option>
+                <option value="wx">warn and exclude (wx)</option>
+                <option value="ws">warn and set bad sites (ws)</option>
+            </param>
+            <param name="do_not_normalize" type="boolean" truevalue="--do-not-normalize" falsevalue="" label="Skip Normalization, just set REF allele" 
+                   help="Do not normalize indels, just fix or set the REF allele from the reference (-N, --do-not-normalize with -m or -c s)" />
+        </section>
+
+        <section name="sec_default" expanded="false" title="Default Options">
+            <param name="rm_dup" type="select" label="Rm Dup" optional="true" 
+                   help="Remove duplicate snps|indels|both|any">
+                <option value="snps">snps</option>
+                <option value="indels">indels</option>
+                <option value="both">both</option>
+                <option value="any">any</option>
+            </param>
+            <param name="multiallelics" type="select" label="~multiallelics" optional="true">
+                <option value="-">split multiallelic sites into biallelic records (-)</option> 
+                <option value="+">join biallelic sites into multiallelic records (+)</option> 
+            </param>
+            <param name="multiallelic_types" type="select" label="variant types which should be split or merged" optional="true">
+                <option value="snps">snps - only SNP records should be split or merged</option>
+                <option value="indels">indels - only indel records should be split or merged</option>
+                <option value="both">both - records should be split or merged</option>
+                <option value="any">any - SNPs and indels should be merged into a single record</option>
+            </param>
+            <param name="strict_filter" type="boolean" truevalue="--strict-filter" falsevalue="" label="Strict Filter" 
+                   help="When merging (-m+), merged site is PASS only if all sites being merged PASS" />
+            <param name="site_win" type="integer" label="Site Window" value="1000" optional="True" 
+                   help="(-w, --site-win) Buffer for sorting lines which changed position during realignment" />
+        </section>
+
+        <expand macro="macro_select_output_type" />
+    </inputs>
+    <outputs>
+        <expand macro="macro_vcf_output"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_file" ftype="vcf" value="norm.vcf" />
+            <param name="fasta_ref" ftype="fasta" value="norm.fa" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="T,TAACCCTA" />
+                    <not_has_text text="TAA,TAACCCTAAA" />
+                </assert_contents>
+            </output>
+        </test>
+
+        <test>
+            <param name="input_file" ftype="vcf" value="norm.split.vcf" />
+            <param name="multiallelics" value="-" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <not_has_text text="TAA,TAACCCTAAA" />
+                    <has_text_matching expression="1\t105\t.\tTAAACCCTAAA\tTAA\t"/>
+                    <has_text_matching expression="1\t105\t.\tTAAACCCTAAA\tTAACCCTAAA\t"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <test>
+            <param name="input_file" ftype="vcf" value="norm.split.vcf" />
+            <param name="fasta_ref" ftype="fasta" value="norm.fa" />
+            <param name="multiallelics" value="-" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <not_has_text text="TAA,TAACCCTAAA" />
+                    <has_text_matching expression="1\t105\t.\tTAAACCCTA\tT\t"/>
+                    <has_text_matching expression="1\t105\t.\tTA\tT\t"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <test>
+            <param name="input_file" ftype="vcf" value="norm.merge.vcf" />
+            <param name="multiallelics" value="+" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="TAA,TAACCCTAAA" />
+                    <has_text_matching expression="2\t114\t.\tTC\tTTCC,TTC\t999\tFAIL"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="norm.merge.vcf" />
+            <param name="multiallelics" value="+" />
+            <param name="strict_filter" value="true" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="TAA,TAACCCTAAA" />
+                    <has_text_matching expression="2\t114\t.\tTC\tTTCC,TTC\t999\tPASS"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <test>
+            <param name="input_file" ftype="vcf" value="norm.setref.vcf" />
+            <param name="fasta_ref" ftype="fasta" value="norm.fa" />
+            <param name="do_not_normalize" value="true" />
+            <param name="check_ref" value="s" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text_matching expression="2\t101\t.\tA\tc\t999\tPASS"/>
+                    <has_text_matching expression="2\t105\t.\tT\t&lt;DEL&gt;\t999\tPASS"/>
+                </assert_contents>
+            </output>
+        </test>
+
+    </tests>
+    <help><![CDATA[
+=====================================
+ bcftools @EXECUTABLE@
+=====================================
+
+
+Left-align and normalize indels; check if REF alleles match the reference; split multiallelic sites into multiple rows; recover multiallelics from multiple rows.
+
+@REGIONS_HELP@
+@TARGETS_HELP@
+
+@BCFTOOLS_MANPAGE@#@EXECUTABLE@
+
+@BCFTOOLS_WIKI@
+]]>
+    </help>
+    <expand macro="citations" />
+</tool>
