@@ -40,18 +40,18 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
   featureids=as.character(read.delim(iwtomicsselectedfeatures,header=FALSE,sep='\t',stringsAsFactors=FALSE))
   id_features_subset=featureids[feature_subset]
   if(sum(testids!=paste(testInput(regionsFeatures_test)$id_region1,'vs',testInput(regionsFeatures_test)$id_region2))){
+    write("Wrong test ids.", stderr())
     quit(save="no", status=10)
-    stop('Wrong test ids')
   }
   if(sum(featureids!=idFeatures(regionsFeatures_test))){
+    write("Wrong feature ids.", stderr())
     quit(save="no", status=20)
-    stop('Wrong feature ids')
   }
   # retrieve test and features_subset ids
   id_features_subset=featureids[feature_subset]
   if(sum(duplicated(paste0(test_subset,id_features_subset)))){
+    write("Two scale thresholds selected for the same test and feature.", stderr())
     quit(save="no", status=30)
-    stop('Two scale thresholds selected for the same test and feature.')
   }
   # If scale_subset=0, do not change the threshold
   default=(scale_subset==0)
@@ -64,8 +64,8 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
                          function(result) unlist(lapply(result,function(feature) feature$max_scale)))
   for(i in seq_along(test_subset)){
     if(scale_threshold[[test_subset[i]]][id_features_subset[i]]<scale_subset[i]){
+      write("Scale threshold too high.", stderr())
       quit(save="no", status=40)
-      stop('Scale threshold too high.')
     }
     scale_threshold[[test_subset[i]]][id_features_subset[i]]=scale_subset[i]
   }
@@ -103,15 +103,15 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
       dev.off()
     }, error = function(err) {
       if (grepl('selected features with different resolution',err$message)) {
+        write("Group by 'test' but selected features with different resolution.", stderr())
         quit(save="no", status=50) #error: groupby 'test' but selected features with different resolution.
-        stop(err)
       }
+      write("Summary plot error. Please try again.", stderr())
       quit(save="no", status=60) #error 
-      stop(err)
     })
   }
   
 }else{
+  write("Missing IWTomics package. Please be sure to have it installed before using this tool.", stderr())
   quit(save="no", status=255)
-  stop("Missing IWTomics package")
 }

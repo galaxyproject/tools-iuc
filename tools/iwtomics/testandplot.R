@@ -32,16 +32,16 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
   id_region2=regionids[region2]
   id_features_subset=featureids[features_subset]
   if(length(setdiff(c(id_region1,id_region2),idRegions(regionsFeatures)))!=0){
+    write("Wrong region ids.", stderr())
     quit(save="no", status=10)
-    stop('Wrong region ids')
   }
   if(length(setdiff(id_features_subset,idFeatures(regionsFeatures)))!=0){
+    write("Wrong feature ids.", stderr())
     quit(save="no", status=20)
-    stop('Wrong feature ids')
   }
   if(sum(duplicated(paste0(id_region1,id_region2)))){
+    write("Same test repeated multiple times.", stderr())
     quit(save="no", status=30)
-    stop('Same test repeated multiple times.')
   }
   
   # perform test
@@ -67,8 +67,8 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
       }
     }
   }, error = function(err) {
+    write("Testing error.", stderr())
     quit(save="no", status=40) #error testing
-    stop(err)
   })
   
   # plot test results
@@ -94,6 +94,6 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
   write.table(as.data.frame(t(idFeatures(regionsFeatures_test))),file=iwtomicsselectedfeatures,quote=FALSE,sep='\t',row.names=FALSE,col.names=FALSE)
   save(regionsFeatures_test,file=iwtomicsrdata)
 }else{
+  write("Missing IWTomics package. Please be sure to have it installed before using this tool.", stderr())
   quit(save="no", status=255)
-  stop("Missing IWTomics package")
 }

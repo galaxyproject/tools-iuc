@@ -19,14 +19,14 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
       regionsheader=read.delim(args_values$regionsheaderfile,header=FALSE,stringsAsFactors=FALSE,row.names=1,sep="\t")
       regionsfilenames=unlist(strsplit(args_values$regionsfilenames,'\\|'))
       if(length(setdiff(regionsfilenames,row.names(regionsheader)))) {
+        write("IWTomics message: Not all region files are present in the first column of header file for regions.", stderr())
         quit(save="no", status=11)
-        stop('Not all regionsfilenames are present in the first column of regionsheader.')
       }
       id_regions=regionsheader[regionsfilenames,1]
       name_regions=regionsheader[regionsfilenames,2]
     }, error = function(err) {
+      write("IWTomics message: An error has occurred reading the header file for regions. Please try again.", stderr())
       quit(save="no", status=10) #error on header file
-      stop(err)
     })
   }else{
     eval(parse(text=args[[which(args_names=='regionsgalaxyids')]]))
@@ -41,14 +41,14 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
       featuresheader=read.delim(args_values$featuresheaderfile,header=FALSE,stringsAsFactors=FALSE,row.names=1,sep="\t")
       featuresfilenames=unlist(strsplit(args_values$featuresfilenames,'\\|'))
       if(length(setdiff(featuresfilenames,row.names(featuresheader)))) {
+        write("IWTomics message: Not all feature files are present in the first column of header file for features.", stderr())
         quit(save="no", status=21)
-        stop('Not all featuresfilenames are present in the first column of featuresheader.')
       }
       id_features=featuresheader[featuresfilenames,1]
       name_features=featuresheader[featuresfilenames,2]
     }, error = function(err) {
+      write("IWTomics message: An error has occurred reading the header file for features. Please try again.", stderr())
       quit(save="no", status=20) #error on header file
-      stop(err)
     })
   }else{
     eval(parse(text=args[[which(args_names=='featuresgalaxyids')]]))
@@ -67,24 +67,27 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
                                 id_regions,name_regions,id_features,name_features,start.are.0based=start.are.0based)
   }, error = function(err) {
     if(grepl('invalid format',err$message)){
+      write("IWTomics message: Not enough columns in input file.", stderr())
       quit(save="no", status=31) # error, not enough columns in input file
     }else if(grepl('duplicated regions',err$message)){
+      write("IWTomics message: Duplicated regions in region file.", stderr())
       quit(save="no", status=32) # error, duplicated regions in region file
     }else if(grepl('duplicated windows',err$message)){
+      write("IWTomics message: Duplicated windows in feature file.", stderr())
       quit(save="no", status=33) # error, duplicated windows in feature file
     }else if(grepl('overlapping windows',err$message)){
+      write("IWTomics message: Overlapping windows in feature file.", stderr())
       quit(save="no", status=34) # error, overlapping windows in feature file
     }else if(grepl('not all regions in datasets',err$message)){
+      write("IWTomics message: Windows in feature files do not cover all regions in region files.", stderr())
       quit(save="no", status=35) # error, windows in feature files do not cover all regions in region files
     }else if(grepl('ifferent size windows',err$message)){
+      write("IWTomics message: All windows in a feature file must have the same size.", stderr())
       quit(save="no", status=36) # error, all windows in a feature files must have the same size
     }
     #error loading data
-
-    stop(err)
-
-    quit(save="no", status=30)
-    
+    write("IWTomics message: An error has occurred reading the data. Please try again.", stderr())
+    quit(save="no", status=30)    
  })
   
   # smooth data
@@ -111,8 +114,8 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
                               bandwidth=bandwidth,degree=degree,dist_knots=dist_knots)
       }
     }, error = function(err) {
+      write("IWTomics message: An error has occurred smoothing the data. Please try again.", stderr())
       quit(save="no", status=40) #error on smoothing
-      stop(err)
     })
   }
   
@@ -136,6 +139,6 @@ if (require("IWTomics",character.only = TRUE,quietly = FALSE)) {
   write.table(as.data.frame(t(idFeatures(regionsFeatures))),file=outfeatures,quote=FALSE,sep='\t',row.names=FALSE,col.names=FALSE)
   save(regionsFeatures,file=outrdata)
 }else{
+  write("IWTomics message: Missing IWTomics package. Please be sure to have it installed before using this tool.", stderr())
   quit(save="no", status=255)
-  stop("Missing IWTomics package")
 }
