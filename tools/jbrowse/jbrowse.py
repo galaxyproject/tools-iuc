@@ -472,6 +472,11 @@ class JbrowseConnector(object):
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
         })
 
+        # Apollo will only switch to the (prettier) 'bam-read' className if it's not set explicitly in the track config
+        # So remove the default 'feature' value for these bam tracks
+        if 'className' in trackData['style'] and trackData['style']['className'] == 'feature':
+            del trackData['style']['className']
+
         self._add_track_json(trackData)
 
         if bamOpts.get('auto_snp', 'false') == 'true':

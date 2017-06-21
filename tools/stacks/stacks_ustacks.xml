@@ -6,26 +6,25 @@
     <expand macro="requirements"/>
     <expand macro="stdio"/>
     <command><![CDATA[
-        #from os.path import splitext
-        #import re
+
+        @CLEAN_EXT@
 
         mkdir stacks_inputs stacks_outputs
 
         &&
 
-        #if $sample.is_of_type('fastqsanger'):
-            #set $data_path = splitext($sample.element_identifier)[0]
-            #set $data_path = re.sub(r'\.1$', '', $data_path)
-            #set $data_path = "stacks_inputs/" + $data_path + ".fq"
+        #if $sample.is_of_type('fastqsanger')
+            #set $data_path = "stacks_inputs/" + $clean_ext($sample.element_identifier) + ".fq"
             #set inputype = "fastq"
-        #else:
-            #set $data_path = splitext($sample.element_identifier)[0]
-            #set $data_path = re.sub(r'\.1$', '', $data_path)
-            #set $data_path = "stacks_inputs/" + $data_path + ".fa"
+        #else if $sample.is_of_type('fastqsanger.gz')
+            #set $data_path = "stacks_inputs/" + $clean_ext($sample.element_identifier) + ".fq.gz"
+            #set inputype = "gzfastq"
+        #else
+            #set $data_path = "stacks_inputs/" + $clean_ext($sample.element_identifier) + ".fa"
             #set inputype = "fasta"
         #end if
 
-        ln -s "${sample}" "${data_path}"
+        ln -s '${sample}' '${data_path}'
 
         &&
 
@@ -46,26 +45,26 @@
             $H
 
             ## Assembly
-            $assembly_options.r
+            $assembly_options.keep_high_cov
             $assembly_options.d
             --max_locus_stacks $assembly_options.max_locus_stacks
-            #if str($assembly_options.k_len):
+            #if str($assembly_options.k_len)
                 --k_len $assembly_options.k_len
             #end if
 
-            #if $gapped.use_gapped:
+            #if $gapped.use_gapped == "yes"
                 --gapped
                 --max_gaps $gapped.max_gaps
                 --min_aln_len $gapped.min_aln_len
             #end if
 
             ## snp_model
-            #if str( $snp_options.select_model.model_type) == "bounded":
+            #if str( $snp_options.select_model.model_type) == "bounded"
                 --model_type bounded
                 --bound_low $snp_options.select_model.bound_low
                 --bound_high $snp_options.select_model.bound_high
                 --alpha $snp_options.select_model.alpha
-            #else if str( $snp_options.select_model.model_type) == "snp":
+            #else if str( $snp_options.select_model.model_type) == "snp"
                 --model_type snp
                 --alpha $snp_options.select_model.alpha
             #else
@@ -75,11 +74,20 @@
 
             -o stacks_outputs
 
-             > ustacks.log 2>&1
+            2>&1 | tee ustacks.log
+
+            ## If input is in gz format, stacks will output gzipped files (no option to control this)
+            #if $sample.is_of_type('fastqsanger.gz')
+                && gunzip stacks_outputs/*.gz
+            #end if
+
+            &&
+
+            stacks_summary.py --stacks-prog ustacks --res-dir stacks_outputs --logfile ustacks.log --summary stacks_outputs/summary.html
     ]]></command>
 
     <inputs>
-        <param name="sample" argument="-f" format="fastqsanger,fasta" type="data" label="Input short reads from an individual" />
+        <param name="sample" argument="-f" format="fastqsanger,fastqsanger.gz,fasta" type="data" label="Input short reads from an individual" />
 
         <param name="m" argument="-m" type="integer" value="2" label="Minimum depth of coverage required to create a stack"/>
         <param name="M" argument="-M" type="integer" value="2" label="Maximum distance (in nucleotides) allowed between stacks"/>
@@ -87,16 +95,19 @@
         <param name="H" argument="-H" type="boolean" checked="false" truevalue="-H" falsevalue="" label="Disable calling haplotypes from secondary reads" />
 
         <section name="assembly_options" title="SNP Model Options (ustacks options)" expanded="True">
-            <param name="r" argument="-r" type="boolean" checked="false" truevalue="-r" falsevalue="" label="Enable the Removal algorithm, to drop highly-repetitive stacks (and nearby errors) from the algorithm" />
+            <param name="keep_high_cov" argument="--keep_high_cov" type="boolean" checked="false" truevalue="--keep-high-cov" falsevalue="" label="Disable the algorithm that removes highly-repetitive stacks and nearby errors. " />
             <param name="d" argument="-d" type="boolean" checked="false" truevalue="-d" falsevalue="" label="Enable the Deleveraging algorithm, used for resolving over merged tags" />
             <param name="max_locus_stacks" argument="--max_locus_stacks" type="integer" value="3" label="Maximum number of stacks at a single de novo locus"/>
             <param name="k_len" argument="--k_len" type="integer" value="" optional="true" label="K-mer size for matching between alleles and loci (automatically calculated by default)"/>
         </section>
 
         <conditional name="gapped">
-            <param name="use_gapped" argument="--gapped" type="boolean" checked="false" label="Perform gapped alignments between stacks" />
-            <when value="false"></when>
-            <when value="true">
+            <param name="use_gapped" argument="--gapped" type="select" label="Perform gapped alignments between stacks">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
                 <param name="max_gaps" argument="--max_gaps" type="integer" value="2" label="Number of gaps allowed between stacks before merging"/>
                 <param name="min_aln_len" argument="--min_aln_len" type="float" value="0.8" min="0.0" max="1.0" label="Minimum length of aligned sequence in a gapped alignment"/>
             </when>
@@ -110,6 +121,8 @@
 
     <outputs>
         <data format="txt" name="output_log" label="ustacks.log with ${tool.name} on ${on_string}" from_work_dir="ustacks.log" />
+
+        <data format="html" name="output_summary" label="Summary from ${tool.name} on ${on_string}" from_work_dir="stacks_outputs/summary.html" />
 
         <collection name="tabs" type="list" label="Stacks from ${on_string}">
             <discover_datasets pattern="(?P&lt;name&gt;.+\.tags)\.tsv$" ext="tabular" directory="stacks_outputs" />
@@ -126,6 +139,48 @@
             <output name="output_log">
                 <assert_contents>
                     <has_text text="done." />
+                </assert_contents>
+            </output>
+            <output name="output_summary">
+                <assert_contents>
+                    <has_text text="Stacks Statistics" />
+                </assert_contents>
+            </output>
+
+            <output_collection name="tabs">
+                <element name="PopA_01.tags">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+                <element name="PopA_01.snps">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+                <element name="PopA_01.alleles">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+                <element name="PopA_01.models">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test>
+            <param name="sample" value="demultiplexed/PopA_01.1.fq.gzip" ftype="fastqsanger.gz" />
+
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="done." />
+                </assert_contents>
+            </output>
+            <output name="output_summary">
+                <assert_contents>
+                    <has_text text="Stacks Statistics" />
                 </assert_contents>
             </output>
 

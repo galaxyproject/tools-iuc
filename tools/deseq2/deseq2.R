@@ -7,7 +7,7 @@
 #
 #   'factors' a JSON list object from Galaxy
 #
-#   'sample_table' is a sample table as described in ?DESeqDataSetFromHTSeq
+#   'sample_table' is a sample table as described in ?DESeqDataSetFromHTSeqCount
 #   with columns: sample name, filename, then factors (variables)
 #
 # the output file has columns:
