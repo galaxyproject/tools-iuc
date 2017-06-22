@@ -4,6 +4,7 @@ import copy
 import argparse
 import subprocess
 import hashlib
+import binascii
 import struct
 import datetime
 import tempfile
@@ -129,7 +130,7 @@ class ColorScaling(object):
 
     def rgb_from_hex(self, hexstr):
         # http://stackoverflow.com/questions/4296249/how-do-i-convert-a-hex-triplet-to-an-rgb-tuple-and-back
-        return struct.unpack('BBB', hexstr.decode('hex'))
+        return struct.unpack('BBB', binascii.unhexlify(hexstr))
 
     def min_max_gff(self, gff_file):
         min_val = None
@@ -263,9 +264,12 @@ INSTALLED_TO = os.path.dirname(os.path.realpath(__file__))
 
 def metadata_from_node(node):
     metadata = {}
-    if len(node.findall('dataset')) != 1:
-        # exit early
-        return metadata
+    try:
+        if len(node.findall('dataset')) != 1:
+            # exit early
+            return metadata
+    except:
+        return {}
 
     for (key, value) in node.findall('dataset')[0].attrib.items():
         metadata['dataset_%s' % key] = value
@@ -367,7 +371,6 @@ class JbrowseConnector(object):
         # ])
 
     def _add_json(self, json_data):
-
         cmd = [
             'perl', self._jbrowse_bin('add-json.pl'),
             json.dumps(json_data),
@@ -426,7 +429,7 @@ class JbrowseConnector(object):
                '--key', trackData['key'],
                '--clientConfig', json.dumps(clientConfig),
                '--config', json.dumps(config),
-               '--trackType', 'JBrowse/View/Track/CanvasFeatures'
+               '--trackType', 'BlastView/View/Track/CanvasFeatures'
                ]
 
         self.subprocess_check_call(cmd)
@@ -523,6 +526,8 @@ class JbrowseConnector(object):
             cmd += [
                 '--trackType', gffOpts['trackType']
             ]
+            if gffOpts['trackType'] == 'BlastView/View/Track/CanvasFeatures':
+                config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
         else:
             cmd += [
                 '--trackType', 'JBrowse/View/Track/CanvasFeatures'
@@ -672,10 +677,10 @@ class JbrowseConnector(object):
 
         if 'GCContent' in data['plugins_python']:
             self._add_track_json({
-                "storeClass" : "JBrowse/Store/SeqFeature/SequenceChunks",
+                "storeClass": "JBrowse/Store/SeqFeature/SequenceChunks",
                 "type": "GCContent/View/Track/GCContentXY",
-                "label" : "GCContentXY",
-                "urlTemplate" : "seq/{refseq_dirpath}/{refseq}-",
+                "label": "GCContentXY",
+                "urlTemplate": "seq/{refseq_dirpath}/{refseq}-",
                 "bicolor_pivot": 0.5
                 # TODO: Expose params for everyone.
             })
@@ -684,8 +689,8 @@ class JbrowseConnector(object):
             with open(os.path.join(self.outdir, 'data', 'trackList.json'), 'r') as handle:
                 trackListJson = json.load(handle)
                 trackListJson.update({
-                    "trackSelector" : {
-                        "renameFacets" : {
+                    "trackSelector": {
+                        "renameFacets": {
                             "tool_tool": "Tool ID",
                             "tool_tool_id": "Tool ID",
                             "tool_tool_version": "Tool Version",
@@ -695,7 +700,7 @@ class JbrowseConnector(object):
                             "history_user_email": "Owner",
                             "metadata_dbkey": "Dbkey",
                         },
-                        "displayColumns" : [
+                        "displayColumns": [
                             "key",
                             "tool_tool",
                             "tool_tool_version",
@@ -705,12 +710,12 @@ class JbrowseConnector(object):
                             "history_user_email",
                             "metadata_dbkey",
                         ],
-                        "type" : "Faceted",
+                        "type": "Faceted",
                         "title": ["Galaxy Metadata"],
-                        "escapeHTMLInData" : False
+                        "escapeHTMLInData": False
                     },
-                    "trackMetadata" : {
-                        "indexFacets" : [
+                    "trackMetadata": {
+                        "indexFacets": [
                             "category",
                             "key",
                             "tool_tool_id",
@@ -792,7 +797,10 @@ if __name__ == '__main__':
             'show_menu': root.find('metadata/general/show_menu').text,
             'hideGenomeOptions': root.find('metadata/general/hideGenomeOptions').text,
         },
-        'plugins': [],
+        'plugins': [{
+            'location': 'https://cdn.rawgit.com/TAMU-CPT/blastview/97572a21b7f011c2b4d9a0b5af40e292d694cbef/',
+            'name': 'BlastView'
+        }],
         'plugins_python': [],
     }
 
@@ -843,11 +851,6 @@ if __name__ == '__main__':
                 x.attrib['label'],
                 metadata
             ))
-
-        # track_conf['trackfiles'] = [
-            # (os.path.realpath(x.attrib['path']), x.attrib['ext'], x.attrib['label'])
-            # for x in track.findall('files/trackFile')
-        # ]
 
         track_conf['category'] = track.attrib['cat']
         track_conf['format'] = track.attrib['format']
