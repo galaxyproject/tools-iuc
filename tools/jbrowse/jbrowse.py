@@ -1,18 +1,18 @@
 #!/usr/bin/env python
-import os
-import copy
 import argparse
-import subprocess
-import hashlib
 import binascii
+import copy
+import hashlib
+import json
+import logging
+import os
+import shutil
 import struct
 import datetime
+import subprocess
 import tempfile
-import shutil
-import json
 from Bio.Data import CodonTable
 import xml.etree.ElementTree as ET
-import logging
 from collections import defaultdict
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('jbrowse')
@@ -267,11 +267,11 @@ def etree_to_dict(t):
     if children:
         dd = defaultdict(list)
         for dc in map(etree_to_dict, children):
-            for k, v in dc.iteritems():
+            for k, v in dc.items():
                 dd[k].append(v)
-        d = {t.tag: {k: v[0] if len(v) == 1 else v for k, v in dd.iteritems()}}
+        d = {t.tag: {k: v[0] if len(v) == 1 else v for k, v in dd.items()}}
     if t.attrib:
-        d[t.tag].update(('@' + k, v) for k, v in t.attrib.iteritems())
+        d[t.tag].update(('@' + k, v) for k, v in t.attrib.items())
     if t.text:
         text = t.text.strip()
         if children or t.attrib:
@@ -392,14 +392,12 @@ class JbrowseConnector(object):
 
     def generate_names(self):
         # Generate names
-
         args = [
             'perl', self._jbrowse_bin('generate-names.pl'),
             '--hashBits', '16'
         ]
 
         tracks = ','.join(self.tracksToIndex)
-
         if tracks:
             args += ['--tracks', tracks]
         else:
@@ -417,7 +415,7 @@ class JbrowseConnector(object):
         self.subprocess_check_call(cmd)
 
     def _add_track_json(self, json_data):
-        if len(json_data.keys()) == 0:
+        if len(json_data) == 0:
             return
 
         tmp = tempfile.NamedTemporaryFile(delete=False)
@@ -873,7 +871,7 @@ if __name__ == '__main__':
             'location': 'https://cdn.rawgit.com/TAMU-CPT/blastview/97572a21b7f011c2b4d9a0b5af40e292d694cbef/',
             'name': 'BlastView'
         }],
-        'plugins_python': [],
+        'plugins_python': ['BlastView'],
     }
 
     plugins = root.find('plugins').attrib
