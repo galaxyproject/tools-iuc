@@ -113,9 +113,10 @@ def download_humann2_db(data_tables, table_name, database, build, target_dir):
     db_target_dir = os.path.join(target_dir, database)
     build_target_dir = os.path.join(db_target_dir, build)
     os.makedirs(build_target_dir)
-    cmd = "humann2_databases --download %s %s %s" % (database,
-                                                     build,
-                                                     db_target_dir)
+    cmd = "humann2_databases --download %s %s %s --update-config no" % (
+        database,
+        build,
+        db_target_dir)
     subprocess.check_call(cmd, shell=True)
     shutil.move(os.path.join(db_target_dir, database), build_target_dir)
     add_data_table_entry(
