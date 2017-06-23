@@ -830,6 +830,7 @@ if __name__ == '__main__':
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
     parser.add_argument('--standalone', help='Standalone mode includes a copy of JBrowse', action='store_true')
+    parser.add_argument('--version', '-V', action='version', version="%(prog)s 0.7.0")
     args = parser.parse_args()
 
     tree = ET.parse(args.xml.name)
