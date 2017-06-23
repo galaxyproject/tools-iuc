@@ -159,6 +159,31 @@ class ColorScaling(object):
         self.brewer_colour_idx += 1
         return r, g, b
 
+    def parse_menus(self, track):
+        trackConfig = {'menuTemplate': [{}, {}, {}, {}]}
+
+        if 'menu' in track['menus']:
+            menu_list = [track['menus']['menu']]
+            if isinstance(track['menus']['menu'], list):
+                menu_list = track['menus']['menu']
+
+            for m in menu_list:
+                tpl = {
+                    'action': m['action'],
+                    'label': m.get('label', '{name}'),
+                    'iconClass': m.get('iconClass', 'dijitIconBookmark'),
+                }
+                if 'url' in m:
+                    tpl['url'] = m['url']
+                if 'content' in m:
+                    tpl['content'] = m['content']
+                if 'title' in m:
+                    tpl['title'] = m['title']
+
+                trackConfig['menuTemplate'].append(tpl)
+
+        return trackConfig
+
     def parse_colours(self, track, trackFormat, gff3=None):
         # Wiggle tracks have a bicolor pallete
         trackConfig = {'style': {}}
@@ -316,6 +341,7 @@ class JbrowseConnector(object):
         self.genome_paths = genomes
         self.standalone = standalone
         self.gencode = gencode
+        self.tracksToIndex = []
 
         if standalone:
             self.clone_jbrowse(self.jbrowse, self.outdir)
@@ -364,11 +390,23 @@ class JbrowseConnector(object):
                 'perl', self._jbrowse_bin('prepare-refseqs.pl'),
                 '--fasta', genome_node['path']])
 
-        # Generate name
-        # self.subprocess_check_call([
-            # 'perl', self._jbrowse_bin('generate-names.pl'),
-            # '--hashBits', '16'
-        # ])
+    def generate_names(self):
+        # Generate names
+
+        args = [
+            'perl', self._jbrowse_bin('generate-names.pl'),
+            '--hashBits', '16'
+        ]
+
+        tracks = ','.join(self.tracksToIndex)
+
+        if tracks:
+            args += ['--tracks', tracks]
+        else:
+            # No tracks to index, index only the refseq
+            args += ['--tracks', 'DNA']
+
+        self.subprocess_check_call(args)
 
     def _add_json(self, json_data):
         cmd = [
@@ -432,16 +470,24 @@ class JbrowseConnector(object):
                '--trackType', 'BlastView/View/Track/CanvasFeatures'
                ]
 
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
+
         self.subprocess_check_call(cmd)
         os.unlink(gff3)
+
+        if blastOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
         cmd = ['ln', '-s', data, dest]
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.bw')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest),
+            "urlTemplate": url,
             "storeClass": "JBrowse/Store/SeqFeature/BigWig",
             "type": "JBrowse/View/Track/Wiggle/Density",
         })
@@ -461,17 +507,23 @@ class JbrowseConnector(object):
 
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bam')
-        cmd = ['cp', '-s', os.path.realpath(data), dest]
+        cmd = ['ln', '-s', os.path.realpath(data), dest]
         self.subprocess_check_call(cmd)
 
-        cmd = ['cp', '-s', os.path.realpath(bam_index), dest + '.bai']
+        cmd = ['ln', '-s', os.path.realpath(bam_index), dest + '.bai']
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.bam')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest),
+            "urlTemplate": url,
             "type": "JBrowse/View/Track/Alignments2",
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
         })
+
+        # Apollo will only switch to the (prettier) 'bam-read' className if it's not set explicitly in the track config
+        # So remove the default 'feature' value for these bam tracks
+        if 'className' in trackData['style'] and trackData['style']['className'] == 'feature':
+            del trackData['style']['className']
 
         self._add_track_json(trackData)
 
@@ -487,15 +539,16 @@ class JbrowseConnector(object):
     def add_vcf(self, data, trackData, vcfOpts={}, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.vcf')
         # ln?
-        cmd = ['cp', '-s', data, dest]
+        cmd = ['ln', '-s', data, dest]
         self.subprocess_check_call(cmd)
         cmd = ['bgzip', dest]
         self.subprocess_check_call(cmd)
         cmd = ['tabix', '-p', 'vcf', dest + '.gz']
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.vcf')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest + '.gz'),
+            "urlTemplate": url,
             "type": "JBrowse/View/Track/HTMLVariants",
             "storeClass": "JBrowse/Store/SeqFeature/VCFTabix",
         })
@@ -507,9 +560,12 @@ class JbrowseConnector(object):
             self.TN_TABLE.get(format, 'gff'),
             data,
             '--trackLabel', trackData['label'],
-            # '--trackType', 'JBrowse/View/Track/CanvasFeatures',
             '--key', trackData['key']
         ]
+
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
 
         config = copy.copy(trackData)
         clientConfig = trackData['style']
@@ -522,22 +578,33 @@ class JbrowseConnector(object):
         cmd += ['--clientConfig', json.dumps(clientConfig),
                 ]
 
+        trackType = 'JBrowse/View/Track/CanvasFeatures'
         if 'trackType' in gffOpts:
-            cmd += [
-                '--trackType', gffOpts['trackType']
-            ]
-            if gffOpts['trackType'] == 'BlastView/View/Track/CanvasFeatures':
-                config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
-        else:
-            cmd += [
-                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
-            ]
+            trackType = gffOpts['trackType']
+
+        if trackType == 'JBrowse/View/Track/CanvasFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                config['transcriptType'] = gffOpts['transcriptType']
+            if 'subParts' in gffOpts and gffOpts['subParts']:
+                config['subParts'] = gffOpts['subParts']
+            if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
+                config['impliedUTRs'] = gffOpts['impliedUTRs']
+        elif trackType == 'JBrowse/View/Track/HTMLFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                cmd += ['--type', gffOpts['transcriptType']]
+
+        cmd += [
+            '--trackType', gffOpts['trackType']
+        ]
 
         if metadata:
             config.update({'metadata': metadata})
         cmd.extend(['--config', json.dumps(config)])
 
         self.subprocess_check_call(cmd)
+
+        if gffOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
 
     def add_rest(self, url, trackData):
         data = {
@@ -612,6 +679,11 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
+            if 'menus' in track['conf']['options']:
+                menus = self.cs.parse_menus(track['conf']['options'])
+                outputTrackConfig.update(menus)
+
+            # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
@@ -821,8 +893,8 @@ if __name__ == '__main__':
     if plugins['ComboTrackSelector'] == 'True':
         extra_data['plugins_python'].append('ComboTrackSelector')
         extra_data['plugins'].append({
-            'location': 'https://cdn.rawgit.com/TAMU-CPT/ComboTrackSelector/07f4a2d3434e7c8fd1c4cfa24c93b1e07c03029f/',
-            'icon': 'https://pbs.twimg.com/profile_images/580742252043100161/x64IwBFv_normal.png',
+            'location': 'https://cdn.rawgit.com/Arabidopsis-Information-Portal/ComboTrackSelector/52403928d5ccbe2e3a86b0fa5eb8e61c0f2e2f57',
+            'icon': 'https://galaxyproject.org/images/logos/galaxy-icon-square.png',
             'name': 'ComboTrackSelector'
         })
 
