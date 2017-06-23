@@ -4,6 +4,7 @@ import copy
 import logging
 import re
 import sys
+
 from BCBio import GFF
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(name='blastxml2gff3')

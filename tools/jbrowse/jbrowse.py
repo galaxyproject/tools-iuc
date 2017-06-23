@@ -2,18 +2,19 @@
 import argparse
 import binascii
 import copy
+import datetime
 import hashlib
 import json
 import logging
 import os
 import shutil
 import struct
-import datetime
 import subprocess
 import tempfile
-from Bio.Data import CodonTable
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+
+from Bio.Data import CodonTable
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('jbrowse')
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
