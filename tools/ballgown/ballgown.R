@@ -10,7 +10,10 @@ make_option(c("-p", "--phendat"), type="character", default=NULL, help="phenotyp
 make_option(c("-t","--outputtranscript"), type="character", default="output_transcript.csv", help="output_transcript.csv: contains the transcripts of the expirements", metavar="character"),
 make_option(c("-g","--outputgenes"), type="character", default="output_genes.csv", help="output_genes.csv: contains the genes of the expirements", metavar="character"),
 make_option(c("-e","--texpression"), type="double", default="0.5", help="transcripts expression filter", metavar="character"),
-make_option(c("--bgout"), type="character", default="", help="save the ballgown object created in the process", metavar="character")
+make_option(c("--bgout"), type="character", default="", help="save the ballgown object created in the process", metavar="character"),
+make_option(c("-f","--format"), type="character", default="tsv", help="Create csv or tsv files as output", metavar="character"),
+make_option(c("-T","--tsvoutputtranscript"), type="character", default="output_transcript.tsv", help="output_transcript.tsv: contains the transcripts of the expirements", metavar="character"),
+make_option(c("-G","--tsvoutputgenes"), type="character", default="output_genes.tsv", help="output_genes.tsv: contains the genes of the expirements", metavar="character")
 )
 opt_parser=OptionParser(option_list=opt_list)
 opt=parse_args(opt_parser)
@@ -66,8 +69,14 @@ results_genes = arrange(results_genes,pval)
 # Main output of the wrapper, two .csv files containing the genes and transcripts with their qvalue and pvalue
 #This part also output the data of the ballgown object created in the process and save it in a R data file
 # ----------------------------------------------------------------------------------------
-write.csv(results_transcripts, opt$outputtranscript, row.names = FALSE)
-write.csv(results_genes, opt$outputgenes, row.names = FALSE)
+if (opt$format == "tsv"){
+  write.table(results_transcripts, file=opt$tsvoutputtranscript, quote=FALSE, sep='\t', col.names = NA)
+  write.table(results_genes, file=opt$tsvoutputgenes, quote=FALSE, sep='\t', col.names = NA)
+} else {
+  write.csv(results_transcripts, opt$outputtranscript, row.names = FALSE)
+  write.csv(results_genes, opt$outputgenes, row.names = FALSE)
+}
+
 if (opt$bgout != ""){
   save(bgi, file=opt$bgout)
 }
