@@ -62,6 +62,7 @@ if __name__ == '__main__':
                 lineExtra = [
                     'strand=%s' % item[4],
                     'score=%s' % item[5],
+                    'value=%s' % item[5],
                 ]
                 if item[3] is not None:
                     lineExtra.append('id=%s' % item[3])
