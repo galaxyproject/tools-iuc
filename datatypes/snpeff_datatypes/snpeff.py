@@ -1,8 +1,8 @@
 """
 SnpEff datatypes
 """
-import logging
 import gzip
+import logging
 import os
 import os.path
 import re

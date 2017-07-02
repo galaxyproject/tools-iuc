@@ -1,10 +1,11 @@
 import bisect
 import math
-import numpy
 import re
 import subprocess
 import sys
 import tempfile
+
+import numpy
 
 GFF_EXT = 'gff'
 SCIDX_EXT = 'scidx'

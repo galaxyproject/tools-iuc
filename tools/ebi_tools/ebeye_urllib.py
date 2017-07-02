@@ -5,19 +5,19 @@
 # and distributed under the Apache License
 # ======================================================================
 # Load libraries
-import platform
-import os
-import urllib
-import re
-from optparse import OptionParser
-from gzip import GzipFile
-from xmltramp2 import xmltramp
-# python2
-from StringIO import StringIO
-import urllib2
-# python3
-# import urllib.request as urllib2
 
+from __future__ import print_function
+
+import os
+import platform
+import re
+import urllib
+import urllib2
+from gzip import GzipFile
+from optparse import OptionParser
+from StringIO import StringIO
+
+from xmltramp2 import xmltramp
 
 # Service base URL
 baseUrl = 'http://www.ebi.ac.uk/ebisearch/ws/rest'
@@ -272,7 +272,7 @@ def getRunLink(run_id):
     printDebugMessage('getEntries', 'End', 1)
     p = re.compile('http')
     fieldURL = p.sub('https', fieldURL)
-    print fieldURL
+    print(fieldURL)
 
 
 if __name__ == '__main__':

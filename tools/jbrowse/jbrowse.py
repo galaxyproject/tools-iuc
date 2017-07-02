@@ -158,7 +158,7 @@ class ColorScaling(object):
         return r, g, b
 
     def parse_menus(self, track):
-        trackConfig = {'menuTemplate': [{}, {}, {}]}
+        trackConfig = {'menuTemplate': [{}, {}, {}, {}]}
 
         if 'menu' in track['menus']:
             menu_list = [track['menus']['menu']]
@@ -424,6 +424,10 @@ class JbrowseConnector(object):
                '--trackType', 'JBrowse/View/Track/CanvasFeatures'
                ]
 
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
+
         self.subprocess_check_call(cmd)
         os.unlink(gff3)
 
@@ -435,8 +439,9 @@ class JbrowseConnector(object):
         cmd = ['ln', data, dest]
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.bw')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest),
+            "urlTemplate": url,
             "storeClass": "JBrowse/Store/SeqFeature/BigWig",
             "type": "JBrowse/View/Track/Wiggle/Density",
         })
@@ -460,11 +465,17 @@ class JbrowseConnector(object):
         cmd = ['ln', '-s', os.path.realpath(bam_index), dest + '.bai']
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.bam')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest),
+            "urlTemplate": url,
             "type": "JBrowse/View/Track/Alignments2",
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
         })
+
+        # Apollo will only switch to the (prettier) 'bam-read' className if it's not set explicitly in the track config
+        # So remove the default 'feature' value for these bam tracks
+        if 'className' in trackData['style'] and trackData['style']['className'] == 'feature':
+            del trackData['style']['className']
 
         self._add_track_json(trackData)
 
@@ -487,8 +498,9 @@ class JbrowseConnector(object):
         cmd = ['tabix', '-p', 'vcf', dest + '.gz']
         self.subprocess_check_call(cmd)
 
+        url = os.path.join('raw', trackData['label'] + '.vcf')
         trackData.update({
-            "urlTemplate": os.path.join('..', dest + '.gz'),
+            "urlTemplate": url,
             "type": "JBrowse/View/Track/HTMLVariants",
             "storeClass": "JBrowse/Store/SeqFeature/VCFTabix",
         })
@@ -502,6 +514,10 @@ class JbrowseConnector(object):
             '--trackLabel', trackData['label'],
             '--key', trackData['key']
         ]
+
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
 
         config = copy.copy(trackData)
         clientConfig = trackData['style']
@@ -525,6 +541,9 @@ class JbrowseConnector(object):
                 config['subParts'] = gffOpts['subParts']
             if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
                 config['impliedUTRs'] = gffOpts['impliedUTRs']
+        elif trackType == 'JBrowse/View/Track/HTMLFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                cmd += ['--type', gffOpts['transcriptType']]
 
         cmd += [
             '--trackType', gffOpts['trackType']
@@ -564,8 +583,9 @@ class JbrowseConnector(object):
                 else:
                     outputTrackConfig[key] = colourOptions[key]
 
-            menus = self.cs.parse_menus(track['conf']['options'])
-            outputTrackConfig.update(menus)
+            if 'menus' in track['conf']['options']:
+                menus = self.cs.parse_menus(track['conf']['options'])
+                outputTrackConfig.update(menus)
 
             # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
