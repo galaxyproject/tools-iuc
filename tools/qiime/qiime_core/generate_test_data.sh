@@ -92,8 +92,31 @@ assign_taxonomy.py \
     --similarity '0.9' \
     --uclust_max_accepts '3' \
     -o assign_taxonomy_uclust
-cp assign_taxonomy_uclust/uclust_input_seqs_tax_assignments.txt 'test-data/assign_taxonomy/uclust_taxonomic_assignation.txt'
+ls assign_taxonomy_uclust
+md5sum 'assign_taxonomy_uclust/uclust_input_seqs_tax_assignments.txt'
 rm -rf assign_taxonomy_uclust
+
+assign_taxonomy.py \
+    --input_fasta_fp 'test-data/assign_taxonomy/mothur_repr_set_seqs.fasta' \
+    --id_to_taxonomy_fp 'test-data/assign_taxonomy/mothur_id_to_taxonomy.txt' \
+    --assignment_method 'mothur' \
+    --reference_seqs_fp 'test-data/assign_taxonomy/mothur_ref_seq_set.fna' \
+    --confidence '0.5' \
+    -o assign_taxonomy_mothur
+ls assign_taxonomy_mothur
+md5sum 'assign_taxonomy_mothur/mothur_repr_set_seqs_tax_assignments.txt'
+rm -rf assign_taxonomy_mothur
+
+assign_taxonomy.py \
+    --input_fasta_fp 'test-data/assign_taxonomy/mothur_repr_set_seqs.fasta' \
+    --id_to_taxonomy_fp 'test-data/assign_taxonomy/mothur_id_to_taxonomy.txt' \
+    --assignment_method 'mothur' \
+    --reference_seqs_fp 'test-data/assign_taxonomy/mothur_ref_seq_set.fna' \
+    --blast_e_value '0.001' \
+    -o assign_taxonomy_blast
+ls assign_taxonomy_blast
+md5sum 'assign_taxonomy_blast/mothur_repr_set_seqs_tax_assignments.txt'
+rm -rf assign_taxonomy_blast
 
 #assign_taxonomy.py \
 #    --input_fasta_fp 'test-data/assign_taxonomy/rdp_input_seqs.fasta' \
@@ -116,14 +139,6 @@ rm -rf assign_taxonomy_uclust
 #    -o assign_taxonomy_rtax
 #ls assign_taxonomy_rtax
 
-#assign_taxonomy.py \
-#    --input_fasta_fp 'test-data/assign_taxonomy/mothur_ref_seq_set.fna' \
-#    --id_to_taxonomy_fp 'test-data/assign_taxonomy/mothur_id_to_taxonomy.txt' \
-#    --assignment_method 'mothur' \
-#    --confidence 0.5  \
-#    -o assign_taxonomy_mothur
-#ls assign_taxonomy_mothur
-
 assign_taxonomy.py \
     --input_fasta_fp 'test-data/assign_taxonomy/mothur_ref_seq_set.fna' \
     --assignment_method 'sortmerna' \
@@ -133,8 +148,9 @@ assign_taxonomy.py \
     --sortmerna_coverage "0.9" \
     --sortmerna_best_N_alignments "5" \
     -o assign_taxonomy_sortmerna
-cp assign_taxonomy_sortmerna/sortmerna_map.blast 'test-data/assign_taxonomy/sortmerna_map.blast'
-cp assign_taxonomy_sortmerna/mothur_ref_seq_set_tax_assignments.txt 'test-data/assign_taxonomy/sortmerna_taxonomic_assignation.txt'
+ls assign_taxonomy_sortmerna
+md5sum 'assign_taxonomy_sortmerna/mothur_ref_seq_set_tax_assignments.txt'
+md5sum 'assign_taxonomy_sortmerna/sortmerna_map.blast'
 rm -rf assign_taxonomy_sortmerna
 
 #beta_diversity
@@ -1105,22 +1121,3 @@ cp validate_mapping_file_output/*.html 'test-data/validate_mapping_file/map.tsv.
 cp validate_mapping_file_output/*.log 'test-data/validate_mapping_file/map.tsv.log'
 cp validate_mapping_file_output/*corrected.txt 'test-data/validate_mapping_file/map.tsv_corrected.txt'
 rm -rf validate_mapping_file_output
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -17,6 +17,55 @@ suppressPackageStartupMessages({
   library("mclust")
 })
 
+# The following code fixes an error in the stepback function
+# of the maSigPro package. This code is hopefully temporary 
+# and can be removed if the fix is included in a future 
+# version. The stepback function in the maSigPro namespace
+# will be overwritten by the following function.
+stepback <- function (y = y, d = d, alfa = 0.05, family = gaussian() , epsilon=0.00001) 
+{
+    lm1 <- glm(y ~ ., data = d, family=family, epsilon=epsilon)
+    result <- summary(lm1)
+    max <- max(result$coefficients[, 4][-1], na.rm = TRUE)
+    if (length(result$coefficients[, 4][-1]) == 1) {
+      if (max > alfa) {
+        max = 0 
+        lm1 <- glm(y ~ 1,  family=family, epsilon=epsilon)
+      }
+    }
+    while (max > alfa) {
+        varout <- names(result$coefficients[, 4][-1])[result$coefficients[, 
+            4][-1] == max][1]
+        pos <- position(matrix = d, vari = varout)
+        d <- d[, -pos]
+        if (length(result$coefficients[, 4][-1]) == 2) {
+            min <- min(result$coefficients[, 4][-1], na.rm = TRUE)
+            lastname <- names(result$coefficients[, 4][-1])[result$coefficients[,4][-1] == min]
+        }
+        if (is.null(dim(d))) {
+            d <- as.data.frame(d)
+            colnames(d) <- lastname
+        }
+        lm1 <- glm(y ~ ., data = d, family=family, epsilon=epsilon)
+        result <- summary(lm1)
+        max <- max(result$coefficients[, 4][-1], na.rm = TRUE)
+        if (length(result$coefficients[, 4][-1]) == 1) {
+            max <- result$coefficients[, 4][-1]
+            if (max > alfa) {
+                max = 0
+                lm1 <- glm(y ~ 1,  family=family, epsilon=epsilon)
+            }
+        }
+    }
+    return(lm1)
+}
+
+unlockBinding("stepback", as.environment("package:maSigPro"))
+assignInNamespace("stepback", stepback, ns="maSigPro", envir=as.environment("package:maSigPro"))
+assign("stepback", stepback, as.environment("package:maSigPro"))
+lockBinding("stepback", as.environment("package:maSigPro"))
+# End of temporary code to fix stepback.R
+
 options(stringAsFactors = FALSE, useFancyQuotes = FALSE)
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -80,7 +129,7 @@ verbose <- if (is.null(opt$quiet)) {
 
 edesign <- as.matrix(read.table(opt$edesign, header=TRUE, row.names = 1))
 
-data <- read.table(opt$data, header=TRUE)
+data <- read.table(opt$data, header=TRUE, check.names=FALSE)
 
 results <- maSigPro(data, edesign, degree = opt$degree, time.col = opt$time_col,
          repl.col = opt$repl_col, Q = opt$qvalue, min.obs = opt$min_obs,

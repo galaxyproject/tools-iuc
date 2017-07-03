@@ -22,7 +22,7 @@ def main():
     if options.withGTF:
         withGTF = "1"
 
-    data_manager_dict = {'data_tables': {options.data_table: [dict( value=options.value, dbkey=options.dbkey, name=options.name, path=options.subdir, withGTF=withGTF )]}}
+    data_manager_dict = {'data_tables': {options.data_table: [dict({"value": options.value, "dbkey": options.dbkey, "name": options.name, "path": options.subdir, "with-gtf": withGTF} )]}}
     open( options.config_file, 'wb' ).write( json.dumps( data_manager_dict ) )
 
 
