@@ -69,6 +69,7 @@
 # preferred model is a developer using their throw away workstation instance - ie a private site.
 # no real risk. The universe_wsgi.ini admin_users string is checked - only admin users are permitted to run this tool.
 #
+from __future__ import print_function
 
 import math
 import optparse
@@ -316,7 +317,7 @@ o.close()
         """
         retval = self.run()
         if retval:
-            print >> sys.stderr, '## Run failed. Cannot build yet. Please fix and retry'
+            print('## Run failed. Cannot build yet. Please fix and retry', file=sys.stderr)
             sys.exit(1)
         self.makeXML()
         tdir = self.toolname
@@ -526,10 +527,9 @@ o.close()
         else:
             html.append('<div class="warningmessagelarge">### Error - %s returned no files - please confirm that parameters are sane</div>' % self.opts.interpreter)
         html.append(galhtmlpostfix)
-        htmlf = file(self.opts.output_html, 'w')
-        htmlf.write('\n'.join(html))
-        htmlf.write('\n')
-        htmlf.close()
+        with open(self.opts.output_html, 'w') as htmlf:
+            htmlf.write('\n'.join(html))
+            htmlf.write('\n')
         self.html = html
 
     def run(self):
@@ -555,7 +555,7 @@ o.close()
                 ste.close()
                 err = open(self.elog, 'r').read()
                 if retval != 0 and err:  # problem
-                    print >> sys.stderr, err
+                    print(err, file=sys.stderr)
             if self.opts.make_HTML:
                 self.makeHtml()
         return retval
