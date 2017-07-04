@@ -4,6 +4,8 @@
 Galaxy Tools maintained by IUC
 ==============================
 
+![](iuc_logo.png)
+
 This repo contains a subset of Galaxy repositories used in the Tool Shed (https://toolshed.g2.bx.psu.edu/).
 
 These repositories are maintained and developed by the [Intergalactic Utilities Commission](https://galaxyproject.org/iuc/) ([Github Org](https://github.com/galaxy-iuc/))
