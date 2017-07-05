@@ -5,8 +5,8 @@ import subprocess
 import sys
 import tempfile
 
-from six import Iterator
 import numpy
+from six import Iterator
 
 GFF_EXT = 'gff'
 SCIDX_EXT = 'scidx'
