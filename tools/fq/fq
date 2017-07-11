@@ -1,0 +1,125 @@
+#!/usr/bin/env perl
+
+use warnings;
+use strict;
+
+use List::Util qw(min max sum);
+use List::MoreUtils qw(pairwise);
+use Data::Dumper;
+
+use constant SAMPLE_RATE => 1_000;
+
+my(@Options, $debug, $quiet, $ref, $hist);
+setOptions();
+
+my $N=0;
+my %len;
+my $qv = '';
+my $GC=0;
+
+### http://en.wikipedia.org/wiki/FASTQ_format
+
+@ARGV or die "Please provide some FASTQ files!";
+
+for my $file (@ARGV) {
+  print STDERR "Opening: $file\n" unless $quiet;
+  open my $fh, "gzip -c -d -f \Q$file\E |";
+  while (<$fh>) {
+    my $seq = scalar(<$fh>);
+    chomp $seq;
+    $len{ length($seq) }++;
+    $GC += ($seq =~ tr/[GgCc]/[GgCc]/);
+    scalar(<$fh>);
+    my $qual = scalar(<$fh>);
+    if ($N++ % SAMPLE_RATE == 0) {
+      chomp $qual;
+      $qv .= $qual;
+      print STDERR "\rProcessed: $N" unless $quiet;
+    }
+  }
+  print STDERR "\n" unless $quiet;
+  close $fh;
+}
+
+my @len = sort { $a <=> $b }  map { $len{$_} ? $_ : () } keys %len;
+
+my @k = keys %len;
+my @v = values %len;
+my $yield = sum( pairwise { $a * $b } @k, @v );
+
+my %qv;
+map { $qv{ord($_)}++ } (split m//, $qv);
+#my $offset = max(keys %qv) > 73 ? 64 : 33;
+print Dumper(\%qv) if $debug;
+my $quality = sum(map { $_ * $qv{$_} } keys %qv) / sum(values %qv);
+#print STDERR Dumper(\%qv);
+my $offset = $quality-64 < 20 ? 33 : 64;
+$quality -= $offset;
+
+my $maxcount = max(values %len);
+my($mode) = grep { $len{$_}==$maxcount } (keys %len);
+
+### Print out statistics
+
+#printf "Nfiles\t%d\n", scalar(@ARGV);
+printf "Files\t@ARGV\n";
+printf "Reads\t%d\n", $N;
+printf "Yield\t%d\n", $yield;  
+printf "GeeCee\t%.1f\n", (100*$GC/$yield);  
+printf "MinLen\t%d\n", $len[0];
+printf "AvgLen\t%d\n", $yield/$N;
+printf "MaxLen\t%d\n", $len[-1];
+printf "ModeLen\t%d\n", $mode;
+printf "Phred\t%s\n", $offset;
+printf "AvgQual\t%.1f\n", $quality;
+
+if ($ref) {
+  my $size = ($ref =~ m/^(\d+)$/ ? $1 : (-s $ref));
+  print STDERR "Calculating depth, using size $size\n";
+  printf "Depth\t%dx\n", $yield/$size;
+}
+
+if ($hist) {
+  for my $i ($len[0] .. $len[-1]) {
+    my $count = $len{$i} || 0;
+    my $bar = '#'x(int(($count*50/$maxcount)+1));
+    printf "Len-%d\t%d\t%s\n", $i, $count, $bar;
+  }
+}
+
+#----------------------------------------------------------------------
+# Option setting routines
+
+sub setOptions {
+  use Getopt::Long;
+
+  @Options = (
+    {OPT=>"help",    VAR=>\&usage,             DESC=>"This help"},
+    {OPT=>"debug!",  VAR=>\$debug, DEFAULT=>0, DESC=>"Debug mode: print stuff out"},
+    {OPT=>"quiet!",  VAR=>\$quiet, DEFAULT=>0, DESC=>"Quiet mode: no progress output"},
+    {OPT=>"ref=s",   VAR=>\$ref, DEFAULT=>'',  DESC=>"Reference FASTA file OR size in bp"},
+    {OPT=>"hist",    VAR=>\$hist, DEFAULT=>0,  DESC=>"Length histogram"},
+  );
+
+  (!@ARGV) && (usage());
+
+  &GetOptions(map {$_->{OPT}, $_->{VAR}} @Options) || usage();
+
+  # Now setup default values.
+  foreach (@Options) {
+    if (defined($_->{DEFAULT}) && !defined(${$_->{VAR}})) {
+      ${$_->{VAR}} = $_->{DEFAULT};
+    }
+  }
+}
+
+sub usage {
+  print "Usage: $0 [options] <file.fq | file.fq.gz ...>\n";
+  foreach (@Options) {
+    printf "  --%-13s %s%s.\n",$_->{OPT},$_->{DESC},
+           defined($_->{DEFAULT}) ? " (default '$_->{DEFAULT}')" : "";
+  }
+  exit(1);
+}
+ 
+#----------------------------------------------------------------------
