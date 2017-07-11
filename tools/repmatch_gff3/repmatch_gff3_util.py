@@ -23,6 +23,7 @@ pyplot.rc('axes', linewidth=3.00)
 pyplot.rc('font', family='Bitstream Vera Sans', size=32.0)
 
 COLORS = 'krb'
+ISPY3 = sys.version_info >= (3, 0, 0)
 
 
 class Replicate(object):
@@ -30,7 +31,11 @@ class Replicate(object):
     def __init__(self, id, dataset_path):
         self.id = id
         self.dataset_path = dataset_path
-        self.parse(csv.reader(open(dataset_path, 'rt'), delimiter='\t'))
+        if ISPY3:
+            fh = open(dataset_path, 'r', newline='')
+        else:
+            fh = open(dataset_path, 'rb', lineterminator='\n')
+        self.parse(csv.reader(fh, delimiter='\t'))
 
     def parse(self, reader):
         self.chromosomes = {}
@@ -39,24 +44,23 @@ class Replicate(object):
                 continue
             cname, junk, junk, mid, midplus, value, strand, junk, attrs = line
             attrs = parse_gff_attrs(attrs)
-            distance = attrs['cw_distance']
+            distance = int(attrs['cw_distance'])
             mid = int(mid)
             midplus = int(midplus)
             value = float(value)
-            distance = int(distance)
             if cname not in self.chromosomes:
                 self.chromosomes[cname] = Chromosome(cname)
             chrom = self.chromosomes[cname]
             chrom.add_peak(Peak(cname, mid, value, distance, self))
-        for chrom in self.chromosomes.values():
+        for chrom in list(self.chromosomes.values()):
             chrom.sort_by_index()
 
     def filter(self, up_limit, low_limit):
-        for chrom in self.chromosomes.values():
+        for chrom in list(self.chromosomes.values()):
             chrom.filter(up_limit, low_limit)
 
     def size(self):
-        return sum([len(c.peaks) for c in self.chromosomes.values()])
+        return sum([len(c.peaks) for c in list(self.chromosomes.values())])
 
 
 class Chromosome(object):
@@ -107,11 +111,11 @@ class PeakGroup(object):
 
     @property
     def chrom(self):
-        return self.peaks.values()[0].chrom
+        return list(self.peaks.values())[0].chrom
 
     @property
     def midpoint(self):
-        return median([peak.midpoint for peak in self.peaks.values()])
+        return int(median([peak.midpoint for peak in list(self.peaks.values())]))
 
     @property
     def num_replicates(self):
@@ -119,21 +123,21 @@ class PeakGroup(object):
 
     @property
     def median_distance(self):
-        return median([peak.distance for peak in self.peaks.values()])
+        return int(median([peak.distance for peak in list(self.peaks.values())]))
 
     @property
     def value_sum(self):
-        return sum([peak.value for peak in self.peaks.values()])
+        return sum([peak.value for peak in list(self.peaks.values())])
 
     def normalized_value(self, med):
         values = []
-        for peak in self.peaks.values():
+        for peak in list(self.peaks.values()):
             values.append(peak.normalized_value(med))
         return median(values)
 
     @property
     def peakpeak_distance(self):
-        keys = self.peaks.keys()
+        keys = list(self.peaks.keys())
         return abs(self.peaks[keys[0]].midpoint - self.peaks[keys[1]].midpoint)
 
 
@@ -148,16 +152,16 @@ class FrequencyDistribution(object):
     def graph_series(self):
         x = []
         y = []
-        for key, val in self.dist.items():
+        for key, val in list(self.dist.items()):
             x.append(key)
             y.append(val)
         return x, y
 
     def mode(self):
-        return max(self.dist.items(), key=lambda data: data[1])[0]
+        return max(list(self.dist.items()), key=lambda data: data[1])[0]
 
     def size(self):
-        return sum(self.dist.values())
+        return sum(list(self.dist.values()))
 
 
 def stop_err(msg):
@@ -187,8 +191,8 @@ def get_window(chromosome, target_peaks, distance):
     Returns a window of all peaks from a replicate within a certain distance of
     a peak from another replicate.
     """
-    lower = target_peaks[0].midpoint
-    upper = target_peaks[0].midpoint
+    lower = list(target_peaks)[0].midpoint
+    upper = list(target_peaks)[0].midpoint
     for peak in target_peaks:
         lower = min(lower, peak.midpoint - distance)
         upper = max(upper, peak.midpoint + distance)
@@ -234,10 +238,10 @@ def frequency_histogram(freqs, dataset_path, labels=[], title=''):
 METHODS = {'closest': match_closest, 'largest': match_largest}
 
 
-def gff_attrs(d):
-    if not d:
+def gff_attrs(l):
+    if len(l) == 0:
         return '.'
-    return ';'.join('%s=%s' % item for item in d.items())
+    return ';'.join('%s=%s' % (tup[0], tup[1]) for tup in l)
 
 
 def parse_gff_attrs(s):
@@ -250,8 +254,8 @@ def parse_gff_attrs(s):
     return d
 
 
-def gff_row(cname, start, end, score, source, type='.', strand='.', phase='.', attrs={}):
-    return (cname, source, type, start, end, score, strand, phase, gff_attrs(attrs))
+def gff_row(cname, start, end, score, source, stype='.', strand='.', phase='.', attrs=None):
+    return (cname, source, stype, start, end, score, strand, phase, gff_attrs(attrs or []))
 
 
 def get_temporary_plot_path():
@@ -321,7 +325,12 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
 
     def td_writer(file_path):
         # Returns a tab-delimited writer for a certain output
-        return csv.writer(open(file_path, 'wt'), delimiter='\t')
+        if ISPY3:
+            fh = open(file_path, 'w', newline='')
+            return csv.writer(fh, delimiter='\t', quoting=csv.QUOTE_NONE)
+        else:
+            fh = open(file_path, 'wb', lineterminator='\n')
+            return csv.writer(fh, delimiter='\t')
 
     labels = ('chrom',
               'median midpoint',
@@ -363,7 +372,7 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
             # Iterate over each replicate as "main"
             main = reps[0]
             reps.remove(main)
-            for chromosome in main.chromosomes.values():
+            for chromosome in list(main.chromosomes.values()):
                 peaks_by_value = chromosome.peaks[:]
                 # Sort main replicate by value
                 peaks_by_value.sort(key=lambda peak: -peak.value)
@@ -379,9 +388,7 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
                                 continue
                             try:
                                 # Lines changed to remove a major bug by Rohit Reja.
-                                window, chrum = get_window(replicate.chromosomes[chromosome.name],
-                                                           group.peaks.values(),
-                                                           distance)
+                                window, chrum = get_window(replicate.chromosomes[chromosome.name], list(group.peaks.values()), distance)
                                 match = METHODS[method](window, peak, chrum)
                             except KeyError:
                                 continue
@@ -392,9 +399,9 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
                             break
                 # Attempt to enlarge existing peak groups
                 for group in peak_groups:
-                    old_peaks = group.peaks.values()[:]
+                    old_peaks = list(group.peaks.values())[:]
                     search_for_matches(group)
-                    for peak in group.peaks.values():
+                    for peak in list(group.peaks.values()):
                         if peak not in old_peaks:
                             peak.replicate.chromosomes[chromosome.name].remove_peak(peak)
                 # Attempt to find new peaks groups.  For each peak in the
@@ -405,7 +412,7 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
                     search_for_matches(matches)
                     # Were enough replicates matched?
                     if matches.num_replicates >= num_required:
-                        for peak in matches.peaks.values():
+                        for peak in list(matches.peaks.values()):
                             peak.replicate.chromosomes[chromosome.name].remove_peak(peak)
                         peak_groups.append(matches)
     # Zero or less = no stepping
@@ -418,25 +425,28 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
         freq.add(group.num_replicates)
     # Collect together the remaining unmatched_peaks
     for replicate in replicates:
-        for chromosome in replicate.chromosomes.values():
+        for chromosome in list(replicate.chromosomes.values()):
             for peak in chromosome.peaks:
                 freq.add(1)
                 unmatched_peaks.append(peak)
     # Average the unmatched_peaks count in the graph by # replicates
-    med = median([peak.value for group in peak_groups for peak in group.peaks.values()])
+    med = median([peak.value for group in peak_groups for peak in list(group.peaks.values())])
     for replicate in replicates:
-        replicate.median = median([peak.value for group in peak_groups for peak in group.peaks.values() if peak.replicate == replicate])
+        replicate.median = median([peak.value for group in peak_groups for peak in list(group.peaks.values()) if peak.replicate == replicate])
         statistics_table_output.writerow((replicate.id, replicate.median))
     for group in peak_groups:
         # Output matched_peaks (matched pairs).
         matched_peaks_output.writerow(gff_row(cname=group.chrom,
                                               start=group.midpoint,
                                               end=group.midpoint + 1,
-                                              source='repmatch',
                                               score=group.normalized_value(med),
-                                              attrs={'median_distance': group.median_distance,
-                                                     'replicates': group.num_replicates,
-                                                     'value_sum': group.value_sum}))
+                                              source='repmatch',
+                                              stype='.',
+                                              strand='.',
+                                              phase='.',
+                                              attrs=[('median_distance', group.median_distance),
+                                                     ('value_sum', group.value_sum),
+                                                     ('replicates', group.num_replicates)]))
         if output_detail_file:
             matched_peaks = (group.chrom,
                              group.midpoint,
@@ -445,7 +455,7 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
                              group.num_replicates,
                              group.median_distance,
                              group.value_sum)
-            for peak in group.peaks.values():
+            for peak in list(group.peaks.values()):
                 matched_peaks += (peak.chrom, peak.midpoint, peak.midpoint + 1, peak.value, peak.distance, peak.replicate.id)
             detail_output.writerow(matched_peaks)
     if output_unmatched_peaks_file:
