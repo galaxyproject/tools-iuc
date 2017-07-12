@@ -143,6 +143,17 @@ results <- maSigPro(data, edesign, degree = opt$degree, time.col = opt$time_col,
          show.lines = opt$show_lines, cexlab = opt$cexlab,
          legend = opt$legend)
 
+if (opt$print_cluster) {
+    for (i in 1:length(results$sig.genes)) {
+    
+    colname <- paste(names(results$sig.genes)[i], "cluster", sep = "_")
+    
+    results$summary[colname] <- ""
+    results$summary[[colname]][1:length(results$sig.genes[[i]]$sig.profiles$`cluster$cut`)] <-
+        results$sig.genes[[i]]$sig.profiles$`cluster$cut`
+    }
+}
+
 filename <- opt$outfile
 
 write.table((results$summary), file=filename, sep="\t", quote=FALSE,
