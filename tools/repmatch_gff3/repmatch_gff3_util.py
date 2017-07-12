@@ -23,7 +23,7 @@ pyplot.rc('axes', linewidth=3.00)
 pyplot.rc('font', family='Bitstream Vera Sans', size=32.0)
 
 COLORS = 'krb'
-ISPY3 = sys.version_info >= (3, 0, 0)
+ISPY2 = sys.version_info[0] == 2
 
 
 class Replicate(object):
@@ -31,10 +31,10 @@ class Replicate(object):
     def __init__(self, id, dataset_path):
         self.id = id
         self.dataset_path = dataset_path
-        if ISPY3:
-            fh = open(dataset_path, 'r', newline='')
+        if ISPY2:
+            fh = open(dataset_path, 'rb')
         else:
-            fh = open(dataset_path, 'rb', lineterminator='\n')
+            fh = open(dataset_path, 'r', newline='')
         self.parse(csv.reader(fh, delimiter='\t'))
 
     def parse(self, reader):
@@ -52,15 +52,15 @@ class Replicate(object):
                 self.chromosomes[cname] = Chromosome(cname)
             chrom = self.chromosomes[cname]
             chrom.add_peak(Peak(cname, mid, value, distance, self))
-        for chrom in list(self.chromosomes.values()):
+        for chrom in self.chromosomes.values():
             chrom.sort_by_index()
 
     def filter(self, up_limit, low_limit):
-        for chrom in list(self.chromosomes.values()):
+        for chrom in self.chromosomes.values():
             chrom.filter(up_limit, low_limit)
 
     def size(self):
-        return sum([len(c.peaks) for c in list(self.chromosomes.values())])
+        return sum([len(c.peaks) for c in self.chromosomes.values()])
 
 
 class Chromosome(object):
@@ -115,7 +115,7 @@ class PeakGroup(object):
 
     @property
     def midpoint(self):
-        return int(median([peak.midpoint for peak in list(self.peaks.values())]))
+        return int(median([peak.midpoint for peak in self.peaks.values()]))
 
     @property
     def num_replicates(self):
@@ -123,15 +123,15 @@ class PeakGroup(object):
 
     @property
     def median_distance(self):
-        return int(median([peak.distance for peak in list(self.peaks.values())]))
+        return int(median([peak.distance for peak in self.peaks.values()]))
 
     @property
     def value_sum(self):
-        return sum([peak.value for peak in list(self.peaks.values())])
+        return sum([peak.value for peak in self.peaks.values()])
 
     def normalized_value(self, med):
         values = []
-        for peak in list(self.peaks.values()):
+        for peak in self.peaks.values():
             values.append(peak.normalized_value(med))
         return median(values)
 
@@ -158,10 +158,10 @@ class FrequencyDistribution(object):
         return x, y
 
     def mode(self):
-        return max(list(self.dist.items()), key=lambda data: data[1])[0]
+        return max(self.dist.items(), key=lambda data: data[1])[0]
 
     def size(self):
-        return sum(list(self.dist.values()))
+        return sum(self.dist.values())
 
 
 def stop_err(msg):
@@ -325,12 +325,12 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
 
     def td_writer(file_path):
         # Returns a tab-delimited writer for a certain output
-        if ISPY3:
+        if ISPY2:
+            fh = open(file_path, 'wb')
+            return csv.writer(fh, delimiter='\t')
+        else:
             fh = open(file_path, 'w', newline='')
             return csv.writer(fh, delimiter='\t', quoting=csv.QUOTE_NONE)
-        else:
-            fh = open(file_path, 'wb', lineterminator='\n')
-            return csv.writer(fh, delimiter='\t')
 
     labels = ('chrom',
               'median midpoint',
@@ -399,7 +399,7 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
                             break
                 # Attempt to enlarge existing peak groups
                 for group in peak_groups:
-                    old_peaks = list(group.peaks.values())[:]
+                    old_peaks = list(group.peaks.values())
                     search_for_matches(group)
                     for peak in list(group.peaks.values()):
                         if peak not in old_peaks:
@@ -425,14 +425,14 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
         freq.add(group.num_replicates)
     # Collect together the remaining unmatched_peaks
     for replicate in replicates:
-        for chromosome in list(replicate.chromosomes.values()):
+        for chromosome in replicate.chromosomes.values():
             for peak in chromosome.peaks:
                 freq.add(1)
                 unmatched_peaks.append(peak)
     # Average the unmatched_peaks count in the graph by # replicates
-    med = median([peak.value for group in peak_groups for peak in list(group.peaks.values())])
+    med = median([peak.value for group in peak_groups for peak in group.peaks.values()])
     for replicate in replicates:
-        replicate.median = median([peak.value for group in peak_groups for peak in list(group.peaks.values()) if peak.replicate == replicate])
+        replicate.median = median([peak.value for group in peak_groups for peak in group.peaks.values() if peak.replicate == replicate])
         statistics_table_output.writerow((replicate.id, replicate.median))
     for group in peak_groups:
         # Output matched_peaks (matched pairs).
@@ -455,7 +455,7 @@ def perform_process(dataset_paths, galaxy_hids, method, distance, step, num_requ
                              group.num_replicates,
                              group.median_distance,
                              group.value_sum)
-            for peak in list(group.peaks.values()):
+            for peak in group.peaks.values():
                 matched_peaks += (peak.chrom, peak.midpoint, peak.midpoint + 1, peak.value, peak.distance, peak.replicate.id)
             detail_output.writerow(matched_peaks)
     if output_unmatched_peaks_file:
