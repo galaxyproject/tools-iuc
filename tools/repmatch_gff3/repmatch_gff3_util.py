@@ -152,7 +152,7 @@ class FrequencyDistribution(object):
     def graph_series(self):
         x = []
         y = []
-        for key, val in list(self.dist.items()):
+        for key, val in self.dist.items():
             x.append(key)
             y.append(val)
         return x, y
