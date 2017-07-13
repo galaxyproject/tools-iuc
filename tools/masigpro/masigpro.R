@@ -92,6 +92,7 @@ option_list <- list(
  make_option("--significant_intercept", type="character", default="dummy"),
  make_option("--cluster_data", type="integer", default=1),
  make_option(c("-k", "--k"), type="integer", default=9),
+ make_option("--print_cluster", type="logical", default=FALSE),
  make_option("--cluster_method", type="character", default="hclust"),
  make_option("--distance", type="character", default="cor"),
  make_option("--agglo_method", type="character", default="ward.D"),
@@ -142,6 +143,17 @@ results <- maSigPro(data, edesign, degree = opt$degree, time.col = opt$time_col,
          color.mode = opt$color_mode, show.fit = opt$show_fit,
          show.lines = opt$show_lines, cexlab = opt$cexlab,
          legend = opt$legend)
+
+if (opt$print_cluster) {
+    for (i in 1:length(results$sig.genes)) {
+    
+    colname <- paste(names(results$sig.genes)[i], "cluster", sep = "_")
+    
+    results$summary[colname] <- ""
+    results$summary[[colname]][1:length(results$sig.genes[[i]]$sig.profiles$`cluster$cut`)] <-
+        results$sig.genes[[i]]$sig.profiles$`cluster$cut`
+    }
+}
 
 filename <- opt$outfile
 
