@@ -92,6 +92,7 @@ option_list <- list(
  make_option("--significant_intercept", type="character", default="dummy"),
  make_option("--cluster_data", type="integer", default=1),
  make_option(c("-k", "--k"), type="integer", default=9),
+ make_option("--print_cluster", type="logical", default=FALSE),
  make_option("--cluster_method", type="character", default="hclust"),
  make_option("--distance", type="character", default="cor"),
  make_option("--agglo_method", type="character", default="ward.D"),
