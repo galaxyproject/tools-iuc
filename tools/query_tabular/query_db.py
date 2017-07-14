@@ -28,7 +28,7 @@ def regex_sub(expr, replace, item):
     return re.sub(expr, replace, item)
 
 
-def get_connection(sqlitedb_path, addfunctions=False):
+def get_connection(sqlitedb_path, addfunctions=True):
     conn = sqlite.connect(sqlitedb_path)
     if addfunctions:
         conn.create_function("re_match", 2, regex_match)
