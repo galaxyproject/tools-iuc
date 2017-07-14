@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
+
 import json
-import os.path
 import optparse
+import os.path
 import sys
+
 from filters import filter_file
 
 

@@ -1,12 +1,15 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
+
 import json
 import optparse
 import os.path
 import sys
+
 from load_db import create_table
-from query_db import get_connection, run_query, describe_tables
+
+from query_db import describe_tables, get_connection, run_query
 
 
 """

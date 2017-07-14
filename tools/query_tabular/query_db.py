@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
+
 import re
 import sqlite3 as sqlite
 import sys
