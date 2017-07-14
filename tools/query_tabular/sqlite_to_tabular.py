@@ -1,8 +1,9 @@
 #!/usr/bin/env python
+
 from __future__ import print_function
-import sys
-import os.path
 import optparse
+import os.path
+import sys
 from query_db import get_connection, run_query, describe_tables
 
 

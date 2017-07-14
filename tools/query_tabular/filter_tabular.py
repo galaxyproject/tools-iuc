@@ -1,9 +1,10 @@
 #!/usr/bin/env python
+
 from __future__ import print_function
-import sys
-import os.path
 import json
+import os.path
 import optparse
+import sys
 from filters import filter_file
 
 
@@ -62,6 +63,7 @@ def __main__():
     except Exception as exc:
         print("Error: %s" % exc, file=sys.stderr)
         exit(1)
+
 
 if __name__ == "__main__":
     __main__()

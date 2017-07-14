@@ -1,13 +1,13 @@
 #!/usr/bin/env python
-"""
-"""
+
 from __future__ import print_function
-import sys
-import os.path
 import json
 import optparse
-from query_db import get_connection, run_query, describe_tables
+import os.path
+import sys
 from load_db import create_table
+from query_db import get_connection, run_query, describe_tables
+
 
 """
 JSON config:
@@ -130,6 +130,7 @@ def __main__():
         except Exception as exc:
             print("Error: %s" % exc, file=sys.stderr)
             exit(1)
+
 
 if __name__ == "__main__":
     __main__()
