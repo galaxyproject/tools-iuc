@@ -7,6 +7,15 @@ import re
 import sqlite3 as sqlite
 
 
+TABLE_QUERY = \
+    """
+    SELECT name, sql
+    FROM sqlite_master
+    WHERE type='table'
+    ORDER BY name
+    """
+
+
 def regex_match(expr, item):
     return re.match(expr, item) is not None
 
@@ -31,13 +40,7 @@ def get_connection(sqlitedb_path, addfunctions=False):
 def describe_tables(conn, outputFile):
     try:
         c = conn.cursor()
-        tables_query = \
-"""
-SELECT name, sql
-FROM sqlite_master
-WHERE type='table'
-ORDER BY name
-"""
+        tables_query = TABLE_QUERY
         rslt = c.execute(tables_query).fetchall()
         for table, sql in rslt:
             print("Table %s:" % table, file=sys.stderr)

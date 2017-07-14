@@ -33,7 +33,7 @@ class LineFilter(object):
             r = filter_dict['replace']
             c = int(filter_dict['column']) - 1
             self.func = lambda i, l: '\t'.join(
-                [x if i != c else re.sub(p, r, x) for i, x in enumerate(l.split('\t'))])
+                [x if j != c else re.sub(p, r, x) for j, x in enumerate(l.split('\t'))])
         elif filter_dict['filter'] == 'prepend_line_num':
             self.func = lambda i, l: '%d\t%s' % (i, l)
         elif filter_dict['filter'] == 'append_line_num':

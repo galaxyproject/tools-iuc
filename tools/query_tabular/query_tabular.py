@@ -3,13 +3,9 @@
 """
 from __future__ import print_function
 import sys
-import re
 import os.path
 import json
-import sqlite3 as sqlite
 import optparse
-from optparse import OptionParser
-from filters import TabularReader
 from query_db import get_connection, run_query, describe_tables
 from load_db import create_table
 

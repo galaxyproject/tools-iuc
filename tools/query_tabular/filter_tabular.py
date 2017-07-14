@@ -1,17 +1,10 @@
 #!/usr/bin/env python
 from __future__ import print_function
-"""
-"""
 import sys
-import re
 import os.path
 import json
 import optparse
-from optparse import OptionParser
 from filters import filter_file
-
-"""
-"""
 
 
 def __main__():

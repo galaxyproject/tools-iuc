@@ -3,8 +3,6 @@
 """
 from __future__ import print_function
 import sys
-import re
-import sqlite3 as sqlite
 from filters import TabularReader
 
 
@@ -28,7 +26,6 @@ def get_column_def(file_path, table_name, skip=0, comment_char='#',
     col_pref = ['TEXT', 'REAL', 'INTEGER', None]
     col_types = []
     col_idx = None
-    data_lines = 0
     try:
         tr = TabularReader(file_path, skip=skip, comment_char=comment_char,
                            col_idx=None, filters=filters)
