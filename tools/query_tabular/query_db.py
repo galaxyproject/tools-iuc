@@ -43,16 +43,16 @@ def describe_tables(conn, outputFile):
         tables_query = TABLE_QUERY
         rslt = c.execute(tables_query).fetchall()
         for table, sql in rslt:
-            print("Table %s:" % table, file=sys.stderr)
+            print("Table %s:" % table, file=outputFile)
             try:
                 col_query = 'SELECT * FROM %s LIMIT 0' % table
                 cur = conn.cursor().execute(col_query)
                 cols = [col[0] for col in cur.description]
-                print(" Columns: %s" % cols, file=sys.stderr)
+                print(" Columns: %s" % cols, file=outputFile)
             except Exception as exc:
-                print("Error: %s" % exc, file=sys.stderr)
-    except Exception as exc:
-        print("Error: %s" % exc, file=sys.stderr)
+                print("Warning: %s" % exc, file=sys.stderr)
+    except Exception as e:
+        exit('Error: %s' % (e))
     exit(0)
 
 

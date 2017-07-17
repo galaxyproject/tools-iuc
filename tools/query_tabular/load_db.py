@@ -122,8 +122,7 @@ def create_table(conn, file_path, table_name, skip=0, comment_char='#',
         conn.commit()
         c.close()
     except Exception as e:
-        print('Failed: %s' % (e), file=sys.stderr)
-        exit(1)
+        exit('Error: %s' % (e))
 
 
 def create_index(conn, table_name, index_name, index_columns, unique=False):

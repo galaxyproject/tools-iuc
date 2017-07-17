@@ -56,14 +56,13 @@ class LineFilter(object):
         return self
 
     def __next__(self):
-        return next(self)
-
-    def next(self):
         if not self.src_lines:
             self.get_lines()
         if self.src_lines:
             return self.src_lines.pop(0)
         raise StopIteration
+
+    next = __next__
 
     def select_columns(self, line, cols):
         fields = line.split('\t')
@@ -111,7 +110,7 @@ class TabularReader:
         self.col_idx = col_idx
         self.filters = filters
         self.tsv_file = \
-            input_file if isinstance(input_file, file) else open(input_file)
+            open(input_file) if isinstance(input_file, (str)) else input_file
         if skip and skip > 0:
             for i in range(skip):
                 if not self.tsv_file.readline():
@@ -130,9 +129,6 @@ class TabularReader:
         return self
 
     def __next__(self):
-        return next(self)
-
-    def next(self):
         ''' Iteration '''
         for i, line in enumerate(self.source):
             fields = line.rstrip('\r\n').split('\t')
@@ -140,6 +136,8 @@ class TabularReader:
                 fields = [fields[i] for i in self.col_idx]
             return fields
         raise StopIteration
+
+    next = __next__
 
 
 def filter_file(input_file, output, skip=0, comment_char='#', filters=None):
@@ -155,5 +153,4 @@ def filter_file(input_file, output, skip=0, comment_char='#', filters=None):
                 print('Failed at line: %d err: %s' % (linenum, e),
                       file=sys.stderr)
     except Exception as e:
-        print('Failed: %s' % (e), file=sys.stderr)
-        exit(1)
+        exit('Error: %s' % (e))

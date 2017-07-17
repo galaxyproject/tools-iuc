@@ -29,8 +29,7 @@ def __main__():
             inputPath = os.path.abspath(options.input)
             inputFile = open(inputPath, 'r')
         except Exception as e:
-            print("failed: %s" % e, file=sys.stderr)
-            exit(3)
+            exit('Error: %s' % (e))
     else:
         inputFile = sys.stdin
 
@@ -39,8 +38,7 @@ def __main__():
             outputPath = os.path.abspath(options.output)
             outputFile = open(outputPath, 'w')
         except Exception as e:
-            print("failed: %s" % e, file=sys.stderr)
-            exit(3)
+            exit('Error: %s' % (e))
     else:
         outputFile = sys.stdout
 
@@ -49,8 +47,8 @@ def __main__():
         try:
             fh = open(options.jsonfile)
             filters = json.load(fh)
-        except Exception as exc:
-            print("Error: %s" % exc, file=sys.stderr)
+        except Exception as e:
+            exit('Error: %s' % (e))
 
     if options.verbose and filters:
         for f in filters:
@@ -62,9 +60,8 @@ def __main__():
 
     try:
         filter_file(inputFile, outputFile, filters=filters)
-    except Exception as exc:
-        print("Error: %s" % exc, file=sys.stderr)
-        exit(1)
+    except Exception as e:
+        exit('Error: %s' % (e))
 
 
 if __name__ == "__main__":

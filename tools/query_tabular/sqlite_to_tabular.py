@@ -31,8 +31,7 @@ def __main__():
             outputPath = os.path.abspath(options.output)
             outputFile = open(outputPath, 'w')
         except Exception as e:
-            print("failed: %s" % e, file=sys.stderr)
-            exit(3)
+            exit('Error: %s' % (e))
     else:
         outputFile = sys.stdout
 
@@ -48,16 +47,15 @@ def __main__():
     if (query is None):
         try:
             describe_tables(get_connection(options.sqlitedb), outputFile)
-        except Exception as exc:
-            print("Error: %s" % exc, file=sys.stderr)
+        except Exception as e:
+            exit('Error: %s' % (e))
         exit(0)
     else:
         try:
             run_query(get_connection(options.sqlitedb), query, outputFile,
                       no_header=options.no_header)
-        except Exception as exc:
-            print("Error: %s" % exc, file=sys.stderr)
-            exit(1)
+        except Exception as e:
+            exit('Error: %s' % (e))
 
 
 if __name__ == "__main__":
