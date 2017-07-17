@@ -110,7 +110,7 @@ class TabularReader:
         self.col_idx = col_idx
         self.filters = filters
         self.tsv_file = \
-            open(input_file) if isinstance(input_file, (str)) else input_file
+            input_file if hasattr(input_file, 'readline') else open(input_file)
         if skip and skip > 0:
             for i in range(skip):
                 if not self.tsv_file.readline():
