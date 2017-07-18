@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # Daniel Blankenberg
 # Creates the options for tool interface
+from __future__ import print_function
+
 import re
 
 # http://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi
@@ -214,9 +216,9 @@ FORMAT_OPTION_TPL = '''<option value="{name_type}">{name_type_human}</option>'''
 
 format_names = {}
 
-print '''  <xml name="db">
+print('''  <xml name="db">
     <conditional name="db">
-      <expand macro="dbselect" />'''
+      <expand macro="dbselect" />''')
 for key in sorted(db):
     format_options = []
 
@@ -233,13 +235,13 @@ for key in sorted(db):
 
         format_names[format_string] = format_modifier
 
-    print WHEN_TPL.format(
+    print(WHEN_TPL.format(
         format=key,
         format_options='\n          '.join(format_options)
-    )
+    ))
 
-print '''    </conditional>
-  </xml>'''
+print('''    </conditional>
+  </xml>''')
 
 CHANGE_FORMAT_TPL = '''
   <xml name="efetch_formats">
@@ -264,4 +266,4 @@ for (k, v) in format_names.items():
         key=k, value=v
     ))
 
-print CHANGE_FORMAT_TPL.format(formats='\n      '.join(whens))
+print(CHANGE_FORMAT_TPL.format(formats='\n      '.join(whens)))

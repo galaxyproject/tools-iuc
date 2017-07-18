@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import print_function
+
 import argparse
 
 import eutils
@@ -27,4 +29,4 @@ if __name__ == '__main__':
     else:
         payload['id'] = ','.join(merged_ids)
 
-    print c.summary(**payload)
+    print(c.summary(**payload))

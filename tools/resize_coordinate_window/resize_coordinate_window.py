@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import argparse
 import fileinput
 import sys
@@ -84,6 +86,6 @@ with open(args.input) as fhi:
 out.close()
 
 if len_file_error is not None:
-    print "All chrom lengths set to %d, error in chrom len file: %s" % (MAX_CHROM_LEN, len_file_error)
+    print("All chrom lengths set to %d, error in chrom len file: %s" % (MAX_CHROM_LEN, len_file_error))
 if len_file_missing:
-    print "All chrom lengths set to %d, chrom len files are not installed." % MAX_CHROM_LEN
+    print("All chrom lengths set to %d, chrom len files are not installed." % MAX_CHROM_LEN)

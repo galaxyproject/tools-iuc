@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import print_function
+
 import argparse
 
 import eutils
@@ -18,4 +20,4 @@ if __name__ == '__main__':
         'term': args.term,
     }
     results = c.gquery(**payload)
-    print results
+    print(results)

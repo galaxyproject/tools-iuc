@@ -112,8 +112,8 @@ try:
     if returncode != 0:
         stderr = get_stderr(tmp_stderr)
         stop_err(stderr)
-except Exception, e:
-    stop_err('Error running FIMO:\n%s' % str(e))
+except Exception as e:
+    stop_err('Error running FIMO:\n%s' % e)
 
 shutil.move(os.path.join(args.output_path, 'fimo.txt'), args.txt_output)
 
