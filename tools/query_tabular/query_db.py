@@ -62,8 +62,6 @@ def run_query(conn, query, outputFile, no_header=False):
     if not no_header:
         outputFile.write("#%s\n" % '\t'.join(
             [str(col[0]) for col in cur.description]))
-        # yield [col[0] for col in cur.description]
     for i, row in enumerate(results):
-        # yield [val for val in row]
         outputFile.write("%s\n" % '\t'.join(
             [str(val) if val is not None else '' for val in row]))

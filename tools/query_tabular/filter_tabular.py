@@ -45,8 +45,8 @@ def __main__():
     filters = None
     if options.jsonfile:
         try:
-            fh = open(options.jsonfile)
-            filters = json.load(fh)
+            with open(options.jsonfile) as fh:
+                filters = json.load(fh)
         except Exception as e:
             exit('Error: %s' % (e))
 

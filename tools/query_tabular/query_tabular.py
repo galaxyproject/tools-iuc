@@ -103,24 +103,24 @@ def __main__():
 
     if options.jsonfile:
         try:
-            fh = open(options.jsonfile)
-            tdef = json.load(fh)
-            if 'tables' in tdef:
-                for ti, table in enumerate(tdef['tables']):
-                    _create_table(ti, table)
+            with open(options.jsonfile) as fh:
+                tdef = json.load(fh)
+                if 'tables' in tdef:
+                    for ti, table in enumerate(tdef['tables']):
+                        _create_table(ti, table)
         except Exception as e:
             exit('Error: %s' % (e))
 
     query = None
-    if (options.query_file is not None):
+    if options.query_file is not None:
         with open(options.query_file, 'r') as fh:
             query = ''
             for line in fh:
                 query += line
-    elif (options.query is not None):
+    elif options.query is not None:
         query = options.query
 
-    if (query is None):
+    if query is None:
         try:
             describe_tables(get_connection(options.sqlitedb), outputFile)
         except Exception as e:

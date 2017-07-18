@@ -36,15 +36,13 @@ def __main__():
         outputFile = sys.stdout
 
     query = None
-    if (options.query_file is not None):
+    if options.query_file is not None:
         with open(options.query_file, 'r') as fh:
-            query = ''
-            for line in fh:
-                query += line
-    elif (options.query is not None):
+            query = fh.read()
+    elif options.query is not None:
         query = options.query
 
-    if (query is None):
+    if query is None:
         try:
             describe_tables(get_connection(options.sqlitedb), outputFile)
         except Exception as e:
