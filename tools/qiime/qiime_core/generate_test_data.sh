@@ -228,6 +228,54 @@ core_diversity_analyses.py \
     --suppress_group_significance
 rm -rf core_diversity_analyses_2
 
+# extract_barcodes
+extract_barcodes.py \
+    --fastq1 'test-data/extract_barcodes/inseqs.fastq' \
+    --input_type 'barcode_single_end' \
+    -o extract_barcodes_1 \
+    --bc1_len '6' \
+    --rev_comp_bc1
+rm -rf extract_barcodes_1
+
+extract_barcodes.py \
+    --fastq1 'test-data/extract_barcodes/inseqs_R1.fastq' \
+    --input_type 'barcode_paired_end' \
+    --fastq2 'test-data/extract_barcodes/inseqs_R2.fastq' \
+    -o extract_barcodes_2 \
+    --bc1_len '6' \
+    --bc2_len '6'
+rm -rf extract_barcodes_2
+
+extract_barcodes.py \
+    --fastq1 'test-data/extract_barcodes/inseqs_R1.fastq' \
+    --input_type 'barcode_paired_end' \
+    --fastq2 'test-data/extract_barcodes/inseqs_R2.fastq' \
+    -o extract_barcodes_3 \
+    --bc1_len '6' \
+    --bc2_len '6' \
+    --mapping_fp 'test-data/extract_barcodes/mapping_data.txt' \
+    --attempt_read_reorientation \
+    --disable_header_match
+rm -rf extract_barcodes_3
+
+extract_barcodes.py \
+    --fastq1 'test-data/extract_barcodes/inseqs_R1.fastq' \
+    --input_type 'barcode_paired_stitched' \
+    -o extract_barcodes_4 \
+    --bc1_len '6' \
+    --bc2_len '8' \
+    --rev_comp_bc1 \
+    --rev_comp_bc2
+rm -rf extract_barcodes_4
+
+extract_barcodes.py \
+    --fastq1 'test-data/extract_barcodes/inseqs_R1.fastq' \
+    --input_type 'barcode_in_label' \
+    --char_delineator '#' \
+    -o extract_barcodes_5 \
+    --bc1_len '6'
+rm -rf extract_barcodes_5
+
 # filter_alignment
 filter_alignment.py \
     --input_fasta_file 'test-data/filter_alignment/alignment.fasta' \
