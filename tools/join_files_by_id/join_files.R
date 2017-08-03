@@ -4,7 +4,6 @@ library(parallel)
 
 # inputs
 args <- commandArgs()
-# print(args)
 
 input <- gsub("--in=", "", args[grepl("--in=", args)])
 header <- as.integer(gsub("--he=", "", args[grepl("--he=", args)]))
@@ -87,17 +86,3 @@ delim <- list(ta = "\t", do = ".", co = ",", un = "_", da = "-", sp = " ")
 separator <- delim[[separator]]
 # write data.frame to file
 write.table(df, file = output, sep = separator, row.names = F, quote = F, col.names = header)
-
-
-# function for test datasets
-# generate_test_data <- function(num_files=10, size=100000, path="test-data/"){
-#   for(k in 1:num_files){
-#     df_big <- data.frame(ids=unique(round(x = runif(size, 0, size), 0)))
-#     df_big$lib1 <- sample(size, nrow(df_big))
-#     names(df_big)[2] <- paste0("lib_", k)
-#     write.table(x = df_big, file = paste0(path, "df_big_", k, ".txt"), quote = F, sep = "\t", row.names = F)
-#   }
-# }
-# 
-# generate_test_data(10, 1000000, "test-data/")
-
