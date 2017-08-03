@@ -5,6 +5,7 @@ import datetime
 import json
 import optparse
 import os
+import shutil
 import subprocess
 import sys
 
@@ -15,7 +16,7 @@ HUMANN2_REFERENCE_DATA = {
     "uniref50_diamond": "Full UniRef50",
     "uniref50_ec_filtered_diamond": "EC-filtered UniRef50",
     "uniref50_GO_filtered_rapsearch2": "GO filtered UniRef50 for rapsearch2",
-    "uniref90_diamond": "Full UniRef50",
+    "uniref90_diamond": "Full UniRef90",
     "uniref90_ec_filtered_diamond": "EC-filtered UniRef90",
     "DEMO_diamond": "Demo"
 }
@@ -112,13 +113,12 @@ def download_humann2_db(data_tables, table_name, database, build, target_dir):
     db_target_dir = os.path.join(target_dir, database)
     build_target_dir = os.path.join(db_target_dir, build)
     os.makedirs(build_target_dir)
-    cmd = "humann2_databases --download %s %s %s" % (database,
-                                                     build,
-                                                     db_target_dir)
+    cmd = "humann2_databases --download %s %s %s --update-config no" % (
+        database,
+        build,
+        db_target_dir)
     subprocess.check_call(cmd, shell=True)
-    print(os.listdir(db_target_dir))
-    os.rename(os.path.join(db_target_dir, database), build_target_dir)
-    print(os.listdir(db_target_dir))
+    shutil.move(os.path.join(db_target_dir, database), build_target_dir)
     add_data_table_entry(
         data_tables,
         table_name,

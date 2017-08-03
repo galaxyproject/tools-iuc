@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import print_function
+
 import argparse
 import os
 
@@ -209,10 +211,10 @@ out.close()
 if warnings:
     warn_msg = "%d warnings, 1st is: " % len(warnings)
     warn_msg += warnings[0]
-    print warn_msg
+    print(warn_msg)
 if skipped_lines:
     # Error message includes up to the first 10 skipped lines.
-    print 'Skipped %d invalid lines, 1st is #%d, "%s"' % (skipped_lines, first_invalid_line, '\n'.join(invalid_lines[:10]))
+    print('Skipped %d invalid lines, 1st is #%d, "%s"' % (skipped_lines, first_invalid_line, '\n'.join(invalid_lines[:10])))
 
 if args.reference_genome_source == "history":
     os.remove(seq_path)

@@ -11,16 +11,18 @@ from __future__ import print_function
 import os
 import platform
 import re
-import urllib
-import urllib2
 from gzip import GzipFile
+from io import BytesIO
 from optparse import OptionParser
-from StringIO import StringIO
 
+from six import text_type
+from six.moves.urllib.error import HTTPError
+from six.moves.urllib.parse import quote
+from six.moves.urllib.request import Request, urlopen
 from xmltramp2 import xmltramp
 
 # Service base URL
-baseUrl = 'http://www.ebi.ac.uk/ebisearch/ws/rest'
+baseUrl = 'https://www.ebi.ac.uk/ebisearch/ws/rest'
 
 # Debug level
 debugLevel = 0
@@ -29,13 +31,13 @@ debugLevel = 0
 # Debug print
 def printDebugMessage(functionName, message, level):
     if(level <= debugLevel):
-        print ('[' + functionName + '] ' + message)
+        print('[' + functionName + '] ' + message)
 
 
 # User-agent for request.
 def getUserAgent():
     printDebugMessage('getUserAgent', 'Begin', 11)
-    urllib_agent = 'Python-urllib/%s' % urllib2.__version__
+    urllib_agent = 'Python-urllib/%s' % platform.python_version()
     clientRevision = '$Revision: 2468 $'
     clientVersion = '0'
     if len(clientRevision) > 11:
@@ -45,7 +47,7 @@ def getUserAgent():
         platform.python_version(), platform.system(),
         urllib_agent
     )
-    printDebugMessage('getUserAgent', 'user_agent: ' + user_agent, 12)
+    printDebugMessage('getUserAgent', 'user_agent: %s' % user_agent, 12)
     printDebugMessage('getUserAgent', 'End', 11)
     return user_agent
 
@@ -53,11 +55,8 @@ def getUserAgent():
 # Wrapper for a REST (HTTP GET) request
 def restRequest(url):
     printDebugMessage('restRequest', 'Begin', 11)
-    printDebugMessage('restRequest', 'url: ' + url, 11)
-    # python 2
-    url = urllib.quote(url, safe="%/:=&?~#+!$,;'@()*[]")
-    # python 3
-    # url = urllib.request.quote(url, safe="%/:=&?~#+!$,;'@()*[]")
+    printDebugMessage('restRequest', 'url: %s' % url, 11)
+    url = quote(url, safe="%/:=&?~#+!$,;'@()*[]")
 
     try:
         user_agent = getUserAgent()
@@ -65,34 +64,25 @@ def restRequest(url):
             'User-Agent': user_agent,
             'Accept-Encoding': 'gzip'
         }
-        req = urllib2.Request(url, None, http_headers)
-        resp = urllib2.urlopen(req)
-        # python2
-        encoding = resp.info().getheader('Content-Encoding')
-        # python3
-        # encoding = resp.info().__getitem__('Content-Encoding')
+        req = Request(url, None, http_headers)
+        resp = urlopen(req)
+        encoding = resp.info().get('Content-Encoding')
         result = None
         if encoding is None or encoding == 'identity':
-            # python2
-            result = resp.read()
-            # python3
-            # result = str(resp.read(), 'utf-8')
+            result = text_type(resp.read(), 'utf-8')
         elif encoding == 'gzip':
             result = resp.read()
-            printDebugMessage('restRequest', 'result: ' + str(result), 21)
-            # python2
+            printDebugMessage('restRequest', 'result: %s' % result, 21)
             gz = GzipFile(
-                fileobj=StringIO(result),
+                fileobj=BytesIO(result),
                 mode="r")
-            result = gz.read()
-            # python3
-            # result = str(gzip.decompress(result), 'utf-8')
+            result = text_type(gz.read(), 'utf-8')
         else:
             raise Exception('Unsupported Content-Encoding')
         resp.close()
-    except urllib2.HTTPError as ex:
+    except HTTPError as ex:
         raise ex
-    printDebugMessage('restRequest', 'result: ' + result, 11)
+    printDebugMessage('restRequest', 'result: %s' % result, 11)
     printDebugMessage('restRequest', 'End', 11)
     return result
 
@@ -159,7 +149,7 @@ def is_database(dbInfo, dbName):
         for dbAlias in dbInfo.aliasList:
             if str(dbAlias) == dbName:
                 retVal = True
-    printDebugMessage('is_database', 'retVal: ' + str(retVal), 11)
+    printDebugMessage('is_database', 'retVal: %s' % retVal, 11)
     printDebugMessage('is_database', 'End', 11)
     return retVal
 
@@ -188,7 +178,7 @@ def makeRequest(requestUrl):
 def getResults(domain, query, fields):
     numberOfResults = getNumberOfResults(domain, query)
     maximum_size = 100
-    quotient = numberOfResults / maximum_size
+    quotient = numberOfResults // maximum_size
     start = 0
 
     printDebugMessage('getResults', 'Begin', 1)
@@ -304,18 +294,18 @@ if __name__ == '__main__':
     # Get search results
     elif args[0] == 'getResults':
         if len(args) < 4:
-            print ('domain, query and fields should be given.')
+            print('domain, query and fields should be given.')
         else:
             getResults(args[1], args[2], args[3])
 
     # Get run link results
     elif args[0] == 'getRunLink':
         if len(args) < 2:
-            print ('run id should be given.')
+            print('run id should be given.')
         else:
             getRunLink(args[1])
 
     # Unknown argument combination, display usage
     else:
-        print ('Error: unrecognised argument combination')
+        print('Error: unrecognised argument combination')
         parser.print_help()
