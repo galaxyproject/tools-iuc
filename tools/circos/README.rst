@@ -2,7 +2,7 @@ Galaxy Circos Tool
 ==================
 
 .. figure:: ./media/example.png
-   :alt: 
+   :alt: An image showing a circos plot made with the tool.
 
 Features
 --------
