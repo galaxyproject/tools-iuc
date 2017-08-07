@@ -1,6 +1,8 @@
 #!/usr/bin/env python
-from Bio import SeqIO
 import sys
+
+from Bio import SeqIO
+
 
 for idx, seq in enumerate(SeqIO.parse(sys.argv[1], 'fasta')):
     sys.stdout.write("chr - {seq_id} {idx} 0 {length} set3-12-qual-{color}\n".format(

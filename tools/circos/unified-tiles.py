@@ -1,7 +1,9 @@
 #!/usr/bin/env python
-from BCBio import GFF
-import sys
 import logging
+import sys
+
+from BCBio import GFF
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
 
