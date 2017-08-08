@@ -56,6 +56,18 @@ def write_display_options():
     return s
 
 
+def write_run_fields():
+    """
+    Write the run fields
+    """
+    s = '%s<xml name="run_fields">\n' % (spaces)
+    fields = enasearch.get_returnable_fields(result="read_run", verbose=False)
+    for f in fields:
+        s += '%s<option value="%s">%s</option>\n' % (2*spaces, f, f)
+    s += '%s</xml>\n' % (spaces)
+    return s
+
+
 def generate_search_macros(filepath):
     """
     Generate the content of the macro file
@@ -64,6 +76,7 @@ def generate_search_macros(filepath):
     s += '<macros>\n'
     s += write_analysis_fields()
     s += write_display_options()
+    s += write_run_fields()
     s += '</macros>\n'
     with open(filepath, "w") as file:
         file.write(s)
