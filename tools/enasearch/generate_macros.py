@@ -68,6 +68,18 @@ def write_run_fields():
     return s
 
 
+def write_taxonomy_results():
+    """
+    Write the possible taxonomy results
+    """
+    s = '%s<xml name="taxonomy_results">\n' % (spaces)
+    fields = enasearch.get_taxonomy_results(verbose=False)
+    for f in fields:
+        s += '%s<option value="%s">%s</option>\n' % (2*spaces, f, fields[f]['description'])
+    s += '%s</xml>\n' % (spaces)
+    return s
+
+
 def generate_search_macros(filepath):
     """
     Generate the content of the macro file
@@ -77,6 +89,7 @@ def generate_search_macros(filepath):
     s += write_analysis_fields()
     s += write_display_options()
     s += write_run_fields()
+    s += write_taxonomy_results()
     s += '</macros>\n'
     with open(filepath, "w") as file:
         file.write(s)
