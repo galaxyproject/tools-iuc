@@ -56,6 +56,8 @@ def __main__():
     parser.add_option('-n', '--no_header', dest='no_header', default=False,
                       action='store_true',
                       help='Include a column headers line')
+    parser.add_option('-c', '--comment_char', dest='comment_char', default='',
+                      help='comment character to prefix column header line')
     parser.add_option('-o', '--output', dest='output', default=None,
                       help='Output file for query results')
     (options, args) = parser.parse_args()
@@ -80,6 +82,8 @@ def __main__():
             table['comment_char'] if 'comment_char' in table else None
         column_names =\
             table['column_names'] if 'column_names' in table else None
+        firstlinenames =\
+            table['firstlinenames'] if 'firstlinenames' in table else False
         if column_names:
             load_named_columns =\
                 table['load_named_columns']\
@@ -93,6 +97,7 @@ def __main__():
             table['pkey_autoincr'] if 'pkey_autoincr' in table else None
         create_table(get_connection(options.sqlitedb), path, table_name,
                      pkey_autoincr=pkey_autoincr,
+                     firstlinenames=firstlinenames,
                      column_names=column_names,
                      skip=comment_lines,
                      comment_char=comment_char,
@@ -128,7 +133,8 @@ def __main__():
     else:
         try:
             run_query(get_connection(options.sqlitedb), query, outputFile,
-                      no_header=options.no_header)
+                      no_header=options.no_header,
+                      comment_char=options.comment_char)
         except Exception as e:
             exit('Error: %s' % (e))
 
