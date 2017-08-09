@@ -23,7 +23,7 @@ Features
 
          -  [x] Complex colouring rules
 
-   -  [x] Heatmaps
+   -  [ ] Heatmaps
 
       -  [ ] Bugs here.
 
@@ -34,7 +34,7 @@ Features
 -  [x] Links
 -  [x] Axes
 -  [x] Backgrounds
--  [x] Highlights
+-  [ ] Highlights
 
    -  [ ] Wedge
 
