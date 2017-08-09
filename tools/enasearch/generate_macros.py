@@ -109,7 +109,7 @@ def write_result_parameters(fts = False):
             s += '%s</param>\n' % (7*spaces)
             if 'value' in ft[t]:
                 value_format = 'float' if t == 'Number' else 'text'
-                s += '%s<param name="value" type="%s" label="%s"/>\n' % (7*spaces, value_format, ft[t]['value'])
+                s += '%s<param name="value" type="%s" value="" label="%s"/>\n' % (7*spaces, value_format, ft[t]['value'])
             elif 'values' in ft[t]:
                 s += '%s<param name="value" type="select" label="Value">\n' % (7*spaces)
                 for v in ft[t]['values']:
@@ -123,7 +123,7 @@ def write_result_parameters(fts = False):
             s += '%s</param>\n' % (8*spaces)
             for op in ft[t]:
                 s += '%s<when value="%s">\n' % (8*spaces, op)
-                s += '%s<param name="values" type="text" label="%s" help="Values separated by simple comma"/>\n' % (9*spaces, ",".join(ft[t][op]['parameters']))
+                s += '%s<param name="values" type="text" value="" label="%s" help="Values separated by simple comma"/>\n' % (9*spaces, ",".join(ft[t][op]['parameters']))
                 s += '%s</when>\n' % (8*spaces)
             s += '%s</conditional>\n' % (7*spaces)
         ft_parameters[t] = s
@@ -177,11 +177,11 @@ def write_result_parameters(fts = False):
                 s += '%s<param argument="--offset" type="integer" optional="true" label="First record to get"/>\n'  % (6*spaces)
                 s += '%s<param argument="--length" type="integer" optional="true" label="Number of records to retrieve"/>\n'  % (6*spaces)
                 if opt == 'report':
-                    s += '%s<param argument="--fields" type="integer" optional="true" multiple="true" label="Fields to return">\n'  % (6*spaces)
+                    s += '%s<param argument="--fields" type="select" multiple="true" label="Fields to return">\n'  % (6*spaces)
                     for f in res[r]['returnable_fields']:
                         s += '%s<option value="%s">%s</option>\n' % (7*spaces, f, f)
                     s += '%s</param>\n'  % (6*spaces)
-                    s += '%s<param argument="--sortfields" type="integer" optional="true" multiple="true" label="Fields to sort the results">\n'  % (6*spaces)
+                    s += '%s<param argument="--sortfields" type="select" optional="true" multiple="true" label="Fields to sort the results">\n'  % (6*spaces)
                     for f in sf:
                         s += '%s<option value="%s">%s</option>\n' % (7*spaces, f, sf[f]['description'])
                     s += '%s</param>\n'  % (6*spaces)
