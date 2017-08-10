@@ -189,7 +189,7 @@ def get_column_def(file_path, table_name, skip=0, comment_char='#',
                            col_idx=None, filters=filters)
         for linenum, fields in enumerate(tr):
             if linenum == 0 and firstlinenames:
-                col_names = [get_valid_column_name(name) or 'c%d' % (i+1)
+                col_names = [get_valid_column_name(name) or 'c%d' % (i + 1)
                              for i, name in enumerate(fields)]
                 continue
             if linenum > max_lines:
