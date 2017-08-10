@@ -142,15 +142,15 @@ def get_valid_column_name(name):
         return None
     elif name.upper() in SQLITE_KEYWORDS:
         valid_name = '"%s"' % name
-    elif re.match('^[a-zA-Z]\w*$',name):
+    elif re.match('^[a-zA-Z]\w*$', name):
         pass
-    elif re.match('^"[^"]+"$',name):
+    elif re.match('^"[^"]+"$', name):
         pass
-    elif re.match("^'[^']+'$",name):
+    elif re.match("^'[^']+'$", name):
         pass
-    elif re.match('^\[[^\[\]]*\]$',name):
+    elif re.match('^\[[^\[\]]*\]$', name):
         pass
-    elif re.match("^`[^`]+`$",name):
+    elif re.match("^`[^`]+`$", name):
         pass
     elif name.find('"') < 0:
         valid_name = '"%s"' % name
@@ -161,6 +161,7 @@ def get_valid_column_name(name):
     elif name.find('`') < 0:
         valid_name = '`%s`' % name
     return valid_name
+
 
 def getValueType(val):
     if val or 0. == val:
@@ -188,7 +189,8 @@ def get_column_def(file_path, table_name, skip=0, comment_char='#',
                            col_idx=None, filters=filters)
         for linenum, fields in enumerate(tr):
             if linenum == 0 and firstlinenames:
-                col_names = [get_valid_column_name(name) or 'c%d' % (i+1) for i,name in enumerate(fields)]
+                col_names = [get_valid_column_name(name) or 'c%d' % (i+1)
+                             for i, name in enumerate(fields)]
                 continue
             if linenum > max_lines:
                 break
@@ -238,7 +240,7 @@ def create_table(conn, file_path, table_name, skip=0, comment_char='#',
     col_names, col_types, col_def, col_idx = \
         get_column_def(file_path, table_name, skip=skip,
                        comment_char=comment_char, column_names=column_names,
-                       load_named_columns=load_named_columns, 
+                       load_named_columns=load_named_columns,
                        firstlinenames=firstlinenames,
                        filters=filters)
     col_func = [float if t == 'REAL' else int

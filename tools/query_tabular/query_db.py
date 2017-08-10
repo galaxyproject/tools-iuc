@@ -56,11 +56,11 @@ def describe_tables(conn, outputFile):
     exit(0)
 
 
-def run_query(conn, query, outputFile, no_header=False,comment_char='#'):
+def run_query(conn, query, outputFile, no_header=False, comment_char='#'):
     cur = conn.cursor()
     results = cur.execute(query)
     if not no_header:
-        outputFile.write("%s%s\n" % (comment_char,'\t'.join(
+        outputFile.write("%s%s\n" % (comment_char, 59G'\t'.join(
             [str(col[0]) for col in cur.description])))
     for i, row in enumerate(results):
         outputFile.write("%s\n" % '\t'.join(
