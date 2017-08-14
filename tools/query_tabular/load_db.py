@@ -146,20 +146,18 @@ def get_valid_column_name(name):
         pass
     elif re.match('^"[^"]+"$', name):
         pass
-    elif re.match("^'[^']+'$", name):
-        pass
     elif re.match('^\[[^\[\]]*\]$', name):
         pass
     elif re.match("^`[^`]+`$", name):
         pass
     elif name.find('"') < 0:
         valid_name = '"%s"' % name
-    elif name.find("'") < 0:
-        valid_name = "'%s'" % name
     elif name.find('[') < 0 and name.find(']') < 0:
         valid_name = '[%s]' % name
     elif name.find('`') < 0:
         valid_name = '`%s`' % name
+    elif name.find("'") < 0:
+        valid_name = "'%s'" % name
     return valid_name
 
 
@@ -261,15 +259,7 @@ def create_table(conn, file_path, table_name, skip=0, comment_char='#',
         c.execute(table_def)
         conn.commit()
         c.close()
-        for i, index in enumerate(unique_indexes):
-            index_name = 'idx_uniq_%s_%d' % (table_name, i)
-            index_columns = index.split(',')
-            create_index(conn, table_name, index_name, index_columns,
-                         unique=True)
-        for i, index in enumerate(indexes):
-            index_name = 'idx_%s_%d' % (table_name, i)
-            index_columns = index.split(',')
-            create_index(conn, table_name, index_name, index_columns)
+
         c = conn.cursor()
         tr = TabularReader(file_path, skip=skip, comment_char=comment_char,
                            col_idx=col_idx, filters=filters)
@@ -286,15 +276,28 @@ def create_table(conn, file_path, table_name, skip=0, comment_char='#',
                       file=sys.stderr)
         conn.commit()
         c.close()
+        for i, index in enumerate(unique_indexes):
+            index_name = 'idx_uniq_%s_%d' % (table_name, i)
+            index_columns = index.split(',')
+            create_index(conn, table_name, index_name, index_columns,
+                         unique=True)
+        for i, index in enumerate(indexes):
+            index_name = 'idx_%s_%d' % (table_name, i)
+            index_columns = index.split(',')
+            create_index(conn, table_name, index_name, index_columns)
     except Exception as e:
         exit('Error: %s' % (e))
 
 
 def create_index(conn, table_name, index_name, index_columns, unique=False):
-    index_def = "CREATE %s INDEX %s on %s(%s)" % (
+    index_def = 'CREATE %s INDEX %s on %s(%s)' % (
                 'UNIQUE' if unique else '', index_name,
                 table_name, ','.join(index_columns))
-    c = conn.cursor()
-    c.execute(index_def)
-    conn.commit()
-    c.close()
+    try:
+        c = conn.cursor()
+        c.execute(index_def)
+        conn.commit()
+        c.close()
+    except Exception as e:
+        print('Failed: %s err: %s' % (index_def, e), file=sys.stderr)
+        raise(e)
