@@ -4,7 +4,7 @@ This page is for anyone interested in installing [PICRUSt](http://picrust.github
 
 The most important steps are that you need to go to the Galaxy IUC tool shed and install the 4 wrapper scripts there along with PICRUSt itself. If you install PICRUSt through this interface the precalculated files will not also be installed, you will need to download them separately (see below).
 
-Once these scripts are installed you'll need to add this section to *galaxy/config/tool_data_conf.xml* (or create the file if it doesn't already exist):
+Once these scripts are installed sections like the one below should be added to *galaxy/config/shed_tool_data_table_conf.xml* automatically. They will point to different *picrust_precalculated.loc* files; you only need to edit one of them since all of these files will be checked.
 
 ```
 <tables>
@@ -15,8 +15,6 @@ Once these scripts are installed you'll need to add this section to *galaxy/conf
 </tables>
 ```
 
-These xml lines point to a file (*galaxy/tool-data/picrust_precalculated.loc*) which will contain the locations to the PICRUSt precalculated files.
-
 You should download the precalculated files from http://kronos.pharmacology.dal.ca/public_files/picrust/picrust_precalculated_v1.1.1/13_5/.
 
 Most users only use the below two files (however you can also download the precalculated COG and RFAM abundances):
@@ -25,7 +23,7 @@ Most users only use the below two files (however you can also download the preca
 ko_13_5_precalculated.tab.gz
 ```
 
-Once you download these files we just need to point to them in the *galaxy/tool-data/picrust_precalculated.loc* file.
+Once you download these files we just need to point to them in a *picrust_precalculated.loc* file.
 
 An example file is shown below. Note that tabs should separate the two columns and that in the below command "16S 13_5" (separated by one space) is one example dbname.
 
