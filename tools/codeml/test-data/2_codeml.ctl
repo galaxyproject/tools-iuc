@@ -1,8 +1,7 @@
 
-            
-      seqfile = /tmp/tmpMdbfK7/files/000/dataset_12.dat * sequence data file name
+      seqfile = /tmp/saskia/tmphfQhiQ/files/000/dataset_12.dat * sequence data file name
       outfile = run_codeml * main result file name
-     treefile = /tmp/tmpMdbfK7/files/000/dataset_13.dat * tree structure file name
+     treefile = /tmp/saskia/tmphfQhiQ/files/000/dataset_13.dat * tree structure file name
         noisy = 9  * 0,1,2,3,9: how much rubbish on the screen
       verbose = 0  * 1: detailed output, 0: concise output
       runmode = 0  * 0: user tree;  1: semi-automatic;  2: automatic
@@ -42,5 +41,5 @@
     cleandata = 0  * remove sites with ambiguity data (1:yes, 0:no)?
   fix_blength = 0   * 0: ignore, -1: random, 1: initial, 2: fixed
        method = 0   * 0: simultaneous; 1: one branch at a time
-             
+
         
