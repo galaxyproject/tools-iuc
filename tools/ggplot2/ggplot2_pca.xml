@@ -1,45 +1,272 @@
-<tool id="ggplot2_pca" name="PCA" version="1.0">
-    <description>based on ggplot2</description>
-    <requirements>
+<tool id="ggplot2_pcaplot" name="pcaplot w ggplot2" version="1.0">
+    <macros>
+       <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements">
         <requirement type="package" version="0.4.1">r-ggfortify</requirement>
-        <requirement type="package" version="0.1.0">r-getoptlong</requirement>
         <requirement type="package" version="0.4.1">r-scales</requirement>
-    </requirements>
+    </expand>
     <command detect_errors="exit_code"><![CDATA[
-Rscript '$__tool_directory__/ggplot2_pca.R'
-        --input '$input1'
-        ${inputdata.header}
-        --rowname_index ${inputdata.row_names_index}
-        ${inputdata.sample_name_orientation}
-        --title '$title'
-        --transform '$transform' 
-        --background '$theme_selector'
-        --scaling '$scaling.Plot_scaling' 
-        $legend
-        --group_type '$groups.group_type'
-        #if str( $groups.group_type ) == "define_groups":
-            #for $q in $groups.group_names:
-                --group_name '$q.groupName'
-                --group_cols '$q.groupCols'
-                --group_colors '$q.color_cond.plot_color'
-            #end for
-        #end if
-        --circles '$groups.circle'
-        --plot_param '$plotoptions'
-        --xaxismin '$scaling.xaxismin'
-        --xaxismax '$scaling.xaxismax'
-        --yaxismin '$scaling.yaxismin'
-        --yaxismax '$scaling.yaxismax'
-        --png_res_width '$png_bool.png_res_width'
-        --png_res_height '$png_bool.png_res_height'
-        --png_res '$png_bool.png_res'
-        $svg_bool.svg_out
-        --svg_res_width '$svg_bool.svg_res_width'
-        --svg_res_height '$svg_bool.svg_res_height'
-        --output1 '$output1'
-        --output2 '$output2'
-        ]]>        
+        cat '$script' &&
+        Rscript '$script']]>
     </command>
+    <configfiles>
+        <configfile name="script">
+            <![CDATA[ 
+
+            @R_INIT@
+
+            ## Import libraries
+            library(ggfortify)
+            library(scales)
+            library(ggplot2)
+
+            ## static VARs
+            groups <- TRUE
+            circles_boolean <- TRUE
+            group_name <- list()
+            group_cols <- list()
+            group_colors <- list()
+            group_feature <- ""
+            group_colors_vector <- ""
+
+
+            input <- '$input1'
+            header <- ${inputdata.header}
+            rowname_index <- as.integer('$inputdata.row_names_index')
+
+            horizontal <- ${inputdata.sample_name_orientation}
+            title <- '$title'
+            transform <- '$transform' 
+            background <- '$theme_selector'
+            scaling <- '$scaling.Plot_scaling' 
+            legend <- $legend
+            group_type <- '$groups.group_type'
+
+            ##if(group_type == "define_groups"){
+            #if str($groups.group_type) == "define_groups":
+                #for $q in $groups.group_names:
+                    group_name <- append(group_name, '$q.groupName')
+                    group_cols <- append(group_cols, '$q.groupCols')
+                    group_colors <- append(group_colors, '$q.color_cond.plot_color')
+                #end for
+            #end if
+            group_name <- unlist(group_name)
+            group_cols <- unlist(group_cols)
+            group_colors <- unlist(group_colors)
+
+
+            circles <- '$groups.circle'
+            plot_param <- '$plotoptions'
+            xaxismin <- as.integer('$scaling.xaxismin')
+            xaxismax <- as.integer('$scaling.xaxismax')
+            yaxismin <- as.integer('$scaling.yaxismin')
+            yaxismax <- as.integer('$scaling.yaxismax')
+            png_res_width <- as.integer('$png_bool.png_res_width')
+            png_res_height <- as.integer('$png_bool.png_res_height')
+            png_res <- as.integer('$png_bool.png_res')
+            output_type <- '$svg_bool.svg_out'
+            svg_res_width <- as.integer('$svg_bool.svg_res_width')
+            svg_res_height <- as.integer('$svg_bool.svg_res_height')
+            output_format <- '$svg_bool.output_format'
+            output1 <- '$output1'
+            output2 <- '$output2'
+            output3 <- '$output3'
+            
+            ## small galaxy boolean correction
+            if(output_type == "False"){
+                output_type <- FALSE
+            }else{
+                output_type <- TRUE
+            }
+
+            ## split plotoptions
+            plot_param_list <- strsplit(x = plot_param, split = ",")
+            plot_options <- c("shape", "label") %in% plot_param_list[[1]]
+
+
+            ## read table with or with out header or row_names
+            if(rowname_index > 0){
+              df <- read.table(input, header = header, row.names = rowname_index, sep = "\t")
+            }else{
+              df <- read.table(input, header = header, sep = "\t")
+            }
+
+            ## check if indices are out of range
+            num_cols <- length(names(df))
+            if(group_type == "define_groups"){
+              check_col_indices <- as.integer(unlist(strsplit(group_cols, split = ",")))
+              if(any(check_col_indices>num_cols)){ 
+                stop("Error: column indices for grouping are out of range! Check help!")
+              }
+            }
+
+            ## check if table has only numbers
+            if(any(!sapply(df, is.numeric))){ 
+              stop("Error: table contains not only numbers!")
+            }
+
+            ## check if group_names are unique
+            if(length(unique(c(group_name, "no_group"))) != length(c(group_name, "no_group"))){ 
+              stop("Error: group_names must be unique: ", paste(group_name, "no_group", collapse = ","), " is not unique!")
+            }
+
+            ## prepare group_features for grouping of samples accouring to orientation
+            if(horizontal){
+              num_cols <- length(names(df))
+              group_feature <- rep("no_group", num_cols)
+            }else{
+              num_rows <- nrow(df)
+              group_feature <- rep("no_group", num_rows)
+            }
+
+            default_ggplot_colors <- ""
+            default_ggplot_colors_autoplot <- ""
+            ## split group elements and assign indexes
+            if(group_type == "define_groups"){
+              ## set up colors
+              color_names <- c(group_name, "no_group")
+              cat("\ncolor_names: ", color_names)
+              default_ggplot_colors <- hue_pal()(length(color_names))
+              names(default_ggplot_colors) <- color_names
+              cat("\ndefault_ggplot_colors: ", default_ggplot_colors)
+              names(group_colors) <- group_name
+              group_colors <- group_colors[group_colors != "none"]
+              default_ggplot_colors[names(group_colors)] <- group_colors
+              cat("\ndefault_ggplot_colors: ", default_ggplot_colors)
+              group_string <- lapply(seq_along(group_name), function(k){
+                gname <- group_name[k]
+                gindex <- as.integer(strsplit(group_cols[k], split = ",")[[1]])
+                gnames <- rep(gname, length(gindex)) 
+                names(gindex) <- gnames
+                gindex
+              })
+              group_string <- do.call(c, group_string)
+              group_feature[group_string] <- names(group_string)
+              ## subset colors on groups if and check if there is "no_group" present
+              default_ggplot_colors <- default_ggplot_colors[unique(group_feature)]
+              default_ggplot_colors_autoplot <- default_ggplot_colors[group_feature]
+              cat("\ndefault_ggplot_colors: ", default_ggplot_colors)
+            }
+
+
+            ## Show/hide legend
+            if(legend){
+              gg_legend = theme(legend.position="right")
+            } else {
+              gg_legend = theme(legend.position="none")
+              cat("\n no legend")
+            }
+
+            ## Choose between automatically scaled x and y axis or user defined
+            if(scaling == "Automatic"){
+              gg_scalex = NULL
+              gg_scaley = NULL
+            } else {
+              gg_scalex = xlim(xaxismin, xaxismax)
+              gg_scaley = ylim(yaxismin, yaxismax)
+              cat("\n xaxismin: ", xaxismin)
+              cat("\n xaxismax: ", xaxismax)
+              cat("\n yaxismin: ", yaxismin)
+              cat("\n yaxismax: ", yaxismax)
+            }
+
+            ## Choose theme for plot
+            if(background == "bw"){
+              gg_theme = theme_bw()
+            } else {
+              gg_theme = NULL
+            }
+
+
+            ## transpose data.frame for plotting if sample names are horizontal
+            if(horizontal){
+              df <- as.data.frame(t(df))
+            }
+
+            plot_df <- df
+            ## set group column if wanted
+            if(group_type %in% "no_groups"){
+              groups <- FALSE
+            }else{  
+              plot_df\$group <- group_feature
+              group_name <- "group"
+            }
+           
+            ## set boolean elipes value to plot circle options
+            if(circles %in% "no"){
+              circles_boolean <- FALSE
+            }
+
+            plot_mat <- df
+
+            ## tranform dataset
+            if(transform == "log2"){
+              plot_mat <- log2(plot_mat)
+              cat("\n ", transform, " transformed")
+            }else if(transform == "log2plus1"){
+              plot_mat <- log2(plot_mat+1)
+              cat("\n ", transform, " transformed")
+            }else if(transform == "log10"){
+              plot_mat <- log10(plot_mat)
+              cat("\n ", transform, " transformed")
+            }else if(transform == "log10plus1"){
+              plot_mat <- log10(plot_mat+1)
+              cat("\n ", transform, " transformed")
+            }else{
+              plot_mat <- plot_mat
+            }
+
+            ## plot with or without groups and set more plotting options using autoplot
+            if(groups){
+              if(circles_boolean){
+                plot_out <- autoplot(prcomp(plot_mat), data = plot_df, colour = group_name,
+                                     frame = T, frame.type=circles, shape = plot_options[1],
+                                     label = plot_options[2])
+              }else{
+                plot_out <- autoplot(prcomp(plot_mat), data = plot_df, colour = group_name,
+                                     frame = F, shape = plot_options[1], label = plot_options[2])
+              }
+            }else{
+              if(!circles_boolean){
+                plot_out <- autoplot(prcomp(plot_mat), data = plot_df, frame = F,
+                                     shape = plot_options[1], label = plot_options[2])
+              }else{
+                plot_out <- autoplot(prcomp(plot_mat), data = plot_df, frame = F,
+                                     shape = plot_options[1], label = plot_options[2])
+              }
+            }
+
+
+            ## add advanced plotting options for final plot
+            plot_out <- plot_out +
+              scale_color_manual(values=default_ggplot_colors) +
+              scale_fill_manual(values=default_ggplot_colors) +
+              gg_theme +
+              gg_legend +
+              ggtitle(title) +
+              theme(plot.title = element_text(hjust = 0.5)) 
+
+
+            ## catch different output formats
+            png(filename = output1, width = png_res_width, height = png_res_height, res = png_res)
+              plot_out
+            q <- dev.off()
+
+            if(output_format != "none"){
+              if(output_format == "pdf"){
+                pdf(file = output2, width = svg_res_width, height = svg_res_height)
+                 print(plot_out)
+                q <- dev.off()
+              }else{
+                svg(filename = output3, width = svg_res_width, height = svg_res_height)
+                  print(plot_out)
+                q <- dev.off()
+              }
+            }
+        ]]>        
+        </configfile>
+    </configfiles>
     <inputs>
         <param name="input1" type="data" format="tabular" label="Select table"/>
         <conditional name="inputdata">
@@ -50,40 +277,38 @@ Rscript '$__tool_directory__/ggplot2_pca.R'
                 <option value="no_header_rownames">Dataset without header or row names</option>
             </param>
             <when value="with_header">
-                <param name="header" value="--header" type="hidden"/>
+                <param name="header" value="TRUE" type="hidden"/>
                 <param name="row_names_index" value="0" type="hidden"/>
                 <param name="sample_name_orientation" type="select" label="Sample names orientation" display="radio" multiple="false" help="default horizontal: header names are interpreted as sample names">
-                    <option value="--horizontal" selected="True">horizontal</option>
-                    <option value="--no-horizontal">vertial</option>
+                    <option value="TRUE" selected="True">horizontal</option>
+                    <option value="FALSE">vertial</option>
                 </param>
             </when>
             <when value="with_rownames">
-                <param name="header" value="--no-header" type="hidden"/>
+                <param name="header" value="FALSE" type="hidden"/>
                 <param name="row_names_index" label="Select column, for row names" type="data_column" data_ref="input1" help="WARNING: please consider that using row names might shift the grouping columns"/>
                 <param name="sample_name_orientation" type="select" label="Sample names orientation" display="radio" multiple="false" help="default vertial: row names are interpreted as sample names">
-                    <option value="--horizontal">horizontal</option>
-                    <option value="--no-horizontal" selected="True">vertial</option>
+                    <option value="TRUE">horizontal</option>
+                    <option value="FALSE" selected="True">vertial</option>
                 </param>
             </when>
             <when value="with_header_rownames">
-                <param name="header" value="--header" type="hidden"/>
+                <param name="header" value="TRUE" type="hidden"/>
                 <param name="row_names_index" label="Select column, for row names" type="data_column" data_ref="input1" help="WARNING: please consider that using row names might shift the grouping columns"/>
                 <param name="sample_name_orientation" type="select" label="Sample names orientation" display="radio" multiple="false" help="deside whether header names or row names are interpreted as sample names">
-                    <option value="--horizontal" selected="True">horizontal</option>
-                    <option value="--no-horizontal">vertial</option>
+                    <option value="TRUE" selected="True">horizontal</option>
+                    <option value="FALSE">vertial</option>
                 </param>
             </when>
             <when value="no_header_rownames">
-                <param name="header" value="--no-header" type="hidden"/>
+                <param name="header" value="FALSE" type="hidden"/>
                 <param name="row_names_index" value="0" type="hidden"/>
-                <param name="sample_name_orientation" value="--horizontal" type="hidden"/>
+                <param name="sample_name_orientation" value="TRUE" type="hidden"/>
             </when>
         </conditional>
-        <param name="title" type="text" label="Plot title" value="">
-            <sanitizer sanitize = "false"/>
-        </param>
+        <expand macro="title"/>
         <conditional name="groups">
-            <param name="group_type" type="select" label="Select groups" help="coming soon">
+            <param name="group_type" type="select" label="Select groups">
                 <option value="no_groups" selected="True">No groups</option>
                 <option value="define_groups">Define groups</option>
             </param>
@@ -127,17 +352,8 @@ Rscript '$__tool_directory__/ggplot2_pca.R'
             <option value="label" selected="True">show labels (group elements)</option>
             <option value="shape,label" >show shapes and labels</option>
         </param>
-        <param name="transform" type="select" label="Advanced - log transformation">
-            <option value="none">Plot the data as it is</option>
-            <option value="log2">Log2(value) transform my data</option>
-            <option value="log2plus1">Log2(value+1) transform my data</option>
-            <option value="log10">Log10(value) transform my data</option>
-            <option value="log10plus1">Log10(value+1) transform my data</option>
-        </param>
-        <param name="theme_selector" type="select" label="Advanced - backgound theme for plot">
-          <option value="bw">Black and white</option>
-          <option value="Default">Default (grey)</option>
-        </param>
+        <expand macro="transform"/>
+        <expand macro="theme_selector"/>
         <conditional name="scaling">
             <param name="Plot_scaling" type="select" label="Advanced - Axis scaling">
                 <option value="Automatic" selected="True">Automatic axis scaling</option>
@@ -156,39 +372,44 @@ Rscript '$__tool_directory__/ggplot2_pca.R'
                 <param name="yaxismax" type="float" value="3" label="maximal range of y-axis" />
             </when>
         </conditional>
-        <param name="legend" type="select" label="Legend options">
-              <option value="--legend">Include legend on plot</option>
-              <option value="--no-legend">Hide legend</option>
-        </param>
+        <expand macro="legend"/>
         <conditional name="png_bool">
-            <param name="png_out" type="boolean" checked="false" truevalue="1" falsevalue="0" label="Options for PNG"/>
-            <when value="1">
-                <param name="png_res_width" label="png width" value="1600" type="integer" help="in px (default: 1600)"/>
-                <param name="png_res_height" label="png heigth" value="1400" type="integer" help="in px (default: 1400)"/>
-                <param name="png_res" label="png res" value="200" type="integer" help="in px (default: 200)"/>
-            </when>
-             <when value="0">
-                <param name="png_res_width" value="1600" type="hidden"/>
-                <param name="png_res_height" value="1400" type="hidden"/>
-                <param name="png_res" value="200" type="hidden"/>
-            </when>
+          <param name="png_out" type="boolean" checked="false" truevalue="1" falsevalue="0" label="Options for PNG"/>
+          <when value="1">
+            <param name="png_res_width" label="png width" value="1600" type="integer" help="in px (default: 1600)"/>
+            <param name="png_res_height" label="png heigth" value="1400" type="integer" help="in px (default: 1400)"/>
+            <param name="png_res" label="png res" value="200" type="integer" help="in px (default: 200)"/>
+          </when>
+          <when value="0">
+            <param name="png_res_width" value="1600" type="hidden"/>
+            <param name="png_res_height" value="1400" type="hidden"/>
+            <param name="png_res" value="200" type="hidden"/>
+          </when>
         </conditional>
         <conditional name="svg_bool">
-            <param name="svg_out" type="boolean" checked="false" truevalue="--output_type" falsevalue="--no-output_type" label="Additional SVG output"/>
-            <when value="--output_type">
+            <param name="svg_out" type="boolean" checked="false" truevalue="TRUE" falsevalue="FALSE" label="Additional output formats"/>
+            <when value="TRUE">
+                <param name="output_format" type="select" label="Select output format">
+                  <option value="pdf" selected="True">PDF</option>
+                  <option value="svg">SVG</option>
+                </param>
                 <param name="svg_res_width" label="svg width" value="16" type="integer" help="in inch (default: 16)"/>
                 <param name="svg_res_height" label="svg heigth" value="14" type="integer" help="in inch (default: 14)"/>
             </when>
-            <when value="--no-output_type">
+            <when value="FALSE">
+                <param name="output_format" vaule="none" type="hidden"/>
                 <param name="svg_res_width" value="16" type="hidden"/>
                 <param name="svg_res_height" value="14" type="hidden"/>
             </when>
         </conditional>  
     </inputs>
     <outputs>
-        <data name="output1" format="png" label="${tool.name} on ${on_string}: PNG PCA"/>
-        <data name="output2" format="svg" label="${tool.name} on ${on_string}: SVG PCA" >
-            <filter>svg_bool['svg_out']</filter>
+        <data name="output1" format="png" label="${tool.name} on ${on_string}: png PCA"/>
+        <data name="output2" format="pdf" label="${tool.name} on ${on_string}: ${svg_bool.output_format} PCA" >
+          <filter>svg_bool['svg_out'] and svg_bool['output_format'] == "pdf"</filter>
+        </data>
+        <data name="output3" format="svg" label="${tool.name} on ${on_string}: ${svg_bool.output_format} PCA" >
+            <filter>svg_bool['svg_out'] and svg_bool['output_format'] == "svg"</filter>
         </data>
     </outputs>
 	<tests>
@@ -196,9 +417,9 @@ Rscript '$__tool_directory__/ggplot2_pca.R'
             <param name="input1" value="example1.txt" ftype="tabular"/>
             <conditional name="inputdata">
                 <param name="input_type" value="with_header_rownames"/>
-                <param name="header" value="--header"/>
+                <param name="header" value="TRUE"/>
                 <param name="row_names_index" value="1"/>
-                <param name="sample_name_orientation" value="--horizontal"/>
+                <param name="sample_name_orientation" value="TRUE"/>
             </conditional>
             <param name="title" value="Test plot"/>
             <conditional name="groups">
@@ -247,7 +468,7 @@ Rscript '$__tool_directory__/ggplot2_pca.R'
                 <param name="yaxismin" value="2"/>
                 <param name="yaxismax" value="3"/>
             </conditional>
-            <param name="legend" value="--legend"/>
+            <param name="legend" value="TRUE"/>
             <conditional name="png_bool">
                 <param name="png_out" value="1"/>
                 <param name="png_res_width" value="1600"/>
@@ -255,11 +476,12 @@ Rscript '$__tool_directory__/ggplot2_pca.R'
                 <param name="png_res" value="200"/>
             </conditional>
             <conditional name="svg_bool">
-                <param name="svg_out" value="--output_type"/>
+                <param name="svg_out" value="TRUE"/>
+                <param name="output_format" value="svg"/>
                 <param name="svg_res_width" value="16"/>
                 <param name="svg_res_height" value="14"/>
             </conditional>
-            <output name="output2" file="out.svg" ftype="svg"/>
+            <output name="output3" file="out.svg" ftype="svg"/>
         </test>
     </tests>
     <help><![CDATA[
