@@ -163,11 +163,11 @@ if (verbose) {
 
 # these are plots which are made once for each analysis
 generateGenericPlots <- function(dds, factors) {
-  rld <- rlog(dds)
-  d=plotPCA(rld, intgroup=rev(factors), returnData=TRUE)
-  labs <- paste0(seq_len(ncol(dds)), ": ", do.call(paste, as.list(colData(dds)[factors])))
   library(ggplot2)
-  print(ggplot(d, aes(x=PC1,y=PC2, col=group,label=factor(labs)), environment = environment()) + geom_point() + geom_text(size=3))  
+  rld <- rlog(dds)
+  p <- plotPCA(rld, intgroup=rev(factors))
+  labs <- paste0(seq_len(ncol(dds)), ": ", do.call(paste, as.list(colData(dds)[factors])))
+  print(p + geom_text_repel(aes_string(x = "PC1", y = "PC2", label = factor(labs), size=3))  + geom_point())
   dat <- assay(rld)
   colnames(dat) <- labs
   distsRL <- dist(t(dat))
