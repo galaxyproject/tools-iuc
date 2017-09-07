@@ -156,7 +156,7 @@ factPath <- as.character(argv[15])
 # Process factors
 if (as.character(argv[16])=="None") {
     factorData <- read.table(factPath, header=TRUE, sep="\t")
-    factors <- factorData[,-1]
+    factors <- factorData[,-1, drop=FALSE]
 }  else { 
     factorData <- list()
     for (i in 16:length(argv)) {
@@ -570,10 +570,13 @@ cata("<tr>\n")
 TableHeadItem("SampleID")
 TableHeadItem(names(factors)[1]," (Primary Factor)")
 
-for (i in names(factors)[2:length(names(factors))]) {
-  TableHeadItem(i)
-}
-cata("</tr>\n")
+  if (ncol(factors) > 1) {
+
+    for (i in names(factors)[2:length(names(factors))]) {
+      TableHeadItem(i)
+    }
+    cata("</tr>\n")
+  }
 
 for (i in 1:nrow(factors)) {
   cata("<tr>\n")
