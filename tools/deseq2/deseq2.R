@@ -164,6 +164,7 @@ if (verbose) {
 # these are plots which are made once for each analysis
 generateGenericPlots <- function(dds, factors) {
   library(ggplot2)
+  library(ggrepel)
   rld <- rlog(dds)
   p <- plotPCA(rld, intgroup=rev(factors))
   labs <- paste0(seq_len(ncol(dds)), ": ", do.call(paste, as.list(colData(dds)[factors])))
