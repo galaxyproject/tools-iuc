@@ -499,9 +499,9 @@ if (cpmReq!=0 && sampleReq!=0) {
 }
 ListItem(normOpt, " was the method used to normalise library sizes.")
 if (wantLRT) {
-  ListItem("The Likelihood Ratio Test was used to test for differential expression.")
+  ListItem("The edgeR likelihood ratio test was used.")
 } else {
-  ListItem("The Quasi-Likelihood Test was used to test for differential expression.")
+  ListItem("The edgeR quasi-likelihood test was used.")
 }
 if (pAdjOpt!="none") {
   if (pAdjOpt=="BH" || pAdjOpt=="BY") {
