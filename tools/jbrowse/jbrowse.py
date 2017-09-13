@@ -431,7 +431,7 @@ class JbrowseConnector(object):
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
-        cmd = ['ln', data, dest]
+        cmd = ['ln', '-s', data, dest]
         self.subprocess_check_call(cmd)
 
         trackData.update({
