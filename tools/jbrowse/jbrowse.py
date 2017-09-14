@@ -646,12 +646,12 @@ class JbrowseConnector(object):
             '#': '__pd__'
         }
 
-        for i, (dataset_path, dataset_ext, track_human_label) in enumerate(track['trackfiles']):
+        for i, (dataset_path, dataset_ext, track_human_label, extra_metadata) in enumerate(track['trackfiles']):
             # Unsanitize labels (element_identifiers are always sanitized by Galaxy)
             for key, value in mapped_chars.items():
                 track_human_label = track_human_label.replace(value, key)
 
-            log.info('Processing %s / %s', track['category'], track_human_label)
+            log.info('Processing %s / %s', category, track_human_label)
             outputTrackConfig['key'] = track_human_label
             # We add extra data to hash for the case of REST + SPARQL.
             try:
