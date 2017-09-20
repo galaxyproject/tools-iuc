@@ -142,7 +142,9 @@ if __name__ == "__main__":
     if len(args) != 1:
         sys.stderr.write("Need to supply JSON file name")
         sys.exit(1)
-
+    if options.database not in ["utility_mapping",'humann2_utility_mapping',"chocophlan"]:
+        sys.stderr.write("Invalid data base %s"%options.database)
+        sys.exit(1)
     jsonfile = args[0]
 
     # Read the input JSON
@@ -155,7 +157,9 @@ if __name__ == "__main__":
     # Set up data tables dictionary
     data_tables = create_data_tables_dict()
 
-    if options.database == "chocophlan":
+    if options.database == "utility_mapping":
+        table_name = 'humann2_utility_mapping'
+    elif options.database == "chocophlan":
         table_name = 'humann2_nucleotide_database'
     else:
         table_name = 'humann2_protein_database'
