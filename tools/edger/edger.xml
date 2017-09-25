@@ -5,10 +5,9 @@
 
     <requirements>
         <requirement type="package" version="3.16.5">bioconductor-edger</requirement>
-        <requirement type="package" version="3.30.13">bioconductor-limma</requirement>
-        <requirement type="package" version="1.4.29">r-statmod</requirement>
         <requirement type="package" version="0.4.1">r-scales</requirement>
-        <requirement type="package" version="1.5_9.1">r-locfit</requirement>
+        <requirement type="package" version="1.4.29">r-statmod</requirement>
+        <requirement type="package" version="0.2.15">r-rjson</requirement>
     </requirements>
 
     <version_command><![CDATA[
@@ -16,13 +15,38 @@
     ]]></version_command>
 
     <command detect_errors="exit_code"><![CDATA[
+#import json
 Rscript '$__tool_directory__/edger.R'
-'$cnt.counts'
 
-#if $cnt.anno.annoOpt=='yes':
-    '$cnt.anno.geneanno'
-#else:
-    None
+#if $cnt.input.format=="files":
+   
+    ## Adapted from DESeq2 wrapper
+    #set $temp_factor_names = list()
+    #for $factor in $cnt.input.rep_factorName:
+        #set $temp_factor = list()
+        #for $level in $factor.rep_factorLevel:
+            #set $count_files = list()
+            #for $file in $level.countsFile:
+                $count_files.append(str($file))
+            #end for
+            $temp_factor.append( {str($level.factorLevel): $count_files} )
+        #end for
+
+        $temp_factor.reverse()
+        $temp_factor_names.append([str($factor.factorName), $temp_factor])
+    #end for
+    '#echo json.dumps(temp_factor_names)#'
+    'None'
+
+#elif $cnt.input.format=="matrix":
+    '$cnt.input.counts'
+
+    #if $cnt.input.anno.annoOpt=='yes':
+        '$cnt.input.anno.geneanno'
+    #else:
+        'None'
+    #end if
+
 #end if
 
 '$outReport'
@@ -52,15 +76,20 @@ $adv.lrtOption
 
 $adv.normCounts
 
-#if $smp.fact.ffile=='yes':
-    '$smp.fact.finfo'
-    'None'
+#if $cnt.input.format=="matrix":
+    #if $cnt.input.fact.ffile=='yes':
+        '$cnt.input.fact.finfo'
+        'None'
+    #else:
+        'None'
+        '$cnt.input.fact.pfactName::$cnt.input.fact.pfactLevel'
+        #for $sfact in $cnt.input.fact.sfactors:
+            '$sfact.sfactName::$sfact.sfactLevel'
+        #end for
+    #end if
 #else:
     'None'
-    '$smp.fact.pfactName::$smp.fact.pfactLevel'
-    #for $sfact in $smp.fact.sfactors:
-        '$sfact.sfactName::$sfact.sfactLevel'
-    #end for
+    'files'
 #end if
 
 &&
@@ -71,53 +100,81 @@ cp '$outReport.files_path'/*.tsv output_dir/
     ]]></command>
 
     <inputs>
-        <section name="cnt" expanded="false" title="Select count data">  
-            <param name="counts" type="data" format="tabular" label="Counts Data"/>
-            <conditional name="anno">
-                <param name="annoOpt" type="select" label="Use Gene Annotations?"
-                    help="If an annotation file is provided, annotations will be added to the table of differential expression results to provide descriptions for each gene.">
-                    <option value="no">No</option>
-                    <option value="yes">Yes</option>
+        
+        <section name="cnt" expanded="false" title="Input counts and factors"> 
+            <conditional name="input">
+                <param name="format" type="select" label="Count Files or Matrix"
+                    help="Input count files (one per sample) or a count matrix">
+                    <option value="files">Files</option>
+                    <option value="matrix">Matrix</option>
                 </param>
-                <when value="yes">
-                    <param name="geneanno" type="data" format="tabular" label="Gene Annotations"/>
-                </when>
-                <when value="no" />
-            </conditional>
-        </section>
-
-        <section name="smp" expanded="false" title="Assign samples to groups">  
-            <conditional name="fact">
-                <param name="ffile" type="select" label="Input Factor Information from file?"
-                    help="You can choose to input the factor information from a file or manually enter below.">
-                    <option value="no">No</option>
-                    <option value="yes">Yes</option>
-                </param>
-                <when value="yes">
-                    <param name="finfo" type="data" format="tabular" label="Factor Information"/>
-                </when>
-                <when value="no" >
-                    <param name="pfactName" type="text" label="Primary Factor Name"
-                        help="Eg. Genotype NOTE: Please only use letters, numbers or underscores.">
-                        <validator type="empty_field" />
-                        <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
-                    </param>
-                    <param name="pfactLevel" type="text" label="Primary Factor Levels"
-                        help="Eg. WT,WT,WT,Mut,Mut,Mut NOTE: Please only use letters, numbers or underscores and ensure that the same levels are typed identically with cases matching.">
-                        <validator type="empty_field" />
-                        <validator type="regex" message="Please only use letters, numbers or underscores, and separate levels by commas">^[\w,]+$</validator>
-                    </param>
-                    <repeat name="sfactors" title="Secondary Factor" >
-                        <param name="sfactName" type="text" label="Secondary Factor Name" help="Eg. Batch">
-                            <validator type="empty_field" />
-                            <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
+                    
+                <when value="files">
+                    <repeat name="rep_factorName" title="Factor" min="1">
+                        <param name="factorName" type="text" value="FactorName" label="Factor Name" help="Eg. Genotype, Batch. The first factor entered will be used as the Primary Factor. NOTE: Please only use letters, numbers or underscores.">
+                        <sanitizer>
+                            <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                        </sanitizer>
                         </param>
-                        <param name="sfactLevel" type="text" label="Secondary Factor Levels"
-                            help="Eg. b1,b2,b3,b1,b2,b3 NOTE: Please only use letters, numbers or underscores and ensure that the same levels are typed identically with cases matching.">
-                            <validator type="empty_field" />
-                            <validator type="regex" message="Please only use letters, numbers or underscores">^[\w,]+$</validator>
-                        </param>
+                        <repeat name="rep_factorLevel" title="Factor level" min="2" default="2">
+                            <param name="factorLevel" type="text" value="FactorLevel" label="Factor Levels"
+                            help="Eg. WT  NOTE: Please only use letters, numbers or underscores (case sensitive). See help below for more information.">
+                            <sanitizer>
+                                <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                            </sanitizer>
+                            </param>
+                            <param name="countsFile" type="data" format="tabular" multiple="true" label="Counts file(s)"/>
+                        </repeat>
                     </repeat>
+                </when>
+                    
+                <when value="matrix">                
+                    <param name="counts" type="data" format="tabular" label="Count Matrix"/>                  
+                    <conditional name="anno">
+                        <param name="annoOpt" type="select" label="Use Gene Annotations?"
+                        help="If an annotation file is provided, annotations will be added to the table of differential expression results to provide descriptions for each gene.">
+                            <option value="no">No</option>
+                            <option value="yes">Yes</option>
+                        </param>
+                        <when value="yes">
+                            <param name="geneanno" type="data" format="tabular" label="Gene Annotations"/>
+                        </when>
+                     <when value="no" />
+                    </conditional>
+                
+                    <conditional name="fact">
+                        <param name="ffile" type="select" label="Input Factor Information from file?"
+                            help="You can choose to input the factor information from a file or manually enter below.">
+                            <option value="no">No</option>
+                            <option value="yes">Yes</option>
+                        </param>
+                        <when value="yes">
+                            <param name="finfo" type="data" format="tabular" label="Factor Information"/>
+                        </when>
+                        <when value="no" >
+                            <param name="pfactName" type="text" label="Primary Factor Name"
+                                help="Eg. Genotype NOTE: Please only use letters, numbers or underscores.">
+                                <validator type="empty_field" />
+                                <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
+                            </param>
+                            <param name="pfactLevel" type="text" label="Primary Factor Levels"
+                                help="Eg. WT,WT,WT,Mut,Mut,Mut NOTE: Please only use letters, numbers or underscores (case sensitive).">
+                                <validator type="empty_field" />
+                                <validator type="regex" message="Please only use letters, numbers or underscores, and separate levels by commas">^[\w,]+$</validator>
+                            </param>
+                            <repeat name="sfactors" title="Secondary Factor" >
+                                <param name="sfactName" type="text" label="Secondary Factor Name" help="Eg. Batch">
+                                    <validator type="empty_field" />
+                                    <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
+                                </param>
+                                <param name="sfactLevel" type="text" label="Secondary Factor Levels"
+                                    help="Eg. b1,b2,b3,b1,b2,b3 NOTE: Please only use letters, numbers or underscores (case sensitive).">
+                                    <validator type="empty_field" />
+                                    <validator type="regex" message="Please only use letters, numbers or underscores">^[\w,]+$</validator>
+                                </param>
+                            </repeat>
+                        </when>
+                    </conditional>
                 </when>
             </conditional>
         </section>
@@ -195,7 +252,8 @@ cp '$outReport.files_path'/*.tsv output_dir/
     </outputs>
 
     <tests>
-        <test>
+        <test> <!-- Ensure report is output -->
+            <param name="format" value="matrix" />
             <param name="counts" value="matrix.txt" />
             <param name="pfactName" value="Genotype" />
             <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
@@ -214,7 +272,8 @@ cp '$outReport.files_path'/*.tsv output_dir/
                 </assert_contents>
             </output>
         </test>
-        <test>
+        <test> <!-- Ensure annotation file input works -->
+            <param name="format" value="matrix" />
             <param name="annoOpt" value="yes" />
             <param name="geneanno" value="anno.txt" />
             <param name="counts" value="matrix.txt" />
@@ -226,7 +285,8 @@ cp '$outReport.files_path'/*.tsv output_dir/
                 <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WTanno.tsv" />
             </output_collection>
         </test>
-        <test>
+        <test><!-- Ensure RData file can be output -->
+            <param name="format" value="matrix" />
             <param name="rdaOption" value="yes" />
             <param name="counts" value="matrix.txt" />
             <param name="pfactName" value="Genotype" />
@@ -238,8 +298,9 @@ cp '$outReport.files_path'/*.tsv output_dir/
                     <has_text text="RData" />
                 </assert_contents>
             </output>
-        </test>
-        <test>
+        </test>       
+        <test><!-- Ensure secondary factors work -->
+            <param name="format" value="matrix" />
             <param name="counts" value="matrix.txt" />
             <param name="pfactName" value="Genotype"/>
             <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut"/>
@@ -253,7 +314,8 @@ cp '$outReport.files_path'/*.tsv output_dir/
                 <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WTmultifact.tsv" />
             </output_collection>
         </test>
-        <test>
+        <test><!-- Ensure factors file input works -->
+            <param name="format" value="matrix" />
             <param name="ffile" value="yes" />
             <param name="finfo" value="factorinfo.txt" />
             <param name="counts" value="matrix.txt" />
@@ -263,7 +325,8 @@ cp '$outReport.files_path'/*.tsv output_dir/
                 <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WTmultifact.tsv" />
             </output_collection>
         </test>
-        <test>
+        <test><!-- Ensure normalised counts file output works-->
+            <param name="format" value="matrix" />
             <param name="normCounts" value="yes" />
             <param name="counts" value="matrix.txt" />
             <param name="pfactName" value="Genotype" />
@@ -275,7 +338,8 @@ cp '$outReport.files_path'/*.tsv output_dir/
                 <element name="edgeR_normcounts" ftype="tabular" file="edgeR_normcounts.tsv" />             
             </output_collection>
         </test>
-        <test>
+        <test><!-- Ensure likelihood ratio option works -->
+            <param name="format" value="matrix" />
             <param name="counts" value="matrix.txt" />
             <param name="pfactName" value="Genotype" />
             <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
@@ -289,6 +353,26 @@ cp '$outReport.files_path'/*.tsv output_dir/
                 </assert_contents>
             </output>
         </test>
+        <test><!-- Ensure multiple counts files input works -->
+            <param name="format" value="files" />
+            <repeat name="rep_factorName">
+                <param name="factorName" value="Genotype"/>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="WT"/>
+                    <param name="countsFile" value="WT1.counts,WT2.counts,WT3.counts"/>
+                </repeat>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="Mut"/>
+                    <param name="countsFile" value="Mut1.counts,Mut2.counts,Mut3.counts"/>
+                </repeat>
+            </repeat>
+            <param name="contrast" value="Mut-WT" />
+            <param name="normCounts" value="yes" />
+            <output_collection name="outTables" >
+                <element name="edgeR_Mut-WT" compare="sim_size" ftype="tabular" file="edgeR_Mut-WT_files.tsv" />
+                <element name="edgeR_normcounts" ftype="tabular" file="edgeR_normcounts_files.tsv" />  
+            </output_collection>
+        </test>     
     </tests>
 
     <help><![CDATA[
@@ -299,7 +383,7 @@ cp '$outReport.files_path'/*.tsv output_dir/
 Given a matrix of counts (e.g. from featureCounts) and optional information about the genes, this tool
 produces plots and tables useful in the analysis of differential gene expression.
 
-This tool uses the `edgeR`_ quasi-likelihood pipeline (edgeR-quasi) for differential expression. This statistical methodology uses negative binomial generalized linear models (McCarthy, Chen, and Smyth 2012) but with F-tests instead of likelihood ratio tests (Lund et al. 2012). This method provides stricter error rate control than other negative binomial based pipelines, including the traditional edgeR pipelines (Robinson and Smyth 2008; Robinson and Smyth 2007; McCarthy, Chen, and Smyth 2012) or DESeq2 (Love, Huber, and Anders 2014). The edgeR-quasi pipeline is based on similar statistical methodology to that of the QuasiSeq package (Lund et al. 2012), which has performed well in third-party comparisons (Burden, Qureshi, and Wilson 2014). Compared to QuasiSeq, the edgeR functions offer speed improvements and some additional statistical refinements (Lun, Chen, and Smyth 2016). The RNA-seq pipelines of the limma package also offer excellent error rate control (Law et al. 2014; Ritchie et al. 2015). While the limma pipelines are recommended for large-scale datasets, because of their speed and flexibility, the edgeR-quasi pipeline gives better performance in low-count situations (Lun and Smyth 2014; Lun and Smyth 2015). For the data analyzed in the workflow article `here`_, the edgeR-quasi, limma-voom and limma-trend pipelines are all equally suitable and give similar results.
+This tool uses the `edgeR`_ quasi-likelihood pipeline (edgeR-quasi) for differential expression. This statistical methodology uses negative binomial generalized linear models but with F-tests instead of likelihood ratio tests. This method provides stricter error rate control than other negative binomial based pipelines, including the traditional edgeR pipelines or DESeq2. The RNA-seq pipelines of the limma package also offer excellent error rate control. While the limma pipelines are recommended for large-scale datasets, because of their speed and flexibility, the edgeR-quasi pipeline gives better performance in low-count situations. For the data analyzed in the workflow article `here`_, the edgeR-quasi, limma-voom and limma-trend pipelines are all equally suitable and give similar results.
 
 .. _edgeR: http://www.bioconductor.org/packages/release/bioc/html/edgeR.html
 .. _here: https://f1000research.com/articles/5-1438
@@ -309,12 +393,23 @@ This tool uses the `edgeR`_ quasi-likelihood pipeline (edgeR-quasi) for differen
 **Inputs**
 
 **Counts Data:**
-A matrix of counts, with rows corresponding to genes
-and columns corresponding to counts for the samples.
-Values must be tab separated, with the first row containing the sample/column
-labels and the first column containing the row/gene labels.
 
-Example:
+The counts data can either be input as one counts file per sample (similar to the DESeq2 tool) or a count matrix can be used. The rows correspond to genes, and columns correspond to the counts for the samples. Values must be tab separated, with the first row containing the sample/column labels and the first column containing the row/gene labels.
+
+Example - one count file for each sample:
+
+    ========== ======= 
+    **GeneID** **WT1** 
+    ---------- ------- 
+    11287      1699    
+    11298      1905    
+    11302      6       
+    11303      2099    
+    11304      356     
+    11305      2528    
+    ========== ======= 
+
+Example - a count matrix:
 
     ========== ======= ======= ======= ======== ======== ========
     **GeneID** **WT1** **WT2** **WT3** **Mut1** **Mut2** **Mut3**
@@ -346,7 +441,7 @@ Example:
     ==========  ==========  ===================================================
 
 **Factor Information:**
-Enter Factor Names and Levels in the tool form or provide a tab-separated file that has the samples in the same order as listed in the columns of the counts matrix. The second column should contain the Primary Factor levels (e.g. Genotype) with optional additional columns for any Secondary Factors (e.g. Batch).
+Enter Factor Names and Levels in the tool form, or provide a tab-separated file that has the samples in the same order as listed in the columns of the counts matrix. The second column should contain the Primary Factor levels (e.g. WT, Mut) with optional additional columns for any Secondary Factors.
 
 Example:
 

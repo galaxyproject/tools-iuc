@@ -19,14 +19,19 @@
 #       15.factPath       -Path to factor information file
 #       16.factorData     -Strings containing factor names and values if manually input 
 #
-# OUT:  
+# OUT: 
+#       MDS Plot 
 #       BCV Plot
+#       QL Plot
 #       MD Plot
 #       Expression Table
 #       HTML file linking to the ouputs
+# Optional:
+#       Normalised counts Table
+#       RData file
 #
 # Author: Shian Su - registertonysu@gmail.com - Jan 2014
-# Modified by: Maria Doyle - Jun 2017
+# Modified by: Maria Doyle - Sep 2017
 
 # Record starting time
 timeStart <- as.character(Sys.time())
@@ -45,85 +50,85 @@ library(scales, quietly=TRUE, warn.conflicts=FALSE)
 # Function to sanitise contrast equations so there are no whitespaces
 # surrounding the arithmetic operators, leading or trailing whitespace
 sanitiseEquation <- function(equation) {
-  equation <- gsub(" *[+] *", "+", equation)
-  equation <- gsub(" *[-] *", "-", equation)
-  equation <- gsub(" *[/] *", "/", equation)
-  equation <- gsub(" *[*] *", "*", equation)
-  equation <- gsub("^\\s+|\\s+$", "", equation)
-  return(equation)
+    equation <- gsub(" *[+] *", "+", equation)
+    equation <- gsub(" *[-] *", "-", equation)
+    equation <- gsub(" *[/] *", "/", equation)
+    equation <- gsub(" *[*] *", "*", equation)
+    equation <- gsub("^\\s+|\\s+$", "", equation)
+    return(equation)
 }
 
 # Function to sanitise group information
 sanitiseGroups <- function(string) {
-  string <- gsub(" *[,] *", ",", string)
-  string <- gsub("^\\s+|\\s+$", "", string)
-  return(string)
+    string <- gsub(" *[,] *", ",", string)
+    string <- gsub("^\\s+|\\s+$", "", string)
+    return(string)
 }
 
 # Function to change periods to whitespace in a string
 unmake.names <- function(string) {
-  string <- gsub(".", " ", string, fixed=TRUE)
-  return(string)
+    string <- gsub(".", " ", string, fixed=TRUE)
+    return(string)
 }
 
 # Generate output folder and paths
 makeOut <- function(filename) {
-  return(paste0(outPath, "/", filename))
+    return(paste0(outPath, "/", filename))
 }
 
 # Generating design information
 pasteListName <- function(string) {
-  return(paste0("factors$", string))
+    return(paste0("factors$", string))
 }
 
 # Create cata function: default path set, default seperator empty and appending
 # true by default (Ripped straight from the cat function with altered argument
 # defaults)
-cata <- function(..., file = htmlPath, sep = "", fill = FALSE, labels = NULL, 
-                 append = TRUE) {
-  if (is.character(file)) 
-    if (file == "") 
-      file <- stdout()
-  else if (substring(file, 1L, 1L) == "|") {
-    file <- pipe(substring(file, 2L), "w")
-    on.exit(close(file))
-  }
-  else {
-    file <- file(file, ifelse(append, "a", "w"))
-    on.exit(close(file))
-  }
-  .Internal(cat(list(...), file, sep, fill, labels, append))
+cata <- function(..., file=htmlPath, sep="", fill=FALSE, labels=NULL, 
+                                 append=TRUE) {
+    if (is.character(file)) 
+        if (file == "") 
+            file <- stdout()
+    else if (substring(file, 1L, 1L) == "|") {
+        file <- pipe(substring(file, 2L), "w")
+        on.exit(close(file))
+    }
+    else {
+        file <- file(file, ifelse(append, "a", "w"))
+        on.exit(close(file))
+    }
+    .Internal(cat(list(...), file, sep, fill, labels, append))
 }
 
 # Function to write code for html head and title
 HtmlHead <- function(title) {
-  cata("<head>\n")
-  cata("<title>", title, "</title>\n")
-  cata("</head>\n")
+    cata("<head>\n")
+    cata("<title>", title, "</title>\n")
+    cata("</head>\n")
 }
 
 # Function to write code for html links
 HtmlLink <- function(address, label=address) {
-  cata("<a href=\"", address, "\" target=\"_blank\">", label, "</a><br />\n")
+    cata("<a href=\"", address, "\" target=\"_blank\">", label, "</a><br />\n")
 }
 
 # Function to write code for html images
 HtmlImage <- function(source, label=source, height=600, width=600) {
-  cata("<img src=\"", source, "\" alt=\"", label, "\" height=\"", height)
-  cata("\" width=\"", width, "\"/>\n")
+    cata("<img src=\"", source, "\" alt=\"", label, "\" height=\"", height)
+    cata("\" width=\"", width, "\"/>\n")
 }
 
 # Function to write code for html list items
 ListItem <- function(...) {
-  cata("<li>", ..., "</li>\n")
+    cata("<li>", ..., "</li>\n")
 }
 
 TableItem <- function(...) {
-  cata("<td>", ..., "</td>\n")
+    cata("<td>", ..., "</td>\n")
 }
 
 TableHeadItem <- function(...) {
-  cata("<th>", ..., "</th>\n")
+    cata("<th>", ..., "</th>\n")
 }
 
 ################################################################################
@@ -149,53 +154,97 @@ pValReq <- as.numeric(argv[12])
 lfcReq <- as.numeric(argv[13])
 normCounts <- as.character(argv[14])
 factPath <- as.character(argv[15])
-# Process factors
-if (as.character(argv[16])=="None") {
-    factorData <- read.table(factPath, header=TRUE, sep="\t")
-    factors <- factorData[,-1, drop=FALSE]
-}  else { 
-    factorData <- list()
-    for (i in 16:length(argv)) {
-        newFact <- unlist(strsplit(as.character(argv[i]), split="::"))
-        factorData <- rbind(factorData, newFact)
-    } # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,... The first factor is the Primary Factor.
 
-    # Set the row names to be the name of the factor and delete first row
-    row.names(factorData) <- factorData[, 1]
-    factorData <- factorData[, -1]
-    factorData <- sapply(factorData, sanitiseGroups)
-    factorData <- sapply(factorData, strsplit, split=",")
-    factorData <- sapply(factorData, make.names)
-    # Transform factor data into data frame of R factor objects
-    factors <- data.frame(factorData)
-
-}
-
-# Process other arguments
+# Process booleans
 if (lrtOpt=="yes") {
-  wantLRT <- TRUE
+    wantLRT <- TRUE
 } else {
-  wantLRT <- FALSE
+    wantLRT <- FALSE
 }
 
 if (rdaOpt=="yes") {
-  wantRda <- TRUE
+    wantRda <- TRUE
 } else {
-  wantRda <- FALSE
+    wantRda <- FALSE
 }
 
 if (annoPath=="None") {
-  haveAnno <- FALSE
+    haveAnno <- FALSE
 } else {
-  haveAnno <- TRUE
+    haveAnno <- TRUE
 }
 
 if (normCounts=="yes") {
-  wantNorm <- TRUE
+    wantNorm <- TRUE
 } else {
-  wantNorm <- FALSE
+    wantNorm <- FALSE
 }
 
+
+if (grepl(":", countPath)) {
+    # Process count files (adapted from DESeq2 wrapper)
+    library("rjson")
+    parser <- newJSONParser()
+    parser$addData(countPath)
+    factorList <- parser$getObject()
+    factors <- sapply(factorList, function(x) x[[1]])
+    primaryFactor <- factors[1]
+    filenamesIn <- unname(unlist(factorList[[1]][[2]]))
+    sampleTable <- data.frame(sample=basename(filenamesIn),
+                            filename=filenamesIn,
+                            row.names=filenamesIn,
+                            stringsAsFactors=FALSE)
+    for (factor in factorList) {
+        factorName <- factor[[1]]
+        sampleTable[[factorName]] <- character(nrow(sampleTable))
+        lvls <- sapply(factor[[2]], function(x) names(x))
+        for (i in seq_along(factor[[2]])) {
+            files <- factor[[2]][[i]][[1]]
+            sampleTable[files,factorName] <- lvls[i]
+        }
+        sampleTable[[factorName]] <- factor(sampleTable[[factorName]], levels=lvls)
+    }
+    rownames(sampleTable) <- sampleTable$sample
+    rem <- c("sample","filename")
+    factors <- sampleTable[, !(names(sampleTable) %in% rem), drop=FALSE]
+    
+    #read in count files and create table
+    countfiles <- lapply(sampleTable$filename, function(x){read.delim(x, row.names=1)})
+    counts <- do.call("cbind", countfiles)
+    
+} else {
+    # Process count matrix
+    counts <- read.table(countPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    row.names(counts) <- counts[, 1]
+    counts <- counts[ , -1]
+    countsRows <- nrow(counts)
+    
+    # if annotation file provided
+    if (haveAnno) {
+        geneanno <- read.table(annoPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    }
+
+    # Process factors
+    if (as.character(argv[16])=="None") {
+            factorData <- read.table(factPath, header=TRUE, sep="\t")
+            factors <- factorData[, -1, drop=FALSE]
+    }  else if (as.character(argv[16])!="files") { 
+            factorData <- list()
+            for (i in 16:length(argv)) {
+                    newFact <- unlist(strsplit(as.character(argv[i]), split="::"))
+                    factorData <- rbind(factorData, newFact)
+            } # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,... The first factor is the Primary Factor.
+
+            # Set the row names to be the name of the factor and delete first row
+            row.names(factorData) <- factorData[, 1]
+            factorData <- factorData[, -1]
+            factorData <- sapply(factorData, sanitiseGroups)
+            factorData <- sapply(factorData, strsplit, split=",")
+            factorData <- sapply(factorData, make.names)
+            # Transform factor data into data frame of R factor objects
+            factors <- data.frame(factorData)
+    }
+}
 
 #Create output directory
 dir.create(outPath, showWarnings=FALSE)
@@ -207,16 +256,18 @@ contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
 bcvOutPdf <- makeOut("bcvplot.pdf")
 bcvOutPng <- makeOut("bcvplot.png")
+qlOutPdf <- makeOut("qlplot.pdf")
+qlOutPng <- makeOut("qlplot.png")
 mdsOutPdf <- makeOut("mdsplot.pdf")
 mdsOutPng <- makeOut("mdsplot.png")
 mdOutPdf <- character()   # Initialise character vector
 mdOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
-  mdOutPdf[i] <- makeOut(paste0("mdplot_", contrastData[i], ".pdf"))
-  mdOutPng[i] <- makeOut(paste0("mdplot_", contrastData[i], ".png"))
-  topOut[i] <- makeOut(paste0("edgeR_", contrastData[i], ".tsv"))
-}                         # Save output paths for each contrast as vectors
+    mdOutPdf[i] <- makeOut(paste0("mdplot_", contrastData[i], ".pdf"))
+    mdOutPng[i] <- makeOut(paste0("mdplot_", contrastData[i], ".png"))
+    topOut[i] <- makeOut(paste0("edgeR_", contrastData[i], ".tsv"))
+}       # Save output paths for each contrast as vectors
 normOut <- makeOut("edgeR_normcounts.tsv")
 rdaOut <- makeOut("RData.rda")
 sessionOut <- makeOut("session_info.txt")
@@ -224,23 +275,14 @@ sessionOut <- makeOut("session_info.txt")
 # Initialise data for html links and images, data frame with columns Label and 
 # Link
 linkData <- data.frame(Label=character(), Link=character(),
-                       stringsAsFactors=FALSE)
+                                             stringsAsFactors=FALSE)
 imageData <- data.frame(Label=character(), Link=character(),
-                        stringsAsFactors=FALSE)
+                                                stringsAsFactors=FALSE)
 
 # Initialise vectors for storage of up/down/neutral regulated counts
 upCount <- numeric()
 downCount <- numeric()
 flatCount <- numeric()
-                        
-# Read in counts and geneanno data
-counts <- read.table(countPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
-row.names(counts) <- counts[, 1]
-counts <- counts[ , -1]
-countsRows <- nrow(counts)
-if (haveAnno) {
-  geneanno <- read.table(annoPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
-}
 
 ################################################################################
 ### Data Processing
@@ -250,9 +292,9 @@ if (haveAnno) {
 data <- list()
 data$counts <- counts
 if (haveAnno) {
-  data$genes <- geneanno
+    data$genes <- geneanno
 } else {
-  data$genes <- data.frame(GeneID=row.names(counts))
+    data$genes <- data.frame(GeneID=row.names(counts))
 }
 
 # Filter out genes that do not have a required cpm in a required number of
@@ -260,7 +302,7 @@ if (haveAnno) {
 preFilterCount <- nrow(data$counts)
 sel <- rowSums(cpm(data$counts) > cpmReq) >= sampleReq
 data$counts <- data$counts[sel, ]
-data$genes <- data$genes[sel, ,drop = FALSE]
+data$genes <- data$genes[sel, , drop=FALSE]
 postFilterCount <- nrow(data$counts)
 filteredCount <- preFilterCount-postFilterCount
 
@@ -276,18 +318,20 @@ data$samples$norm.factors <- 1
 row.names(data$samples) <- colnames(data$counts)
 data <- new("DGEList", data)
 
+# Name rows of factors according to their sample
+row.names(factors) <- names(data$counts)
 factorList <- sapply(names(factors), pasteListName)
 
 formula <- "~0" 
 for (i in 1:length(factorList)) {
-    formula <- paste(formula,factorList[i], sep="+")
+        formula <- paste(formula, factorList[i], sep="+")
 }
 
 formula <- formula(formula)
 design <- model.matrix(formula)
 
 for (i in 1:length(factorList)) {
-    colnames(design) <- gsub(factorList[i], "", colnames(design), fixed=TRUE)
+        colnames(design) <- gsub(factorList[i], "", colnames(design), fixed=TRUE)
 }
 
 # Calculating normalising factor, estimating dispersion
@@ -297,118 +341,130 @@ data <- estimateDisp(data, design=design, robust=TRUE)
 # Generate contrasts information
 contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 
-# Name rows of factors according to their sample
-row.names(factors) <- names(data$counts)
-
 ################################################################################
 ### Data Output
 ################################################################################
-
-# BCV Plot
-png(bcvOutPng, width=600, height=600)
-plotBCV(data, main="BCV Plot")
-imageData[1, ] <- c("BCV Plot", "bcvplot.png")
-invisible(dev.off())
-
-pdf(bcvOutPdf)
-plotBCV(data, main="BCV Plot")
-linkData[1, ] <- c("BCV Plot.pdf", "bcvplot.pdf")
-invisible(dev.off())
-  
-# Generate fit
-if (wantLRT) {
-  fit <- glmFit(data, design)
-  } else {
-  fit <- glmQLFit(data, design)
-}
-
- # Save normalised counts (log2cpm)
-if (wantNorm) { 
-    norm_counts <- cpm(data,normalized.lib.sizes=TRUE, log=TRUE) 
-    norm_counts <- data.frame(data$genes, norm_counts)
-    write.table (norm_counts, file=normOut, row.names=FALSE, sep="\t")
-    linkData <- rbind(linkData, c("edgeR_normcounts.tsv", "edgeR_normcounts.tsv"))
-}
 
 # Plot MDS
 labels <- names(counts)
 png(mdsOutPng, width=600, height=600)
 # Currently only using a single factor
 plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8)
-imgName <- "MDS Plot"
-imgAddr <- "mdsplot.png"
-imageData <- rbind(imageData, c(imgName, imgAddr))
+imageData[1, ] <- c("MDS Plot", "mdsplot.png")
 invisible(dev.off())
 
 pdf(mdsOutPdf)
 plotMDS(data, labels=labels, cex=0.5)
-linkName <- paste0("MDS Plot.pdf")
-linkAddr <- paste0("mdsplot.pdf")
-linkData <- rbind(linkData, c(linkName, linkAddr))
+linkData[1, ] <- c("MDS Plot.pdf", "mdsplot.pdf")
 invisible(dev.off())
+
+# BCV Plot
+png(bcvOutPng, width=600, height=600)
+plotBCV(data, main="BCV Plot")
+imgName <- "BCV Plot"
+imgAddr <- "bcvplot.png"
+imageData <- rbind(imageData, c(imgName, imgAddr))
+invisible(dev.off())
+
+pdf(bcvOutPdf)
+plotBCV(data, main="BCV Plot")
+linkName <- paste0("BCV Plot.pdf")
+linkAddr <- paste0("bcvplot.pdf")
+linkData <- rbind(linkData, c(linkName, linkAddr))
+invisible(dev.off())   
+    
+# Generate fit
+if (wantLRT) {
+    fit <- glmFit(data, design)
+    } else {
+    fit <- glmQLFit(data, design, robust=TRUE)
+
+    # Plot QL dispersions
+    png(qlOutPng, width=600, height=600)
+    plotQLDisp(fit, main="QL Plot")
+    imgName <- "QL Plot"
+    imgAddr <- "qlplot.png"
+    imageData <- rbind(imageData, c(imgName, imgAddr))
+    invisible(dev.off())
+
+    pdf(qlOutPdf)
+    plotQLDisp(fit, main="QL Plot")
+    linkData[1, ] <- c("QL Plot.pdf", "QLplot.pdf")
+    linkName <- "QL Plot"
+    linkAddr <- "qlplot.pdf"
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())
+}
+
+ # Save normalised counts (log2cpm)
+if (wantNorm) { 
+        normCounts <- cpm(data, normalized.lib.sizes=TRUE, log=TRUE) 
+        normCounts <- data.frame(data$genes, normCounts)
+        write.table (normCounts, file=normOut, row.names=FALSE, sep="\t")
+        linkData <- rbind(linkData, c("edgeR_normcounts.tsv", "edgeR_normcounts.tsv"))
+}
 
 
 for (i in 1:length(contrastData)) {
+    if (wantLRT) {
+        test <- glmLRT(fit, contrast=contrasts[, i])
+    } else {
+        test <- glmQLFTest(fit, contrast=contrasts[, i])
+    }
 
-  if (wantLRT) {
-    test <- glmLRT(fit, coef=i)
-  } else {
-    test <- glmQLFTest(fit, coef=i)
-  }
-
-  status = decideTestsDGE(test, adjust.method=pAdjOpt, p.value=pValReq,
-                       lfc=lfcReq)
-                       
-  sumStatus <- summary(status)
-  
-  # Collect counts for differential expression
-  upCount[i] <- sumStatus["1",]
-  downCount[i] <- sumStatus["-1",]
-  flatCount[i] <- sumStatus["0",]
-                       
-  # Write top expressions table
-  top <- topTags(test, sort.by="PValue")
-  write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
-  
-  linkName <- paste0("edgeR_", contrastData[i], ".tsv")
-  linkAddr <- paste0("edgeR_", contrastData[i], ".tsv")
-  linkData <- rbind(linkData, c(linkName, linkAddr))
-  
-  # Plot MD (log ratios vs mean difference) using limma package
-  pdf(mdOutPdf[i])
-  limma::plotMD(test, status=status,
-                main=paste("MD Plot:", unmake.names(contrastData[i])), 
-                col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
-                xlab="Average Expression", ylab="logFC")
-  
-  abline(h=0, col="grey", lty=2)
-  
-  linkName <- paste0("MD Plot_", contrastData[i], ".pdf")
-  linkAddr <- paste0("mdplot_", contrastData[i], ".pdf")
-  linkData <- rbind(linkData, c(linkName, linkAddr))
-  invisible(dev.off())
-  
-  png(mdOutPng[i], height=600, width=600)
-  limma::plotMD(test, status=status,
-                main=paste("MD Plot:", unmake.names(contrastData[i])), 
-                col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
-                xlab="Average Expression", ylab="logFC")
-  
-  abline(h=0, col="grey", lty=2)
-  
-  imgName <- paste0("MD Plot_", contrastData[i], ".png")
-  imgAddr <- paste0("mdplot_", contrastData[i], ".png")
-  imageData <- rbind(imageData, c(imgName, imgAddr))
-  invisible(dev.off())
+    status = decideTestsDGE(test, adjust.method=pAdjOpt, p.value=pValReq,
+                                             lfc=lfcReq)
+                                             
+    sumStatus <- summary(status)
+    
+    # Collect counts for differential expression
+    upCount[i] <- sumStatus["1", ]
+    downCount[i] <- sumStatus["-1", ]
+    flatCount[i] <- sumStatus["0", ]
+                                             
+    # Write top expressions table
+    top <- topTags(test, n=Inf, sort.by="PValue")
+    write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
+    
+    linkName <- paste0("edgeR_", contrastData[i], ".tsv")
+    linkAddr <- paste0("edgeR_", contrastData[i], ".tsv")
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    
+    # Plot MD (log ratios vs mean difference) using limma package
+    pdf(mdOutPdf[i])
+    limma::plotMD(test, status=status,
+                                main=paste("MD Plot:", unmake.names(contrastData[i])), 
+                                col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+                                xlab="Average Expression", ylab="logFC")
+    
+    abline(h=0, col="grey", lty=2)
+    
+    linkName <- paste0("MD Plot_", contrastData[i], ".pdf")
+    linkAddr <- paste0("mdplot_", contrastData[i], ".pdf")
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())
+    
+    png(mdOutPng[i], height=600, width=600)
+    limma::plotMD(test, status=status,
+                                main=paste("MD Plot:", unmake.names(contrastData[i])), 
+                                col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+                                xlab="Average Expression", ylab="logFC")
+    
+    abline(h=0, col="grey", lty=2)
+    
+    imgName <- paste0("MD Plot_", contrastData[i], ".png")
+    imgAddr <- paste0("mdplot_", contrastData[i], ".png")
+    imageData <- rbind(imageData, c(imgName, imgAddr))
+    invisible(dev.off())
 }
 sigDiff <- data.frame(Up=upCount, Flat=flatCount, Down=downCount)
 row.names(sigDiff) <- contrastData
 
 # Save relevant items as rda object
 if (wantRda) {
-  save(data, status, data, labels, factors, test, top, contrasts, design,
-         file=rdaOut, ascii=TRUE)
-  linkData <- rbind(linkData, c("RData.rda", "RData.rda"))
+    save(data, status, data, labels, factors, test, top, contrasts, design,
+                 file=rdaOut, ascii=TRUE)
+    linkData <- rbind(linkData, c("RData.rda", "RData.rda"))
 }
 
 # Record session info
@@ -417,8 +473,9 @@ linkData <- rbind(linkData, c("Session Info", "session_info.txt"))
 
 # Record ending time and calculate total run time
 timeEnd <- as.character(Sys.time())
-timeTaken <- capture.output(round(difftime(timeEnd,timeStart), digits=3))
+timeTaken <- capture.output(round(difftime(timeEnd, timeStart), digits=3))
 timeTaken <- gsub("Time difference of ", "", timeTaken, fixed=TRUE)
+
 ################################################################################
 ### HTML Generation
 ################################################################################
@@ -435,7 +492,7 @@ cata("PDF copies of JPEGS available in 'Plots' section.<br />\n")
 HtmlImage(imageData$Link[1], imageData$Label[1])
 
 for (i in 2:nrow(imageData)) {
-  HtmlImage(imageData$Link[i], imageData$Label[i])
+    HtmlImage(imageData$Link[i], imageData$Label[i])
 }
 
 cata("<h4>Differential Expression Counts:</h4>\n")
@@ -444,40 +501,40 @@ cata("<table border=\"1\" cellpadding=\"4\">\n")
 cata("<tr>\n")
 TableItem()
 for (i in colnames(sigDiff)) {
-  TableHeadItem(i)
+    TableHeadItem(i)
 }
 cata("</tr>\n")
 for (i in 1:nrow(sigDiff)) {
-  cata("<tr>\n")
-  TableHeadItem(unmake.names(row.names(sigDiff)[i]))
-  for (j in 1:ncol(sigDiff)) {
-    TableItem(as.character(sigDiff[i, j]))
-  }
-  cata("</tr>\n")
+    cata("<tr>\n")
+    TableHeadItem(unmake.names(row.names(sigDiff)[i]))
+    for (j in 1:ncol(sigDiff)) {
+        TableItem(as.character(sigDiff[i, j]))
+    }
+    cata("</tr>\n")
 }
 cata("</table>")
 
 cata("<h4>Plots:</h4>\n")
 for (i in 1:nrow(linkData)) {
-  if (grepl(".pdf", linkData$Link[i])) {
-    HtmlLink(linkData$Link[i], linkData$Label[i])
-  }
+    if (grepl(".pdf", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+    }
 }
 
 cata("<h4>Tables:</h4>\n")
 for (i in 1:nrow(linkData)) {
-  if (grepl(".tsv", linkData$Link[i])) {
-    HtmlLink(linkData$Link[i], linkData$Label[i])
-  }
+    if (grepl(".tsv", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+    }
 }
 
 if (wantRda) {
-  cata("<h4>R Data Object:</h4>\n")
-  for (i in 1:nrow(linkData)) {
-    if (grepl(".rda", linkData$Link[i])) {
-      HtmlLink(linkData$Link[i], linkData$Label[i])
+    cata("<h4>R Data Object:</h4>\n")
+    for (i in 1:nrow(linkData)) {
+        if (grepl(".rda", linkData$Link[i])) {
+            HtmlLink(linkData$Link[i], linkData$Label[i])
+        }
     }
-  }
 }
 
 cata("<p>Alt-click links to download file.</p>\n")
@@ -488,39 +545,39 @@ cata("<p>.tsv files can be viewed in Excel or any spreadsheet program.</p>\n")
 cata("<h4>Additional Information</h4>\n")
 cata("<ul>\n")
 if (cpmReq!=0 && sampleReq!=0) {
-  tempStr <- paste("Genes without more than", cpmReq,
-                   "CPM in at least", sampleReq, "samples are insignificant",
-                   "and filtered out.")
-  ListItem(tempStr)
-  filterProp <- round(filteredCount/preFilterCount*100, digits=2)
-  tempStr <- paste0(filteredCount, " of ", preFilterCount," (", filterProp,
-                   "%) genes were filtered out for low expression.")
-  ListItem(tempStr)
+    tempStr <- paste("Genes without more than", cpmReq,
+                                     "CPM in at least", sampleReq, "samples are insignificant",
+                                     "and filtered out.")
+    ListItem(tempStr)
+    filterProp <- round(filteredCount/preFilterCount*100, digits=2)
+    tempStr <- paste0(filteredCount, " of ", preFilterCount," (", filterProp,
+                                     "%) genes were filtered out for low expression.")
+    ListItem(tempStr)
 }
 ListItem(normOpt, " was the method used to normalise library sizes.")
 if (wantLRT) {
-  ListItem("The edgeR likelihood ratio test was used.")
+    ListItem("The edgeR likelihood ratio test was used.")
 } else {
-  ListItem("The edgeR quasi-likelihood test was used.")
+    ListItem("The edgeR quasi-likelihood test was used.")
 }
 if (pAdjOpt!="none") {
-  if (pAdjOpt=="BH" || pAdjOpt=="BY") {
-    tempStr <- paste0("MD-Plot highlighted genes are significant at FDR ",
-                      "of ", pValReq," and exhibit log2-fold-change of at ", 
-                      "least ", lfcReq, ".")
-    ListItem(tempStr)
-  } else if (pAdjOpt=="holm") {
-    tempStr <- paste0("MD-Plot highlighted genes are significant at adjusted ",
-                      "p-value of ", pValReq,"  by the Holm(1979) ",
-                      "method, and exhibit log2-fold-change of at least ", 
-                      lfcReq, ".")
-    ListItem(tempStr)
-  }
+    if (pAdjOpt=="BH" || pAdjOpt=="BY") {
+        tempStr <- paste0("MD-Plot highlighted genes are significant at FDR ",
+                                            "of ", pValReq," and exhibit log2-fold-change of at ", 
+                                            "least ", lfcReq, ".")
+        ListItem(tempStr)
+    } else if (pAdjOpt=="holm") {
+        tempStr <- paste0("MD-Plot highlighted genes are significant at adjusted ",
+                                            "p-value of ", pValReq,"  by the Holm(1979) ",
+                                            "method, and exhibit log2-fold-change of at least ", 
+                                            lfcReq, ".")
+        ListItem(tempStr)
+    }
 } else {
-  tempStr <- paste0("MD-Plot highlighted genes are significant at p-value ",
-                    "of ", pValReq," and exhibit log2-fold-change of at ", 
-                    "least ", lfcReq, ".")
-  ListItem(tempStr)
+    tempStr <- paste0("MD-Plot highlighted genes are significant at p-value ",
+                                        "of ", pValReq," and exhibit log2-fold-change of at ", 
+                                        "least ", lfcReq, ".")
+    ListItem(tempStr)
 }
 cata("</ul>\n")
 
@@ -531,30 +588,29 @@ cata("<p>*CHECK THAT SAMPLES ARE ASSOCIATED WITH CORRECT GROUP(S)*</p>\n")
 cata("<table border=\"1\" cellpadding=\"3\">\n")
 cata("<tr>\n")
 TableHeadItem("SampleID")
-TableHeadItem(names(factors)[1]," Primary Factor")
+TableHeadItem(names(factors)[1], " (Primary Factor)")
 
-  if (ncol(factors) > 1) {
-
-    for (i in names(factors)[2:length(names(factors))]) {
-      TableHeadItem(i)
+    if (ncol(factors) > 1) {
+        for (i in names(factors)[2:length(names(factors))]) {
+            TableHeadItem(i)
+        }
+        cata("</tr>\n")
     }
-    cata("</tr>\n")
-  }
 
 for (i in 1:nrow(factors)) {
-  cata("<tr>\n")
-  TableHeadItem(row.names(factors)[i])
-  for (j in 1:ncol(factors)) {
-    TableItem(as.character(unmake.names(factors[i, j])))
-  }
-  cata("</tr>\n")
+    cata("<tr>\n")
+    TableHeadItem(row.names(factors)[i])
+    for (j in 1:ncol(factors)) {
+        TableItem(as.character(unmake.names(factors[i, j])))
+    }
+    cata("</tr>\n")
 }
 cata("</table>")
 
 for (i in 1:nrow(linkData)) {
-  if (grepl("session_info", linkData$Link[i])) {
-    HtmlLink(linkData$Link[i], linkData$Label[i])
-  }
+    if (grepl("session_info", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+    }
 }
 
 cata("<table border=\"0\">\n")
