@@ -4,48 +4,113 @@ from bs4 import BeautifulSoup as bs
 from SectionHandler import *	   
 from CommandParse import CommandParse
 
-
-section_map = {} #  title -> section
-
 class Document2Section:
 
     def __init__(self, html_file):
         
         with open(html_file, 'r') as f:
             html = f.read()
-            self.inputs = Document2Section.parse(html)
+
+        self.parse(html)
+        self.reorder()
 
 
-    @staticmethod
-    def parse(text):
+    def reorder(self):
+        # Replicate the section_nestmap whilst preserving orderings
+
+        parent_ordering = [] # parent []
+        child_ordering =  {} # parent : child []
+        
+        for title in self.section_order:
+
+            if title not in section_nestmap:
+                print("Unknown section:", title, file=sys.stderr)
+                continue
+                #exit(-1)
+
+            expanded, parent_section_name = section_nestmap[title]
+
+            # Unparented sections become parents
+            if parent_section_name == "":
+                parent_ordering.append( title )
+                continue
+
+            # Has parent, preserve ordering within group
+            if parent_section_name not in child_ordering:
+                child_ordering[parent_section_name] = []
+                parent_ordering.append( parent_section_name )
+
+            child_ordering[parent_section_name].append( title )
+
+        # Now print out all
+
+        # -- flat listing
+        #for name in self.section_order:
+        #    cxml = self.section_map[name].getSection()
+        #    if cxml != "":
+        #        self.inputs.appendChild(cxml)
+        #
+        #return 0
+
+        self.inputs = doc.createElement('inputs')
+        
+        for parent in parent_ordering:
+            # False parent, actual section
+            if parent in section_nestmap:
+                expanded = section_nestmap[parent][0]
+                sxml = self.section_map[parent].getSection()
+                
+                if sxml == "":
+                    continue
+               
+                sxml.setAttribute('expanded', str(expanded))
+                self.inputs.appendChild( sxml )
+                continue
+
+            # True parent, create section and nest children within
+            parent_section = doc.createElement('section')
+            parent_section.setAttribute('name', '_'.join(parent.lower().split()))
+            parent_section.setAttribute('title', parent)
+
+            child_sections = child_ordering[parent]
+
+            for child in child_sections:
+
+                expanded = section_nestmap[child][0]
+                cxml = self.section_map[child].getSection()
+
+                if cxml == "":
+                    continue
+
+                cxml.setAttribute('expanded', str(expanded))
+                parent_section.appendChild( cxml )
+
+            self.inputs.appendChild(parent_section)
+
+
+
+
+
+            
+    def parse(self, text):
 
         bsobj = bs(text, 'html.parser')
         main_div = bsobj.body.find('div', attrs={'class':'col-md-9'})
         tables = main_div.find_all('table')
         
-        return_text=""
-
-        inputs = doc.createElement('inputs')
-
-        section_order = []
+        self.section_map   = {}
+        self.section_order = []
           
         for table in tables:
             # Previous H1
             h2 = table.find_previous_sibling('h2')    
             title = h2.text               
 
-            #if tmp_section != None:
-            #    sect_xml = tmp_section.getSection()
-            #    if sect_xml != "":
-            #        inputs.appendChild(sect_xml)
-            #        h2_map[title] = True  # add to title map on non-empty sections
+            if title not in self.section_map:               
+                self.section_map[title] = Section(title)
+                self.section_order.append(title)
 
-            tmp_section = None
-            if title not in section_map:
-                section_map[title] = Section(title)
-                section_order.append(title)
-
-            tmp_section = section_map[title]
+            tmp_section = self.section_map[title]
 
             # Each table is a section
             thead = table.thead
@@ -97,13 +162,7 @@ class Document2Section:
                 tmp_section.insertFlag(flag, flag_params, helper, codelist)
 
 
-        # Print final
-        for section in section_order:
-            sect_xml = section_map[section].getSection()
-            if sect_xml != "":
-                inputs.appendChild( sect_xml )
-        
-        return inputs
+
 
 
 
@@ -120,20 +179,21 @@ with open('iqtree.macros.xml','w') as f:
     xml_com = doc.createElement('xml')
     xml_com.setAttribute('name', 'command')
 
-    command = doc.createElement('command')   
+    command = doc.createElement('command')
+    command.setAttribute('detect_errors', 'aggressive')
     command.appendChild(
         doc.createTextNode(cc.text)
     )
-
 
     xml_inp.appendChild(dd.inputs)
     xml_com.appendChild(command)
 
     macros.appendChild(xml_inp)
     macros.appendChild(xml_com)
+
     
-    print(macros.toprettyxml(), file=f)
-   
+    #try:
+    print(macros.toprettyxml(), file=f)  
     f.close()
 
 #import pdb;pdb.set_trace()

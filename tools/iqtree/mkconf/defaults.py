@@ -1,5 +1,28 @@
 #!/usr/bin/env python3
 
+# Section nesting
+
+section_nestmap = {
+    # section : (expanded, parent)
+    'General options' :                       (True, ""),
+    'Likelihood mapping analysis' :           (False,""),
+    'Checkpointing to resume stopped run' :   (False,""),
+    'Automatic model selection' :             (False, "Modelling Parameters"),
+    'Specifying substitution models' :        (False, "Modelling Parameters"),
+    'Rate heterogeneity' :                    (False, "Modelling Parameters"),
+    'Partition model options' :               (False, "Modelling Parameters"),
+    'Site-specific frequency model options' : (False, "Modelling Parameters"),
+    'Tree search parameters' :                (False, "Tree Parameters"),
+    'Ultrafast bootstrap parameters' :        (False, "Bootstrap Parameters"),
+    'Nonparametric bootstrap' :               (False, "Bootstrap Parameters",),
+    'Single branch tests' :                   (False, "Tree Parameters"),
+    'Tree topology tests' :                   (False, "Tree Parameters"),
+    'Constructing consensus tree' :           (False, "Tree Parameters"),
+    'Computing Robinson-Foulds distance' :    (False, "Tree Parameters"),
+    'Generating random trees' :               (False, "Tree Parameters"),
+    'Miscellaneous options' :                 (False, "")
+}
+
 # Args to exclude from user customatization
 # Give a value to override default
 exclude_map = {
