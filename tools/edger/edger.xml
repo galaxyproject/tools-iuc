@@ -5,9 +5,17 @@
 
     <requirements>
         <requirement type="package" version="3.16.5">bioconductor-edger</requirement>
+
+        <!-- required for alpha function used with plotMD -->
         <requirement type="package" version="0.4.1">r-scales</requirement>
+
+        <!-- I will add r-statmod to limma bioconda package -->
         <requirement type="package" version="1.4.29">r-statmod</requirement>
+
+        <!-- should I add these two to the limma bioconda package like deseq2 bioconda? -->
         <requirement type="package" version="0.2.15">r-rjson</requirement>
+        <requirement type="package" version="1.20.0">r-getopt</requirement>
+
     </requirements>
 
     <version_command><![CDATA[
@@ -18,8 +26,11 @@
 #import json
 Rscript '$__tool_directory__/edger.R'
 
+-R '$outReport'
+-o '$outReport.files_path'
+
 #if $cnt.input.format=="files":
-   
+
     ## Adapted from DESeq2 wrapper
     #set $temp_factor_names = list()
     #for $factor in $cnt.input.rep_factorName:
@@ -35,61 +46,42 @@ Rscript '$__tool_directory__/edger.R'
         $temp_factor.reverse()
         $temp_factor_names.append([str($factor.factorName), $temp_factor])
     #end for
-    '#echo json.dumps(temp_factor_names)#'
-    'None'
+    -j '#echo json.dumps(temp_factor_names)#'
 
 #elif $cnt.input.format=="matrix":
-    '$cnt.input.counts'
-
-    #if $cnt.input.anno.annoOpt=='yes':
-        '$cnt.input.anno.geneanno'
-    #else:
-        'None'
-    #end if
-
-#end if
-
-'$outReport'
-'$outReport.files_path'
-$adv.rdaOption
-$adv.normalisationOption
-$adv.lrtOption
-'$ct.contrast'
-
-#if $flt.filterCPM.filterLowCPM=='yes':
-    '$flt.filterCPM.cpmReq'
-    '$flt.filterCPM.sampleReq'
-#else:
-    0
-    0
-#end if
-
-#if $adv.testOpt.wantOpt=='yes':
-    '$adv.testOpt.pAdjust'
-    '$adv.testOpt.pVal'
-    '$adv.testOpt.lfc'
-#else:
-    "BH"
-    0.05
-    0
-#end if
-
-$adv.normCounts
-
-#if $cnt.input.format=="matrix":
+    -m '$cnt.input.counts'
     #if $cnt.input.fact.ffile=='yes':
-        '$cnt.input.fact.finfo'
-        'None'
+        -f '$cnt.input.fact.finfo'
     #else:
-        'None'
-        '$cnt.input.fact.pfactName::$cnt.input.fact.pfactLevel'
-        #for $sfact in $cnt.input.fact.sfactors:
-            '$sfact.sfactName::$sfact.sfactLevel'
-        #end for
+        -i '${ '|'.join( ['%s::%s' % ($x.factorName, $x.factorLevels) for x in $cnt.input.fact.rep_factors_mat] ) }'
     #end if
-#else:
-    'None'
-    'files'
+#end if
+
+#if $cnt.anno.annoOpt=='yes':
+    -a '$cnt.anno.geneanno'
+#end if
+
+-C '$ct.contrast'
+
+-c '$filter.cpmReq'
+-s '$filter.sampleReq'
+
+#if $out.normCounts:
+    -x
+#end if
+#if $out.rdaOption:
+    -r
+#end if
+
+-l '$adv.lfc'
+-p '$adv.pVal'
+-d '$adv.pAdjust'
+-n '$adv.normalisationOption'
+#if $adv.robOption:
+    -b
+#end if
+#if $adv.lrtOption:
+    -t
 #end if
 
 &&
@@ -100,25 +92,26 @@ cp '$outReport.files_path'/*.tsv output_dir/
     ]]></command>
 
     <inputs>
-        
-        <section name="cnt" expanded="false" title="Input counts and factors"> 
+
+        <!-- Counts and Factors -->
+        <section name="cnt" expanded="false" title="Input Counts and Factors">
             <conditional name="input">
                 <param name="format" type="select" label="Count Files or Matrix"
                     help="Input count files (one per sample) or a count matrix">
                     <option value="files">Files</option>
                     <option value="matrix">Matrix</option>
                 </param>
-                    
+
                 <when value="files">
                     <repeat name="rep_factorName" title="Factor" min="1">
-                        <param name="factorName" type="text" value="FactorName" label="Factor Name" help="Eg. Genotype, Batch. The first factor entered will be used as the Primary Factor. NOTE: Please only use letters, numbers or underscores.">
+                        <param name="factorName" type="text" value="FactorName" label="Factor Name" help="Eg. Genotype, Batch. NOTE: Please only use letters, numbers or underscores. The first factor entered will be used as the Primary Factor, see Help section below.">
                         <sanitizer>
                             <valid initial="string.letters,string.digits"><add value="_" /></valid>
                         </sanitizer>
                         </param>
-                        <repeat name="rep_factorLevel" title="Factor level" min="2" default="2">
+                        <repeat name="rep_factorLevel" title="Factor Level" min="2" default="2">
                             <param name="factorLevel" type="text" value="FactorLevel" label="Factor Levels"
-                            help="Eg. WT  NOTE: Please only use letters, numbers or underscores (case sensitive). See help below for more information.">
+                            help="Eg. WT  NOTE: Please only use letters, numbers or underscores (case sensitive).">
                             <sanitizer>
                                 <valid initial="string.letters,string.digits"><add value="_" /></valid>
                             </sanitizer>
@@ -127,21 +120,10 @@ cp '$outReport.files_path'/*.tsv output_dir/
                         </repeat>
                     </repeat>
                 </when>
-                    
-                <when value="matrix">                
-                    <param name="counts" type="data" format="tabular" label="Count Matrix"/>                  
-                    <conditional name="anno">
-                        <param name="annoOpt" type="select" label="Use Gene Annotations?"
-                        help="If an annotation file is provided, annotations will be added to the table of differential expression results to provide descriptions for each gene.">
-                            <option value="no">No</option>
-                            <option value="yes">Yes</option>
-                        </param>
-                        <when value="yes">
-                            <param name="geneanno" type="data" format="tabular" label="Gene Annotations"/>
-                        </when>
-                     <when value="no" />
-                    </conditional>
-                
+
+                <when value="matrix">
+                    <param name="counts" type="data" format="tabular" label="Count Matrix"/>
+
                     <conditional name="fact">
                         <param name="ffile" type="select" label="Input Factor Information from file?"
                             help="You can choose to input the factor information from a file or manually enter below.">
@@ -149,99 +131,91 @@ cp '$outReport.files_path'/*.tsv output_dir/
                             <option value="yes">Yes</option>
                         </param>
                         <when value="yes">
-                            <param name="finfo" type="data" format="tabular" label="Factor Information"/>
+                            <param name="finfo" type="data" format="tabular" label="Factor File"/>
                         </when>
                         <when value="no" >
-                            <param name="pfactName" type="text" label="Primary Factor Name"
-                                help="Eg. Genotype NOTE: Please only use letters, numbers or underscores.">
-                                <validator type="empty_field" />
-                                <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
-                            </param>
-                            <param name="pfactLevel" type="text" label="Primary Factor Levels"
-                                help="Eg. WT,WT,WT,Mut,Mut,Mut NOTE: Please only use letters, numbers or underscores (case sensitive).">
-                                <validator type="empty_field" />
-                                <validator type="regex" message="Please only use letters, numbers or underscores, and separate levels by commas">^[\w,]+$</validator>
-                            </param>
-                            <repeat name="sfactors" title="Secondary Factor" >
-                                <param name="sfactName" type="text" label="Secondary Factor Name" help="Eg. Batch">
+                            <repeat name="rep_factors_mat" title="Factor Names and Levels" min="1">
+                                <param name="factorName" type="text" label="Factor Name"
+                                    help="Eg. Genotype NOTE: Please only use letters, numbers or underscores. The first factor entered will be used as the Primary Factor, see Help section below.">
                                     <validator type="empty_field" />
                                     <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
                                 </param>
-                                <param name="sfactLevel" type="text" label="Secondary Factor Levels"
-                                    help="Eg. b1,b2,b3,b1,b2,b3 NOTE: Please only use letters, numbers or underscores (case sensitive).">
+                                <param name="factorLevels" type="text" label="Factor Levels"
+                                    help="Eg. WT,WT,WT,Mut,Mut,Mut NOTE: Please only use letters, numbers or underscores (case sensitive).">
                                     <validator type="empty_field" />
-                                    <validator type="regex" message="Please only use letters, numbers or underscores">^[\w,]+$</validator>
+                                    <validator type="regex" message="Please only use letters, numbers or underscores, and separate levels by commas">^[\w,]+$</validator>
                                 </param>
                             </repeat>
                         </when>
                     </conditional>
                 </when>
             </conditional>
+
+            <!-- Gene Annotations -->
+            <conditional name="anno">
+                <param name="annoOpt" type="select" label="Use Gene Annotations?"
+                        help="If an annotation file is provided, annotations will be added to the table(s) of differential expression results to provide descriptions for each gene.">
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                </param>
+                <when value="yes">
+                    <param name="geneanno" type="data" format="tabular" label="Gene Annotations"/>
+                </when>
+                <when value="no" />
+            </conditional>
         </section>
-            
-        <section name="ct" expanded="false" title="Specify groups to contrast">  
-            <param name="contrast" type="text" label="Contrasts of interest" help="Eg. Mut-WT,KD-Control">
+
+        <!-- Contrasts -->
+        <section name="ct" expanded="false" title="Specify Groups to Contrast">
+            <param name="contrast" type="text" label="Contrasts of Interest" help="Eg. Mut-WT,KD-Control">
                 <validator type="empty_field" />
                 <validator type="regex" message="Please only use letters, numbers or underscores">^[\w,-]+$</validator>
             </param>
         </section>
-        
-        <section name="flt" expanded="false" title="Filter low counts"> 
-            <conditional name="filterCPM">
-                <param name="filterLowCPM" type="select" label="Filter Low CPM?"
-                    help="Treat genes with very low expression as unexpressed and filter out to speed up computation.">
-                    <option value="yes" selected="True">Yes</option>
-                    <option value="no">No</option>
-                </param>
-                <when value="yes">
-                    <param name="cpmReq" type="float" value="0.5" min="0" label="Minimum CPM"/>
-                    <param name="sampleReq" type="integer" value="1" min="0" label="Minimum Samples"
-                        help="Filter out all the genes that do not meet the minimum CPM in at least this many samples."/>
-                </when>
-                <when value="no"/>
-            </conditional>
+
+        <!-- Filter Options -->
+        <section name="filter" expanded="false" title="Filter Low Counts">
+            <param name="cpmReq" type="float" value="0" min="0" label="Minimum CPM" help="Treat genes with very low expression as unexpressed and filter out. See the Filter Low Counts section below for more information. Default: 0"/>
+            <param name="sampleReq" type="integer" value="0" min="0" label="Minimum Samples"
+                help="Filter out all the genes that do not meet the minimum CPM in at least this many samples. See the Filter Low Counts section below for more information. Default: 0"/>
         </section>
-        
+
+        <!-- Output Options -->
+        <section name="out" expanded="false" title="Output Options">
+            <param name="normCounts" type="boolean" truevalue="1" falsevalue="0" checked="false"
+                label="Output Normalised Counts Table?"
+                help="Output a file containing the normalised counts, these are in log2 counts per million (logCPM). Default: No">
+            </param>
+            <param name="rdaOption" type="boolean" truevalue="1" falsevalue="0" checked="false"
+                label="Output RData file?"
+                help="Output all the data used by R to construct the plots and tables, can be loaded into R. A link to the RData file will be provided in the HTML report. Default: No">
+            </param>
+        </section>
+
+        <!-- Advanced Options -->
         <section name="adv" expanded="false" title="Advanced Options">
-            <param name="normalisationOption" type="select" label="Select Normalisation Method">
-                <option value="TMM">TMM</option>
+            <param name="lfc" type="float" value="0" min="0"
+                label="Minimum Log2 Fold Change"
+                help="Genes above this threshold and below the p-value threshold are considered significant and highlighted in the MD plot. Default: 0."/>
+            <param name="pVal" type="float" value="0.05" min="0" max="1"
+                label="P-Value Adjusted Threshold"
+                help="Genes below this threshold are considered significant and highlighted in the MD plot. If either BH(1995) or BY(2001) are selected then this value is a false-discovery-rate control. If Holm(1979) is selected then this is an adjusted p-value for family-wise error rate. Default: 0.05."/>
+            <param name="pAdjust" type="select" label="P-Value Adjustment Method" help="Default: BH">
+                <option value="BH" selected="true">Benjamini and Hochberg (1995)</option>
+                <option value="BY">Benjamini and Yekutieli (2001)</option>
+                <option value="holm">Holm (1979)</option>
+                <option value="none">None</option>
+            </param>
+            <param name="normalisationOption" type="select" label="Normalisation Method" help="Default: TMM">
+                <option value="TMM" selected="true">TMM</option>
                 <option value="RLE">RLE</option>
                 <option value="upperquartile">Upperquartile</option>
                 <option value="none">None (Don't normalise)</option>
             </param>
-            <param name="lrtOption" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Use LRT test instead of QF?" help="Use edgeR's likelihood ratio test instead of quasi-likelihood F-test"> 
-            </param> 
-            <conditional name="testOpt">
-                <param name="wantOpt" type="select" label="Use Advanced Testing Options?"
-                    help="Enable choices for p-value adjustment method, p-value threshold and log2-fold-change.">
-                    <option value="no" selected="True">No</option>
-                    <option value="yes">Yes</option>
-                </param>
-                <when value="yes">                   
-                    <param name="pAdjust" type="select" label="P-Value Adjustment Method.">
-                        <option value="BH">Benjamini and Hochberg (1995)</option>
-                        <option value="BY">Benjamini and Yekutieli (2001)</option>
-                        <option value="holm">Holm (1979)</option>
-                        <option value="none">None</option>
-                    </param>
-                    <param name="pVal" type="float" value="0.05" min="0" max="1"
-                        label="Adjusted Threshold"
-                        help="Genes below this threshold are considered significant and highlighted in the MD plot. If either BH(1995) or BY(2001) were selected then this value is a false-discovery-rate control. If Holm(1979) was selected then this is an adjusted p-value for family-wise error rate."/>
-                    <param name="lfc" type="float" value="0" min="0"
-                        label="Minimum log2-fold-change Required"
-                        help="Genes above this threshold and below the p-value threshold are considered significant and highlighted in the MD plot."/>
-                </when>
-                <when value="no"/>
-            </conditional>
-            <param name="normCounts" type="boolean" truevalue="yes" falsevalue="no" checked="false"
-                label="Output normalised counts table?"
-                help="Output a file containing the normalised counts, these are in log2 counts per million (logCPM).">
-            </param>
-            <param name="rdaOption" type="boolean" truevalue="yes" falsevalue="no" checked="false"
-                label="Output RData?"
-                help="Output all the data used by R to construct the plots and tables, can be loaded into R. A link to the RData file will be provided in the HTML report.">
-            </param>
+            <param name="robOption" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Use Robust Settings?" help="Using robust settings is usually recommended to protect against outlier genes. Default: Yes" />
+            <param name="lrtOption" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Use Likelihood Ratio Test?" help="Use likelihood ratio test instead of quasi-likelihood F-test. Default: No"/>
         </section>
+
     </inputs>
 
     <outputs>
@@ -252,11 +226,13 @@ cp '$outReport.files_path'/*.tsv output_dir/
     </outputs>
 
     <tests>
-        <test> <!-- Ensure report is output -->
+        <test><!-- Ensure report is output -->
             <param name="format" value="matrix" />
             <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype" />
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
+            <repeat name="rep_factors_mat">
+                <param name="factorName" value="Genotype"/>
+                <param name="factorLevels" value="Mut,Mut,Mut,WT,WT,WT" />
+            </repeat>
             <param name="contrast" value="Mut-WT,WT-Mut" />
             <param name="normalisationOption" value="TMM" />
             <output_collection name="outTables" count="2">
@@ -272,25 +248,29 @@ cp '$outReport.files_path'/*.tsv output_dir/
                 </assert_contents>
             </output>
         </test>
-        <test> <!-- Ensure annotation file input works -->
+        <test><!-- Ensure annotation file input works -->
             <param name="format" value="matrix" />
             <param name="annoOpt" value="yes" />
             <param name="geneanno" value="anno.txt" />
             <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype" />
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
+            <repeat name="rep_factors_mat">
+                <param name="factorName" value="Genotype"/>
+                <param name="factorLevels" value="Mut,Mut,Mut,WT,WT,WT" />
+            </repeat>
             <param name="contrast" value="Mut-WT" />
             <param name="normalisationOption" value="TMM" />
-            <output_collection name="outTables" >
-                <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WTanno.tsv" />
+            <output_collection name="outTables" count="1">
+                <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WT_anno.tsv" />
             </output_collection>
         </test>
         <test><!-- Ensure RData file can be output -->
             <param name="format" value="matrix" />
-            <param name="rdaOption" value="yes" />
+            <param name="rdaOption" value="true" />
             <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype" />
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
+            <repeat name="rep_factors_mat">
+                <param name="factorName" value="Genotype"/>
+                <param name="factorLevels" value="Mut,Mut,Mut,WT,WT,WT" />
+            </repeat>
             <param name="contrast" value="Mut-WT" />
             <param name="normalisationOption" value="TMM" />
             <output name="outReport" >
@@ -298,20 +278,22 @@ cp '$outReport.files_path'/*.tsv output_dir/
                     <has_text text="RData" />
                 </assert_contents>
             </output>
-        </test>       
+        </test>
         <test><!-- Ensure secondary factors work -->
             <param name="format" value="matrix" />
             <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype"/>
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut"/>
-            <repeat name="sfactors">
-                <param name="sfactName" value="Batch"/>
-                <param name="sfactLevel" value="b1,b2,b3,b1,b2,b3"/>
+            <repeat name="rep_factors_mat">
+                <param name="factorName" value="Genotype"/>
+                <param name="factorLevels" value="Mut,Mut,Mut,WT,WT,WT" />
+            </repeat>
+            <repeat name="rep_factors_mat">
+                <param name="factorName" value="Batch"/>
+                <param name="factorLevels" value="b1,b2,b3,b1,b2,b3"/>
             </repeat>
             <param name="contrast" value="Mut-WT" />
             <param name="normalisationOption" value="TMM" />
-            <output_collection name="outTables" >
-                <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WTmultifact.tsv" />
+            <output_collection name="outTables" count="1" >
+                <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WT_2fact.tsv" />
             </output_collection>
         </test>
         <test><!-- Ensure factors file input works -->
@@ -321,31 +303,35 @@ cp '$outReport.files_path'/*.tsv output_dir/
             <param name="counts" value="matrix.txt" />
             <param name="contrast" value="Mut-WT" />
             <param name="normalisationOption" value="TMM" />
-            <output_collection name="outTables" >
-                <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WTmultifact.tsv" />
+            <output_collection name="outTables" count="1">
+                <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WT_2fact.tsv" />
             </output_collection>
         </test>
         <test><!-- Ensure normalised counts file output works-->
             <param name="format" value="matrix" />
-            <param name="normCounts" value="yes" />
+            <param name="normCounts" value="true" />
             <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype" />
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
+            <repeat name="rep_factors_mat">
+                <param name="factorName" value="Genotype"/>
+                <param name="factorLevels" value="Mut,Mut,Mut,WT,WT,WT" />
+            </repeat>
             <param name="contrast" value="Mut-WT" />
             <param name="normalisationOption" value="TMM" />
             <output_collection name="outTables" count="2">
                 <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WT.tsv" />
-                <element name="edgeR_normcounts" ftype="tabular" file="edgeR_normcounts.tsv" />             
+                <element name="edgeR_normcounts" ftype="tabular" file="edgeR_normcounts.tsv" />
             </output_collection>
         </test>
         <test><!-- Ensure likelihood ratio option works -->
             <param name="format" value="matrix" />
             <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype" />
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
+            <repeat name="rep_factors_mat">
+                <param name="factorName" value="Genotype"/>
+                <param name="factorLevels" value="Mut,Mut,Mut,WT,WT,WT" />
+            </repeat>
             <param name="contrast" value="Mut-WT" />
             <param name="normalisationOption" value="TMM" />
-            <param name="lrtOption" value="yes" />
+            <param name="lrtOption" value="true" />
             <output name="outReport" >
                 <assert_contents>
                     <has_text text="likelihood ratio" />
@@ -366,13 +352,31 @@ cp '$outReport.files_path'/*.tsv output_dir/
                     <param name="countsFile" value="Mut1.counts,Mut2.counts,Mut3.counts"/>
                 </repeat>
             </repeat>
-            <param name="contrast" value="Mut-WT" />
-            <param name="normCounts" value="yes" />
-            <output_collection name="outTables" >
-                <element name="edgeR_Mut-WT" compare="sim_size" ftype="tabular" file="edgeR_Mut-WT_files.tsv" />
-                <element name="edgeR_normcounts" ftype="tabular" file="edgeR_normcounts_files.tsv" />  
+            <repeat name="rep_factorName">
+                <param name="factorName" value="Batch"/>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="b1"/>
+                    <param name="countsFile" value="WT1.counts,Mut1.counts"/>
+                </repeat>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="b2"/>
+                    <param name="countsFile" value="WT2.counts,Mut2.counts"/>
+                </repeat>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="b3"/>
+                    <param name="countsFile" value="WT3.counts,Mut3.counts"/>
+                </repeat>
+            </repeat>
+            <param name="annoOpt" value="yes" />
+            <param name="geneanno" value="anno.txt" />
+            <param name="contrast" value="Mut-WT,WT-Mut" />
+            <param name="normCounts" value="true" />
+            <output_collection name="outTables" count="3">
+                <element name="edgeR_Mut-WT" ftype="tabular" file="edgeR_Mut-WT_2fact_anno.tsv" />
+                <element name="edgeR_WT-Mut" ftype="tabular" file="edgeR_WT-Mut_2fact_anno.tsv" />
+                <element name="edgeR_normcounts" ftype="tabular" file="edgeR_normcounts_anno.tsv" />
             </output_collection>
-        </test>     
+        </test>
     </tests>
 
     <help><![CDATA[
@@ -380,10 +384,10 @@ cp '$outReport.files_path'/*.tsv output_dir/
 
 **What it does**
 
-Given a matrix of counts (e.g. from featureCounts) and optional information about the genes, this tool
+Given a counts matrix, or a set of counts files (e.g. from featureCounts), and optional information about the genes, this tool
 produces plots and tables useful in the analysis of differential gene expression.
 
-This tool uses the `edgeR`_ quasi-likelihood pipeline (edgeR-quasi) for differential expression. This statistical methodology uses negative binomial generalized linear models but with F-tests instead of likelihood ratio tests. This method provides stricter error rate control than other negative binomial based pipelines, including the traditional edgeR pipelines or DESeq2. The RNA-seq pipelines of the limma package also offer excellent error rate control. While the limma pipelines are recommended for large-scale datasets, because of their speed and flexibility, the edgeR-quasi pipeline gives better performance in low-count situations. For the data analyzed in the workflow article `here`_, the edgeR-quasi, limma-voom and limma-trend pipelines are all equally suitable and give similar results.
+This tool uses the `edgeR`_ quasi-likelihood pipeline (edgeR-quasi) for differential expression analysis. This statistical methodology uses negative binomial generalized linear models, but with F-tests instead of likelihood ratio tests. This method provides stricter error rate control than other negative binomial based pipelines, including the traditional edgeR pipelines or DESeq2. While the limma pipelines are recommended for large-scale datasets, because of their speed and flexibility, the edgeR-quasi pipeline gives better performance in low-count situations. For the data analyzed in the workflow article `here`_, the edgeR-quasi, limma-voom and limma-trend pipelines are all equally suitable and give similar results.
 
 .. _edgeR: http://www.bioconductor.org/packages/release/bioc/html/edgeR.html
 .. _here: https://f1000research.com/articles/5-1438
@@ -394,20 +398,20 @@ This tool uses the `edgeR`_ quasi-likelihood pipeline (edgeR-quasi) for differen
 
 **Counts Data:**
 
-The counts data can either be input as one counts file per sample (similar to the DESeq2 tool) or a count matrix can be used. The rows correspond to genes, and columns correspond to the counts for the samples. Values must be tab separated, with the first row containing the sample/column labels and the first column containing the row/gene labels.
+The counts data can either be input as one counts file per sample or a count matrix can be used. The rows correspond to genes, and columns correspond to the counts for the samples. Values must be tab separated, with the first row containing the sample/column labels and the first column containing the row/gene labels. Gene identifiers can be of any type but must be unique and not repeated within a counts file.
 
 Example - one count file for each sample:
 
-    ========== ======= 
-    **GeneID** **WT1** 
-    ---------- ------- 
-    11287      1699    
-    11298      1905    
-    11302      6       
-    11303      2099    
-    11304      356     
-    11305      2528    
-    ========== ======= 
+    ========== =======
+    **GeneID** **WT1**
+    ---------- -------
+    11287      1699
+    11298      1905
+    11302      6
+    11303      2099
+    11304      356
+    11305      2528
+    ========== =======
 
 Example - a count matrix:
 
@@ -421,24 +425,6 @@ Example - a count matrix:
     11304      356     312     337     361      397      346
     11305      2528    2438    2493    1762     1942     2027
     ========== ======= ======= ======= ======== ======== ========
-
-**Gene Annotations:**
-Optional input for gene annotations, this can contain more
-information about the genes than just an ID number. The annotations will
-be available in the differential expression results table and the optional normalised counts table.
-
-Example:
-
-    ==========  ==========  ===================================================
-    **GeneID**  **Symbol**  **GeneName**
-    ----------  ----------  ---------------------------------------------------
-    1287        Pzp         pregnancy zone protein
-    1298        Aanat       arylalkylamine N-acetyltransferase
-    1302        Aatk        apoptosis-associated tyrosine kinase
-    1303        Abca1       ATP-binding cassette, sub-family A (ABC1), member 1
-    1304        Abca4       ATP-binding cassette, sub-family A (ABC1), member 4
-    1305        Abca2       ATP-binding cassette, sub-family A (ABC1), member 2
-    ==========  ==========  ===================================================
 
 **Factor Information:**
 Enter Factor Names and Levels in the tool form, or provide a tab-separated file that has the samples in the same order as listed in the columns of the counts matrix. The second column should contain the Primary Factor levels (e.g. WT, Mut) with optional additional columns for any Secondary Factors.
@@ -464,6 +450,23 @@ Example:
 
 **Secondary Factor Levels:** The levels of the secondary factor of interest, these must be entered in the same order as the samples to which the levels correspond, as listed in the columns of the counts matrix. Spaces must not be used and if entered in the tool form the values should be separated by commas.
 
+**Gene Annotations:**
+Optional input for gene annotations, this can contain more
+information about the genes than just an ID number. The annotations will
+be available in the differential expression results table and the optional normalised counts table.
+
+Example:
+
+    ==========  ==========  ===================================================
+    **GeneID**  **Symbol**  **GeneName**
+    ----------  ----------  ---------------------------------------------------
+    1287        Pzp         pregnancy zone protein
+    1298        Aanat       arylalkylamine N-acetyltransferase
+    1302        Aatk        apoptosis-associated tyrosine kinase
+    1303        Abca1       ATP-binding cassette, sub-family A (ABC1), member 1
+    1304        Abca4       ATP-binding cassette, sub-family A (ABC1), member 4
+    1305        Abca2       ATP-binding cassette, sub-family A (ABC1), member 2
+    ==========  ==========  ===================================================
 
 **Contrasts of Interest:**
 The contrasts you wish to make between levels.
@@ -471,7 +474,7 @@ A common contrast would be a simple difference between two levels: "Mut-WT"
 represents the difference between the mutant and wild type genotypes.
 Multiple contrasts should be separated by commas and spaces must not be used.
 
-**Filter Low CPM:**
+**Filter Low Counts:**
 Option to ignore the genes that do not show significant levels of
 expression, this filtering is dependent on two criteria:
 
@@ -487,27 +490,14 @@ ensure that the sample requirement is appropriate. In the case of an experiment
 with two experimental groups each with two members, if there is a change from
 insignificant cpm to significant cpm but the sample requirement is set to 3,
 then this will cause that gene to fail the criteria. When in doubt simply do not
-filter.
+filter or consult the edgeR workflow article `here`_ for filter recommendations.
 
-**Normalisation Method:**
-Option for using different methods to rescale the raw library
-size. For more information, see calcNormFactor section in the edgeR_ user's
-manual.
 
-**Use Advanced Testing Options?:**
+**Advanced Options:**
+
 By default error rate for multiple testing is controlled using Benjamini and
 Hochberg's false discovery rate control at a threshold value of 0.05. However
 there are options to change this to custom values.
-
-    * **P-Value Adjustment Method:**
-      Change the multiple testing control method, the options are BH(1995) and
-      BY(2001) which are both false discovery rate controls. There is also
-      Holm(1979) which is a method for family-wise error rate control.
-
-    * **Adjusted Threshold:**
-      Set the threshold for the resulting value of the multiple testing control
-      method. Only observations whose statistic falls below this value is
-      considered significant, thus highlighted in the MD plot.
 
     * **Minimum log2-fold-change Required:**
       In addition to meeting the requirement for the adjusted statistic for
@@ -515,9 +505,39 @@ there are options to change this to custom values.
       greater than this threshold to be considered significant, thus highlighted
       in the MD plot.
 
+    * **Adjusted Threshold:**
+      Set the threshold for the resulting value of the multiple testing control
+      method. Only observations whose statistic falls below this value is
+      considered significant, thus highlighted in the MD plot.
+
+    * **P-Value Adjustment Method:**
+      Change the multiple testing control method, the options are BH(1995) and
+      BY(2001) which are both false discovery rate controls. There is also
+      Holm(1979) which is a method for family-wise error rate control.
+
+**Normalisation Method:**
+Option for using different methods to rescale the raw library
+size. For more information, see calcNormFactors section in the edgeR_ user's
+manual.
+
+**Robust Settings**
+Option to use robust settings. Using robust settings (robust=TRUE) with the edgeR estimateDisp and glmQLFit functions is usually recommended to protect against outlier genes. This is turned on by default. Note that it is only used with the quasi-likelihood F test method. For more information, see the edgeR workflow article `here`_.
+
+**Test Method**
+Option to use the likelihood ratio test instead of the quasi-likelihood F test. For more information, see the edgeR workflow article `here`_.
+
+
 **Outputs**
 
-This tool outputs a table of differentially expressed genes for each contrast of interest and a HTML report with plots and additional information. Optionally you can choose to output the normalised counts table and the RData file.
+This tool outputs
+
+    * a table of differentially expressed genes for each contrast of interest
+    * a HTML report with plots and additional information
+
+Optionally, under **Output Options** you can choose to output
+
+    * a normalised counts table
+    * an RData file
     ]]></help>
     <citations>
         <citation type="doi">10.1093/bioinformatics/btp616</citation>

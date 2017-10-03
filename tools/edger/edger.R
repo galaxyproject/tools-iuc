@@ -2,22 +2,24 @@
 # outputs a table of top expressions as well as various plots for differential
 # expression analysis
 #
-# ARGS: 1.countPath       -Path to RData input containing counts
-#       2.annoPath        -Path to input containing gene annotations
-#       3.htmlPath        -Path to html file linking to other outputs
-#       4.outPath         -Path to folder to write all output to
-#       5.rdaOpt          -String specifying if RData should be saved
-#       6.normOpt         -String specifying type of normalisation used
-#       7.lrtOpt          -String specifying whether to perform LRT test instead
-#       8.contrastData    -String containing contrasts of interest
-#       9.cpmReq          -Float specifying cpm requirement
-#       10.sampleReq      -Integer specifying cpm requirement
-#       11.pAdjOpt        -String specifying the p-value adjustment method
-#       12.pValReq        -Float specifying the p-value requirement
-#       13.lfcReq         -Float specifying the log-fold-change requirement
-#       14.normCounts     -String specifying if normalised counts should be output
-#       15.factPath       -Path to factor information file
-#       16.factorData     -Strings containing factor names and values if manually input 
+# ARGS: htmlPath", "R", 1, "character"      -Path to html file linking to other outputs
+#       outPath", "o", 1, "character"       -Path to folder to write all output to
+#       filesPath", "j", 2, "character"     -JSON list object if multiple files input
+#       matrixPath", "m", 2, "character"    -Path to count matrix
+#       factFile", "f", 2, "character"      -Path to factor information file
+#       factInput", "i", 2, "character"     -String containing factors if manually input  
+#       annoPath", "a", 2, "character"      -Path to input containing gene annotations
+#       contrastData", "C", 1, "character"  -String containing contrasts of interest
+#       cpmReq", "c", 1, "double"           -Float specifying cpm requirement
+#       sampleReq", "s", 1, "integer"       -Integer specifying cpm requirement  
+#       normCounts", "x", 0, "logical"      -String specifying if normalised counts should be output 
+#       rdaOpt", "r", 0, "logical"          -String specifying if RData should be output
+#       lfcReq", "l", 1, "double"           -Float specifying the log-fold-change requirement   
+#       pValReq", "p", 1, "double"          -Float specifying the p-value requirement
+#       pAdjOpt", "d", 1, "character"       -String specifying the p-value adjustment method 
+#       normOpt", "n", 1, "character"       -String specifying type of normalisation used 
+#       robOpt", "b", 0, "logical"          -String specifying if robust options should be used 
+#       lrtOpt", "t", 0, "logical"          -String specifying whether to perform LRT test instead 
 #
 # OUT: 
 #       MDS Plot 
@@ -31,10 +33,16 @@
 #       RData file
 #
 # Author: Shian Su - registertonysu@gmail.com - Jan 2014
-# Modified by: Maria Doyle - Sep 2017
+# Modified by: Maria Doyle - Oct 2017 (some code taken from the DESeq2 wrapper)
 
 # Record starting time
 timeStart <- as.character(Sys.time())
+
+# setup R error handling to go to stderr
+options( show.error.messages=F, error = function () { cat( geterrmessage(), file=stderr() ); q( "no", 1, F ) } )
+
+# we need that to not crash galaxy with an UTF8 error on German LC settings.
+loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
 # Load all required libraries
 library(methods, quietly=TRUE, warn.conflicts=FALSE)
@@ -43,6 +51,7 @@ library(splines, quietly=TRUE, warn.conflicts=FALSE)
 library(edgeR, quietly=TRUE, warn.conflicts=FALSE)
 library(limma, quietly=TRUE, warn.conflicts=FALSE)
 library(scales, quietly=TRUE, warn.conflicts=FALSE)
+library(getopt, quietly=TRUE, warn.conflicts=FALSE)
 
 ################################################################################
 ### Function Delcaration
@@ -73,7 +82,7 @@ unmake.names <- function(string) {
 
 # Generate output folder and paths
 makeOut <- function(filename) {
-    return(paste0(outPath, "/", filename))
+    return(paste0(opt$outPath, "/", filename))
 }
 
 # Generating design information
@@ -84,7 +93,7 @@ pasteListName <- function(string) {
 # Create cata function: default path set, default seperator empty and appending
 # true by default (Ripped straight from the cat function with altered argument
 # defaults)
-cata <- function(..., file=htmlPath, sep="", fill=FALSE, labels=NULL, 
+cata <- function(..., file=opt$htmlPath, sep="", fill=FALSE, labels=NULL, 
                                  append=TRUE) {
     if (is.character(file)) 
         if (file == "") 
@@ -135,60 +144,77 @@ TableHeadItem <- function(...) {
 ### Input Processing
 ################################################################################
 
-# Collects arguments from command line
-argv <- commandArgs(TRUE)
+# Collect arguments from command line
+args <- commandArgs(trailingOnly=TRUE)
 
-# Grab arguments
-countPath <- as.character(argv[1])
-annoPath <- as.character(argv[2])
-htmlPath <- as.character(argv[3])
-outPath <- as.character(argv[4])
-rdaOpt <- as.character(argv[5])
-normOpt <- as.character(argv[6])
-lrtOpt <- as.character(argv[7])
-contrastData <- as.character(argv[8])
-cpmReq <- as.numeric(argv[9])
-sampleReq <- as.numeric(argv[10])
-pAdjOpt <- as.character(argv[11])
-pValReq <- as.numeric(argv[12])
-lfcReq <- as.numeric(argv[13])
-normCounts <- as.character(argv[14])
-factPath <- as.character(argv[15])
+# Get options, using the spec as defined by the enclosed list.
+# Read the options from the default: commandArgs(TRUE).
+spec <- matrix(c(
+    "htmlPath", "R", 1, "character",
+    "outPath", "o", 1, "character",
+    "filesPath", "j", 2, "character",
+    "matrixPath", "m", 2, "character",
+    "factFile", "f", 2, "character",
+    "factInput", "i", 2, "character",
+    "annoPath", "a", 2, "character",
+    "contrastData", "C", 1, "character",
+    "cpmReq", "c", 1, "double",
+    "sampleReq", "s", 1, "integer",
+    "normCounts", "x", 0, "logical",
+    "rdaOpt", "r", 0, "logical",
+    "lfcReq", "l", 1, "double",
+    "pValReq", "p", 1, "double",
+    "pAdjOpt", "d", 1, "character",
+    "normOpt", "n", 1, "character",
+    "robOpt", "b", 0, "logical",
+    "lrtOpt", "t", 0, "logical"),
+    byrow=TRUE, ncol=4)
+opt <- getopt(spec)
 
-# Process booleans
-if (lrtOpt=="yes") {
-    wantLRT <- TRUE
-} else {
+
+if (is.null(opt$matrixPath) & is.null(opt$filesPath)) {
+    cat("A counts matrix (or a set of counts files) is required.\n")
+    q(status=1)
+}
+
+if (is.null(opt$lrtOpt)) {
     wantLRT <- FALSE
-}
-
-if (rdaOpt=="yes") {
-    wantRda <- TRUE
 } else {
-    wantRda <- FALSE
+    wantLRT <- TRUE
 }
 
-if (annoPath=="None") {
+if (is.null(opt$rdaOpt)) {
+    wantRda <- FALSE
+} else {
+    wantRda <- TRUE   
+}
+
+if (is.null(opt$annoPath)) {
     haveAnno <- FALSE
 } else {
     haveAnno <- TRUE
 }
 
-if (normCounts=="yes") {
-    wantNorm <- TRUE
-} else {
+if (is.null(opt$normCounts)) {
     wantNorm <- FALSE
+} else {   
+    wantNorm <- TRUE
+}
+
+if (is.null(opt$robOpt)) {
+    wantRobust <- FALSE
+} else {
+    wantRobust <- TRUE
 }
 
 
-if (grepl(":", countPath)) {
+if (!is.null(opt$filesPath)) {
     # Process count files (adapted from DESeq2 wrapper)
     library("rjson")
     parser <- newJSONParser()
-    parser$addData(countPath)
+    parser$addData(opt$filesPath)
     factorList <- parser$getObject()
     factors <- sapply(factorList, function(x) x[[1]])
-    primaryFactor <- factors[1]
     filenamesIn <- unname(unlist(factorList[[1]][[2]]))
     sampleTable <- data.frame(sample=basename(filenamesIn),
                             filename=filenamesIn,
@@ -214,25 +240,21 @@ if (grepl(":", countPath)) {
     
 } else {
     # Process count matrix
-    counts <- read.table(countPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    counts <- read.table(opt$matrixPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
     row.names(counts) <- counts[, 1]
     counts <- counts[ , -1]
     countsRows <- nrow(counts)
-    
-    # if annotation file provided
-    if (haveAnno) {
-        geneanno <- read.table(annoPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
-    }
 
     # Process factors
-    if (as.character(argv[16])=="None") {
-            factorData <- read.table(factPath, header=TRUE, sep="\t")
+    if (is.null(opt$factInput)) {
+            factorData <- read.table(opt$factFile, header=TRUE, sep="\t")
             factors <- factorData[, -1, drop=FALSE]
-    }  else if (as.character(argv[16])!="files") { 
+    }  else {
+            factors <- unlist(strsplit(opt$factInput, "|", fixed=TRUE))
             factorData <- list()
-            for (i in 16:length(argv)) {
-                    newFact <- unlist(strsplit(as.character(argv[i]), split="::"))
-                    factorData <- rbind(factorData, newFact)
+            for (fact in factors) {
+                newFact <- unlist(strsplit(fact, split="::"))
+                factorData <- rbind(factorData, newFact)
             } # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,... The first factor is the Primary Factor.
 
             # Set the row names to be the name of the factor and delete first row
@@ -246,11 +268,16 @@ if (grepl(":", countPath)) {
     }
 }
 
+ # if annotation file provided
+if (haveAnno) {
+    geneanno <- read.table(opt$annoPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+}
+
 #Create output directory
-dir.create(outPath, showWarnings=FALSE)
+dir.create(opt$outPath, showWarnings=FALSE)
 
 # Split up contrasts separated by comma into a vector then sanitise
-contrastData <- unlist(strsplit(contrastData, split=","))
+contrastData <- unlist(strsplit(opt$contrastData, split=","))
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
@@ -267,17 +294,15 @@ for (i in 1:length(contrastData)) {
     mdOutPdf[i] <- makeOut(paste0("mdplot_", contrastData[i], ".pdf"))
     mdOutPng[i] <- makeOut(paste0("mdplot_", contrastData[i], ".png"))
     topOut[i] <- makeOut(paste0("edgeR_", contrastData[i], ".tsv"))
-}       # Save output paths for each contrast as vectors
+}   # Save output paths for each contrast as vectors
 normOut <- makeOut("edgeR_normcounts.tsv")
 rdaOut <- makeOut("RData.rda")
 sessionOut <- makeOut("session_info.txt")
 
 # Initialise data for html links and images, data frame with columns Label and 
 # Link
-linkData <- data.frame(Label=character(), Link=character(),
-                                             stringsAsFactors=FALSE)
-imageData <- data.frame(Label=character(), Link=character(),
-                                                stringsAsFactors=FALSE)
+linkData <- data.frame(Label=character(), Link=character(), stringsAsFactors=FALSE)
+imageData <- data.frame(Label=character(), Link=character(), stringsAsFactors=FALSE)
 
 # Initialise vectors for storage of up/down/neutral regulated counts
 upCount <- numeric()
@@ -300,7 +325,7 @@ if (haveAnno) {
 # Filter out genes that do not have a required cpm in a required number of
 # samples
 preFilterCount <- nrow(data$counts)
-sel <- rowSums(cpm(data$counts) > cpmReq) >= sampleReq
+sel <- rowSums(cpm(data$counts) > opt$cpmReq) >= opt$sampleReq
 data$counts <- data$counts[sel, ]
 data$genes <- data$genes[sel, , drop=FALSE]
 postFilterCount <- nrow(data$counts)
@@ -324,19 +349,24 @@ factorList <- sapply(names(factors), pasteListName)
 
 formula <- "~0" 
 for (i in 1:length(factorList)) {
-        formula <- paste(formula, factorList[i], sep="+")
+    formula <- paste(formula, factorList[i], sep="+")
 }
 
 formula <- formula(formula)
 design <- model.matrix(formula)
 
 for (i in 1:length(factorList)) {
-        colnames(design) <- gsub(factorList[i], "", colnames(design), fixed=TRUE)
+    colnames(design) <- gsub(factorList[i], "", colnames(design), fixed=TRUE)
 }
 
 # Calculating normalising factor, estimating dispersion
-data <- calcNormFactors(data, method=normOpt)
-data <- estimateDisp(data, design=design, robust=TRUE)
+data <- calcNormFactors(data, method=opt$normOpt)
+
+if (wantRobust) {
+    data <- estimateDisp(data, design=design, robust=TRUE)
+} else {
+    data <- estimateDisp(data, design=design)
+}
 
 # Generate contrasts information
 contrasts <- makeContrasts(contrasts=contrastData, levels=design)
@@ -349,7 +379,7 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 labels <- names(counts)
 png(mdsOutPng, width=600, height=600)
 # Currently only using a single factor
-plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8)
+plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot")
 imageData[1, ] <- c("MDS Plot", "mdsplot.png")
 invisible(dev.off())
 
@@ -371,13 +401,20 @@ plotBCV(data, main="BCV Plot")
 linkName <- paste0("BCV Plot.pdf")
 linkAddr <- paste0("bcvplot.pdf")
 linkData <- rbind(linkData, c(linkName, linkAddr))
-invisible(dev.off())   
-    
+invisible(dev.off())
+
 # Generate fit
 if (wantLRT) {
+    
     fit <- glmFit(data, design)
+    
+} else {
+    
+    if (wantRobust) {
+        fit <- glmQLFit(data, design, robust=TRUE)
     } else {
-    fit <- glmQLFit(data, design, robust=TRUE)
+        fit <- glmQLFit(data, design)
+    }
 
     # Plot QL dispersions
     png(qlOutPng, width=600, height=600)
@@ -389,8 +426,7 @@ if (wantLRT) {
 
     pdf(qlOutPdf)
     plotQLDisp(fit, main="QL Plot")
-    linkData[1, ] <- c("QL Plot.pdf", "QLplot.pdf")
-    linkName <- "QL Plot"
+    linkName <- "QL Plot.pdf"
     linkAddr <- "qlplot.pdf"
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
@@ -398,32 +434,31 @@ if (wantLRT) {
 
  # Save normalised counts (log2cpm)
 if (wantNorm) { 
-        normCounts <- cpm(data, normalized.lib.sizes=TRUE, log=TRUE) 
-        normCounts <- data.frame(data$genes, normCounts)
-        write.table (normCounts, file=normOut, row.names=FALSE, sep="\t")
+        normalisedCounts <- cpm(data, normalized.lib.sizes=TRUE, log=TRUE) 
+        normalisedCounts <- data.frame(data$genes, normalisedCounts)
+        write.table (normalisedCounts, file=normOut, row.names=FALSE, sep="\t")
         linkData <- rbind(linkData, c("edgeR_normcounts.tsv", "edgeR_normcounts.tsv"))
 }
 
 
 for (i in 1:length(contrastData)) {
     if (wantLRT) {
-        test <- glmLRT(fit, contrast=contrasts[, i])
+        res <- glmLRT(fit, contrast=contrasts[, i])
     } else {
-        test <- glmQLFTest(fit, contrast=contrasts[, i])
+        res <- glmQLFTest(fit, contrast=contrasts[, i])
     }
 
-    status = decideTestsDGE(test, adjust.method=pAdjOpt, p.value=pValReq,
-                                             lfc=lfcReq)
-                                             
+    status = decideTestsDGE(res, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
+                                             lfc=opt$lfcReq)
     sumStatus <- summary(status)
-    
+
     # Collect counts for differential expression
     upCount[i] <- sumStatus["1", ]
     downCount[i] <- sumStatus["-1", ]
     flatCount[i] <- sumStatus["0", ]
                                              
     # Write top expressions table
-    top <- topTags(test, n=Inf, sort.by="PValue")
+    top <- topTags(res, n=Inf, sort.by="PValue")
     write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
     
     linkName <- paste0("edgeR_", contrastData[i], ".tsv")
@@ -432,7 +467,7 @@ for (i in 1:length(contrastData)) {
     
     # Plot MD (log ratios vs mean difference) using limma package
     pdf(mdOutPdf[i])
-    limma::plotMD(test, status=status,
+    limma::plotMD(res, status=status,
                                 main=paste("MD Plot:", unmake.names(contrastData[i])), 
                                 col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
                                 xlab="Average Expression", ylab="logFC")
@@ -445,7 +480,7 @@ for (i in 1:length(contrastData)) {
     invisible(dev.off())
     
     png(mdOutPng[i], height=600, width=600)
-    limma::plotMD(test, status=status,
+    limma::plotMD(res, status=status,
                                 main=paste("MD Plot:", unmake.names(contrastData[i])), 
                                 col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
                                 xlab="Average Expression", ylab="logFC")
@@ -462,8 +497,13 @@ row.names(sigDiff) <- contrastData
 
 # Save relevant items as rda object
 if (wantRda) {
-    save(data, status, data, labels, factors, test, top, contrasts, design,
+    if (wantNorm) {
+        save(counts, data, status, normalisedCounts, labels, factors, fit, res, top, contrasts, design,
                  file=rdaOut, ascii=TRUE)
+    } else {
+        save(counts, data, status, labels, factors, fit, res, top, contrasts, design,
+                 file=rdaOut, ascii=TRUE)
+    }
     linkData <- rbind(linkData, c("RData.rda", "RData.rda"))
 }
 
@@ -481,7 +521,7 @@ timeTaken <- gsub("Time difference of ", "", timeTaken, fixed=TRUE)
 ################################################################################
 
 # Clear file
-cat("", file=htmlPath)
+cat("", file=opt$htmlPath)
 
 cata("<html>\n")
 
@@ -544,9 +584,9 @@ cata("<p>.tsv files can be viewed in Excel or any spreadsheet program.</p>\n")
 
 cata("<h4>Additional Information</h4>\n")
 cata("<ul>\n")
-if (cpmReq!=0 && sampleReq!=0) {
-    tempStr <- paste("Genes without more than", cpmReq,
-                                     "CPM in at least", sampleReq, "samples are insignificant",
+if (opt$cpmReq!=0 && opt$sampleReq!=0) {
+    tempStr <- paste("Genes without more than", opt$cpmReq,
+                                     "CPM in at least", opt$sampleReq, "samples are insignificant",
                                      "and filtered out.")
     ListItem(tempStr)
     filterProp <- round(filteredCount/preFilterCount*100, digits=2)
@@ -554,29 +594,33 @@ if (cpmReq!=0 && sampleReq!=0) {
                                      "%) genes were filtered out for low expression.")
     ListItem(tempStr)
 }
-ListItem(normOpt, " was the method used to normalise library sizes.")
+ListItem(opt$normOpt, " was the method used to normalise library sizes.")
 if (wantLRT) {
     ListItem("The edgeR likelihood ratio test was used.")
 } else {
-    ListItem("The edgeR quasi-likelihood test was used.")
+    if (wantRobust) {
+        ListItem("The edgeR quasi-likelihood test was used with robust settings (robust=TRUE with estimateDisp and glmQLFit).")
+        } else {
+            ListItem("The edgeR quasi-likelihood test was used.")
+    }
 }
-if (pAdjOpt!="none") {
-    if (pAdjOpt=="BH" || pAdjOpt=="BY") {
+if (opt$pAdjOpt!="none") {
+    if (opt$pAdjOpt=="BH" || opt$pAdjOpt=="BY") {
         tempStr <- paste0("MD-Plot highlighted genes are significant at FDR ",
-                                            "of ", pValReq," and exhibit log2-fold-change of at ", 
-                                            "least ", lfcReq, ".")
+                                            "of ", opt$pValReq," and exhibit log2-fold-change of at ", 
+                                            "least ", opt$lfcReq, ".")
         ListItem(tempStr)
-    } else if (pAdjOpt=="holm") {
+    } else if (opt$pAdjOpt=="holm") {
         tempStr <- paste0("MD-Plot highlighted genes are significant at adjusted ",
-                                            "p-value of ", pValReq,"  by the Holm(1979) ",
+                                            "p-value of ", opt$pValReq,"  by the Holm(1979) ",
                                             "method, and exhibit log2-fold-change of at least ", 
-                                            lfcReq, ".")
+                                            opt$lfcReq, ".")
         ListItem(tempStr)
     }
 } else {
     tempStr <- paste0("MD-Plot highlighted genes are significant at p-value ",
-                                        "of ", pValReq," and exhibit log2-fold-change of at ", 
-                                        "least ", lfcReq, ".")
+                                        "of ", opt$pValReq," and exhibit log2-fold-change of at ", 
+                                        "least ", opt$lfcReq, ".")
     ListItem(tempStr)
 }
 cata("</ul>\n")
