@@ -87,9 +87,7 @@ class Document2Section:
 
             self.inputs.appendChild(parent_section)
 
-
-
-
+            
 
             
     def parse(self, text):
@@ -167,33 +165,22 @@ class Document2Section:
 
 
 dd = Document2Section(sys.argv[1])
-cc = CommandParse(flag_map, exclude_map)
 
-with open('iqtree.macros.xml','w') as f:
+with open('iqtree.inputs.xml','w') as f:
 
     macros = doc.createElement('macros')
-    
     xml_inp = doc.createElement('xml')
     xml_inp.setAttribute('name', 'inputs')
-
-    xml_com = doc.createElement('xml')
-    xml_com.setAttribute('name', 'command')
-
-    command = doc.createElement('command')
-    command.setAttribute('detect_errors', 'aggressive')
-    command.appendChild(
-        doc.createTextNode(cc.text)
-    )
-
-    xml_inp.appendChild(dd.inputs)
-    xml_com.appendChild(command)
-
-    macros.appendChild(xml_inp)
-    macros.appendChild(xml_com)
-
     
-    #try:
+    xml_inp.appendChild(dd.inputs)
+    macros.appendChild(xml_inp)
+
     print(macros.toprettyxml(), file=f)  
     f.close()
 
-#import pdb;pdb.set_trace()
+
+CommandParse(
+    "iqtree", dd.inputs, exclude_map,
+    "iqtree.command.xml"
+)
+

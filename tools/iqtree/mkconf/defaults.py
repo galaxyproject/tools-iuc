@@ -27,8 +27,8 @@ section_nestmap = {
 # Give a value to override default
 exclude_map = {
     # General
-    '-pre' : 'PRE',   # prefix
-    '-o'   : 'OUT',   # outfile
+    '-pre' : 'PREF',   # prefix
+    '-o'   : False,   # outfile
     '-h'   : False,   # help
     '-v'   : False,   # verbose
     '-mem' : False,   # max ram spec
@@ -36,7 +36,7 @@ exclude_map = {
     '-nt' : "AUTO",    # number of cores
 
     # checkpointing
-    '-redo' : False,
+    '-redo' : True,
     '-cptime' : False, # default 20s   
 
     # Likelihood Mapping Analysis
@@ -55,13 +55,13 @@ exclude_map = {
     # computing robinson-foulds distance
     # Generating random trees
     # miscellaneous options
-    '-wt' : "true",
-    '-fixbr' : "true",
-    '-wsl' : "true",
-    '-wslg' : "true"   
+    '-wt' : False,
+    '-fixbr' : False,
+    '-wsl' : False,    # throws errors if "true"
+    '-wslg' : False
 }
 
 # Args to override, and show to user.
 override_defaults = {
-    '-seed': '1547',
+#    '-seed': '1547',
 }

@@ -3,6 +3,7 @@ import sys
 
 from defaults import *
 from xml.dom import minidom
+from Names import Names
 
 doc = minidom.Document()
 root = doc.createElement('root')
@@ -14,7 +15,7 @@ class Section:
 
     def __init__(self, title):
         self.title = title
-        self.name  = '_'.join(title.split()[:2]).lower()
+        self.name  = '_'.join(title.split()[:2]).lower().replace('-','_')
        
         self.arg_map = {} # flag :- param
         self.root = doc.createElement('section')
@@ -56,9 +57,15 @@ class Section:
         if flag in override_defaults:
             defaultval = override_defaults[flag]
 
+        # Overcome planemo dash restriction
+        cheetah = Names.sensibleCheetah(flag)
+        sflag = Names.sensibleFlag(flag)
+
         # Also append to <command> flag_map
-        if flag not in flag_map:
-            flag_map[flag] = (flag_type, defaultval, self.arg_map[flag][0][1])
+        if sflag not in flag_map:
+            #                 type,      default,    desc from original flag  , cheetah name
+            flag_map[sflag] = [flag_type, defaultval, self.arg_map[flag][0][1], cheetah]
+            # not tuple because cheetah_name tbd
         
 
         if flag_type == "boolean":
@@ -122,6 +129,20 @@ class Section:
                     if word == "prefix":
                         return "text"
 
+                # check for default at the end, and see if we can parse
+                if words[-2][2:] == "fault:":
+                    #import pdb; pdb.set_trace()
+                    try:
+                        int(words[-1])
+                        return "integer"
+                    except ValueError:
+                        try:
+                            float(words[-1])
+                            return "float"
+                        except ValueError:
+                            return "text"
+                
+
                 return "text"  # 'specify' defaults to text        
             
 
@@ -169,7 +190,7 @@ class Section:
         label, helper = Section.getLabelHelp(text)
         
         param = doc.createElement('param')
-        param.setAttribute('argument', flag )
+        param.setAttribute('argument', Names.sensibleFlag(flag) )
         param.setAttribute('label',  label )
 
         if helper != "":
