@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
-import os
-import sys
 import argparse
+import sys
 import textwrap
+
 
 def main( args ):
     """
@@ -83,6 +83,7 @@ HS08198	AUGUSTUS	start_codon	445	447	.	+	0	Parent=g2.t1
     if args.protein:
         po.close()
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--protein', help='Path to the protein file.')
@@ -90,4 +91,3 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main( args )
-
