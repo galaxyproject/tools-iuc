@@ -79,7 +79,6 @@ HS08198	AUGUSTUS	start_codon	445	447	.	+	0	Parent=g2.t1
                     line = line[19:]
                     coding_seq = line
 
-
     if args.codingseq:
         co.close()
     if args.protein:
