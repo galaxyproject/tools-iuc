@@ -45,6 +45,22 @@ HS08198	AUGUSTUS	start_codon	445	447	.	+	0	Parent=g2.t1
             if line.startswith('start gene'):
                 gene_name = line[11:].strip()
 
+            if protein_seq:
+                if line.endswith(']'):
+                    protein_seq += line[:-1]
+                    po.write( '>%s\n%s\n' % (gene_name, '\n'.join( textwrap.wrap( protein_seq, 80 ) ) ) )
+                    protein_seq = ''
+                else:
+                    protein_seq += line
+
+            if coding_seq:
+                if line.endswith(']'):
+                    coding_seq += line[:-1]
+                    co.write( '>%s\n%s\n' % (gene_name, '\n'.join( textwrap.wrap( coding_seq, 80 ) ) ) )
+                    coding_seq = ''
+                else:
+                    coding_seq += line
+
             if args.protein and line.startswith('protein sequence = ['):
                 if line.endswith(']'):
                     protein_seq = line[20:-1]
@@ -63,21 +79,7 @@ HS08198	AUGUSTUS	start_codon	445	447	.	+	0	Parent=g2.t1
                     line = line[19:]
                     coding_seq = line
 
-            if protein_seq:
-                if line.endswith(']'):
-                    protein_seq += line[:-1]
-                    po.write( '>%s\n%s\n' % (gene_name, '\n'.join( textwrap.wrap( protein_seq, 80 ) ) ) )
-                    protein_seq = ''
-                else:
-                    protein_seq += line
 
-            if coding_seq:
-                if line.endswith(']'):
-                    coding_seq += line[:-1]
-                    co.write( '>%s\n%s\n' % (gene_name, '\n'.join( textwrap.wrap( coding_seq, 80 ) ) ) )
-                    coding_seq = ''
-                else:
-                    coding_seq += line
     if args.codingseq:
         co.close()
     if args.protein:
