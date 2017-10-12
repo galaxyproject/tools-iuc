@@ -228,6 +228,54 @@ core_diversity_analyses.py \
     --suppress_group_significance
 rm -rf core_diversity_analyses_2
 
+# extract_barcodes
+extract_barcodes.py \
+    --fastq1 'test-data/extract_barcodes/inseqs.fastq' \
+    --input_type 'barcode_single_end' \
+    -o extract_barcodes_1 \
+    --bc1_len '6' \
+    --rev_comp_bc1
+rm -rf extract_barcodes_1
+
+extract_barcodes.py \
+    --fastq1 'test-data/extract_barcodes/inseqs_R1.fastq' \
+    --input_type 'barcode_paired_end' \
+    --fastq2 'test-data/extract_barcodes/inseqs_R2.fastq' \
+    -o extract_barcodes_2 \
+    --bc1_len '6' \
+    --bc2_len '6'
+rm -rf extract_barcodes_2
+
+extract_barcodes.py \
+    --fastq1 'test-data/extract_barcodes/inseqs_R1.fastq' \
+    --input_type 'barcode_paired_end' \
+    --fastq2 'test-data/extract_barcodes/inseqs_R2.fastq' \
+    -o extract_barcodes_3 \
+    --bc1_len '6' \
+    --bc2_len '6' \
+    --mapping_fp 'test-data/extract_barcodes/mapping_data.txt' \
+    --attempt_read_reorientation \
+    --disable_header_match
+rm -rf extract_barcodes_3
+
+extract_barcodes.py \
+    --fastq1 'test-data/extract_barcodes/inseqs_R1.fastq' \
+    --input_type 'barcode_paired_stitched' \
+    -o extract_barcodes_4 \
+    --bc1_len '6' \
+    --bc2_len '8' \
+    --rev_comp_bc1 \
+    --rev_comp_bc2
+rm -rf extract_barcodes_4
+
+extract_barcodes.py \
+    --fastq1 'test-data/extract_barcodes/inseqs_R1.fastq' \
+    --input_type 'barcode_in_label' \
+    --char_delineator '#' \
+    -o extract_barcodes_5 \
+    --bc1_len '6'
+rm -rf extract_barcodes_5
+
 # filter_alignment
 filter_alignment.py \
     --input_fasta_file 'test-data/filter_alignment/alignment.fasta' \
@@ -943,23 +991,79 @@ rm -rf split_libraries
 
 # split_libraries_fastq
 split_libraries_fastq.py \
-    --sequence_read_fps 'test-data/split_libraries_fastq/forward_reads.fastq' \
-    -o split_libraries \
-    --mapping_fps 'test-data/map.tsv' \
-    --barcode_read_fps 'test-data/split_libraries_fastq/barcodes.fastq' \
+    --sequence_read_fps 'test-data/split_libraries_fastq/lane1_read1.fastq.gz' \
+    -o split_libraries_1 \
+    --mapping_fps 'test-data/split_libraries_fastq/map.txt' \
+    --barcode_read_fps 'test-data/split_libraries_fastq/lane1_barcode.fastq.gz' \
+    --max_bad_run_length 3 \
+    --min_per_read_length_fraction 0.75 \
+    --sequence_max_n 0 \
+    --start_seq_id 0 \
+    --rev_comp_mapping_barcodes \
+    --phred_quality_threshold 19 \
+    --barcode_type 'golay_12' \
+    --max_barcode_errors 1.5
+rm -rf split_libraries_1
+
+split_libraries_fastq.py \
+    --sequence_read_fps 'test-data/split_libraries_fastq/lane1_read1.fastq.gz' \
+    -o split_libraries_2 \
+    --mapping_fps 'test-data/split_libraries_fastq/map.txt' \
+    --barcode_read_fps 'test-data/split_libraries_fastq/lane1_barcode.fastq.gz' \
     --store_qual_scores \
     --store_demultiplexed_fastq \
     --max_bad_run_length 3 \
     --min_per_read_length_fraction 0.75 \
     --sequence_max_n 0 \
     --start_seq_id 0 \
+    --rev_comp_mapping_barcodes \
+    --phred_quality_threshold 19 \
     --barcode_type 'golay_12' \
     --max_barcode_errors 1.5
-cp split_libraries/histograms.txt 'test-data/split_libraries_fastq/histograms.tabular'
-cp split_libraries/seqs.fna 'test-data/split_libraries_fastq/sequences.fasta'
-cp split_libraries/seqs.qual 'test-data/split_libraries_fastq/sequence_qualities.qual'
-cp split_libraries/seqs.fastq 'test-data/split_libraries_fastq/demultiplexed_sequences.fastq'
-rm -rf split_libraries
+rm -rf split_libraries_2
+
+split_libraries_fastq.py \
+    --sequence_read_fps 'test-data/split_libraries_fastq/lane1_read1.fastq.gz,test-data/split_libraries_fastq/lane2_read1.fastq.gz' \
+    -o split_libraries_3 \
+    --mapping_fps 'test-data/split_libraries_fastq/map.txt,test-data/split_libraries_fastq/map.txt' \
+    --barcode_read_fps 'test-data/split_libraries_fastq/lane1_barcode.fastq.gz,test-data/split_libraries_fastq/lane2_barcode.fastq.gz' \
+    --max_bad_run_length 3 \
+    --min_per_read_length_fraction 0.75 \
+    --sequence_max_n 0 \
+    --start_seq_id 0 \
+    --rev_comp_mapping_barcodes \
+    --phred_quality_threshold 19 \
+    --barcode_type 'golay_12' \
+    --max_barcode_errors 1.5
+rm -rf split_libraries_3
+
+split_libraries_fastq.py \
+    --sequence_read_fps 'test-data/split_libraries_fastq/lane1_read1.fastq.gz' \
+    -o split_libraries_4 \
+    --sample_ids 'my.sample.1' \
+    --max_bad_run_length 3 \
+    --min_per_read_length_fraction 0.75 \
+    --sequence_max_n 0 \
+    --start_seq_id 0 \
+    --rev_comp_mapping_barcodes \
+    --phred_quality_threshold 19 \
+    --barcode_type 'not-barcoded' \
+    --max_barcode_errors 1.5
+rm -rf split_libraries_4
+
+split_libraries_fastq.py \
+    --sequence_read_fps 'test-data/split_libraries_fastq/lane1_read1.fastq.gz,test-data/split_libraries_fastq/lane2_read1.fastq.gz' \
+    -o split_libraries_5 \
+    --sample_ids 'my.sample.1,my.sample.2' \
+    --max_bad_run_length 3 \
+    --min_per_read_length_fraction 0.75 \
+    --sequence_max_n 0 \
+    --start_seq_id 0 \
+    --rev_comp_mapping_barcodes \
+    --phred_quality_threshold 19 \
+    --barcode_type 'not-barcoded' \
+    --max_barcode_errors 1.5
+rm -rf split_libraries_5
 
 # summarize_taxa
 cp 'test-data/core_diversity_analyses/otu_table.biom' 'test-data/summarize_taxa/otu_table.biom'

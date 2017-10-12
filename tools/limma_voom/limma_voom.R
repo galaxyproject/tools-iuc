@@ -3,7 +3,7 @@
 # expression analysis
 #
 # ARGS: 1.countPath       -Path to RData input containing counts
-#       2.annoPath        -Path to RData input containing gene annotations
+#       2.annoPath        -Path to input containing gene annotations
 #       3.htmlPath        -Path to html file linking to other outputs
 #       4.outPath         -Path to folder to write all output to
 #       5.rdaOpt          -String specifying if RData should be saved
@@ -15,15 +15,18 @@
 #       11.pAdjOpt        -String specifying the p-value adjustment method
 #       12.pValReq        -Float specifying the p-value requirement
 #       13.lfcReq         -Float specifying the log-fold-change requirement
-#       14.factorData     -String containing factor names and values
+#       14.normCounts     -String specifying if normalised counts should be output
+#       15.factPath       -Path to factor information file
+#       16.factorData     -Strings containing factor names and values if manually input 
 #
 # OUT:  Voom Plot
 #       BCV Plot
 #       MA Plot
-#       Top Expression Table
+#       Expression Table
 #       HTML file linking to the ouputs
 #
 # Author: Shian Su - registertonysu@gmail.com - Jan 2014
+# Modified by: Maria Doyle - Jun 2017
 
 # Record starting time
 timeStart <- as.character(Sys.time())
@@ -148,13 +151,31 @@ sampleReq <- as.numeric(argv[10])
 pAdjOpt <- as.character(argv[11])
 pValReq <- as.numeric(argv[12])
 lfcReq <- as.numeric(argv[13])
-factorData <- list()
-for (i in 14:length(argv)) {
-  newFact <- unlist(strsplit(as.character(argv[i]), split="::"))
-  factorData <- rbind(factorData, newFact)
-} # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,...
+normCounts <- as.character(argv[14])
+factPath <- as.character(argv[15])
+# Process factors
+if (as.character(argv[16])=="None") {
+    factorData <- read.table(factPath, header=TRUE, sep="\t")
+    factors <- factorData[,-1, drop=FALSE]
+}  else { 
+    factorData <- list()
+    for (i in 16:length(argv)) {
+        newFact <- unlist(strsplit(as.character(argv[i]), split="::"))
+        factorData <- rbind(factorData, newFact)
+    } # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,... The first factor is the Primary Factor.
 
-# Process arguments
+    # Set the row names to be the name of the factor and delete first row
+    row.names(factorData) <- factorData[, 1]
+    factorData <- factorData[, -1]
+    factorData <- sapply(factorData, sanitiseGroups)
+    factorData <- sapply(factorData, strsplit, split=",")
+    factorData <- sapply(factorData, make.names)
+    # Transform factor data into data frame of R factor objects
+    factors <- data.frame(factorData)
+
+}
+
+# Process other arguments
 if (weightOpt=="yes") {
   wantWeight <- TRUE
 } else {
@@ -173,15 +194,12 @@ if (annoPath=="None") {
   haveAnno <- TRUE
 }
 
-# Set the row names to be the name of the factor and delete first row
-row.names(factorData) <- factorData[, 1]
-factorData <- factorData[, -1]
-factorData <- sapply(factorData, sanitiseGroups)
-factorData <- sapply(factorData, strsplit, split=",")
-factorData <- sapply(factorData, make.names)
+if (normCounts=="yes") {
+  wantNorm <- TRUE
+} else {
+  wantNorm <- FALSE
+}
 
-# Transform factor data into data frame of R factor objects
-factors <- data.frame(factorData)
 
 #Create output directory
 dir.create(outPath, showWarnings=FALSE)
@@ -205,6 +223,7 @@ for (i in 1:length(contrastData)) {
   maOutPng[i] <- makeOut(paste0("maplot_", contrastData[i], ".png"))
   topOut[i] <- makeOut(paste0("limma-voom_", contrastData[i], ".tsv"))
 }                         # Save output paths for each contrast as vectors
+normOut <- makeOut("limma-voom_normcounts.tsv")
 rdaOut <- makeOut("RData.rda")
 sessionOut <- makeOut("session_info.txt")
 
@@ -221,12 +240,12 @@ downCount <- numeric()
 flatCount <- numeric()
                         
 # Read in counts and geneanno data
-counts <- read.table(countPath, header=TRUE, sep="\t")
+counts <- read.table(countPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
 row.names(counts) <- counts[, 1]
 counts <- counts[ , -1]
 countsRows <- nrow(counts)
 if (haveAnno) {
-  geneanno <- read.table(annoPath, header=TRUE, sep="\t")
+  geneanno <- read.table(annoPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
 }
 
 ################################################################################
@@ -247,13 +266,14 @@ if (haveAnno) {
 preFilterCount <- nrow(data$counts)
 sel <- rowSums(cpm(data$counts) > cpmReq) >= sampleReq
 data$counts <- data$counts[sel, ]
-data$genes <- data$genes[sel, ]
+data$genes <- data$genes[sel, ,drop = FALSE]
 postFilterCount <- nrow(data$counts)
 filteredCount <- preFilterCount-postFilterCount
 
 # Creating naming data
 samplenames <- colnames(data$counts)
 sampleanno <- data.frame("sampleID"=samplenames, factors)
+
 
 # Generating the DGEList object "data"
 data$samples <- sampleanno
@@ -263,14 +283,17 @@ row.names(data$samples) <- colnames(data$counts)
 data <- new("DGEList", data)
 
 factorList <- sapply(names(factors), pasteListName)
-formula <- "~0"
+
+formula <- "~0" 
 for (i in 1:length(factorList)) {
-  formula <- paste(formula, factorList[i], sep="+")
+    formula <- paste(formula,factorList[i], sep="+")
 }
+
 formula <- formula(formula)
 design <- model.matrix(formula)
+
 for (i in 1:length(factorList)) {
-  colnames(design) <- gsub(factorList[i], "", colnames(design), fixed=TRUE)
+    colnames(design) <- gsub(factorList[i], "", colnames(design), fixed=TRUE)
 }
 
 # Calculating normalising factor, estimating dispersion
@@ -330,6 +353,13 @@ if (wantWeight) {
   
 }
 
+ # Save normalised counts (log2cpm)
+if (wantNorm) {   
+    norm_counts <- data.frame(vData$genes, vData$E)
+    write.table (norm_counts, file=normOut, row.names=FALSE, sep="\t")
+    linkData <- rbind(linkData, c("limma-voom_normcounts.tsv", "limma-voom_normcounts.tsv"))
+}
+
 # Fit linear model and estimate dispersion with eBayes
 voomFit <- contrasts.fit(voomFit, contrasts)
 voomFit <- eBayes(voomFit)
@@ -368,12 +398,11 @@ for (i in 1:length(contrastData)) {
   top <- topTable(voomFit, coef=i, number=Inf, sort.by="P")
   write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
   
-  linkName <- paste0("limma-voom_", contrastData[i], 
-                     ".tsv")
+  linkName <- paste0("limma-voom_", contrastData[i], ".tsv")
   linkAddr <- paste0("limma-voom_", contrastData[i], ".tsv")
   linkData <- rbind(linkData, c(linkName, linkAddr))
   
-  # Plot MA (log ratios vs mean average) using limma package on weighted data
+  # Plot MA (log ratios vs mean average) using limma package on weighted 
   pdf(maOutPdf[i])
   limma::plotMA(voomFit, status=status, coef=i,
                 main=paste("MA Plot:", unmake.names(contrastData[i])), 
@@ -534,20 +563,25 @@ cata("</ul>\n")
 
 cata("<h4>Summary of experimental data:</h4>\n")
 
-cata("<p>*CHECK THAT SAMPLES ARE ASSOCIATED WITH CORRECT GROUP*</p>\n")
+cata("<p>*CHECK THAT SAMPLES ARE ASSOCIATED WITH CORRECT GROUP(S)*</p>\n")
 
 cata("<table border=\"1\" cellpadding=\"3\">\n")
 cata("<tr>\n")
-TableItem()
-for (i in names(factors)) {
-  TableHeadItem(i)
-}
-cata("</tr>\n")
+TableHeadItem("SampleID")
+TableHeadItem(names(factors)[1]," (Primary Factor)")
+
+  if (ncol(factors) > 1) {
+
+    for (i in names(factors)[2:length(names(factors))]) {
+      TableHeadItem(i)
+    }
+    cata("</tr>\n")
+  }
 
 for (i in 1:nrow(factors)) {
   cata("<tr>\n")
   TableHeadItem(row.names(factors)[i])
-  for (j in ncol(factors)) {
+  for (j in 1:ncol(factors)) {
     TableItem(as.character(unmake.names(factors[i, j])))
   }
   cata("</tr>\n")

@@ -6,6 +6,7 @@ import sys
 import tempfile
 
 import numpy
+from six import Iterator
 
 GFF_EXT = 'gff'
 SCIDX_EXT = 'scidx'
@@ -41,7 +42,7 @@ def convert_data(data, in_fmt, out_fmt):
     return data
 
 
-class ChromosomeManager(object):
+class ChromosomeManager(Iterator):
     """
     Manages a CSV reader of an index file to only load one chrom at a time
     """
@@ -53,8 +54,8 @@ class ChromosomeManager(object):
         self.current_index = 0
         self.next_valid()
 
-    def next(self):
-        self.line = self.reader.next()
+    def __next__(self):
+        self.line = next(self.reader)
 
     def is_valid(self, line):
         if len(line) not in [4, 5, 9]:
@@ -77,10 +78,10 @@ class ChromosomeManager(object):
         """
         Advance to the next valid line in the reader
         """
-        self.line = self.reader.next()
+        self.line = next(self.reader)
         s = 0
         while not self.is_valid(self.line):
-            self.line = self.reader.next()
+            self.line = next(self.reader)
             s += 1
         if s > 0:
             # Skip initial line(s) of file
@@ -115,7 +116,7 @@ class ChromosomeManager(object):
                 self.current_index = read[0]
                 self.add_read(read)
             try:
-                self.next()
+                next(self)
             except StopIteration:
                 self.done = True
                 break
@@ -271,7 +272,7 @@ def normal_array(width, sigma, normalize=True):
         return math.exp(-x * x / (2 * sigma2))
 
     # width is the half of the distribution
-    values = map(normal_func, range(-width, width))
+    values = list(map(normal_func, range(-width, width)))
     values = numpy.array(values, numpy.float)
     # normalization
     if normalize:

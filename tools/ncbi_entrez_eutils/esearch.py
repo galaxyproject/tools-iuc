@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import print_function
+
 import argparse
 import json
 
@@ -45,4 +47,4 @@ if __name__ == '__main__':
         history = c.extract_history(results)
         args.history_out.write(json.dumps(history, indent=4))
 
-    print results
+    print(results)
