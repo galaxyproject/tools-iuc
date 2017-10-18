@@ -23,7 +23,8 @@ option_list <- list(
     make_option(c("-p", "--p_adj_method"), default="BH", type="character", help="Multiple hypothesis testing correction method to use"),
     make_option(c("-cat", "--use_genes_without_cat"), default=FALSE, type="logical",
                 help="A large number of gene may have no GO term annotated. If this option is set to FALSE, genes without category will be ignored in the calculation of p-values(default behaviour). If TRUE these genes will count towards the total number of genes outside the tested category (default behaviour prior to version 1.15.2)."),
-    make_option(c("-plots", "--make_plots"), default=FALSE, type="logical", help="produce diagnostic plots?")
+    make_option(c("-plots", "--make_plots"), default=FALSE, type="logical", help="produce diagnostic plots?"),
+    make_option(c("-fc", "--fetch_cats"), default=NULL, type="character", help="Categories to get can include one or more of GO:CC, GO:BP, GP:MF, KEGG")
     )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
@@ -44,6 +45,11 @@ repcnt = args$repcnt
 p_adj_method = args$p_adj_method
 use_genes_without_cat = args$use_genes_without_cat
 make_plots = args$make_plots
+
+if (!is.null(args$fetch_cats)) {
+  fetch_cats = unlist(strsplit(args$fetch_cats, ","))
+}
+
 
 # format DE genes into named vector suitable for goseq
 dge_table = read.delim(dge_file, header = FALSE, sep="\t")
@@ -66,7 +72,7 @@ if (length_file != "FALSE" ) {
 
 # Estimate PWF
 
-if (make_plots == TRUE) {
+if (make_plots != 'false') {
   pdf(length_bias_plot)
 }
 pwf=nullp(genes, genome = genome, id = gene_id, bias.data = gene_lengths, plot.fit=make_plots)
@@ -74,7 +80,7 @@ graphics.off()
 
 # Fetch GO annotations if category_file hasn't been supplied:
 if (category_file == "FALSE") {
-  go_map=getgo(genes = names(genes), genome = genome, id = gene_id, fetch.cats=c("GO:CC", "GO:BP", "GO:MF", "KEGG"))
+  go_map=getgo(genes = names(genes), genome=genome, id=gene_id, fetch.cats=fetch_cats)
   } else {
   # check for header: first entry in first column must be present in genes, else it's a header
   first_line = read.delim(category_file, header = FALSE, nrow=1)
