@@ -24,7 +24,7 @@ option_list <- list(
     make_option(c("-cat", "--use_genes_without_cat"), default=FALSE, type="logical",
                 help="A large number of gene may have no GO term annotated. If this option is set to FALSE, genes without category will be ignored in the calculation of p-values(default behaviour). If TRUE these genes will count towards the total number of genes outside the tested category (default behaviour prior to version 1.15.2)."),
     make_option(c("-plots", "--make_plots"), default=FALSE, type="logical", help="produce diagnostic plots?"),
-    make_option(c("-fc", "--fetch_cats"), default=NULL, type="character", help="Categories to get can include one or more of GO:CC, GO:BP, GP:MF, KEGG")
+    make_option(c("-fc", "--fetch_cats"), default=NULL, type="character", help="Categories to get can include one or more of GO:CC, GO:BP, GO:MF, KEGG")
     )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
@@ -50,15 +50,21 @@ if (!is.null(args$fetch_cats)) {
   fetch_cats = unlist(strsplit(args$fetch_cats, ","))
 }
 
-
 # format DE genes into named vector suitable for goseq
-dge_table = read.delim(dge_file, header = FALSE, sep="\t")
+# check if header is present
+first_line = read.delim(dge_file, header = FALSE, nrow=1)
+second_col = toupper(first_line[, ncol(first_line)])
+if (second_col == TRUE || second_col == FALSE) {
+    dge_table = read.delim(dge_file, header = FALSE, sep="\t")
+} else {
+    dge_table = read.delim(dge_file, header = TRUE, sep="\t")
+}
 genes = as.numeric(as.logical(dge_table[,ncol(dge_table)])) # Last column contains TRUE/FALSE
 names(genes) = dge_table[,1] # Assuming first column contains gene names
 
 # gene lengths, assuming last column
 if (length_file != "FALSE" ) {
-  first_line = read.delim(dge_file, header = FALSE, nrow=1)
+  first_line = read.delim(length_file, header = FALSE, nrow=1)
   if (is.numeric(first_line[, ncol(first_line)])) {
     length_table = read.delim(length_file, header=FALSE, sep="\t", check.names=FALSE)
     } else {
