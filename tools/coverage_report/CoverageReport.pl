@@ -778,7 +778,7 @@ open OUT, ">>$wd/Report/Report.tex";
 print OUT '\label{endofdoc}'."\n";
 print OUT '\end{document}'."\n";
 close OUT;
-system("cd $wd/Report && tectonic Report.tex > /dev/null 2>&1");
+system("cd $wd/Report && tectonic Report.tex");
 
 ## mv report to output file
 system("cp -f $wd/Report/Report.pdf '$pdffile'");
