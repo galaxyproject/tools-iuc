@@ -400,6 +400,7 @@ if (exists($opts{'r'}) || exists($opts{'s'}) || exists($opts{'S'})) {
 	my $startline = 0;
 	my $stopline = 0;
 	my $linecounter = 0;
+	my $nrcol=0;
 	while (<IN>) {
 		$linecounter++;
 		chomp($_);
