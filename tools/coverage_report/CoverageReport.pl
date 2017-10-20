@@ -160,7 +160,7 @@ print OUT '\documentclass[a4paper,10pt]{article}'."\n";
 print OUT '\usepackage[left=2cm,top=1.5cm,right=1.5cm,bottom=2.5cm,nohead]{geometry}'."\n";
 print OUT '\usepackage{longtable}'."\n";
 print OUT '\usepackage{fancyhdr}'."\n";
-print OUT "\usepackage{fontspec}\n";
+print OUT '\usepackage{fontspec}\n';
 print OUT '\usepackage{color}'."\n";
 print OUT '\definecolor{grey}{RGB}{160,160,160}'."\n";
 print OUT '\definecolor{darkgrey}{RGB}{100,100,100}'."\n";
