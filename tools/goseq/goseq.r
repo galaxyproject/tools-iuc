@@ -11,8 +11,8 @@ suppressPackageStartupMessages({
 option_list <- list(
     make_option(c("-d", "--dge_file"), type="character", help="Path to file with differential gene expression result"),
     make_option(c("-w","--wallenius_tab"), type="character", help="Path to output file with P-values estimated using wallenius distribution."),
-    make_option(c("-s","--sampling_tab"), type="character", default=FALSE, help="Path to output file with P-values estimated using wallenius distribution."),
-    make_option(c("-n","--nobias_tab"), type="character", default=FALSE, help="Path to output file with P-values estimated using wallenius distribution and no correction for gene length bias."),
+    make_option(c("-s","--sampling_tab"), type="character", default=FALSE, help="Path to output file with P-values estimated using sampling distribution."),
+    make_option(c("-n","--nobias_tab"), type="character", default=FALSE, help="Path to output file with P-values estimated using hypergeometric distribution and no correction for gene length bias."),
     make_option(c("-l","--length_bias_plot"), type="character", default=FALSE, help="Path to length-bias plot."),
     make_option(c("-sw","--sample_vs_wallenius_plot"), type="character", default=FALSE, help="Path to plot comparing sampling with wallenius p-values."),
     make_option(c("-r", "--repcnt"), type="integer", default=100, help="Number of repeats for sampling"),
@@ -24,7 +24,8 @@ option_list <- list(
     make_option(c("-cat", "--use_genes_without_cat"), default=FALSE, type="logical",
                 help="A large number of gene may have no GO term annotated. If this option is set to FALSE, genes without category will be ignored in the calculation of p-values(default behaviour). If TRUE these genes will count towards the total number of genes outside the tested category (default behaviour prior to version 1.15.2)."),
     make_option(c("-plots", "--make_plots"), default=FALSE, type="logical", help="produce diagnostic plots?"),
-    make_option(c("-fc", "--fetch_cats"), default=NULL, type="character", help="Categories to get can include one or more of GO:CC, GO:BP, GO:MF, KEGG")
+    make_option(c("-fc", "--fetch_cats"), default=NULL, type="character", help="Categories to get can include one or more of GO:CC, GO:BP, GO:MF, KEGG"),
+    make_option(c("-rd", "--rdata"), default=NULL, type="character", help="Path to RData output file.")
     )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
@@ -45,6 +46,7 @@ repcnt = args$repcnt
 p_adj_method = args$p_adj_method
 use_genes_without_cat = args$use_genes_without_cat
 make_plots = args$make_plots
+rdata = args$rdata
 
 if (!is.null(args$fetch_cats)) {
   fetch_cats = unlist(strsplit(args$fetch_cats, ","))
@@ -115,7 +117,13 @@ if (nobias_tab != "" && nobias_tab != "None") {
 
 # Sampling distribution
 if (repcnt > 0) {
+
+  # capture the sampling progress so it doesn't fill stdout  
+  zz <- file("/dev/null", open = "wt")
+  sink(zz)
   GO.samp=goseq(pwf, genome = genome, id = gene_id, method="Sampling", repcnt=repcnt, use_genes_without_cat = use_genes_without_cat, gene2cat=go_map)
+  sink()
+  
   GO.samp$p.adjust.over_represented = p.adjust(GO.samp$over_represented_pvalue, method=p_adj_method)
   GO.samp$p.adjust.under_represented = p.adjust(GO.samp$under_represented_pvalue, method=p_adj_method)
   write.table(GO.samp, sampling_tab, sep="\t", row.names = FALSE, quote = FALSE)
@@ -129,5 +137,11 @@ if (repcnt > 0) {
   graphics.off()
   }
 }
+
+# Output RData file
+if (!is.null(args$rdata)) {
+  save.image(file = "goseq_analysis.RData")
+}
+
 
 sessionInfo()
