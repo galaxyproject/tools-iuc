@@ -19,7 +19,6 @@ my $de = new Number::Format(-thousands_sep =>',',-decimal_point => '.');
 # t : path to input (t)arget regions in BED format
 ## output files
 # o : report pdf (o)utput file
-# z : all plots and tables in tar.g(z) format
 ## entries in the report
 # r : Coverage per (r)egion (boolean)
 # s : (s)ubregion coverage if average < specified (plots for positions along target region) (boolean)
@@ -31,7 +30,7 @@ my $de = new Number::Format(-thousands_sep =>',',-decimal_point => '.');
 # n : sample (n)ame.
  
 
-getopts('b:t:o:z:rsSALm:n:f:', \%opts) ;
+getopts('b:t:o:rsSALm:n:f:', \%opts) ;
 
 my $tmp = getcwd();
 # make output directory in (tmp) working dir
@@ -43,7 +42,7 @@ system("mkdir $wd");
 
 ## variables
 our %commandsrun = ();
-my ($thresh,$frac,$pdffile,$tarfile,$samplename,$totalmapped);
+my ($thresh,$frac,$pdffile,$samplename,$totalmapped);
 
 
 if (!exists($opts{'b'}) || !-e $opts{'b'}) {
@@ -74,12 +73,6 @@ else {
 	$pdffile = "$wd/CoverageReport.pdf";
 }
 
-if (exists($opts{'z'})) {
-	$tarfile = $opts{'z'};
-}
-else {
-	$tarfile = "$wd/Results.tar.gz";
-}
 
 # 1. Global Summary => default
 &GlobalSummary($opts{'b'}, $opts{'t'});
@@ -799,9 +792,6 @@ if (-e "$wd/Targets.Position.Coverage") {
 	system("cp -Rf $wd/Targets.Position.Coverage $wd/Results/");
 }
 
-system("cd $wd  && tar czf '$tarfile' Results/");
-## clean up (galaxy stores outside wd)
-#system("rm -Rf $wd");
 ###############
 ## FUNCTIONS ##
 ###############
