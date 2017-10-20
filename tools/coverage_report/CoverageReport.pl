@@ -160,9 +160,10 @@ print OUT '\documentclass[a4paper,10pt]{article}'."\n";
 print OUT '\usepackage[left=2cm,top=1.5cm,right=1.5cm,bottom=2.5cm,nohead]{geometry}'."\n";
 print OUT '\usepackage{longtable}'."\n";
 print OUT '\usepackage{fancyhdr}'."\n";
-print OUT '\usepackage[latin9]{inputenc}'."\n";
+#print OUT '\usepackage[latin9]{inputenc}'."\n";
+print OUT "\usepackage{fontspec}";
 print OUT '\usepackage{color}'."\n";
-print OUT '\usepackage[pdftex]{graphicx}'."\n";
+#print OUT '\usepackage[pdftex]{graphicx}'."\n";
 print OUT '\definecolor{grey}{RGB}{160,160,160}'."\n";
 print OUT '\definecolor{darkgrey}{RGB}{100,100,100}'."\n";
 print OUT '\definecolor{red}{RGB}{255,0,0}'."\n";
@@ -777,7 +778,7 @@ open OUT, ">>$wd/Report/Report.tex";
 print OUT '\label{endofdoc}'."\n";
 print OUT '\end{document}'."\n";
 close OUT;
-system("cd $wd/Report && pdflatex -interaction=nonstopmode Report.tex > /dev/null 2>&1");
+system("cd $wd/Report && tectonic Report.tex > /dev/null 2>&1");
 
 ## mv report to output file
 system("cp -f $wd/Report/Report.pdf '$pdffile'");
