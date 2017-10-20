@@ -750,12 +750,12 @@ if (exists($opts{'L'})) {
 		my $cs = `cut -f $covcol '$exonfile' `;
 		my @c = split(/\n/,$cs);
 		my ($avg,$med,$min,$max,$first,$third,$ontarget) = arraystats(@c);
-		
+
 		if ($min >= $thresh) {
 			# lowest coverage > threshold => skip
 			next;
 		}
-		
+
 		# print to .tex table 
 		if (length($exon) > 30) {
 			$exon = substr($exon,0,27) . '...';
