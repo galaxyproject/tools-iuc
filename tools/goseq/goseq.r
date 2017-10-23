@@ -11,8 +11,8 @@ suppressPackageStartupMessages({
 option_list <- list(
     make_option(c("-d", "--dge_file"), type="character", help="Path to file with differential gene expression result"),
     make_option(c("-w","--wallenius_tab"), type="character", help="Path to output file with P-values estimated using wallenius distribution."),
-    make_option(c("-s","--sampling_tab"), type="character", default=FALSE, help="Path to output file with P-values estimated using wallenius distribution."),
-    make_option(c("-n","--nobias_tab"), type="character", default=FALSE, help="Path to output file with P-values estimated using wallenius distribution and no correction for gene length bias."),
+    make_option(c("-s","--sampling_tab"), type="character", default=FALSE, help="Path to output file with P-values estimated using sampling distribution."),
+    make_option(c("-n","--nobias_tab"), type="character", default=FALSE, help="Path to output file with P-values estimated using hypergeometric distribution and no correction for gene length bias."),
     make_option(c("-l","--length_bias_plot"), type="character", default=FALSE, help="Path to length-bias plot."),
     make_option(c("-sw","--sample_vs_wallenius_plot"), type="character", default=FALSE, help="Path to plot comparing sampling with wallenius p-values."),
     make_option(c("-r", "--repcnt"), type="integer", default=100, help="Number of repeats for sampling"),
@@ -23,7 +23,9 @@ option_list <- list(
     make_option(c("-p", "--p_adj_method"), default="BH", type="character", help="Multiple hypothesis testing correction method to use"),
     make_option(c("-cat", "--use_genes_without_cat"), default=FALSE, type="logical",
                 help="A large number of gene may have no GO term annotated. If this option is set to FALSE, genes without category will be ignored in the calculation of p-values(default behaviour). If TRUE these genes will count towards the total number of genes outside the tested category (default behaviour prior to version 1.15.2)."),
-    make_option(c("-plots", "--make_plots"), default=FALSE, type="logical", help="produce diagnostic plots?")
+    make_option(c("-plots", "--make_plots"), default=FALSE, type="logical", help="produce diagnostic plots?"),
+    make_option(c("-fc", "--fetch_cats"), default=NULL, type="character", help="Categories to get can include one or more of GO:CC, GO:BP, GO:MF, KEGG"),
+    make_option(c("-rd", "--rdata"), default=NULL, type="character", help="Path to RData output file.")
     )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
@@ -44,15 +46,27 @@ repcnt = args$repcnt
 p_adj_method = args$p_adj_method
 use_genes_without_cat = args$use_genes_without_cat
 make_plots = args$make_plots
+rdata = args$rdata
+
+if (!is.null(args$fetch_cats)) {
+  fetch_cats = unlist(strsplit(args$fetch_cats, ","))
+}
 
 # format DE genes into named vector suitable for goseq
-dge_table = read.delim(dge_file, header = FALSE, sep="\t")
+# check if header is present
+first_line = read.delim(dge_file, header = FALSE, nrow=1)
+second_col = toupper(first_line[, ncol(first_line)])
+if (second_col == TRUE || second_col == FALSE) {
+    dge_table = read.delim(dge_file, header = FALSE, sep="\t")
+} else {
+    dge_table = read.delim(dge_file, header = TRUE, sep="\t")
+}
 genes = as.numeric(as.logical(dge_table[,ncol(dge_table)])) # Last column contains TRUE/FALSE
 names(genes) = dge_table[,1] # Assuming first column contains gene names
 
 # gene lengths, assuming last column
 if (length_file != "FALSE" ) {
-  first_line = read.delim(dge_file, header = FALSE, nrow=1)
+  first_line = read.delim(length_file, header = FALSE, nrow=1)
   if (is.numeric(first_line[, ncol(first_line)])) {
     length_table = read.delim(length_file, header=FALSE, sep="\t", check.names=FALSE)
     } else {
@@ -66,7 +80,7 @@ if (length_file != "FALSE" ) {
 
 # Estimate PWF
 
-if (make_plots == TRUE) {
+if (make_plots != 'false') {
   pdf(length_bias_plot)
 }
 pwf=nullp(genes, genome = genome, id = gene_id, bias.data = gene_lengths, plot.fit=make_plots)
@@ -74,7 +88,7 @@ graphics.off()
 
 # Fetch GO annotations if category_file hasn't been supplied:
 if (category_file == "FALSE") {
-  go_map=getgo(genes = names(genes), genome = genome, id = gene_id, fetch.cats=c("GO:CC", "GO:BP", "GO:MF", "KEGG"))
+  go_map=getgo(genes = names(genes), genome=genome, id=gene_id, fetch.cats=fetch_cats)
   } else {
   # check for header: first entry in first column must be present in genes, else it's a header
   first_line = read.delim(category_file, header = FALSE, nrow=1)
@@ -103,7 +117,13 @@ if (nobias_tab != "" && nobias_tab != "None") {
 
 # Sampling distribution
 if (repcnt > 0) {
+
+  # capture the sampling progress so it doesn't fill stdout  
+  zz <- file("/dev/null", open = "wt")
+  sink(zz)
   GO.samp=goseq(pwf, genome = genome, id = gene_id, method="Sampling", repcnt=repcnt, use_genes_without_cat = use_genes_without_cat, gene2cat=go_map)
+  sink()
+  
   GO.samp$p.adjust.over_represented = p.adjust(GO.samp$over_represented_pvalue, method=p_adj_method)
   GO.samp$p.adjust.under_represented = p.adjust(GO.samp$under_represented_pvalue, method=p_adj_method)
   write.table(GO.samp, sampling_tab, sep="\t", row.names = FALSE, quote = FALSE)
@@ -117,5 +137,11 @@ if (repcnt > 0) {
   graphics.off()
   }
 }
+
+# Output RData file
+if (!is.null(args$rdata)) {
+  save.image(file = "goseq_analysis.RData")
+}
+
 
 sessionInfo()
