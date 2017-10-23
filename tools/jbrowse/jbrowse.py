@@ -294,7 +294,7 @@ def metadata_from_node(node):
         if len(node.findall('dataset')) != 1:
             # exit early
             return metadata
-    except:
+    except Exception:
         return {}
 
     for (key, value) in node.findall('dataset')[0].attrib.items():
@@ -820,7 +820,7 @@ class JbrowseConnector(object):
         for i in symlinks:
             try:
                 os.unlink(i)
-            except:
+            except OSError:
                 pass
 
 
@@ -910,6 +910,12 @@ if __name__ == '__main__':
         })
 
     GALAXY_INFRASTRUCTURE_URL = root.find('metadata/galaxyUrl').text
+    # Sometimes this comes as `localhost` without a protocol
+    if not GALAXY_INFRASTRUCTURE_URL.startswith('http'):
+        # so we'll prepend `http://` and hope for the best. Requests *should*
+        # be GET and not POST so it should redirect OK
+        GALAXY_INFRASTRUCTURE_URL = 'http://' + GALAXY_INFRASTRUCTURE_URL
+
     for track in root.findall('tracks/track'):
         track_conf = {}
         track_conf['trackfiles'] = []
