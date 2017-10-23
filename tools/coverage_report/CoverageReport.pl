@@ -791,6 +791,9 @@ if (-e "$wd/Targets.Position.Coverage") {
 	system("cp -Rf $wd/Targets.Position.Coverage $wd/Results/");
 }
 
+
+exit;
+
 ###############
 ## FUNCTIONS ##
 ###############
