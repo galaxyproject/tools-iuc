@@ -127,7 +127,7 @@ def get_ftp_file(ftp, filename):
     """
     try:
         ftp.retrbinary("RETR " + filename, open(filename, 'wb').write)
-    except:
+    except Exception:
         print("Error")
 
 
