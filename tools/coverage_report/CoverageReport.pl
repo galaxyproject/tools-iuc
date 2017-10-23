@@ -218,7 +218,7 @@ print OUT 'png(file="../Plots/CoverageBoxPlot.png", bg="white", width=240, heigh
 print OUT 'boxplot(coverage,range=1.5,main="Target Region Coverage")'."\n";
 print OUT 'graphics.off()'."\n";
 close OUT;
-system("cd $wd/Rout && Rscript boxplot.R");
+system("cd $wd/Rout && Rscript boxplot.R") == 0 || die "Could not run boxplot.R with following error '$!'\n";
 
 ## global nt coverage plot
 ## use perl to make histogram (lower memory)
@@ -314,7 +314,7 @@ print OUT 'text(1,82,pos=2,col="red",labels=paste("%Bases: ",round(frac.y,2),"%"
 print OUT 'graphics.off()'."\n";
 
 close OUT;
-system("cd $wd/Rout && Rscript ntplot.R");
+system("cd $wd/Rout && Rscript ntplot.R") == 0 || die "Could not run ntplot.R with following error '$!'\n";
 ## PRINT TO .TEX FILE
 open OUT, ">>$wd/Report/Report.tex";
 # average coverage overviews
@@ -442,7 +442,7 @@ if (exists($opts{'r'}) || exists($opts{'s'}) || exists($opts{'S'})) {
 			print OUT 'abline(h=log10('.$thresh.'),lwd=4,col=rgb(255,0,0,100,maxColorValue=255))'."\n";
 			print OUT 'graphics.off()'."\n";
 			close OUT;
-			system("cd $wd/Rout && Rscript barplot.R");
+			system("cd $wd/Rout && Rscript barplot.R") == 0 || die "Could not run barplot.R with following error '$!'\n";
 			if ($scale == 1) {
 				push(@small,'\includegraphics[width=\textwidth,keepaspectratio=true]{../Plots/Coverage_'.$currgroup.'.png}');
 			}
@@ -484,7 +484,7 @@ if (exists($opts{'r'}) || exists($opts{'s'}) || exists($opts{'S'})) {
 		print OUT 'abline(h=log10('.$thresh.'),lwd=4,col=rgb(255,0,0,100,maxColorValue=255))'."\n";
 		print OUT 'graphics.off()'."\n";
 		close OUT;
-		system("cd $wd/Rout && Rscript barplot.R");
+		system("cd $wd/Rout && Rscript barplot.R") == 0 || die "Could not run barplot.R with following error '$!'\n";
 		if ($scale == 1) {
 			push(@small,'\includegraphics[width=\textwidth,keepaspectratio=true]{../Plots/Coverage_'.$currgroup.'.png}');
 		}
@@ -591,7 +591,7 @@ if (exists($opts{'s'})) {
 		print OUT 'graphics.off()'."\n";
 		close OUT;
 		# run R script
-		system("cd $wd/Rout && Rscript exonplot.R");
+		system("cd $wd/Rout && Rscript exonplot.R")== 0 || die "Could not run exonplot.R with following error '$!'\n";
 		# Add to .TEX
 		print TEX '\begin{minipage}{0.5\linewidth}\centering'."\n";
 		print TEX '\includegraphics[width=\textwidth,keepaspectratio=true]{../Plots/Coverage_'.$exonstr.'.png}'."\n";
@@ -690,7 +690,7 @@ if (exists($opts{'S'}) || exists($opts{'A'})) {
 		print OUT 'graphics.off()'."\n";
 		close OUT;
 		# run R script
-		system("cd $wd/Rout && Rscript exonplot.R");
+		system("cd $wd/Rout && Rscript exonplot.R") == 0 || die "Could not run exonplot.R with following error '$!'\n";
 		# Add to .TEX
 		print TEX '\begin{minipage}{0.5\linewidth}\centering'."\n";
 		print TEX '\includegraphics[width=\textwidth,keepaspectratio=true]{../Plots/Coverage_'.$exonstr.'.png}'."\n";
@@ -776,7 +776,7 @@ open OUT, ">>$wd/Report/Report.tex";
 print OUT '\label{endofdoc}'."\n";
 print OUT '\end{document}'."\n";
 close OUT;
-system("cd $wd/Report && tectonic Report.tex > /dev/null 2>&1");
+system("cd $wd/Report && tectonic Report.tex") == 0 || die "Could not run tectonic with following error '$!'\n";
 
 ## mv report to output file
 system("cp -f $wd/Report/Report.pdf '$pdffile'");
