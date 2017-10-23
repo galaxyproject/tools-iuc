@@ -10,8 +10,9 @@
 #       factInput", "i", 2, "character"     -String containing factors if manually input  
 #       annoPath", "a", 2, "character"      -Path to input containing gene annotations
 #       contrastData", "C", 1, "character"  -String containing contrasts of interest
-#       cpmReq", "c", 1, "double"           -Float specifying cpm requirement
-#       sampleReq", "s", 1, "integer"       -Integer specifying cpm requirement  
+#       cpmReq", "c", 2, "double"           -Float specifying cpm requirement
+#       cntReq", "z", 2, "integer"          -Integer specifying minimum total count requirement
+#       sampleReq", "s", 2, "integer"       -Integer specifying cpm requirement
 #       normCounts", "x", 0, "logical"      -String specifying if normalised counts should be output 
 #       rdaOpt", "r", 0, "logical"          -String specifying if RData should be output
 #       lfcReq", "l", 1, "double"           -Float specifying the log-fold-change requirement   
@@ -159,6 +160,8 @@ spec <- matrix(c(
     "annoPath", "a", 2, "character",
     "contrastData", "C", 1, "character",
     "cpmReq", "c", 1, "double",
+    "totReq", "y", 0, "logical",
+    "cntReq", "z", 1, "integer",
     "sampleReq", "s", 1, "integer",
     "normCounts", "x", 0, "logical",
     "rdaOpt", "r", 0, "logical",
@@ -175,6 +178,24 @@ opt <- getopt(spec)
 if (is.null(opt$matrixPath) & is.null(opt$filesPath)) {
     cat("A counts matrix (or a set of counts files) is required.\n")
     q(status=1)
+}
+
+if (is.null(opt$cpmReq)) {
+    filtCPM <- FALSE
+} else {
+    filtCPM <- TRUE
+}
+
+if (is.null(opt$cntReq) || is.null(opt$sampleReq)) {
+    filtSmpCount <- FALSE
+} else {
+    filtSmpCount <- TRUE
+}
+
+if (is.null(opt$totReq)) {
+    filtTotCount <- FALSE
+} else {
+    filtTotCount <- TRUE
 }
 
 if (is.null(opt$lrtOpt)) {
@@ -209,7 +230,7 @@ if (is.null(opt$robOpt)) {
 
 
 if (!is.null(opt$filesPath)) {
-    # Process count files (adapted from DESeq2 wrapper)
+    # Process the separate count files (adapted from DESeq2 wrapper)
     library("rjson")
     parser <- newJSONParser()
     parser$addData(opt$filesPath)
@@ -234,12 +255,12 @@ if (!is.null(opt$filesPath)) {
     rem <- c("sample","filename")
     factors <- sampleTable[, !(names(sampleTable) %in% rem), drop=FALSE]
     
-    #read in count files and create table
+    #read in count files and create single table
     countfiles <- lapply(sampleTable$filename, function(x){read.delim(x, row.names=1)})
     counts <- do.call("cbind", countfiles)
     
 } else {
-    # Process count matrix
+    # Process the single count matrix
     counts <- read.table(opt$matrixPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
     row.names(counts) <- counts[, 1]
     counts <- counts[ , -1]
@@ -296,7 +317,7 @@ for (i in 1:length(contrastData)) {
     topOut[i] <- makeOut(paste0("edgeR_", contrastData[i], ".tsv"))
 }   # Save output paths for each contrast as vectors
 normOut <- makeOut("edgeR_normcounts.tsv")
-rdaOut <- makeOut("RData.rda")
+rdaOut <- makeOut("edgeR_analysis.RData")
 sessionOut <- makeOut("session_info.txt")
 
 # Initialise data for html links and images, data frame with columns Label and 
@@ -322,12 +343,24 @@ if (haveAnno) {
     data$genes <- data.frame(GeneID=row.names(counts))
 }
 
-# Filter out genes that do not have a required cpm in a required number of
-# samples
+# If filter crieteria set, filter out genes that do not have a required cpm/counts in a required number of
+# samples. Default is no filtering
 preFilterCount <- nrow(data$counts)
-sel <- rowSums(cpm(data$counts) > opt$cpmReq) >= opt$sampleReq
-data$counts <- data$counts[sel, ]
-data$genes <- data$genes[sel, , drop=FALSE]
+
+if (filtCPM || filtSmpCount || filtTotCount) {
+
+    if (filtTotCount) {
+        keep <- rowSums(data$counts) >= opt$cntReq
+    } else if (filtSmpCount) {
+        keep <- rowSums(data$counts >= opt$cntReq) >= opt$sampleReq
+    } else if (filtCPM) {
+        keep <- rowSums(cpm(data$counts) >= opt$cpmReq) >= opt$sampleReq
+    }
+
+    data$counts <- data$counts[keep, ]
+    data$genes <- data$genes[keep, , drop=FALSE]
+}
+
 postFilterCount <- nrow(data$counts)
 filteredCount <- preFilterCount-postFilterCount
 
@@ -504,7 +537,7 @@ if (wantRda) {
         save(counts, data, status, labels, factors, fit, res, top, contrasts, design,
                  file=rdaOut, ascii=TRUE)
     }
-    linkData <- rbind(linkData, c("RData.rda", "RData.rda"))
+    linkData <- rbind(linkData, c("edgeR_analysis.RData", "edgeR_analysis.RData"))
 }
 
 # Record session info
@@ -527,7 +560,7 @@ cata("<html>\n")
 
 cata("<body>\n")
 cata("<h3>edgeR Analysis Output:</h3>\n")
-cata("PDF copies of JPEGS available in 'Plots' section.<br />\n")
+cata("Links to PDF copies of plots are in 'Plots' section below.<br />\n")
 
 HtmlImage(imageData$Link[1], imageData$Label[1])
 
@@ -569,9 +602,9 @@ for (i in 1:nrow(linkData)) {
 }
 
 if (wantRda) {
-    cata("<h4>R Data Object:</h4>\n")
+    cata("<h4>R Data Objects:</h4>\n")
     for (i in 1:nrow(linkData)) {
-        if (grepl(".rda", linkData$Link[i])) {
+        if (grepl(".RData", linkData$Link[i])) {
             HtmlLink(linkData$Link[i], linkData$Label[i])
         }
     }
@@ -584,10 +617,22 @@ cata("<p>.tsv files can be viewed in Excel or any spreadsheet program.</p>\n")
 
 cata("<h4>Additional Information</h4>\n")
 cata("<ul>\n")
-if (opt$cpmReq!=0 && opt$sampleReq!=0) {
-    tempStr <- paste("Genes without more than", opt$cpmReq,
+
+if (filtCPM || filtSmpCount || filtTotCount) {
+    if (filtCPM) {
+    tempStr <- paste("Genes without more than", opt$cmpReq,
                                      "CPM in at least", opt$sampleReq, "samples are insignificant",
                                      "and filtered out.")
+    } else if (filtSmpCount) {
+        tempStr <- paste("Genes without more than", opt$cntReq,
+                                     "counts in at least", opt$sampleReq, "samples are insignificant",
+                                     "and filtered out.")
+    } else if (filtTotCount) {
+            tempStr <- paste("Genes without more than", opt$cntReq,
+                                     "counts, after summing counts for all samples, are insignificant",
+                                     "and filtered out.")
+    }
+
     ListItem(tempStr)
     filterProp <- round(filteredCount/preFilterCount*100, digits=2)
     tempStr <- paste0(filteredCount, " of ", preFilterCount," (", filterProp,
@@ -600,7 +645,7 @@ if (wantLRT) {
 } else {
     if (wantRobust) {
         ListItem("The edgeR quasi-likelihood test was used with robust settings (robust=TRUE with estimateDisp and glmQLFit).")
-        } else {
+    } else {
             ListItem("The edgeR quasi-likelihood test was used.")
     }
 }
