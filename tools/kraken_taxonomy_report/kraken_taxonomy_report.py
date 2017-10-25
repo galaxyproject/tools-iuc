@@ -246,7 +246,7 @@ def __main__():
         ranks_to_report = RANK_NAMES_INTS
 
     if options.output:
-        output_fh = open( options.output, 'wb+' )
+        output_fh = open(options.output, 'w')
     else:
         output_fh = sys.stdout
 
