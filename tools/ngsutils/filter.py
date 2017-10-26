@@ -761,10 +761,10 @@ class _TagCompare(object):
             # guess at type...
             try:
                 self.value = int(value)
-            except:
+            except ValueError:
                 try:
                     self.value = float(value)
-                except:
+                except ValueError:
                     self.value = value
 
     def get_value(self, read):

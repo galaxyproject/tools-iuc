@@ -58,7 +58,7 @@ class FastQCRunner(object):
             try:
                 f.readline()
                 ftype = ['gzip']
-            except:
+            except Exception:
                 trimext = True
             f.close()
         elif linf.endswith('bz2') or informat.endswith('.bz2'):
@@ -66,7 +66,7 @@ class FastQCRunner(object):
             try:
                 ftype = ['bzip2']
                 f.readline()
-            except:
+            except Exception:
                 trimext = True
             f.close()
         elif linf.endswith('.zip'):
@@ -76,7 +76,7 @@ class FastQCRunner(object):
             f = open(self.opts.input)
             try:
                 f.readline()
-            except:
+            except Exception:
                 raise Exception("Input file corruption, could not identify the filetype")
             infname = os.path.splitext(infname)[0]
 
