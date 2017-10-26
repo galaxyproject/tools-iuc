@@ -1,7 +1,7 @@
-<tool id="featurecounts" name="featureCounts" version="1.4.6.p5" profile="16.04">
+<tool id="featurecounts" name="featureCounts" version="1.5.3" profile="16.04">
     <description>Measure gene expression in RNA-Seq experiments from SAM or BAM files.</description>
     <requirements>
-        <requirement type="package" version="1.4.6p5">subread</requirement>
+        <requirement type="package" version="1.5.3">subread</requirement>
     </requirements>
 
     <version_command>featureCounts -v 2&gt;&amp;1 | grep .</version_command>
@@ -9,16 +9,16 @@
         ## Check whether all alignments are from the same type (bam || sam)
         featureCounts
             #if $gtf_source.ref_source=="history":
-                -a "$gtf_source.reference_gene_sets"
+                -a '$gtf_source.reference_gene_sets'
             #else:
-                -a "$gtf_source.reference_gene_sets_builtin.fields.path"
+                -a '$gtf_source.reference_gene_sets_builtin.fields.path'
             #end if
 
             -o "output"
             -T \${GALAXY_SLOTS:-2}
 
-            -t "$extended_parameters.gff_feature_type"
-            -g "$extended_parameters.gff_feature_attribute"
+            -t '$extended_parameters.gff_feature_type'
+            -g '$extended_parameters.gff_feature_attribute'
                 $extended_parameters.summarization_level
                 $extended_parameters.contribute_to_multiple_features
             -s  $extended_parameters.strand_specificity
@@ -27,6 +27,13 @@
                 #if str($extended_parameters.multimapping_enabled.multimapping_counts) == " -M"
                     $extended_parameters.multimapping_enabled.fraction
                 #end if
+
+                $extended_parameters.exon_exon_junction_read_counting_enabled.count_exon_exon_junction_reads
+                #if str($extended_parameters.exon_exon_junction_read_counting_enabled.count_exon_exon_junction_reads) == "-J"
+                    -G '$extended_parameters.exon_exon_junction_read_counting_enabled.genome'
+                #end if
+
+                $extended_parameters.long_reads
 
             -Q  $extended_parameters.mapping_quality
                 $extended_parameters.largest_overlap
@@ -53,10 +60,9 @@
                 #end if
 
                 $pe_parameters.only_both_ends
-            -S  $pe_parameters.orientation
                 $pe_parameters.exclude_chimerics
 
-        "${alignment}"
+        '${alignment}'
 
         ## Removal of comment and column-header line
         && grep -v "^#" "output" | tail -n+2 > body.txt
@@ -69,19 +75,23 @@
             ## Thus the gene length column (last column) has to be added separately
             && cut -f 6 body.txt > gene_lengths.txt
             && paste expression_matrix.txt gene_lengths.txt > expression_matrix.txt.bak
-            && mv -f expression_matrix.txt.bak "${output_medium}"
+            && mv -f expression_matrix.txt.bak '${output_medium}'
         #elif $format.value == "tabdel_short"
-            && cut -f 1,7 body.txt > "${output_short}"
+            && cut -f 1,7 body.txt > '${output_short}'
         #else
-            && cp body.txt "${output_full}"
+            && cp body.txt '${output_full}'
         #end if
         
 
         #if str($include_feature_length_file) == "true"
-            && cut -f 1,6 body.txt > "${output_feature_lengths}"
+            && cut -f 1,6 body.txt > '${output_feature_lengths}'
         #end if
 
-        && tail -n+2 "output.summary" > "${output_summary}"
+        #if str($extended_parameters.exon_exon_junction_read_counting_enabled.count_exon_exon_junction_reads) == "-J"
+            && tail -n+2 'output.jcounts' > '${output_jcounts}'
+        #end if
+
+        && tail -n+2 'output.summary' > '${output_summary}'
 
     ]]></command>
     <inputs>
@@ -180,16 +190,6 @@
                    label="Only allow fragments with both reads aligned"
                    help="If specified, only fragments that have both ends successfully aligned will be considered for summarization. This option is only applicable for paired-end reads." />
 
-            <param name="orientation"
-                   type="select"
-                   label="Orientation of the two read from the same pair"
-                   argument="-S"
-                   help="Default is 'fr'">
-                <option value="fr" selected="true">Forward, Reverse (fr)</option>
-                <option value="ff">Forward, Forward (ff)</option>
-                <option value="rf">Reverse, Forward (rf)</option>
-            </param>
-
             <param name="exclude_chimerics"
                 type="boolean"
                 truevalue=" -C"
@@ -268,6 +268,22 @@
                    argument="-Q"
                    label="Minimum mapping quality per read"
                    help="The minimum mapping quality score a read must satisfy in order to be counted. For paired-end reads, at least one end should satisfy this criteria. 12 by default." />
+
+            <conditional name="exon_exon_junction_read_counting_enabled">
+                <param name="count_exon_exon_junction_reads" argument="-J" type="boolean" truevalue="-J" falsevalue=""
+                       label="Exon-exon junctions"
+                       help="If specified, reads supporting each exon-exon junction will be counted" />
+                <when value="-J">
+                    <param name="genome" argument="-G" type="data" format="fasta"
+                           label="Reference sequence (genome) file"
+                           help="The FASTA-format file that contains the reference sequences used in read mapping can be used to improve read counting for junctions" />
+                </when>
+                <when value="" />
+            </conditional>
+
+            <param name="long_reads" argument="-L" type="boolean" truevalue="-L" falsevalue=""
+                   label="Long reads"
+                   help="If specified, long reads such as Nanopore and PacBio reads will be counted. Long read counting can only run in one thread and only reads (not read-pairs) can be counted." />
 
             <param name="largest_overlap"
                    type="boolean"
@@ -373,9 +389,17 @@
         <data format="tabular"
               name="output_feature_lengths"
               label="${tool.name} on ${on_string}: feature lengths">
-              <filter>include_feature_length_file</filter>
+            <filter>include_feature_length_file</filter>
             <actions>
                 <action name="column_names" type="metadata" default="Feature,Length" />
+            </actions>
+        </data>
+
+        <data name="output_jcounts" format="tabular"
+              label="${tool.name} on ${on_string}: junction counts">
+            <filter>extended_parameters.exon_exon_junction_read_counting_enabled.count_exon_exon_junction_reads == " -J"</filter>
+            <actions>
+                <action name="column_names" type="metadata" default="PrimaryGene,SecondaryGene,Site1_chr,Site1_location,Site1_strand,Site2_chr,Site2_location,Site2_strand,${alignment.name}" />
             </actions>
         </data>
     </outputs>
