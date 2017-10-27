@@ -121,7 +121,6 @@ def get_data_table_entries( params, galaxy_data_manager_data_path ):
 
 
 def get_file_content( params, target_directory ):
-    rval = {}
     directory_content = params.get( 'directory_content', [] )
     for content in directory_content:
         target_path = os.path.join( target_directory, content.get( 'subdir', '' ) )
@@ -160,14 +159,13 @@ def main():
 
     params = json.loads( open( filename ).read() )
     target_directory = params[ 'output_data' ][0]['extra_files_path']
-    data_manager_dict = {}
 
     data_table_entries = get_data_table_entries( params['param_dict'], options.galaxy_data_manager_data_path )
 
     # save info to json file
     open( filename, 'wb' ).write( json.dumps( { "data_tables": data_table_entries} ) )
 
-    files_processed = get_file_content( params['param_dict'], target_directory )
+    get_file_content( params['param_dict'], target_directory )
 
 
 if __name__ == "__main__":
