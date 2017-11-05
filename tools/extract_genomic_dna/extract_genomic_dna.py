@@ -83,7 +83,7 @@ for feature in file_iterator:
                     start, end = egdu.convert_gff_coords_to_bed([start, end])
                 if includes_strand_col:
                     strand = fields[strand_col]
-            except:
+            except Exception:
                 warning = "Invalid chrom, start or end column values. "
                 warnings.append(warning)
                 if not invalid_lines:
@@ -131,7 +131,7 @@ for feature in file_iterator:
                     sequence += twobitfile[interval.chrom][interval.start:interval.end]
             else:
                 sequence = twobitfile[chrom][start:end]
-        except:
+        except Exception:
             warning = "Unable to fetch the sequence from '%d' to '%d' for chrom '%s'. " % (start, end - start, chrom)
             warnings.append(warning)
             if not invalid_lines:
@@ -158,8 +158,6 @@ for feature in file_iterator:
     if includes_strand_col and strand == "-":
         sequence = egdu.reverse_complement(sequence)
     if args.output_format == "fasta":
-        l = len(sequence)
-        c = 0
         if input_is_gff:
             start, end = egdu.convert_bed_coords_to_gff([start, end])
         if args.fasta_header_type == "bedtools_getfasta_default":
@@ -177,8 +175,10 @@ for feature in file_iterator:
                 out.write(">%s %s\n" % (meta_data, name))
             else:
                 out.write(">%s\n" % meta_data)
-        while c < l:
-            b = min(c + 50, l)
+        c = 0
+        sequence_length = len(sequence)
+        while c < sequence_length:
+            b = min(c + 50, sequence_length)
             out.write("%s\n" % str(sequence[c:b]))
             c = b
     else:

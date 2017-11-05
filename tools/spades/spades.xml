@@ -1,7 +1,7 @@
-<tool id="spades" name="SPAdes" version="3.10.1">
+<tool id="spades" name="SPAdes" version="3.11.1">
     <description>genome assembler for regular and single-cell projects</description>
     <requirements>
-        <requirement type="package" version="3.10.1">spades</requirement>
+        <requirement type="package" version="3.11.1">spades</requirement>
     </requirements>
     <stdio>
         <exit_code range="1:" />
@@ -74,6 +74,21 @@
     && cat scaffolds.fasta | python '$write_tsv_script' > '$out_scaffold_stats'
     ]]>
     </command>
+    
+    <configfiles>
+        <configfile name="write_tsv_script"><![CDATA[#!/usr/bin/env python
+import sys,re
+search_str = r'^>(NODE|\S+)_(\d+)(?:_|\s)length_(\d+)_cov_(\d+\.*\d*).*\$'
+replace_str = r'\1_\2\t\3\t\4'
+cmd = re.compile(search_str)
+sys.stdout.write('#name\tlength\tcoverage\n')
+for i,line in enumerate(sys.stdin):
+    if cmd.match(line):
+        sys.stdout.write(cmd.sub(replace_str,line))
+]]>
+         </configfile>
+    </configfiles>
+    
     <inputs>
         <param argument="--sc" falsevalue="" help="This option is required for MDA (single-cell) data." label="Single-cell?" name="sc" truevalue="--sc" type="boolean">
             <option value="false">No</option>
@@ -142,20 +157,9 @@
         <param optional="true" format="fasta,fastq" label="Sanger reads" multiple="true" name="sanger_reads" type="data" />
         <param optional="true" format="fasta,fastq" label="Trusted contigs" multiple="true" name="trusted_contigs" type="data" />
         <param optional="true" format="fasta,fastq" label="Untrusted contigs" multiple="true" name="untrusted_contigs" type="data" />
+        <param name="contig_graph_out" type="boolean" checked="False" label="Output final assembly graph (contigs)?" help="Will output the final assembly graph (contigs) in fastg format for visualisation" />
+        <param name="scaffold_graph_out" type="boolean" checked="False" label="Output final assembly graph with scaffolds?" help="Will output the final assembly graph with scaffold information in gfa format for visualisation" />
     </inputs>
-    <configfiles>
-        <configfile name="write_tsv_script"><![CDATA[#!/usr/bin/env python
-import sys,re
-search_str = r'^>(NODE|\S+)_(\d+)(?:_|\s)length_(\d+)_cov_(\d+\.*\d*).*\$'
-replace_str = r'\1_\2\t\3\t\4'
-cmd = re.compile(search_str)
-sys.stdout.write('#name\tlength\tcoverage\n')
-for i,line in enumerate(sys.stdin):
-    if cmd.match(line):
-        sys.stdout.write(cmd.sub(replace_str,line))
-]]>
-         </configfile>
-    </configfiles>
 
     <outputs>
         <data format="tabular" label="${tool.name} on ${on_string}: contig stats" name="out_contig_stats" >
@@ -171,9 +175,15 @@ for i,line in enumerate(sys.stdin):
         <data format="fasta" from_work_dir="contigs.fasta" label="${tool.name} on ${on_string}: contigs (fasta)" name="out_contigs" />
         <data format="fasta" from_work_dir="scaffolds.fasta" label="${tool.name} on ${on_string}: scaffolds (fasta)" name="out_scaffolds" />
         <data format="txt" from_work_dir="spades.log" label="${tool.name} on ${on_string}: log" name="out_log" />
+        <data format="txt" from_work_dir="assembly_graph.fastg" label="${tool.name} on ${on_string}: assembly graph" name="contig_graph">
+            <filter>contig_graph_out</filter>
+        </data>
+        <data format="txt" from_work_dir="assembly_graph_with_scaffolds.gfa" label="${tool.name} on ${on_string}: assembly graph with scaffolds" name="scaffold_graph">
+            <filter>scaffold_graph_out</filter>
+        </data>
     </outputs>
     <tests>
-        <test>
+        <test> <!-- Test 1 - basic test with k=33 -->
             <param name="sc" value="false" />
             <param name="careful" value="false" />
             <param name="kmers" value="33" />
@@ -183,11 +193,11 @@ for i,line in enumerate(sys.stdin):
             <output compare="re_match" file="kmer_33_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
             <output name="out_contig_stats">
                 <assert_contents>
-                    <has_text_matching expression="NODE_1\t1000\t225"/>
+                    <has_text_matching expression="NODE_1\t1000"/>
                 </assert_contents>
             </output>
         </test>
-        <test>
+        <test> <!-- Test 2 - auto k -->
             <param name="sc" value="false" />
             <param name="careful" value="false" />
             <param name="auto_kmer_choice" value="true" />
@@ -196,7 +206,7 @@ for i,line in enumerate(sys.stdin):
             <param ftype="fastq" name="rev_reads" value="ecoli_1K_2.fq" />
             <output compare="re_match" file="auto_kmer_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
         </test>
-        <test>
+        <test> <!-- Test 3 - k=77 -->
             <param name="sc" value="false" />
             <param name="careful" value="false" />
             <param name="kmers" value="77" />
@@ -204,6 +214,32 @@ for i,line in enumerate(sys.stdin):
             <param ftype="fastq" name="fwd_reads" value="ecoli_1K_1.fq" />
             <param ftype="fastq" name="rev_reads" value="ecoli_1K_2.fq" />
             <output compare="re_match" file="kmer_77_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
+        </test>
+        <test> <!-- Test 4 - test for extra graph outputs -->
+            <param name="sc" value="false" />
+            <param name="careful" value="false" />
+            <param name="kmers" value="33" />
+            <param name="lib_type" value="paired_end" />
+            <param ftype="fastq" name="fwd_reads" value="ecoli_1K_1.fq" />
+            <param ftype="fastq" name="rev_reads" value="ecoli_1K_2.fq" />
+            <param name="contig_graph_out" value="true" />
+            <param name="scaffold_graph_out" value="true" />
+            <output compare="re_match" file="kmer_33_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
+            <output name="out_contig_stats">
+                <assert_contents>
+                    <has_text_matching expression="NODE_1\t1000"/>
+                </assert_contents>
+            </output>
+            <output name="contig_graph">
+                <assert_contents>
+                    <has_text text=">EDGE_"/>
+                </assert_contents>
+            </output>
+            <output name="scaffold_graph">
+                <assert_contents>
+                    <has_text text="NODE_"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help>
@@ -231,6 +267,8 @@ Original wrapper developed by Lionel Guy.
 Anton Korobeynikov greatlty helped understanding how SPAdes work, and integrated handy features into SPAdes.
 
 Nicola Soranzo fixed various bugs.
+
+Simon Gladman added fastg optional outputs.
 ]]>
     </help>
     <citations>

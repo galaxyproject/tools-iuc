@@ -166,11 +166,11 @@ def getValueType(val):
         try:
             int(val)
             return 'INTEGER'
-        except:
+        except ValueError:
             try:
                 float(val)
                 return 'REAL'
-            except:
+            except ValueError:
                 return 'TEXT'
     return None
 
