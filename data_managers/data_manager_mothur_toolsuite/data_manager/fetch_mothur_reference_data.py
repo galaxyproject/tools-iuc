@@ -18,6 +18,7 @@ IGNORE_PATHS = ('.', '__MACOSX/', '__')
 # Map file extensions to data table names
 MOTHUR_FILE_TYPES = {".map": "map",
                      ".fasta": "aligndb",
+                     ".align": "aligndb",
                      ".pat": "lookup",
                      ".tax": "taxonomy"}
 
@@ -36,6 +37,18 @@ MOTHUR_REFERENCE_DATA = {
     },
     # RDP reference files
     # http://www.mothur.org/wiki/RDP_reference_files
+    "RDP_v16": {
+        "16S rRNA RDP training set 16":
+        ["https://mothur.org/w/images/d/dc/Trainset16_022016.rdp.tgz", ],
+        "16S rRNA PDS training set 16":
+        ["https://mothur.org/w/images/c/c3/Trainset16_022016.pds.tgz", ],
+    },
+    "RDP_v14": {
+        "16S rRNA RDP training set 14":
+        ["https://mothur.org/w/images/6/6c/Trainset14_032015.rdp.tgz", ],
+        "16S rRNA PDS training set 14":
+        ["https://mothur.org/w/images/8/88/Trainset14_032015.pds.tgz", ],
+    },
     "RDP_v10": {
         "16S rRNA RDP training set 10":
         ["http://www.mothur.org/w/images/b/b5/Trainset10_082014.rdp.tgz", ],
@@ -62,6 +75,16 @@ MOTHUR_REFERENCE_DATA = {
     },
     # Silva reference files
     # http://www.mothur.org/wiki/Silva_reference_files
+    "silva_release_128": {
+        "SILVA release 128":
+        ["https://mothur.org/w/images/b/b4/Silva.nr_v128.tgz",
+         "https://mothur.org/w/images/a/a4/Silva.seed_v128.tgz", ],
+    },
+    "silva_release_123": {
+        "SILVA release 123":
+        ["https://mothur.org/w/images/b/be/Silva.nr_v123.tgz",
+         "https://mothur.org/w/images/1/15/Silva.seed_v123.tgz", ],
+    },
     "silva_release_119": {
         "SILVA release 119":
         ["http://www.mothur.org/w/images/2/27/Silva.nr_v119.tgz",
@@ -359,6 +382,7 @@ def identify_type(filen):
     try:
         return MOTHUR_FILE_TYPES[ext]
     except KeyError:
+        print "WARNING: unknown file type for " + filen + ", skipping"
         return None
 
 
