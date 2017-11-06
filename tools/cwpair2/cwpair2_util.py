@@ -6,7 +6,7 @@ import traceback
 
 import matplotlib
 matplotlib.use('Agg')
-from matplotlib import pyplot  # noqa: E402
+from matplotlib import pyplot  # noqa: I202,E402
 
 # Data outputs
 DETAILS = 'D'

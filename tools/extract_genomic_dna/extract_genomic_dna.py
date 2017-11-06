@@ -8,7 +8,7 @@ import bx.seq.nib
 import bx.seq.twobit
 from bx.intervals.io import Comment, Header
 
-import extract_genomic_dna_utils as egdu  # noqa: I100
+import extract_genomic_dna_utils as egdu  # noqa: I100,I202
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_format', dest='input_format', help="Input dataset format")
