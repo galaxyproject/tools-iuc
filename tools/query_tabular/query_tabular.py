@@ -8,7 +8,6 @@ import os.path
 import sys
 
 from load_db import create_table
-
 from query_db import describe_tables, get_connection, run_query
 
 
