@@ -35,8 +35,8 @@ INDEX_DIR = "indexes"
 
 # Pull the Tool Data Table files from github
 # FIXME: These files should be accessible from the rsync server directly.
-TOOL_DATA_TABLE_CONF_XML_URLS = {'main': "https://raw.githubusercontent.com/galaxyproject/usegalaxy-playbook/master/files/galaxy/usegalaxy.org/config/tool_data_table_conf.xml",
-                                 'test': "https://raw.githubusercontent.com/galaxyproject/usegalaxy-playbook/master/files/galaxy/test.galaxyproject.org/config/tool_data_table_conf.xml" }
+TOOL_DATA_TABLE_CONF_XML_URLS = {'main': "https://raw.githubusercontent.com/galaxyproject/usegalaxy-playbook/master/env/main/files/galaxy/config/tool_data_table_conf.xml",
+                                 'test': "https://raw.githubusercontent.com/galaxyproject/usegalaxy-playbook/master/env/test/files/galaxy/config/tool_data_table_conf.xml" }
 
 # Replace data table source entries with local temporary location
 GALAXY_DATA_CANONICAL_PATH = "/galaxy/data/"
