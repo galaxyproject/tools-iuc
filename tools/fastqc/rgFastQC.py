@@ -61,7 +61,7 @@ class FastQCRunner(object):
             except Exception:
                 trimext = True
             f.close()
-        elif linf.endswith('bz2') or informat.endswith('.bz2'):
+        elif linf.endswith('.bz2') or informat.endswith('.bz2'):
             f = bz2.BZ2File(self.opts.input, 'r')
             try:
                 ftype = ['bzip2']
