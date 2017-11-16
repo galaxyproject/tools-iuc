@@ -53,8 +53,8 @@ class FastQCRunner(object):
         # decompression at upload currently does NOT remove this now bogus ending - fastqc will barf
         # patched may 29 2013 until this is fixed properly
         ftype = mimetypes.guess_type(self.opts.input)
-        #if linf.endswith('.gz') or linf.endswith('.gzip') or ftype[-1] == "gzip" or informat.endswith('.gz'):
-        
+        # if linf.endswith('.gz') or linf.endswith('.gzip') or ftype[-1] == "gzip" or informat.endswith('.gz'):
+
         # informat is the integral datatype of Galaxy ($input.ext)
         if informat.endswith('.gz'):
             f = gzip.open(self.opts.input)
@@ -75,7 +75,7 @@ class FastQCRunner(object):
         elif linf.endswith('.zip'):
             if not zipfile.is_zipfile(self.opts.input):
                 trimext = True
-        
+
         if trimext:
             f = open(self.opts.input)
             try:
