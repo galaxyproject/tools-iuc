@@ -6,14 +6,8 @@ import re
 import sys
 
 from BCBio import GFF
-
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(name='blastxml2gff3')
-
-__author__ = "Eric Rasche"
-__version__ = "0.4.0"
-__maintainer__ = "Eric Rasche"
-__email__ = "esr@tamu.edu"
 
 __doc__ = """
 BlastXML files, when transformed to GFF3, do not normally show gaps in the
@@ -21,32 +15,49 @@ blast hits. This tool aims to fill that "gap".
 """
 
 
-def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
+def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False, include_seq=False):
     from Bio.Blast import NCBIXML
     from Bio.Seq import Seq
     from Bio.SeqRecord import SeqRecord
     from Bio.SeqFeature import SeqFeature, FeatureLocation
 
     blast_records = NCBIXML.parse(blastxml)
-    records = []
-    for record in blast_records:
+    for idx_record, record in enumerate(blast_records):
         # http://www.sequenceontology.org/browser/release_2.4/term/SO:0000343
         match_type = {  # Currently we can only handle BLASTN, BLASTP
             'BLASTN': 'nucleotide_match',
             'BLASTP': 'protein_match',
         }.get(record.application, 'match')
 
-        rec = SeqRecord(Seq("ACTG"), id=record.query)
-        for hit in record.alignments:
-            for hsp in hit.hsps:
+        recid = record.query
+        if ' ' in recid:
+            recid = recid[0:recid.index(' ')]
+
+        rec = SeqRecord(Seq("ACTG"), id=recid)
+        for idx_hit, hit in enumerate(record.alignments):
+            for idx_hsp, hsp in enumerate(hit.hsps):
                 qualifiers = {
+                    "ID": 'b2g.%s.%s.%s' % (idx_record, idx_hit, idx_hsp),
                     "source": "blast",
                     "score": hsp.expect,
                     "accession": hit.accession,
                     "hit_id": hit.hit_id,
                     "length": hit.length,
-                    "hit_titles": hit.title.split(' >')
+                    "hit_titles": hit.title.split(' >'),
                 }
+                if include_seq:
+                    qualifiers.update({
+                        'blast_qseq': hsp.query,
+                        'blast_sseq': hsp.sbjct,
+                        'blast_mseq': hsp.match,
+                    })
+
+                for prop in ('score', 'bits', 'identities', 'positives',
+                             'gaps', 'align_length', 'strand', 'frame',
+                             'query_start', 'query_end', 'sbjct_start',
+                             'sbjct_end'):
+                    qualifiers['blast_' + prop] = getattr(hsp, prop, None)
+
                 desc = hit.title.split(' >')[0]
                 qualifiers['description'] = desc[desc.index(' '):]
 
@@ -62,14 +73,11 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
                 # protein.
                 parent_match_end = hsp.query_start + hit.length + hsp.query.count('-')
 
-                # However, if the user requests that we trim the feature, then
-                # we need to cut the ``match`` start to 0 to match the parent feature.
-                # We'll also need to cut the end to match the query's end. It (maybe)
-                # should be the feature end? But we don't have access to that data, so
-                # We settle for this.
+                # If we trim the left end, we need to trim without losing information.
+                used_parent_match_start = parent_match_start
                 if trim:
                     if parent_match_start < 1:
-                        parent_match_start = 0
+                        used_parent_match_start = 0
 
                 if trim or trim_end:
                     if parent_match_end > hsp.query_end:
@@ -77,7 +85,7 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
 
                 # The ``match`` feature will hold one or more ``match_part``s
                 top_feature = SeqFeature(
-                    FeatureLocation(parent_match_start, parent_match_end),
+                    FeatureLocation(used_parent_match_start, parent_match_end),
                     type=match_type, strand=0,
                     qualifiers=qualifiers
                 )
@@ -87,19 +95,15 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
                     "source": "blast",
                 }
                 top_feature.sub_features = []
-                for start, end, cigar in generate_parts(hsp.query, hsp.match,
-                                                        hsp.sbjct,
-                                                        ignore_under=min_gap):
+                for idx_part, (start, end, cigar) in \
+                        enumerate(generate_parts(hsp.query, hsp.match,
+                                                 hsp.sbjct,
+                                                 ignore_under=min_gap)):
                     part_qualifiers['Gap'] = cigar
-                    part_qualifiers['ID'] = hit.hit_id
+                    part_qualifiers['ID'] = qualifiers['ID'] + ('.%s' % idx_part)
 
-                    if trim:
-                        # If trimming, then we start relative to the
-                        # match's start
-                        match_part_start = parent_match_start + start
-                    else:
-                        # Otherwise, we have to account for the subject start's location
-                        match_part_start = parent_match_start + hsp.sbjct_start + start - 1
+                    # Otherwise, we have to account for the subject start's location
+                    match_part_start = parent_match_start + hsp.sbjct_start + start - 1
 
                     # We used to use hsp.align_length here, but that includes
                     # gaps in the parent sequence
@@ -117,8 +121,7 @@ def blastxml2gff3(blastxml, min_gap=3, trim=False, trim_end=False):
 
                 rec.features.append(top_feature)
         rec.annotations = {}
-        records.append(rec)
-    return records
+        yield rec
 
 
 def __remove_query_gaps(query, match, subject):
@@ -253,11 +256,13 @@ def cigar_from_string(query, match, subject, strict_m=True):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert Blast XML to gapped GFF3', epilog='')
-    parser.add_argument('blastxml', type=open, help='Blast XML Output')
+    parser.add_argument('blastxml', type=argparse.FileType("r"), help='Blast XML Output')
     parser.add_argument('--min_gap', type=int, help='Maximum gap size before generating a new match_part', default=3)
     parser.add_argument('--trim', action='store_true', help='Trim blast hits to be only as long as the parent feature')
     parser.add_argument('--trim_end', action='store_true', help='Cut blast results off at end of gene')
+    parser.add_argument('--include_seq', action='store_true', help='Include sequence')
     args = parser.parse_args()
 
-    result = blastxml2gff3(**vars(args))
-    GFF.write(result, sys.stdout)
+    for rec in blastxml2gff3(**vars(args)):
+        if len(rec.features):
+            GFF.write([rec], sys.stdout)
