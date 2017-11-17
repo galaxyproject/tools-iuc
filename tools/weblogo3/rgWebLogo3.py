@@ -4,6 +4,7 @@
 # wrapper to check that all fasta files are same length
 
 """
+from __future__ import print_function
 import optparse
 import os
 import subprocess
