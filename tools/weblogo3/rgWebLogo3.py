@@ -1,9 +1,7 @@
-"""
 # modified june 2 ross lazarus to add units option at Assaf Gordon's suggestion
 # rgWebLogo3.py
 # wrapper to check that all fasta files are same length
 
-"""
 from __future__ import print_function
 
 import optparse
@@ -40,7 +38,7 @@ class WL3:
         wl = self.whereis(WEBLOGO)
         if not wl:
             print('## rgWebLogo3.py error - cannot locate the weblogo binary %s on the current path' % (WEBLOGO), file=sys.stderr)
-            print('## Please ensure it is installed and working from http://code.google.com/p/weblogo', file=sys.stderr)
+            print('## Please ensure it is installed and working from https://github.com/weblogo/weblogo', file=sys.stderr)
             sys.exit(1)
         cll = [WEBLOGO, ]
         cll += [' '.join(it) for it in list(self.clparams.items())]
@@ -60,7 +58,7 @@ class WL3:
         if rval != 0:
             print('## rgWebLogo3.py error - executing %s returned error code %d' % (cl, rval), file=sys.stderr)
             print('## This may be a data problem or a tool dependency (%s) installation problem' % WEBLOGO, file=sys.stderr)
-            print('## Please ensure %s is correctly installed and working on the command line -see http://code.google.com/p/weblogo' % WEBLOGO, file=sys.stderr)
+            print('## Please ensure %s is correctly installed and working on the command line -see https://github.com/weblogo/weblogo' % WEBLOGO, file=sys.stderr)
             sys.exit(1)
         return s
 
@@ -133,16 +131,6 @@ class WL3:
 
 
 if __name__ == '__main__':
-    '''
-    called as
-<command interpreter="python">
-    rgWebLogo3.py --outformat $outformat -s $size -i $input -o $output -t "$logoname" -c "$colours"
-#if $range.mode == 'part'
--l "$range.seqstart" -u "$range.seqend"
-#end if
-    </command>
-
-    '''
     op = optparse.OptionParser()
     op.add_option('-i', '--input', default=None)
     op.add_option('-F', '--outformat', default='png')
