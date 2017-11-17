@@ -37,7 +37,7 @@ class WL3:
         """
         wl = self.whereis(WEBLOGO)
         if not wl:
-            print('## rgWebLogo3.py error - cannot locate the weblogo binary %s on the current path' % WEBLOGO, file=sys.stderr)
+            print('## rgWebLogo3.py error - cannot locate the weblogo binary %s on the current path' % (WEBLOGO), file=sys.stderr)
             print('## Please ensure it is installed and working from http://code.google.com/p/weblogo', file=sys.stderr)
             sys.exit(1)
         cll = [WEBLOGO, ]
