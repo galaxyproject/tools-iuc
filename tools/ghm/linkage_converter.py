@@ -577,8 +577,6 @@ class Genehunter(Converter):
     def extractLOD(self, file):
 
         pos_lod = {}  # pos -> lod
-        gt_line = ""
-        num_peds = 0
 
         with open(file, 'r') as fio:
             # Jump to marker positions
