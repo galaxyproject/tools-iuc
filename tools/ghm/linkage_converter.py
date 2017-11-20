@@ -1,7 +1,7 @@
 #!/usr/bin/env python2
 from bisect import bisect_left
 from getopt import getopt
-from sys import stderr, argv
+from sys import argv, stderr
 
 
 class Converter:
