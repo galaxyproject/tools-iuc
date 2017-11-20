@@ -118,6 +118,9 @@ class FastQCRunner(object):
 
         # retrieve html file
         result_file = glob.glob(self.opts.outputdir + '/*html')
+        print "----",self.opts.outputdir + '/*html'
+        print result_file
+        print "----"
         with open(result_file[0], 'rb') as fsrc:
             with open(self.opts.htmloutput, 'wb') as fdest:
                 shutil.copyfileobj(fsrc, fdest)
@@ -141,9 +144,10 @@ class FastQCRunner(object):
         sout.write(self.command_line)
         sout.write('\n')
         sout.write("Creating symlink\n")  # between the input (.dat) file and the given input file name
-        os.symlink(self.opts.input, self.fastqinfilename)
+        #os.symlink(self.opts.input, self.fastqinfilename)
         sout.write("check_call\n")
-        subprocess.check_call(self.command_line, shell=True)
+        print self.command_line
+        #subprocess.check_call(self.command_line, shell=True)
         sout.write("Copying working %s file to %s \n" % (self.fastqinfilename, self.opts.htmloutput))
         self.copy_output_file_to_dataset()
         sout.write("Finished")
