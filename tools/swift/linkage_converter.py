@@ -1,7 +1,8 @@
 #!/usr/bin/env python2
 from bisect import bisect_left
 from getopt import getopt
-from sys import stderr, argv
+from sys import argv, stderr
+
 
 class Converter:
     """
@@ -17,7 +18,7 @@ class Converter:
 
         self.haplo_map = {}  # fam_id -> indiv_id -> (all1,all2)
         self.descent_map = {}
-        self.pos_marker = {} # genpos -> marker
+        self.pos_marker = {}  # genpos -> marker
         self.marker_order = []
         self.lod_array = []
         self.pedigree = {}
@@ -34,21 +35,22 @@ class Converter:
                 if f_id not in self.pedigree:
                     self.pedigree[f_id] = {}
                 if p_id not in self.pedigree:
-                    self.pedigree[f_id][p_id] = (father, mother, gender, affect)
+                    self.pedigree[f_id][p_id] = (
+                        father, mother, gender, affect
+                    )
                 else:
                     print >> stderr, "Duplicate individual:", f_id, p_id
                     exit(-1)
 
     def __populateMarkerMap(self, mapin):
         with open(mapin, "r") as mio:
-            mio.readline() # chomp header
+            mio.readline()  # chomp header
 
             for line in mio:
                 chrom, gpos, marker, ppos, nr = Converter.tokenizer(line)
                 marker = marker.strip()
                 self.pos_marker[float(gpos)] = marker
                 self.marker_order.append(marker)
-
 
     def __annotateClosestMarker(self, pos_lod):
 
@@ -82,9 +84,10 @@ class Converter:
 
         return keys_to_annotate, pos_lod_array
 
-
     def makeLODArray(self, pos_lod):
-        postns_with_closest_markers, sorted_poslod = self.__annotateClosestMarker(pos_lod)
+        (
+            postns_with_closest_markers, sorted_poslod
+        ) = self.__annotateClosestMarker(pos_lod)
 
         # update map with marker info
         for pos in sorted_poslod:
@@ -95,8 +98,7 @@ class Converter:
             lod, alpha, hlod = pos_lod[pos]
             self.lod_array.append((pos, lod, alpha, hlod, marker))
 
-
-    def __generateHeaders(self, npad_left = 10):
+    def __generateHeaders(self, npad_left=10):
         marker_order = self.marker_order
         max_len = -1
         markerpadd = []
@@ -111,8 +113,12 @@ class Converter:
 
         # transpose
         buffer_left = ("%%%ds" % npad_left) % " "
-        return '\n'.join([buffer_left + "  ".join(x) for x in zip(*markerpadd)][::-1])
-
+        return '\n'.join(
+            [
+                buffer_left + "  ".join(x)
+                for x in zip(*markerpadd)
+            ][::-1]
+        )
 
     @staticmethod
     def tokenizer(line):
@@ -155,10 +161,15 @@ class Converter:
         self.writeHaplo(True)
 
     def writeHaplo(self, descent=False):
-        out_file = open(self.out_haplo if not descent else self.out_descent, "w")
+        out_file = open(self.out_haplo
+                        if not descent
+                        else self.out_descent, "w")
+
         map_map = self.haplo_map if not descent else self.descent_map
 
-        dummy_l = Converter.haplo_individual_buffer % (1,1,1,1,1,1) # *range(6) (unpack in py3 only...)
+        dummy_l = Converter.haplo_individual_buffer % (
+            1, 1, 1, 1, 1, 1
+        )  # *range(6) (unpack in py3 only...)
         headers = self.__generateHeaders(len(dummy_l)) + '\n'
         print >> out_file, headers
 
@@ -172,8 +183,12 @@ class Converter:
                     fam_id, indiv_id, father, mother, gender, affect
                 )
 
-                print >> out_file, indiv_data + " ".join(map(lambda x: "%-2d" % x, alleles[0]))
-                print >> out_file, indiv_data + " ".join(map(lambda x: "%-2d" % x, alleles[1]))
+                print >> out_file, indiv_data + " ".join(map(
+                    lambda x: "%-2d" % x, alleles[0]
+                ))
+                print >> out_file, indiv_data + " ".join(map(
+                    lambda x: "%-2d" % x, alleles[1]
+                ))
         out_file.close()
         print >> stderr, "Wrote: ", out_file.name
 
@@ -190,24 +205,22 @@ class Swiftlink(Converter):
                     pos, lod = map(float, Converter.tokenizer(line)[1:])
                     pos_lod[pos] = (lod, 1, 0)
 
-
         self.makeLODArray(pos_lod)
 
 
 class Merlin(Converter):
 
     def extractDescent(self, file1):
-        self.extractHaplo(file1, True)     
+        self.extractHaplo(file1, True)
 
     def extractHaplo(self, file1, use_flow=False):
         ped_map = {}
-        
+
         tmp = [
             None,  # fam id
             [],    # [individuals]
             []     # [assosciated allele pairs]
         ]
-
 
         def flushTmpData(tmp):
             # finish populating alleles
@@ -225,12 +238,13 @@ class Merlin(Converter):
                     ped_map[fam_id] = {}
 
                 if perc_id not in ped_map[fam_id]:
-                    ped_map[fam_id][perc_id] = (perc_alleles[0], perc_alleles[1])
+                    ped_map[fam_id][perc_id] = (
+                        perc_alleles[0], perc_alleles[1]
+                    )
 
             # clear
             tmp[1] = []
             tmp[2] = []
-
 
         with open(file1, 'r') as fio:
 
@@ -245,7 +259,10 @@ class Merlin(Converter):
                 if len(tmp[1]) == 0:  # hunt names after a flush
                     if line.find("(") != -1 and line.find(")") != -1:
 
-                        people = [x.strip() for x in line.splitlines()[0].split("  ") if x.strip()!=""]
+                        people = [
+                            x.strip() for x in line.splitlines()[0].split("  ")
+                            if x.strip() != ""
+                        ]
 
                         for p in range(len(people)):
                             perc = people[p].split(" ")
@@ -253,7 +270,7 @@ class Merlin(Converter):
 
                             # Add new perc to tmp array with blank alleles
                             tmp[1].append(perc_id)
-                            tmp[2].append([[],[]])
+                            tmp[2].append([[], []])
                     #
                     continue
 
@@ -263,7 +280,10 @@ class Merlin(Converter):
                     flushTmpData(tmp)
                     continue
 
-                multiple_alleles = [x.strip() for x in trimmed.split("   ") if x.strip()!=""]
+                multiple_alleles = [
+                    x.strip() for x in trimmed.split("   ")
+                    if x.strip() != ""
+                ]
 
                 if len(multiple_alleles) != len(tmp[1]):
                     print >> stderr, "Num alleles and num percs mismatch"
@@ -275,15 +295,23 @@ class Merlin(Converter):
 
                     if not use_flow:
                         # pick first phasing
-                        left_b_right[0] = int(left_b_right[0].split(",")[0].replace("A","").replace("?","0"))
-                        left_b_right[2] = int(left_b_right[2].split(",")[0].replace("A","").replace("?","0"))
+                        left_b_right[0] = int(
+                            left_b_right[0]
+                            .split(",")[0]
+                            .replace("A", "").replace("?", "0")
+                        )
+                        left_b_right[2] = int(
+                            left_b_right[2]
+                            .split(",")[0]
+                            .replace("A", "").replace("?", "0")
+                        )
                     else:
                         # convert letters to numbers (A - Z)
                         left_b_right[0] = ord(left_b_right[0]) - 64
                         left_b_right[2] = ord(left_b_right[2]) - 64
 
-                    tmp[2][a][0].append( left_b_right[0] )
-                    tmp[2][a][1].append( left_b_right[2] )
+                    tmp[2][a][0].append(left_b_right[0])
+                    tmp[2][a][1].append(left_b_right[2])
 
             flushTmpData(tmp)
 
@@ -292,15 +320,14 @@ class Merlin(Converter):
         else:
             self.haplo_map = ped_map
 
-
     def extractLOD(self, file1):
-
         pos_lod = {}
-        pos_all = {}
 
         with open(file1, 'r') as fio:
             line = ""
-            while not line.startswith("       POSITION        LOD      ALPHA       HLOD"):
+            while not line.startswith(
+                    "       POSITION        LOD      ALPHA       HLOD"
+            ):
                 line = fio.readline()
 
             tokens = Converter.tokenizer(fio.readline())
@@ -318,7 +345,7 @@ class Merlin(Converter):
 
                 pos_lod[gpos] = (lod, alph, hlod)
                 tokens = Converter.tokenizer(fio.readline())
-                
+
         self.makeLODArray(pos_lod)
 
 
@@ -335,7 +362,7 @@ class Simwalk(Converter):
         # clear marker map
         self.pos_marker = {}
         self.marker_order = []
-        
+
         hio = open(hef, 'r')
 
         # extract markerloci
@@ -351,20 +378,19 @@ class Simwalk(Converter):
 
                 if len(tokens) != 4:
                     break
-                
+
                 gpos = float(tokens[2])
                 marker = tokens[0].strip()
                 self.pos_marker[gpos] = marker
                 self.marker_order.append(marker)
-                
 
         tmp = {
-            "_fam"  : None,
-            "_perc" : None,
-            "_allpat" : [],  # alleles
-            "_allmat" : [],  #
-            "_decpat" : [],  # descent
-            "_decmat" : []
+            "_fam": None,
+            "_perc": None,
+            "_allpat": [],  # alleles
+            "_allmat": [],  #
+            "_decpat": [],  # descent
+            "_decmat": []
         }
 
         def insertDat():
@@ -390,8 +416,6 @@ class Simwalk(Converter):
                 tmp["_decmat"] = []
                 tmp["_decpat"] = []
 
-
-        
         dashedlines_found = False
 
         for line in hio:
@@ -411,26 +435,28 @@ class Simwalk(Converter):
             tokens = line.splitlines()[0].split()
 
             if tmp["_fam"] is not None and len(tokens) == 5:
-                insertDat()                
+                insertDat()
                 tmp["_perc"] = int(tokens[0])
 
             # Allele data
-            if tmp["_fam"] is not None and tmp["_perc"] is not None and len(tokens) == 6:
+            if (
+                    tmp["_fam"] is not None and
+                    tmp["_perc"] is not None and
+                    len(tokens) == 6
+            ):
                 tokens = map(int, tokens)
 
-                tmp["_allpat"].append( tokens[0] )
-                tmp["_allmat"].append( tokens[1] )
-                tmp["_decpat"].append( tokens[2] )
-                tmp["_decmat"].append( tokens[3] )
+                tmp["_allpat"].append(tokens[0])
+                tmp["_allmat"].append(tokens[1])
+                tmp["_decpat"].append(tokens[2])
+                tmp["_decmat"].append(tokens[3])
 
         hio.close()
         insertDat()
-        
-
 
     def extractLOD(self, scorefile):
         # This code is terrible, but simwalk is a horrible format
-        
+
         pos_marker_lod = {}
         sio = open(scorefile, 'r')
 
@@ -439,7 +465,6 @@ class Simwalk(Converter):
             line = sio.readline()
 
         sio.readline()  # skip empty
-
 
         recomb_fracts = False
         map_headers = False
@@ -451,7 +476,7 @@ class Simwalk(Converter):
 
         for line in sio:
             if not recomb_fracts:
-                if line[:2] == "__":                       
+                if line[:2] == "__":
                     recomb_fracts = True
                     continue
 
@@ -475,7 +500,9 @@ class Simwalk(Converter):
                 pos_marker_lod[current_marker][gpos] = (lod, 1, hlod)
 
             else:
-                if line.startswith("Haldane cM   NAME     FRACTION    OBSERVED & EXPECTED"):
+                if line.startswith(
+                        "Haldane cM   NAME     FRACTION    OBSERVED & EXPECTED"
+                ):
                     map_headers = True
                     continue
 
@@ -490,7 +517,7 @@ class Simwalk(Converter):
                     gpos, marker = tokens
                     gpos = float(gpos)
                     self.pos_marker[gpos] = marker
-                    
+
                     offset_map = pos_marker_lod[marker]
 
                     for relative_gpos in offset_map:
@@ -532,9 +559,11 @@ class Genehunter(Converter):
                             return True
 
                         indiv_id = int(indiv_all1[0])
-                           
+
                         if len(indiv_all1) != len(indiv_all2) + 4:
-                            print >> stderr, "Allele mismatch for indiv", fam_id, indiv_id
+                            print >> stderr, (
+                                "Allele mismatch for indiv",
+                                fam_id, indiv_id)
                             exit(-1)
 
                         self.haplo_map[fam_id][indiv_id] = (
@@ -545,13 +574,9 @@ class Genehunter(Converter):
                 hio.close()
                 return True
 
-
-
     def extractLOD(self, file):
 
         pos_lod = {}  # pos -> lod
-        gt_line = ""
-        num_peds = 0
 
         with open(file, 'r') as fio:
             # Jump to marker positions
@@ -578,8 +603,9 @@ class Genehunter(Converter):
             line = fio.readline()
 
             while len(line) != 1:
-                #print len(line), line
-                gpos, lod, alpha, hlod, npl, pval, info = Converter.tokenizer(line)
+                # print len(line), line
+                (gpos, lod, alpha, hlod,
+                 npl, pval, info) = Converter.tokenizer(line)
                 gpos = float(gpos)
 
                 if lod == "-INFINITY":
@@ -587,7 +613,7 @@ class Genehunter(Converter):
                 lod = float(lod)
 
                 alpha = float(alpha.split("(")[-1].split(",")[0])
-                hlod  = float(hlod.split(")")[0])
+                hlod = float(hlod.split(")")[0])
 
                 # insert
                 if gpos not in pos_lod:
