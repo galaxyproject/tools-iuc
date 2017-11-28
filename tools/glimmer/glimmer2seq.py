@@ -5,6 +5,7 @@ Output: ORF sequences as FASTA file
 Author: Bjoern Gruening
 """
 import sys
+
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 
@@ -33,9 +34,9 @@ def glimmer2seq(glimmer_prediction=sys.argv[1], genome_sequence=sys.argv[2], out
 
             orf_name = line[0:8]
             if orf_start <= orf_end:
-                seq_records.append(SeqRecord(entry.seq[orf_start-1:orf_end], id=orf_name, description=entry.description))
+                seq_records.append(SeqRecord(entry.seq[orf_start - 1:orf_end], id=orf_name, description=entry.description))
             else:
-                seq_records.append(SeqRecord(entry.seq[orf_end-1:orf_start].reverse_complement(), id=orf_name, description=entry.description))
+                seq_records.append(SeqRecord(entry.seq[orf_end - 1:orf_start].reverse_complement(), id=orf_name, description=entry.description))
 
     SeqIO.write(seq_records, outfile, "fasta")
     glimmerfile.close()

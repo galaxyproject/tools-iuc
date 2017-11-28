@@ -11,6 +11,7 @@
 
 import sys
 from optparse import OptionParser
+
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
