@@ -7,7 +7,7 @@ JBrowse in Galaxy
 Thus, it makes an ideal fit with Galaxy, especially for use as a
 workflow summary. E.g. annotate a genome, then visualise all of the
 associated datasets as an interactive HTML page. This tool MUST be whitelisted
-(or ``sanitize_all_html=False``) to function correctly.
+(or ``sanitize_all_html=False`` in galaxy.ini) to function correctly.
 
 Installation
 ============
@@ -17,7 +17,7 @@ It is recommended to install this wrapper via the Galaxy Tool Shed.
 Running Locally
 ===============
 
-The Galaxy tool interface writes out a yaml file which is then used to generate
+The Galaxy tool interface writes out a xml file which is then used to generate
 the visualizations. An example used during development/testing can be seen in
 `test-data/*/test.xml`. The format is in no way rigorously defined and is
 likely to change at any time! Beware. ;)
@@ -25,6 +25,8 @@ likely to change at any time! Beware. ;)
 History
 =======
 
+-  0.7 Support for plugins (currently GC Content, Bookmarks, ComboTrackSelector),
+   track metadata
 -  0.5.2 Support for CanvasFeatures options.
 -  0.5.1 Support for contextual menus. Conda tests.
 -  0.5 Update existing instances on disk. Index names. Support HTML tracks
