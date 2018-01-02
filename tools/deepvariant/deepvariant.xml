@@ -7,15 +7,22 @@
     <command detect_errors="aggressive"><![CDATA[
         mkdir -p logs/ &&
         mkdir -p output.examples.tfrecord/ &&
-        ln -s '${reads_input}' temp_reads_input.bam &&
-        ln -s '${reads_input.metadata.bam_index}' temp_reads_input.bam.bai &&
-        ln -s '${ref_input}' temp_ref_input.fasta &&
-        samtools faidx temp_ref_input.fasta &&
+
+        ln -s '${reads}' temp_reads_input.bam &&
+        ln -s '${reads.metadata.bam_index}' temp_reads_input.bam.bai &&
+
+        #set $reference_fasta_filename = "localref.fa"
+        #if str( $reference_source.reference_source_selector ) == "history":
+            ln -s '${reference_source.ref}' '${reference_fasta_filename}' &&
+            samtools faidx "${reference_fasta_filename}" 2>&1 || echo "Error running samtools faidx for leftalign" >&2 &&
+        #else:
+            #set $reference_fasta_filename = str( $reference_source.ref.fields.path )
+        #end if
 
         dv_make_examples.py
             --cores \${GALAXY_SLOTS:-2}
             --sample '${sample}'
-            --ref temp_ref_input.fasta
+            --ref '${reference_fasta_filename}'
             --reads temp_reads_input.bam
             --examples output.examples.tfrecord
             --regions '${regions}'
@@ -28,16 +35,38 @@
             --examples output.examples.tfrecord
         &&
         dv_postprocess_variants.py
-            --ref temp_ref_input.fasta
+            --ref '${reference_fasta_filename}'
             --infile call_variants_output.tfrecord
             --outfile '${output}'
+        &&
+        ## get logs into stdout
+        cat logs/*
 ]]>
     </command>
     <inputs>
-        <param name="reads_input" type="data" format="bam" label="Reads file"
-            help="Aligned, sorted, indexed BAM file containing the reads we want to call. Should be aligned to a reference genome compatible with the reference file."/>
-        <param name="ref_input" type="data" format="fasta" label="Reference file"
-               help="Genome reference to use. Should match the reference used to align the BAM file provided in the reads file."/>
+        <conditional name="reference_source">
+            <param name="reference_source_selector" type="select" label="Choose the source for the reference genome">
+                <option value="cached">Locally cached</option>
+                <option value="history">History</option>
+            </param>
+            <when value="cached">
+                <param argument="--reads" type="data" format="bam" label="Select alignment file in BAM format"
+                       help="Aligned, sorted, indexed BAM file containing the reads we want to call. Should be aligned to a reference genome compatible with the reference file.">
+                    <validator type="unspecified_build" />
+                    <validator type="dataset_metadata_in_data_table" table_name="fasta_indexes" metadata_name="dbkey"
+                               metadata_column="1" message="Sequences are not currently available for the specified build." />
+                </param>
+                <param  argument="--ref" type="select" label="Using reference genome">
+                    <options from_data_table="fasta_indexes"></options>
+                    <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file"/>
+                </param>
+            </when>
+            <when value="history"> 
+                <param argument="--reads" type="data" format="bam" label="Reads in BAM format"
+                       help="Aligned, sorted, indexed BAM file containing the reads we want to call. Should be aligned to a reference genome compatible with the reference file." />
+                <param argument="--ref" type="data" format="fasta" label="Using reference file" />
+            </when>
+        </conditional>
         <param name="sample" type="text" label="Sample"/>
         <param name="regions" type="text" label="Limit to specific regions" help="example: chr20:10,000,000-10,010,000"/>
     </inputs>
@@ -46,8 +75,9 @@
     </outputs>
     <tests>
         <test>
-            <param name="reads_input" value="NA12878_S1.chr20.10_10p1mb.bam" />
-            <param name="ref_input" value="ucsc.hg19.chr20.unittest.fasta" />
+            <param name="reference_source_selector" value="history" />
+            <param name="reads" value="NA12878_S1.chr20.10_10p1mb.bam" />
+            <param name="ref" value="ucsc.hg19.chr20.unittest.fasta" ftype="fasta" />
             <param name="sample" value="xyz" />
             <param name="regions" value="chr20:10,000,000-10,010,000" />
             <output name="output" file="output.vcf" />
