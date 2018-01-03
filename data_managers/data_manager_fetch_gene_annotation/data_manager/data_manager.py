@@ -1,15 +1,15 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 import argparse
+import bz2
 import datetime
+import gzip
 import json
 import os
+import shutil
 import sys
 import uuid
-import shutil
 import zipfile
-import bz2
-import gzip
 
 
 # Nice solution to opening compressed files (zip/bz2/gz) transparently
@@ -73,12 +73,14 @@ def get_compressed_file(filename):
 
         return None
 
+
 try:
     # For Python 3.0 and later
     from urllib.request import urlretrieve
 except ImportError:
     # Fall back to Python 2's urllib2
     from urllib import urlretrieve
+
 
 def url_download(url):
     """Attempt to download gene annotation file from a given url
