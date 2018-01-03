@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
 import argparse
 import datetime
 import json
@@ -5,10 +7,15 @@ import os
 import sys
 import uuid
 import shutil
+import zipfile
+import bz2
+import gzip
+
 
 # Nice solution to opening compressed files (zip/bz2/gz) transparently
 # https://stackoverflow.com/a/13045892/638445
-class CompressedFile (object):
+
+class CompressedFile(object):
     magic = None
     file_type = None
     mime_type = None
@@ -26,9 +33,8 @@ class CompressedFile (object):
     def open(self):
         return None
 
-import zipfile
 
-class ZIPFile (CompressedFile):
+class ZIPFile(CompressedFile):
     magic = '\x50\x4b\x03\x04'
     file_type = 'zip'
     mime_type = 'compressed/zip'
@@ -36,9 +42,8 @@ class ZIPFile (CompressedFile):
     def open(self):
         return zipfile.ZipFile(self.f)
 
-import bz2
 
-class BZ2File (CompressedFile):
+class BZ2File(CompressedFile):
     magic = '\x42\x5a\x68'
     file_type = 'bz2'
     mime_type = 'compressed/bz2'
@@ -46,9 +51,8 @@ class BZ2File (CompressedFile):
     def open(self):
         return bz2.BZ2File(self.f)
 
-import gzip
 
-class GZFile (CompressedFile):
+class GZFile(CompressedFile):
     magic = '\x1f\x8b\x08'
     file_type = 'gz'
     mime_type = 'compressed/gz'
@@ -69,7 +73,6 @@ def get_compressed_file(filename):
 
         return None
 
-
 try:
     # For Python 3.0 and later
     from urllib.request import urlretrieve
@@ -86,36 +89,31 @@ def url_download(url):
     """
 
     # Generate file_name
-    file_name = url.split("/")[-1]
+    file_name = url.split('/')[-1]
 
     try:
-       # download URL (FTP and HTTP work, probably local and data too)
-       urlretrieve(url, file_name)
+        # download URL (FTP and HTTP work, probably local and data too)
+        urlretrieve(url, file_name)
 
-       # uncompress file if needed
-       cf = get_compressed_file(file_name)
-       if cf is not None:
-           uncompressed_file_name = os.path.splitext(file_name)[0]
-           with open(uncompressed_file_name, "w+") as uncompressed_file:
-               shutil.copyfileobj(cf.accessor, uncompressed_file)
-           os.remove(file_name)
-           file_name = uncompressed_file_name
-    except (IOError) as e:
-       sys.stderr.write("Error occured downloading reference file: %s" % e)
-       os.remove(file_name)
-
+        # uncompress file if needed
+        cf = get_compressed_file(file_name)
+        if cf is not None:
+            uncompressed_file_name = os.path.splitext(file_name)[0]
+            with open(uncompressed_file_name, 'w+') as uncompressed_file:
+                shutil.copyfileobj(cf.accessor, uncompressed_file)
+            os.remove(file_name)
+            file_name = uncompressed_file_name
+    except IOError, e:
+        sys.stderr.write('Error occured downloading reference file: %s' % e)
+        os.remove(file_name)
     return file_name
 
 
 def main():
     parser = argparse.ArgumentParser(description='Create data manager JSON.')
-    parser.add_argument('--out', dest='output', action='store',
-                        help='JSON filename')
-    parser.add_argument('--name', dest='name', action='store',
-                        default=uuid.uuid4(), help='Data table entry unique ID'
-                        )
-    parser.add_argument('--url', dest='url', action='store',
-                        help='Url to download gtf file from')
+    parser.add_argument('--out', dest='output', action='store', help='JSON filename')
+    parser.add_argument('--name', dest='name', action='store', default=uuid.uuid4(), help='Data table entry unique ID')
+    parser.add_argument('--url', dest='url', action='store', help='Url to download gtf file from')
 
     args = parser.parse_args()
 
@@ -136,7 +134,7 @@ def main():
         }
     }
 
-    with open(os.path.join(args.output), "w+") as f:
+    with open(os.path.join(args.output), 'w+') as f:
         f.write(json.dumps(data_manager_entry))
 
 
