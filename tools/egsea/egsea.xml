@@ -3,9 +3,10 @@
     <requirements>
         <requirement type="package" version="1.6.0">bioconductor-egsea</requirement>
         <requirement type="package" version="1.4.4">r-optparse</requirement>
+        <requirement type="package" version="0.2.15">r-rjson</requirement>
     </requirements>
     <version_command><![CDATA[
-echo $(R --version | grep version | grep -v GNU)", EGSEA version" $(R --vanilla --slave -e "library(EGSEA); cat(sessionInfo()\$otherPkgs\$EGSEA\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
+echo $(R --version | grep version | grep -v GNU)", EGSEA version" $(R --vanilla --slave -e "library(EGSEA); cat(sessionInfo()\$otherPkgs\$EGSEA\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", optparse version" $(R --vanilla --slave -e "library(optparse); cat(sessionInfo()\$otherPkgs\$optparse\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", rjson version" $(R --vanilla --slave -e "library(rjson); cat(sessionInfo()\$otherPkgs\$rjson\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
     ]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
 #import json
@@ -15,8 +16,36 @@ mkdir '$outReport.extra_files_path' &&
 
 Rscript '$__tool_directory__/egsea.R'
 
---counts '$counts'
---group '$group'
+#if $input.format=="files":
+
+    ## Adapted from DESeq2 wrapper
+    #set $temp_factor_names = list()
+    #for $fact in $input.rep_factor:
+        #set $temp_factor = list()
+        #for $g in $fact.rep_group:
+            #set $count_files = list()
+            #for $file in $g.countsFile:
+                $count_files.append(str($file))
+            #end for
+            $temp_factor.append( {str($g.groupName): $count_files} )
+        #end for
+
+        $temp_factor.reverse()
+        $temp_factor_names.append([str($fact.factorName), $temp_factor])
+    #end for
+    --filesPath '#echo json.dumps(temp_factor_names)#'
+
+#elif $input.format=="matrix":
+    --matrixPath '$input.counts'
+    #if $input.fact.ffile=='yes':
+        --factFile '$input.fact.finfo'
+    #else:
+        --factInput '${ '|'.join( ['%s::%s' % ($x.factorName, $x.groupNames) for x in $input.fact.rep_factor] ) }'
+    #end if
+#end if
+
+--contrastData '${ ','.join( ['%s' % $x.contrast for x in $rep_contrast] ) }'
+
 --genes '$genes'
 --species $species
 
@@ -33,26 +62,80 @@ Rscript '$__tool_directory__/egsea.R'
 
 --rdaOpt $advanced.rdaOpt
 
-&&
-
-cp ./report_dir/index.html '$outReport' &&
-cp -r ./report_dir/* '$outReport.extra_files_path'
-
-&&
+&& cp ./report_dir/index.html '$outReport'
+&& cp -r ./report_dir/* '$outReport.extra_files_path'
 
 #if $advanced.rscriptOpt:
-    cp '$__tool_directory__/egsea.R' '$outRscript'
+    && cp '$__tool_directory__/egsea.R' '$outRscript'
 #end if
 
     ]]></command>
-  
     <inputs>
-        <param name="counts" type="data" format="tabular" label="Counts Matrix"
-         help="A count matrix with Entrez Gene IDs in the first column and raw RNA-seq counts for samples in the subsequent columns"/>
 
-        <param name="group" type="data" format="tabular"
-            label="Group file"
-            help="A file of group names for the samples in the format shown in the Help section below. The order of the names must match the order of the samples in the columns of the count matrix."/>
+   <!-- Counts and Factors -->
+        <conditional name="input">
+            <param name="format" type="select" label="Count Files or Matrix?"
+                help="You can choose to input either separate count files (one per sample) or a single count matrix">
+                <option value="files">Separate Count Files</option>
+                <option value="matrix">Single Count Matrix</option>
+            </param>
+
+            <when value="files">
+                <repeat name="rep_factor" title="Factor" min="1">
+                    <param name="factorName" type="text" label="Name" help="Name of experiment factor of interest (e.g. Genotype). One factor must be entered and there must be two or more groups per factor. Optional additional factors (e.g. Batch) can be entered using the Insert Factor button below, see Help section for more information. NOTE: Please only use letters, numbers or underscores.">
+                    <sanitizer>
+                        <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                    </sanitizer>
+                    </param>
+                    <repeat name="rep_group" title="Group" min="2" default="2">
+                        <param name="groupName" type="text" label="Name"
+                        help="Name of group that the counts files(s) belong to (e.g. WT or Mut). NOTE: Please only use letters, numbers or underscores (case sensitive).">
+                        <sanitizer>
+                            <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                        </sanitizer>
+                        </param>
+                        <param name="countsFile" type="data" format="tabular" multiple="true" label="Counts file(s)"/>
+                    </repeat>
+                </repeat>
+            </when>
+
+            <when value="matrix">
+                <param name="counts" type="data" format="tabular" label="Count Matrix"/>
+
+                <conditional name="fact">
+                    <param name="ffile" type="select" label="Input factor information from file?"
+                        help="You can choose to input the factor and group information for the samples from a file or manually enter below.">
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </param>
+                    <when value="yes">
+                        <param name="finfo" type="data" format="tabular" label="Factor File"/>
+                    </when>
+                    <when value="no" >
+                        <repeat name="rep_factor" title="Factor" min="1">
+                            <param name="factorName" type="text" label="Factor Name"
+                                help="Name of experiment factor of interest (e.g. Genotype). One factor must be entered and there must be two or more groups per factor. Additional factors (e.g. Batch) can be entered using the Insert Factor button below, see Help section below. NOTE: Please only use letters, numbers or underscores.">
+                                <validator type="empty_field" />
+                                <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
+                            </param>
+                            <param name="groupNames" type="text" label="Groups"
+                                help="Enter the group names for the samples separated with commas e.g. WT,WT,WT,Mut,Mut,Mut. The order of the names must match the order of the samples in the columns of the count matrix. NOTE: Please only use letters, numbers or underscores (case sensitive).">
+                                <validator type="empty_field" />
+                                <validator type="regex" message="Please only use letters, numbers or underscores, and separate levels by commas">^[\w,]+$</validator>
+                            </param>
+                        </repeat>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+
+         <!-- Contrasts -->
+        <repeat name="rep_contrast" title="Contrast" min="1" default="1">
+            <param name="contrast" type="text" label="Contrast of Interest" help="Names of two groups to compare separated by a hyphen e.g. Mut-WT. If the order is Mut-WT the fold changes in the results will be up/down in Mut relative to WT. If you have more than one contrast enter each separately using the Insert Contrast button below. For more info, see Chapter 8 in the limma User's guide: https://www.bioconductor.org/packages/release/bioc/vignettes/limma/inst/doc/usersguide.pdf">
+                <validator type="empty_field" />
+                <validator type="regex" message="Please only use letters, numbers or underscores">^[\w-]+$</validator>
+            </param>
+        </repeat>
 
         <param name="genes" type="data" format="tabular"
             label="Symbols Mapping file"
@@ -156,6 +239,9 @@ cp -r ./report_dir/* '$outReport.extra_files_path'
 
     <outputs>
         <data name="outReport" format="html" label="${tool.name} on ${on_string}: Report"/>
+        <collection name="outTables" type="list" label="${tool.name} on ${on_string}: Tables">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.txt$" format="tabular" directory="report_dir/ranked-gene-sets-base" visible="false" />
+        </collection>
         <data name="outRscript" format="txt" from_work_dir="*.txt" label="${tool.name} on ${on_string}: Rscript">
             <filter>advanced['rscriptOpt'] is True</filter>
         </data>
@@ -165,10 +251,37 @@ cp -r ./report_dir/* '$outReport.extra_files_path'
     </outputs>
 
     <tests>
-        <test>
-            <param name="counts" ftype="tabular" value="il13.counts"/>
+         <!-- Ensure report is output -->
+        <test expect_num_outputs="1">
+            <param name="format" value="matrix" />
+            <param name="counts" value="il13.counts"/>
             <param name="genes" value="il13.genes"/>
-            <param name="group" value="il13.group"/>
+            <repeat name="rep_factor">
+                <param name="factorName" value="Treatment"/>
+                <param name="groupNames" value="IL13,IL13Ant,IL13,IL13,IL13Ant" />
+            </repeat>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="IL13Ant-IL13" />
+            </repeat>
+            <output_collection name="outTables" count="1">
+                <element name="ranked-h-gene-sets-IL13Ant-IL13" ftype="tabular" file="out_rankedsets.txt" />
+            </output_collection>
+            <output name="outReport">
+                <assert_contents>
+                    <has_text text="Gene Set Testing Report" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Ensure factors file input works -->
+        <test expect_num_outputs="2">
+            <param name="format" value="matrix"/>
+            <param name="counts" value="il13.counts"/>
+            <param name="genes" value="il13.genes"/>
+            <param name="ffile" value="yes"/>
+            <param name="finfo" value="il13.group"/>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="IL13Ant-IL13" />
+            </repeat>
             <param name="rscriptOpt" value="True"/>
             <output name="outReport" value="out_il13.html" compare="sim_size"/>
             <output name="outReport">
@@ -176,6 +289,9 @@ cp -r ./report_dir/* '$outReport.extra_files_path'
                     <has_text text="Gene Set Testing Report" />
                 </assert_contents>
             </output>
+            <output_collection name="outTables" count="1">
+                <="ranked-h-gene-sets-IL13Ant-IL13" ftype="tabular" file="out_rankedsets.txt" />
+            </output_collection>
             <output name="outRscript" value="out_il13.txt" compare="sim_size"/>
         </test>
     </tests>
@@ -188,7 +304,9 @@ cp -r ./report_dir/* '$outReport.extra_files_path'
 
 EGSEA_, an acronym for *Ensemble of Gene Set Enrichment Analyses*, is a `Bioconductor package`_ that utilizes the analysis results of eleven prominent GSE algorithms from the literature to calculate collective significance scores for gene sets. These methods are currently: **ora, globaltest, plage, safe, zscore, gage, ssgsea, roast, fry, padog, camera, gsva**. The ora, gage, camera and gsva methods depend on a competitive null hypothesis while the remaining seven methods are based on a self-contained hypothesis. EGSEA’s gene set database, the **EGSEAdata** Bioconductor package, contains around 25,000 gene sets from 16 collections from MSigDB_, KEGG_ and GeneSetDB_. Supported organisms are human, mouse and rat, however MSigDB is only available for human and mouse. An example `EGSEA workflow`_ is available at the Bioconductor workflows website.
 
-Currently the **egsea.cnt** function is implemented in this tool. This function takes a raw RNA-Seq count matrix and uses **limma-voom** with TMM normalization to convert the RNA-seq counts into expression values for EGSEA analysis. EGSEA returns a HTML report of detailed analysis results for each contrast of interest and comparative analysis results.
+Currently the **egsea.cnt** function is implemented in this tool. This function takes a raw RNA-Seq count matrix and uses **limma-voom** with TMM normalization to convert the RNA-seq counts into expression values for EGSEA analysis.
+
+EGSEA returns a HTML report of detailed analysis results for each contrast of interest and comparative analysis results. The heatmap view at both the gene set and summary level and the summary level bar plots can be useful summaries to include in publications to highlight the gene set testing results.
 
 -----
 
@@ -201,7 +319,7 @@ This tool requires a counts matrix (counts table) containing the raw RNA-seq rea
 Example:
 
     =============== ========== ========== ========== ========= ========= =========
-    Entrez Gene ID  **Ctl-1**  **Ctl-2**  **Ctl-3**  **Trt-1** **Trt-2** **Trt-3**
+    EntrezID        **WT1**    **WT2**    **WT3**    **Mut1**  **Mut2**  **Mut3**
     =============== ========== ========== ========== ========= ========= =========
     1               71         73         69         36         22        28
     1000            3          4          2          4          0         1
@@ -210,14 +328,35 @@ Example:
     100009613       9          11         4          13         6         10
     =============== ========== ========== ========== ========= ========= =========
 
+**Factor Information**
+
+Enter factor names and groups in the tool form, or provide a tab-separated file that has the samples in the same order as listed in the columns of the counts matrix. The second column should contain the primary factor levels (e.g. WT, Mut) with optional additional columns for any secondary factors e.g Batch.
+
+Example:
+
+    ========== ============ =========
+    **Sample** **Genotype** **Batch**
+    ---------- ------------ ---------
+    WT1        WT           b1
+    WT2        WT           b2
+    WT3        WT           b3
+    Mut1       Mut          b1
+    Mut2       Mut          b2
+    Mut3       Mut          b3
+    ========== ============ =========
+
+*Factor Name:* The name of the experimental factor being investigated e.g. Genotype, Treatment. One factor must be entered and spaces must not be used. Optionally, additional factors can be included, these are variables that might influence your experiment e.g. Batch, Gender, Subject. If additional factors are entered, edgeR will fit an additive linear model.
+
+*Groups:* The names of the groups for the factor. These must be entered in the same order as the samples (to which the groups correspond) are listed in the columns of the counts matrix. Spaces must not be used and if entered into the tool form above, the values should be separated by commas.
+
 **Symbols Mapping file**
 
-A table containing the Gene Symbol for each Entrez Gene ID. The first column must be the Entrez Gene IDs and the second column must be the Gene Symbols. It is used for the heatmap visualization. The number of rows should match that of the Counts Matrix.
+A file containing the Gene Symbol for each Entrez Gene ID. The first column must be the Entrez Gene IDs and the second column must be the Gene Symbols. It is used for the heatmap visualization. The number of rows should match that of the Counts Matrix.
 
 Example:
 
     ========= =========
-    FeatureID Symbols
+    EntrezID  Symbols
     ========= =========
     1         A1BG
     1000      CDH2
@@ -225,26 +364,6 @@ Example:
     100009605 TRNAF1
     100009613 ANO1-AS2
     ========= =========
-
-**Groups file**
-
-A one-column file containing the group that the samples belongs to. The order must match the order of the samples in the columns of the counts table.
-
-Example:
-
-    +-------+
-    | Ctl   |
-    +-------+
-    | Ctl   |
-    +-------+
-    | Ctl   |
-    +-------+
-    | Trt   |
-    +-------+
-    | Trt   |
-    +-------+
-    | Trt   |
-    +-------+
 
 -----
 
