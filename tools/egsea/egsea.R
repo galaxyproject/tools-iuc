@@ -39,6 +39,7 @@ pasteListName <- function(string) {
 ## Input Processing
 
 option_list <- list(
+    make_option(c("-threads", "--threads"), default=2, type="integer", help="Number of threads for egsea"),
     make_option(c("-filesPath", "--filesPath"), type="character", help="JSON list object if multiple files input"),
     make_option(c("-matrixPath", "--matrixPath"), type="character", help="Path to count matrix"),
     make_option(c("-factFile", "--factFile"), type="character", help="Path to factor information file"),
@@ -195,7 +196,7 @@ gs.annots <- buildIdx(entrezIDs=rownames(counts), species=args$species, msigdb.g
 
 ## Run egsea.cnt
 
-gsa <- egsea.cnt(counts=counts, group=group, design=design, contrasts=contrasts, gs.annots=gs.annots, symbolsMap=genes, baseGSEAs=base_methods, minSize=args$min_size, display.top=args$display_top, combineMethod=args$combine_method, sort.by=args$sort_method, report.dir='./report_dir', fdr.cutoff=args$fdr_cutoff, num.threads=2, report=TRUE)
+gsa <- egsea.cnt(counts=counts, group=group, design=design, contrasts=contrasts, gs.annots=gs.annots, symbolsMap=genes, baseGSEAs=base_methods, minSize=args$min_size, display.top=args$display_top, combineMethod=args$combine_method, sort.by=args$sort_method, report.dir='./report_dir', fdr.cutoff=args$fdr_cutoff, num.threads=args$threads, report=TRUE)
 
 
 ## Output RData file
