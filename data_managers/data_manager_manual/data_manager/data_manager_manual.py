@@ -8,8 +8,8 @@ import os
 import shutil
 import tempfile
 import urllib2
-
 from xml.etree.ElementTree import tostring
+
 try:
     # For Python 3.0 and later
     from shutil import unpack_archive
