@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # -*- coding: utf-8 -*-
 import argparse
 import bz2
@@ -105,7 +104,7 @@ def url_download(url):
                 shutil.copyfileobj(cf.accessor, uncompressed_file)
             os.remove(file_name)
             file_name = uncompressed_file_name
-    except IOError, e:
+    except IOError as e:
         sys.stderr.write('Error occured downloading reference file: %s' % e)
         os.remove(file_name)
     return file_name
