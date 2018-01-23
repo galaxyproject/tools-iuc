@@ -778,8 +778,18 @@ class JbrowseConnector(object):
                 "storeClass": "JBrowse/Store/SeqFeature/SequenceChunks",
                 "type": "GCContent/View/Track/GCContentXY",
                 "label": "GCContentXY",
+                "key": "GCContentXY",
                 "urlTemplate": "seq/{refseq_dirpath}/{refseq}-",
-                "bicolor_pivot": 0.5
+                "bicolor_pivot": 0.5,
+                "metadata": {
+                    "tool_tool": '<a target="_blank" href="https://github.com/elsiklab/gccontent/commit/030180e75a19fad79478d43a67c566ec6">elsiklab/gccontent</a>',
+                    "tool_tool_version": "5c8b0582ecebf9edf684c76af8075fb3d30ec3fa",
+                    "dataset_edam_format": "",
+                    "dataset_size": "",
+                    "history_display_name": "",
+                    "history_user_email": "",
+                    "metadata_dbkey": "",
+                }
                 # TODO: Expose params for everyone.
             })
 
