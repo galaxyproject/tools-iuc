@@ -859,11 +859,20 @@ if __name__ == '__main__':
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
     parser.add_argument('--standalone', help='Standalone mode includes a copy of JBrowse', action='store_true')
-    parser.add_argument('--version', '-V', action='version', version="%(prog)s 0.7.0")
+    parser.add_argument('--version', '-V', action='version', version="%(prog)s 0.8.0")
     args = parser.parse_args()
 
     tree = ET.parse(args.xml.name)
     root = tree.getroot()
+
+    # This should be done ASAP
+    GALAXY_INFRASTRUCTURE_URL = root.find('metadata/galaxyUrl').text
+    # Sometimes this comes as `localhost` without a protocol
+    if not GALAXY_INFRASTRUCTURE_URL.startswith('http'):
+        # so we'll prepend `http://` and hope for the best. Requests *should*
+        # be GET and not POST so it should redirect OK
+        GALAXY_INFRASTRUCTURE_URL = 'http://' + GALAXY_INFRASTRUCTURE_URL
+
 
     jc = JbrowseConnector(
         jbrowse=args.jbrowse,
@@ -936,13 +945,6 @@ if __name__ == '__main__':
             'location': 'https://cdn.jsdelivr.net/gh/erasche/jbrowse-dark-theme@689eceb7e33bbc1b9b15518d45a5a79b2e5d0a26/',
             'name': 'DarkTheme'
         })
-
-    GALAXY_INFRASTRUCTURE_URL = root.find('metadata/galaxyUrl').text
-    # Sometimes this comes as `localhost` without a protocol
-    if not GALAXY_INFRASTRUCTURE_URL.startswith('http'):
-        # so we'll prepend `http://` and hope for the best. Requests *should*
-        # be GET and not POST so it should redirect OK
-        GALAXY_INFRASTRUCTURE_URL = 'http://' + GALAXY_INFRASTRUCTURE_URL
 
     for track in root.findall('tracks/track'):
         track_conf = {}
