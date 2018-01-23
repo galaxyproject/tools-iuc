@@ -571,7 +571,7 @@ class JbrowseConnector(object):
         cmd = ['tabix', '-p', 'vcf', dest + '.gz']
         self.subprocess_check_call(cmd)
 
-        url = os.path.join('raw', trackData['label'] + '.vcf')
+        url = os.path.join('raw', trackData['label'] + '.vcf.gz')
         trackData.update({
             "urlTemplate": url,
             "type": "JBrowse/View/Track/HTMLVariants",
