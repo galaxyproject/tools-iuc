@@ -656,9 +656,9 @@ class JbrowseConnector(object):
             log.info('Processing %s / %s', category, track_human_label)
             outputTrackConfig['key'] = track_human_label
             # We add extra data to hash for the case of REST + SPARQL.
-            try:
+            if 'conf' in track and 'options' in track['conf'] and 'url' in track['conf']['options']:
                 rest_url = track['conf']['options']['url']
-            except KeyError:
+            else:
                 rest_url = ''
 
             # I chose to use track['category'] instead of 'category' here. This
