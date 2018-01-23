@@ -25,18 +25,26 @@ likely to change at any time! Beware. ;)
 History
 =======
 
--  0.7 Support for plugins (currently GC Content, Bookmarks, ComboTrackSelector),
-   track metadata
--  0.5.2 Support for CanvasFeatures options.
--  0.5.1 Support for contextual menus. Conda tests.
--  0.5 Update existing instances on disk. Index names. Support HTML tracks
-   instead of Canvas. Support default tracks. General JBrowse optinos
--  0.4 Support for dataset collections and customisation of tracks including
-   labelling, colours, styling. Added support for genetic code selection.
-   Fixed package installation recipe issues.
--  0.3 Added support for BigWig, etc.
--  0.2 Added support for BAM, Blast, VCF.
--  0.1 Initial public release.
+- 0.8
+
+    - ADDED
+    - FIXED loading of VCF files. They were gzipped and the URLs were incorrect
+    - FIXED metadata on tracks types other than GFF+HTML
+    - FIXED infrastructure URL parsing (and embedding in links) for some tracks
+    - REMOVED support for selecting multiple genomes as input due to tracking of track metadata
+
+- 0.7 Support for plugins (currently GC Content, Bookmarks, ComboTrackSelector),
+  track metadata
+- 0.5.2 Support for CanvasFeatures options.
+- 0.5.1 Support for contextual menus. Conda tests.
+- 0.5 Update existing instances on disk. Index names. Support HTML tracks
+  instead of Canvas. Support default tracks. General JBrowse optinos
+- 0.4 Support for dataset collections and customisation of tracks including
+  labelling, colours, styling. Added support for genetic code selection.
+  Fixed package installation recipe issues.
+- 0.3 Added support for BigWig, etc.
+- 0.2 Added support for BAM, Blast, VCF.
+- 0.1 Initial public release.
 
 Wrapper License (MIT/BSD Style)
 ===============================
