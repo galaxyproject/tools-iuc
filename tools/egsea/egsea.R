@@ -13,7 +13,7 @@ suppressPackageStartupMessages({
 })
 
 
-## Function Delcaration
+## Function Declaration
 
 sanitiseEquation <- function(equation) {
     equation <- gsub(" *[+] *", "+", equation)
