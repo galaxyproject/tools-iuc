@@ -3,9 +3,11 @@ options( show.error.messages=F, error = function () { cat( geterrmessage(), file
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
-library("DEXSeq")
-library('getopt')
-library('rjson')
+suppressPackageStartupMessages({
+    library("DEXSeq")
+    library('getopt')
+    library('rjson')
+})
 
 
 options(stringAsfactors = FALSE, useFancyQuotes = FALSE)
@@ -90,7 +92,7 @@ sizeFactors(dxd)
 BPPARAM=MulticoreParam(workers=opt$threads)
 dxd <- estimateDispersions(dxd, formula=formulaFullModel, BPPARAM=BPPARAM)
 print("Estimated dispersions")
-dxd <- testForDEU(dxd, fullModel=formulaFullModel, BPPARAM=BPPARAM)
+dxd <- testForDEU(dxd, reducedModel=formulaReducedModel, fullModel=formulaFullModel, BPPARAM=BPPARAM)
 print("tested for DEU")
 dxd <- estimateExonFoldChanges(dxd, fitExpToVar=primaryFactor, BPPARAM=BPPARAM)
 print("Estimated fold changes")
