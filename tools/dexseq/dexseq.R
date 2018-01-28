@@ -3,9 +3,11 @@ options( show.error.messages=F, error = function () { cat( geterrmessage(), file
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
-library("DEXSeq")
-library('getopt')
-library('rjson')
+suppressPackageStartupMessages({
+    library("DEXSeq")
+    library('getopt')
+    library('rjson')
+})
 
 
 options(stringAsfactors = FALSE, useFancyQuotes = FALSE)
@@ -90,7 +92,7 @@ sizeFactors(dxd)
 BPPARAM=MulticoreParam(workers=opt$threads)
 dxd <- estimateDispersions(dxd, formula=formulaFullModel, BPPARAM=BPPARAM)
 print("Estimated dispersions")
-dxd <- testForDEU(dxd, fullModel=formulaFullModel, BPPARAM=BPPARAM)
+dxd <- testForDEU(dxd, reducedModel=formulaReducedModel, fullModel=formulaFullModel, BPPARAM=BPPARAM)
 print("tested for DEU")
 dxd <- estimateExonFoldChanges(dxd, fitExpToVar=primaryFactor, BPPARAM=BPPARAM)
 print("Estimated fold changes")
@@ -111,7 +113,7 @@ print("Written Results")
 if ( !is.null(opt$reportdir) ) {
     save(dxd, resSorted, file = file.path(opt$reportdir,"DEXSeq_analysis.RData"))
     save.image()
-    DEXSeqHTML(res, path=opt$reportdir, FDR=opt$fdr, color=c("#B7FEA0", "#FF8F43", "#637EE9", "#FF0000", "#F1E7A1", "#C3EEE7","#CEAEFF", "#EDC3C5", "#AAA8AA"))
+    DEXSeqHTML(res, fitExpToVar=primaryFactor, path=opt$reportdir, FDR=opt$fdr, color=c("#B7FEA0", "#FF8F43", "#637EE9", "#FF0000", "#F1E7A1", "#C3EEE7","#CEAEFF", "#EDC3C5", "#AAA8AA"))
     unlink(file.path(opt$reportdir,"DEXSeq_analysis.RData"))
 }
 sessionInfo()

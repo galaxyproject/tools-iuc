@@ -55,6 +55,7 @@ spec <- matrix(c(
   "plots" , "p", 1, "character",
   "sample_table", "s", 1, "character",
   "tximport", "i", 0, "logical",
+  "txtype", "y", 1, "character",
   "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF file (auto detect .gtf/.GTF)
   "fit_type", "t", 1, "integer",
   "many_contrasts", "m", 0, "logical",
@@ -238,7 +239,7 @@ if (!useTXI) {
     library("tximport")
     txiFiles <- as.character(sampleTable[,2])
     names(txiFiles) <- as.character(sampleTable[,1])
-    txi <- tximport(txiFiles, type="sailfish", tx2gene=tx2gene)
+    txi <- tximport(txiFiles, type=opt$txtype, tx2gene=tx2gene)
     dds <- DESeqDataSetFromTximport(txi,
                                     sampleTable[,3:ncol(sampleTable),drop=FALSE],
                                     designFormula)
