@@ -198,12 +198,6 @@ if (is.null(opt$totReq)) {
     filtTotCount <- TRUE
 }
 
-if (is.null(opt$trend)) {
-    wantTrend <- FALSE
-} else {
-    wantTrend <- TRUE
-}
-
 if (is.null(opt$rdaOpt)) {
     wantRda <- FALSE
 } else {
@@ -232,6 +226,14 @@ if (is.null(opt$weightOpt)) {
     wantWeight <- FALSE
 } else {
     wantWeight <- TRUE
+}
+
+if (is.null(opt$trend)) {
+    wantTrend <- FALSE
+    demethod <- "limma-voom"
+} else {
+    wantTrend <- TRUE
+    demethod <- "limma-trend"
 }
 
 
@@ -308,22 +310,19 @@ contrastData <- unlist(strsplit(opt$contrastData, split=","))
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
-#bcvOutPdf <- makeOut("bcvplot.pdf")
-#bcvOutPng <- makeOut("bcvplot.png")
+
 mdsOutPdf <- makeOut("mdsplot.pdf")
 mdsOutPng <- makeOut("mdsplot.png")
-voomOutPdf <- makeOut("voomplot.pdf")
-voomOutPng <- makeOut("voomplot.png")
 maOutPdf <- character()   # Initialise character vector
 maOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
-  maOutPdf[i] <- makeOut(paste0("maplot_", contrastData[i], ".pdf"))
-  maOutPng[i] <- makeOut(paste0("maplot_", contrastData[i], ".png"))
-  topOut[i] <- makeOut(paste0("limma-voom_", contrastData[i], ".tsv"))
-}                         # Save output paths for each contrast as vectors
-normOut <- makeOut("limma-voom_normcounts.tsv")
-rdaOut <- makeOut("limma_analysis.RData")
+    maOutPdf[i] <- makeOut(paste0("maplot_", contrastData[i], ".pdf"))
+    maOutPng[i] <- makeOut(paste0("maplot_", contrastData[i], ".png"))
+    topOut[i] <- makeOut(paste0(demethod, "_", contrastData[i], ".tsv"))
+}
+normOut <- makeOut(paste0(demethod, "_normcounts.tsv"))
+rdaOut <- makeOut(paste0(demethod, "_analysis.RData"))
 sessionOut <- makeOut("session_info.txt")
 
 # Initialise data for html links and images, data frame with columns Label and
@@ -412,6 +411,21 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 ### Data Output
 ################################################################################
 
+# Plot MDS
+print("Generating MDS plot")
+labels <- names(counts)
+png(mdsOutPng, width=600, height=600)
+# Currently only using a single factor
+plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot")
+imageData[1, ] <- c("MDS Plot", "mdsplot.png")
+invisible(dev.off())
+
+pdf(mdsOutPdf)
+plotMDS(data, labels=labels, cex=0.5)
+linkData[1, ] <- c("MDS Plot.pdf", "mdsplot.pdf")
+invisible(dev.off())
+
+
 if (wantTrend) {
     # limma-trend approach
     logCPM <- cpm(data, log=TRUE, prior.count=3)
@@ -422,18 +436,26 @@ if (wantTrend) {
     } else {
         fit <- eBayes(fit, trend=TRUE, robust=FALSE)
     }
+    plotData <- logCPM
 } else {
     # limma-voom approach
+    voomOutPdf <- makeOut("voomplot.pdf")
+    voomOutPng <- makeOut("voomplot.png")
+
     if (wantWeight) {
         # Creating voom data object and plot
         png(voomOutPng, width=1000, height=600)
         vData <- voomWithQualityWeights(data, design=design, plot=TRUE)
-        imageData[1, ] <- c("Voom Plot", "voomplot.png")
+        imgName <- "Voom Plot"
+        imgAddr <- "voomplot.png"
+        imageData <- rbind(imageData, c(imgName, imgAddr))
         invisible(dev.off())
 
         pdf(voomOutPdf, width=14)
         vData <- voomWithQualityWeights(data, design=design, plot=TRUE)
-        linkData[1, ] <- c("Voom Plot (.pdf)", "voomplot.pdf")
+        linkName <- paste0("Voom Plot.pdf")
+        linkAddr <- paste0("voomplot.pdf")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
         invisible(dev.off())
 
         # Generating fit data and top table with weights
@@ -444,12 +466,16 @@ if (wantTrend) {
         # Creating voom data object and plot
         png(voomOutPng, width=600, height=600)
         vData <- voom(data, design=design, plot=TRUE)
-        imageData[1, ] <- c("Voom Plot", "voomplot.png")
+        imgName <- "Voom Plot"
+        imgAddr <- "voomplot.png"
+        imageData <- rbind(imageData, c(imgName, imgAddr))
         invisible(dev.off())
 
         pdf(voomOutPdf)
         vData <- voom(data, design=design, plot=TRUE)
-        linkData[1, ] <- c("Voom Plot (.pdf)", "voomplot.pdf")
+        linkName <- paste0("Voom Plot.pdf")
+        linkAddr <- paste0("voomplot.pdf")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
         invisible(dev.off())
 
         # Generate voom fit
@@ -459,8 +485,8 @@ if (wantTrend) {
      # Save normalised counts (log2cpm)
     if (wantNorm) {
         norm_counts <- data.frame(vData$genes, vData$E)
-        write.table (norm_counts, file=normOut, row.names=FALSE, sep="\t")
-        linkData <- rbind(linkData, c("limma-voom_normcounts.tsv", "limma-voom_normcounts.tsv"))
+        write.table(norm_counts, file=normOut, row.names=FALSE, sep="\t")
+        linkData <- rbind(linkData, c((paste0(demethod, "_", "normcounts.tsv")), (paste0(demethod, "_", "normcounts.tsv"))))
     }
 
     # Fit linear model and estimate dispersion with eBayes
@@ -470,25 +496,8 @@ if (wantTrend) {
     } else {
         fit <- eBayes(voomFit, robust=FALSE)
     }
+    plotData <- vData
 }
-
-# Plot MDS
-print("Generating MDS plot")
-labels <- names(counts)
-png(mdsOutPng, width=600, height=600)
-# Currently only using a single factor
-plotMDS(vData, labels=labels, col=as.numeric(factors[, 1]), cex=0.8)
-imgName <- "MDS Plot"
-imgAddr <- "mdsplot.png"
-imageData <- rbind(imageData, c(imgName, imgAddr))
-invisible(dev.off())
-
-pdf(mdsOutPdf)
-plotMDS(vData, labels=labels, cex=0.5)
-linkName <- paste0("MDS Plot (.pdf)")
-linkAddr <- paste0("mdsplot.pdf")
-linkData <- rbind(linkData, c(linkName, linkAddr))
-invisible(dev.off())
 
 print("Generating DE results")
 status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
@@ -504,10 +513,14 @@ for (i in 1:length(contrastData)) {
 
   # Write top expressions table
   top <- topTable(fit, coef=i, number=Inf, sort.by="P")
-  write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
+  if (wantTrend) {
+     write.table(top, file=topOut[i], row.names=TRUE, sep="\t") 
+  } else {
+    write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
+  }
 
-  linkName <- paste0("limma-voom_", contrastData[i], ".tsv")
-  linkAddr <- paste0("limma-voom_", contrastData[i], ".tsv")
+  linkName <- paste0(demethod, "_", contrastData[i], ".tsv")
+  linkAddr <- paste0(demethod, "_", contrastData[i], ".tsv")
   linkData <- rbind(linkData, c(linkName, linkAddr))
 
   # Plot MA (log ratios vs mean average) using limma package on weighted
@@ -544,11 +557,11 @@ row.names(sigDiff) <- contrastData
 if (wantRda) {
   print("Saving RData")
   if (wantWeight) {
-    save(data, status, vData, labels, factors, wts, fit, top, contrasts,
+    save(data, status, plotData, labels, factors, wts, fit, top, contrasts,
          design,
          file=rdaOut, ascii=TRUE)
   } else {
-    save(data, status, vData, labels, factors, fit, top, contrasts, design,
+    save(data, status, plotData, labels, factors, fit, top, contrasts, design,
          file=rdaOut, ascii=TRUE)
   }
   linkData <- rbind(linkData, c("limma_analysis.RData", "limma_analysis.RData"))
@@ -656,13 +669,18 @@ if (filtCPM || filtSmpCount || filtTotCount) {
     ListItem(tempStr)
 }
 ListItem(opt$normOpt, " was the method used to normalise library sizes.")
-if (wantRobust) {
-    ListItem("eBayes was used with robust settings (robust=TRUE).")
+if (wantTrend) {
+    ListItem("The limma-trend method was used.")
+} else {
+    ListItem("The limma-voom method was used.")
 }
 if (wantWeight) {
   ListItem("Weights were applied to samples.")
 } else {
   ListItem("Weights were not applied to samples.")
+}
+if (wantRobust) {
+    ListItem("eBayes was used with robust settings (robust=TRUE).")
 }
 if (opt$pAdjOpt!="none") {
   if (opt$pAdjOpt=="BH" || opt$pAdjOpt=="BY") {
