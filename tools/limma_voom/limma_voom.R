@@ -412,50 +412,65 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 ### Data Output
 ################################################################################
 
-if (wantWeight) {
-  # Creating voom data object and plot
-  png(voomOutPng, width=1000, height=600)
-  vData <- voomWithQualityWeights(data, design=design, plot=TRUE)
-  imageData[1, ] <- c("Voom Plot", "voomplot.png")
-  invisible(dev.off())
-
-  pdf(voomOutPdf, width=14)
-  vData <- voomWithQualityWeights(data, design=design, plot=TRUE)
-  linkData[1, ] <- c("Voom Plot (.pdf)", "voomplot.pdf")
-  invisible(dev.off())
-
-  # Generating fit data and top table with weights
-  wts <- vData$weights
-  voomFit <- lmFit(vData, design, weights=wts)
-
+if (wantTrend) {
+    # limma-trend approach
+    logCPM <- cpm(data, log=TRUE, prior.count=3)
+    fit <- lmFit(logCPM, design)
+    fit <- contrasts.fit(fit, contrasts)
+    if (wantRobust) {
+        fit <- eBayes(fit, trend=TRUE, robust=TRUE)
+    } else {
+        fit <- eBayes(fit, trend=TRUE, robust=FALSE)
+    }
 } else {
-  # Creating voom data object and plot
-  png(voomOutPng, width=600, height=600)
-  vData <- voom(data, design=design, plot=TRUE)
-  imageData[1, ] <- c("Voom Plot", "voomplot.png")
-  invisible(dev.off())
+    # limma-voom approach
+    if (wantWeight) {
+        # Creating voom data object and plot
+        png(voomOutPng, width=1000, height=600)
+        vData <- voomWithQualityWeights(data, design=design, plot=TRUE)
+        imageData[1, ] <- c("Voom Plot", "voomplot.png")
+        invisible(dev.off())
 
-  pdf(voomOutPdf)
-  vData <- voom(data, design=design, plot=TRUE)
-  linkData[1, ] <- c("Voom Plot (.pdf)", "voomplot.pdf")
-  invisible(dev.off())
+        pdf(voomOutPdf, width=14)
+        vData <- voomWithQualityWeights(data, design=design, plot=TRUE)
+        linkData[1, ] <- c("Voom Plot (.pdf)", "voomplot.pdf")
+        invisible(dev.off())
 
-  # Generate voom fit
-  voomFit <- lmFit(vData, design)
+        # Generating fit data and top table with weights
+        wts <- vData$weights
+        voomFit <- lmFit(vData, design, weights=wts)
 
+    } else {
+        # Creating voom data object and plot
+        png(voomOutPng, width=600, height=600)
+        vData <- voom(data, design=design, plot=TRUE)
+        imageData[1, ] <- c("Voom Plot", "voomplot.png")
+        invisible(dev.off())
+
+        pdf(voomOutPdf)
+        vData <- voom(data, design=design, plot=TRUE)
+        linkData[1, ] <- c("Voom Plot (.pdf)", "voomplot.pdf")
+        invisible(dev.off())
+
+        # Generate voom fit
+        voomFit <- lmFit(vData, design)
+    }
+
+     # Save normalised counts (log2cpm)
+    if (wantNorm) {
+        norm_counts <- data.frame(vData$genes, vData$E)
+        write.table (norm_counts, file=normOut, row.names=FALSE, sep="\t")
+        linkData <- rbind(linkData, c("limma-voom_normcounts.tsv", "limma-voom_normcounts.tsv"))
+    }
+
+    # Fit linear model and estimate dispersion with eBayes
+    voomFit <- contrasts.fit(voomFit, contrasts)
+    if (wantRobust) {
+        fit <- eBayes(voomFit, robust=TRUE)
+    } else {
+        fit <- eBayes(voomFit, robust=FALSE)
+    }
 }
-
- # Save normalised counts (log2cpm)
-if (wantNorm) {
-    norm_counts <- data.frame(vData$genes, vData$E)
-    write.table (norm_counts, file=normOut, row.names=FALSE, sep="\t")
-    linkData <- rbind(linkData, c("limma-voom_normcounts.tsv", "limma-voom_normcounts.tsv"))
-}
-
-# Fit linear model and estimate dispersion with eBayes
-print("Fitting Linear Model")
-voomFit <- contrasts.fit(voomFit, contrasts)
-voomFit <- eBayes(voomFit)
 
 # Plot MDS
 print("Generating MDS plot")
@@ -476,7 +491,7 @@ linkData <- rbind(linkData, c(linkName, linkAddr))
 invisible(dev.off())
 
 print("Generating DE results")
-status = decideTests(voomFit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
+status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
                        lfc=opt$lfcReq)
 sumStatus <- summary(status)
 
@@ -488,7 +503,7 @@ for (i in 1:length(contrastData)) {
   flatCount[i] <- sumStatus["NotSig", i]
 
   # Write top expressions table
-  top <- topTable(voomFit, coef=i, number=Inf, sort.by="P")
+  top <- topTable(fit, coef=i, number=Inf, sort.by="P")
   write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
 
   linkName <- paste0("limma-voom_", contrastData[i], ".tsv")
@@ -497,7 +512,7 @@ for (i in 1:length(contrastData)) {
 
   # Plot MA (log ratios vs mean average) using limma package on weighted
   pdf(maOutPdf[i])
-  limma::plotMA(voomFit, status=status, coef=i,
+  limma::plotMA(fit, status=status, coef=i,
                 main=paste("MA Plot:", unmake.names(contrastData[i])),
                 col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
                 xlab="Average Expression", ylab="logFC")
@@ -510,7 +525,7 @@ for (i in 1:length(contrastData)) {
   invisible(dev.off())
 
   png(maOutPng[i], height=600, width=600)
-  limma::plotMA(voomFit, status=status, coef=i,
+  limma::plotMA(fit, status=status, coef=i,
                 main=paste("MA Plot:", unmake.names(contrastData[i])),
                 col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
                 xlab="Average Expression", ylab="logFC")
@@ -529,14 +544,14 @@ row.names(sigDiff) <- contrastData
 if (wantRda) {
   print("Saving RData")
   if (wantWeight) {
-    save(data, status, vData, labels, factors, wts, voomFit, top, contrasts,
+    save(data, status, vData, labels, factors, wts, fit, top, contrasts,
          design,
          file=rdaOut, ascii=TRUE)
   } else {
-    save(data, status, vData, labels, factors, voomFit, top, contrasts, design,
+    save(data, status, vData, labels, factors, fit, top, contrasts, design,
          file=rdaOut, ascii=TRUE)
   }
-  linkData <- rbind(linkData, c("RData (.rda)", "limma_analysis.RData"))
+  linkData <- rbind(linkData, c("limma_analysis.RData", "limma_analysis.RData"))
 }
 
 # Record session info
@@ -557,7 +572,7 @@ cat("", file=opt$htmlPath)
 cata("<html>\n")
 
 cata("<body>\n")
-cata("<h3>Limma-voom Analysis Output:</h3>\n")
+cata("<h3>Limma Analysis Output:</h3>\n")
 cata("PDF copies of JPEGS available in 'Plots' section.<br />\n")
 if (wantWeight) {
   HtmlImage(imageData$Link[1], imageData$Label[1], width=1000)
@@ -605,7 +620,7 @@ for (i in 1:nrow(linkData)) {
 if (wantRda) {
   cata("<h4>R Data Object:</h4>\n")
   for (i in 1:nrow(linkData)) {
-    if (grepl(".rda", linkData$Link[i])) {
+    if (grepl(".RData", linkData$Link[i])) {
       HtmlLink(linkData$Link[i], linkData$Label[i])
     }
   }
@@ -641,6 +656,9 @@ if (filtCPM || filtSmpCount || filtTotCount) {
     ListItem(tempStr)
 }
 ListItem(opt$normOpt, " was the method used to normalise library sizes.")
+if (wantRobust) {
+    ListItem("eBayes was used with robust settings (robust=TRUE).")
+}
 if (wantWeight) {
   ListItem("Weights were applied to samples.")
 } else {
