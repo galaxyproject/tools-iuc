@@ -2,28 +2,37 @@
 # outputs a table of top expressions as well as various plots for differential
 # expression analysis
 #
-# ARGS: 1.countPath       -Path to RData input containing counts
-#       2.annoPath        -Path to input containing gene annotations
-#       3.htmlPath        -Path to html file linking to other outputs
-#       4.outPath         -Path to folder to write all output to
-#       5.rdaOpt          -String specifying if RData should be saved
-#       6.normOpt         -String specifying type of normalisation used
-#       7.weightOpt       -String specifying usage of weights
-#       8.contrastData    -String containing contrasts of interest
-#       9.cpmReq          -Float specifying cpm requirement
-#       10.sampleReq      -Integer specifying cpm requirement
-#       11.pAdjOpt        -String specifying the p-value adjustment method
-#       12.pValReq        -Float specifying the p-value requirement
-#       13.lfcReq         -Float specifying the log-fold-change requirement
-#       14.normCounts     -String specifying if normalised counts should be output
-#       15.factPath       -Path to factor information file
-#       16.factorData     -Strings containing factor names and values if manually input 
+# ARGS: htmlPath", "R", 1, "character"      -Path to html file linking to other outputs
+#       outPath", "o", 1, "character"       -Path to folder to write all output to
+#       filesPath", "j", 2, "character"     -JSON list object if multiple files input
+#       matrixPath", "m", 2, "character"    -Path to count matrix
+#       factFile", "f", 2, "character"      -Path to factor information file
+#       factInput", "i", 2, "character"     -String containing factors if manually input
+#       annoPath", "a", 2, "character"      -Path to input containing gene annotations
+#       contrastData", "C", 1, "character"  -String containing contrasts of interest
+#       cpmReq", "c", 2, "double"           -Float specifying cpm requirement
+#       cntReq", "z", 2, "integer"          -Integer specifying minimum total count requirement
+#       sampleReq", "s", 2, "integer"       -Integer specifying cpm requirement
+#       normCounts", "x", 0, "logical"      -String specifying if normalised counts should be output
+#       rdaOpt", "r", 0, "logical"          -String specifying if RData should be output
+#       lfcReq", "l", 1, "double"           -Float specifying the log-fold-change requirement
+#       pValReq", "p", 1, "double"          -Float specifying the p-value requirement
+#       pAdjOpt", "d", 1, "character"       -String specifying the p-value adjustment method
+#       normOpt", "n", 1, "character"       -String specifying type of normalisation used
+#       robOpt", "b", 0, "logical"          -String specifying if robust options should be used
+#       trend", "t", 1, "logical"           -String specifying if limma-trend should be used instead of voom
+#       weightOpt", "w", 0, "logical"       -String specifying if voomWithQualityWeights should be used
 #
-# OUT:  Voom Plot
-#       BCV Plot
-#       MA Plot
+# OUT:
+#       MDS Plot
+#       Voom/SA plot
+#       MD Plot
 #       Expression Table
 #       HTML file linking to the ouputs
+# Optional:
+#       Normalised counts Table
+#       RData file
+#
 #
 # Author: Shian Su - registertonysu@gmail.com - Jan 2014
 # Modified by: Maria Doyle - Jun 2017
@@ -38,6 +47,7 @@ library(splines, quietly=TRUE, warn.conflicts=FALSE)
 library(edgeR, quietly=TRUE, warn.conflicts=FALSE)
 library(limma, quietly=TRUE, warn.conflicts=FALSE)
 library(scales, quietly=TRUE, warn.conflicts=FALSE)
+library(getopt, quietly=TRUE, warn.conflicts=FALSE)
 
 if (packageVersion("limma") < "3.20.1") {
   stop("Please update 'limma' to version >= 3.20.1 to run this tool")
@@ -72,7 +82,7 @@ unmake.names <- function(string) {
 
 # Generate output folder and paths
 makeOut <- function(filename) {
-  return(paste0(outPath, "/", filename))
+  return(paste0(opt$outPath, "/", filename))
 }
 
 # Generating design information
@@ -83,10 +93,10 @@ pasteListName <- function(string) {
 # Create cata function: default path set, default seperator empty and appending
 # true by default (Ripped straight from the cat function with altered argument
 # defaults)
-cata <- function(..., file = htmlPath, sep = "", fill = FALSE, labels = NULL, 
+cata <- function(..., file = opt$htmlPath, sep = "", fill = FALSE, labels = NULL,
                  append = TRUE) {
-  if (is.character(file)) 
-    if (file == "") 
+  if (is.character(file))
+    if (file == "")
       file <- stdout()
   else if (substring(file, 1L, 1L) == "|") {
     file <- pipe(substring(file, 2L), "w")
@@ -134,87 +144,176 @@ TableHeadItem <- function(...) {
 ### Input Processing
 ################################################################################
 
-# Collects arguments from command line
-argv <- commandArgs(TRUE)
+# Collect arguments from command line
+args <- commandArgs(trailingOnly=TRUE)
 
-# Grab arguments
-countPath <- as.character(argv[1])
-annoPath <- as.character(argv[2])
-htmlPath <- as.character(argv[3])
-outPath <- as.character(argv[4])
-rdaOpt <- as.character(argv[5])
-normOpt <- as.character(argv[6])
-weightOpt <- as.character(argv[7])
-contrastData <- as.character(argv[8])
-cpmReq <- as.numeric(argv[9])
-sampleReq <- as.numeric(argv[10])
-pAdjOpt <- as.character(argv[11])
-pValReq <- as.numeric(argv[12])
-lfcReq <- as.numeric(argv[13])
-normCounts <- as.character(argv[14])
-factPath <- as.character(argv[15])
-# Process factors
-if (as.character(argv[16])=="None") {
-    factorData <- read.table(factPath, header=TRUE, sep="\t")
-    factors <- factorData[,-1, drop=FALSE]
-}  else { 
-    factorData <- list()
-    for (i in 16:length(argv)) {
-        newFact <- unlist(strsplit(as.character(argv[i]), split="::"))
-        factorData <- rbind(factorData, newFact)
-    } # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,... The first factor is the Primary Factor.
+# Get options, using the spec as defined by the enclosed list.
+# Read the options from the default: commandArgs(TRUE).
+spec <- matrix(c(
+    "htmlPath", "R", 1, "character",
+    "outPath", "o", 1, "character",
+    "filesPath", "j", 2, "character",
+    "matrixPath", "m", 2, "character",
+    "factFile", "f", 2, "character",
+    "factInput", "i", 2, "character",
+    "annoPath", "a", 2, "character",
+    "contrastData", "C", 1, "character",
+    "cpmReq", "c", 1, "double",
+    "totReq", "y", 0, "logical",
+    "cntReq", "z", 1, "integer",
+    "sampleReq", "s", 1, "integer",
+    "normCounts", "x", 0, "logical",
+    "rdaOpt", "r", 0, "logical",
+    "lfcReq", "l", 1, "double",
+    "pValReq", "p", 1, "double",
+    "pAdjOpt", "d", 1, "character",
+    "normOpt", "n", 1, "character",
+    "robOpt", "b", 0, "logical",
+    "trend", "t", 0, "logical",
+    "weightOpt", "w", 0, "logical"),
+    byrow=TRUE, ncol=4)
+opt <- getopt(spec)
 
-    # Set the row names to be the name of the factor and delete first row
-    row.names(factorData) <- factorData[, 1]
-    factorData <- factorData[, -1]
-    factorData <- sapply(factorData, sanitiseGroups)
-    factorData <- sapply(factorData, strsplit, split=",")
-    factorData <- sapply(factorData, make.names)
-    # Transform factor data into data frame of R factor objects
-    factors <- data.frame(factorData)
 
+if (is.null(opt$matrixPath) & is.null(opt$filesPath)) {
+    cat("A counts matrix (or a set of counts files) is required.\n")
+    q(status=1)
 }
 
-# Process other arguments
-if (weightOpt=="yes") {
-  wantWeight <- TRUE
+if (is.null(opt$cpmReq)) {
+    filtCPM <- FALSE
 } else {
-  wantWeight <- FALSE
+    filtCPM <- TRUE
 }
 
-if (rdaOpt=="yes") {
-  wantRda <- TRUE
+if (is.null(opt$cntReq) || is.null(opt$sampleReq)) {
+    filtSmpCount <- FALSE
 } else {
-  wantRda <- FALSE
+    filtSmpCount <- TRUE
 }
 
-if (annoPath=="None") {
-  haveAnno <- FALSE
+if (is.null(opt$totReq)) {
+    filtTotCount <- FALSE
 } else {
-  haveAnno <- TRUE
+    filtTotCount <- TRUE
 }
 
-if (normCounts=="yes") {
-  wantNorm <- TRUE
+if (is.null(opt$trend)) {
+    wantTrend <- FALSE
 } else {
-  wantNorm <- FALSE
+    wantTrend <- TRUE
 }
 
+if (is.null(opt$rdaOpt)) {
+    wantRda <- FALSE
+} else {
+    wantRda <- TRUE
+}
+
+if (is.null(opt$annoPath)) {
+    haveAnno <- FALSE
+} else {
+    haveAnno <- TRUE
+}
+
+if (is.null(opt$normCounts)) {
+    wantNorm <- FALSE
+} else {
+    wantNorm <- TRUE
+}
+
+if (is.null(opt$robOpt)) {
+    wantRobust <- FALSE
+} else {
+    wantRobust <- TRUE
+}
+
+if (is.null(opt$weightOpt)) {
+    wantWeight <- FALSE
+} else {
+    wantWeight <- TRUE
+}
+
+
+if (!is.null(opt$filesPath)) {
+    # Process the separate count files (adapted from DESeq2 wrapper)
+    library("rjson")
+    parser <- newJSONParser()
+    parser$addData(opt$filesPath)
+    factorList <- parser$getObject()
+    factors <- sapply(factorList, function(x) x[[1]])
+    filenamesIn <- unname(unlist(factorList[[1]][[2]]))
+    sampleTable <- data.frame(sample=basename(filenamesIn),
+                            filename=filenamesIn,
+                            row.names=filenamesIn,
+                            stringsAsFactors=FALSE)
+    for (factor in factorList) {
+        factorName <- factor[[1]]
+        sampleTable[[factorName]] <- character(nrow(sampleTable))
+        lvls <- sapply(factor[[2]], function(x) names(x))
+        for (i in seq_along(factor[[2]])) {
+            files <- factor[[2]][[i]][[1]]
+            sampleTable[files,factorName] <- lvls[i]
+        }
+        sampleTable[[factorName]] <- factor(sampleTable[[factorName]], levels=lvls)
+    }
+    rownames(sampleTable) <- sampleTable$sample
+    rem <- c("sample","filename")
+    factors <- sampleTable[, !(names(sampleTable) %in% rem), drop=FALSE]
+
+    #read in count files and create single table
+    countfiles <- lapply(sampleTable$filename, function(x){read.delim(x, row.names=1)})
+    counts <- do.call("cbind", countfiles)
+
+} else {
+    # Process the single count matrix
+    counts <- read.table(opt$matrixPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    row.names(counts) <- counts[, 1]
+    counts <- counts[ , -1]
+    countsRows <- nrow(counts)
+
+    # Process factors
+    if (is.null(opt$factInput)) {
+            factorData <- read.table(opt$factFile, header=TRUE, sep="\t")
+            factors <- factorData[, -1, drop=FALSE]
+    }  else {
+            factors <- unlist(strsplit(opt$factInput, "|", fixed=TRUE))
+            factorData <- list()
+            for (fact in factors) {
+                newFact <- unlist(strsplit(fact, split="::"))
+                factorData <- rbind(factorData, newFact)
+            } # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,... The first factor is the Primary Factor.
+
+            # Set the row names to be the name of the factor and delete first row
+            row.names(factorData) <- factorData[, 1]
+            factorData <- factorData[, -1]
+            factorData <- sapply(factorData, sanitiseGroups)
+            factorData <- sapply(factorData, strsplit, split=",")
+            factorData <- sapply(factorData, make.names)
+            # Transform factor data into data frame of R factor objects
+            factors <- data.frame(factorData)
+    }
+}
+
+ # if annotation file provided
+if (haveAnno) {
+    geneanno <- read.table(opt$annoPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+}
 
 #Create output directory
-dir.create(outPath, showWarnings=FALSE)
+dir.create(opt$outPath, showWarnings=FALSE)
 
 # Split up contrasts seperated by comma into a vector then sanitise
-contrastData <- unlist(strsplit(contrastData, split=","))
+contrastData <- unlist(strsplit(opt$contrastData, split=","))
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
-bcvOutPdf <- makeOut("bcvplot.pdf")
-bcvOutPng <- makeOut("bcvplot.png")
+#bcvOutPdf <- makeOut("bcvplot.pdf")
+#bcvOutPng <- makeOut("bcvplot.png")
 mdsOutPdf <- makeOut("mdsplot.pdf")
 mdsOutPng <- makeOut("mdsplot.png")
 voomOutPdf <- makeOut("voomplot.pdf")
-voomOutPng <- makeOut("voomplot.png") 
+voomOutPng <- makeOut("voomplot.png")
 maOutPdf <- character()   # Initialise character vector
 maOutPng <- character()
 topOut <- character()
@@ -224,10 +323,10 @@ for (i in 1:length(contrastData)) {
   topOut[i] <- makeOut(paste0("limma-voom_", contrastData[i], ".tsv"))
 }                         # Save output paths for each contrast as vectors
 normOut <- makeOut("limma-voom_normcounts.tsv")
-rdaOut <- makeOut("RData.rda")
+rdaOut <- makeOut("limma_analysis.RData")
 sessionOut <- makeOut("session_info.txt")
 
-# Initialise data for html links and images, data frame with columns Label and 
+# Initialise data for html links and images, data frame with columns Label and
 # Link
 linkData <- data.frame(Label=character(), Link=character(),
                        stringsAsFactors=FALSE)
@@ -238,21 +337,13 @@ imageData <- data.frame(Label=character(), Link=character(),
 upCount <- numeric()
 downCount <- numeric()
 flatCount <- numeric()
-                        
-# Read in counts and geneanno data
-counts <- read.table(countPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
-row.names(counts) <- counts[, 1]
-counts <- counts[ , -1]
-countsRows <- nrow(counts)
-if (haveAnno) {
-  geneanno <- read.table(annoPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
-}
 
 ################################################################################
 ### Data Processing
 ################################################################################
 
 # Extract counts and annotation data
+print("Extracting counts")
 data <- list()
 data$counts <- counts
 if (haveAnno) {
@@ -261,12 +352,24 @@ if (haveAnno) {
   data$genes <- data.frame(GeneID=row.names(counts))
 }
 
-# Filter out genes that do not have a required cpm in a required number of
-# samples
+# If filter crieteria set, filter out genes that do not have a required cpm/counts in a required number of
+# samples. Default is no filtering
 preFilterCount <- nrow(data$counts)
-sel <- rowSums(cpm(data$counts) > cpmReq) >= sampleReq
-data$counts <- data$counts[sel, ]
-data$genes <- data$genes[sel, ,drop = FALSE]
+
+if (filtCPM || filtSmpCount || filtTotCount) {
+
+    if (filtTotCount) {
+        keep <- rowSums(data$counts) >= opt$cntReq
+    } else if (filtSmpCount) {
+        keep <- rowSums(data$counts >= opt$cntReq) >= opt$sampleReq
+    } else if (filtCPM) {
+        keep <- rowSums(cpm(data$counts) >= opt$cpmReq) >= opt$sampleReq
+    }
+
+    data$counts <- data$counts[keep, ]
+    data$genes <- data$genes[keep, , drop=FALSE]
+}
+
 postFilterCount <- nrow(data$counts)
 filteredCount <- preFilterCount-postFilterCount
 
@@ -276,49 +379,38 @@ sampleanno <- data.frame("sampleID"=samplenames, factors)
 
 
 # Generating the DGEList object "data"
+print("Generating DGEList object")
 data$samples <- sampleanno
 data$samples$lib.size <- colSums(data$counts)
 data$samples$norm.factors <- 1
 row.names(data$samples) <- colnames(data$counts)
 data <- new("DGEList", data)
 
+print("Generating Design")
+# Name rows of factors according to their sample
+row.names(factors) <- names(data$counts)
 factorList <- sapply(names(factors), pasteListName)
-
-formula <- "~0" 
+formula <- "~0"
 for (i in 1:length(factorList)) {
     formula <- paste(formula,factorList[i], sep="+")
 }
-
 formula <- formula(formula)
 design <- model.matrix(formula)
-
 for (i in 1:length(factorList)) {
     colnames(design) <- gsub(factorList[i], "", colnames(design), fixed=TRUE)
 }
 
-# Calculating normalising factor, estimating dispersion
-data <- calcNormFactors(data, method=normOpt)
-#data <- estimateDisp(data, design=design, robust=TRUE)
+# Calculating normalising factors
+print("Calculating Normalisation Factors")
+data <- calcNormFactors(data, method=opt$normOpt)
 
 # Generate contrasts information
+print("Generating Contrasts")
 contrasts <- makeContrasts(contrasts=contrastData, levels=design)
-
-# Name rows of factors according to their sample
-row.names(factors) <- names(data$counts)
 
 ################################################################################
 ### Data Output
 ################################################################################
-
-# BCV Plot
-#png(bcvOutPng, width=600, height=600)
-#plotBCV(data, main="BCV Plot")
-#imageData[1, ] <- c("BCV Plot", "bcvplot.png")
-#invisible(dev.off())
-
-#pdf(bcvOutPdf)
-#plotBCV(data, main="BCV Plot")
-#invisible(dev.off())
 
 if (wantWeight) {
   # Creating voom data object and plot
@@ -326,50 +418,52 @@ if (wantWeight) {
   vData <- voomWithQualityWeights(data, design=design, plot=TRUE)
   imageData[1, ] <- c("Voom Plot", "voomplot.png")
   invisible(dev.off())
-  
+
   pdf(voomOutPdf, width=14)
   vData <- voomWithQualityWeights(data, design=design, plot=TRUE)
   linkData[1, ] <- c("Voom Plot (.pdf)", "voomplot.pdf")
   invisible(dev.off())
-  
+
   # Generating fit data and top table with weights
   wts <- vData$weights
   voomFit <- lmFit(vData, design, weights=wts)
-  
+
 } else {
   # Creating voom data object and plot
   png(voomOutPng, width=600, height=600)
   vData <- voom(data, design=design, plot=TRUE)
   imageData[1, ] <- c("Voom Plot", "voomplot.png")
   invisible(dev.off())
-  
+
   pdf(voomOutPdf)
   vData <- voom(data, design=design, plot=TRUE)
   linkData[1, ] <- c("Voom Plot (.pdf)", "voomplot.pdf")
   invisible(dev.off())
-  
+
   # Generate voom fit
   voomFit <- lmFit(vData, design)
-  
+
 }
 
  # Save normalised counts (log2cpm)
-if (wantNorm) {   
+if (wantNorm) {
     norm_counts <- data.frame(vData$genes, vData$E)
     write.table (norm_counts, file=normOut, row.names=FALSE, sep="\t")
     linkData <- rbind(linkData, c("limma-voom_normcounts.tsv", "limma-voom_normcounts.tsv"))
 }
 
 # Fit linear model and estimate dispersion with eBayes
+print("Fitting Linear Model")
 voomFit <- contrasts.fit(voomFit, contrasts)
 voomFit <- eBayes(voomFit)
 
 # Plot MDS
+print("Generating MDS plot")
 labels <- names(counts)
 png(mdsOutPng, width=600, height=600)
 # Currently only using a single factor
 plotMDS(vData, labels=labels, col=as.numeric(factors[, 1]), cex=0.8)
-imgName <- "Voom Plot"
+imgName <- "MDS Plot"
 imgAddr <- "mdsplot.png"
 imageData <- rbind(imageData, c(imgName, imgAddr))
 invisible(dev.off())
@@ -381,49 +475,48 @@ linkAddr <- paste0("mdsplot.pdf")
 linkData <- rbind(linkData, c(linkName, linkAddr))
 invisible(dev.off())
 
+print("Generating DE results")
+status = decideTests(voomFit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
+                       lfc=opt$lfcReq)
+sumStatus <- summary(status)
 
 for (i in 1:length(contrastData)) {
 
-  status = decideTests(voomFit[, i], adjust.method=pAdjOpt, p.value=pValReq,
-                       lfc=lfcReq)
-                       
-  sumStatus <- summary(status)
-  
   # Collect counts for differential expression
-  upCount[i] <- sumStatus["1",]
-  downCount[i] <- sumStatus["-1",]
-  flatCount[i] <- sumStatus["0",]
-                       
+  upCount[i] <- sumStatus["Up", i]
+  downCount[i] <- sumStatus["Down", i]
+  flatCount[i] <- sumStatus["NotSig", i]
+
   # Write top expressions table
   top <- topTable(voomFit, coef=i, number=Inf, sort.by="P")
   write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
-  
+
   linkName <- paste0("limma-voom_", contrastData[i], ".tsv")
   linkAddr <- paste0("limma-voom_", contrastData[i], ".tsv")
   linkData <- rbind(linkData, c(linkName, linkAddr))
-  
-  # Plot MA (log ratios vs mean average) using limma package on weighted 
+
+  # Plot MA (log ratios vs mean average) using limma package on weighted
   pdf(maOutPdf[i])
   limma::plotMA(voomFit, status=status, coef=i,
-                main=paste("MA Plot:", unmake.names(contrastData[i])), 
+                main=paste("MA Plot:", unmake.names(contrastData[i])),
                 col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
                 xlab="Average Expression", ylab="logFC")
-  
+
   abline(h=0, col="grey", lty=2)
-  
+
   linkName <- paste0("MA Plot_", contrastData[i], " (.pdf)")
   linkAddr <- paste0("maplot_", contrastData[i], ".pdf")
   linkData <- rbind(linkData, c(linkName, linkAddr))
   invisible(dev.off())
-  
+
   png(maOutPng[i], height=600, width=600)
   limma::plotMA(voomFit, status=status, coef=i,
-                main=paste("MA Plot:", unmake.names(contrastData[i])), 
+                main=paste("MA Plot:", unmake.names(contrastData[i])),
                 col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
                 xlab="Average Expression", ylab="logFC")
-  
+
   abline(h=0, col="grey", lty=2)
-  
+
   imgName <- paste0("MA Plot_", contrastData[i])
   imgAddr <- paste0("maplot_", contrastData[i], ".png")
   imageData <- rbind(imageData, c(imgName, imgAddr))
@@ -434,15 +527,16 @@ row.names(sigDiff) <- contrastData
 
 # Save relevant items as rda object
 if (wantRda) {
+  print("Saving RData")
   if (wantWeight) {
-    save(data, status, vData, labels, factors, wts, voomFit, top, contrasts, 
+    save(data, status, vData, labels, factors, wts, voomFit, top, contrasts,
          design,
          file=rdaOut, ascii=TRUE)
   } else {
     save(data, status, vData, labels, factors, voomFit, top, contrasts, design,
          file=rdaOut, ascii=TRUE)
   }
-  linkData <- rbind(linkData, c("RData (.rda)", "RData.rda"))
+  linkData <- rbind(linkData, c("RData (.rda)", "limma_analysis.RData"))
 }
 
 # Record session info
@@ -458,7 +552,7 @@ timeTaken <- gsub("Time difference of ", "", timeTaken, fixed=TRUE)
 ################################################################################
 
 # Clear file
-cat("", file=htmlPath)
+cat("", file=opt$htmlPath)
 
 cata("<html>\n")
 
@@ -524,39 +618,51 @@ cata("<p>.tsv files can be viewed in Excel or any spreadsheet program.</p>\n")
 
 cata("<h4>Additional Information</h4>\n")
 cata("<ul>\n")
-if (cpmReq!=0 && sampleReq!=0) {
-  tempStr <- paste("Genes without more than", cpmReq,
-                   "CPM in at least", sampleReq, "samples are insignificant",
-                   "and filtered out.")
-  ListItem(tempStr)
-  filterProp <- round(filteredCount/preFilterCount*100, digits=2)
-  tempStr <- paste0(filteredCount, " of ", preFilterCount," (", filterProp,
-                   "%) genes were filtered out for low expression.")
-  ListItem(tempStr)
+
+if (filtCPM || filtSmpCount || filtTotCount) {
+    if (filtCPM) {
+    tempStr <- paste("Genes without more than", opt$cmpReq,
+                                     "CPM in at least", opt$sampleReq, "samples are insignificant",
+                                     "and filtered out.")
+    } else if (filtSmpCount) {
+        tempStr <- paste("Genes without more than", opt$cntReq,
+                                     "counts in at least", opt$sampleReq, "samples are insignificant",
+                                     "and filtered out.")
+    } else if (filtTotCount) {
+            tempStr <- paste("Genes without more than", opt$cntReq,
+                                     "counts, after summing counts for all samples, are insignificant",
+                                     "and filtered out.")
+    }
+
+    ListItem(tempStr)
+    filterProp <- round(filteredCount/preFilterCount*100, digits=2)
+    tempStr <- paste0(filteredCount, " of ", preFilterCount," (", filterProp,
+                                     "%) genes were filtered out for low expression.")
+    ListItem(tempStr)
 }
-ListItem(normOpt, " was the method used to normalise library sizes.")
+ListItem(opt$normOpt, " was the method used to normalise library sizes.")
 if (wantWeight) {
   ListItem("Weights were applied to samples.")
 } else {
   ListItem("Weights were not applied to samples.")
 }
-if (pAdjOpt!="none") {
-  if (pAdjOpt=="BH" || pAdjOpt=="BY") {
+if (opt$pAdjOpt!="none") {
+  if (opt$pAdjOpt=="BH" || opt$pAdjOpt=="BY") {
     tempStr <- paste0("MA-Plot highlighted genes are significant at FDR ",
-                      "of ", pValReq," and exhibit log2-fold-change of at ", 
-                      "least ", lfcReq, ".")
+                      "of ", opt$pValReq," and exhibit log2-fold-change of at ",
+                      "least ", opt$lfcReq, ".")
     ListItem(tempStr)
-  } else if (pAdjOpt=="holm") {
+  } else if (opt$pAdjOpt=="holm") {
     tempStr <- paste0("MA-Plot highlighted genes are significant at adjusted ",
-                      "p-value of ", pValReq,"  by the Holm(1979) ",
-                      "method, and exhibit log2-fold-change of at least ", 
-                      lfcReq, ".")
+                      "p-value of ", opt$pValReq,"  by the Holm(1979) ",
+                      "method, and exhibit log2-fold-change of at least ",
+                      opt$lfcReq, ".")
     ListItem(tempStr)
   }
 } else {
   tempStr <- paste0("MA-Plot highlighted genes are significant at p-value ",
-                    "of ", pValReq," and exhibit log2-fold-change of at ", 
-                    "least ", lfcReq, ".")
+                    "of ", opt$pValReq," and exhibit log2-fold-change of at ",
+                    "least ", opt$lfcReq, ".")
   ListItem(tempStr)
 }
 cata("</ul>\n")
@@ -638,7 +744,7 @@ cit[9] <- paste("McCarthy DJ, Chen Y and Smyth GK (2012). Differential",
 cit[10] <- paste("Law CW, Chen Y, Shi W, and Smyth GK (2014). Voom:",
                 "precision weights unlock linear model analysis tools for",
                 "RNA-seq read counts. Genome Biology 15, R29.")
-cit[11] <- paste("Ritchie ME, Diyagama D, Neilson J, van Laar R,", 
+cit[11] <- paste("Ritchie ME, Diyagama D, Neilson J, van Laar R,",
                 "Dobrovic A, Holloway A and Smyth GK (2006).",
                 "Empirical array quality weights for microarray data.",
                 "BMC Bioinformatics 7, Article 261.")

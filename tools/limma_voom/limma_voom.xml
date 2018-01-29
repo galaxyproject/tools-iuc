@@ -1,65 +1,100 @@
-<tool id="limma_voom" name="limma-voom" version="1.2.0">
+<tool id="limma_voom" name="limma-voom" version="3.34.6.0">
     <description>
         Differential expression with optional sample weights
     </description>
 
     <requirements>
-        <requirement type="package" version="3.16.5">bioconductor-edger</requirement>
-        <requirement type="package" version="3.30.13">bioconductor-limma</requirement>
-        <requirement type="package" version="1.4.29">r-statmod</requirement>
-        <requirement type="package" version="0.4.1">r-scales</requirement>
+        <requirement type="package" version="3.34.6">bioconductor-limma</requirement>
+        <requirement type="package" version="3.20.7">bioconductor-edger</requirement>
+        <requirement type="package" version="1.4.30">r-statmod</requirement>
+        <requirement type="package" version="0.5.0">r-scales</requirement>
+        <requirement type="package" version="0.2.15">r-rjson</requirement>
+        <requirement type="package" version="1.20.0">r-getopt</requirement>
     </requirements>
 
     <version_command><![CDATA[
-        echo $(R --version | grep version | grep -v GNU)", limma version" $(R --vanilla --slave -e "library(limma); cat(sessionInfo()\$otherPkgs\$limma\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", edgeR version" $(R --vanilla --slave -e "library(edgeR); cat(sessionInfo()\$otherPkgs\$edgeR\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
+echo $(R --version | grep version | grep -v GNU)", limma version" $(R --vanilla --slave -e "library(limma); cat(sessionInfo()\$otherPkgs\$limma\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", edgeR version" $(R --vanilla --slave -e "library(edgeR); cat(sessionInfo()\$otherPkgs\$edgeR\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
     ]]></version_command>
 
     <command detect_errors="exit_code"><![CDATA[
+#import json
 Rscript '$__tool_directory__/limma_voom.R'
-'$counts'
+
+-R '$outReport'
+-o '$outReport.files_path'
+
+#if $input.format=="files":
+
+    ## Adapted from DESeq2 wrapper
+    #set $temp_factor_names = list()
+    #for $fact in $input.rep_factor:
+        #set $temp_factor = list()
+        #for $g in $fact.rep_group:
+            #set $count_files = list()
+            #for $file in $g.countsFile:
+                $count_files.append(str($file))
+            #end for
+            $temp_factor.append( {str($g.groupName): $count_files} )
+        #end for
+
+        $temp_factor.reverse()
+        $temp_factor_names.append([str($fact.factorName), $temp_factor])
+    #end for
+    -j '#echo json.dumps(temp_factor_names)#'
+
+#elif $input.format=="matrix":
+    -m '$input.counts'
+    #if $input.fact.ffile=='yes':
+        -f '$input.fact.finfo'
+    #else:
+        -i '${ '|'.join( ['%s::%s' % ($x.factorName, $x.groupNames) for x in $input.fact.rep_factor] ) }'
+    #end if
+#end if
 
 #if $anno.annoOpt=='yes':
-  '$geneanno'
-#else:
-  None
+    -a '$anno.geneanno'
 #end if
 
-'$outReport'
-'$outReport.files_path'
-$rdaOption
-$normalisationOption
-$weightOption
-'$contrast'
+-C '${ ','.join( ['%s' % $x.contrast for x in $rep_contrast] ) }'
 
-#if $filterCPM.filterLowCPM=='yes':
-  '$filterCPM.cpmReq'
-  '$filterCPM.sampleReq'
-#else:
-  0
-  0
+#if $f.filt.filt_select == 'yes':
+    #if $f.filt.cformat.format_select == 'cpm':
+        -c '$f.filt.cformat.cpmReq'
+        -s '$f.filt.cformat.cpmSampleReq'
+    #elif $f.filt.cformat.format_select == 'counts':
+            -z '$f.filt.cformat.cntReq'
+        #if $f.filt.cformat.samples.count_select == 'total':
+            -y
+        #elif $f.filt.cformat.samples.count_select == 'sample':
+            -s '$f.filt.cformat.samples.cntSampleReq'
+        #end if
+    #end if
 #end if
 
-#if $testOpt.wantOpt=='yes':
-  '$testOpt.pAdjust'
-  '$testOpt.pVal'
-  '$testOpt.lfc'
-#else:
-  "BH"
-  0.05
-  0
+#if $out.normCounts:
+    -x
 #end if
 
-$normCounts
+#if $out.rdaOption:
+    -r
+#end if
 
-#if $fact.ffile=='yes':
-    '$finfo'
-    'None'
-#else:
-    'None'
-    '$fact.pfactName::$fact.pfactLevel'
-    #for $sfact in $fact.sfactors:
-        '$sfact.sfactName::$sfact.sfactLevel'
-    #end for
+-l '$adv.lfc'
+-p '$adv.pVal'
+-d '$adv.pAdjust'
+
+#if $adv.deMethod.de_select == 'voom':
+    #if $adv.deMethod.weightOption:
+        -w
+    #end if
+#elif $adv.deMethod.de_select == 'trend':
+    -t 
+#end if
+
+-n '$adv.normalisationOption'
+
+#if $adv.robOption:
+    -b
 #end if
 
 &&
@@ -70,11 +105,67 @@ cp '$outReport.files_path'/*.tsv output_dir/
     ]]></command>
 
     <inputs>
-        <param name="counts" type="data" format="tabular" label="Counts Data"/>
+        <!-- Counts and Factors -->
+        <conditional name="input">
+            <param name="format" type="select" label="Count Files or Matrix?"
+                help="You can choose to input either separate count files (one per sample) or a single count matrix">
+                <option value="files">Separate Count Files</option>
+                <option value="matrix">Single Count Matrix</option>
+            </param>
 
+            <when value="files">
+                <repeat name="rep_factor" title="Factor" min="1">
+                    <param name="factorName" type="text" label="Name" help="Name of experiment factor of interest (e.g. Genotype). One factor must be entered and there must be two or more groups per factor. Optional additional factors (e.g. Batch) can be entered using the Insert Factor button below, see Help section for more information. NOTE: Please only use letters, numbers or underscores.">
+                    <sanitizer>
+                        <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                    </sanitizer>
+                    </param>
+                    <repeat name="rep_group" title="Group" min="2" default="2">
+                        <param name="groupName" type="text" label="Name"
+                        help="Name of group that the counts files(s) belong to (e.g. WT or Mut). NOTE: Please only use letters, numbers or underscores (case sensitive).">
+                        <sanitizer>
+                            <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                        </sanitizer>
+                        </param>
+                        <param name="countsFile" type="data" format="tabular" multiple="true" label="Counts file(s)"/>
+                    </repeat>
+                </repeat>
+            </when>
+
+            <when value="matrix">
+                <param name="counts" type="data" format="tabular" label="Count Matrix"/>
+
+                <conditional name="fact">
+                    <param name="ffile" type="select" label="Input factor information from file?"
+                        help="You can choose to input the factor and group information for the samples from a file or manually enter below.">
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </param>
+                    <when value="yes">
+                        <param name="finfo" type="data" format="tabular" label="Factor File"/>
+                    </when>
+                    <when value="no" >
+                        <repeat name="rep_factor" title="Factor" min="1">
+                            <param name="factorName" type="text" label="Factor Name"
+                                help="Name of experiment factor of interest (e.g. Genotype). One factor must be entered and there must be two or more groups per factor. Additional factors (e.g. Batch) can be entered using the Insert Factor button below, see Help section below. NOTE: Please only use letters, numbers or underscores.">
+                                <validator type="empty_field" />
+                                <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
+                            </param>
+                            <param name="groupNames" type="text" label="Groups"
+                                help="Enter the group names for the samples separated with commas e.g. WT,WT,WT,Mut,Mut,Mut. The order of the names must match the order of the samples in the columns of the count matrix. NOTE: Please only use letters, numbers or underscores (case sensitive).">
+                                <validator type="empty_field" />
+                                <validator type="regex" message="Please only use letters, numbers or underscores, and separate levels by commas">^[\w,]+$</validator>
+                            </param>
+                        </repeat>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+
+        <!-- Gene Annotations -->
         <conditional name="anno">
             <param name="annoOpt" type="select" label="Use Gene Annotations?"
-                help="If an annotation file is provided, annotations will be added to the table of differential expression results to provide descriptions for each gene.">
+                    help="If you provide an annotation file, annotations will be added to the table(s) of differential expression results to provide descriptions for each gene. See Help section below.">
                 <option value="no">No</option>
                 <option value="yes">Yes</option>
             </param>
@@ -84,102 +175,101 @@ cp '$outReport.files_path'/*.tsv output_dir/
             <when value="no" />
         </conditional>
 
-        <conditional name="fact">
-            <param name="ffile" type="select" label="Input Factor Information from file?"
-                help="You can choose to input the factor information from a file or manually enter below.">
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
+        <!-- Contrasts -->
+        <repeat name="rep_contrast" title="Contrast" min="1" default="1">
+            <param name="contrast" type="text" label="Contrast of Interest" help="Names of two groups to compare separated by a hyphen e.g. Mut-WT. If the order is Mut-WT the fold changes in the results will be up/down in Mut relative to WT. If you have more than one contrast enter each separately using the Insert Contrast button below. For more info, see Chapter 8 in the limma User's guide: https://www.bioconductor.org/packages/release/bioc/vignettes/limma/inst/doc/usersguide.pdf">
+                <validator type="empty_field" />
+                <validator type="regex" message="Please only use letters, numbers or underscores">^[\w-]+$</validator>
             </param>
-            <when value="yes">
-                <param name="finfo" type="data" format="tabular" label="Factor Information"/>
-            </when>
-            <when value="no" >
-                <param name="pfactName" type="text" label="Primary Factor Name"
-                    help="Eg. Genotype NOTE: Please only use letters, numbers or underscores.">
-                    <validator type="empty_field" />
-                    <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
+        </repeat>
+
+        <!-- Filter Options -->
+        <section name="f" expanded="false" title="Filter Low Counts">
+            <conditional name="filt">
+                <param name="filt_select" type="select" label="Filter lowly expressed genes?" help="Treat genes with very low expression as unexpressed and filter out. See the Filter Low Counts section below for more information. Default: No">
+                    <option value="no" selected="true">No</option>
+                    <option value="yes">Yes</option>
                 </param>
-                <param name="pfactLevel" type="text" label="Primary Factor Levels"
-                    help="Eg. WT,WT,WT,Mut,Mut,Mut NOTE: Please only use letters, numbers or underscores and ensure that the same levels are typed identically with cases matching.">
-                    <validator type="empty_field" />
-                    <validator type="regex" message="Please only use letters, numbers or underscores, and separate levels by commas">^[\w,]+$</validator>
+                <when value="yes">
+                    <conditional name="cformat">
+                        <param name="format_select" type="select" label="Filter on CPM or Count values?" help="It is slightly better to base the filtering on count-per-million (CPM) rather than the raw count values so as to avoid favoring genes expressed in samples sequenced to a higher depth. ">
+                            <option value="cpm">CPM</option>
+                            <option value="counts">Counts</option>
+                        </param>
+                        <when value="cpm">
+                            <param name="cpmReq" type="float" value="1" min="0" label="Minimum CPM" help="Treat genes with CPM below this value as unexpressed and filter out. See the Filter Low Counts section below for more information."/>
+                             <param name="cpmSampleReq" type="integer" value="0" min="0" label="Minimum Samples"
+                             help="Filter out all genes that do not meet the Minimum CPM in at least this many samples. See the Filter Low Counts section below for more information."/>
+                        </when>
+                        <when value="counts">
+                            <param name="cntReq" type="integer" value="0" min="0" label="Minimum Count" help="Filter out all genes that do not meet this minimum count. You can choose below to apply this filter to the total count for all samples or specify the number of samples under Minimum Samples. See the Filter Low Counts section below for more information." />
+                            <conditional name="samples">
+                                <param name="count_select" type="select" label="Filter on Total Count or per Sample Count values?" >
+                                    <option value="total">Total</option>
+                                    <option value="sample">Sample</option>
+                                </param>
+                                <when value="total">
+                                    <param name="totReq" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Filter on Total Count" help="Apply the Minimum Count filter to genes after summing counts for all samples. See the Filter Low Counts section below for more information." />
+                                </when>
+                                <when value="sample">
+                                    <param name="cntSampleReq" type="integer" value="0" min="0" label="Minimum Samples"
+                                    help="Filter out all genes that do not meet the Minimum Count in at least this many samples. See the Filter Low Counts section below for more information."/>
+                                </when>
+                            </conditional>
+                        </when>
+                    </conditional>
+                </when>
+                <when value="no" />
+            </conditional>
+        </section>
+
+        <!-- Output Options -->
+        <section name="out" expanded="false" title="Output Options">
+            <param name="normCounts" type="boolean" truevalue="1" falsevalue="0" checked="false"
+                label="Output Normalised Counts Table?"
+                help="Output a file containing the normalised counts, these are in log2 counts per million (logCPM). Default: No">
+            </param>
+            <param name="rdaOption" type="boolean" truevalue="1" falsevalue="0" checked="false"
+                label="Output RData file?"
+                help="Output all the data used by R to construct the plots and tables, can be loaded into R. A link to the RData file will be provided in the HTML report. Default: No">
+            </param>
+        </section>
+
+        <!-- Advanced Options -->
+        <section name="adv" expanded="false" title="Advanced Options">
+            <param name="lfc" type="float" value="0" min="0"
+                label="Minimum Log2 Fold Change"
+                help="Genes above this threshold and below the p-value threshold are considered significant and highlighted in the MD plot. Default: 0."/>
+            <param name="pVal" type="float" value="0.05" min="0" max="1"
+                label="P-Value Adjusted Threshold"
+                help="Genes below this threshold are considered significant and highlighted in the MD plot. If either BH(1995) or BY(2001) are selected then this value is a false-discovery-rate control. If Holm(1979) is selected then this is an adjusted p-value for family-wise error rate. Default: 0.05."/>
+            <param name="pAdjust" type="select" label="P-Value Adjustment Method" help="Default: BH">
+                <option value="BH" selected="true">Benjamini and Hochberg (1995)</option>
+                <option value="BY">Benjamini and Yekutieli (2001)</option>
+                <option value="holm">Holm (1979)</option>
+                <option value="none">None</option>
+            </param>
+            <conditional name="deMethod">
+                <param name="de_select" type="select" label="Differential Expression Method" help="Select the limma-voom or limma-trend approach. See Help section below for more information. Default: limma-voom">
+                    <option value="voom" selected="True">limma-voom</option>
+                    <option value="trend">limma-trend</option>
                 </param>
-                <repeat name="sfactors" title="Secondary Factor" >
-                    <param name="sfactName" type="text" label="Secondary Factor Name" help="Eg. Batch">
-                        <validator type="empty_field" />
-                        <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
+                <when value="voom">
+                    <param name="weightOption" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Apply voom with sample quality weights?"
+                    help="Apply weights if outliers are present (voomWithQualityWeights). Default: False.">
                     </param>
-                    <param name="sfactLevel" type="text" label="Secondary Factor Levels"
-                        help="Eg. b1,b2,b3,b1,b2,b3 NOTE: Please only use letters, numbers or underscores and ensure that the same levels are typed identically with cases matching.">
-                        <validator type="empty_field" />
-                        <validator type="regex" message="Please only use letters, numbers or underscores">^[\w,]+$</validator>
-                    </param>
-                </repeat>
-            </when>
-        </conditional>
-
-        <param name="contrast" type="text" label="Contrasts of interest" help="Eg. Mut-WT,KD-Control">
-            <validator type="empty_field" />
-            <validator type="regex" message="Please only use letters, numbers or underscores">^[\w,-]+$</validator>
-        </param>
-
-        <conditional name="filterCPM">
-            <param name="filterLowCPM" type="select" label="Filter Low CPM?"
-                help="Treat genes with very low expression as unexpressed and filter out to speed up computation.">
-                <option value="yes" selected="True">Yes</option>
-                <option value="no">No</option>
+                </when>
+                <when value="trend"/>
+            </conditional>
+            <param name="normalisationOption" type="select" label="Normalisation Method" help="Default: TMM">
+                <option value="TMM" selected="true">TMM</option>
+                <option value="RLE">RLE</option>
+                <option value="upperquartile">Upperquartile</option>
+                <option value="none">None (Don't normalise)</option>
             </param>
-            <when value="yes">
-                <param name="cpmReq" type="float" value="0.5" min="0" label="Minimum CPM"/>
-                <param name="sampleReq" type="integer" value="1" min="0" label="Minimum Samples"
-                    help="Filter out all the genes that do not meet the minimum CPM in at least this many samples."/>
-            </when>
-            <when value="no"/>
-        </conditional>
+            <param name="robOption" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Use Robust Settings?" help="Using robust settings is usually recommended to protect against outlier genes. Default: Yes" />
+        </section>
 
-        <param name="weightOption" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Apply sample weights?"
-            help="Apply weights if outliers are present.">
-        </param>
-
-        <param name="normalisationOption" type="select" label="Normalisation Method">
-            <option value="TMM">TMM</option>
-            <option value="RLE">RLE</option>
-            <option value="upperquartile">Upperquartile</option>
-            <option value="none">None (Don't normalise)</option>
-        </param>
-
-        <param name="normCounts" type="boolean" truevalue="yes" falsevalue="no" checked="false"
-            label="Output normalised counts table?"
-            help="Output a file containing the normalised counts, these are in log2 counts per million (logCPM).">
-        </param>
-
-        <param name="rdaOption" type="boolean" truevalue="yes" falsevalue="no" checked="false"
-            label="Output RData?"
-            help="Output all the data used by R to construct the plots and tables, can be loaded into R. A link to the RData file will be provided in the HTML report.">
-        </param>
-
-        <conditional name="testOpt">
-            <param name="wantOpt" type="select" label="Use Advanced Testing Options?"
-                help="Enable choices for p-value adjustment method, p-value threshold and log2-fold-change threshold.">
-                <option value="no" selected="True">No</option>
-                <option value="yes">Yes</option>
-            </param>
-            <when value="yes">
-                <param name="pAdjust" type="select" label="P-Value Adjustment Method.">
-                    <option value="BH">Benjamini and Hochberg (1995)</option>
-                    <option value="BY">Benjamini and Yekutieli (2001)</option>
-                    <option value="holm">Holm (1979)</option>
-                    <option value="none">None</option>
-                </param>
-                <param name="pVal" type="float" value="0.05" min="0" max="1"
-                    label="Adjusted Threshold"
-                    help="Genes below this threshold are considered significant and highlighted in the MA plot. If either BH(1995) or BY(2001) were selected then this value is a false-discovery-rate control. If Holm(1979) was selected then this is an adjusted p-value for family-wise error rate."/>
-                <param name="lfc" type="float" value="0" min="0"
-                    label="Minimum log2-fold-change Required"
-                    help="Genes above this threshold and below the p-value threshold are considered significant and highlighted in the MA plot."/>
-            </when>
-            <when value="no"/>
-        </conditional>
 
     </inputs>
 
@@ -191,11 +281,20 @@ cp '$outReport.files_path'/*.tsv output_dir/
     </outputs>
 
     <tests>
+        <!-- Ensure report is output -->
         <test>
+            <param name="format" value="matrix" />
             <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype" />
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
-            <param name="contrast" value="Mut-WT,WT-Mut" />
+            <repeat name="rep_factor">
+                <param name="factorName" value="Genotype"/>
+                <param name="groupNames" value="Mut,Mut,Mut,WT,WT,WT" />
+            </repeat>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="Mut-WT" />
+            </repeat>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="WT-Mut" />
+            </repeat>
             <param name="normalisationOption" value="TMM" />
             <output_collection name="outTables" count="2">
                 <element name="limma-voom_Mut-WT" ftype="tabular" file="limma-voom_Mut-WT.tsv" />
@@ -207,67 +306,6 @@ cp '$outReport.files_path'/*.tsv output_dir/
                     <not_has_text text="RData" />
                 </assert_contents>
             </output>
-        </test>
-        <test>
-            <param name="annoOpt" value="yes" />
-            <param name="geneanno" value="anno.txt" />
-            <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype" />
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
-            <param name="contrast" value="Mut-WT" />
-            <param name="normalisationOption" value="TMM" />
-            <output_collection name="outTables" >
-                <element name="limma-voom_Mut-WT" ftype="tabular" file="limma-voom_Mut-WTanno.tsv" />
-            </output_collection>
-        </test>
-        <test>
-            <param name="rdaOption" value="yes" />
-            <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype" />
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
-            <param name="contrast" value="Mut-WT" />
-            <param name="normalisationOption" value="TMM" />
-            <output name="outReport" >
-                <assert_contents>
-                    <has_text text="RData" />
-                </assert_contents>
-            </output>
-        </test>
-        <test>
-            <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype"/>
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut"/>
-            <repeat name="sfactors">
-                <param name="sfactName" value="Batch"/>
-                <param name="sfactLevel" value="b1,b2,b3,b1,b2,b3"/>
-            </repeat>
-            <param name="contrast" value="Mut-WT" />
-            <param name="normalisationOption" value="TMM" />
-            <output_collection name="outTables" >
-                <element name="limma-voom_Mut-WT" ftype="tabular" file="limma-voom_Mut-WTmultifact.tsv" />
-            </output_collection>
-        </test>
-        <test>
-            <param name="ffile" value="yes" />
-            <param name="finfo" value="factorinfo.txt" />
-            <param name="counts" value="matrix.txt" />
-            <param name="contrast" value="Mut-WT" />
-            <param name="normalisationOption" value="TMM" />
-            <output_collection name="outTables" >
-                <element name="limma-voom_Mut-WT" ftype="tabular" file="limma-voom_Mut-WTmultifact.tsv" />
-            </output_collection>
-        </test>
-        <test>
-            <param name="normCounts" value="yes" />
-            <param name="counts" value="matrix.txt" />
-            <param name="pfactName" value="Genotype" />
-            <param name="pfactLevel" value="WT,WT,WT,Mut,Mut,Mut" />
-            <param name="contrast" value="Mut-WT" />
-            <param name="normalisationOption" value="TMM" />
-            <output_collection name="outTables" count="2">
-                <element name="limma-voom_Mut-WT" ftype="tabular" file="limma-voom_Mut-WT.tsv" />
-                <element name="limma-voom_normcounts" ftype="tabular" file="limma-voom_normcounts.tsv" />
-            </output_collection>
         </test>
     </tests>
 
