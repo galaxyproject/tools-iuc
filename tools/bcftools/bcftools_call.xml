@@ -1,9 +1,32 @@
 <?xml version='1.0' encoding='utf-8'?>
-<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@VERSION@.1">
+<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@VERSION@">
     <description>SNP/indel variant calling from VCF/BCF</description>
     <macros>
         <token name="@EXECUTABLE@">call</token>
         <import>macros.xml</import>
+        <xml name="macro_novel_rate">
+            <param name="novel_rate_snp" type="float" label="Novel Rate SNP" value="" optional="true" 
+                   help="likelihood of novel mutation for constrained trio calling, see man page for details" />
+            <param name="novel_rate_del" type="float" label="Novel Rate Deletions" value="" optional="true" 
+                   help="likelihood of novel mutation for constrained trio calling, see man page for details" />
+            <param name="novel_rate_ins" type="float" label="Novel Rate Insertions" value="" optional="true" 
+                   help="likelihood of novel mutation for constrained trio calling, see man page for details" />
+        </xml>
+        <token name="@NOVEL_RATE@">
+            #set $novel_rate = []
+            #if str($section.genotypes.novel_rate_snp):
+              #silent $novel_rate.append(str($section.genotypes.novel_rate_snp))
+            #end if
+            #if str($section.genotypes.novel_rate_del):
+              #silent $novel_rate.append(str($section.genotypes.novel_rate_del))
+            #end if
+            #if str($section.genotypes.novel_rate_ins):
+              #silent $novel_rate.append(str($section.genotypes.novel_rate_ins))
+            #end if
+            #if len($novel_rate) > 0:
+               --novel-rate '#echo ','.join($novel_rate)#'
+            #end if
+        </token>
     </macros>
     <expand macro="requirements" />
     <expand macro="version_command" />
@@ -18,6 +41,8 @@
   @PREPARE_TARGETS_FILE@
  #end if
 #end if
+#set $section = $sec_restrict
+@PREPARE_REGIONS_FILE@
 
 bcftools @EXECUTABLE@
 
@@ -27,6 +52,9 @@ bcftools @EXECUTABLE@
  #if str($section.gvcf) != '':
   --gvcf $section.gvcf
  #end if
+ #if str($section.prior_freqs) != '':
+  --prior-freqs $section.prior_freqs
+ #end if
  #if $section.genotypes.constrain == 'alleles':  
   --constrain alleles $section.genotypes.insert_missed
   #set $section = $sec_consensus_variant_calling.variant_calling.genotypes
@@ -34,9 +62,7 @@ bcftools @EXECUTABLE@
  #else
    #if $section.genotypes.constrain == 'trio':
     --constrain trio
-    #if $section.genotypes.novel_rate:
-     --novel-rate '$section.genotypes.novel_rate'
-    #end if
+    @NOVEL_RATE@
    #end if
    #set $section = $sec_consensus_variant_calling.variant_calling.genotypes
    @TARGETS@
@@ -83,7 +109,7 @@ ${section.variants_only}
 
 ## Primary Input/Outputs
 @INPUT_FILE@
-> "$output_file"
+> '$output_file'
 ]]>
     </command>
     <inputs>
@@ -114,9 +140,20 @@ ${section.variants_only}
                         </when>
                         <when value="trio">
                             <expand macro="macro_targets" />
-                            <param name="novel_rate" type="float" label="Novel Rate" value="1e-8,1e-9,1e-9" optional="true" help="likelihood of novel mutation for constrained trio calling, see man page for details" />
+                            <expand macro="macro_novel_rate" />
                         </when>
                     </conditional>
+                    <param name="prior_freqs" type="text" value="" optional="true" label="Use prior knowledge of population allele frequencies">
+                        <help>
+<![CDATA[
+For example: --prior-freqs REF_AN,REF_AC 
+<br>if the input VCF has the following INFO tags:
+<br>##INFO=&lt;ID=REF_AN,Number=1,Type=Integer,Description="Total number of alleles in reference genotypes"&gt;
+<br>##INFO=&lt;ID=REF_AC,Number=A,Type=Integer,Description="Allele count in reference genotypes for each ALT allele"&gt;
+]]>
+                        </help>
+                        <validator type="regex" message="The INFO tags (separated by a comma), e.g. AN,AC">^(\w+,\w+)?$</validator>
+                    </param>
                     <param name="gvcf" type="integer" label="gvcf" optional="True" help="group non-variant sites into gVCF blocks by minimum per-sample DP" />
                 </when>
                 <when value="consensus">
@@ -128,7 +165,7 @@ ${section.variants_only}
                         <when value="none">
                         </when>
                         <when value="trio">
-                            <param name="novel_rate" type="float" label="Novel Rate" value="1e-8,1e-9,1e-9" optional="true" help="likelihood of novel mutation for constrained trio calling, see man page for details" />
+                            <expand macro="macro_novel_rate" />
                         </when>
                     </conditional>
                     <expand macro="macro_targets" />
@@ -226,6 +263,9 @@ SNP/indel variant calling from VCF/BCF. To be used in conjunction with samtools 
   - This command replaces the former "bcftools view" caller. 
   - Some of the original functionality has been temporarily lost in the process of transition to htslib, but will be added back on popular demand. 
   - The original calling model can be invoked with the -c option.
+
+The novel-rate option can be set to modify the likelihood of novel mutation for constrained -C trio calling. The trio genotype calling maximizes likelihood of a particular combination of genotypes for father, mother and the child P(F=i,M=j,C=k) = P(unconstrained) * Pn + P(constrained) * (1-Pn). By providing three values, the mutation rate Pn is set explicitly for SNPs, deletions and insertions, respectively. If two values are given, the first is interpreted as the mutation rate of SNPs and the second is used to calculate the mutation rate of indels according to their length as Pn=float*exp(-a-b*len), where a=22.8689, b=0.2994 for insertions and a=21.9313, b=0.2856 for deletions [pubmed:23975140]. If only one value is given, the same mutation rate Pn is used for SNPs and indels. 
+
 
 @REGIONS_HELP@
 @TARGETS_HELP@

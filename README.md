@@ -4,9 +4,11 @@
 Galaxy Tools maintained by IUC
 ==============================
 
+![](iuc_logo.png)
+
 This repo contains a subset of Galaxy repositories used in the Tool Shed (https://toolshed.g2.bx.psu.edu/).
 
-These repositories are maintained and developed by the [Intergalactic Utilities Commission](https://wiki.galaxyproject.org/IUC) ([Github Org](https://github.com/galaxy-iuc/))
+These repositories are maintained and developed by the [Intergalactic Utilities Commission](https://galaxyproject.org/iuc/) ([Github Org](https://github.com/galaxy-iuc/))
 
 Pull Requests with dependencies specified as conda-package will be automatically tested and verified using [planemo](https://github.com/galaxyproject/planemo). If the tests pass and the pull request is merged, the tool will be automatically uploaded to the [Test](http://testtoolshed.g2.bx.psu.edu/)- and [Main Tool Shed](http://toolshed.g2.bx.psu.edu/).
 
@@ -29,5 +31,6 @@ Other repositories with Galaxy tools:
  * [EI repo](https://github.com/TGAC/earlham-galaxytools)
  * [AAFC-MBB Canada repo](https://github.com/AAFC-MBB/Galaxy/tree/master/wrappers)
  * [Mark Einon's repo](https://github.com/einon/galaxy-tools)
+ * [National Microbiology Laboratory's repo](https://github.com/phac-nml/galaxy_tools)
 
  

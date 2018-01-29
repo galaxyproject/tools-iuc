@@ -1,0 +1,267 @@
+<tool id="bio_hansel" name="Salmonella Subtyping" version="0.1.0">
+    <requirements>
+        <requirement type="package" version="0.1.0">bio_hansel</requirement>
+        <requirement type="package" version="17.2.0">attrs</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## Preparing file input.
+        #if $data_type.type == "paired":
+
+            ln -s '$data_type.fastq_input1' fast_q_paired_1.fastq &&
+            ln -s '$data_type.fastq_input2' fast_q_paired_2.fastq &&
+
+        #elif $data_type.type == "collection":
+
+            ln -s '$data_type.fastq_input1.forward' fast_q_paired_1.fastq &&
+            ln -s '$data_type.fastq_input1.reverse' fast_q_paired_2.fastq &&
+
+        #elif $data_type.type == "single":
+
+            #if $data_type.fastq_input1.is_of_type('fastqsanger') or $data_type.fastq_input1.is_of_type('fastq'):
+                ln -s '$data_type.fastq_input1' fast_q_single.fastq &&
+            #end if
+
+            #if $data_type.fastq_input1.is_of_type('fasta'):
+                ln -s '$data_type.fastq_input1' fast_a_single.fasta &&
+            #end if
+
+        #end if
+
+
+        ## Checking for custom scheme.
+        #if $type_of_scheme.scheme_type == "custom":
+            #if $type_of_scheme.scheme_input.is_of_type('fasta'):
+                ln -s '$type_of_scheme.scheme_input' custom_scheme.fasta &&
+            #end if
+        #end if
+
+        ## Start the actual command here
+        hansel 
+
+
+        ## Select the scheme
+        -s
+
+        #if $type_of_scheme.scheme_type == "heidelberg":
+            heidelberg
+        #elif $type_of_scheme.scheme_type == "enteritidis":
+            enteritidis
+        #elif $type_of_scheme.scheme_type == "custom":
+            custom_scheme.fasta
+        #end if
+
+
+        #if $kmer_min
+            --min-kmer-freq $kmer_min
+        #end if
+
+        #if $kmer_max
+            --max-kmer-freq $kmer_max
+        #end if
+
+        ## Adding more parameters to the command.
+        -vvv -t "\${GALAXY_SLOTS:-1}" -o results.tab -O match_results.tab 
+
+
+        ## Entering the file inputs.
+        #if $data_type.type == "single":
+
+            #if $data_type.fastq_input1.is_of_type('fastqsanger') or $data_type.fastq_input1.is_of_type('fastq'):
+                fast_q_single.fastq
+            #end if
+
+            #if $data_type.fastq_input1.is_of_type('fasta'):
+                fast_a_single.fasta
+            #end if
+
+        #else
+
+            ##use -p to declare using two files.
+            -p fast_q_paired_1.fastq  fast_q_paired_2.fastq
+
+        #end if
+    ]]></command>
+    <inputs>
+        <conditional name="data_type">
+            <param name="type" type="select" label="Specify the read type.">
+                <option value="single">Single-end Data</option>
+                <option value="paired">Paired-end Data</option>
+                <option value="collection">Collection Paired-end Data</option>
+            </param>
+            <when value="single">
+                <param name="fastq_input1" type="data" format="fastqsanger, fastq, fasta" label="Single end read file(s)"/>
+            </when>
+            <when value="paired">
+                <param name="fastq_input1" type="data" format="fastqsanger, fastq" label="Forward paired-end read file"/>
+                <param name="fastq_input2" type="data" format="fastqsanger, fastq" label="Reverse paired-end read file"/>
+            </when>
+            <when value="collection">
+                <param name="fastq_input1" type="data_collection" label="Paired-end reads collection" optional="false" format="fastqsanger, fastq" collection_type="paired" />
+            </when>
+        </conditional>
+        <conditional name="type_of_scheme">
+            <param name="scheme_type" type="select" label="Specify scheme to use. (Heidelberg is default)">
+                <option value="heidelberg">Heidelberg scheme</option>
+                <option value="enteritidis">Enteritidis scheme</option>
+                <option value="custom">Specify your own custom scheme</option>
+            </param>
+            <when value="heidelberg"/>
+            <when value="enteritidis"/>
+            <when value="custom">
+                <param name="scheme_input" type="data" format="fasta" label="Scheme Input"/>
+            </when>
+        </conditional>
+        <param name="kmer_min" argument="--min-kmer-freq" optional="True" type="integer" min="0" label="Min k-mer freq/coverage" help="default = 10"/>
+        <param name="kmer_max" argument="--max-kmer-freq" optional="True" type="integer" min="1" label="Max k-mer freq/coverage" help="default = 200"/>
+    </inputs>
+    <outputs>
+        <data format="tabular" name="results.tab" from_work_dir="results.tab" label="results.tab"/>
+        <data format="tabular" name="match_results.tab" from_work_dir="match_results.tab" label="match_results.tab"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="type" value="single"/>
+            <param name="type_of_scheme" value="heidelberg"/>
+            <param name="fastq_input1" value="SRR1002850_SMALL.fasta"/>
+            <output name="results.tab">
+                <assert_contents>
+                    <!-- Verifying that the columns are as expected. -->
+                    <has_text_matching expression="sample\s+scheme\s+subtype\s+all_subtypes\s+tiles_matching_subtype\s+are_subtypes_consistent\s+inconsistent_subtypes\s+n_tiles_matching_all\s+n_tiles_matching_all_total\s+n_tiles_matching_positive\s+n_tiles_matching_positive_total\s+n_tiles_matching_subtype\s+n_tiles_matching_subtype_total\s+file_path"/>
+                    <!-- Verifying that the output of running the test file is expected. This is done via REGEX because the name and path of the file outputted to results.tab changes each test. -->
+                    <has_text_matching expression="(heidelberg)\s+(2.2.2.2.1.4)\s+(2;)\s+(2.2;)\s+(2.2.2;)\s+(2.2.2.2;)\s+(2.2.2.2.1;)\s+(2.2.2.2.1.4)\s+(1037658-2.2.2.2.1.4;)\s+(2154958-2.2.2.2.1.4;)\s+(3785187-2.2.2.2.1.4)\s+(True)\s+(202)\s+(202)\s+(17)\s+(17)\s+(3)\s+(3)"/>
+                </assert_contents>
+            </output>
+            <output name="match_results.tab">
+                <assert_contents>
+                    <!-- This is the last line in the file, this assertion is to make sure that we have the correct number of items. -->
+                    <has_text_matching expression="negative4738855-1.1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="type" value="paired"/>
+            <param name="type_of_scheme" value="heidelberg"/>
+            <param name="fastq_input1" value="SRR5646583_SMALL_1.fastq"/>
+            <param name="fastq_input2" value="SRR5646583_SMALL_2.fastq"/>
+            <output name="results.tab">
+                <assert_contents>
+                    <!-- Verifying that the columns are as expected. -->
+                    <has_text_matching expression="sample\s+scheme\s+subtype\s+all_subtypes\s+tiles_matching_subtype\s+are_subtypes_consistent\s+inconsistent_subtypes\s+n_tiles_matching_all\s+n_tiles_matching_all_total\s+n_tiles_matching_positive\s+n_tiles_matching_positive_total\s+n_tiles_matching_subtype\s+n_tiles_matching_subtype_total\s+file_path"/>
+                    <!-- Verifying that the output of running the test file is expected. This is done via REGEX because the name and path of the file outputted to results.tab changes each test. -->
+                    <has_text_matching expression="(heidelberg)\s+(2.2.1.1.1.1)\s+(2;)\s+(2.2;)\s+(2.2.1;)\s+(2.2.1.1;)\s+(2.2.1.1.1;)\s+(2.2.1.1.1.1)\s+(1983064-2.2.1.1.1.1;)\s+(4211912-2.2.1.1.1.1)\s+(True)\s+(202)\s+(202)\s+(20)\s+(20)\s+(2)\s+(2)"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+***********************************************************
+  bio_hansel - Heidelberg And eNteritidis Snp ELucidation
+***********************************************************
+
+Subtype *Salmonella enterica* subsp. enterica serovar Heidelberg and Enteritidis genomes using *in-silico* 33 bp k-mer SNP subtyping schemes developed by Genevieve Labbe et al.
+Subtype *Salmonella* genome assemblies (FASTA files) and/or whole-genome sequencing reads (FASTQ files)!
+    
+
+Usage
+=====
+1) Enter your FASTA/FASTQ file(s)
+2) Select which scheme you would like to use (e.g. heidelberg, enteritidis, or specify your own)
+3) Click Execute
+
+For more information visit `https://github.com/phac-nml/bio_hansel`
+
+
+Example Usage
+=============
+
+Analysis of a single FASTA file
+-------------------------------
+
+Contents of ``results.tab``:
+
+    +------------+------------+-------------+------------------------------------------------+---------------------------------------------------------------+-------------------------+-----------------------+----------------------+----------------------------+---------------------------+---------------------------------+--------------------------+--------------------------------+------------+
+    | sample     | scheme     | subtype     | all_subtypes                                   | tiles_matching_subtype                                        | are_subtypes_consistent | inconsistent_subtypes | n_tiles_matching_all | n_tiles_matching_all_total | n_tiles_matching_positive | n_tiles_matching_positive_total | n_tiles_matching_subtype | n_tiles_matching_subtype_total | file_path  |
+    +------------+------------+-------------+------------------------------------------------+---------------------------------------------------------------+-------------------------+-----------------------+----------------------+----------------------------+---------------------------+---------------------------------+--------------------------+--------------------------------+------------+
+    | file.fasta | heidelberg | 2.2.2.2.1.4 | 2; 2.2; 2.2.2; 2.2.2.2; 2.2.2.2.1; 2.2.2.2.1.4 | 1037658-2.2.2.2.1.4; 2154958-2.2.2.2.1.4; 3785187-2.2.2.2.1.4 | True                    |                       | 202                  | 202                        | 17                        | 17                              | 3                        | 3                              | file.fasta |
+    +------------+------------+-------------+------------------------------------------------+---------------------------------------------------------------+-------------------------+-----------------------+----------------------+----------------------------+---------------------------+---------------------------------+--------------------------+--------------------------------+------------+
+
+
+
+Contents of ``match_results.tab``:
+
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | tilename                    | stitle                                | pident | length | mismatch | gapopen | qstart | qend | sstart | send   | evalue | bitscore | qlen | slen   | seq                               | coverage | is_trunc | refposition     | subtype     | is_pos_tile | sample | file_path  | scheme     |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | 775920-2.2.2.2              | NODE_2_length_512016_cov_46.4737_ID_3 | 100    | 33     | 0        | 0       | 1      | 33   | 474875 | 474907 | 2E-11  | 62.1     | 33   | 512016 | GTTCAGGTGCTACCGAGGATCGTTTTTGGTGCG | 1        | False    | 775920          | 2.2.2.2     | True        | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3305400-2.1.1.1     | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 276235 | 276267 | 2E-11  | 62.1     | 33   | 427905 | CATCGTGAAGCAGAACAGACGCGCATTCTTGCT | 1        | False    | negative3305400 | 2.1.1.1     | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3200083-2.1         | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 170918 | 170950 | 2E-11  | 62.1     | 33   | 427905 | ACCCGGTCTACCGCAAAATGGAAAGCGATATGC | 1        | False    | negative3200083 | 2.1         | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3204925-2.2.3.1.5   | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 175760 | 175792 | 2E-11  | 62.1     | 33   | 427905 | CTCGCTGGCAAGCAGTGCGGGTACTATCGGCGG | 1        | False    | negative3204925 | 2.2.3.1.5   | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3230678-2.2.2.1.1.1 | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 201513 | 201545 | 2E-11  | 62.1     | 33   | 427905 | AGCGGTGCGCCAAACCACCCGGAATGATGAGTG | 1        | False    | negative3230678 | 2.2.2.1.1.1 | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3233869-2.1.1.1.1   | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 204704 | 204736 | 2E-11  | 62.1     | 33   | 427905 | CAGCGCTGGTATGTGGCTGCACCATCGTCATTA | 1        | False    | negative3233869 | 2.1.1.1.1   | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3254229-2.2.3.1.3   | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 225064 | 225096 | 2E-11  | 62.1     | 33   | 427905 | CGCCACCACGCGGTTAGCGTCACGCTGACATTC | 1        | False    | negative3254229 | 2.2.3.1.3   | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3257074-2.2.1       | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 227909 | 227941 | 2E-11  | 62.1     | 33   | 427905 | CGGCAACCAGACCGACTACGCCGCCAAGCAGAC | 1        | False    | negative3257074 | 2.2.1       | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3264474-2.2.2.1.1.1 | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 235309 | 235341 | 2E-11  | 62.1     | 33   | 427905 | AATGGCGCCGATCGTCGCCAGATAACCGTTGCC | 1        | False    | negative3264474 | 2.2.2.1.1.1 | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3267927-2.2.2.2.2.1 | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 238762 | 238794 | 2E-11  | 62.1     | 33   | 427905 | AAAGAGAAATATGATGCCAGGCTGATACATGAC | 1        | False    | negative3267927 | 2.2.2.2.2.1 | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3278067-1.1         | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 248902 | 248934 | 2E-11  | 62.1     | 33   | 427905 | TGTGAGTAAGTTGCGCGATATTCTGCTGGATTC | 1        | False    | negative3278067 | 1.1         | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3299717-2.2.3.1.4   | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 270552 | 270584 | 2E-11  | 62.1     | 33   | 427905 | ATGCCGGACAGCAGGCGAAACTCGAACCGGATA | 1        | False    | negative3299717 | 2.2.3.1.4   | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+    | negative3373069-2.2.2.2.1.1 | NODE_3_length_427905_cov_48.1477_ID_5 | 100    | 33     | 0        | 0       | 1      | 33   | 344011 | 344043 | 2E-11  | 62.1     | 33   | 427905 | CTCTCCAGAAGATGAAGCCCGTGATGCGGCGCA | 1        | False    | negative3373069 | 2.2.2.2.1.1 | False       | out    | file.fasta | heidelberg |
+    +-----------------------------+---------------------------------------+--------+--------+----------+---------+--------+------+--------+--------+--------+----------+------+--------+-----------------------------------+----------+----------+-----------------+-------------+-------------+--------+------------+------------+
+
+    Next 196 lines omitted.
+
+
+
+Analysis of a single FASTQ readset
+----------------------------------
+
+Contents of ``results.tab``:
+
+    +--------+------------+-------------+------------------------------------------------+------------------------------------------+-------------------------+-----------------------+----------------------+----------------------------+---------------------------+---------------------------------+--------------------------+--------------------------------+------------------------------------------+
+    | sample | scheme     | subtype     | all_subtypes                                   | tiles_matching_subtype                   | are_subtypes_consistent | inconsistent_subtypes | n_tiles_matching_all | n_tiles_matching_all_total | n_tiles_matching_positive | n_tiles_matching_positive_total | n_tiles_matching_subtype | n_tiles_matching_subtype_total | file_path                                |
+    +--------+------------+-------------+------------------------------------------------+------------------------------------------+-------------------------+-----------------------+----------------------+----------------------------+---------------------------+---------------------------------+--------------------------+--------------------------------+------------------------------------------+
+    | 564    | heidelberg | 2.2.1.1.1.1 | 2; 2.2; 2.2.1; 2.2.1.1; 2.2.1.1.1; 2.2.1.1.1.1 | 1983064-2.2.1.1.1.1; 4211912-2.2.1.1.1.1 | True                    |                       | 202                  | 202                        | 20                        | 20                              | 2                        | 2                              | forward.fastqsanger; reverse.fastqsanger |
+    +--------+------------+-------------+------------------------------------------------+------------------------------------------+-------------------------+-----------------------+----------------------+----------------------------+---------------------------+---------------------------------+--------------------------+--------------------------------+------------------------------------------+
+
+
+Contents of ``match_results.tab``:
+
+    +-----------------------------------+------+--------+------------------------------------------+------------------+-------------+-----------+-------------+-------------------+------------+
+    | seq                               | freq | sample | file_path                                | tilename         | is_pos_tile | subtype   | refposition | is_kmer_freq_okay | scheme     |
+    +-----------------------------------+------+--------+------------------------------------------+------------------+-------------+-----------+-------------+-------------------+------------+
+    | ACGGTAAAAGAGGACTTGACTGGCGCGATTTGC | 68   | 564    | forward.fastqsanger; reverse.fastqsanger | 21097-2.2.1.1.1  | True        | 2.2.1.1.1 | 21097       | True              | heidelberg |
+    +-----------------------------------+------+--------+------------------------------------------+------------------+-------------+-----------+-------------+-------------------+------------+
+    | AACCGGCGGTATTGGCTGCGGTAAAAGTACCGT | 77   | 564    | forward.fastqsanger; reverse.fastqsanger | 157792-2.2.1.1.1 | True        | 2.2.1.1.1 | 157792      | True              | heidelberg |
+    +-----------------------------------+------+--------+------------------------------------------+------------------+-------------+-----------+-------------+-------------------+------------+
+    | CCGCTGCTTTCTGAAATCGCGCGTCGTTTCAAC | 67   | 564    | forward.fastqsanger; reverse.fastqsanger | 293728-2.2.1.1   | True        | 2.2.1.1   | 293728      | True              | heidelberg |
+    +-----------------------------------+------+--------+------------------------------------------+------------------+-------------+-----------+-------------+-------------------+------------+
+    | GAATAACAGCAAAGTGATCATGATGCCGCTGGA | 91   | 564    | forward.fastqsanger; reverse.fastqsanger | 607438-2.2.1     | True        | 2.2.1     | 607438      | True              | heidelberg |
+    +-----------------------------------+------+--------+------------------------------------------+------------------+-------------+-----------+-------------+-------------------+------------+
+    | CAGTTTTACATCCTGCGAAATGCGCAGCGTCAA | 87   | 564    | forward.fastqsanger; reverse.fastqsanger | 691203-2.2.1.1   | True        | 2.2.1.1   | 691203      | True              | heidelberg |
+    +-----------------------------------+------+--------+------------------------------------------+------------------+-------------+-----------+-------------+-------------------+------------+
+    | CAGGAGAAAGGATGCCAGGGTCAACACGTAAAC | 33   | 564    | forward.fastqsanger; reverse.fastqsanger | 944885-2.2.1.1.1 | True        | 2.2.1.1.1 | 944885      | True              | heidelberg |
+    +-----------------------------------+------+--------+------------------------------------------+------------------+-------------+-----------+-------------+-------------------+------------+
+
+    Next 200 lines omitted.
+
+    ]]></help>
+    <citations>
+        <citation type="bibtex">@ARTICLE{a1,
+            title = {A robust genotyping scheme for *Salmonella enterica* serovar Heidelberg clones circulating in North America.},
+            author = {Geneviève Labbé, James Robertson, Peter Kruczkiewicz, Chad R. Laing, Kim Ziebell, Aleisha R. Reimer, Lorelee Tschetter, Gary Van Domselaar, Sadjia Bekal, Kimberley A. MacDonald, Linda Hoang, Linda Chui, Danielle Daignault, Durda Slavic, Frank Pollari, E. Jane Parmley, Philip Mabon, Elissa Giang, Lok Kan Lee, Jonathan Moffat, Marisa Rankin, Joanne MacKinnon, Roger Johnson, John H.E. Nash.},
+            url = {https://github.com/phac-nml/bio_hansel}
+            }
+        }</citation>
+    </citations>
+</tool>

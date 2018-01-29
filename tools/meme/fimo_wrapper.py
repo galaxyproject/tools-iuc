@@ -45,6 +45,7 @@ def stop_err(msg):
     sys.stderr.write(msg)
     sys.exit(1)
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_motifs', dest='input_motifs', help='MEME output formatted files for input to fimo')
 parser.add_argument('--input_fasta', dest='input_fasta', help='Fassta sequence file')
@@ -111,8 +112,8 @@ try:
     if returncode != 0:
         stderr = get_stderr(tmp_stderr)
         stop_err(stderr)
-except Exception, e:
-    stop_err('Error running FIMO:\n%s' % str(e))
+except Exception as e:
+    stop_err('Error running FIMO:\n%s' % e)
 
 shutil.move(os.path.join(args.output_path, 'fimo.txt'), args.txt_output)
 

@@ -1,16 +1,15 @@
 #!/usr/bin/env python
 #
 # Data manager for reference data for the 'mothur_toolsuite' Galaxy tools
-import sys
-import os
+import json
 import optparse
-import tempfile
+import os
 import shutil
+import sys
+import tarfile
+import tempfile
 import urllib2
 import zipfile
-import tarfile
-
-from galaxy.util.json import from_json_string, to_json_string
 
 # When extracting files from archives, skip names that
 # start with the following strings
@@ -19,6 +18,7 @@ IGNORE_PATHS = ('.', '__MACOSX/', '__')
 # Map file extensions to data table names
 MOTHUR_FILE_TYPES = {".map": "map",
                      ".fasta": "aligndb",
+                     ".align": "aligndb",
                      ".pat": "lookup",
                      ".tax": "taxonomy"}
 
@@ -37,6 +37,18 @@ MOTHUR_REFERENCE_DATA = {
     },
     # RDP reference files
     # http://www.mothur.org/wiki/RDP_reference_files
+    "RDP_v16": {
+        "16S rRNA RDP training set 16":
+        ["https://mothur.org/w/images/d/dc/Trainset16_022016.rdp.tgz", ],
+        "16S rRNA PDS training set 16":
+        ["https://mothur.org/w/images/c/c3/Trainset16_022016.pds.tgz", ],
+    },
+    "RDP_v14": {
+        "16S rRNA RDP training set 14":
+        ["https://mothur.org/w/images/6/6c/Trainset14_032015.rdp.tgz", ],
+        "16S rRNA PDS training set 14":
+        ["https://mothur.org/w/images/8/88/Trainset14_032015.pds.tgz", ],
+    },
     "RDP_v10": {
         "16S rRNA RDP training set 10":
         ["http://www.mothur.org/w/images/b/b5/Trainset10_082014.rdp.tgz", ],
@@ -63,6 +75,16 @@ MOTHUR_REFERENCE_DATA = {
     },
     # Silva reference files
     # http://www.mothur.org/wiki/Silva_reference_files
+    "silva_release_128": {
+        "SILVA release 128":
+        ["https://mothur.org/w/images/b/b4/Silva.nr_v128.tgz",
+         "https://mothur.org/w/images/a/a4/Silva.seed_v128.tgz", ],
+    },
+    "silva_release_123": {
+        "SILVA release 123":
+        ["https://mothur.org/w/images/b/be/Silva.nr_v123.tgz",
+         "https://mothur.org/w/images/1/15/Silva.seed_v123.tgz", ],
+    },
     "silva_release_119": {
         "SILVA release 119":
         ["http://www.mothur.org/w/images/2/27/Silva.nr_v119.tgz",
@@ -137,7 +159,7 @@ def read_input_json(jsonfile):
     to create it if necessary.
 
     """
-    params = from_json_string(open(jsonfile).read())
+    params = json.loads(open(jsonfile).read())
     return (params['param_dict'],
             params['output_data'][0]['extra_files_path'])
 
@@ -149,7 +171,7 @@ def read_input_json(jsonfile):
 # >>> add_data_table(d,'my_data')
 # >>> add_data_table_entry(dict(dbkey='hg19',value='human'))
 # >>> add_data_table_entry(dict(dbkey='mm9',value='mouse'))
-# >>> print str(to_json_string(d))
+# >>> print str(json.dumps(d))
 def create_data_tables_dict():
     """Return a dictionary for storing data table information
 
@@ -360,6 +382,7 @@ def identify_type(filen):
     try:
         return MOTHUR_FILE_TYPES[ext]
     except KeyError:
+        print "WARNING: unknown file type for " + filen + ", skipping"
         return None
 
 
@@ -532,6 +555,6 @@ if __name__ == "__main__":
         import_from_server(data_tables, target_dir, paths, description, link_to_data=options.link_to_data)
     # Write output JSON
     print "Outputting JSON"
-    print str(to_json_string(data_tables))
-    open(jsonfile, 'wb').write(to_json_string(data_tables))
+    print str(json.dumps(data_tables))
+    open(jsonfile, 'wb').write(json.dumps(data_tables))
     print "Done."

@@ -1,0 +1,450 @@
+<?xml version='1.0' encoding='utf-8'?>
+<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@VERSION@.0">
+    <description>Generate VCF or BCF containing genotype likelihoods for one or multiple alignment (BAM or CRAM) files</description>
+    <macros>
+        <token name="@EXECUTABLE@">mpileup</token>
+        <import>macros.xml</import>
+        <xml name="bam_flag_options">
+            <option value="1">Read is paired</option>
+            <option value="2">Read is mapped in a proper pair</option>
+            <option value="4">The read is unmapped</option>
+            <option value="8">The mate is unmapped</option>
+            <option value="16">Read strand</option>
+            <option value="32">Mate strand</option>
+            <option value="64">Read is the first in a pair</option>
+            <option value="128">Read is the second in a pair</option>
+            <option value="256">The alignment or this read is not primary</option>
+            <option value="512">The read fails platform/vendor quality checks</option>
+            <option value="1024">The read is a PCR or optical duplicate</option>
+         </xml>
+    </macros>
+    <expand macro="requirements">
+        <expand macro="samtools_requirement"/>
+    </expand>
+    <expand macro="version_command" />
+    <command detect_errors="aggressive"><![CDATA[
+#import re
+#set bam_list = []
+#if $input.input_number == 'single':
+    #set $input_base = $re.sub('\W','_',$input.input_bam.display_name.replace('.bam','').replace('.cram',''))
+    #set $ext = 'bam'
+    #set $idx_ext = 'bai'
+    #if $input.input_bam.ext == 'cram':
+        #set $ext = 'cram'
+        #set $idx_ext = 'crai'
+    #end if
+    #set $input_name = $input_base + '.' + $ext
+    #silent $bam_list.append($input_name)
+    ln -s '${input.input_bam}' ${input_name} &&
+    #if $input.input_bam.ext == 'bam':
+      ln -s '${input.input_bam.metadata.bam_index}' ${input_name}.${idx_ext} &&
+    #else:
+      ln -s '${input.input_bam.metadata.cram_index}' ${input_name}.${idx_ext} &&
+    #end if
+#else:
+    #for $bam_count, $input_bam in enumerate( $input.input_bams ):
+        #set $input_base = $re.sub('\W','_',$input_bam.display_name.replace('.bam','').replace('.cram',''))
+        #set $ext = 'bam'
+        #set $idx_ext = 'bai'
+        #if $input_bam.ext == 'cram':
+            #set $ext = 'cram'
+            #set $idx_ext = 'crai'
+        #end if
+        #set $input_name = $input_base + '.' + $ext
+        #silent $bam_list.append($input_name)
+        ln -s '${input_bam}' ${input_name} &&
+        ln -s '${input_bam.metadata.bam_index}' ${input_name}.${idx_ext} &&
+    #end for
+#end if
+
+#set $input_fa_ref = None
+#if $reference_source.reference_source_selector == "history":
+  #set $input_fa_ref = 'ref.fa'
+  ln -s '${reference_source.ref_file}' $input_fa_ref &&
+  samtools faidx $input_fa_ref &&
+#elif $reference_source.reference_source_selector == "cached":
+  #set $input_fa_ref = $reference_source.ref_file.fields.path
+#end if
+
+#set $section = $sec_restrict
+@PREPARE_REGIONS_FILE@
+@PREPARE_TARGETS_FILE@
+
+bcftools @EXECUTABLE@
+
+#if $input_fa_ref is not None:
+    --fasta-ref '$input_fa_ref'
+#else:
+    --non-reference
+#end if
+
+## Indel Calling section
+#set $section = $sec_indel
+#if $section.perform_indel_calling.perform_indel_calling_selector == 'do_not_perform_indel_calling':
+  --skip-indels
+#elif $section.perform_indel_calling.perform_indel_calling_selector == 'perform_indel_calling':
+  -o "${section.perform_indel_calling.gap_open_sequencing_error_probability}"
+  -e "${section.perform_indel_calling.gap_extension_sequencing_error_probability}"
+  -h "${section.perform_indel_calling.coefficient_for_modeling_homopolymer_errors}"
+  -L "${section.perform_indel_calling.skip_indel_calling_above_sample_depth}"
+  -m "${section.perform_indel_calling.minimum_gapped_reads_for_indel_candidates}"
+  --open-prob "${section.perform_indel_calling.open_seq_error_probability}"
+  -F "${section.perform_indel_calling.minimum_gapped_read_fraction}"
+  ${section.perform_indel_calling.gapped_read_per_sample}
+  #if len( $section.perform_indel_calling.platform_list_repeat ):
+    -P "${ ",".join( [ str( platform.platform_entry ) for platform in $section.perform_indel_calling.platform_list_repeat ] ) }"
+  #end if
+#end if
+
+## Filter section
+#set $section = $sec_filtering
+#if str( $section.filter_by_flags.filter_flags ) == "filter":
+  #if $section.filter_by_flags.require_flags:
+    --rf ${sum([int(flag) for flag in str($section.filter_by_flags.require_flags).split(',')])}
+  #end if
+  #if $section.filter_by_flags.exclude_flags:
+    --ff ${sum([int(flag) for flag in str($section.filter_by_flags.exclude_flags).split(',')])}
+  #end if
+#end if
+-d "${section.max_reads_per_bam}"
+${section.skip_anomalous_read_pairs}
+#if str( $section.quality.quality_settings ) == "adjust":
+  $section.quality.baq
+  -q "${section.quality.minimum_mapping_quality}"
+  -Q "${section.quality.minimum_base_quality}"
+  -C "${section.quality.coefficient_for_downgrading}"
+#end if
+#if str( $section.read_groups.read_groups_selector ) == "ignore_rg":
+  --ignore-RG
+#elif str( $section.read_groups.read_groups_selector ) == "paste":
+  -G "${section.read_groups.rg_action}${read_groups_file}"
+#elif str( $section.read_groups.read_groups_selector ) == "history"
+  -G "${section.read_groups.rg_action}${section.read_groups.read_groups}"
+#end if
+
+#set $section = $sec_output_options
+#if $section.output_tags:
+ --annotate "$section.output_tags"
+#end if
+#if $section.gvcf:
+ --gvcf "$section.gvcf"
+#end if
+
+## Subset section
+#set $section = $sec_subset
+@SAMPLES@
+
+## Restrict section
+#set $section = $sec_restrict
+@REGIONS@
+@TARGETS@
+
+@THREADS@
+
+@OUTPUT_TYPE@
+
+## Primary Input/Outputs
+#echo ' '.join($bam_list)#
+> '$output_file'
+#if str( $sec_filtering.read_groups.read_groups_selector ) == "paste":
+&& echo 'read-groups:'
+&& cat ${read_groups_file}
+#end if
+]]>
+    </command>
+    <configfiles>
+        <configfile name="read_groups_file">
+<![CDATA[#slurp
+#set pasted_data = ''
+#set $section = $sec_filtering
+#if str( $section.read_groups.read_groups_selector ) == "paste":
+  #set pasted_data = '\t'.join( str( $section.read_groups.group_paste).split() )
+#end if
+#slurp
+${pasted_data}
+]]>
+        </configfile>
+    </configfiles>
+    <inputs>
+
+        <conditional name="input">
+            <param name="input_number" type="select" label="Alignment Inputs">
+                 <option value="single">Single BAM/CRAM</option>
+                 <option value="multiple">Multiple BAM/CRAMs</option>
+            </param>
+            <when value="single">
+                <param name="input_bam" type="data" format="bam,cram" label="Input BAM/CRAM" />
+            </when>
+            <when value="multiple">
+                <param name="input_bams" type="data" format="bam,cram" multiple="true" label="Input BAM/CRAMs" />
+            </when>
+        </conditional>
+
+        <conditional name="reference_source">
+            <param name="reference_source_selector" type="select" label="Choose the source for the reference genome">
+                <option value="cached">Locally cached</option>
+                <option value="history">History</option>
+                <option value="none">No Reference</option>
+            </param>
+            <when value="cached">
+                <param name="ref_file" type="select" label="Select reference genome">
+                    <options from_data_table="fasta_indexes"/>
+                </param>
+            </when>
+            <when value="history"> 
+                <param name="ref_file" type="data" format="fasta" label="Genome Reference" />
+            </when>
+            <when value="none"/>
+        </conditional>
+
+        <section name="sec_indel" expanded="false" title="Indel Calling">
+            <conditional name="perform_indel_calling">
+                <param name="perform_indel_calling_selector" type="select" label="Perform INDEL calling">
+                    <option selected="True" value="perform_indel_calling_def">Perform INDEL calling using default options</option>
+                    <option value="perform_indel_calling">Perform INDEL calling and set advanced options</option>
+                    <option value="do_not_perform_indel_calling">Do not perform INDEL calling</option>
+                </param>
+                <when value="perform_indel_calling_def" />
+                <when value="perform_indel_calling">
+                    <param name="gap_open_sequencing_error_probability" type="integer" value="40" label="Phred-scaled gap open sequencing error probability" help="--open-prob; Reducing this value leads to more indel calls; default=40"/>
+                    <param name="gap_extension_sequencing_error_probability" type="integer" value="20" label="Phred-scaled gap extension sequencing error probability" help="--ext-prob;  Reducing this value leads to longer indels. default=20"/>
+                    <param name="coefficient_for_modeling_homopolymer_errors" type="integer" value="100" label="Coefficient for modeling homopolymer errors." help="--tandem-qual; default=100"/>
+                    <param name="skip_indel_calling_above_sample_depth" type="integer" value="250" label="Skip INDEL calling if the average per-sample depth is above" help="--max-idepth; default=250"/>
+                    <param name="minimum_gapped_reads_for_indel_candidates" type="integer" value="1" label="Minimum gapped reads for indel candidates" help="--min-ireads; default=1"/>
+                    <param name="open_seq_error_probability" type="integer" value="40" label="Phred-scaled gap open sequencing error probability" help="--open-prob; Reducing this value leads to more indel calls; default=40"/>
+                    <param name="minimum_gapped_read_fraction" type="float" value="0.002" label="Minimum fraction of gapped reads" help="--gap-frac; default=0.002"/>
+                    <param name="gapped_read_per_sample" type="boolean" truevalue="-p" falsevalue="" checked="False" label="Apply --min-ireads and --gap-frac values on a per-sample basis" help="--per-sample-mF;  by default both options are applied to reads pooled from all samples"/>
+                    <repeat name="platform_list_repeat" title="Platform for INDEL candidates">
+                        <param name="platform_entry" type="text" value="" label="Platform to use for INDEL candidates" help="It is recommended to collect indel candidates from sequencing technologies that have low indel error rate such as ILLUMINA"/>
+                    </repeat>
+                </when>
+                <when value="do_not_perform_indel_calling" />
+            </conditional>
+        </section>
+
+        <section name="sec_filtering" expanded="false" title="Input Filtering Options">
+            <param name="max_reads_per_bam" type="integer" value="250" max="1024" min="1" label="Max reads per BAM" help="--max-depth; default=250"/>
+            <param name="ignore_overlaps" type="boolean" truevalue="-x" falsevalue="" checked="False" label="Disable read-pair overlap detection" help="--ignore-overlaps"/>
+            <param name="skip_anomalous_read_pairs" type="boolean" truevalue="-A" falsevalue="" checked="False" label="Do not skip anomalous read pairs in variant calling" help="--count-orphans"/>
+            <conditional name="filter_by_flags">
+                <param name="filter_flags" type="select" label="Set filter by flags">
+                    <option selected="True" value="nofilter">Do not filter</option>
+                    <option value="filter">Filter by flags to exclude or require</option>
+                </param>
+                <when value="filter">
+                    <param name="require_flags" type="select" display="checkboxes" label="Require" multiple="True" help="--incl-flags">
+                        <expand macro="bam_flag_options" />
+                    </param>
+                    <param name="exclude_flags" type="select" display="checkboxes" label="Exclude" multiple="True" help="--excl-flags">
+                        <expand macro="bam_flag_options" />
+                    </param>
+                </when>
+                <when value="nofilter" />
+            </conditional>
+            <conditional name="quality">
+                <param label="Quality Options" name="quality_settings" type="select">
+                    <option value="none" selected="True">defaults</option>
+                    <option value="adjust">Set base and mapping quality options</option>
+                </param>
+                <when value="adjust">
+                    <param name="baq" type="select" optional="true" label="per-Base Alignment Quality">
+                        <help>
+--no-BAQ; BAQ is the Phred-scaled probability of a read base being misaligned. Applying this option greatly helps to reduce false SNPs caused by misalignments.
+--redo-BAQ; ignore existing BQ tags
+                        </help>
+                        <option value="--no-BAQ">disable BAQ (per-Base Alignment Quality) (no-BAQ)</option>
+                        <option value="--redo-BAQ">recalculate BAQ on the fly, ignore existing BQs (redo-BAQ)</option>
+                    </param>
+                    <param name="coefficient_for_downgrading" type="integer" value="0" label="Coefficient for downgrading mapping quality for reads containing excessive mismatches" help="--adjust-MQ; Given a read with a phred-scaled probability q of being generated from the mapped position, the new mapping quality is about sqrt((INT-q)/INT)*INT. A zero value disables this functionality; if enabled, the recommended value for BWA is 50. default=0"/>
+                    <param label="Minimum mapping quality for an alignment to be used" name="minimum_mapping_quality" type="integer" value="0" help="-min-MQ; default=0"/>
+                    <param name="minimum_base_quality" type="integer" value="13" label="Minimum base quality for a base to be considered" help="--min-BQ; default=13"/>
+                </when>
+                <when value="none"/>
+            </conditional>
+
+            <conditional name="read_groups">
+                <param name="read_groups_selector" type="select" label="Select read groups to include or exclude" help="--read-groups">
+                    <option value="no_limit" selected="True">use defaults</option>
+                    <option value="history">From an uploaded text file</option>
+                    <option value="paste">Paste a list of read groups</option>
+                    <option value="ignore_rg">Ignore RG tags. Treat all reads in one alignment file as one sample. </option>
+                </param>
+                <when value="history">
+                    <param name="read_groups" format="txt" label="Text file" type="data">
+                        <validator type="dataset_ok_validator" />
+                    </param>
+                    <param name="rg_action" type="select" label="Include or Exclude these Read Groups">
+                        <option value="" selected="true">Include</option>
+                        <option value="^">Exclude</option>
+                    </param>
+                </when>
+                <when value="paste">
+                    <param name="group_paste" type="text" size="10x35" area="true" label="Read groups" help="Paste a list of read groups" />
+                    <param name="rg_action" type="select" label="Include or Exclude these Read Groups">
+                        <option value="" selected="true">Include</option>
+                        <option value="^">Exclude</option>
+                    </param>
+                </when>
+                <when value="ignore_rg" />
+                <when value="no_limit" />
+            </conditional>
+        </section>
+
+        <section name="sec_restrict" expanded="false" title="Restrict to">
+            <expand macro="macro_regions" />
+            <expand macro="macro_targets" />
+        </section>
+        <section name="sec_subset" expanded="false" title="Subset Options">
+            <expand macro="macro_samples" />
+        </section>
+
+        <section name="sec_output_options" expanded="false" title="Output options">
+            <param name="output_tags" optional="True" type="select" multiple="True" display="checkboxes" label="Optional tags to output" help="--output-tags">
+                <option value="DP">DP (Number of high-quality bases)</option>
+                <option value="AD">AD (Allelic depth)</option>
+                <option value="ADF">ADF (Allelic depth on the forward strand)</option>
+                <option value="ADR">ADR (Allelic depth on the reverse strand)</option>
+                <option value="INFO/AD">INFO/AD (Allelic depth)</option>
+                <option value="INFO/ADF">INFO/ADF (Allelic depth on the forward strand)</option>
+                <option value="INFO/ADR">INFO/ADR (Allelic depth on the reverse strand)</option>
+                <option value="SP">SP (Phred-scaled strand bias P-value)</option>
+                <option value="DV">DV (Number of high-quality non-reference bases)</option>
+                <option value="DP4">DP4 (Number of high-quality ref-forward, ref-reverse, alt-forward and alt-reverse bases)</option>
+                <option value="DPR">DRP (Number of high-quality bases for each observed allele)</option>
+                <option value="INFO/DPR">INFO/DPR (Number of high-quality bases for each observed allele)</option>
+            </param>
+            <param name="gvcf" type="text" value="" label="gVCF blocks of homozygous REF calls">
+                <help>
+output gVCF blocks of homozygous REF calls, with depth (DP) ranges specified by the list of integers. For example, passing 5,15 will group sites into two types of gVCF blocks, the first with minimum per-sample DP from the interval [5,15) and the latter with minimum depth 15 or more. In this example, sites with minimum per-sample depth less than 5 will be printed as separate records, outside of gVCF blocks. 
+                </help>
+                <validator type="regex" message="integers separated by commas">^(\d+(,\d+)*)?$</validator>
+            </param>
+        </section>
+
+        <expand macro="macro_select_output_type" />
+
+    </inputs>
+    <outputs>
+        <expand macro="macro_vcf_output" />
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_number" value="single" />
+            <param name="input_bam" ftype="bam" value="mpileup.1.bam" />
+            <param name="reference_source_selector" value="history" />
+            <param name="ref_file" ftype="fasta" value="mpileup.ref.fa" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="mpileup" />
+                    <has_text text="HG00100" />
+                    <has_text_matching expression="17\t1\t.\tA\t...\t0\t.\tDP=5;" />
+                    <has_text_matching expression="17\t100\t.\tC\t...\t0\t.\tDP=9;" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_number" value="single" />
+            <param name="input_bam" ftype="cram" value="mpileup.3.cram" />
+            <param name="reference_source_selector" value="history" />
+            <param name="ref_file" ftype="fasta" value="mpileup.ref.fa" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="mpileup" />
+                    <has_text text="HG00102" />
+                    <has_text_matching expression="17\t100\t.\tC\t...\t0\t.\tDP=5;" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_number" value="multiple" />
+            <param name="input_bams" ftype="bam" value="mpileup.1.bam,mpileup.2.bam,mpileup.3.bam" />
+            <param name="reference_source_selector" value="history" />
+            <param name="ref_file" ftype="fasta" value="mpileup.ref.fa" />
+            <param name="regions_src" value="regions" />
+            <param name="regions" value="17:100-110" />
+            <param name="output_tags" value="DP,INFO/AD,DV" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="mpileup" />
+                    <has_text text="HG00100" />
+                    <has_text text="HG00101" />
+                    <has_text text="HG00102" />
+                    <has_text text="ID=DP," />
+                    <not_has_text text="17\t111" />
+                    <has_text_matching expression="17\t100\t.\tC\t...\t0\t.\tDP=18;AD=17,0;" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_number" value="multiple" />
+            <param name="input_bams" ftype="bam" value="mpileup.1.bam,mpileup.2.bam,mpileup.3.bam" />
+            <param name="reference_source_selector" value="history" />
+            <param name="ref_file" ftype="fasta" value="mpileup.ref.fa" />
+            <param name="regions_src" value="regions_file" />
+            <param name="regions_file" ftype="bed" value="mpileup.regions.bed" />
+            <param name="targets_src" value="targets" />
+            <param name="targets" value="17:100-104" />
+            <param name="output_tags" value="DP,INFO/AD,DV" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="mpileup" />
+                    <has_text text="HG00100" />
+                    <has_text text="HG00101" />
+                    <has_text text="HG00102" />
+                    <has_text text="ID=DP," />
+                    <not_has_text text="17\t105" />
+                    <has_text_matching expression="17\t100\t.\tC\t...\t0\t.\tDP=18;AD=17,0;" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_number" value="multiple" />
+            <param name="input_bams" ftype="bam" value="mpileup.1.bam,mpileup.2.bam,mpileup.3.bam" />
+            <param name="reference_source_selector" value="history" />
+            <param name="ref_file" ftype="fasta" value="mpileup.ref.fa" />
+            <param name="regions_src" value="regions" />
+            <param name="regions" value="17:1050-1060" />
+            <param name="filter_flags" value="filter" />
+            <param name="exclude_flags" value="4,16" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="mpileup" />
+                    <has_text text="HG00100" />
+                    <has_text_matching expression="17\t1050\t.\tA\t...\t0\t.\tDP=12;" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+=====================================
+ bcftools @EXECUTABLE@
+=====================================
+
+Haplotype aware consequence predictor which correctly handles combined variants such as MNPs split over multiple VCF records, SNPs separated by an intron (but adjacent in the spliced transcript) or nearby frame-shifting indels which in combination in fact are not frame-shifting.
+
+The output VCF is annotated with INFO/BCSQ and FORMAT/BCSQ tag (configurable with the -c option). The latter is a bitmask of indexes to INFO/BCSQ, with interleaved haplotypes. See the usage examples below for using the %TBCSQ converter in query for extracting a more human readable form from this bitmask. The contruction of the bitmask limits the number of consequences that can be referenced in the FORMAT/BCSQ tags. By default this is 16, but if more are required, see the --ncsq option.
+
+The program requires on input a VCF/BCF file, the reference genome in fasta format (--fasta-ref) and genomic features in the GFF3 format downloadable from the Ensembl website (--gff-annot), and outputs an annotated VCF/BCF file. Currently, only Ensembl GFF3 files are supported.
+
+By default, the input VCF should be phased. If phase is unknown, or only partially known, the --phase option can be used to indicate how to handle unphased data. Alternatively, haplotype aware calling can be turned off with the --local-csq option.
+
+If conflicting (overlapping) variants within one haplotype are detected, a warning will be emitted and predictions will be based on only the first variant in the analysis.
+
+Symbolic alleles are not supported. They will remain unannotated in the output VCF and are ignored for the prediction analysis.
+
+
+@REGIONS_HELP@
+@TARGETS_HELP@
+
+@BCFTOOLS_MANPAGE@#@EXECUTABLE@
+
+@BCFTOOLS_WIKI@
+]]>
+    </help>
+    <expand macro="citations" />
+</tool>

@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import print_function
+
 import json
 import optparse
 import os
@@ -42,7 +44,7 @@ def build_bowtie_index( data_manager_dict, fasta_filename, params, target_direct
     if return_code:
         tmp_stderr.flush()
         tmp_stderr.seek(0)
-        print >> sys.stderr, "Error building index:"
+        print("Error building index:", file=sys.stderr)
         while True:
             chunk = tmp_stderr.read( CHUNK_SIZE )
             if not chunk:
@@ -62,7 +64,6 @@ def _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry 
 
 
 def main():
-    # Parse Command Line
     parser = optparse.OptionParser()
     parser.add_option( '-f', '--fasta_filename', dest='fasta_filename', action='store', type="string", default=None, help='fasta_filename' )
     parser.add_option( '-d', '--fasta_dbkey', dest='fasta_dbkey', action='store', type="string", default=None, help='fasta_dbkey' )
@@ -90,6 +91,7 @@ def main():
 
     # save info to json file
     open( filename, 'wb' ).write( json.dumps( data_manager_dict ) )
+
 
 if __name__ == "__main__":
     main()

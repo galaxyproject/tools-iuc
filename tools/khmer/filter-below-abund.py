@@ -34,17 +34,16 @@
 #
 # Contact: khmer-project@idyll.org
 from __future__ import print_function
-import sys
+
 import os
+import sys
+
 import khmer
 from khmer.thread_utils import ThreadedSequenceProcessor, verbose_fasta_iter
 
 WORKER_THREADS = 8
 GROUPSIZE = 100
-
 CUTOFF = 50
-
-###
 
 
 def main():
@@ -82,6 +81,7 @@ def main():
         tsp = ThreadedSequenceProcessor(process_fn, WORKER_THREADS, GROUPSIZE)
 
         tsp.start(verbose_fasta_iter(infile), outfp)
+
 
 if __name__ == '__main__':
     main()

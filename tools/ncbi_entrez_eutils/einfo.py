@@ -1,5 +1,8 @@
 #!/usr/bin/env python
+from __future__ import print_function
+
 import argparse
+
 import eutils
 
 
@@ -15,4 +18,4 @@ if __name__ == '__main__':
     if args.db is not None:
         payload['db'] = args.db
         payload['version'] = '2.0'
-    print c.info(**payload)
+    print(c.info(**payload))

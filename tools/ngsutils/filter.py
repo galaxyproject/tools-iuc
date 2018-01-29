@@ -107,6 +107,7 @@ Common tags to filter by:
     The tag type (:i, :f, :Z) is optional.
 
 """
+from __future__ import print_function
 
 import os
 import sys
@@ -118,8 +119,8 @@ from ngsutils.support.dbsnp import DBSNP
 
 
 def usage():
-    print __doc__
-    print """
+    print(__doc__)
+    print("""
 Usage: bamutils filter in.bam out.bam {-failed out.txt} criteria...
 
 Options:
@@ -131,7 +132,7 @@ bamutils filter filename.bam output.bam -mapped -gte AS:i 1000
 
 This will remove all unmapped reads, as well as any reads that have an AS:i
 value less than 1000.
-"""
+""")
     sys.exit(1)
 
 
@@ -760,10 +761,10 @@ class _TagCompare(object):
             # guess at type...
             try:
                 self.value = int(value)
-            except:
+            except ValueError:
                 try:
                     self.value = float(value)
-                except:
+                except ValueError:
                     self.value = value
 
     def get_value(self, read):
@@ -826,6 +827,7 @@ class TagEqual(_TagCompare):
         if self.get_value(read) == self.value:
             return True
         return False
+
 
 _criteria = {
     'mapped': Mapped,
@@ -931,6 +933,7 @@ def read_to_unmapped(read):
     read.mapq = 0
     return read
 
+
 if __name__ == '__main__':
     infile = None
     outfile = None
@@ -958,7 +961,7 @@ if __name__ == '__main__':
             outfile = arg
         elif arg[0] == '-':
             if not arg[1:] in _criteria:
-                print "Unknown criterion: %s" % arg
+                print("Unknown criterion: %s" % arg)
                 fail = True
             if crit_args:
                 criteria.append(_criteria[crit_args[0][1:]](*crit_args[1:]))
@@ -966,7 +969,7 @@ if __name__ == '__main__':
         elif crit_args:
             crit_args.append(arg)
         else:
-            print "Unknown argument: %s" % arg
+            print("Unknown argument: %s" % arg)
             fail = True
 
     if not fail and crit_args:
@@ -977,11 +980,11 @@ if __name__ == '__main__':
             usage()
 
         if not infile:
-            print "Missing: input bamfile"
+            print("Missing: input bamfile")
         if not outfile:
-            print "Missing: output bamfile"
+            print("Missing: output bamfile")
         if not criteria:
-            print "Missing: filtering criteria"
+            print("Missing: filtering criteria")
         usage()
     else:
         bam_filter(infile, outfile, criteria, failed, verbose)

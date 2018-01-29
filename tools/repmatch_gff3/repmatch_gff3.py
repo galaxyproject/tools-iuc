@@ -8,6 +8,7 @@
 # Files: statistics_table.tabular (file to replicate ID), matched_paired_peaks.tabular, detail.tabular, unmatched_peaks.tabular
 
 import argparse
+
 import repmatch_gff3_util
 
 if __name__ == '__main__':

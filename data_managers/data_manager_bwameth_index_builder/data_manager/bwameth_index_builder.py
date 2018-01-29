@@ -24,7 +24,7 @@ def build_bwameth_index(data_manager_dict, params, args):
     if return_code:
         print >> sys.stderr, "Error building index."
         sys.exit( return_code )
-    data_table_entry = dict(value=args.dbKey, dbkey=args.dbkey, name=args.name, path=args.dbKey)
+    data_table_entry = dict(value=args.dbkey, dbkey=args.dbkey, name=args.name, path=sym_linked_fasta_filename)
     _add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
 
 
@@ -58,6 +58,7 @@ def main():
 
     # save info to json file
     open(filename, 'wb').write(dumps(data_manager_dict))
+
 
 if __name__ == "__main__":
     main()

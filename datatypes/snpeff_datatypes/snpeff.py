@@ -1,8 +1,8 @@
 """
 SnpEff datatypes
 """
-import logging
 import gzip
+import logging
 import os
 import os.path
 import re
@@ -77,5 +77,5 @@ class SnpEffDb( Text ):
                 if regulations:
                     fh.write("regulations: %s\n" % ','.join(regulations))
                 fh.close()
-            except:
+            except Exception:
                 pass
