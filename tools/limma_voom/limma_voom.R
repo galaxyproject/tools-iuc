@@ -20,7 +20,7 @@
 #       pAdjOpt", "d", 1, "character"       -String specifying the p-value adjustment method
 #       normOpt", "n", 1, "character"       -String specifying type of normalisation used
 #       robOpt", "b", 0, "logical"          -String specifying if robust options should be used
-#       trend", "t", 1, "logical"           -String specifying if limma-trend should be used instead of voom
+#       trend", "t", 1, "double"            -Float for prior.count if limma-trend is used instead of voom
 #       weightOpt", "w", 0, "logical"       -String specifying if voomWithQualityWeights should be used
 #
 # OUT:
@@ -35,7 +35,7 @@
 #
 #
 # Author: Shian Su - registertonysu@gmail.com - Jan 2014
-# Modified by: Maria Doyle - Jun 2017
+# Modified by: Maria Doyle - Jun 2017, Jan 2018
 
 # Record starting time
 timeStart <- as.character(Sys.time())
@@ -50,7 +50,7 @@ library(scales, quietly=TRUE, warn.conflicts=FALSE)
 library(getopt, quietly=TRUE, warn.conflicts=FALSE)
 
 if (packageVersion("limma") < "3.20.1") {
-  stop("Please update 'limma' to version >= 3.20.1 to run this tool")
+    stop("Please update 'limma' to version >= 3.20.1 to run this tool")
 }
 
 ################################################################################
@@ -59,85 +59,85 @@ if (packageVersion("limma") < "3.20.1") {
 # Function to sanitise contrast equations so there are no whitespaces
 # surrounding the arithmetic operators, leading or trailing whitespace
 sanitiseEquation <- function(equation) {
-  equation <- gsub(" *[+] *", "+", equation)
-  equation <- gsub(" *[-] *", "-", equation)
-  equation <- gsub(" *[/] *", "/", equation)
-  equation <- gsub(" *[*] *", "*", equation)
-  equation <- gsub("^\\s+|\\s+$", "", equation)
-  return(equation)
+    equation <- gsub(" *[+] *", "+", equation)
+    equation <- gsub(" *[-] *", "-", equation)
+    equation <- gsub(" *[/] *", "/", equation)
+    equation <- gsub(" *[*] *", "*", equation)
+    equation <- gsub("^\\s+|\\s+$", "", equation)
+    return(equation)
 }
 
 # Function to sanitise group information
 sanitiseGroups <- function(string) {
-  string <- gsub(" *[,] *", ",", string)
-  string <- gsub("^\\s+|\\s+$", "", string)
-  return(string)
+    string <- gsub(" *[,] *", ",", string)
+    string <- gsub("^\\s+|\\s+$", "", string)
+    return(string)
 }
 
 # Function to change periods to whitespace in a string
 unmake.names <- function(string) {
-  string <- gsub(".", " ", string, fixed=TRUE)
-  return(string)
+    string <- gsub(".", " ", string, fixed=TRUE)
+    return(string)
 }
 
 # Generate output folder and paths
 makeOut <- function(filename) {
-  return(paste0(opt$outPath, "/", filename))
+    return(paste0(opt$outPath, "/", filename))
 }
 
 # Generating design information
 pasteListName <- function(string) {
-  return(paste0("factors$", string))
+    return(paste0("factors$", string))
 }
 
 # Create cata function: default path set, default seperator empty and appending
 # true by default (Ripped straight from the cat function with altered argument
 # defaults)
 cata <- function(..., file = opt$htmlPath, sep = "", fill = FALSE, labels = NULL,
-                 append = TRUE) {
-  if (is.character(file))
-    if (file == "")
-      file <- stdout()
-  else if (substring(file, 1L, 1L) == "|") {
-    file <- pipe(substring(file, 2L), "w")
-    on.exit(close(file))
-  }
-  else {
-    file <- file(file, ifelse(append, "a", "w"))
-    on.exit(close(file))
-  }
-  .Internal(cat(list(...), file, sep, fill, labels, append))
+               append = TRUE) {
+    if (is.character(file))
+        if (file == "")
+            file <- stdout()
+        else if (substring(file, 1L, 1L) == "|") {
+            file <- pipe(substring(file, 2L), "w")
+            on.exit(close(file))
+        }
+        else {
+        file <- file(file, ifelse(append, "a", "w"))
+      optn.exit(close(file))
+        }
+    .Internal(cat(list(...), file, sep, fill, labels, append))
 }
 
 # Function to write code for html head and title
 HtmlHead <- function(title) {
-  cata("<head>\n")
-  cata("<title>", title, "</title>\n")
-  cata("</head>\n")
+    cata("<head>\n")
+    cata("<title>", title, "</title>\n")
+    cata("</head>\n")
 }
 
 # Function to write code for html links
 HtmlLink <- function(address, label=address) {
-  cata("<a href=\"", address, "\" target=\"_blank\">", label, "</a><br />\n")
+    cata("<a href=\"", address, "\" target=\"_blank\">", label, "</a><br />\n")
 }
 
 # Function to write code for html images
 HtmlImage <- function(source, label=source, height=600, width=600) {
-  cata("<img src=\"", source, "\" alt=\"", label, "\" height=\"", height)
-  cata("\" width=\"", width, "\"/>\n")
+    cata("<img src=\"", source, "\" alt=\"", label, "\" height=\"", height)
+    cata("\" width=\"", width, "\"/>\n")
 }
 
 # Function to write code for html list items
 ListItem <- function(...) {
-  cata("<li>", ..., "</li>\n")
+    cata("<li>", ..., "</li>\n")
 }
 
 TableItem <- function(...) {
-  cata("<td>", ..., "</td>\n")
+    cata("<td>", ..., "</td>\n")
 }
 
 TableHeadItem <- function(...) {
-  cata("<th>", ..., "</th>\n")
+    cata("<th>", ..., "</th>\n")
 }
 
 ################################################################################
@@ -169,7 +169,7 @@ spec <- matrix(c(
     "pAdjOpt", "d", 1, "character",
     "normOpt", "n", 1, "character",
     "robOpt", "b", 0, "logical",
-    "trend", "t", 0, "logical",
+    "trend", "t", 1, "double",
     "weightOpt", "w", 0, "logical"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
@@ -230,10 +230,11 @@ if (is.null(opt$weightOpt)) {
 
 if (is.null(opt$trend)) {
     wantTrend <- FALSE
-    demethod <- "limma-voom"
+    deMethod <- "limma-voom"
 } else {
     wantTrend <- TRUE
-    demethod <- "limma-trend"
+    deMethod <- "limma-trend"
+    priorCount <- opt$trend
 }
 
 
@@ -311,18 +312,20 @@ contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
 
-mdsOutPdf <- makeOut("mdsplot.pdf")
-mdsOutPng <- makeOut("mdsplot.png")
+mdsOutPdf <- makeOut("mdsplot_nonorm.pdf")
+mdsOutPng <- makeOut("mdsplot_nonorm.png")
+nmdsOutPdf <- makeOut("mdsplot.pdf")
+nmdsOutPng <- makeOut("mdsplot.png")
 maOutPdf <- character()   # Initialise character vector
 maOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
     maOutPdf[i] <- makeOut(paste0("maplot_", contrastData[i], ".pdf"))
     maOutPng[i] <- makeOut(paste0("maplot_", contrastData[i], ".png"))
-    topOut[i] <- makeOut(paste0(demethod, "_", contrastData[i], ".tsv"))
+    topOut[i] <- makeOut(paste0(deMethod, "_", contrastData[i], ".tsv"))
 }
-normOut <- makeOut(paste0(demethod, "_normcounts.tsv"))
-rdaOut <- makeOut(paste0(demethod, "_analysis.RData"))
+normOut <- makeOut(paste0(deMethod, "_normcounts.tsv"))
+rdaOut <- makeOut(paste0(deMethod, "_analysis.RData"))
 sessionOut <- makeOut("session_info.txt")
 
 # Initialise data for html links and images, data frame with columns Label and
@@ -410,25 +413,23 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 ################################################################################
 ### Data Output
 ################################################################################
-
 # Plot MDS
 print("Generating MDS plot")
 labels <- names(counts)
 png(mdsOutPng, width=600, height=600)
 # Currently only using a single factor
-plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot")
-imageData[1, ] <- c("MDS Plot", "mdsplot.png")
+plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot (unnormalised)")
+imageData[1, ] <- c("MDS Plot (unnormalised)", "mdsplot_nonorm.png")
 invisible(dev.off())
 
 pdf(mdsOutPdf)
 plotMDS(data, labels=labels, cex=0.5)
-linkData[1, ] <- c("MDS Plot.pdf", "mdsplot.pdf")
+linkData[1, ] <- c("MDS Plot (unnormalised).pdf", "mdsplot_nonorm.pdf")
 invisible(dev.off())
-
 
 if (wantTrend) {
     # limma-trend approach
-    logCPM <- cpm(data, log=TRUE, prior.count=3)
+    logCPM <- cpm(data, log=TRUE, prior.count=opt$trend)
     fit <- lmFit(logCPM, design)
     fit <- contrasts.fit(fit, contrasts)
     if (wantRobust) {
@@ -436,7 +437,31 @@ if (wantTrend) {
     } else {
         fit <- eBayes(fit, trend=TRUE, robust=FALSE)
     }
+    # plot fit with plotSA
+    saOutPng <- makeOut("saplot.png")
+    saOutPdf <- makeOut("saplot.pdf")
+
+    png(saOutPng, width=600, height=600)
+    plotSA(fit, main="SA Plot")
+    imgName <- "SA Plot.png"
+    imgAddr <- "saplot.png"
+    imageData <- rbind(imageData, c(imgName, imgAddr))
+    invisible(dev.off())
+
+    pdf(saOutPdf, width=14)
+    plotSA(fit, main="SA Plot")
+    linkName <- paste0("SA Plot.pdf")
+    linkAddr <- paste0("saplot.pdf")
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())
+
     plotData <- logCPM
+
+    # Save normalised counts (log2cpm)
+    if (wantNorm) {
+        write.table(logCPM, file=normOut, row.names=TRUE, sep="\t")
+        linkData <- rbind(linkData, c((paste0(deMethod, "_", "normcounts.tsv")), (paste0(deMethod, "_", "normcounts.tsv"))))
+    }
 } else {
     # limma-voom approach
     voomOutPdf <- makeOut("voomplot.pdf")
@@ -446,7 +471,7 @@ if (wantTrend) {
         # Creating voom data object and plot
         png(voomOutPng, width=1000, height=600)
         vData <- voomWithQualityWeights(data, design=design, plot=TRUE)
-        imgName <- "Voom Plot"
+        imgName <- "Voom Plot.png"
         imgAddr <- "voomplot.png"
         imageData <- rbind(imageData, c(imgName, imgAddr))
         invisible(dev.off())
@@ -486,7 +511,7 @@ if (wantTrend) {
     if (wantNorm) {
         norm_counts <- data.frame(vData$genes, vData$E)
         write.table(norm_counts, file=normOut, row.names=FALSE, sep="\t")
-        linkData <- rbind(linkData, c((paste0(demethod, "_", "normcounts.tsv")), (paste0(demethod, "_", "normcounts.tsv"))))
+        linkData <- rbind(linkData, c((paste0(deMethod, "_", "normcounts.tsv")), (paste0(deMethod, "_", "normcounts.tsv"))))
     }
 
     # Fit linear model and estimate dispersion with eBayes
@@ -499,72 +524,88 @@ if (wantTrend) {
     plotData <- vData
 }
 
+print("Generating normalised MDS plot")
+png(nmdsOutPng, width=600, height=600)
+# Currently only using a single factor
+plotMDS(plotData, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot (normalised)")
+imgName <- "MDS Plot (normalised)"
+imgAddr <- "mdsplot.png"
+imageData <- rbind(imageData, c(imgName, imgAddr))
+invisible(dev.off())
+
+pdf(nmdsOutPdf)
+plotMDS(plotData, labels=labels, cex=0.5)
+linkName <- paste0("MDS Plot (normalised).pdf")
+linkAddr <- paste0("mdsplot.pdf")
+linkData <- rbind(linkData, c(linkName, linkAddr))
+invisible(dev.off())
+
+
 print("Generating DE results")
 status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
                        lfc=opt$lfcReq)
 sumStatus <- summary(status)
 
 for (i in 1:length(contrastData)) {
+    # Collect counts for differential expression
+    upCount[i] <- sumStatus["Up", i]
+    downCount[i] <- sumStatus["Down", i]
+    flatCount[i] <- sumStatus["NotSig", i]
 
-  # Collect counts for differential expression
-  upCount[i] <- sumStatus["Up", i]
-  downCount[i] <- sumStatus["Down", i]
-  flatCount[i] <- sumStatus["NotSig", i]
+    # Write top expressions table
+    top <- topTable(fit, coef=i, number=Inf, sort.by="P")
+    if (wantTrend) {
+        write.table(top, file=topOut[i], row.names=TRUE, sep="\t")
+    } else {
+        write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
+    }
 
-  # Write top expressions table
-  top <- topTable(fit, coef=i, number=Inf, sort.by="P")
-  if (wantTrend) {
-     write.table(top, file=topOut[i], row.names=TRUE, sep="\t") 
-  } else {
-    write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
-  }
+    linkName <- paste0(deMethod, "_", contrastData[i], ".tsv")
+    linkAddr <- paste0(deMethod, "_", contrastData[i], ".tsv")
+    linkData <- rbind(linkData, c(linkName, linkAddr))
 
-  linkName <- paste0(demethod, "_", contrastData[i], ".tsv")
-  linkAddr <- paste0(demethod, "_", contrastData[i], ".tsv")
-  linkData <- rbind(linkData, c(linkName, linkAddr))
+    # Plot MA (log ratios vs mean average) using limma package on weighted
+    pdf(maOutPdf[i])
+    limma::plotMA(fit, status=status, coef=i,
+                  main=paste("MA Plot:", unmake.names(contrastData[i])),
+                  col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+                  xlab="Average Expression", ylab="logFC")
 
-  # Plot MA (log ratios vs mean average) using limma package on weighted
-  pdf(maOutPdf[i])
-  limma::plotMA(fit, status=status, coef=i,
-                main=paste("MA Plot:", unmake.names(contrastData[i])),
-                col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
-                xlab="Average Expression", ylab="logFC")
+    abline(h=0, col="grey", lty=2)
 
-  abline(h=0, col="grey", lty=2)
+    linkName <- paste0("MA Plot_", contrastData[i], " (.pdf)")
+    linkAddr <- paste0("maplot_", contrastData[i], ".pdf")
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())
 
-  linkName <- paste0("MA Plot_", contrastData[i], " (.pdf)")
-  linkAddr <- paste0("maplot_", contrastData[i], ".pdf")
-  linkData <- rbind(linkData, c(linkName, linkAddr))
-  invisible(dev.off())
+    png(maOutPng[i], height=600, width=600)
+    limma::plotMA(fit, status=status, coef=i,
+                  main=paste("MA Plot:", unmake.names(contrastData[i])),
+                  col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+                  xlab="Average Expression", ylab="logFC")
 
-  png(maOutPng[i], height=600, width=600)
-  limma::plotMA(fit, status=status, coef=i,
-                main=paste("MA Plot:", unmake.names(contrastData[i])),
-                col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
-                xlab="Average Expression", ylab="logFC")
+    abline(h=0, col="grey", lty=2)
 
-  abline(h=0, col="grey", lty=2)
-
-  imgName <- paste0("MA Plot_", contrastData[i])
-  imgAddr <- paste0("maplot_", contrastData[i], ".png")
-  imageData <- rbind(imageData, c(imgName, imgAddr))
-  invisible(dev.off())
+    imgName <- paste0("MA Plot_", contrastData[i])
+    imgAddr <- paste0("maplot_", contrastData[i], ".png")
+    imageData <- rbind(imageData, c(imgName, imgAddr))
+    invisible(dev.off())
 }
 sigDiff <- data.frame(Up=upCount, Flat=flatCount, Down=downCount)
 row.names(sigDiff) <- contrastData
 
 # Save relevant items as rda object
 if (wantRda) {
-  print("Saving RData")
-  if (wantWeight) {
-    save(data, status, plotData, labels, factors, wts, fit, top, contrasts,
-         design,
-         file=rdaOut, ascii=TRUE)
-  } else {
-    save(data, status, plotData, labels, factors, fit, top, contrasts, design,
-         file=rdaOut, ascii=TRUE)
-  }
-  linkData <- rbind(linkData, c("limma_analysis.RData", "limma_analysis.RData"))
+    print("Saving RData")
+    if (wantWeight) {
+      save(data, status, plotData, labels, factors, wts, fit, top, contrasts,
+           design,
+           file=rdaOut, ascii=TRUE)
+    } else {
+      save(data, status, plotData, labels, factors, fit, top, contrasts, design,
+           file=rdaOut, ascii=TRUE)
+    }
+    linkData <- rbind(linkData, c((paste0(deMethod, "_analysis.RData")), (paste0(deMethod, "_analysis.RData"))))
 }
 
 # Record session info
@@ -588,13 +629,13 @@ cata("<body>\n")
 cata("<h3>Limma Analysis Output:</h3>\n")
 cata("PDF copies of JPEGS available in 'Plots' section.<br />\n")
 if (wantWeight) {
-  HtmlImage(imageData$Link[1], imageData$Label[1], width=1000)
+    HtmlImage(imageData$Link[1], imageData$Label[1], width=1000)
 } else {
-  HtmlImage(imageData$Link[1], imageData$Label[1])
+    HtmlImage(imageData$Link[1], imageData$Label[1])
 }
 
 for (i in 2:nrow(imageData)) {
-  HtmlImage(imageData$Link[i], imageData$Label[i])
+    HtmlImage(imageData$Link[i], imageData$Label[i])
 }
 
 cata("<h4>Differential Expression Counts:</h4>\n")
@@ -603,40 +644,40 @@ cata("<table border=\"1\" cellpadding=\"4\">\n")
 cata("<tr>\n")
 TableItem()
 for (i in colnames(sigDiff)) {
-  TableHeadItem(i)
+    TableHeadItem(i)
 }
 cata("</tr>\n")
 for (i in 1:nrow(sigDiff)) {
-  cata("<tr>\n")
-  TableHeadItem(unmake.names(row.names(sigDiff)[i]))
-  for (j in 1:ncol(sigDiff)) {
-    TableItem(as.character(sigDiff[i, j]))
-  }
-  cata("</tr>\n")
+    cata("<tr>\n")
+    TableHeadItem(unmake.names(row.names(sigDiff)[i]))
+    for (j in 1:ncol(sigDiff)) {
+        TableItem(as.character(sigDiff[i, j]))
+    }
+    cata("</tr>\n")
 }
 cata("</table>")
 
 cata("<h4>Plots:</h4>\n")
 for (i in 1:nrow(linkData)) {
-  if (grepl(".pdf", linkData$Link[i])) {
-    HtmlLink(linkData$Link[i], linkData$Label[i])
+    if (grepl(".pdf", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
 
 cata("<h4>Tables:</h4>\n")
 for (i in 1:nrow(linkData)) {
-  if (grepl(".tsv", linkData$Link[i])) {
-    HtmlLink(linkData$Link[i], linkData$Label[i])
-  }
+    if (grepl(".tsv", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+    }
 }
 
 if (wantRda) {
-  cata("<h4>R Data Object:</h4>\n")
-  for (i in 1:nrow(linkData)) {
-    if (grepl(".RData", linkData$Link[i])) {
-      HtmlLink(linkData$Link[i], linkData$Label[i])
+    cata("<h4>R Data Object:</h4>\n")
+    for (i in 1:nrow(linkData)) {
+        if (grepl(".RData", linkData$Link[i])) {
+            HtmlLink(linkData$Link[i], linkData$Label[i])
+        }
     }
-  }
 }
 
 cata("<p>Alt-click links to download file.</p>\n")
@@ -675,31 +716,31 @@ if (wantTrend) {
     ListItem("The limma-voom method was used.")
 }
 if (wantWeight) {
-  ListItem("Weights were applied to samples.")
+    ListItem("Weights were applied to samples.")
 } else {
-  ListItem("Weights were not applied to samples.")
+    ListItem("Weights were not applied to samples.")
 }
 if (wantRobust) {
     ListItem("eBayes was used with robust settings (robust=TRUE).")
 }
 if (opt$pAdjOpt!="none") {
-  if (opt$pAdjOpt=="BH" || opt$pAdjOpt=="BY") {
-    tempStr <- paste0("MA-Plot highlighted genes are significant at FDR ",
+    if (opt$pAdjOpt=="BH" || opt$pAdjOpt=="BY") {
+        tempStr <- paste0("MA-Plot highlighted genes are significant at FDR ",
+                        "of ", opt$pValReq," and exhibit log2-fold-change of at ",
+                        "least ", opt$lfcReq, ".")
+        ListItem(tempStr)
+    } else if (opt$pAdjOpt=="holm") {
+        tempStr <- paste0("MA-Plot highlighted genes are significant at adjusted ",
+                        "p-value of ", opt$pValReq,"  by the Holm(1979) ",
+                        "method, and exhibit log2-fold-change of at least ",
+                        opt$lfcReq, ".")
+        ListItem(tempStr)
+    }
+  } else {
+        tempStr <- paste0("MA-Plot highlighted genes are significant at p-value ",
                       "of ", opt$pValReq," and exhibit log2-fold-change of at ",
                       "least ", opt$lfcReq, ".")
-    ListItem(tempStr)
-  } else if (opt$pAdjOpt=="holm") {
-    tempStr <- paste0("MA-Plot highlighted genes are significant at adjusted ",
-                      "p-value of ", opt$pValReq,"  by the Holm(1979) ",
-                      "method, and exhibit log2-fold-change of at least ",
-                      opt$lfcReq, ".")
-    ListItem(tempStr)
-  }
-} else {
-  tempStr <- paste0("MA-Plot highlighted genes are significant at p-value ",
-                    "of ", opt$pValReq," and exhibit log2-fold-change of at ",
-                    "least ", opt$lfcReq, ".")
-  ListItem(tempStr)
+        ListItem(tempStr)
 }
 cata("</ul>\n")
 
@@ -712,19 +753,18 @@ cata("<tr>\n")
 TableHeadItem("SampleID")
 TableHeadItem(names(factors)[1]," (Primary Factor)")
 
-  if (ncol(factors) > 1) {
-
+if (ncol(factors) > 1) {
     for (i in names(factors)[2:length(names(factors))]) {
-      TableHeadItem(i)
+        TableHeadItem(i)
     }
     cata("</tr>\n")
-  }
+}
 
 for (i in 1:nrow(factors)) {
-  cata("<tr>\n")
-  TableHeadItem(row.names(factors)[i])
-  for (j in 1:ncol(factors)) {
-    TableItem(as.character(unmake.names(factors[i, j])))
+    cata("<tr>\n")
+    TableHeadItem(row.names(factors)[i])
+    for (j in 1:ncol(factors)) {
+        TableItem(as.character(unmake.names(factors[i, j])))
   }
   cata("</tr>\n")
 }
@@ -809,9 +849,9 @@ cata("</ol>\n")
 cata("<p>Please report problems or suggestions to: su.s@wehi.edu.au</p>\n")
 
 for (i in 1:nrow(linkData)) {
-  if (grepl("session_info", linkData$Link[i])) {
-    HtmlLink(linkData$Link[i], linkData$Label[i])
-  }
+    if (grepl("session_info", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+    }
 }
 
 cata("<table border=\"0\">\n")
