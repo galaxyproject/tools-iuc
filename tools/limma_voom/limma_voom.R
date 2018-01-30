@@ -104,7 +104,7 @@ cata <- function(..., file = opt$htmlPath, sep = "", fill = FALSE, labels = NULL
         }
         else {
         file <- file(file, ifelse(append, "a", "w"))
-      optn.exit(close(file))
+      on.exit(close(file))
         }
     .Internal(cat(list(...), file, sep, fill, labels, append))
 }
@@ -566,7 +566,7 @@ for (i in 1:length(contrastData)) {
 
     # Plot MA (log ratios vs mean average) using limma package on weighted
     pdf(maOutPdf[i])
-    limma::plotMA(fit, status=status, coef=i,
+    limma::plotMD(fit, status=status, coef=i,
                   main=paste("MA Plot:", unmake.names(contrastData[i])),
                   col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
                   xlab="Average Expression", ylab="logFC")
@@ -579,7 +579,7 @@ for (i in 1:length(contrastData)) {
     invisible(dev.off())
 
     png(maOutPng[i], height=600, width=600)
-    limma::plotMA(fit, status=status, coef=i,
+    limma::plotMD(fit, status=status, coef=i,
                   main=paste("MA Plot:", unmake.names(contrastData[i])),
                   col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
                   xlab="Average Expression", ylab="logFC")
