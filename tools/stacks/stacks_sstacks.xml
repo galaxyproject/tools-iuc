@@ -1,0 +1,274 @@
+<tool id="stacks_sstacks" name="Stacks: sstacks" version="@WRAPPER_VERSION@.0">
+    <description>match stacks to a catalog</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <command><![CDATA[
+        #import re
+
+        mkdir stacks_inputs stacks_outputs
+
+        &&
+
+        #set $catalog = ""
+        #for $input_file in $input_cat
+            #set $filename = str($input_file.element_identifier)
+            #if not filename.endswith('.tsv')
+                #set $filename = $filename + ".tsv"
+            #end if
+            #if re.search('catalog\.[a-z]+(\.tsv)?$', $filename)
+                ln -s '${input_file}' 'stacks_inputs/$filename' &&
+
+                #if $filename.endswith('.tags.tsv')
+                    #set catalog += " -c 'stacks_inputs/"+$filename[:-17] + "'"
+                #end if
+            #end if
+        #end for
+
+        #set $samples = ""
+        #for $input_file in $input_tags
+            #set $filename = str($input_file.element_identifier)
+            #if not filename.endswith('.tsv')
+                #set $filename = $filename + ".tsv"
+            #end if
+            #if not re.search('catalog\.[a-z]+(\.tsv)?$', $filename)
+                ln -s '${input_file}' 'stacks_inputs/$filename' &&
+
+                #if $filename.endswith('.tags.tsv')
+                    #set samples += " -s 'stacks_inputs/"+$filename[:-9] + "'"
+                #end if
+            #end if
+        #end for
+
+        sstacks
+
+            ## Batch description
+            -b 1
+
+            -p \${GALAXY_SLOTS:-1}
+
+            #if $popmap
+                -P stacks_inputs -M '$popmap'
+            #else
+                $catalog
+                $samples
+                -o stacks_outputs
+            #end if
+
+            $g
+
+            $check_haplo
+
+            $gapped
+
+            2>&1 | tee sstacks.log
+
+            #if $popmap
+                ## When using a popmap, stacks write to the input dir
+                && mv stacks_inputs/*matches.tsv stacks_outputs/
+            #end if
+
+            &&
+
+            stacks_summary.py --stacks-prog sstacks --res-dir stacks_outputs --logfile sstacks.log --summary stacks_outputs/summary.html
+    ]]></command>
+
+    <inputs>
+        <param name="input_cat" format="tabular,txt" type="data_collection" collection_type="list" label="Catalog files" help="output from a previous Stacks pipeline steps e.g. denovo_map, refmap or cstacks" />
+        <param name="input_tags" format="tabular,txt" type="data_collection" collection_type="list" label="Samples stacks" help="output from previous Stacks pipeline steps e.g. denovo_map, refmap or ustacks/pstacks" />
+
+        <param name="popmap" type="data" format="tabular,txt" label="Population map" help="If set, matching will be done only for samples listed in this file" optional="true" argument="-M" />
+
+        <param name="g" argument="-g" type="boolean" checked="false" truevalue="-g" falsevalue="" label="Base catalog matching on genomic location, not sequence identity" />
+
+        <param name="check_haplo" argument="-x" type="boolean" checked="false" truevalue="-x" falsevalue="" label="Don't verify haplotype of matching locus" />
+
+        <param name="gapped" argument="--gapped" type="boolean" checked="false" truevalue="--gapped" falsevalue="" label="Perform gapped alignments between stacks" />
+    </inputs>
+
+    <outputs>
+        <data format="txt" name="output_log" label="sstacks.log with ${tool.name} on ${on_string}" from_work_dir="sstacks.log" />
+
+        <data format="html" name="output_summary" label="Summary from ${tool.name} on ${on_string}" from_work_dir="stacks_outputs/summary.html" />
+
+        <collection name="matches" type="list" label="Matches to the catalog on ${on_string}">
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.matches)\.tsv$" ext="tabular" directory="stacks_outputs" />
+        </collection>
+    </outputs>
+
+    <tests>
+        <test>
+            <param name="input_cat">
+                <collection type="list">
+                    <element name="batch_1.catalog.alleles.tsv" ftype="tabular" value="genotypes/batch_1.catalog.alleles.tsv" />
+                    <element name="batch_1.catalog.snps.tsv" ftype="tabular" value="genotypes/batch_1.catalog.snps.tsv" />
+                    <element name="batch_1.catalog.tags.tsv" ftype="tabular" value="genotypes/batch_1.catalog.tags.tsv" />
+               </collection>
+            </param>
+            <param name="input_tags">
+                <collection type="list">
+                    <element name="PopA_01.alleles.tsv" ftype="tabular" value="genotypes/PopA_01.alleles.tsv" />
+                    <element name="PopA_01.matches.tsv" ftype="tabular" value="genotypes/PopA_01.matches.tsv" />
+                    <element name="PopA_01.snps.tsv" ftype="tabular" value="genotypes/PopA_01.snps.tsv" />
+                    <element name="PopA_01.tags.tsv" ftype="tabular" value="genotypes/PopA_01.tags.tsv" />
+                    <element name="PopA_02.alleles.tsv" ftype="tabular" value="genotypes/PopA_02.alleles.tsv" />
+                    <element name="PopA_02.matches.tsv" ftype="tabular" value="genotypes/PopA_02.matches.tsv" />
+                    <element name="PopA_02.snps.tsv" ftype="tabular" value="genotypes/PopA_02.snps.tsv" />
+                    <element name="PopA_02.tags.tsv" ftype="tabular" value="genotypes/PopA_02.tags.tsv" />
+               </collection>
+            </param>
+
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="Outputing to file" />
+                </assert_contents>
+            </output>
+            <output name="output_summary">
+                <assert_contents>
+                    <has_text text="Stacks Statistics" />
+                </assert_contents>
+            </output>
+
+            <output_collection name="matches">
+                <element name="PopA_01.matches">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+
+        <test>
+            <param name="input_cat">
+                <collection type="list">
+                    <element name="batch_1.catalog.alleles.tsv" ftype="tabular" value="genotypes/batch_1.catalog.alleles.tsv" />
+                    <element name="batch_1.catalog.snps.tsv" ftype="tabular" value="genotypes/batch_1.catalog.snps.tsv" />
+                    <element name="batch_1.catalog.tags.tsv" ftype="tabular" value="genotypes/batch_1.catalog.tags.tsv" />
+               </collection>
+            </param>
+            <param name="input_tags">
+                <collection type="list">
+                    <element name="PopA_01.alleles.tsv" ftype="tabular" value="genotypes/PopA_01.alleles.tsv" />
+                    <element name="PopA_01.matches.tsv" ftype="tabular" value="genotypes/PopA_01.matches.tsv" />
+                    <element name="PopA_01.snps.tsv" ftype="tabular" value="genotypes/PopA_01.snps.tsv" />
+                    <element name="PopA_01.tags.tsv" ftype="tabular" value="genotypes/PopA_01.tags.tsv" />
+                    <element name="PopA_02.alleles.tsv" ftype="tabular" value="genotypes/PopA_02.alleles.tsv" />
+                    <element name="PopA_02.matches.tsv" ftype="tabular" value="genotypes/PopA_02.matches.tsv" />
+                    <element name="PopA_02.snps.tsv" ftype="tabular" value="genotypes/PopA_02.snps.tsv" />
+                    <element name="PopA_02.tags.tsv" ftype="tabular" value="genotypes/PopA_02.tags.tsv" />
+               </collection>
+            </param>
+            <param name="gapped" value="true" />
+            <param name="check_haplo" value="true" />
+
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="Outputing to file" />
+                </assert_contents>
+            </output>
+            <output name="output_summary">
+                <assert_contents>
+                    <has_text text="Stacks Statistics" />
+                </assert_contents>
+            </output>
+
+            <output_collection name="matches">
+                <element name="PopA_01.matches">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+
+        <test>
+            <param name="input_cat">
+                <collection type="list">
+                    <element name="batch_1.catalog.alleles.tsv" ftype="tabular" value="genotypes/batch_1.catalog.alleles.tsv" />
+                    <element name="batch_1.catalog.snps.tsv" ftype="tabular" value="genotypes/batch_1.catalog.snps.tsv" />
+                    <element name="batch_1.catalog.tags.tsv" ftype="tabular" value="genotypes/batch_1.catalog.tags.tsv" />
+               </collection>
+            </param>
+            <param name="input_tags">
+                <collection type="list">
+                    <element name="PopA_01.alleles.tsv" ftype="tabular" value="genotypes/PopA_01.alleles.tsv" />
+                    <element name="PopA_01.matches.tsv" ftype="tabular" value="genotypes/PopA_01.matches.tsv" />
+                    <element name="PopA_01.snps.tsv" ftype="tabular" value="genotypes/PopA_01.snps.tsv" />
+                    <element name="PopA_01.tags.tsv" ftype="tabular" value="genotypes/PopA_01.tags.tsv" />
+                    <element name="PopA_02.alleles.tsv" ftype="tabular" value="genotypes/PopA_02.alleles.tsv" />
+                    <element name="PopA_02.matches.tsv" ftype="tabular" value="genotypes/PopA_02.matches.tsv" />
+                    <element name="PopA_02.snps.tsv" ftype="tabular" value="genotypes/PopA_02.snps.tsv" />
+                    <element name="PopA_02.tags.tsv" ftype="tabular" value="genotypes/PopA_02.tags.tsv" />
+               </collection>
+            </param>
+
+            <param name="popmap" ftype="tabular" value="denovo_map/popmap_cstacks.tsv" />
+
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="Outputing to file" />
+                </assert_contents>
+            </output>
+            <output name="output_summary">
+                <assert_contents>
+                    <has_text text="Stacks Statistics" />
+                </assert_contents>
+            </output>
+
+            <output_collection name="matches">
+                <element name="PopA_01.matches">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+
+    <help>
+<![CDATA[
+.. class:: infomark
+
+**What it does**
+
+Sets of stacks constructed by the ustacks or pstacks programs can be searched against a catalog produced by cstacks. In the case of a genetic map, stacks from the progeny would be matched against the catalog to determine which progeny contain which parental alleles.
+
+--------
+
+**Input files**
+
+Output from denovo_map, refmap or cstacks/ustacks/pstacks
+
+**Output files**
+
+- XXX.tags.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: For the tags file, each stack will start in the file with a consensus sequence for the entire stack followed by the flags for that stack. Then, each individual read that was merged into that stack will follow. The next stack will start with another consensus sequence.
+
+
+- XXX.snps.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: If a stack has two SNPs called within it, then there will be two lines in this file listing each one.
+
+
+- XXX.alleles.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+- XXX.matches.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: Each line in this file records a match between a catalog locus and a locus in an individual, for a particular haplotype. The Batch ID plus the Catalog ID together represent a unique locus in the entire population, while the Sample ID and the Stack ID together represent a unique locus in an individual sample.
+
+@STACKS_INFOS@
+]]>
+    </help>
+    <expand macro="citation" />
+</tool>

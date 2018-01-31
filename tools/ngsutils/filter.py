@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-## category General
-## desc Removes reads from a BAM file based on criteria
+# category General
+# desc Removes reads from a BAM file based on criteria
 """
 Removes reads from a BAM file based on criteria
 
@@ -17,7 +17,7 @@ Currently, the available filters are:
     -maxlen val                Remove reads that are larger than {val}
     -mapped                    Keep only mapped reads
     -unmapped                  Keep only unmapped reads
-    -properpair                Keep only properly paired reads (both mapped, 
+    -properpair                Keep only properly paired reads (both mapped,
                                correct orientation, flag set in BAM)
     -noproperpair              Keep only not-properly paired reads
 
@@ -107,19 +107,20 @@ Common tags to filter by:
     The tag type (:i, :f, :Z) is optional.
 
 """
+from __future__ import print_function
 
 import os
 import sys
+
 import pysam
-from ngsutils.bam import bam_iter
-from ngsutils.support.dbsnp import DBSNP
-from ngsutils.bam import read_calc_mismatches, read_calc_mismatches_ref, read_calc_mismatches_gen, read_calc_variations
+from ngsutils.bam import bam_iter, read_calc_mismatches, read_calc_mismatches_gen, read_calc_mismatches_ref, read_calc_variations
 from ngsutils.bed import BedFile
+from ngsutils.support.dbsnp import DBSNP
 
 
 def usage():
-    print __doc__
-    print """
+    print(__doc__)
+    print("""
 Usage: bamutils filter in.bam out.bam {-failed out.txt} criteria...
 
 Options:
@@ -131,7 +132,7 @@ bamutils filter filename.bam output.bam -mapped -gte AS:i 1000
 
 This will remove all unmapped reads, as well as any reads that have an AS:i
 value less than 1000.
-"""
+""")
     sys.exit(1)
 
 
@@ -207,7 +208,7 @@ class UniqueStart(object):
                 for k in del_list:
                     self.rev_pos.remove(k)
 
-            if not start_pos in self.rev_pos:
+            if start_pos not in self.rev_pos:
                 self.rev_pos.add(start_pos)
                 return True
             return False
@@ -343,6 +344,7 @@ class ExcludeRef(object):
 
     def close(self):
         pass
+
 
 class IncludeRef(object):
     def __init__(self, ref):
@@ -645,7 +647,7 @@ class NoProperPair(object):
 
 class MaskFlag(object):
     def __init__(self, value):
-        if type(value) == type(1):
+        if isinstance(value, int):
             self.flag = value
         else:
             if value[0:2] == '0x':
@@ -710,7 +712,7 @@ class MaximumMismatchRatio(object):
         return "maximum mismatch ratio: %s" % self.val
 
     def filter(self, bam, read):
-        return read_calc_mismatches(read) <= self.ratio*len(read.seq)
+        return read_calc_mismatches(read) <= self.ratio * len(read.seq)
 
     def close(self):
         pass
@@ -759,10 +761,10 @@ class _TagCompare(object):
             # guess at type...
             try:
                 self.value = int(value)
-            except:
+            except ValueError:
                 try:
                     self.value = float(value)
-                except:
+                except ValueError:
                     self.value = value
 
     def get_value(self, read):
@@ -825,6 +827,7 @@ class TagEqual(_TagCompare):
         if self.get_value(read) == self.value:
             return True
         return False
+
 
 _criteria = {
     'mapped': Mapped,
@@ -895,7 +898,7 @@ def bam_filter(infile, outfile, criteria, failedfile=None, verbose=False):
                 failed += 1
                 if failed_out:
                     failed_out.write('%s\t%s\n' % (read.qname, criterion))
-                #outfile.write(read_to_unmapped(read))
+                # outfile.write(read_to_unmapped(read))
                 break
         if p:
             passed += 1
@@ -930,6 +933,7 @@ def read_to_unmapped(read):
     read.mapq = 0
     return read
 
+
 if __name__ == '__main__':
     infile = None
     outfile = None
@@ -957,7 +961,7 @@ if __name__ == '__main__':
             outfile = arg
         elif arg[0] == '-':
             if not arg[1:] in _criteria:
-                print "Unknown criterion: %s" % arg
+                print("Unknown criterion: %s" % arg)
                 fail = True
             if crit_args:
                 criteria.append(_criteria[crit_args[0][1:]](*crit_args[1:]))
@@ -965,7 +969,7 @@ if __name__ == '__main__':
         elif crit_args:
             crit_args.append(arg)
         else:
-            print "Unknown argument: %s" % arg
+            print("Unknown argument: %s" % arg)
             fail = True
 
     if not fail and crit_args:
@@ -976,11 +980,11 @@ if __name__ == '__main__':
             usage()
 
         if not infile:
-            print "Missing: input bamfile"
+            print("Missing: input bamfile")
         if not outfile:
-            print "Missing: output bamfile"
+            print("Missing: output bamfile")
         if not criteria:
-            print "Missing: filtering criteria"
+            print("Missing: filtering criteria")
         usage()
     else:
         bam_filter(infile, outfile, criteria, failed, verbose)

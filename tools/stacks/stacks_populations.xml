@@ -1,0 +1,477 @@
+<tool id="stacks_populations" name="Stacks: populations" version="@WRAPPER_VERSION@.0">
+    <description>analyze a population of individual samples ('populations' program)</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <command><![CDATA[
+        #import re
+
+        mkdir stacks_outputs
+
+        &&
+
+        #if str($options_usage.input_type) == 'stacks'
+            #for $input_file in $options_usage.input_col
+                #set $filename = str($input_file.element_identifier)
+                #if not $filename.endswith('.tsv')
+                    #set $filename = $filename + ".tsv"
+                #end if
+                #if re.search('\.(tags|snps|alleles|matches)(\.tsv)?$', $filename)
+                    ln -s '${input_file}' 'stacks_outputs/${filename}' &&
+                #end if
+            #end for
+        #else if str($options_usage.input_type) == 'vcf'
+            ln -s '$options_usage.input_vcf' 'stacks_outputs/batch_1.vcf' &&
+        #end if
+
+        populations
+
+        -t \${GALAXY_SLOTS:-1}
+
+        #if str($options_usage.input_type) == 'vcf'
+            -V 'stacks_outputs/batch_1.vcf'
+            -O stacks_outputs
+        #else
+            -P stacks_outputs
+            -b $advanced_options.batchid
+        #end if
+
+        -M '$options_usage.popmap'
+
+        ## Data filtering
+        $options_filtering.write_single_snp
+        $options_filtering.write_random_snp
+
+        #if str($options_filtering.lnl)
+            --lnl_lim $options_filtering.lnl
+        #end if
+
+        -r $options_filtering.minperc
+        -p $options_filtering.minpop
+        -m $options_filtering.mindepth
+
+        #if str($options_filtering.max_obs_het)
+            --max_obs_het $options_filtering.max_obs_het
+        #end if
+
+        --min_maf $options_filtering.minminor
+        #if str( $options_filtering.correction_select.correction ) != "no_corr"
+            -f $options_filtering.correction_select.correction
+            --p_value_cutoff $options_filtering.correction_select.pcutoff
+        #end if
+
+        ## Fstats
+        $fstats
+
+        #if $options_kernel.kernel
+            -k
+            --window_size $options_kernel.window
+        #end if
+
+        ## Bootstrap resampling options
+        #if $bootstrap_resampling.bootstrap_resampling_mode.bootstrap_all
+            --bootstrap
+        #else
+            $bootstrap_resampling.bootstrap_resampling_mode.bootstrap_pifis
+            $bootstrap_resampling.bootstrap_resampling_mode.bootstrap_fst
+            $bootstrap_resampling.bootstrap_resampling_mode.bootstrap_div
+            $bootstrap_resampling.bootstrap_resampling_mode.bootstrap_phist
+        #end if
+
+        #if str($bootstrap_resampling.bootstrap_reps)
+            --bootstrap_reps $bootstrap_resampling.bootstrap_reps
+        #end if
+        #if $bootstrap_resampling.bootstrap_wl
+            --bootstrap_wl '$bootstrap_resampling.bootstrap_wl'
+        #end if
+
+        ## output section
+        $populations_output.ordered_export
+        $populations_output.vcf
+        $populations_output.vcf_haplotypes
+        $populations_output.genepop
+        $populations_output.structure
+        $populations_output.fasta
+        $populations_output.fasta_strict
+        $populations_output.hzar
+        $populations_output.phase
+        $populations_output.fastphase
+        $populations_output.beagle
+        $populations_output.beagle_phased
+        $populations_output.plink
+        $populations_output.phylip
+        $populations_output.phylip_var
+        $populations_output.phylip_var_all
+        $populations_output.treemix
+
+        #if $populations_output.options_genomic.genomic
+            --genomic
+            -e $populations_output.options_genomic.enzyme
+        #end if
+
+        ## output SQL file (as denovo/refmap) and fst/phi components
+        -s
+        --log_fst_comp
+
+        ## Advanced options
+        #if $advanced_options.blacklist
+            -B '$advanced_options.blacklist'
+        #end if
+        #if $advanced_options.whitelist
+            -W '$advanced_options.whitelist'
+        #end if
+
+        &&
+
+        stacks_summary.py --stacks-prog populations --res-dir stacks_outputs --summary stacks_outputs/summary.html --pop-map '$options_usage.popmap'
+    ]]></command>
+
+    <inputs>
+        <conditional name="options_usage">
+            <param name="input_type" type="select" label="Input type" help="select input file type" >
+                <option value="stacks">Stacks output</option>
+                <option value="vcf">VCF file</option>
+            </param>
+            <when value="stacks">
+                <param name="input_col" format="tabular,txt" type="data_collection" collection_type="list" label="Output from previous Stacks pipeline steps (e.g. denovo_map or refmap)" argument="-P" />
+                <param name="popmap" type="data" format="tabular,txt" label="Specify a population map" argument="-M" />
+            </when>
+            <when value="vcf">
+                <param name="input_vcf" format="vcf" type="data" label="VCF file" argument="-V" />
+                <param name="popmap" type="data" format="tabular,txt" label="Specify a population map" argument="-M" />
+            </when>
+        </conditional>
+
+        <section name="options_filtering" title="Data filtering options" expanded="true">
+
+            <param name="minperc" argument="-r" type="float" value="0.5" min="0" max="1" label="Minimum percentage of individuals in a population required to process a locus for that population" />
+            <param name="minpop" argument="-p" type="integer" value="2" label="Minimum number of populations a locus must be present in to process a locus" />
+            <param name="mindepth" argument="-m" type="integer" value="1" label="Specify a minimum stack depth required for individuals at a locus" />
+            <param name="minminor" argument="--min_maf" type="float" value="0.25" label="Specify a minimum minor allele frequency required before calculating Fst at a locus (between 0 and 0.5)" />
+            <param name="max_obs_het" argument="--max_obs_het" type="float" value="" min="0" max="1" optional="true" label="Maximum observed heterozygosity required to process a nucleotide site at a locus." />
+
+            <conditional name="correction_select">
+                <param name="correction" type="select" label="Correction type" help="specify a correction to be applied to Fst values: 'p_value', 'bonferroni_win', or 'bonferroni_gen'" >
+                    <option value="no_corr">No correction</option>
+                    <option value="p_value">p_value</option>
+                    <option value="bonferroni_win">bonferroni_win</option>
+                    <option value="bonferroni_gen">bonferroni_gen</option>
+                </param>
+                <when value="no_corr"/>
+                <when value="p_value">
+                    <param name="pcutoff" type="float" value="0.05" label="P-value cutoff" help="required p-value to keep an Fst measurement (0.05 by default). Also used as base for Bonferroni correction" />
+                </when>
+                <when value="bonferroni_win">
+                    <param name="pcutoff" type="float" value="0.05" label="P-value cutoff" help="required p-value to keep an Fst measurement (0.05 by default). Also used as base for Bonferroni correction" />
+                </when>
+                <when value="bonferroni_gen">
+                    <param name="pcutoff" type="float" value="0.05" label="P-value cutoff" help="required p-value to keep an Fst measurement (0.05 by default). Also used as base for Bonferroni correction" />
+                </when>
+            </conditional>
+
+            <param name="lnl" type="float" value="" optional="true" argument="--lnl_lim" label="Filter loci with log likelihood values below this threshold" />
+
+            <param name="write_single_snp" argument="--write_single_snp" truevalue="--write_single_snp" falsevalue="" type="boolean" checked="false" label="Restrict data analysis to only the first SNP per locus." />
+            <param name="write_random_snp" argument="--write_random_snp" truevalue="--write_random_snp" falsevalue="" type="boolean" checked="false" label="Restrict data analysis to one random SNP per locus." />
+        </section>
+
+        <section name="populations_output" title="Output options" expanded="true">
+            <param name="ordered_export" argument="--ordered_export" truevalue="--ordered_export" falsevalue="" type="boolean" checked="false" label="If data is reference aligned, exports will be ordered; only a single representative of each overlapping site." />
+            <param name="vcf" argument="--vcf" truevalue="--vcf" falsevalue="" type="boolean" checked="false" label="Output results in Variant Call Format (VCF)" />
+            <param name="vcf_haplotypes" argument="--vcf_haplotypes" truevalue="--vcf_haplotypes" falsevalue="" type="boolean" checked="false" label="Output haplotypes in Variant Call Format (VCF)." />
+            <param name="genepop" argument="--genepop" truevalue="--genepop" falsevalue="" type="boolean" checked="false" label="Output results in GenePop Format" />
+            <param name="structure" argument="--structure" truevalue="--structure" falsevalue="" type="boolean" checked="false" label="Output results in Structure Format" />
+            <param name="fasta" argument="--fasta" truevalue="--fasta" falsevalue="" type="boolean" checked="false" label="Output full sequence for each unique haplotype, from each sample locus in FASTA format, regardless of plausibility." />
+            <param name="fasta_strict" argument="--fasta_strict" truevalue="--fasta_strict" falsevalue="" type="boolean" checked="false" label="Output full sequence for each haplotype, from each sample locus in FASTA format, only for biologically plausible loci." />
+            <param name="hzar" argument="--hzar" truevalue="--hzar" falsevalue="" type="boolean" checked="false" label="Output genotypes in Hybrid Zone Analysis using R (HZAR) format." />
+            <param name="phase" argument="--phase" truevalue="--phase" falsevalue="" type="boolean" checked="false" label="Output genotypes in PHASE format" />
+            <param name="fastphase" argument="--fastphase" truevalue="--fastphase" falsevalue="" type="boolean" checked="false" label="Output genotypes in fastPHASE format" />
+            <param name="beagle" argument="--beagle" truevalue="--beagle" falsevalue="" type="boolean" checked="false" label="Output genotypes in Beagle format" />
+            <param name="beagle_phased" argument="--beagle_phased" truevalue="--beagle_phased" falsevalue="" type="boolean" checked="false" label="Output haplotypes in Beagle format" />
+            <param name="plink" argument="--plink" truevalue="--plink" falsevalue="" type="boolean" checked="false" label="Output genotypes in PLINK format" />
+            <param name="phylip" argument="--phylip" truevalue="--phylip" falsevalue="" type="boolean" checked="false" label="Output nucleotides that are fixed-within, and variant among populations in Phylip format for phylogenetic tree construction" />
+            <param name="phylip_var" argument="--phylip_var" truevalue="--phylip_var" falsevalue="" type="boolean" checked="false" label="Include variable sites in the phylip output encoded using IUPAC notation." />
+            <param name="phylip_var_all" argument="--phylip_var_all" truevalue="--phylip_var_all" falsevalue="" type="boolean" checked="false" label="Include all sequence as well as variable sites in the phylip output encoded using IUPAC notation." />
+            <param name="treemix" argument="--treemix" truevalue="--treemix" falsevalue="" type="boolean" checked="false" label="Output SNPs in a format useable for the TreeMix program (Pickrell and Pritchard)." />
+
+            <conditional name="options_genomic">
+                <param name="genomic" argument="--genomic" truevalue="--genomic" falsevalue="" type="boolean" checked="false" label="Output each nucleotide position (fixed or polymorphic) in all population members to a file" />
+                <when value="--genomic">
+                    <param name="enzyme" argument="-e" type="select" label="Provide the restriction enzyme used" help="required if generating genomic output" >
+                        <expand macro="enzymes"/>
+                    </param>
+                </when>
+                <when value="">
+                </when>
+            </conditional>
+        </section>
+
+        <param name="fstats" argument="--fstats" truevalue="--fstats" falsevalue="" type="boolean" checked="false" label="Enable SNP and haplotype-based F statistics" />
+
+        <conditional name="options_kernel">
+            <param name="kernel" type="boolean" checked="false" truevalue="-k" falsevalue="" label="enable kernel-smoothed FIS, π, and FST calculations" />
+            <when value="-k">
+                <param name="window" type="integer" value="150" label="window size" help="distance over which to average values (sigma, default 150Kb)" />
+            </when>
+            <when value="">
+            </when>
+        </conditional>
+
+        <section name="bootstrap_resampling" title="Bootstrap resampling" expanded="false">
+            <conditional name="bootstrap_resampling_mode">
+                <param name="bootstrap_all" argument="--bootstrap" type="boolean" checked="false" truevalue="--bootstrap" falsevalue="" label="Enable bootstrap resampling for all smoothed statistics" />
+                <when value="--bootstrap">
+                </when>
+                <when value="">
+                    <param name="bootstrap_pifis" argument="--bootstrap_pifis" type="boolean" checked="false" truevalue="--bootstrap_pifis" falsevalue="" label="Enable boostrap resampling for smoothed SNP-based Pi and Fis calculations" />
+                    <param name="bootstrap_fst" argument="--bootstrap_fst" type="boolean" checked="false" truevalue="--bootstrap_fst" falsevalue="" label="Enable boostrap resampling for smoothed Fst calculations based on pairwise population comparison of SNPs" />
+                    <param name="bootstrap_div" argument="--bootstrap_div" type="boolean" checked="false" truevalue="--bootstrap_div" falsevalue="" label="Enable boostrap resampling for smoothed haplotype diveristy and gene diversity calculations based on haplotypes" />
+                    <param name="bootstrap_phist" argument="--bootstrap_phist" type="boolean" checked="false" truevalue="--bootstrap_phist" falsevalue="" label="Enable boostrap resampling for smoothed Phi_st calculations based on haplotypes." />
+                </when>
+            </conditional>
+            <param name="bootstrap_reps" argument="--bootstrap_reps" type="integer" value="100" optional="true" label="Number of bootstrap resamplings to calculate" />
+            <param name="bootstrap_wl" argument="--bootstrap_wl" format="txt,tabular" type="data" optional="true" label="Only bootstrap loci contained in this whitelist" />
+        </section>
+
+        <!-- Output options -->
+        <section name="advanced_options" title="advanced options" expanded="False">
+            <param name="whitelist" argument="-W" format="txt,tabular" type="data" optional="true" label="Specify a file containing Whitelisted markers to include in the export" />
+            <param name="blacklist" argument="-B" format="txt,tabular" type="data" optional="true" label="Specify a file containing Blacklisted markers to be excluded from the export" />
+
+            <param name="batchid" type="integer" value="1" label="Batch ID to examine when exporting from the catalog" help="Only useful if you analyse data that was processed outside galaxy" />
+        </section>
+    </inputs>
+    <outputs>
+        <expand macro="populations_output_full"/>
+
+        <data format="html" name="output_summary" label="Summary from ${tool.name} on ${on_string}" from_work_dir="stacks_outputs/summary.html" />
+    </outputs>
+
+    <tests>
+        <test>
+            <param name="options_usage|input_type" value="stacks" />
+            <param name="options_usage|input_col">
+                <collection type="list">
+                    <element name="batch_1.catalog.alleles.tsv" ftype="tabular" value="genotypes/batch_1.catalog.alleles.tsv" />
+                    <element name="batch_1.catalog.snps.tsv" ftype="tabular" value="genotypes/batch_1.catalog.snps.tsv" />
+                    <element name="batch_1.catalog.tags.tsv" ftype="tabular" value="genotypes/batch_1.catalog.tags.tsv" />
+                    <element name="PopA_01.alleles.tsv" ftype="tabular" value="genotypes/PopA_01.alleles.tsv" />
+                    <element name="PopA_01.matches.tsv" ftype="tabular" value="genotypes/PopA_01.matches.tsv" />
+                    <element name="PopA_01.snps.tsv" ftype="tabular" value="genotypes/PopA_01.snps.tsv" />
+                    <element name="PopA_01.tags.tsv" ftype="tabular" value="genotypes/PopA_01.tags.tsv" />
+                    <element name="PopA_02.alleles.tsv" ftype="tabular" value="genotypes/PopA_02.alleles.tsv" />
+                    <element name="PopA_02.matches.tsv" ftype="tabular" value="genotypes/PopA_02.matches.tsv" />
+                    <element name="PopA_02.snps.tsv" ftype="tabular" value="genotypes/PopA_02.snps.tsv" />
+                    <element name="PopA_02.tags.tsv" ftype="tabular" value="genotypes/PopA_02.tags.tsv" />
+               </collection>
+            </param>
+            <param name="options_usage|popmap" ftype="tabular" value="denovo_map/popmap.tsv" />
+            <param name="options_filtering|correction_select|correction" value="p_value" />
+
+            <param name="populations_output|ordered_export" value="true" />
+            <param name="populations_output|vcf" value="true" />
+            <param name="populations_output|vcf_haplotypes" value="true" />
+            <param name="populations_output|genepop" value="true" />
+            <param name="populations_output|structure" value="true" />
+            <param name="populations_output|fasta" value="true" />
+            <param name="populations_output|fasta_strict" value="true" />
+            <param name="populations_output|hzar" value="true" />
+            <param name="populations_output|phase" value="true" />
+            <param name="populations_output|fastphase" value="true" />
+            <param name="populations_output|beagle" value="true" />
+            <param name="populations_output|beagle_phased" value="true" />
+            <param name="populations_output|plink" value="true" />
+            <param name="populations_output|phylip" value="true" />
+            <param name="populations_output|phylip_var" value="true" />
+            <param name="populations_output|phylip_var_all" value="true" />
+            <param name="populations_output|treemix" value="true" />
+
+            <param name="populations_output|options_genomic|genomic" value="false" />
+            <param name="populations_output|options_genomic|enzyme" value="ecoRI" />
+
+            <output name="output_summary">
+                <assert_contents>
+                    <has_text text="Stacks Statistics" />
+                </assert_contents>
+            </output>
+
+            <!-- populations -->
+            <output name="out_haplotypes">
+                <assert_contents>
+                    <has_text text="PopA_01" />
+                </assert_contents>
+            </output>
+            <output name="out_hapstats">
+                <assert_contents>
+                    <has_text text="Smoothed Gene Diversity" />
+                </assert_contents>
+            </output>
+            <output name="out_populations_log">
+                <assert_contents>
+                    <has_text text="populations version" />
+                </assert_contents>
+            </output>
+            <output name="out_sumstats_sum">
+                <assert_contents>
+                    <has_text text="Polymorphic Sites" />
+                </assert_contents>
+            </output>
+            <output name="out_sumstats">
+                <assert_contents>
+                    <has_text text="Smoothed Pi" />
+                </assert_contents>
+            </output>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_text text="fileformat=VCFv4.2" />
+                </assert_contents>
+            </output>
+            <output name="out_treemix_pop">
+                <assert_contents>
+                    <has_text text="TreeMix v1.1;" />
+                </assert_contents>
+            </output>
+            <output name="out_fasta">
+                <assert_contents>
+                    <has_text text="AATTCGTTTGCTGCTTCAGGAATCTCTCGTATAATCTGAGTATGTGCGTACGTACGCTATTTAGATGGATAACCGACGCTGCCAGACGCGAGAC" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="options_usage|input_type" value="vcf" />
+            <param name="options_usage|input_vcf" value="populations/batch_1.vcf" />
+            <param name="options_usage|popmap" ftype="tabular" value="denovo_map/popmap.tsv" />
+            <param name="options_filtering|correction_select|correction" value="p_value" />
+
+            <param name="populations_output|ordered_export" value="true" />
+            <param name="populations_output|vcf" value="true" />
+            <param name="populations_output|vcf_haplotypes" value="true" />
+            <param name="populations_output|genepop" value="true" />
+            <param name="populations_output|structure" value="true" />
+            <param name="populations_output|fasta" value="true" />
+            <param name="populations_output|fasta_strict" value="true" />
+            <param name="populations_output|hzar" value="true" />
+            <param name="populations_output|phase" value="true" />
+            <param name="populations_output|fastphase" value="true" />
+            <param name="populations_output|beagle" value="true" />
+            <param name="populations_output|beagle_phased" value="true" />
+            <param name="populations_output|plink" value="true" />
+            <param name="populations_output|phylip" value="true" />
+            <param name="populations_output|phylip_var" value="true" />
+            <param name="populations_output|phylip_var_all" value="true" />
+            <param name="populations_output|treemix" value="true" />
+
+            <param name="populations_output|options_genomic|genomic" value="false" />
+
+            <output name="output_summary">
+                <assert_contents>
+                    <has_text text="Stacks Statistics" />
+                </assert_contents>
+            </output>
+
+            <!-- populations -->
+            <output name="out_haplotypes">
+                <assert_contents>
+                    <has_text text="PopA_01" />
+                </assert_contents>
+            </output>
+            <output name="out_hapstats">
+                <assert_contents>
+                    <has_text text="Smoothed Gene Diversity" />
+                </assert_contents>
+            </output>
+            <output name="out_populations_log">
+                <assert_contents>
+                    <has_text text="populations version" />
+                </assert_contents>
+            </output>
+            <output name="out_sumstats_sum">
+                <assert_contents>
+                    <has_text text="Polymorphic Sites" />
+                </assert_contents>
+            </output>
+            <output name="out_sumstats">
+                <assert_contents>
+                    <has_text text="Smoothed Pi" />
+                </assert_contents>
+            </output>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_text text="fileformat=VCFv4.2" />
+                </assert_contents>
+            </output>
+            <output name="out_treemix_pop">
+                <assert_contents>
+                    <has_text text="TreeMix v1.1;" />
+                </assert_contents>
+            </output>
+            <output name="out_fasta">
+                <assert_contents>
+                    <has_text text="CLocus_0_Sample_1_Locus_0_Allele_1" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+<![CDATA[
+.. class:: infomark
+
+**What it does**
+
+This program will be executed in place of the genotypes program when a population is being processed through the pipeline. A map specifiying which individuals belong to which population is submitted to the program and the program will then calculate population genetics statistics, expected/observed heterzygosity, π, and FIS at each nucleotide position. The populations program will compare all populations pairwise to compute FST. If a set of data is reference aligned, then a kernel-smoothed FST will also be calculated.
+
+--------
+
+**Input files**
+
+Output from denovo_map or ref_map
+
+- Population map::
+
+    indv_01    1
+    indv_02    1
+    indv_03    1
+    indv_04    2
+    indv_05    2
+    indv_06    2
+
+
+**Output files**
+
+- XXX.tags.tsv file::
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: For the tags file, each stack will start in the file with a consensus sequence for the entire stack followed by the flags for that stack. Then, each individual read that was merged into that stack will follow. The next stack will start with another consensus sequence.
+
+
+- XXX.snps.tsv file::
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: If a stack has two SNPs called within it, then there will be two lines in this file listing each one.
+
+
+- XXX.alleles.tsv file::
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+
+- XXX.matches.tsv file::
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: Each line in this file records a match between a catalog locus and a locus in an individual, for a particular haplotype. The Batch ID plus the Catalog ID together represent a unique locus in the entire population, while the Sample ID and the Stack ID together represent a unique locus in an individual sample.
+
+
+- other files:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+@STACKS_INFOS@
+]]>
+    </help>
+    <expand macro="citation" />
+</tool>

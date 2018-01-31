@@ -4,8 +4,9 @@ import subprocess
 import sys
 import tempfile
 
-from bx.intervals.io import Comment, Header, GenomicInterval
+from bx.intervals.io import Comment, GenomicInterval, Header
 from bx.intervals.io import GenomicIntervalReader, NiceReaderWrapper, ParseError
+from six import Iterator
 
 # Default chrom, start, end, strand cols for a bed file
 BED_DEFAULT_COLS = 0, 1, 2, 5
@@ -99,7 +100,7 @@ class GFFFeature(GFFInterval):
         return lines
 
 
-class GFFReaderWrapper(NiceReaderWrapper):
+class GFFReaderWrapper(Iterator, NiceReaderWrapper):
     """
     Reader wrapper for GFF files which has two major functions:
     1. group entries for GFF file (via group column), GFF3 (via id attribute),
@@ -128,12 +129,12 @@ class GFFReaderWrapper(NiceReaderWrapper):
                                fix_strand=self.fix_strand)
         return interval
 
-    def next(self):
+    def __next__(self):
         """
         Returns next GFFFeature.
         """
 
-        def handle_parse_error(parse_error):
+        def handle_parse_error(e):
             """
             Actions to take when ParseError found.
             """
@@ -288,7 +289,7 @@ def convert_to_twobit(reference_genome):
             os.remove(tmp_name)
             stop_err(stderr)
         return seq_path
-    except Exception, e:
+    except Exception as e:
         stop_err('Error running faToTwoBit. ' + str(e))
 
 
@@ -367,7 +368,7 @@ def parse_cols_arg(cols):
         # looks something like 1,2,3,
         if cols.endswith(','):
             cols += '0'
-        col_list = map(lambda x: int(x) - 1, cols.split(","))
+        col_list = [int(x) - 1 for x in cols.split(",")]
         return col_list
     else:
         return BED_DEFAULT_COLS

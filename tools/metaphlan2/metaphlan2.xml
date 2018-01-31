@@ -1,0 +1,187 @@
+<tool id="metaphlan2" name="MetaPhlAn2" version="@WRAPPER_VERSION@.0">
+
+    <description>to profile the composition of microbial communities</description>
+
+    <macros>
+        <import>metaphlan2_macros.xml</import>
+    </macros>
+
+    <expand macro="requirements">
+        <requirement type="package" version="2.3.0">bowtie2</requirement>
+        <requirement type="package" version="2.7.10">python</requirement>
+    </expand>
+
+    <expand macro="stdio"/>
+
+    <version_command>metaphlan2.py -v</version_command>
+
+    <command><![CDATA[
+#if $db.db_selector == "history"
+    mkdir ref_db
+    &&
+    bowtie2-build '$db.bowtie2db' 'ref_db/ref_db'
+    &&
+    python '$__tool_directory__/transform_json_to_pkl.py'
+        --json_input '$db.mpa_pkl'
+        --pkl_output 'ref_db/metadata.pkl'
+    &&
+#end if
+
+metaphlan2.py
+    '$input_file'
+    -o '$output_file'
+    --input_type '${input_file.datatype.file_ext}'
+    --bowtie2_exe `which bowtie2`
+
+    #if $db.db_selector == "cached"
+        #set $path = $db.cached_db.fields.path
+        #set $value = $db.cached_db.fields.value
+        --bowtie2db $path/$value
+        --mpa_pkl $path/$value'.pkl'
+    #else
+        --bowtie2db 'ref_db/ref_db'
+        --mpa_pkl 'ref_db/metadata.pkl'
+    #end if
+
+    --no_map
+
+    -t '$analysis_type.analysis_type_select'
+    #if $analysis_type.analysis_type_select == "rel_ab" or $analysis_type.analysis_type_select == "rel_ab_w_read_stats"
+        --tax_lev '$analysis_type.tax_lev'
+    #else if $analysis_type.analysis_type_select == "marker_ab_table"
+        --nreads '$analysis_type.nreads'
+    #else if $analysis_type.analysis_type_select == "marker_pres_table"
+        --pres_th '$analysis_type.pres_th'
+    #end if
+
+    --min_cu_len '$min_cu_len'
+    --min_alignment_len '$min_alignment_len'
+
+    $ignore_viruses
+    $ignore_eukaryotes
+    $ignore_bacteria
+    $ignore_archaea
+
+    --stat_q '$stat_q'
+    -s '$sam_output_file'
+    --biom '$biom_output_file'
+    ]]></command>
+
+    <inputs>
+        <param name="input_file" type="data" format="fastq,fasta,sam" label="Input file"/>
+        <conditional name="db">
+            <param name="db_selector" type="select" label="Database with clade-specific marker genes">
+                <option value="cached" selected="true">Locally cached</option>
+                <option value="history">From history</option>
+            </param>
+            <when value="cached">
+                <param name="cached_db" label="Cached database with clade-specific marker genes" type="select">
+                    <options from_data_table="metaphlan2_database"/>
+                </param>
+            </when>
+            <when value="history">
+                <param argument="--bowtie2db" type="data" format="fasta" label="Database with clade-specific marker genes from history"/>
+                <param argument="--mpa_pkl" type="data" format="json" label="Metadata associate to the database with clade-specific marker genes from history"/>
+            </when>
+        </conditional>
+        <conditional name="analysis_type">
+            <param name="analysis_type_select" type="select" label="Type of analysis to perform" argument="-t">
+                <option value="rel_ab" selected="true">Profiling a metagenomes in terms of relative abundances</option>
+                <option value="rel_ab_w_read_stats">Profiling a metagenomes in terms of relative abundances and estimate the number of reads comming from each clade</option>
+                <option value="reads_map">Mapping from reads to clades (only reads hitting a marker)</option>
+                <option value="clade_profiles">Normalized marker counts for clades with at least a non-null marker</option>
+                <option value="marker_ab_table">Normalized marker counts (only when > 0.0 and normalized by metagenome size if --nreads is specified)</option>
+                <option value="marker_counts">Non-normalized marker counts (use with extreme caution)</option>
+                <option value="marker_pres_table">List of markers present in the sample (threshold at 1.0 if not differently specified with --pres_th</option>
+            </param>
+            <when value="rel_ab">
+                <expand macro="tax_lev"/>
+            </when>
+            <when value="rel_ab_w_read_stats">
+                <expand macro="tax_lev"/>
+            </when>
+            <when value="reads_map"/>
+            <when value="clade_profiles"/>
+            <when value="marker_ab_table">
+                <param argument="--nreads" type="integer" value="0" label="Total number of reads in the original metagenome" help="It is used for normalizing the length-normalized counts with the metagenome size as well. No normalization applied if the value is not specified"/>
+            </when>
+            <when value="marker_counts"/>
+            <when value="marker_pres_table">
+                <param argument="--pres_th" type="integer" value="0" label=" Threshold for calling a marker present"/>
+            </when>
+        </conditional>
+        <param argument="--min_cu_len" type="integer" value="2000" label="Minimum total nucleotide length for the markers in a clade for estimating the abundance without considering sub-clade abundances"/>
+        <param argument="--min_alignment_len" type="integer" value="0" label="Sam records for aligned reads with the longest subalignment length smaller than this threshold will be discarded."/>
+        <param argument="--ignore_viruses" type='boolean' checked="true" truevalue='' falsevalue='--ignore_viruses' label="Profile viral organisms?"/>
+        <param argument="--ignore_eukaryotes" type='boolean' checked="true" truevalue='' falsevalue='--ignore_eukaryotes' label="Profile eukaryotic organisms?"/>
+        <param argument="--ignore_bacteria" type='boolean' checked="true" truevalue='' falsevalue='--ignore_bacteria' label="Profile bacteria organisms?"/>
+        <param argument="--ignore_archaea" type='boolean' checked="true" truevalue='' falsevalue='--ignore_archaea' label="Profile archea organisms?"/>
+        <param argument="--stat_q" type="float" value="0.1" label="Quantile value for the robust average"/>
+    </inputs>
+
+    <outputs>
+        <data name="output_file" format="tabular" label="${tool.name} on ${on_string}: Community profile" />
+        <data name="sam_output_file" format="sam" label="${tool.name} on ${on_string}: SAM file" />
+        <data name="biom_output_file" format="biom1" label="${tool.name} on ${on_string}: BIOM file" />
+    </outputs>
+
+    <tests>
+        <test>
+            <param name="input_file" value="input_sequences.fasta"/>
+            <param name="db_selector" value="history" />
+            <param name="mpa_pkl" value="marker_metadata.json" />
+            <param name="bowtie2db" value="marker_sequences.fasta" />
+            <param name="analysis_type_select" value="rel_ab" />
+            <param name="taxonomic_level" value="a" />
+            <param name="min_cu_len" value="2000" />
+            <param name="min_alignment_len" value="0" />
+            <param name="ignore_viruses" value="" />
+            <param name="ignore_eukaryotes" value="" />
+            <param name="ignore_bacteria" value="" />
+            <param name="ignore_archaea" value="" />
+            <param name="stat_q" value="0.1" />
+            <output name="output_file" file="community_profile.tabular"/>
+        </test>
+    </tests>
+
+    <help><![CDATA[
+**What it does**
+
+MetaPhlAn is a computational tool to profile the structure and the composition of microbial communities (Bacteria, Archaea, Eukaryotes and Viruses) from metagenomic shotgun sequencing data with species level resolution. For more information, check the `user manual <https://bitbucket.org/biobakery/metaphlan2/>`_.
+
+**Inputs**
+
+Metaphlan2 takes as input a sequence file in Fasta, FastQ, a SAM file.
+
+It is also possible to use a custom database with clade-specific marker genes. In this case, a fasta file with marker gene sequences is required and also a file containing metadata. This file is a json file with:
+
+::
+
+  {
+    "taxonomy": {
+            "taxonomy of genome1": genome1_length,
+            "taxonomy of genome2": genome2_length,
+            ...
+        }
+    "markers": {
+            "marker1_name": {
+                "clade": the clade that the marker belongs to,
+                "ext": [list of external genomes where the marker appears],
+                "len": length of the marker,
+                "score": score of the marker,
+                "taxon": the taxon of the marker
+            }
+            ...
+        }
+  }
+
+The marker name correspond to the corresponding sequence name in the FastA file containing marker gene sequences.
+
+**Outputs**
+
+The main output file is a tab-separated file with the predicted taxon relative abundances.
+
+    ]]></help>
+
+    <expand macro="citations"/>
+</tool>

@@ -1,11 +1,14 @@
 #!/usr/bin/env python
+from __future__ import print_function
+
 import argparse
+
 import eutils
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ECitMatch', epilog='')
-    parser.add_argument('--file', help='Tabular file containing citations to search')
+    parser.add_argument('--file', type=argparse.FileType('r'), help='Tabular file containing citations to search')
 
     parser.add_argument('--key', nargs='*', help='Citation Key')
     parser.add_argument('--journal_title', nargs='*', help='Journal Title')
@@ -35,6 +38,7 @@ if __name__ == '__main__':
             })
     else:
         for line in args.file:
+            line = line.strip()
             if not line.startswith('#'):
                 tmp = line.split('\t')
                 try:
@@ -47,7 +51,7 @@ if __name__ == '__main__':
                         'key': tmp[5],
                     })
                 except KeyError:
-                    print "Could not parse line: %s" % line
+                    print("Could not parse line: %s" % line)
 
     payload = {
         'db': 'pubmed',
@@ -56,4 +60,4 @@ if __name__ == '__main__':
 
     results = c.citmatch(**payload)
     # We get data back as pipe separated, so just replace those with tabs
-    print results.replace('|', '\t')
+    print(results.replace('|', '\t'))
