@@ -52,9 +52,11 @@ spec <- matrix(c(
   "outfile", "o", 1, "character",
   "countsfile", "n", 1, "character",
   "factors", "f", 1, "character",
+  "files_to_labels", "l", 1, "character",
   "plots" , "p", 1, "character",
   "sample_table", "s", 1, "character",
   "tximport", "i", 0, "logical",
+  "txtype", "y", 1, "character",
   "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF file (auto detect .gtf/.GTF)
   "fit_type", "t", 1, "integer",
   "many_contrasts", "m", 0, "logical",
@@ -117,9 +119,11 @@ if (!is.null(opt$factors)) {
   parser <- newJSONParser()
   parser$addData(opt$factors)
   factorList <- parser$getObject()
+  filenames_to_labels <- fromJSON(opt$files_to_labels)
   factors <- sapply(factorList, function(x) x[[1]])
   primaryFactor <- factors[1]
   filenamesIn <- unname(unlist(factorList[[1]][[2]]))
+  labs = unname(unlist(filenames_to_labels[basename(filenamesIn)]))
   sampleTable <- data.frame(sample=basename(filenamesIn),
                             filename=filenamesIn,
                             row.names=filenamesIn,
@@ -134,7 +138,7 @@ if (!is.null(opt$factors)) {
     }
     sampleTable[[factorName]] <- factor(sampleTable[[factorName]], levels=lvls)
   }
-  rownames(sampleTable) <- sampleTable$sample
+  rownames(sampleTable) <- labs
 } else {
   # read the sample_table argument
   # this table is described in ?DESeqDataSet
@@ -162,19 +166,22 @@ if (verbose) {
 
 # these are plots which are made once for each analysis
 generateGenericPlots <- function(dds, factors) {
+  library("ggplot2")
+  library("ggrepel")
+  library("pheatmap")
+
   rld <- rlog(dds)
-  d=plotPCA(rld, intgroup=rev(factors), returnData=TRUE)
-  labs <- paste0(seq_len(ncol(dds)), ": ", do.call(paste, as.list(colData(dds)[factors])))
-  library(ggplot2)
-  print(ggplot(d, aes(x=PC1,y=PC2, col=group,label=factor(labs)), environment = environment()) + geom_point() + geom_text(size=3))  
+  p <- plotPCA(rld, intgroup=rev(factors))
+  print(p + geom_text_repel(aes_string(x = "PC1", y = "PC2", label = factor(colnames(dds))), size=3)  + geom_point())
   dat <- assay(rld)
-  colnames(dat) <- labs
   distsRL <- dist(t(dat))
   mat <- as.matrix(distsRL)
-  hc <- hclust(distsRL)
-  hmcol <- colorRampPalette(brewer.pal(9, "GnBu"))(100)
-  heatmap.2(mat, Rowv=as.dendrogram(hc), symm=TRUE, trace="none", col = rev(hmcol),
-            main="Sample-to-sample distances", margin=c(13,13))
+  colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+  pheatmap(mat,
+           clustering_distance_rows=distsRL,
+           clustering_distance_cols=distsRL,
+           col=colors,
+           main="Sample-to-sample distances")
   plotDispEsts(dds, main="Dispersion estimates")
 }
 
@@ -222,6 +229,8 @@ if (!useTXI) {
   dds <- DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
                                     directory = dir,
                                     design =  designFormula)
+  labs <- unname(unlist(filenames_to_labels[colnames(dds)]))
+  colnames(dds) <- labs
 } else {
     # construct the object using tximport
     # first need to make the tx2gene table
@@ -237,8 +246,9 @@ if (!useTXI) {
     }
     library("tximport")
     txiFiles <- as.character(sampleTable[,2])
-    names(txiFiles) <- as.character(sampleTable[,1])
-    txi <- tximport(txiFiles, type="sailfish", tx2gene=tx2gene)
+    labs <- unname(unlist(filenames_to_labels[sampleTable[,1]]))
+    names(txiFiles) <- labs
+    txi <- tximport(txiFiles, type=opt$txtype, tx2gene=tx2gene)
     dds <- DESeqDataSetFromTximport(txi,
                                     sampleTable[,3:ncol(sampleTable),drop=FALSE],
                                     designFormula)
@@ -298,9 +308,7 @@ n <- nlevels(colData(dds)[[primaryFactor]])
 allLevels <- levels(colData(dds)[[primaryFactor]])
 
 if (!is.null(opt$countsfile)) {
-    labs <- paste0(seq_len(ncol(dds)), ": ", do.call(paste, as.list(colData(dds)[factors])))
     normalizedCounts<-counts(dds,normalized=TRUE)
-    colnames(normalizedCounts)<-labs
     write.table(normalizedCounts, file=opt$countsfile, sep="\t", col.names=NA, quote=FALSE)
 }
 
