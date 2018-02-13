@@ -9,8 +9,8 @@ usage: lastz_wrapper.py [options]
     --ref_source: Whether the reference is cached or from the history
     --source_select: Whether to used pre-set or cached reference file
     --input1: The name of the reference file if using history or reference base name if using cached
-    --input2: The reads file to align 
-    --ref_sequences: The number of sequences in the reference file if using one from history 
+    --input2: The reads file to align
+    --ref_sequences: The number of sequences in the reference file if using one from history
     --pre_set_options: Which of the pre set options to use, if using pre-sets
     --strand: Which strand of the read to search, if specifying all parameters
     --seed: Seeding settings, if specifying all parameters
@@ -26,17 +26,23 @@ usage: lastz_wrapper.py [options]
     --entropy: Whether to involve entropy when filtering HSPs, if specifying all parameters
     --identity_min: Minimum identity (don't report matches under this identity)
     --identity_max: Maximum identity (don't report matches above this identity)
-    --coverage: The minimum coverage value (don't report matches covering less than this) 
+    --coverage: The minimum coverage value (don't report matches covering less than this)
     --unmask: Whether to convert lowercase bases to uppercase
     --out_format: The format of the output file (sam, diffs, or tabular (general))
     --output: The name of the output file
     --lastzSeqsFileDir: Directory of local lastz_seqs.loc file
 """
-import optparse, os, subprocess, shutil, sys, tempfile, threading, time
+import optparse
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+import time
 from Queue import Queue
 
-from bx.seq.twobit import *
 from bx.seq.fasta import FastaReader
+from bx.seq.twobit import TwoBitFile
 
 
 class Bunch( object ):
@@ -79,13 +85,16 @@ class Bunch( object ):
     def __contains__(self, item):
         return item in self.__dict__
 
+
 STOP_SIGNAL = object()
 WORKERS = 4
 SLOTS = 128
 
+
 def stop_err( msg ):
     sys.stderr.write( "%s" % msg )
     sys.exit()
+
 
 def stop_queues( lastz, combine_data ):
     # This method should only be called if an error has been encountered.
@@ -93,6 +102,7 @@ def stop_queues( lastz, combine_data ):
     for t in lastz.threads:
         lastz.put( STOP_SIGNAL, True )
     combine_data.put( STOP_SIGNAL, True )
+
 
 class BaseQueue( object ):
     def __init__( self, num_threads, slots=-1 ):
@@ -103,6 +113,7 @@ class BaseQueue( object ):
             worker = threading.Thread( target=self.run_next )
             worker.start()
             self.threads.append( worker )
+
     def run_next( self ):
         # Run the next job, waiting until one is available if necessary
         while True:
@@ -111,13 +122,17 @@ class BaseQueue( object ):
                 return self.shutdown()
             self.run_job( job )
             time.sleep( 1 )
+
     def run_job( self, job ):
         stop_err( 'Not Implemented' )
+
     def put( self, job, block=False ):
         # Add a job to the queue
         self.queue.put( job, block )
+
     def shutdown( self ):
         return
+
 
 class LastzJobQueue( BaseQueue ):
     """
@@ -135,6 +150,7 @@ class LastzJobQueue( BaseQueue ):
             stop_err( stderr )
         job.combine_data_queue.put( job )
 
+
 class CombineDataQueue( BaseQueue ):
     """
     A queue that concatenates files in serial.  Blocking is not done since this
@@ -142,8 +158,9 @@ class CombineDataQueue( BaseQueue ):
     """
     def __init__( self, output_filename, num_threads=1 ):
         BaseQueue.__init__( self, num_threads )
-        self.CHUNK_SIZE = 2**20 # 1Mb
+        self.CHUNK_SIZE = 2**20  # 1Mb
         self.output_file = open( output_filename, 'wb' )
+
     def run_job( self, job ):
         in_file = open( job.output, 'rb' )
         while True:
@@ -154,12 +171,13 @@ class CombineDataQueue( BaseQueue ):
             self.output_file.write( chunk )
         for file_name in job.cleanup:
             os.remove( file_name )
+
     def shutdown( self ):
         self.output_file.close()
         return
 
+
 def __main__():
-    #Parse Command Line
     parser = optparse.OptionParser()
     parser.add_option( '', '--ref_name', dest='ref_name', help='The reference name to change all output matches to' )
     parser.add_option( '', '--ref_source', dest='ref_source', help='Whether the reference is cached or from the history' )
@@ -195,7 +213,7 @@ def __main__():
         tmp_stdout = open( tmp, 'wb' )
         proc = subprocess.Popen( args='lastz -v', shell=True, stdout=tmp_stdout )
         tmp_stdout.close()
-        returncode = proc.wait()
+        proc.wait()
         stdout = None
         for line in open( tmp_stdout.name, 'rb' ):
             if line.lower().find( 'version' ) >= 0:
@@ -205,7 +223,7 @@ def __main__():
             sys.stdout.write( '%s\n' % stdout )
         else:
             raise Exception
-    except:
+    except Exception:
         sys.stdout.write( 'Could not determine Lastz version\n' )
 
     if options.unmask == 'yes':
@@ -222,8 +240,8 @@ def __main__():
     # Prepare for user-specified options
     else:
         set_options = '--%s --%s --gapped --strand=%s --seed=%s --%s O=%s E=%s X=%s Y=%s K=%s L=%s --%s' % \
-                    ( options.gfextend, options.chain, options.strand, options.seed, options.transition,
-                      options.O, options.E, options.X, options.Y, options.K, options.L, options.entropy )
+            (options.gfextend, options.chain, options.strand, options.seed, options.transition,
+             options.O, options.E, options.X, options.Y, options.K, options.L, options.entropy)
     # Specify input2 and add [fullnames] modifier if output format is diffs
     if options.format == 'diffs':
         input2 = '%s[fullnames]' % options.input2
@@ -255,7 +273,7 @@ def __main__():
             if ref_sequences < 1:
                 stop_queues( lastz_job_queue, combine_data_queue )
                 stop_err( error_msg )
-        except:
+        except Exception:
             stop_queues( lastz_job_queue, combine_data_queue )
             stop_err( error_msg )
         seqs = 0
@@ -277,7 +295,7 @@ def __main__():
             os.close( tmp_out_fd )
             # Generate the command line for calling lastz on the current sequence
             command = 'lastz %s%s%s %s %s --ambiguousn --nolaj --identity=%s..%s --coverage=%s --format=%s%s > %s' % \
-                ( tmp_in_name, unmask, ref_name, input2, set_options, options.identity_min, 
+                ( tmp_in_name, unmask, ref_name, input2, set_options, options.identity_min,
                   options.identity_max, options.coverage, format, tabular_fields, tmp_out_name )
             # Create a job object
             job = Bunch()
@@ -285,7 +303,7 @@ def __main__():
             job.output = tmp_out_name
             job.cleanup = [ tmp_in_name, tmp_out_name ]
             job.combine_data_queue = combine_data_queue
-            # Add another job to the lastz_job_queue. Execution 
+            # Add another job to the lastz_job_queue. Execution
             # will wait at this point if the queue is full.
             lastz_job_queue.put( job, block=True )
         # Make sure the value of sequences in the metadata is the same as the
@@ -301,7 +319,7 @@ def __main__():
             tmp_out_fd, tmp_out_name = tempfile.mkstemp( suffix='.out' )
             os.close( tmp_out_fd )
             command = 'lastz %s/%s%s%s %s %s --ambiguousn --nolaj --identity=%s..%s --coverage=%s --format=%s%s >> %s' % \
-                ( options.input1, chrom, unmask, ref_name, input2, set_options, options.identity_min, 
+                ( options.input1, chrom, unmask, ref_name, input2, set_options, options.identity_min,
                   options.identity_max, options.coverage, format, tabular_fields, tmp_out_name )
             # Create a job object
             job = Bunch()
@@ -309,7 +327,7 @@ def __main__():
             job.output = tmp_out_name
             job.cleanup = [ tmp_out_name ]
             job.combine_data_queue = combine_data_queue
-            # Add another job to the lastz_job_queue. Execution 
+            # Add another job to the lastz_job_queue. Execution
             # will wait at this point if the queue is full.
             lastz_job_queue.put( job, block=True )
 
@@ -324,4 +342,6 @@ def __main__():
     # Now it's safe to stop the combine_data_queue
     combine_data_queue.put( STOP_SIGNAL )
 
-if __name__=="__main__": __main__()
+
+if __name__ == "__main__":
+    __main__()
