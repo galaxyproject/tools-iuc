@@ -126,6 +126,19 @@ MOTHUR_REFERENCE_DATA = {
         "Greengenes gold alignment":
         ["http://www.mothur.org/w/images/2/21/Greengenes.gold.alignment.zip", ],
     },
+    # UNITE https://unite.ut.ee/repository.php
+    "UNITE_2017-12-01": {
+        "UNITE v7.2 (2017-12-01)":
+        ["https://files.plutof.ut.ee/doi/C8/1E/C81E1C1A9F079B0DD7F92998A62F1B83CA89BA38CD163FC5A0D77CFE9CADB02E.zip", #sh_mothur_release_01.12.2017.zip
+         "https://files.plutof.ut.ee/doi/83/28/83282057C187FCC4B252A47F0913533C1D718DF1E665E0FD66A69B43815421C2.zip", #sh_mothur_release_s_01.12.2017.zip
+        ],
+    },
+    "UNITE_ISND_2017-12-01": {
+        "UNITE + ISND v7.2 (2017-12-01)":
+        ["https://files.plutof.ut.ee/doi/84/FD/84FD2F2E3AFE74A4EA860B4BED6103A67C4DC3FDBC1741EDD7AABC7877B1C145.zip", #UNITE_public_mothur_01.12.2017.zip
+         "https://files.plutof.ut.ee/doi/48/79/48796E247ADB91C98D784E5C2CB52173A0584A686B7AA7253080E9BAAF4268F6.zip", #UNITE_public_mothur_full_01.12.2017.zip
+        ],
+    },
     # Secondary structure maps
     # http://www.mothur.org/wiki/Secondary_structure_map
     "secondary_structure_maps_silva": {
