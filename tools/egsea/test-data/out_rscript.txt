@@ -50,13 +50,14 @@ option_list <- list(
     make_option(c("-base_methods", "--base_methods"), type="character", help="Gene set testing methods"),
     make_option(c("-msigdb", "--msigdb"), type="character", help="MSigDB Gene Set Collections"),
     make_option(c("-keggdb", "--keggdb"), type="character", help="KEGG Pathways"),
+    make_option(c("-keggupdated", "--keggupdated"), type="logical", help="Use updated KEGG"),
     make_option(c("-gsdb", "--gsdb"), type="character", help = "GeneSetDB Gene Sets"),
     make_option(c("-display_top", "--display_top"), type="integer", help = "Number of top Gene Sets to display"),
     make_option(c("-min_size", "--min_size"), type="integer", help = "Minimum Size of Gene Set"),
     make_option(c("-fdr_cutoff", "--fdr_cutoff"), type="double", help = "FDR cutoff"),
     make_option(c("-combine_method", "--combine_method"), type="character", help="Method to use to combine the p-values"),
     make_option(c("-sort_method", "--sort_method"), type="character", help="Method to sort the results"),
-    make_option(c("-rdata", "--rdaOpt"), type="character", help="Output RData file")
+    make_option(c("-rdaOpt", "--rdaOpt"), type="character", help="Output RData file")
     )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
@@ -188,10 +189,9 @@ if (args$gsdb != "None") {
     gsdb <- "none"
 }
 
-
 ## Index gene sets
 
-gs.annots <- buildIdx(entrezIDs=rownames(counts), species=args$species, msigdb.gsets=msigdb, gsdb.gsets=gsdb, kegg.exclude=kegg_exclude)
+gs.annots <- buildIdx(entrezIDs=rownames(counts), species=args$species, msigdb.gsets=msigdb, gsdb.gsets=gsdb, kegg.exclude=kegg_exclude, kegg.updated=args$keggupdated)
 
 
 ## Run egsea.cnt
@@ -201,6 +201,6 @@ gsa <- egsea.cnt(counts=counts, group=group, design=design, contrasts=contrasts,
 
 ## Output RData file
 
-if (!is.null(args$rdata)) {
+if (!is.null(args$rdaOpt)) {
   save.image(file = "EGSEA_analysis.RData")
 }
