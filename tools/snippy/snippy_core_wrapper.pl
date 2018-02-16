@@ -8,7 +8,7 @@
 # It:
 #   - Copys the supplied zipped snippy output files to the working dir
 #   - Untars them to their datafile name
-#   - Builds the snippy-core command and captures the stdout and stderr to files
+#   - Builds the snippy-core command
 #   - Runs the snippy-core command
 #
 #--------------------------------------
@@ -27,16 +27,20 @@ my @list_of_dirs = split /\s+/, $indirs;
 my @snippy_outs;
 
 foreach my $d (@list_of_dirs){
-  #print STDERR "$d\n";
+  print STDERR "$d\n";
   my $bn = basename($d);
   my ($name, $dir, $ext) = fileparse($d, '\..*');
   copy($d, $bn);
-  #print STDERR "$d, $bn, $name, $dir, $ext\n";
+  print STDERR "$d, $bn, $name, $dir, $ext\n";
   `tar -xf $bn`;
-  move("./out", "./$name");
-  unlink($bn);
-  push @snippy_outs, $name;
 }
+
+my $test_list = `ls -d */`;
+$test_list =~ s/\///g;
+print STDERR "$test_list\n";
+
+@snippy_outs = split /\s+/, $test_list;
+
 
 my $commandline = "snippy-core ";
 
