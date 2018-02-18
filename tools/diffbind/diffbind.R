@@ -21,7 +21,8 @@ spec = matrix(c(
     'infile' , 'i', 1, "character",
     'format', 'f', 1, "character",
     'th', 't', 1, "double",
-    'bmatrix', 'b', 0, "logical"
+    'bmatrix', 'b', 0, "logical",
+    "rdaOpt", "r", 0, "logical"
 ), byrow=TRUE, ncol=4);
 
 opt = getopt(spec);
@@ -53,5 +54,16 @@ if (!is.null(opt$bmatrix)) {
     write.table(as.data.frame(bmat), file="bmatrix.tab", sep="\t", quote=FALSE, row.names=FALSE, col.names=FALSE)
 }
 
+# Output RData  file
+if (!is.null(opt$bmatrix)) {
+    bmat <- dba.peakset(sample_count, bRetrieve=TRUE, DataType=DBA_DATA_FRAME)
+    write.table(as.data.frame(bmat), file="bmatrix.tab", sep="\t", quote=FALSE, row.names=FALSE, col.names=FALSE)
+}
 dev.off()
+## Output RData file
+
+if (!is.null(args$rdaOpt)) {
+    save.image(file = "DiffBind_analysis.RData")
+}
+
 sessionInfo()
