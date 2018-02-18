@@ -44,6 +44,7 @@ sample_contrast = dba.contrast(sample_count, categories=DBA_CONDITION, minMember
 sample_analyze = dba.analyze(sample_contrast)
 diff_bind = dba.report(sample_analyze)
 orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE)
+dev.off()
 
 resSorted <- diff_bind[order(diff_bind$FDR),]
 write.table(as.data.frame(resSorted), file = opt$outfile, sep="\t", quote = FALSE, append=TRUE, row.names = FALSE, col.names = FALSE)
@@ -54,12 +55,6 @@ if (!is.null(opt$bmatrix)) {
     write.table(as.data.frame(bmat), file="bmatrix.tab", sep="\t", quote=FALSE, row.names=FALSE, col.names=FALSE)
 }
 
-# Output RData  file
-if (!is.null(opt$bmatrix)) {
-    bmat <- dba.peakset(sample_count, bRetrieve=TRUE, DataType=DBA_DATA_FRAME)
-    write.table(as.data.frame(bmat), file="bmatrix.tab", sep="\t", quote=FALSE, row.names=FALSE, col.names=FALSE)
-}
-dev.off()
 ## Output RData file
 
 if (!is.null(args$rdaOpt)) {
