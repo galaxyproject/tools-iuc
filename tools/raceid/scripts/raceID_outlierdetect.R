@@ -11,10 +11,12 @@ source(paste(script_dir, "common.R", sep="/"))
 
                                         # Read input data
 message("Count matrix with %.0f cells and %.0f genes", dim(sc@fdata)[1], dim(sc@fdata)[2])
-message("Detecting outliers using the following parameters: outminc=%.0f, outlg=%.0f, probthr=%.0f outdistquant=%.0f", c_outmic, c_outlg, c_probthr, c_outdistquant)
+message("Detecting outliers using the following parameters: outminc=%.0f, outlg=%.0f, probthr=%.0f outdistquant=%.0f", c_outminc, c_outlg, c_probthr, c_outdistquant)
 
-sc <- findoutliers(sc, outminc=c_outminc, outlg=c_outlg, probthr=c_probthr,thr=2**-(1:40),
-                   outdistquant=c_outdistquant)
+sc <- findoutliers(
+    sc, outminc=c_outminc, outlg=c_outlg, probthr=c_probthr,
+    thr=2**-(1:40), outdistquant=c_outdistquant
+)
 
 message("Plotting images")
 png("plot_background.png")
