@@ -21,19 +21,19 @@ sc <- clustexp(
 )
 
 message("Plotting images")
-png("kk_gap.png")
+png("plot_gap.png")
 plotgap(sc)
 dev.off()
 
-png("kk_jaccard.png")
+png("plot_jaccard.png")
 plotjaccard(sc)
 dev.off()
 
-png("kk_silhouette.png")
+png("plot_silhouette.png")
 plotsilhouette(sc)
 dev.off()
 
-png("kk_clustheatmap.png")
+png("plot_clustheatmap.png")
 x <- clustheatmap(sc, final=FALSE, hmethod="single")
 dev.off()
 
