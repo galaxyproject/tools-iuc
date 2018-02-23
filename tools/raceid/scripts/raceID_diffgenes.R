@@ -37,17 +37,18 @@ if (generate_extable){
     }
 }
 
-if (compare_clusters){
+if (compare_clusters){   
     clust1 <- c(unlist(lapply(strsplit(clust1, "\\s*,\\s*"), as.integer)))
     clust2 <- c(unlist(lapply(strsplit(clust2, "\\s*,\\s*"), as.integer)))
 
     if (length(clust1) == 1){ clust1 <- clust1[[1]] }
     if (length(clust2) == 1){ clust2 <- clust2[[1]] }
-    
+
+    message("Performing diffgenes with cl1=%s, cl2=%s, mincount=%.0f, gene='%s'", clust1, clust2, mcount, gene_name)
     d <- diffgenes(sc,cl1 = clust1, cl2 = clust2, mincount = mcount)
 
     png("plot_diffgenes.png")
-    plotdiffgenes(d,gene=gene_name)
+    plotdiffgenes(d,gene= gene_name)
     dev.off()
 }
 
