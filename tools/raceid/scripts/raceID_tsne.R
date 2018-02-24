@@ -23,12 +23,12 @@ png("plot_final.png")
 a <- plottsne(sc,final = T)
 dev.off()
 
-all_sets <- strsplit(gene_sets, ",?\\s*__split__\\s*,?")
+all_sets <- strsplit(gene_sets, "+?\\s*__split__\\s*,?")
 print(all_sets)
 
 for (given in all_sets){
     message("Plotting %s", given)
-    g <- c(unlist(strsplit(given, ",")))
+    g <- c(unlist(strsplit(given, "+")))
     png(paste("plot", given, sep="_"))
 ####print(plotexptsne(sc,g))
     plotexptsne(sc,g, n=given, logsc=T)
