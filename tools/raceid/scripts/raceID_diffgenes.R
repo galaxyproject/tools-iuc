@@ -22,13 +22,18 @@ if (generate_finheat){
 
 if (generate_extable){
                                         # differentially expressed genes in cluster
+
+    if (!(dir.exists(outtable_dir))){
+        dir.create(outtable_dir)
+    }
+    
     for ( n in names(cdiff) ){
         write.table(
             data.frame(
                 GENEID=rownames(cdiff[[n]]),
                 cdiff[[n]]
             ),
-            paste("gdiff", "_", n, ".tsv", sep=""),  # gdiff_cl.n.tsv
+            paste(outtable_dir, "/gdiff", "_", n, ".tsv", sep=""),  # gdiff_cl.n.tsv
             row.names=FALSE,
             col.names=TRUE,
             sep="\t",
