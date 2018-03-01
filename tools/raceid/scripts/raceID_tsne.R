@@ -1,4 +1,4 @@
-#!/usr/bin/env Rscript
+##!/usr/bin/env Rscript
 
 args = commandArgs(trailingOnly=T)
 
@@ -23,31 +23,33 @@ png("plot_final.png")
 a <- plottsne(sc,final = T)
 dev.off()
 
-all_sets <- strsplit(gene_sets, "+?\\s*__split__\\s*,?")
-print(all_sets)
+if (gene_sets != "" ){
+    all_sets <- strsplit(gene_sets, "+?\\s*__split__\\s*,?")
+    print(all_sets)
 
-for (given in all_sets){
-    message("Plotting %s", given)
-    g <- c(unlist(strsplit(given, "+")))
-    png(paste("plot", given, sep="_"))
+    for (given in all_sets){
+        message("Plotting %s", given)
+        g <- c(unlist(strsplit(given, "+")))
+        png(paste("plot", given, sep="_"))
 ####print(plotexptsne(sc,g))
-    plotexptsne(sc,g, n=given, logsc=T)
-    dev.off()
+        plotexptsne(sc,g, n=given, logsc=T)
+        dev.off()
+    }
 }
 
 
 if (regex_val != ""){
     message("using subcell groups")
     png("plot_labels.png")
-    plotlabelstsne(sc, types=sub(regex_val, "", names(sc@ndata)))
+    plotlabelstsne(sc, labels = sub(regex_val, "", names(sc@ndata)))
     dev.off()
     png("plot_symbols.png")
-    plotsymbolstsne(sc, types=sub(regex_val, "", names(sc@ndata)))
+    plotsymbolstsne(sc, types = sub(regex_val, "", names(sc@ndata)))
     dev.off()
 } else {
     message("using all cell ids")
     png("plot_labels.png")
-    plotlabelstsne(sc, types = names(sc@ndata) )
+    plotlabelstsne(sc, labels = names(sc@ndata) )
     dev.off()
     png("plot_symbols.png")
     plotsymbolstsne(sc, types = names(sc@ndata) )
@@ -55,7 +57,5 @@ if (regex_val != ""){
 }
 
 
-if (generate_robject){
-    message("Saving SC object")
-    saveRDS(sc, output_rdat)
-}
+message("Saving SC object")
+saveRDS(sc, output_rdat)
