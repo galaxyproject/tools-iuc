@@ -6,7 +6,7 @@ import traceback
 
 import matplotlib
 matplotlib.use('Agg')
-from matplotlib import pyplot  # noqa: E402
+from matplotlib import pyplot  # noqa: I202,E402
 
 # Data outputs
 DETAILS = 'D'
@@ -92,7 +92,7 @@ def gff_attrs(d):
 def parse_chromosomes(reader):
     # This version of cwpair2 accepts only gff format as input.
     chromosomes = {}
-    reader.next()
+    next(reader)
     for line in reader:
         cname, junk, junk, start, end, value, strand, junk, junk = line
         start = int(start)
@@ -245,7 +245,7 @@ def process_file(dataset_path, galaxy_hid, method, threshold, up_distance,
     if output_files == 'all' and method == 'all':
         frequency_plot([s['dist'] for s in statistics],
                        statistics[0]['graph_path'],
-                       labels=METHODS.keys())
+                       labels=list(METHODS.keys()))
     return statistics
 
 
