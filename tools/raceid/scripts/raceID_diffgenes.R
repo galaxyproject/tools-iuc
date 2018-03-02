@@ -14,12 +14,6 @@ message("Count matrix with %.0f cells and %.0f genes", dim(sc@fdata)[1], dim(sc@
 
 cdiff <- clustdiffgenes(sc, pvalue=c_pval)
 
-if (generate_finheat){
-    png("plot_finalheat.png")
-    x <- clustheatmap(sc,final=TRUE,hmethod="single")
-    dev.off()
-}
-
 if (generate_extable){
                                         # differentially expressed genes in cluster
 
@@ -55,10 +49,4 @@ if (compare_clusters){
     png("plot_diffgenes.png")
     plotdiffgenes(d,gene= gene_name)
     dev.off()
-}
-
-
-if (generate_robject){
-    message("Saving SC object")
-    saveRDS(sc, output_rdat)
 }

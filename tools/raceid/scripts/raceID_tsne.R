@@ -24,12 +24,14 @@ a <- plottsne(sc,final = T)
 dev.off()
 
 if (gene_sets != "" ){
-    all_sets <- strsplit(gene_sets, "+?\\s*__split__\\s*,?")
+####all_sets <- strsplit(gene_sets, "+?\\s*__split__\\s*,?")
+    all_sets <- strsplit(gene_sets, '\\s*\\+?\\s*_split_\\s*,?')
     print(all_sets)
 
     for (given in all_sets){
+        given <- trimws(given)
         message("Plotting %s", given)
-        g <- c(unlist(strsplit(given, "+")))
+        g <- c(unlist(strsplit(given,'\\s*\\+\\s*')))
         png(paste("plot", given, sep="_"))
 ####print(plotexptsne(sc,g))
         plotexptsne(sc,g, n=given, logsc=T)

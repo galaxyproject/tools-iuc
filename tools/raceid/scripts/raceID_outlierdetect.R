@@ -31,6 +31,11 @@ png("plot_outlierprobs.png")
 plotoutlierprobs(sc)
 dev.off()
 
+png("plot_finalheat.png")
+x <- clustheatmap(sc,final=TRUE,hmethod="single")
+dev.off()
+
+
 message("Finished plots")
 
 message("Generating data tables")
