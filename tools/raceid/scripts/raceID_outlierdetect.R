@@ -19,21 +19,10 @@ sc <- findoutliers(
 )
 
 message("Plotting images")
-png("plot_background.png")
-plotbackground(sc)
-dev.off()
-
-png("plot_sensitivity.png")
-plotsensitivity(sc)
-dev.off()
-
-png("plot_outlierprobs.png")
-plotoutlierprobs(sc)
-dev.off()
-
-png("plot_finalheat.png")
-x <- clustheatmap(sc,final=TRUE,hmethod="single")
-dev.off()
+plotter("plot_background", plotbackground(sc))
+plotter("plot_sensitivity", plotsensitivity(sc))
+plotter("plot_outlierprobs", plotoutlierprobs(sc))
+plotter("plot_finalheat", y <- clustheatmap(sc,final=TRUE,hmethod="single"))
 
 
 message("Finished plots")

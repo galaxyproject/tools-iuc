@@ -46,7 +46,5 @@ if (compare_clusters){
     message("Performing diffgenes with cl1=%s, cl2=%s, mincount=%.0f, gene='%s'", clust1, clust2, mcount, gene_name)
     d <- diffgenes(sc,cl1 = clust1, cl2 = clust2, mincount = mcount)
 
-    png("plot_diffgenes.png")
-    plotdiffgenes(d,gene= gene_name)
-    dev.off()
+    plotter("plot_diffgenes", plotdiffgenes(d,gene= gene_name))
 }

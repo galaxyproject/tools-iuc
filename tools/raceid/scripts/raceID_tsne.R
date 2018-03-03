@@ -16,12 +16,8 @@ sc <- comptsne(sc,rseed = c_rseed)
 
 message("Plotting initial and final tSNEs")
 
-png("plot_initial.png")
-a <- plottsne(sc,final = F)
-dev.off()
-png("plot_final.png")
-a <- plottsne(sc,final = T)
-dev.off()
+plotter("plot_initial", plottsne(sc,final = F))
+plotter("plot_final", plottsne(sc,final = T))
 
 if (gene_sets != "" ){
 ####all_sets <- strsplit(gene_sets, "+?\\s*__split__\\s*,?")
@@ -32,32 +28,20 @@ if (gene_sets != "" ){
         given <- trimws(given)
         message("Plotting %s", given)
         g <- c(unlist(strsplit(given,'\\s*\\+\\s*')))
-        png(paste("plot", given, sep="_"))
-####print(plotexptsne(sc,g))
-        plotexptsne(sc,g, n=given, logsc=T)
-        dev.off()
+        plotter(paste("plot", given, sep="_"), plotexptsne(sc,g, n=given, logsc=T))
     }
 }
 
 
 if (regex_val != ""){
     message("using subcell groups")
-    png("plot_labels.png")
-    plotlabelstsne(sc, labels = sub(regex_val, "", names(sc@ndata)))
-    dev.off()
-    png("plot_symbols.png")
-    plotsymbolstsne(sc, types = sub(regex_val, "", names(sc@ndata)))
-    dev.off()
+    plotter("plot_labels", plotlabelstsne(sc, labels = sub(regex_val, "", names(sc@ndata))))
+    plotter("plot_symbols", plotsymbolstsne(sc, types = sub(regex_val, "", names(sc@ndata))))
 } else {
     message("using all cell ids")
-    png("plot_labels.png")
-    plotlabelstsne(sc, labels = names(sc@ndata) )
-    dev.off()
-    png("plot_symbols.png")
-    plotsymbolstsne(sc, types = names(sc@ndata) )
-    dev.off()
+    plotter("plot_labels", plotlabelstsne(sc, labels = names(sc@ndata)))
+    plotter("plot_symbols", plotsymbolstsne(sc, types = names(sc@ndata)))
 }
-
 
 message("Saving SC object")
 saveRDS(sc, output_rdat)
