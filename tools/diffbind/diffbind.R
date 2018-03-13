@@ -57,7 +57,7 @@ if (!is.null(opt$bmatrix)) {
 
 ## Output RData file
 
-if (!is.null(args$rdaOpt)) {
+if (!is.null(opt$rdaOpt)) {
     save.image(file = "DiffBind_analysis.RData")
 }
 
