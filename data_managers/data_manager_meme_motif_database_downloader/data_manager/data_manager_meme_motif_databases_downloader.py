@@ -20,6 +20,7 @@ parser.add_argument('--web_url', dest='web_url', help='URL for downloading MEME 
 
 args = parser.parse_args()
 
+
 def add_data_table_entry(data_manager_dict, data_table_name, data_table_entry):
     data_manager_dict['data_tables'] = data_manager_dict.get('data_tables', {})
     data_manager_dict['data_tables'][data_table_name] = data_manager_dict['data_tables'].get(data_table_name, [])
@@ -104,6 +105,7 @@ def download(target_directory, web_url, name, description, data_table_names=DEFA
             for data_table_name in data_table_names:
                 data_manager_dict = add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
     return data_manager_dict
+
 
 params = json.loads(open(args.out_file).read())
 target_directory = params['output_data'][0]['extra_files_path']
