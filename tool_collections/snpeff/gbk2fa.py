@@ -15,7 +15,6 @@ gbk_filename = args.genbank_file
 faa_filename = args.fasta_file
 
 try:
-
     f_type = magic.from_file(args.genbank_file, mime=True).decode('UTF-8')
     if f_type == 'text/plain':
         input_handle  = open(gbk_filename, "r")
