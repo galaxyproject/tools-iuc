@@ -26,7 +26,6 @@ try:
     else:
         sys.exit("Cannot process file of type {}. Only plain, gzip'ed, and bzip2'ed genbank files are accepted ".format(f_type))
     output_handle = open(faa_filename, "w")
-
 except OSError as err:
     sys.exit("OS error: {0}".format(err))
 
