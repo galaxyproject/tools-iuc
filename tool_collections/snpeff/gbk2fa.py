@@ -1,10 +1,9 @@
 import argparse
-import sys
 import bz2
 import gzip
+import sys
 
 import magic
-
 from Bio import SeqIO
 
 parser = argparse.ArgumentParser()
