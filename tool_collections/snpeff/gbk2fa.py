@@ -1,9 +1,11 @@
 import argparse
-from Bio import SeqIO
 import sys
-import magic
-import gzip
 import bz2
+import gzip
+
+import magic
+
+from Bio import SeqIO
 
 parser = argparse.ArgumentParser()
 parser.add_argument("genbank_file", help="GenBank input file. Can be compressed with gzip or bzip2")
