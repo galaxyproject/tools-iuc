@@ -17,11 +17,11 @@ faa_filename = args.fasta_file
 try:
     f_type = magic.from_file(args.genbank_file, mime=True)
     if f_type == 'text/plain':
-        input_handle  = open(gbk_filename, "r")
+        input_handle = open(gbk_filename, "r")
     elif f_type == 'application/gzip':
-        input_handle  = gzip.open(gbk_filename, "rt")
+        input_handle = gzip.open(gbk_filename, "rt")
     elif f_type == 'application/x-bzip2':
-        input_handle  = bz2.open(gbk_filename, "rt")
+        input_handle = bz2.open(gbk_filename, "rt")
     else:
         sys.exit("Cannot process file of type {}. Only plain, gzip'ed, and bzip2'ed genbank files are accepted ".format(f_type))
     output_handle = open(faa_filename, "w")
@@ -29,7 +29,7 @@ try:
 except OSError as err:
     sys.exit("OS error: {0}".format(err))
 
-for seq_record in SeqIO.parse(input_handle, "genbank") :
+for seq_record in SeqIO.parse(input_handle, "genbank"):
     if args.remove_version:
         seq_id = seq_record.id.split('.')[0]
     else:
