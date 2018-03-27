@@ -16,8 +16,8 @@ args = parser.parse_args()
 gbk_filename = args.genbank_file
 fa_filename = args.fasta_file
 
-@contextlib.contextmanager
 
+@contextlib.contextmanager
 def get_file_handle(gbk_filename):
     f_type = magic.from_file(args.genbank_file, mime=True)
     if f_type == 'text/plain':
