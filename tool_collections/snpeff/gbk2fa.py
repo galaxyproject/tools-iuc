@@ -1,6 +1,6 @@
 import argparse
-import contextlib
 import bz2
+import contextlib
 import gzip
 import sys
 
