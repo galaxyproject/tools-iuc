@@ -10,15 +10,24 @@
     <![CDATA[
         samtools $output.output_format
             #if $output.output_format == 'fastq':
-                -v $output.default_quality $output.output_quality
+               -v $output.default_quality
+               $output.output_quality
+               $ilumina_casava
             #end if
-            #if $reference:
-                --reference '$reference'
+            $copy_tags
+            #if str($copy_arb_tags) != '':
+                -T '$copy_arb_tags'
             #end if
-            $copy_flags $omit_read_number
-            -0 '$nonspecific'
-            -1 '$forward'
-            -2 '$reverse'
+	    $read_numbering
+            #if str($write_r0) != 'None':
+                -0 '$nonspecific'
+            #end if
+            #if str($write_r1) != 'None':
+                -1 '$forward'
+            #end if
+            #if str($write_r1) != 'None':
+                -2 '$reverse'
+            #end if
             #if str($inclusive_filter) != 'None':
                 #set $filter = $inclusive_filter
                 @FLAGS@
@@ -29,18 +38,50 @@
                 @FLAGS@
                 -F $flags
             #end if
-            '$input'
+            #if str($exclusive_filter) != 'None':
+                #set $filter = $exclusive_filter_all
+                @FLAGS@
+                -G $flags
+            #end if
+            #if str($write_singletons) == 'yes':
+                -s $singletons
+            #end if
+            #if str($index_format) != '':
+                --index-format $index_format
+            #end if
+            #if str($barcode_tag) != '':
+                --barcode-tag $barcode_tag
+            #end if
+            #if str($quality_tag) != '':
+                --quality-tag $quality_tag
+            #end if
+           '$input' 
+## TODO becaviour changed. previously output only via -0, -1, -2. Now the remaining output goes to output. Seems more powerful. OK?
+            > '$output'
     ]]>
     </command>
     <inputs>
         <param name="input" type="data" format="bam,sam" label="BAM or SAM file to convert" />
-        <param argument="--reference" type="data" format="fasta" optional="True" label="Reference FASTA" />
-        <param name="copy_flags" argument="-t" type="boolean" truevalue="-t" falsevalue="" label="Copy RG/BC/QT flags to output header" />
-        <param name="omit_read_number" argument="-n" type="boolean" truevalue="-n" falsevalue="" label="Do not append /1 and /2 to read names" />
-        <param name="inclusive_filter" argument="-f" type="select" multiple="True" label="Require that these flags be set">
+        <param name="write_r0" argument="-0" type="boolean" truevalue="yes" falsevalue="no" value="yes" label="write paired reads flagged both or neither READ1 and READ2 to extra data set" />
+        <param name="write_r1" argument="-1" type="boolean" truevalue="yes" falsevalue="no" value="yes" label="write paired reads flagged READ1 to extra data set" />
+        <param name="write_r2" argument="-2" type="boolean" truevalue="yes" falsevalue="no" value="yes" label="write paired reads flagged READ2 to extra data set" />
+        
+        <param name="write_singletons" argument="-s" type="boolean" truevalue="yes" falsevalue="no" value="yes" label="write singleton reads to extra data set" />
+
+        <param name="copy_tags" argument="-t" type="boolean" truevalue="-t" falsevalue="" label="Copy RG/BC/QT tags to output header" />
+        <param name="copy_arb_tags" argument="-T" type="text" optional="True" label="copy arbitrary tags to the FASTA header line" />
+        <param name="read_numbering" type="select" label="Omit or append read numbers">
+            <option value="" selected="True">no</option>
+            <option value="-n">Do not append /1 and /2 to read names</option>
+            <option value="-N">always append /1 and /2 to read name</option>
+        </param>
+        <param name="inclusive_filter" argument="-f" type="select" multiple="True" label="Require that these flags are set">
             <expand macro="filter_options" />
         </param>
-        <param name="exclusive_filter" argument="-F" type="select" multiple="True" label="Exclude reads with the following flags set">
+        <param name="exclusive_filter" argument="-F" type="select" multiple="True" label="Exclude reads with any of the following flags set">
+            <expand macro="filter_options" />
+        </param>
+        <param name="exclusive_filter_all" argument="-G" type="select" multiple="True" label="Exclude reads with all of the following flags set">
             <expand macro="filter_options" />
         </param>
         <conditional name="output">
@@ -51,22 +92,53 @@
             <when value="fastq">
                 <param name="default_quality" argument="-v" type="integer" value="1" label="Default quality if none is given" />
                 <param name="output_quality" argument="-O" type="boolean" truevalue="-O" falsevalue="" label="Output quality in the OQ tag if available" />
+                <param name="ilumina_casava" argument="-i" type="boolean" truevalue="-i" falsevalue="" label="add Illumina Casava 1.8 format entry to header (eg 1:N:0:ATCACG)" />
+                <param name="barcode_tag" argument="--barcode-tag" type="text" optional="True" label="Barcode tag [default: BC]"/>
+                <param name="quality_tag" argument="--quality-tag" type="text" optional="True" label="Quality tag [default: QT]"/>
+                <param name="index_format" argument="--index-format" type="text" optional="True" label="Index format: How to parse barcode and quality tags">
+                    <help>
+The index-format string describes how to parse the barcode and quality tags, for example:
+   i14i8       the first 14 characters are index 1, the next 8 characters are index 2
+   n8i14       ignore the first 8 characters, and use the next 14 characters for index 1
+   If the tag contains a separator, then the numeric part can be replaced with '*' to mean
+   'read until the separator or end of tag', for example:
+   n*i*        ignore the left part of the tag until the separator, then use the second part
+               of the tag as index 1
+                    </help>
+                </param>
             </when>
             <when value="fasta" />
         </conditional>
+    <!-- TODO don't know about the \-\-i1 FILE \-\-i2 FILE options (see samtools fastq -h) -->
     </inputs>
     <outputs>
         <data name="nonspecific" format="fasta" label="${on_string} converted to ${output.output_format} (Neither or both)">
+            <filter>write_r0 == 'yes'</filter>
             <change_format>
                 <when input="output_format" value="fastq" format="fastq" />
             </change_format>
         </data>
         <data name="forward" format="fasta" label="${on_string} converted to ${output.output_format} (READ1)">
+            <filter>write_r1 == 'yes'</filter>
             <change_format>
                 <when input="output_format" value="fastq" format="fastq" />
             </change_format>
         </data>
         <data name="reverse" format="fasta" label="${on_string} converted to ${output.output_format} (READ2)">
+            <filter>write_r2 == 'yes'</filter>
+            <change_format>
+                <when input="output_format" value="fastq" format="fastq" />
+            </change_format>
+        </data>
+        <data name="singletons" format="fasta" label="${on_string} converted to ${output.output_format} (singletons)">
+            <filter>write_singletons == 'yes'</filter>
+            <change_format>
+                <when input="output_format" value="fastq" format="fastq" />
+            </change_format>
+        </data>
+        <!-- TODO can we set the data set name depending on the choices of write_r0,r1,r2,singletons? -->
+        <data name="output" format="fasta" label="${on_string} converted to ${output.output_format} (TODO)">
+            <filter>write_singletons == 'no' or write_r0 == 'no' or write_r1 == 'no' or write_r2 == 'no' </filter>
             <change_format>
                 <when input="output_format" value="fastq" format="fastq" />
             </change_format>
