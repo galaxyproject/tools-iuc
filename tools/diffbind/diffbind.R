@@ -6,6 +6,7 @@ Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 suppressPackageStartupMessages({
 	library('getopt')
 	library('DiffBind')
+    library('rjson')
 })
 
 options(stringAsfactors = FALSE, useFancyQuotes = FALSE)
@@ -38,7 +39,34 @@ if ( !is.null(opt$plots) ) {
     pdf(opt$plots)
 }
 
-sample = dba(sampleSheet=opt$infile, peakFormat='bed')
+parser <- newJSONParser()
+parser$addData(opt$infile)
+factorList <- parser$getObject()
+filenamesIn <- unname(unlist(factorList[[1]][[2]]))
+peaks <- filenamesIn[grepl("peaks.bed", filenamesIn)]
+bams <- filenamesIn[grepl(".bam", filenamesIn)]
+ctrls <- filenamesIn[grepl("bamcontrol.bam", filenamesIn)]
+#get the group info from the peaks filenames
+groups <- sapply(strsplit(peaks,"-"), `[`, 1)
+samples <- sapply(strsplit(peaks,"-"), `[`, 2)
+#change the bam names to just the identifier
+bamnames <- sapply(strsplit(bams,"-"), `[`, 1)
+if ( length(ctrls) != 0 ) {
+    sampleTable <- data.frame(SampleID=samples,
+                        Condition=groups,
+                        bamReads=bamnames,
+                        bamControl=ctrls,    
+                        Peaks=peaks,
+                        stringsAsFactors=FALSE)
+} else {
+    sampleTable <- data.frame(SampleID=samples,
+                        Condition=groups,
+                        bamReads=bamnames,
+                        Peaks=peaks,
+                        stringsAsFactors=FALSE)
+}
+
+sample = dba(sampleSheet=sampleTable, peakFormat='bed')
 sample_count = dba.count(sample)
 sample_contrast = dba.contrast(sample_count, categories=DBA_CONDITION, minMembers=2)
 sample_analyze = dba.analyze(sample_contrast)

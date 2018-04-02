@@ -3,6 +3,7 @@
     <requirements>
         <requirement type="package" version="2.6.6">bioconductor-diffbind</requirement>
         <requirement type="package" version="1.20.0">r-getopt</requirement>
+        <requirement type="package" version="0.2.15">r-rjson</requirement>
     </requirements>
     <stdio>
         <regex match="Execution halted"
@@ -19,65 +20,90 @@
            description="An undefined error occured, please check your intput carefully and contact your administrator." />
     </stdio>
     <version_command><![CDATA[
-echo $(R --version | grep version | grep -v GNU)", DiffBind version" $(R --vanilla --slave -e "library(DiffBind); cat(sessionInfo()\$otherPkgs\$DiffBind\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
+echo $(R --version | grep version | grep -v GNU)", DiffBind version" $(R --vanilla --slave -e "library(DiffBind); cat(sessionInfo()\$otherPkgs\$DiffBind\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", rjson version" $(R --vanilla --slave -e "library(rjson); cat(sessionInfo()\$otherPkgs\$rjson\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
     ]]></version_command>
     <command><![CDATA[
-        ## seems that diffbind also needs file extensions to work properly
-        #set $counter = 1
-        #for $sample in $samples:
-            ln -s $sample.bamreads #echo str($counter) + "_bamreads.bam"# &&
-            ln -s ${sample.bamreads.metadata.bam_index} #echo str($counter) + "_bamreads.bai"# &&
-            #if str( $sample.bamcontrol ) != 'None':
-                ln -s $sample.bamcontrol #echo str($counter) + "_bamcontrol.bam"# &&
-                ln -s ${sample.bamcontrol.metadata.bam_index} #echo str($counter) + "_bamcontrol.bai"# &&
-            #end if
-            #set $counter = $counter + 1
+
+## Adapted from DESeq2 wrapper
+#set $temp_factor_names = list()
+
+#for $fact in $rep_factor:
+    #set $temp_factor = list()
+
+    #for $g in $fact.rep_group:
+
+        #set $peak_files = list()
+        #set $bam_files = list()
+        #set $bam_controls = list()
+
+        #for $file in $g.peaks:
+            ln -s '${file}' ${g.groupName}-${file.element_identifier}-peaks.bed &&
+            $peak_files.append(str($g.groupName) + '-' + $file.element_identifier + '-peaks.bed')
         #end for
 
-        Rscript '$__tool_directory__/diffbind.R'
-            -i $infile
-            -o '$outfile'
-            -t $th
-            -f $out.format
-            -p '$plots'
+        #for $bam in $g.bamreads:
+            ln -s '${bam}' ${bam.element_identifier} &&
+            ln -s ${bam.metadata.bam_index} ${bam.element_identifier}.bai &&
+            $bam_files.append(str( $bam.element_identifier ))
+        #end for
 
-            #if $out.binding_matrix:
-                -b
-            #end if
+        $temp_factor.append( {str($g.groupName): $peak_files} )
+        $temp_factor.append( {str($g.groupName): $bam_files} )
 
-            #if $out.rdata:
-                -r
-            #end if
+        #if str( $g.bamcontrol ) != 'None':
+            #for $ctrl in $g.bamcontrol:
+                ln -s '${ctrl}' ${g.groupName}-${ctrl.element_identifier}-bamcontrol.bam &&
+                ln -s ${ctrl.metadata.bam_index} ${g.groupName}-${ctrl.element_identifier}-bamcontrol.bai &&
+                $bam_controls.append(str($g.groupName) + '-' + $ctrl.element_identifier + '-bamcontrol.bam')
+            #end for
+            $temp_factor.append( {str($g.groupName): $bam_controls} )
+        #end if
+
+    #end for
+
+    $temp_factor.reverse()
+    $temp_factor_names.append([str($fact.factorName), $temp_factor])
+#end for
+
+
+Rscript '$__tool_directory__/diffbind.R'
+#import json
+    -i '#echo json.dumps(temp_factor_names)#'
+    -o '$outfile'
+    -t $th
+    -f $out.format
+    -p '$plots'
+
+    #if $out.binding_matrix:
+        -b
+    #end if
+
+    #if $out.rdata:
+        -r
+    #end if
 ]]>
     </command>
-    <configfiles>
-<configfile name="infile"><![CDATA[
-#set $counter = 1
-#for $sample in $samples:
-#if str( $sample.bamcontrol ) != 'None' and $counter == 1:
-SampleID,Tissue,Factor,Condition,Replicate,bamReads,bamControl,Peaks
-#elif $counter == 1:
-SampleID,Tissue,Factor,Condition,Replicate,bamReads,Peaks
-#end if
-#if str( $sample.bamcontrol ) != 'None':
-$sample.sample_id,$sample.tissue,$sample.factor,$sample.condition,$sample.replicate,#echo str($counter) + '_bamreads.bam'#,#echo str($counter) + '_bamcontrol.bam'#,$sample.peaks
-#else:
-$sample.sample_id,$sample.tissue,$sample.factor,$sample.condition,$sample.replicate,#echo str($counter) + '_bamreads.bam'#,$sample.peaks
-#end if
-#set $counter = $counter + 1
-#end for]]></configfile>
-    </configfiles>
     <inputs>
-        <repeat name="samples" title="Samples" min="4">
-            <param name="sample_id" type="text" value="Sample ID" label="Specify a sample id" help="e.g. BT474.1-" />
-            <param name="tissue" type="text" value="Tissue" label="Specify the tissue" help="e.g. BT474" />
-            <param name="factor" type="text" value="Factor Name" label="Specify a factor name" help="e.g. ER" />
-            <param name="condition" type="text" value="Condition" label="Specify the condition" help="e.g. Resistent" />
-            <param name="replicate" type="integer" value="1" label="Specify the replicate number" help="e.g. 1" />
-            <param name="bamreads" type="data" format="bam" label="Read BAM file" help="Specify the Read BAM file, used for Peak calling."/>
-            <param name="bamcontrol" type="data" format="bam" optional="True" label="Control BAM file" help="If specifying a control BAM file for this sample, then all samples are required to specify one."/>
-            <param name="peaks" type="data" format="bed" label="Peak file" help="Result of your Peak calling experiment."/>
+
+        <repeat name="rep_factor" title="Factor" min="1">
+            <param name="factorName" type="text" label="Name" help="Name of experiment factor of interest (e.g. Condition, Tissue). One factor must be entered and there must be two or more groups per factor. Optional additional factors (e.g. Batch) can be entered using the Insert Factor button below, see Help section for more information. NOTE: Please only use letters, numbers or underscores.">
+            <sanitizer>
+                <valid initial="string.letters,string.digits"><add value="_" /></valid>
+            </sanitizer>
+            </param>
+            <repeat name="rep_group" title="Group" min="2" default="2">
+                <param name="groupName" type="text" label="Name"
+                help="Name of group that the peak files belong to (e.g. Resistant or Responsive). NOTE: Please only use letters, numbers or underscores (case sensitive).">
+                <sanitizer>
+                    <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                </sanitizer>
+                </param>
+                <param name="peaks" type="data" format="bed" multiple="true" label="Peak files" help="Result of your Peak calling experiment"/>
+                <param name="bamreads" type="data" format="bam" multiple="true" label="Read BAM file" help="Specify the Read BAM file used for Peak calling."/>
+                <param name="bamcontrol" type="data" format="bam" multiple="true" optional="True" label="Control BAM file" help="If specifying a control BAM file, all samples are required to specify one."/>
+            </repeat>
         </repeat>
+
         <param name="th" type="float" value="1" min="0" max="1"
                 label="FDR Threshold"
                 help="Significance threshold; all sites with FDR less than or equal to this value will be included in the report. A value of 1 will include all binding sites in the report. Default: 1"/>
@@ -116,41 +142,19 @@ $sample.sample_id,$sample.tissue,$sample.factor,$sample.condition,$sample.replic
 
     <tests>
         <test expect_num_outputs="4">
-            <repeat name="samples">
-                <param name="sample_id" value="BT4741" />
-                <param name="tissue" value="BT474" />
-                <param name="factor" value="ER" />
-                <param name="condition" value="Resistant" />
-                <param name="replicate" value="1" />
-                <param name="bamreads" ftype="bam" value="BT474_ER_1.bam" />
-                <param name="peaks" ftype="bed" value="BT474_ER_1.bed.gz" />
-            </repeat>
-            <repeat name="samples">
-                <param name="sample_id" value="BT4742" />
-                <param name="tissue" value="BT474" />
-                <param name="factor" value="ER" />
-                <param name="condition" value="Resistant" />
-                <param name="replicate" value="2" />
-                <param name="bamreads" ftype="bam" value="BT474_ER_2.bam" />
-                <param name="peaks" ftype="bed" value="BT474_ER_2.bed.gz" />
-            </repeat>
-            <repeat name="samples">
-                <param name="sample_id" value="MCF71" />
-                <param name="tissue" value="MCF7" />
-                <param name="factor" value="ER" />
-                <param name="condition" value="Responsive" />
-                <param name="replicate" value="1" />
-                <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam" />
-                <param name="peaks" ftype="bed" value="MCF7_ER_1.bed.gz" />
-            </repeat>
-            <repeat name="samples">
-                <param name="sample_id" value="MCF72" />
-                <param name="tissue" value="MCF7" />
-                <param name="factor" value="ER" />
-                <param name="condition" value="Responsive"  />
-                <param name="replicate" value="2" />
-                <param name="bamreads" ftype="bam" value="MCF7_ER_2.bam" />
-                <param name="peaks" ftype="bed" value="MCF7_ER_2.bed.gz" />
+
+             <repeat name="rep_factor">
+                <param name="factorName" value="Condition"/>
+                <repeat name="rep_group">
+                    <param name="groupName" value="Resistant"/>
+                    <param name="peaks" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
+                    <param name="bamreads" ftype="bam" value="BT474_ER_1.bam,BT474_ER_2.bam" />
+                </repeat>
+                <repeat name="rep_group">
+                    <param name="groupName" value="Responsive"/>
+                    <param name="peaks" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
+                    <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam,MCF7_ER_2.bam" />
+                </repeat>
             </repeat>
             <param name="pdf" value="True" />
             <param name="binding_matrix" value="True" />
@@ -210,25 +214,25 @@ a control sample)
 
 **Sample Information**
 
-You have to specify your sample information in the tool form above, where Condition contains the groups you want to compare.
+You have to specify your sample information in the tool form above, where Factor is the groups you want to compare (e.g Reistant and Responsive).
 
 Example:
 
-    ============= ========== ========== ============= =============
-     **SampleID** **Tissue** **Factor** **Condition** **Replicate**
-    ------------- ---------- ---------- ------------- -------------
-    BT4741        BT474      ER         Resistant     1            
-    BT4742        BT474      ER         Resistant     2            
-    MCF71         MCF7       ER         Responsive    1            
-    MCF72         MCF7       ER         Responsive    2            
-    MCF73         MCF7       ER         Responsive    3            
-    T47D1         T47D       ER         Responsive    1            
-    T47D2         T47D       ER         Responsive    2            
-    MCF7r1        MCF7       ER         Resistant     1            
-    MCF7r2        MCF7       ER         Resistant     2            
-    ZR751         ZR75       ER         Responsive    1            
-    ZR752         ZR75       ER         Responsive    2            
-    ============= ========== ========== ============= =============
+    ============= =============
+     **SampleID** **Factor**
+    ------------- -------------
+    BT4741        Resistant    
+    BT4742        Resistant    
+    MCF71         Responsive   
+    MCF72         Responsive   
+    MCF73         Responsive   
+    T47D1         Responsive   
+    T47D2         Responsive   
+    MCF7r1        Resistant    
+    MCF7r2        Resistant    
+    ZR751         Responsive   
+    ZR752         Responsive   
+    ============= =============
 
 
 **Peak files**
