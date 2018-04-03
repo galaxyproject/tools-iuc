@@ -44,27 +44,29 @@ parser$addData(opt$infile)
 factorList <- parser$getObject()
 filenamesIn <- unname(unlist(factorList[[1]][[2]]))
 peaks <- filenamesIn[grepl("peaks.bed", filenamesIn)]
-bams <- filenamesIn[grepl(".bam", filenamesIn)]
+bams <- filenamesIn[grepl("bamreads.bam", filenamesIn)]
 ctrls <- filenamesIn[grepl("bamcontrol.bam", filenamesIn)]
-#get the group info from the peaks filenames
+#get the group id and sample id from the peaks filenames
 groups <- sapply(strsplit(peaks,"-"), `[`, 1)
 samples <- sapply(strsplit(peaks,"-"), `[`, 2)
-#change the bam names to just the identifier
-bamnames <- sapply(strsplit(bams,"-"), `[`, 1)
+
 if ( length(ctrls) != 0 ) {
     sampleTable <- data.frame(SampleID=samples,
                         Condition=groups,
-                        bamReads=bamnames,
+                        bamReads=bams,
                         bamControl=ctrls,    
                         Peaks=peaks,
                         stringsAsFactors=FALSE)
 } else {
     sampleTable <- data.frame(SampleID=samples,
                         Condition=groups,
-                        bamReads=bamnames,
+                        bamReads=bams,
                         Peaks=peaks,
                         stringsAsFactors=FALSE)
 }
+
+cat("sampleTable:\n")
+print(sampleTable)
 
 sample = dba(sampleSheet=sampleTable, peakFormat='bed')
 sample_count = dba.count(sample)
@@ -75,12 +77,12 @@ orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE)
 dev.off()
 
 resSorted <- diff_bind[order(diff_bind$FDR),]
-write.table(as.data.frame(resSorted), file = opt$outfile, sep="\t", quote = FALSE, append=TRUE, row.names = FALSE, col.names = FALSE)
+write.table(as.data.frame(resSorted), file = opt$outfile, sep="\t", quote = FALSE, append=TRUE, row.names = FALSE)
 
 # Output binding affinity scores
 if (!is.null(opt$bmatrix)) {
     bmat <- dba.peakset(sample_count, bRetrieve=TRUE, DataType=DBA_DATA_FRAME)
-    write.table(as.data.frame(bmat), file="bmatrix.tab", sep="\t", quote=FALSE, row.names=FALSE, col.names=FALSE)
+    write.table(as.data.frame(bmat), file="bmatrix.tab", sep="\t", quote=FALSE, row.names=FALSE)
 }
 
 ## Output RData file
