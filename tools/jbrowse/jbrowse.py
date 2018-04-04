@@ -403,8 +403,8 @@ class JbrowseConnector(object):
             data = json.load(handle)
 
         # Pull apart ref seqs from non-ref-seqs
-        refSeqs = list(filter(lambda x: x['key'] == 'Reference sequence', data['tracks']))
-        nonrefSeqs = list(filter(lambda x: x['key'] != 'Reference sequence', data['tracks']))
+        refSeqs = list([x for x in data['tracks'] if x['key'] == 'Reference sequence'])
+        nonrefSeqs = list([x for x in data['tracks'] if x['key'] != 'Reference sequence'])
 
         # Fix the ref seq tracks with their metadata.
         fixedRefSeqs = []
@@ -446,7 +446,7 @@ class JbrowseConnector(object):
             return
 
         tmp = tempfile.NamedTemporaryFile(delete=False)
-        tmp.write(json.dumps(json_data))
+        json.dump(json_data, tmp)
         tmp.close()
         cmd = ['perl', self._jbrowse_bin('add-track-json.pl'), tmp.name,
                os.path.join('data', 'trackList.json')]
