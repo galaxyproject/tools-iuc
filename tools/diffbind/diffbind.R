@@ -55,7 +55,7 @@ if ( length(ctrls) != 0 ) {
     sampleTable <- data.frame(SampleID=samples,
                         Condition=groups,
                         bamReads=bams,
-                        bamControl=ctrls,    
+                        bamControl=ctrls,
                         Peaks=peaks,
                         stringsAsFactors=FALSE)
 } else {
@@ -73,7 +73,7 @@ sample = dba(sampleSheet=sampleTable, peakFormat='bed')
 sample_count = dba.count(sample)
 sample_contrast = dba.contrast(sample_count, categories=DBA_CONDITION, minMembers=2)
 sample_analyze = dba.analyze(sample_contrast)
-diff_bind = dba.report(sample_analyze)
+diff_bind = dba.report(sample_analyze, th=opt$th)
 
 # generate plots
 orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE, cexCol=0.8)
