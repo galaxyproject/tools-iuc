@@ -46,7 +46,8 @@ filenamesIn <- unname(unlist(factorList[[1]][[2]]))
 peaks <- filenamesIn[grepl("peaks.bed", filenamesIn)]
 bams <- filenamesIn[grepl("bamreads.bam", filenamesIn)]
 ctrls <- filenamesIn[grepl("bamcontrol.bam", filenamesIn)]
-#get the group id and sample id from the peaks filenames
+
+# get the group and sample id from the peaks filenames
 groups <- sapply(strsplit(peaks,"-"), `[`, 1)
 samples <- sapply(strsplit(peaks,"-"), `[`, 2)
 
@@ -73,7 +74,13 @@ sample_count = dba.count(sample)
 sample_contrast = dba.contrast(sample_count, categories=DBA_CONDITION, minMembers=2)
 sample_analyze = dba.analyze(sample_contrast)
 diff_bind = dba.report(sample_analyze)
-orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE)
+
+# generate plots
+orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE, cexCol=0.8)
+dba.plotPCA(sample_analyze, contrast=1)
+dba.plotMA(sample_analyze)
+dba.plotVolcano(sample_analyze)
+dba.plotBox(sample_analyze)
 dev.off()
 
 resSorted <- diff_bind[order(diff_bind$FDR),]
@@ -85,7 +92,7 @@ if (!is.null(opt$bmatrix)) {
     write.table(as.data.frame(bmat), file="bmatrix.tab", sep="\t", quote=FALSE, row.names=FALSE)
 }
 
-## Output RData file
+# Output RData file
 
 if (!is.null(opt$rdaOpt)) {
     save.image(file = "DiffBind_analysis.RData")
