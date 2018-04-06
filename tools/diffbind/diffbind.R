@@ -76,11 +76,11 @@ sample_analyze = dba.analyze(sample_contrast)
 diff_bind = dba.report(sample_analyze, th=opt$th)
 
 # generate plots
-orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE, cexCol=0.8)
-dba.plotPCA(sample_analyze, contrast=1)
-dba.plotMA(sample_analyze)
-dba.plotVolcano(sample_analyze)
-dba.plotBox(sample_analyze)
+orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE, cexCol=0.8, th=opt$th)
+dba.plotPCA(sample_analyze, contrast=1, th=opt$th)
+dba.plotMA(sample_analyze, th=opt$th)
+dba.plotVolcano(sample_analyze, th=opt$th)
+dba.plotBox(sample_analyze, th=opt$th)
 dev.off()
 
 resSorted <- diff_bind[order(diff_bind$FDR),]
