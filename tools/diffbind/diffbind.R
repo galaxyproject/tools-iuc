@@ -35,10 +35,6 @@ if ( !is.null(opt$help) ) {
     q(status=1);
 }
 
-if ( !is.null(opt$plots) ) {
-    pdf(opt$plots)
-}
-
 parser <- newJSONParser()
 parser$addData(opt$infile)
 factorList <- parser$getObject()
@@ -75,14 +71,18 @@ sample_contrast = dba.contrast(sample_count, categories=DBA_CONDITION, minMember
 sample_analyze = dba.analyze(sample_contrast)
 diff_bind = dba.report(sample_analyze, th=opt$th)
 
-# generate plots
-orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE, cexCol=0.8, th=opt$th)
-dba.plotPCA(sample_analyze, contrast=1, th=opt$th)
-dba.plotMA(sample_analyze, th=opt$th)
-dba.plotVolcano(sample_analyze, th=opt$th)
-dba.plotBox(sample_analyze, th=opt$th)
-dev.off()
+# Generate plots
+if ( !is.null(opt$plots) ) {
+    pdf(opt$plots)
+    orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE, cexCol=0.8, th=opt$th)
+    dba.plotPCA(sample_analyze, contrast=1, th=opt$th)
+    dba.plotMA(sample_analyze, th=opt$th)
+    dba.plotVolcano(sample_analyze, th=opt$th)
+    dba.plotBox(sample_analyze, th=opt$th)
+    dev.off()
+}
 
+# Output differential binding sites
 resSorted <- diff_bind[order(diff_bind$FDR),]
 write.table(as.data.frame(resSorted), file = opt$outfile, sep="\t", quote = FALSE, append=TRUE, row.names = FALSE)
 
@@ -93,7 +93,6 @@ if (!is.null(opt$bmatrix)) {
 }
 
 # Output RData file
-
 if (!is.null(opt$rdaOpt)) {
     save.image(file = "DiffBind_analysis.RData")
 }
