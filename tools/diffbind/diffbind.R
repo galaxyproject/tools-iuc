@@ -4,8 +4,8 @@ options( show.error.messages=F, error = function () { cat( geterrmessage(), file
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
 suppressPackageStartupMessages({
-	library('getopt')
-	library('DiffBind')
+    library('getopt')
+    library('DiffBind')
     library('rjson')
 })
 
