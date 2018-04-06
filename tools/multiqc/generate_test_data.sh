@@ -139,8 +139,8 @@ cp 'test-data/samtools_flagstat.txt' 'multiqc_WDir/samtools/flagstat_1/samtools_
 mkdir 'multiqc_WDir/samtools/idxstats_2'
 cp 'test-data/samtools_flagstat.txt' 'multiqc_WDir/samtools/idxstats_2/samtools_idxstats_idxstat'
 
-#mkdir -p 'multiqc_WDir/snpeff'
-#cp 'test-data/snpeff.csv' 'multiqc_WDir/snpeff/snpeff.txt'
+mkdir -p 'multiqc_WDir/snpeff'
+cp 'test-data/snpeff.csv' 'multiqc_WDir/snpeff/snpeff.txt'
 
 mkdir -p 'multiqc_WDir/vcftools/tstv_by_qual_0'
 cp 'test-data/vcftools.txt' 'multiqc_WDir/vcftools/tstv_by_qual_0/vcftools.TsTv.qual'
@@ -166,7 +166,7 @@ mv 'multiqc_data/multiqc_quast.txt' 'test-data/quast_stats.tabular'
 mv 'multiqc_data/multiqc_samblaster.txt' 'test-data/samblaster_stats.tabular'
 mv 'multiqc_data/multiqc_samtools_flagstat.txt' 'test-data/samtools_flagstat_stats.tabular'
 mv 'multiqc_data/multiqc_samtools_stats.txt' 'test-data/samtools_stats_stats.tabular'
-#mv 'multiqc_data/multiqc_snpeff.txt' 'test-data/snpeff_stats.tabular'
+mv 'multiqc_data/multiqc_snpeff.txt' 'test-data/snpeff_stats.tabular'
 
 rm -rf 'multiqc_WDir'
 rm -rf 'multiqc_data/'
