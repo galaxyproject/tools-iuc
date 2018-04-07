@@ -15,16 +15,21 @@ args <- commandArgs(trailingOnly = TRUE)
 #get options, using the spec as defined by the enclosed list.
 #we read the options from the default: commandArgs(TRUE).
 spec = matrix(c(
-    'verbose', 'v', 2, "integer",
-    'help' , 'h', 0, "logical",
-    'outfile' , 'o', 1, "character",
-    'plots' , 'p', 2, "character",
     'infile' , 'i', 1, "character",
-    'format', 'f', 1, "character",
+    'outfile' , 'o', 1, "character",
+    'peakcaller', 'c', 1, "character",
+    'peakformat', 'd', 1, "character",
+    'lowerbetter', 'l', 1, "logical",
+    'scorecol', 'n', 1, "integer",
+    'summits', 's', 1, "integer",
     'th', 't', 1, "double",
+    'format', 'f', 1, "character",
+    'plots' , 'p', 2, "character",
     'bmatrix', 'b', 0, "logical",
     "rdaOpt", "r", 0, "logical",
-    'infoOpt' , 'a', 0, "logical"
+    'infoOpt' , 'a', 0, "logical",
+    'verbose', 'v', 2, "integer",
+    'help' , 'h', 0, "logical"
 ), byrow=TRUE, ncol=4);
 
 opt = getopt(spec);
@@ -63,8 +68,14 @@ if ( length(ctrls) != 0 ) {
                         stringsAsFactors=FALSE)
 }
 
-sample = dba(sampleSheet=sampleTable, peakFormat='bed')
-sample_count = dba.count(sample)
+sample = dba(sampleSheet=sampleTable, peakCaller=opt$peakcaller, peakFormat=opt$peakformat, scoreCol=opt$scorecol, bLowerScoreBetter=opt$lowerbetter)
+
+if ( !is.null(opt$summits) ) {
+    sample_count = dba.count(sample, summits=opt$summits)
+} else {
+    sample_count = dba.count(sample)
+}
+
 sample_contrast = dba.contrast(sample_count, categories=DBA_CONDITION, minMembers=2)
 sample_analyze = dba.analyze(sample_contrast)
 diff_bind = dba.report(sample_analyze, th=opt$th)
