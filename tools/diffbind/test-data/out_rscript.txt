@@ -59,12 +59,15 @@ if ( length(ctrls) != 0 ) {
                         bamReads=bams,
                         bamControl=ctrls,
                         Peaks=peaks,
+                        Tissue=samples, # using "Tissue" column to display ids as labels in PCA plot
                         stringsAsFactors=FALSE)
 } else {
     sampleTable <- data.frame(SampleID=samples,
+                        Replicate=samples,
                         Condition=groups,
                         bamReads=bams,
                         Peaks=peaks,
+                        Tissue=samples,
                         stringsAsFactors=FALSE)
 }
 
@@ -84,7 +87,7 @@ diff_bind = dba.report(sample_analyze, th=opt$th)
 if ( !is.null(opt$plots) ) {
     pdf(opt$plots)
     orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE, cexCol=0.8, th=opt$th)
-    dba.plotPCA(sample_analyze, contrast=1, th=opt$th)
+    dba.plotPCA(sample_analyze, contrast=1, th=opt$th, label=DBA_TISSUE, labelSize=0.3)
     dba.plotMA(sample_analyze, th=opt$th)
     dba.plotVolcano(sample_analyze, th=opt$th)
     dba.plotBox(sample_analyze, th=opt$th)
