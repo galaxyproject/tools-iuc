@@ -17,10 +17,8 @@ args <- commandArgs(trailingOnly = TRUE)
 spec = matrix(c(
     'infile' , 'i', 1, "character",
     'outfile' , 'o', 1, "character",
-    'peakcaller', 'c', 1, "character",
-    'peakformat', 'd', 1, "character",
-    'lowerbetter', 'l', 1, "logical",
     'scorecol', 'n', 1, "integer",
+    'lowerbetter', 'l', 1, "logical",
     'summits', 's', 1, "integer",
     'th', 't', 1, "double",
     'format', 'f', 1, "character",
@@ -71,7 +69,7 @@ if ( length(ctrls) != 0 ) {
                         stringsAsFactors=FALSE)
 }
 
-sample = dba(sampleSheet=sampleTable, peakCaller=opt$peakcaller, peakFormat=opt$peakformat, scoreCol=opt$scorecol, bLowerScoreBetter=opt$lowerbetter)
+sample = dba(sampleSheet=sampleTable, peakFormat='bed', scoreCol=opt$scorecol, bLowerScoreBetter=opt$lowerbetter)
 
 if ( !is.null(opt$summits) ) {
     sample_count = dba.count(sample, summits=opt$summits)
