@@ -23,7 +23,8 @@ spec = matrix(c(
     'format', 'f', 1, "character",
     'th', 't', 1, "double",
     'bmatrix', 'b', 0, "logical",
-    "rdaOpt", "r", 0, "logical"
+    "rdaOpt", "r", 0, "logical",
+    'infoOpt' , 'a', 0, "logical"
 ), byrow=TRUE, ncol=4);
 
 opt = getopt(spec);
@@ -62,9 +63,6 @@ if ( length(ctrls) != 0 ) {
                         stringsAsFactors=FALSE)
 }
 
-cat("sampleTable:\n")
-print(sampleTable)
-
 sample = dba(sampleSheet=sampleTable, peakFormat='bed')
 sample_count = dba.count(sample)
 sample_contrast = dba.contrast(sample_count, categories=DBA_CONDITION, minMembers=2)
@@ -97,4 +95,13 @@ if (!is.null(opt$rdaOpt)) {
     save.image(file = "DiffBind_analysis.RData")
 }
 
-sessionInfo()
+# Output analysis info
+if (!is.null(opt$infoOpt)) {
+    info <- "DiffBind_analysis_info.txt"
+    cat("dba.count Info\n\n", file=info, append = TRUE)
+    capture.output(sample, file=info, append=TRUE)
+    cat("\ndba.analyze Info\n\n", file=info, append = TRUE)
+    capture.output(sample_analyze, file=info, append=TRUE)
+    cat("\nSessionInfo\n\n", file=info, append = TRUE)
+    capture.output(sessionInfo(), file=info, append=TRUE)
+}
