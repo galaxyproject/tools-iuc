@@ -134,9 +134,9 @@ cp 'test-data/samblaster.txt' 'multiqc_WDir/samblaster/samblaster.txt'
 
 mkdir -p 'multiqc_WDir/samtools/stats_0'
 cp 'test-data/samtools_stats.txt' 'multiqc_WDir/samtools/stats_0/samtools_stats.txt'
-mkdir 'multiqc_WDir/samtools/flagstat_1'
+mkdir -p 'multiqc_WDir/samtools/flagstat_1'
 cp 'test-data/samtools_flagstat.txt' 'multiqc_WDir/samtools/flagstat_1/samtools_flagstat.txt'
-mkdir 'multiqc_WDir/samtools/idxstats_2'
+mkdir -p 'multiqc_WDir/samtools/idxstats_2'
 cp 'test-data/samtools_flagstat.txt' 'multiqc_WDir/samtools/idxstats_2/samtools_idxstats_idxstat'
 
 mkdir -p 'multiqc_WDir/snpeff'
