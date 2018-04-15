@@ -486,9 +486,9 @@ for (i in 1:length(contrastData)) {
     sumStatus <- summary(status)
 
     # Collect counts for differential expression
-    upCount[i] <- sumStatus["Up"]
-    downCount[i] <- sumStatus["Down"]
-    flatCount[i] <- sumStatus["NotSig"]
+    upCount[i] <- sumStatus["Up", ]
+    downCount[i] <- sumStatus["Down", ]
+    flatCount[i] <- sumStatus["NotSig", ]
                                              
     # Write top expressions table
     top <- topTags(res, n=Inf, sort.by="PValue")
