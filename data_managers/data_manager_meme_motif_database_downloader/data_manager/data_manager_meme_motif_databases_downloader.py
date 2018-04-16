@@ -106,6 +106,7 @@ def download(target_directory, web_url, name, description, data_table_names=DEFA
                 data_manager_dict = add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
     return data_manager_dict
 
+
 params = json.loads(open(args.out_file).read())
 target_directory = params['output_data'][0]['extra_files_path']
 make_directory(target_directory)
