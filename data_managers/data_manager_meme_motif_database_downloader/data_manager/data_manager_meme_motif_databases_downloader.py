@@ -20,6 +20,7 @@ parser.add_argument('--web_url', dest='web_url', help='URL for downloading MEME 
 
 args = parser.parse_args()
 
+
 def add_data_table_entry(data_manager_dict, data_table_name, data_table_entry):
     data_manager_dict['data_tables'] = data_manager_dict.get('data_tables', {})
     data_manager_dict['data_tables'][data_table_name] = data_manager_dict['data_tables'].get(data_table_name, [])
@@ -67,8 +68,8 @@ def url_download(url, work_directory):
                 dst.write(chunk)
             else:
                 break
-    except Exception, e:
-        print >>sys.stderr, str(e)
+    except Exception as e:
+        sys.stderr.write('An error occurred: %s' % e)
     finally:
         if src:
             src.close()
