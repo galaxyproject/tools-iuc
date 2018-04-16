@@ -3,12 +3,9 @@
 # A command-line interface to DESeq2 for use with Galaxy
 # written by Bjoern Gruening and modified by Michael Love 2016.03.30
 #
-# one of these arguments is required:
+# This argument is required:
 #
 #   'factors' a JSON list object from Galaxy
-#
-#   'sample_table' is a sample table as described in ?DESeqDataSetFromHTSeqCount
-#   with columns: sample name, filename, then factors (variables)
 #
 # the output file has columns:
 # 
@@ -19,8 +16,8 @@
 #   pvalue (p-value from comparison of Wald statistic to a standard Normal)
 #   padj (adjusted p-value, Benjamini Hochberg correction on genes which pass the mean count filter)
 # 
-# the first variable in 'factors' and first column in 'sample_table' will be the primary factor.
-# the levels of the primary factor are used in the order of appearance in factors or in sample_table.
+# the first variable in 'factors' will be the primary factor.
+# the levels of the primary factor are used in the order of appearance in factors.
 #
 # by default, levels in the order A,B,C produces a single comparison of B vs A, to a single file 'outfile'
 #
@@ -54,7 +51,6 @@ spec <- matrix(c(
   "factors", "f", 1, "character",
   "files_to_labels", "l", 1, "character",
   "plots" , "p", 1, "character",
-  "sample_table", "s", 1, "character",
   "tximport", "i", 0, "logical",
   "txtype", "y", 1, "character",
   "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF file (auto detect .gtf/.GTF)
@@ -79,8 +75,8 @@ if (is.null(opt$outfile)) {
   cat("'outfile' is required\n")
   q(status=1)
 }
-if (is.null(opt$sample_table) & is.null(opt$factors)) {
-  cat("'factors' or 'sample_table' is required\n")
+if (is.null(opt$factors)) {
+  cat("'factors' is required\n")
   q(status=1)
 }
 
@@ -114,43 +110,30 @@ suppressPackageStartupMessages({
 trim <- function (x) gsub("^\\s+|\\s+$", "", x)
 
 # switch on if 'factors' was provided:
-if (!is.null(opt$factors)) {
-  library("rjson")
-  parser <- newJSONParser()
-  parser$addData(opt$factors)
-  factorList <- parser$getObject()
-  filenames_to_labels <- fromJSON(opt$files_to_labels)
-  factors <- sapply(factorList, function(x) x[[1]])
-  primaryFactor <- factors[1]
-  filenamesIn <- unname(unlist(factorList[[1]][[2]]))
-  labs = unname(unlist(filenames_to_labels[basename(filenamesIn)]))
-  sampleTable <- data.frame(sample=basename(filenamesIn),
-                            filename=filenamesIn,
-                            row.names=filenamesIn,
-                            stringsAsFactors=FALSE)
-  for (factor in factorList) {
-    factorName <- trim(factor[[1]])
-    sampleTable[[factorName]] <- character(nrow(sampleTable))
-    lvls <- sapply(factor[[2]], function(x) names(x))
-    for (i in seq_along(factor[[2]])) {
-      files <- factor[[2]][[i]][[1]]
-      sampleTable[files,factorName] <- trim(lvls[i])
-    }
-    sampleTable[[factorName]] <- factor(sampleTable[[factorName]], levels=lvls)
+library("rjson")
+parser <- newJSONParser()
+parser$addData(opt$factors)
+factorList <- parser$getObject()
+filenames_to_labels <- fromJSON(opt$files_to_labels)
+factors <- sapply(factorList, function(x) x[[1]])
+primaryFactor <- factors[1]
+filenamesIn <- unname(unlist(factorList[[1]][[2]]))
+labs = unname(unlist(filenames_to_labels[basename(filenamesIn)]))
+sampleTable <- data.frame(sample=basename(filenamesIn),
+                          filename=filenamesIn,
+                          row.names=filenamesIn,
+                          stringsAsFactors=FALSE)
+for (factor in factorList) {
+  factorName <- trim(factor[[1]])
+  sampleTable[[factorName]] <- character(nrow(sampleTable))
+  lvls <- sapply(factor[[2]], function(x) names(x))
+  for (i in seq_along(factor[[2]])) {
+    files <- factor[[2]][[i]][[1]]
+    sampleTable[files,factorName] <- trim(lvls[i])
   }
-  rownames(sampleTable) <- labs
-} else {
-  # read the sample_table argument
-  # this table is described in ?DESeqDataSet
-  # one column for the sample name, one for the filename, and
-  # the remaining columns for factors in the analysis
-  sampleTable <- read.delim(opt$sample_table, stringsAsFactors=FALSE)
-  factors <- colnames(sampleTable)[-c(1:2)]
-  for (factor in factors) {
-    lvls <- unique(as.character(sampleTable[[factor]]))
-    sampleTable[[factor]] <- factor(sampleTable[[factor]], levels=lvls)
-  }
+  sampleTable[[factorName]] <- factor(sampleTable[[factorName]], levels=lvls)
 }
+rownames(sampleTable) <- labs
 
 primaryFactor <- factors[1]
 designFormula <- as.formula(paste("~", paste(rev(factors), collapse=" + ")))
@@ -216,13 +199,8 @@ if (verbose) {
   cat("\n---------------------\n")
 }
 
-# if JSON input from Galaxy, path is absolute
-# otherwise, from sample_table, assume it is relative
-dir <- if (is.null(opt$factors)) {
-  "."
-} else {
-  ""
-}
+# For JSON input from Galaxy, path is absolute
+dir <- ""
 
 if (!useTXI) {
   # construct the object from HTSeq files

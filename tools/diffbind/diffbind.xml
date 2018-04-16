@@ -1,10 +1,9 @@
-<tool id="diffbind" name="DiffBind" version="2.6.5.0">
+<tool id="diffbind" name="DiffBind" version="2.6.6.1">
     <description> differential binding analysis of ChIP-Seq peak data</description>
     <requirements>
-        <requirement type="package" version="2.6.5">bioconductor-diffbind</requirement>
+        <requirement type="package" version="2.6.6">bioconductor-diffbind</requirement>
         <requirement type="package" version="1.20.0">r-getopt</requirement>
-        <!--added rmysql requirement to remove: "Warning: namespace ‘RMySQL’ is not available"-->
-        <requirement type="package" version="0.10.11">r-rmysql</requirement>
+        <requirement type="package" version="0.2.15">r-rjson</requirement>
     </requirements>
     <stdio>
         <regex match="Execution halted"
@@ -21,130 +20,180 @@
            description="An undefined error occured, please check your intput carefully and contact your administrator." />
     </stdio>
     <version_command><![CDATA[
-echo $(R --version | grep version | grep -v GNU)", DiffBind version" $(R --vanilla --slave -e "library(DiffBind); cat(sessionInfo()\$otherPkgs\$DiffBind\$Version)" 2> /dev/null | grep -v -i "WARNING: ")," getopt version" $(R --vanilla --slave -e "library(getopt); cat(sessionInfo()\$otherPkgs\$getopt\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", rmysql version" $(R --vanilla --slave -e "library(rmysql); cat(sessionInfo()\$otherPkgs\$rmysql\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
+echo $(R --version | grep version | grep -v GNU)", DiffBind version" $(R --vanilla --slave -e "library(DiffBind); cat(sessionInfo()\$otherPkgs\$DiffBind\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", rjson version" $(R --vanilla --slave -e "library(rjson); cat(sessionInfo()\$otherPkgs\$rjson\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
     ]]></version_command>
     <command><![CDATA[
-        ## seems that diffbind also needs file extensions to work properly
-        #set $counter = 1
-        #for $sample in $samples:
-            ln -s $sample.bamreads #echo str($counter) + "_bamreads.bam"# &&
-            ln -s ${sample.bamreads.metadata.bam_index} #echo str($counter) + "_bamreads.bai"# &&
-            #if str( $sample.bamcontrol ) != 'None':
-                ln -s $sample.bamcontrol #echo str($counter) + "_bamcontrol.bam"# &&
-                ln -s ${sample.bamcontrol.metadata.bam_index} #echo str($counter) + "_bamcontrol.bai"# &&
-            #end if
-            #set $counter = $counter + 1
+#import re
+#import json
+
+## Adapted from DESeq2 wrapper
+#set $temp_factor_names = list()
+#set $temp_factor = list()
+
+#for $g in $rep_group:
+
+    #set $peak_files = list()
+    #set $bam_files = list()
+    #set $bam_controls = list()
+
+    #for $file in $g.peaks:
+        #set $file_name = re.sub('[^\w\-\s]', '_', str($file.element_identifier))
+        ln -s '${file}' ${g.groupName}-${file_name}-peaks.bed &&
+        $peak_files.append(str($g.groupName) + '-' + $file_name + '-peaks.bed')
+    #end for
+
+    #for $bam in $g.bamreads:
+        #set $bam_name = re.sub('[^\w\-\s]', '_', str($bam.element_identifier))
+        ln -s '${bam}' ${bam_name}-bamreads.bam &&
+        ln -s ${bam.metadata.bam_index} ${bam_name}-bamreads.bai &&
+        $bam_files.append($bam_name + '-bamreads.bam')
+    #end for
+
+    $temp_factor.append( {str($g.groupName): $peak_files} )
+    $temp_factor.append( {str($g.groupName): $bam_files} )
+
+    #if str( $g.bamcontrol ) != 'None':
+        #for $ctrl in $g.bamcontrol:
+            #set $ctrl_name = re.sub('[^\w\-\s]', '_', str($ctrl.element_identifier))
+            ln -s '${ctrl}' ${g.groupName}-${ctrl_name}-bamcontrol.bam &&
+            ln -s ${ctrl.metadata.bam_index} ${g.groupName}-${ctrl_name}-bamcontrol.bai &&
+            $bam_controls.append(str($g.groupName) + '-' + $ctrl_name + '-bamcontrol.bam')
         #end for
+        $temp_factor.append( {str($g.groupName): $bam_controls} )
+    #end if
 
-        Rscript '$__tool_directory__/diffbind.R'
-            -i $infile
-            -o '$outfile'
-            -p '$plots'
-            -f $format
-            -t $th
+#end for
 
-            #if $binding_affinity_matrix:
-                -b
-            #end if
+$temp_factor.reverse()
+$temp_factor_names.append([str($factorName), $temp_factor])
+
+
+Rscript '$__tool_directory__/diffbind.R'
+
+    -i '#echo json.dumps(temp_factor_names)#'
+    -o '$outfile'
+    -t $th
+    -f $out.format
+    -p '$plots'
+
+    #if $scorecol:
+        -n "$scorecol"
+    #end if
+    #if $lowerbetter:
+        -l "$lowerbetter"
+    #end if
+    #if $summits:
+        -s "$summits"
+    #end if
+
+    #if $out.binding_matrix:
+        -b
+    #end if
+
+    #if $out.rdata:
+        -r
+    #end if
+
+    #if $out.analysis_info:
+        -a
+    #end if
+
+    #if $out.rscript:
+        && cp '$__tool_directory__/diffbind.R' '$rscript'
+    #end if
 ]]>
     </command>
-    <configfiles>
-<configfile name="infile"><![CDATA[
-#set $counter = 1
-#for $sample in $samples:
-#if str( $sample.bamcontrol ) != 'None' and $counter == 1:
-SampleID,Tissue,Factor,Condition,Replicate,bamReads,bamControl,Peaks
-#elif $counter == 1:
-SampleID,Tissue,Factor,Condition,Replicate,bamReads,Peaks
-#end if
-#if str( $sample.bamcontrol ) != 'None':
-$sample.sample_id,$sample.tissue,$sample.factor,$sample.condition,$sample.replicate,#echo str($counter) + '_bamreads.bam'#,#echo str($counter) + '_bamcontrol.bam'#,$sample.peaks
-#else:
-$sample.sample_id,$sample.tissue,$sample.factor,$sample.condition,$sample.replicate,#echo str($counter) + '_bamreads.bam'#,$sample.peaks
-#end if
-#set $counter = $counter + 1
-#end for]]></configfile>
-    </configfiles>
     <inputs>
-        <repeat name="samples" title="Samples" min="2">
-            <param name="sample_id" type="text" value="Sample ID" label="Specify a sample id" help="e.g. BT474.1-" />
-            <param name="tissue" type="text" value="Tissue" label="Specify the tissue" help="e.g. BT474" />
-            <param name="factor" type="text" value="Factor Name" label="Specify a factor name" help="e.g. ER" />
-            <param name="condition" type="text" value="Condition" label="Specify the condition" help="e.g. Resistent" />
-            <param name="replicate" type="integer" value="1" label="Specify the replicate number" help="e.g. 1" />
-            <param name="bamreads" type="data" format="bam" label="Read BAM file" help="Specify the Read BAM file, used for Peak calling."/>
-            <param name="bamcontrol" type="data" format="bam" optional="True" label="Control BAM file" help="If specifying a control BAM file for this sample, then all samples are required to specify one."/>
-            <param name="peaks" type="data" format="bed" label="Peak file" help="Result of your Peak calling experiment."/>
-        </repeat>
-        <param name="th" type="float" value="1" min="0" max="1"
-                label="FDR Threshold"
-                help="Significance threshold; all sites with FDR less than or equal to this value will be included in the report. A value of 1 will include all binding sites in the report. Default: 1"/>
-        <param name="pdf" type="boolean" truevalue="" falsevalue="" checked="true"
-            label="Visualising the analysis results"
-            help="output an additional PDF file" />
-        <param name="format" type="select" label="Output Format">
-            <option value="bed">BED</option>
-            <option value="gff">GFF</option>
-            <option value="wig">WIG</option>
+        <param name="factorName" type="text" label="Name" help="Name of experiment factor of interest (e.g. Condition). One factor must be entered and there must be two or more groups. NOTE: Please only use letters, numbers or underscores.">
+        <sanitizer>
+            <valid initial="string.letters,string.digits"><add value="_" /></valid>
+        </sanitizer>
         </param>
-        <param name="binding_affinity_matrix" type="boolean" truevalue="True" falsevalue="" checked="False" label="Output binding affinity matrix?" help="Output a table of the binding scores" />
+        <repeat name="rep_group" title="Group" min="2" default="2">
+            <param name="groupName" type="text" label="Name"
+            help="Name of group that the peak files belong to (e.g. Resistant or Responsive). NOTE: Please only use letters, numbers or underscores (case sensitive).">
+            <sanitizer>
+                <valid initial="string.letters,string.digits"><add value="_" /></valid>
+            </sanitizer>
+            </param>
+            <param name="peaks" type="data" format="bed" multiple="true" label="Peak files" help="Result of your Peak calling experiment"/>
+            <param name="bamreads" type="data" format="bam" multiple="true" label="Read BAM file" help="Specify the Read BAM file used for Peak calling."/>
+            <param name="bamcontrol" type="data" format="bam" multiple="true" optional="True" label="Control BAM file" help="If specifying a control BAM file, all samples are required to specify one."/>
+        </repeat>
+
+        <param name="scorecol" type="integer" min="0" value="8" label="Score Column" help="Column in peak files that contains peak scores.  Default: 8 (narrowPeak)"/>
+        <param name="lowerbetter" type="boolean" truevalue="True" falsevalue="" checked="False" label="Lower score is better?" help="DiffBind by default assumes that a higher score indicates a better peak, for example narrowPeaks -log10pvalue. If this is not the case, for example if the score is a p-value or FDR, set this option to Yes. Default: No" />
+        <param name="summits" type="integer" min="0" optional="True" label="Summits" help="Extend peaks Nbp up- and downstream of the summit. For punctate peaks it is advisable to extend (e.g. 250bp), see the DiffBind User Guide"/>
+        <param name="th" type="float" value="0.05" min="0" max="1" label="FDR Threshold" help="Significance threshold; all sites with FDR less than or equal to this value will be included in the output. A value of 1 will output all binding sites. Default: 0.05"/>
+
+        <!-- Output Options -->
+        <section name="out" expanded="false" title="Output Options">
+            <param name="format" type="select" label="Output Format">
+                <option value="bed">BED</option>
+                <option value="gff">GFF</option>
+                <option value="wig">WIG</option>
+            </param>
+            <param name="pdf" type="boolean" truevalue="True" falsevalue="" checked="False" label="Visualising the analysis results" help="output an additional PDF file" />
+            <param name="binding_matrix" type="boolean" truevalue="True" falsevalue="" checked="False" label="Output binding affinity matrix?" help="Output a table of the binding scores" />
+            <param name="rdata" type="boolean" truevalue="True" falsevalue="" checked="False" label="Output RData file?" help="Output all the data used by R to construct the plots and tables, can be loaded into R. Default: No"/>
+            <param name="rscript" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Output Rscript?" help="If this option is set to Yes, the Rscript used will be provided as a text file in the output. Default: No"/>
+            <param name="analysis_info" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Output analysis info?" help="If this option is set to Yes, information from the dba.count and dba.analyze commmands will be output in a text file. Default: No"/>
+        </section>
     </inputs>
+
     <outputs>
-        <data name="outfile" format="bed" label="Differential binding sites on ${on_string}">
+        <data name="outfile" format="bed" label="${tool.name} on ${on_string}: Differentially bound sites">
             <change_format>
                 <when input="format" value="wig" format="wig" />
                 <when input="format" value="gff" format="gff" />
             </change_format>
         </data>
-        <data name="plots" format="pdf" label="Differential binding sites on ${on_string}">
-            <filter>pdf == True</filter>
+        <data name="plots" format="pdf" label="${tool.name} on ${on_string}: Plots">
+            <filter>out['pdf']</filter>
         </data>
-        <data name="binding_matrix" format="tabular" from_work_dir="bmatrix.tab" label="Differential binding sites on ${on_string}">
-            <filter>binding_affinity_matrix == True</filter>
+        <data name="binding_matrix" format="tabular" from_work_dir="bmatrix.tab" label="${tool.name} on ${on_string}: Binding matrix">
+            <filter>out['binding_matrix']</filter>
+        </data>
+        <data name="rdata" format="rdata" from_work_dir="DiffBind_analysis.RData" label="${tool.name} on ${on_string}: RData file">
+            <filter>out['rdata']</filter>
+        </data>
+        <data name="rscript" format="txt" label="${tool.name} on ${on_string}: Rscript">
+            <filter>out['rscript']</filter>
+        </data>
+        <data name="analysis_info" format="txt" from_work_dir="DiffBind_analysis_info.txt" label="${tool.name} on ${on_string}: Analysis info">
+            <filter>out['analysis_info']</filter>
         </data>
     </outputs>
+
     <tests>
-        <test>
-            <repeat name="samples">
-                <param name="sample_id" value="BT4741" />
-                <param name="tissue" value="BT474" />
-                <param name="factor" value="ER" />
-                <param name="condition" value="Resistant" />
-                <param name="replicate" value="1" />
-                <param name="bamreads" ftype="bam" value="BT474_ER_1.bam" />
-                <param name="peaks" ftype="bed" value="BT474_ER_1.bed.gz" />
+        <test expect_num_outputs="6">
+            <param name="factorName" value="Condition"/>
+            <repeat name="rep_group">
+                <param name="groupName" value="Resistant"/>
+                <param name="peaks" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="BT474_ER_1.bam,BT474_ER_2.bam" />
             </repeat>
-            <repeat name="samples">
-                <param name="sample_id" value="BT4742" />
-                <param name="tissue" value="BT474" />
-                <param name="factor" value="ER" />
-                <param name="condition" value="Resistant" />
-                <param name="replicate" value="2" />
-                <param name="bamreads" ftype="bam" value="BT474_ER_2.bam" />
-                <param name="peaks" ftype="bed" value="BT474_ER_2.bed.gz" />
+            <repeat name="rep_group">
+                <param name="groupName" value="Responsive"/>
+                <param name="peaks" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam,MCF7_ER_2.bam" />
             </repeat>
-            <repeat name="samples">
-                <param name="sample_id" value="MCF71" />
-                <param name="tissue" value="MCF7" />
-                <param name="factor" value="ER" />
-                <param name="condition" value="Responsive" />
-                <param name="replicate" value="1" />
-                <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam" />
-                <param name="peaks" ftype="bed" value="MCF7_ER_1.bed.gz" />
-            </repeat>
-            <repeat name="samples">
-                <param name="sample_id" value="MCF72" />
-                <param name="tissue" value="MCF7" />
-                <param name="factor" value="ER" />
-                <param name="condition" value="Responsive"  />
-                <param name="replicate" value="2" />
-                <param name="bamreads" ftype="bam" value="MCF7_ER_2.bam" />
-                <param name="peaks" ftype="bed" value="MCF7_ER_2.bed.gz" />
-            </repeat>
+            <param name="scorecol" value="5" />
             <param name="pdf" value="True" />
-            <param name="binding_affinity_matrix" value="True" />
+            <param name="binding_matrix" value="True" />
+            <param name="rdata" value="True" />
+            <param name="rscript" value="True"/>
+            <param name="analysis_info" value="True"/>
             <output name="outfile" value="out_diffbind.bed" />
+            <output name="plots" value="out_plots.pdf" compare="sim_size" />
             <output name="binding_matrix" value="out_binding.matrix" />
+            <output name="rdata" value="DiffBind_analysis.RData" compare="sim_size"/>
+            <output name="rscript" value="out_rscript.txt"/>
+            <output name="analysis_info" value="out_analysis_info.txt" compare="sim_size" >
+                <assert_contents>
+                    <has_text text="SessionInfo"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -166,7 +215,7 @@ including overlapping and merging peak sets, counting sequencing reads overlappi
 in peak sets, and identifying statistically significantly differentially bound sites based on
 evidence of binding affinity (measured by differences in read densities). To this end it uses
 statistical routines developed in an RNA-Seq context (primarily the Bioconductor packages
-edgeR and DESeq2 ). Additionally, the package builds on Rgraphics routines to provide a
+edgeR and DESeq2). Additionally, the package builds on Rgraphics routines to provide a
 set of standardized plots to aid in binding analysis.
 
 The `DiffBind User Guide`_ includes a brief overview of the processing flow, followed by four sections of
@@ -176,11 +225,9 @@ use of a blocking factor, and the fourth revisiting occupancy data (peak calls) 
 as well as comparing the results of an occupancy-based analysis with an affinity-based one.
 Finally, certain technical aspects of the how these analyses are accomplished are detailed.
 
-Note DiffBind requires a minimum of four samples (two groups with two replicates each).
+Note this DiffBind tool requires a minimum of four samples (two groups with two replicates each).
 
-.. _DiffBind: https://bioconductor.org/packages/release/bioc/html/DiffBind.html
-.. _`Bioconductor package`: https://bioconductor.org/packages/release/bioc/html/DiffBind.html
-.. _`DiffBind User Guide`: https://bioconductor.org/packages/release/bioc/vignettes/DiffBind/inst/doc/DiffBind.pdf
+-----
 
 **Inputs**
 
@@ -194,56 +241,29 @@ a control sample)
 
 **Sample Information**
 
-You have to specify your sample information in the tool form above.
+You have to specify your sample information in the tool form above, where Factor is the groups you want to compare (e.g Resistant and Responsive).
 
 Example:
 
-    ============= ========== ========== ============= =============
-     **SampleID** **Tissue** **Factor** **Condition** **Replicate**
-    ------------- ---------- ---------- ------------- -------------
-    BT4741        BT474      ER         Resistant     1            
-    BT4742        BT474      ER         Resistant     2            
-    MCF71         MCF7       ER         Responsive    1            
-    MCF72         MCF7       ER         Responsive    2            
-    MCF73         MCF7       ER         Responsive    3            
-    T47D1         T47D       ER         Responsive    1            
-    T47D2         T47D       ER         Responsive    2            
-    MCF7r1        MCF7       ER         Resistant     1            
-    MCF7r2        MCF7       ER         Resistant     2            
-    ZR751         ZR75       ER         Responsive    1            
-    ZR752         ZR75       ER         Responsive    2            
-    ============= ========== ========== ============= =============
-
-Or provide a sample sheet tabular file such as below.
-
-Example:
-
-    ======== ======  ====== ========== ========== ========= ====================  ========= ===================== ================= ==========
-    SampleID Tissue  Factor Condition  Treatment  Replicate bamReads              ControlID bamControl            Peaks             PeakCaller
-    ======== ======  ====== ========== ========== ========= ====================  ========= ===================== ================= ==========
-    BT4741   BT474   ER     Resistant  Full-Media  1        Chr18_BT474_ER_1.bam  BT474c    Chr18_BT474_input.bam BT474_ER_1.bed.gz bed
-    BT4742   BT474   ER     Resistant  Full-Media  2        Chr18_BT474_ER_2.bam  BT474c    Chr18_BT474_input.bam BT474_ER_2.bed.gz bed
-    MCF71    MCF7    ER     Responsive Full-Media  1        Chr18_MCF7_ER_1.bam   MCF7c     Chr18_MCF7_input.bam  MCF7_ER_1.bed.gz  bed
-    MCF72    MCF7    ER     Responsive Full-Media  2        Chr18_MCF7_ER_2.bam   MCF7c     Chr18_MCF7_input.bam  MCF7_ER_2.bed.gz  bed
-    MCF73    MCF7    ER     Responsive Full-Media  3        Chr18_MCF7_ER_3.bam   MCF7c     Chr18_MCF7_input.bam  MCF7_ER_3.bed.gz  bed
-    T47D1    T47D    ER     Responsive Full-Media  1        Chr18_T47D_ER_1.bam   T47Dc     Chr18_T47D_input.bam  T47D_ER_1.bed.gz  bed
-    T47D2    T47D    ER     Responsive Full-Media  2        Chr18_T47D_ER_2.bam   T47Dc     Chr18_T47D_input.bam  T47D_ER_2.bed.gz  bed
-    MCF7r1   MCF7    ER     Resistant  Full-Media  1        Chr18_TAMR_ER_1.bam   TAMRc     Chr18_TAMR_input.bam  TAMR_ER_1.bed.gz  bed
-    MCF7r2   MCF7    ER     Resistant  Full-Media  2        Chr18_TAMR_ER_2.bam   TAMRc     Chr18_TAMR_input.bam  TAMR_ER_2.bed.gz  bed
-    ZR751    ZR75    ER     Responsive Full-Media  1        Chr18_ZR75_ER_1.bam   ZR75c     Chr18_ZR75_input.bam  ZR75_ER_1.bed.gz  bed
-    ZR752    ZR75    ER     Responsive Full-Media  2        Chr18_ZR75_ER_2.bam   ZR75c     Chr18_ZR75_input.bam  ZR75_ER_2.bed.gz  bed
-    ======== ======  ====== ========== ========== ========= ====================  ========= ===================== ================= ==========
+    ============= =============
+     **SampleID** **Group**
+    ------------- -------------
+    BT4741        Resistant
+    BT4742        Resistant
+    MCF71         Responsive
+    MCF72         Responsive
+    ============= =============
 
 
 **Peak files**
 
-Result of your Peak calling experiment in bed format, one file for each sample is required.
+Result of your Peak calling experiment in bed format, one file for each sample is required. The peak caller, format and score column can be specified in the tool form above. The default settings expect narrowPeak bed format, which has the score in the 8th column (-log10pvalue), and can be output from MACS2.
 
-Example:
+Example (MACS.xls file in bed format):
 
-    ======= ======= ======= =============== =======
-    1          2      3          4           **5**
-    ======= ======= ======= =============== =======
+    ======= ======= ======= =============== ==============
+    1          2      3          4           **5 (Score)**
+    ======= ======= ======= =============== ==============
     chr18   215562  216063  MACS_peak_16037 56.11
     chr18   311530  312105  MACS_peak_16038 222.49
     chr18   356656  357315  MACS_peak_16039 92.06
@@ -254,42 +274,56 @@ Example:
     chr18   503518  504552  MACS_peak_16044 818.30
     chr18   531672  532274  MACS_peak_16045 159.30
     chr18   568326  569282  MACS_peak_16046 601.11
-    ======= ======= ======= =============== =======
+    ======= ======= ======= =============== ==============
 
-* BAM file which contains the mapped sequencing reads can be associated with each peakset
-* Control BAM file represents a control dataset and are optional, but have to specified for all when used.
+* BAM file which contains the mapped sequencing reads associated with each peakset, one file for each sample is required.
+* Optional: Control BAM file representing a control dataset. If used, has to be specified for all samples. Note that the DiffBind authors say control reads are best utilized prior to running DiffBind, at the peak calling stage (e.g. with MACS2) and in blacklists, see this `Bioconductor post`_.
 
+-----
 
 **Outputs**
 
+This tool outputs
+
+    * differentially bound sites in BED, WIG or GFF format
+
+Optionally, under **Output Options** you can choose to output
+
+    * a PDF of plots (Heatmap, PCA, MA, Volcano, Boxplots)
+    * a binding affinity matrix
+    * the R script used by this tool
+    * an RData file of the R objects generated
+    * a text file with information on the analysis (number of Intervals, FriP scores, method used)
+
+**Differentially Bound Sites**
+
 As output format you can choose BED, GFF, WIG.
 
-Example:
+Example - BED format:
 
-======== ====== =======+
-seqnames ranges strand             Conc Conc_Resistant
+    ========  ======  ======  =====  ======  =====  ===============  ==============  =======   ========  ========
+    seqnames  start   end     width  strand  Conc   Conc_Responsive  Conc_Resistant  Fold      p.value   **FDR**
+    ========  ======  ======  =====  ======  =====  ===============  ==============  =======   ========  ========
+    chr18     394600  396513  1914    *      7.15   5.55             7.89            -2.35     7.06e-24  9.84e-21
+    chr18     111567  112005  439     *      5.71   6.53             3.63            2.89      1.27e-08  8.88e-06
+    chr18     346464  347342  879     *      5      5.77             3.24            2.52      6.51e-06  0.00303
+    chr18     399014  400382  1369    *      7.62   7                8.05            -1.04     1.04e-05  0.00364
+    chr18     371110  372102  993     *      4.63   3.07             5.36            -2.3      8.1e-05   0.0226
+    ========  ======  ======  =====  ======  =====  ===============  ==============  =======   ========  ========
 
-2452     chr18 [64490686, 64491186] * | 6.36 1.39
-1291     chr18 [34597713, 34598213] * | 5.33 0.22
-976      chr18 [26860997, 26861497] * | 7.3 3.13
-2338     chr18 [60892900, 60893400] * | 7.13 1.84
-2077     chr18 [55569087, 55569587] * | 5.52 1.89
+    Columns contain the following data:
 
-Conc_Responsive Fold p-value FDR
-<numeric> <numeric> <numeric> <numeric>
-2452 7 -5.61 3.57e-10 1.02e-06
-1291 5.97 -5.75 1.1e-09 1.57e-06
-976 7.92 -4.79 1.1e-08 1.05e-05
-2338 7.77 -5.93 1.68e-08 1.17e-05
-2077 6.13 -4.23 2.36e-08 1.17e-05
-
-The value columns show the
-Conc mean read concentration over all the samples (the default calculation uses log2 normalized ChIP read counts with control read counts subtracted) 
-Conc_Resistant mean concentration over the first (Resistant) group 
-Conc_Responsive mean concentration over second (Responsive) group 
-Fold column shows the difference in mean concentrations between the two groups (Conc_Resistant - Conc_Responsive), with a positive value indicating increased binding affinity in the Resistant group and a negative value indicating increased binding affinity in the Responsive group.
-p-value confidence measure for identifying these sites as differentially bound 
-FDR a multiple testing corrected FDR p-value
+* **1st**: Chromosome name
+* **2nd**: Start position of site
+* **3rd**: End position of site
+* **4th**: Length of site
+* **5th**: Strand
+* **6th**: Mean read concentration over all the samples (the default calculation uses log2 normalized ChIP read counts with control read counts subtracted)
+* **7th**: Mean concentration over the first (e.g. Resistant) group
+* **8th**: Mean concentration over second (e.g. Responsive) group
+* **9th**: Fold shows the difference in mean concentrations between the two groups (e.g. Resistant - Responsive), with a positive value indicating increased binding affinity in the first group and a negative value indicating increased binding affinity in the second group.
+* **10th**: P-value confidence measure for identifying these sites as differentially bound
+* **11th**: a multiple testing corrected FDR p-value
 
 
 **Binding Affinity Matrix**
@@ -299,23 +333,22 @@ differential analysis.
 
 Example:
 
-    ====== ====== ====== ========== ========== ========= ====== ========= ====
-    ID     Tissue Factor Condition  Treatment  Replicate Caller Intervals FRiP
-    ====== ====== ====== ========== ========== ========= ====== ========= ====
-    BT4741 BT474  ER     Resistant  Full-Media 1         counts 2845      0.16
-    BT4742 BT474  ER     Resistant  Full-Media 2         counts 2845      0.15
-    MCF71  MCF7   ER     Responsive Full-Media 1         counts 2845      0.27
-    MCF72  MCF7   ER     Responsive Full-Media 2         counts 2845      0.17
-    MCF73  MCF7   ER     Responsive Full-Media 3         counts 2845      0.23
-    T47D1  T47D   ER     Responsive Full-Media 1         counts 2845      0.10
-    T47D2  T47D   ER     Responsive Full-Media 2         counts 2845      0.06
-    MCF7r1 MCF7   ER     Resistant  Full-Media 1         counts 2845      0.20
-    MCF7r2 MCF7   ER     Resistant  Full-Media 2         counts 2845      0.13
-    ZR751  ZR75   ER     Responsive Full-Media 1         counts 2845      0.32
-    ZR752  ZR75   ER     Responsive Full-Media 2         counts 2845      0.22
-    ====== ====== ====== ========== ========== ========= ====== ========= ====
+    =====  ======  ======  ================  ================  ================  ================
+    CHR    START   END     MCF7_ER_1.bed     MCF7_ER_2.bed     BT474_ER_1.bed    BT474_ER_2.bed
+    =====  ======  ======  ================  ================  ================  ================
+    chr18  111567  112005  137.615208000375  59.878372946728   29.4139375878664  19.9594576489093
+    chr18  189223  189652  19.9594576489093  12.6059732519427  11.5554754809475  23.110950961895
+    chr18  215232  216063  11.5554754809475  15.7574665649284  31.5149331298568  72.4843461986707
+    chr18  311530  312172  17.8584621069189  11.5554754809475  54.6258840917518  43.0704086108043
+    chr18  346464  347342  75.6358395116564  40.9694130688139  21.0099554199046  16.8079643359236
+    chr18  356560  357362  11.5554754809475  14.7069687939332  57.7773774047375  53.5753863207566
+    chr18  371110  372102  8.40398216796182  9.45447993895705  81.9388261376278  82.989323908623
+    chr18  394600  396513  56.7268796337423  43.0704086108043  510.541916703681  438.05757050501
+    chr18  399014  400382  156.524167878289  117.655750351465  558.864814169461  496.885445680743
+    chr18  498906  500200  767.913870597511  278.381909313735  196.443083176108  181.736114382174
+    =====  ======  ======  ================  ================  ================  ================
 
-
+-----
 
 **More Information**
 
@@ -328,21 +361,18 @@ Generally, processing data with DiffBind involves five phases:
  #. Plotting and reporting
 
 
- * **Reading in peaksets**: 
+**Reading in peaksets**:
 
 The first step is to read in a set of peaksets and associated
-metadata. Peaksets are derived either from ChIP-Seq peak callers, such as MACS
-([1]), or using some other criterion (e.g. genomic windows, or all the promoter regions
-in a genome). The easiest way to read in peaksets is using a comma-separated value
-(csv) sample sheet with one line for each peakset. (Spreadsheets in Excel® format, with
-a .xls or .xlsx suffix, are also accepted.) A single experiment can have more than
+metadata. Peaksets are derived either from ChIP-Seq peak callers, such as **MACS2**, or using some other criterion (e.g. genomic windows, or all the promoter regions
+in a genome).  A single experiment can have more than
 one associated peakset; e.g. if multiple peak callers are used for comparison purposes
 each sample would have more than one line in the sample sheet. Once the peaksets
 are read in, a merging function finds all overlapping peaks and derives a single set of
 unique genomic intervals covering all the supplied peaks (a consensus peakset for the
 experiment).
 
- * **Occupancy analysis**: 
+**Occupancy analysis**:
 
 Peaksets, especially those generated by peak callers, provide
 an insight into the potential occupancy of the protein being ChIPed for at specific
@@ -356,7 +386,7 @@ cluster together. Beyond quality control, the product of an occupancy analysis m
 a consensus peakset, representing an overall set of candidate binding sites to be used
 in further analysis.
 
- * **Counting reads**: 
+**Counting reads**:
 
 Once a consensus peakset has been derived, DiffBind can use the
 supplied sequence read files to count how many reads overlap each interval for each
@@ -368,7 +398,7 @@ With this matrix, the samples can be re-clustered using affinity, rather than oc
 data. The binding affinity matrix is used for QC plotting as well as for subsequent
 differential analysis.
 
- * **Differential binding affinity analysis**: 
+**Differential binding affinity analysis**:
 
 The core functionality of DiffBind is the
 differential binding affinity analysis, which enables binding sites to be identified that
@@ -378,7 +408,7 @@ be compared. Next the core analysis routines are executed, by default using DESe
 This will assign a p-value and FDR to each candidate binding site indicating confidence
 that they are differentially bound.
 
- * **Plotting and reporting**: 
+**Plotting and reporting**:
 
 Once one or more contrasts have been run, DiffBind provides
 a number of functions for reporting and plotting the results. MA plots give an
@@ -389,10 +419,17 @@ lose affinity between the two sample groups. A reporting mechanism enables diffe
 bound sites to be extracted for further processing, such as annotation, motif, and
 pathway analyses.
 
+-----
+
 **References**
 
 DiffBind Authors:  Rory Stark, Gordon Brown (2011)
 Wrapper authors: Bjoern Gruening, Pavankumar Videm
+
+.. _DiffBind: https://bioconductor.org/packages/release/bioc/html/DiffBind.html
+.. _`Bioconductor package`: https://bioconductor.org/packages/release/bioc/html/DiffBind.html
+.. _`DiffBind User Guide`: https://bioconductor.org/packages/release/bioc/vignettes/DiffBind/inst/doc/DiffBind.pdf
+.. _`Bioconductor post`: https://support.bioconductor.org/p/69924/
 
 ]]>
     </help>
