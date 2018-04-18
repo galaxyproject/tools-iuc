@@ -26,18 +26,18 @@ sce_f <- sce[rowSums(cnts) > min_gene_trans, colSums(cnts) > min_cell_trans]
 
 plotter("OUT_prefilter_totalcounts", function(){
     hist(
-        sce$total_counts, breaks=100, 
-        xlab="Total Transcripts per Cell", 
-        ylab="Frequency", 
+        sce$total_counts, breaks=100,
+        xlab="Total Transcripts per Cell",
+        ylab="Frequency",
         main=""
     )
     abline(v=min_gene_trans, col='red')
 })
 
-plotter("OUT_prefilter_totalgenes", function(){
-    hist(sce$total_features, breaks=100, 
-         xlab="Total Gene Transcripts per Cell", 
-         ylab="Frequency", 
+plotter("OUT_prefilter_totalgenes" , function(){
+    hist(sce$total_features, breaks=100,
+         xlab="Total Gene Transcripts per Cell",
+         ylab="Frequency",
          main="")
     abline(v=min_gene_trans, col = 'red')
 })

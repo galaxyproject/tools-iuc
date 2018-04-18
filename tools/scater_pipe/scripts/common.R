@@ -15,7 +15,7 @@ source(config_file)
 message <- function(...){ print(sprintf(...)) }
 plotter <- function(fname, funct){
     name <- paste(fname, "svg", sep=".")
-    svg(name,width=10,height=10)
-    force(funct)
+    svg(name, width=10, height=10)
+    force(funct)()
     dev.off()
 }
