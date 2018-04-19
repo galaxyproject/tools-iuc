@@ -8,18 +8,12 @@
     <expand macro="version_command"/>
     <command><![CDATA[
         @PREPIDX@
-
-        #if $cond_addref.select_addref == "history":
-            ln -s '${cond_addref.ref}' reference.fa &&
-            samtools faidx reference.fa &&
-        #elif $cond_addref.select_addref == "cached":
-            ln -s '${cond_addref.ref.fields.path}' reference.fa &&
-            ln -s '${cond_addref.ref.fields.path}.fai' reference.fa.fai &&
-        #end if
+        @PREPFAIDX@
 
         samtools stats
-            infile
-            --coverage ${coverage_min},${coverage_max},${coverage_step}
+            #if $coverage_cond.coverage_select == 'yes':
+                --coverage ${coverage_cond.coverage_min},${coverage_cond.coverage_max},${coverage_cond.coverage_step}
+            #end if
             ${remove_dups}
             #if str( $filter_by_flags.filter_flags ) == "filter":
                 #if $filter_by_flags.require_flags:
@@ -33,8 +27,12 @@
                     --filtering-flag $flags
                 #end if
             #end if
-            --GC-depth ${gc_depth}
-            --insert-size ${insert_size}
+            #if str($gc_depth):
+                --GC-depth ${gc_depth}
+            #end if
+            #if str($insert_size):
+                --insert-size ${insert_size}
+            #end if
             ## The code below is commented out because using -I/--id options causes the following exception
             ## Samtools-htslib: init_group_id() header parsing not yet implemented
             ##if str($read_group) != "":
@@ -43,41 +41,60 @@
             #if str($read_length):
                 --read-length ${read_length}
             #end if
-            --most-inserts ${most_inserts}
-            --trim-quality ${trim_quality}
+            #if str($most_inserts):
+                --most-inserts ${most_inserts}
+            #end if
+            #if str($trim_quality):
+                --trim-quality ${trim_quality}
+            #end if
 
-            #if $cond_addref.select_addref != "no":
-                --ref-seq reference
+            #if $reffa != None:
+                --ref-seq '$reffa'
             #end if
             ## TODO currently not implemented in Galaxy
+            ## generates STR_VALUE.bamstat where STR is given by -P and VALUE is a value of the TAG given by -S
+            ## needs some discover data sets action...
             ## -P, --split-prefix STR
             ## -S, --split TAG
             $sparse
             #if $cond_region.select_region == 'tab':
                 -t '$cond_region.targetregions'
-            #else if $cond_region.select_region == 'text':
-                '$cond_region.regions'
+            #end if
+
+            infile
+
+            #if $cond_region.select_region == 'text':
+                $cond_region.regions
             #end if
             > '${output}'
 
             #if $split_output.split_output_selector == "yes":
                 #set outputs_to_split = str($split_output.generate_tables).split(',')
-            && mkdir split
-            #for s in str($split_output.generate_tables).split(','):
+                && mkdir split
+                #for s in str($split_output.generate_tables).split(','):
                     && name=`cat ${output} | grep '\^$s' | cut -d'.' -f 1 | sed 's/^# //'` &&
                     ## TODO should empty tab files be generated (and added to the history)?
                     ## echo \$name > "split/\$name.tab" &&
-            if grep -q ^$s '${output}'; then
-                        awk '/\^/{out=0} /\^$s/{out=1} {if(out==1){print $0}}' '$output' | sed 's/Use `grep .*` to extract this part.//' > "split/\$name.tab";
+                    if grep -q ^$s '${output}'; then
+                        awk '/\^/{out=0} /\^$s/{out=1} {if(out==1){print $0}}' '$output' | sed 's/Use `grep .*` to extract this part.//' | sed 's/$s\t//' > "split/\$name.tab";
                     fi
                 #end for
             #end if
         ]]></command>
     <inputs>
         <param name="input" type="data" format="sam,bam,cram" label="BAM file" />
-        <param name="coverage_min" type="integer" value="1" label="Minimum coverage" help="Minimum coverage" />
-        <param name="coverage_max" type="integer" value="1000" label="Maximum coverage" help="Maximum coverage" />
-        <param name="coverage_step" type="integer" value="1" label="Coverage step" help="Step value for coverage" />
+        <conditional name="coverage_cond">
+            <param name="coverage_select" type="select" label="Set coverage distribution">
+                <option value="no" selected="True">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="coverage_min" type="integer" value="1" label="Minimum coverage" help="Minimum coverage" />
+                <param name="coverage_max" type="integer" value="1000" label="Maximum coverage" help="Maximum coverage" />
+                <param name="coverage_step" type="integer" value="1" label="Coverage step" help="Step value for coverage" />
+            </when>
+        </conditional>
         <param name="remove_dups" argument="--remove-dups" type="boolean" truevalue="--remove-dups" falsevalue="" checked="False" label="Exclude reads marked as duplicates" />
         <conditional name="split_output">
             <param name="split_output_selector" type="select" label="Output" help="Select between one single output or separate outputs for each statistics">
@@ -119,8 +136,9 @@
             <when value="nofilter" />
 
         </conditional>
-        <param name="gc_depth" argument="--GC-depth" type="float" value="20000" label="Size of GC-depth bins" help="Decreasing bin size increases memory requirement" />
-        <param name="insert_size" argument="--insert-size" type="integer" value="8000" label="Maximum insert size" />
+        <!-- TODO I would like to set the default values of float and int parameters as on the samtools stats help page, but then the tests don't work. Hence I leave the optional and give the defaults in the help -->
+        <param name="gc_depth" argument="--GC-depth" type="float" optional="True" label="Size of GC-depth bins" help="Decreasing bin size increases memory requirement. default=2e4" />
+        <param name="insert_size" argument="--insert-size" type="integer" optional="True" label="Maximum insert size" help="default=8000" />
         <!--
 
             The -I option of samtools stats returns the following message in version 1.2:
@@ -138,18 +156,18 @@
 
         -->
 
-        <param name="read_length" argument="--read-length" type="integer" value="" optional="true" label="Minimum read length to generate statistics for" help="No cutoff if left empty"/>
-        <param name="most_inserts" argument="--most-inserts" type="float" value="0.99" label="Report only the main part of inserts" />
-        <param name="trim_quality" argument="--trim-quality" type="integer" value="0" label="BWA trim parameter" />
+        <param name="read_length" argument="--read-length" type="integer" optional="true" label="Minimum read length to generate statistics for" help="No cutoff if left empty" />
+        <param name="most_inserts" argument="--most-inserts" type="float" optional="true" label="Report only the main part of inserts" help="default=0.99" />
+        <param name="trim_quality" argument="--trim-quality" type="integer" optional="true" label="BWA trim parameter" help="default=0" />
 
-        <conditional name="cond_addref">
-            <param name="select_addref" type="select" label="Use a reference sequence" help="Required for GC-depth and mismatches-per-cycle calculation">
-                <option value="no">None</option>
+        <conditional name="addref_cond">
+            <param name="addref_select" type="select" label="Use a reference sequence" help="Required for GC-depth and mismatches-per-cycle calculation">
+                <option value="no">No</option>
                 <option value="cached">Locally cached</option>
                 <option value="history">History</option>
             </param>
-	    <when value="no"/>
-	    <when value="cached">
+            <when value="no"/>
+            <when value="cached">
                 <param name="ref" type="select" label="Using genome">
                     <options from_data_table="fasta_indexes">
                         <filter type="data_meta" ref="input" key="dbkey" column="1" />
@@ -161,7 +179,7 @@
             </when>
         </conditional>
         <!-- unfortunately -t takes tabular and not bed like view (otherwise a macro might have simplified this) -->
-	<conditional name="cond_region">
+        <conditional name="cond_region">
             <param name="select_region" type="select" label="Filter by regions">
                 <option value="no" selected="True">No</option>
                 <option value="text">Manualy specify regions</option>
@@ -175,29 +193,31 @@
                 <param name="targetregions" argument="-t/--target-regions" type="data" format="tabular" optional="false" label="Target regions file" help="Do stats in these regions only. Tab-delimited file chr,from,to (1-based, inclusive)" />
             </when>
         </conditional>
-	<param name="sparse" argument="-x/--sparse" type="boolean" truevalue="-x" falsevalue="" checked="False" label="Suppress absence of insertions" help="Suppress outputting IS rows where there are no insertions."/>
+        <param name="sparse" argument="-x/--sparse" type="boolean" truevalue="-x" falsevalue="" checked="False" label="Suppress absence of insertions" help="Suppress outputting IS rows where there are no insertions."/>
     </inputs>
 
     <outputs>
         <data name="output" format="tabular" label="${tool.name} on ${on_string}">
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tab" ext="tabular" visible="true" directory="split" />
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tab" ext="tabular" visible="true" directory="split"/>
         </data>
     </outputs>
     <tests>
         <!-- https://github.com/samtools/samtools/blob/9ce8c64493f7ea3fa69bc5c1ac980b1a8e3dcf1f/test/test.pl#L2402 -->
         <test>
             <param name="input" value="1_map_cigar.sam" ftype="sam" />
-            <param name="use_ref_selector" value="yes" />
-            <param name="reference_source_selector" value="history" />
-            <param name="ref_file" value="test.fa" ftype="fasta" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" ftype="fasta" />
+            </conditional>
             <output name="output" file="1.stats.expected" ftype="tabular" lines_diff="3" />
         </test>
-	<!-- test_cmd($opts,out=>'stat/1.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/1_map_cigar.sam | tail -n+4", exp_fix=>$efix);-->
+        <!-- test_cmd($opts,out=>'stat/1.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/1_map_cigar.sam | tail -n+4", exp_fix=>$efix);-->
         <test>
             <param name="input" value="2_equal_cigar_full_seq.sam" ftype="sam" />
-            <param name="use_ref_selector" value="yes" />
-            <param name="reference_source_selector" value="history" />
-            <param name="ref_file" value="test.fa" ftype="fasta" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" ftype="fasta" />
+            </conditional>
             <output name="output" file="2.stats.expected" ftype="tabular" lines_diff="3" />
         </test>
         <!-- test_cmd($opts,out=>'stat/2.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/2_equal_cigar_full_seq.sam | tail -n+4", exp_fix=>$efix);-->
@@ -207,9 +227,10 @@
         <test>
             <param name="input" value="5_insert_cigar.sam" ftype="sam" />
             <param name="insert_size" value="0" />
-            <param name="use_ref_selector" value="yes" />
-            <param name="reference_source_selector" value="history" />
-            <param name="ref_file" value="test.fa" ftype="fasta" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" ftype="fasta" />
+            </conditional>
             <output name="output" file="6.stats.expected" ftype="tabular" lines_diff="3" />
         </test>
         <!-- test_cmd($opts,out=>'stat/6.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa -i 0 $$opts{path}/stat/5_insert_cigar.sam | tail -n+4", exp_fix=>$efix); -->
@@ -219,7 +240,9 @@
         <!-- test_cmd($opts,out=>'stat/10.stats.expected',cmd=>"$$opts{bin}/samtools stats -S RG -r $$opts{path}/stat/test.fa $$opts{path}/stat/10_map_cigar.sam | tail -n+4", exp_fix=>$efix,out_map=>{"stat/10_map_cigar.sam_s1_a_1.bamstat"=>"stat/10_map_cigar.sam_s1_a_1.expected.bamstat", "stat/10_map_cigar.sam_s1_b_1.bamstat"=>"stat/10_map_cigar.sam_s1_b_1.expected.bamstat"},hskip=>3);-->
         <test>
             <param name="input" value="11_target.sam" ftype="sam" />
-            <param name="use_ref_selector" value="no" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
             <conditional name="cond_region">
                 <param name="select_region" value="tab"/>
                 <param name="targetregions" value="11.stats.targets" ftype="tabular" />
@@ -228,10 +251,12 @@
         </test>
         <!-- test_cmd($opts,out=>'stat/11.stats.expected',cmd=>"$$opts{bin}/samtools stats -t $$opts{path}/stat/11.stats.targets $$opts{path}/stat/11_target.sam | tail -n+4", exp_fix=>$efix); -->
 
-        <!-- TODO test does not work, output should be the same as the above (filters for the same regions) -->
+        <!-- TODO test does not work in samtools-1.7 but in in samtools-1.8 -> disable region given by string or upgrade -->
         <test>
             <param name="input" value="11_target.bam" ftype="bam" />
-            <param name="use_ref_selector" value="no" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
             <conditional name="cond_region">
                 <param name="select_region" value="text"/>
                 <param name="regions" value="ref1:10-24 ref1:30-46 ref1:39-56"/>
@@ -240,25 +265,29 @@
         </test>
         <!-- test_cmd($opts,out=>'stat/11.stats.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/11_target.bam ref1:10-24 ref1:30-46 ref1:39-56 | tail -n+4", exp_fix=>$efix);
 -->
-        <!-- TODO don't know why these fail, there seems to be only one line difference -->
         <test>
             <param name="input" value="samtools_stats_input.bam" ftype="bam" />
-            <param name="use_ref_selector" value="yes" />
-            <param name="reference_source_selector" value="history" />
-            <param name="ref_file" value="samtools_stats_ref.fa" ftype="fasta" />
-            <output name="output" file="samtools_stats_out1.tab" compare="diff" ftype="tabular" lines_diff="1" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="samtools_stats_ref.fa" ftype="fasta" />
+            </conditional>
+            <output name="output" file="samtools_stats_out1.tab" ftype="tabular" lines_diff="2" />
         </test>
+        <!-- TODO test for discovered data sets does not work. Don't know why -->
         <test>
             <param name="input" value="samtools_stats_input.bam" ftype="bam" />
-            <param name="use_ref_selector" value="yes" />
-            <param name="reference_source_selector" value="history" />
-            <param name="ref_file" value="samtools_stats_ref.fa" ftype="fasta" />
-            <param name="split_output_selector" value="yes" />
-            <param name="generate_tables" value="SN,MPC,GCC" />
-            <output name="output" file="samtools_stats_out2.tab" lines_diff="1" >
-                <discovered_dataset designation="Summary numbers" ftype="tabular" file="samtools_stats_out2__sn.tab" />
-                <discovered_dataset designation="ACGT content per cycle" ftype="tabular" file="samtools_stats_out2__gcc.tab" />
-                <discovered_dataset designation="Mismatches per cycle" ftype="tabular" file="samtools_stats_out2__mpc.tab" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="samtools_stats_ref.fa" ftype="fasta" />
+            </conditional>
+            <conditional name="split_output">
+                <param name="split_output_selector" value="yes" />
+                <param name="generate_tables" value="SN,MPC,GCC" />
+            </conditional>
+            <output name="output" file="samtools_stats_out1.tab" lines_diff="2" >
+                <discovered_dataset designation="Summary numbers" ftype="tabular" file="samtools_stats_out1__sn.tab" />
+                <discovered_dataset designation="ACGT content per cycle" ftype="tabular" file="samtools_stats_out1__gcc.tab" />
+                <discovered_dataset designation="Mismatches per cycle and quality" ftype="tabular" file="samtools_stats_out1__mpc.tab" />
             </output>
         </test>
     </tests>
