@@ -555,7 +555,8 @@ for (i in 1:length(contrastData)) {
     # Write top expressions table
     top <- topTable(fit, coef=i, number=Inf, sort.by="P")
     if (wantTrend) {
-        write.table(top, file=topOut[i], row.names=TRUE, sep="\t")
+        top <- cbind(GeneID=rownames(top), top)
+        write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
     } else {
         write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
     }
