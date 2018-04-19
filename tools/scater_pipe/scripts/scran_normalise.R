@@ -7,6 +7,10 @@ config_file = args[2]
 ## Load libs, common functions, source Galaxy config
 source(paste(script_dir, "common.R", sep="/"))
 
+suppressPackageStartupMessages(
+    require(scran)
+)
+
 ## Already have sce here
 qclust <- NULL
 
@@ -15,6 +19,6 @@ if (!is.null(qclust_minsize)){
 }
 
 sce_new <- computeSumFactors(sce, clusters = qclust, positive = c_positive, min.mean = c_min_mean)
-sce_scran <- normalise(sce)
+sce_scran <- normalise(sce_new)
 
 saveRDS(sce_scran, "sce_out.rds")
