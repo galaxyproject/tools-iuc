@@ -431,6 +431,7 @@ if (wantTrend) {
     # limma-trend approach
     logCPM <- cpm(data, log=TRUE, prior.count=opt$trend)
     fit <- lmFit(logCPM, design)
+    fit$genes <- data$genes
     fit <- contrasts.fit(fit, contrasts)
     if (wantRobust) {
         fit <- eBayes(fit, trend=TRUE, robust=TRUE)
@@ -554,12 +555,7 @@ for (i in 1:length(contrastData)) {
 
     # Write top expressions table
     top <- topTable(fit, coef=i, number=Inf, sort.by="P")
-    if (wantTrend) {
-        top <- cbind(GeneID=rownames(top), top)
-        write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
-    } else {
-        write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
-    }
+    write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
 
     linkName <- paste0(deMethod, "_", contrastData[i], ".tsv")
     linkAddr <- paste0(deMethod, "_", contrastData[i], ".tsv")
