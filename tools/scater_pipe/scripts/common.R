@@ -19,3 +19,10 @@ plotter <- function(fname, funct){
     force(funct)()
     dev.off()
 }
+
+plotterPNG <- function(fname, funct){
+    name <- paste(fname, "png", sep=".")
+    png(name, width=200, height=200)
+    force(funct)()
+    dev.off()
+}
