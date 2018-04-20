@@ -10,5 +10,5 @@ source(paste(script_dir, "common.R", sep="/"))
 ## Already have sce here
 ## message("method"); message(nmethod)
 
-sce_new <- normaliseExprs(sce, method = nmethod, return_log = ret_log, return_norm_as_exprs = T)
-saveRDS(sce_new, "sce_out.rds")
+sce <- normaliseExprs(sce, method = nmethod, return_log = ret_log, return_norm_as_exprs = T)
+saveRDS(sce, "sce_out.rds")

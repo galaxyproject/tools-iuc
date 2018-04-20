@@ -18,7 +18,7 @@ if (!is.null(qclust_minsize)){
     qclust <- quickCluster(sce, qclust_minsize)
 }
 
-sce_new <- computeSumFactors(sce, clusters = qclust, positive = c_positive, min.mean = c_min_mean)
-sce_scran <- normalise(sce_new)
+sce <- computeSumFactors(sce, clusters = qclust, positive = c_positive, min.mean = c_min_mean)
+sce <- normalise(sce)
 
-saveRDS(sce_scran, "sce_out.rds")
+saveRDS(sce, "sce_out.rds")
