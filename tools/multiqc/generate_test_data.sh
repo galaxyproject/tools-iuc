@@ -46,8 +46,9 @@ cp 'test-data/hisat2_1.txt' 'multiqc_WDir/hisat2/hisat2_1.txt'
 cp 'test-data/hisat2_2.txt' 'multiqc_WDir/hisat2/hisat2_2.txt'
 
 mkdir -p 'multiqc_WDir/hicexplorer'
-cp 'test-data/hicexplorer1.log' 'multiqc_WDir/hicexplorer/'
-cp 'test-data/hicexplorer2.log' 'multiqc_WDir/hicexplorer/'
+cp 'test-data/hicexplorer1.log' 'multiqc_WDir/hicexplorer/hicexplorer1'
+cp 'test-data/hicexplorer1.log' 'multiqc_WDir/hicexplorer/hicexplorer1_1'
+cp 'test-data/hicexplorer2.log' 'multiqc_WDir/hicexplorer/hicexplorer2'
 
 mkdir -p 'multiqc_WDir/kallisto'
 cp 'test-data/kallisto_1.txt' 'multiqc_WDir/kallisto/kallisto_1.txt'
