@@ -52,8 +52,11 @@ def exec_before_job( app, inp_data, out_data, param_dict, tool=None, **kwd ):
                 data_table_filename = data_table.get_filename_for_source( data_manager, None )
                 if not data_table_filename:
                     if tdtm is None:
-                        from tool_shed.tools import data_table_manager
-                        tdtm = data_table_manager.ToolDataTableManager( app )
+                        try:
+                            from tool_shed.tools.data_table_manager import ToolDataTableManager as ShedToolDataTableManager  # For Galaxy < 18.01
+                        except ImportError:
+                            from tool_shed.tools.data_table_manager import ShedToolDataTableManager  # For Galaxy >= 18.01
+                        tdtm = ShedToolDataTableManager( app )
                         target_dir, tool_path, relative_target_dir = tdtm.get_target_install_dir( tool_shed_repository )
                     # Dynamically add this data table
                     log.debug( "Attempting to dynamically create a missing Tool Data Table named %s." % data_table_name )
