@@ -6,7 +6,6 @@
 pureclip
     -o crosslink_sites.bed
     -or binding_regions.bed
-    -p learned_parameters.txt
     -i '$input_bam'
     -bai '$input_bai'
     -g '$input_genome'
@@ -18,15 +17,31 @@ pureclip
     #end if
     -dm $merge_dist
     -bc 0
-    #if str( $control_data.control_data_selector ) == 'Supply_control_data':
+    #if str( $control_data.control_data_selector ) == 'supply_control_data':
         -ibam '$control_data.control_bam_file'
         -ibai '$control_data.control_bai_file'
     #end if
 
-    #if str( $motif_data.motif_data_selector ) == 'Supply_CL_motifs':
+    #if str( $motif_data.motif_data_selector ) == 'supply_CL_motifs':
         -fis '$motif_data.cl_motif_bed_file'
         -nim $motif_data.max_motif_id
     #end if
+
+    #if str( $bc_data.bc_data_selector ) == 'bc_0':
+        -bc 0
+    #elif str( $bc_data.bc_data_selector ) == 'bc_1':
+        -bc 1
+    #elif str( $bc_data.bc_data_selector ) == 'manual_setting':
+        
+antp selector
+
+
+    #end if
+
+
+
+
+
 
     ]]></command>
     <inputs>
@@ -45,11 +60,11 @@ pureclip
 
         <conditional name="control_data">
             <param name="control_data_selector" type="select" label="Control data options">
-                <option value="No_control_available" selected="true">No control available</option>
-                <option value="Supply_control_data">Supply control data</option>
+                <option value="no_control_available" selected="true">No control available</option>
+                <option value="supply_control_data">Supply control data</option>
             </param>
-            <when value="No_control_available" />
-            <when value="Supply_control_data">
+            <when value="no_control_available" />
+            <when value="supply_control_data">
                 <param name="control_bam_file" type="data" format="bam"
                        label="BAM file containing mapped reads from control experiment" argument="-ibam"
                        help="Mapped reads in BAM format from a control experiment, e.g. eCLIP input"/>
@@ -59,11 +74,11 @@ pureclip
         </conditional>
         <conditional name="motif_data">
             <param name="motif_data_selector" type="select" label="Crosslink-associated (CL) motif options">
-                <option value="No_CL_motifs_available" selected="true">No CL motifs available</option>
-                <option value="Supply_CL_motifs">Supply CL motifs</option>
+                <option value="no_CL_motifs_available" selected="true">No CL motifs available</option>
+                <option value="supply_CL_motifs">Supply CL motifs</option>
             </param>
-            <when value="No_CL_motifs_available" />
-            <when value="Supply_CL_motifs">
+            <when value="no_CL_motifs_available" />
+            <when value="supply_CL_motifs">
                 <param name="cl_motif_bed_file" type="data" format="bed"
                        label="FIMO input motif score covariates file" argument="-fis"
                        help="FIMO input motif score covariates file"/>
@@ -74,35 +89,130 @@ pureclip
         </conditional>
 
         <conditional name="bc_data">
-            <param name="bc_data_selector" type="select" label="Protein binding characteristics mode">
-                <option value="mode_0" selected="true">Mode 0 (-bc 0)</option>
-                <option value="mode_1">Mode 1 (-bc 1)</option>
-                <option value="custom_mode">Custom mode</option>
+            <param name="bc_data_selector" type="select" label="Define protein binding characteristics">
+                <option value="bc_0" selected="true">RBP with short defined binding regions (-bc 0)</option>
+                <option value="bc_1">RBP with larger crosslink clusters and lower read start counts (-bc 1)</option>
+                <option value="manual_setting">Manual setting</option>
             </param>
-            <when value="mode_0">
-                <param name="bc_mode" type="integer" value="0"
-                       label="Max. motif ID to use" argument="-nim"
-                       help="Max. motif ID to use (Default: only covariates with motif ID 1 are used)"/>
-            </when>
-            <when value="Supply CL motifs">
-                <param name="cl_motif_bed_file" type="data" format="bed"
-                       label="FIMO input motif score covariates file" argument="-fis"
-                       help="FIMO input motif score covariates file"/>
-                <param name="max_motif_id" type="integer" value="1"
-                       label="Max. motif ID to use" argument="-nim"
-                       help="Max. motif ID to use (Default: only covariates with motif ID 1 are used)"/>
+            <when value="bc_0" />
+            <when value="bc_1" />
+            <when value="manual_setting">
+                <param name="bandwidth" type="integer" value="50" min="1" max="500"
+                       label="Bandwidth for kernel density estimation used to access enrichment" argument="-bw"
+                       help="NOTE: Increasing the bandwidth increases runtime and memory consumption"/>
+                <param name="bandwidthn" type="integer" value="50" min="1" max="500"
+                       label="Bandwidth for kernel density estimation used to estimate n for binomial distributions" argument="-bwn"
+                       help="For proteins that rather slide along the RNA or show long crosslink clusters increase -bwn, e.g. to 100 (should be <= 4*bw)"/>
+                <param name="b1p_value" type="float" value="0.01"
+                       label="Initial value for binomial probability parameter of 'non-crosslink' state" argument="-b1p"/>
+                <param name="b2p_value" type="float" value="0.15"
+                       label="Initial value for binomial probability parameter of 'crosslink' state" argument="-b2p"/>
+                <conditional name="antp_option">
+                    <param name="antp_option_selector" type="select" label="Choose n threshold for estimating crosslink state parameters" help="Either automatically choose n threshold (-ntp, -ntp2) to estimate parameters linked to crosslink states based on expected read start count at crosslink sites, or manually set values">
+                        <option value="antp_select" selected="true">Automatically choose n threshold (-ntp, -ntp2)</option>
+                        <option value="manual_select">Manually set -ntp, -ntp2</option>
+                    </param>
+                    <when value="antp_select" />
+                    <when value="manual_select">
+                        <param name="ntp_value" type="integer" value="10" argument="-ntp"
+                               label="Only sites with n >= ntp are used to learn binomial probability parameters"/>
+                        <param name="ntp2_value" type="integer" value="0" argument="-ntp2"
+                               label="Only sites with n >= ntp2 are used to learn probability of transition from state '2' to '2' or '3'"
+                               help="Useful for data with low truncation rates at crosslink sites or in general high fraction of non-coinciding read starts"/>
+                    </when>
             </when>
         </conditional>
 
+        <conditional name="advanced_params">
+            <param name="advanced_params_selector" type="select" label="Additional advanced parameters">
+                <option value="ap_not_specify" selected="true">Do not specify</option>
+                <option value="ap_specify">Manually specify</option>
+            </param>
+            <when value="ap_not_specify" />
+            <when value="ap_specify">
+                <param name="ld_precision" label="Use higher precision to compute emission probabilities (long double)" type="boolean"
+                       truevalue="-ld" falsevalue="" checked="False"
+                       help="Useful in cases of extreme outliers, e.g. extreme high read start counts whose emission probabilities are close to zero and which would be discarded in default setting (along with warning messages). Note: increases memory consumption. Use in combination with '-iv' (default: double)"/>
+                <param name="use_viterbi" label="Use Viterbi instead of posterior decoding" 
+                       type="boolean" truevalue="-vtb" falsevalue="" checked="False"/>
+                <param name="max_iter_brent" type="integer" optional="True" min="1" max="1000"
+                       label="Maximum number of iterations within BRENT algorithm" argument="-m"/>
+                <param name="max_iter_bw" type="integer" optional="True" min="0" max="500"
+                       label="Maximum number of iterations within Baum-Welch algorithm" argument="-w"/>
 
+
+                <param name="e_value_thr" type="float" value="0.05"
+                       label="stop if motif E-value > e" argument="-e"
+                       help="stop if motif E-value > given threshold (default: 0.05)">
+                       <validator type="expression" message="Set e-value must be > 0.">value is not None and value > 0</validator>
+                </param>
+                <param name="motif_min_k" type="integer" value="3"
+                       label="minimum width of core motif" argument="-mink"
+                       help="minimum width of core motif (default: 3)"/>
+                <param name="motif_max_k" type="integer" value="8"
+                       label="maximum width of core motif" argument="-maxk"
+                       help="maximum width of core motif (default: 8)"/>
+                <param name="stop_m_motifs" type="integer" optional="True"
+                       label="stop if m motifs have been output" argument="-m"
+                       help="stop if m motifs have been output (default: only stop at E-value threshold)"/>
+                <param name="stop_t_seconds" type="integer" optional="True"
+                       label="stop if the specified time has elapsed" argument="-t"
+                       help="stop if the specified time has elapsed (default: only stop at E-value threshold)"/>
+
+            </when>
+        </conditional>
 <!--
-    -bc, --bc NUM
-          Flag to set parameters according to binding characteristics of
-          protein: see description in section below. In range [0..1].
-  Options for incorporating covariates:
-    -is, --is FILE
-          Covariates file: position-wise values, e.g. smoothed reads start
-          counts (KDEs) from input data. Valid filetype is: .bed.
+
+    -g1kmin, --g1kmin NUM
+          Minimum shape k of 'non-enriched' gamma distribution (g1.k).
+    -g1kmax, --g1kmax NUM
+          Maximum shape k of 'non-enriched' gamma distribution (g1.k).
+    -g2kmin, --g2kmin NUM
+          Minimum shape k of 'enriched' gamma distribution (g2.k).
+    -g2kmax, --g2kmax NUM
+          Maximum shape k of 'enriched' gamma distribution (g2.k).
+    -fk, --fk
+          When incorporating input signal, do not constrain 'non-enriched'
+          shape parameter k <= 'enriched' gamma parameter k.
+    -mkn, --mkn NUM
+          Max. k/N ratio (read start sites/N) used to learn truncation
+          probabilities for 'non-crosslink' and 'crosslink' emission
+          probabilities (high ratios might originate from mapping artifacts
+          that can disturb parameter learning). Default: 1.0 In range
+          [0.5..1.5].
+    -mtp, --mtp NUM
+          Min. transition probability from state '2' to '3' (helpful for poor
+          data, where no clear distinction between 'enriched' and
+          'non-enriched' is possible). Default: 0.0001.
+    -mk, --mkde NUM
+          Minimum KDE value used for fitting left-truncated gamma
+          distributions. Default: corresponding to singleton read start.
+    -pa, --pat NUM
+          Length threshold for internal poly-X stretches to get excluded.
+    -ea1, --epal
+          Exclude intervals containing poly-A stretches from learning.
+    -ea2, --epaa
+          Exclude intervals containing poly-A stretches from analysis.
+    -et1, --eptl
+          Exclude intervals containing poly-U stretches from learning.
+    -et2, --epta
+          Exclude intervals containing poly-U stretches from analysis.
+    -mrtf, --mrtf NUM
+          Fit gamma shape k only for positions with min. covariate value.
+    -mtc, --mtc NUM
+          Maximum number of truncations at one position used for learning. For
+          sites with counts above threshold the whole covered regions will be
+          ignored for learning! Default: 250. In range [50..500].
+    -pet, --pet NUM
+          Prior enrichment threshold: a KDE threshold corresponding to 7 read
+          start counts at one position will be used for initial classification
+          of 'non-enriched' and 'enriched' site. Default: 7 In range [2..50].
+
+
+
+-p learned_parameters.txt
+data format="txt" name="learned_params_outfile" label="${tool.name} on ${on_string} learned parameters (txt)" from_work_dir="learned_parameters.txt"/>
+
           
 chrM:4000-8300.binding_regions.bed
 chrM:4000-8300.crosslink_sites.bed.stats
@@ -171,7 +281,7 @@ PARAMETER SETTINGS FOR PROTEINS WITH DIFFERENT BINDING CHARACTERISTICS
     <outputs>
         <data format="bed" name="crosslink_bed_outfile" label="${tool.name} on ${on_string} crosslink sites (bed)" from_work_dir="crosslink_sites.bed"/>
         <data format="bed" name="binding_region_bed_outfile" label="${tool.name} on ${on_string} binding regions (bed)" from_work_dir="binding_regions.bed"/>
-        <data format="txt" name="learned_params_outfile" label="${tool.name} on ${on_string} learned parameters (txt)" from_work_dir="learned_parameters.txt"/>
+        <data format="txt" name="crosslink_bed_stats" label="${tool.name} on ${on_string} learning statistics (txt)" from_work_dir="crosslink_sites.bed.stats"/>
     </outputs>
     <help><![CDATA[
     Protein-RNA interaction site detection using a non-homogeneous HMM.
