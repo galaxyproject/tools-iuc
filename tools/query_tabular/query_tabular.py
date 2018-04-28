@@ -8,6 +8,7 @@ import os.path
 import sys
 
 from load_db import create_table
+
 from query_db import describe_tables, get_connection, run_query
 
 
@@ -112,6 +113,23 @@ def __main__():
                 if 'tables' in tdef:
                     for ti, table in enumerate(tdef['tables']):
                         _create_table(ti, table)
+                if 'sql_stmts' in tdef:
+                    for si, stmt in enumerate(tdef['sql_stmts']):
+                        run_query(get_connection(options.sqlitedb), stmt, None)
+                if 'queries' in tdef:
+                    for qi, qstmt in enumerate(tdef['queries']):
+                        if 'header' in qstmt:
+                            no_header = False
+                            comment_char = qstmt['header']
+                        else:
+                            no_header = True
+                            comment_char = None
+                        with open(qstmt['result_file'],'w') as fh:
+                            run_query(get_connection(options.sqlitedb), 
+                                      qstmt['query'], 
+                                      fh,
+                                      no_header=no_header,
+                                      comment_char=comment_char)
         except Exception as e:
             exit('Error: %s' % (e))
 
