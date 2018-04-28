@@ -124,9 +124,9 @@ def __main__():
                         else:
                             no_header = True
                             comment_char = None
-                        with open(qstmt['result_file'],'w') as fh:
-                            run_query(get_connection(options.sqlitedb), 
-                                      qstmt['query'], 
+                        with open(qstmt['result_file'], 'w') as fh:
+                            run_query(get_connection(options.sqlitedb),
+                                      qstmt['query'],
                                       fh,
                                       no_header=no_header,
                                       comment_char=comment_char)
