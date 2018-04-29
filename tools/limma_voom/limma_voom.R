@@ -349,7 +349,7 @@ print("Extracting counts")
 data <- list()
 data$counts <- counts
 if (haveAnno) {
-  # order annotation by genes in counts (assumes gene ids are in 1st column of anno)
+  # order annotation by genes in counts (assumes gene ids are in 1st column of geneanno)
   annoord <- geneanno[match(row.names(counts), geneanno[,1]), ]
   data$genes <- annoord
 } else {
@@ -462,7 +462,7 @@ if (wantTrend) {
 
     # Save normalised counts (log2cpm)
     if (wantNorm) {
-        write.table(logCPM, file=normOut, row.names=TRUE, sep="\t")
+        write.table(logCPM, file=normOut, row.names=TRUE, sep="\t", quote=FALSE)
         linkData <- rbind(linkData, c((paste0(deMethod, "_", "normcounts.tsv")), (paste0(deMethod, "_", "normcounts.tsv"))))
     }
 } else {
@@ -513,7 +513,7 @@ if (wantTrend) {
      # Save normalised counts (log2cpm)
     if (wantNorm) {
         norm_counts <- data.frame(vData$genes, vData$E)
-        write.table(norm_counts, file=normOut, row.names=FALSE, sep="\t")
+        write.table(norm_counts, file=normOut, row.names=FALSE, sep="\t", quote=FALSE)
         linkData <- rbind(linkData, c((paste0(deMethod, "_", "normcounts.tsv")), (paste0(deMethod, "_", "normcounts.tsv"))))
     }
 
@@ -557,7 +557,7 @@ for (i in 1:length(contrastData)) {
 
     # Write top expressions table
     top <- topTable(fit, coef=i, number=Inf, sort.by="P")
-    write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
+    write.table(top, file=topOut[i], row.names=FALSE, sep="\t", quote=FALSE)
 
     linkName <- paste0(deMethod, "_", contrastData[i], ".tsv")
     linkAddr <- paste0(deMethod, "_", contrastData[i], ".tsv")
@@ -626,7 +626,7 @@ cata("<html>\n")
 
 cata("<body>\n")
 cata("<h3>Limma Analysis Output:</h3>\n")
-cata("PDF copies of JPEGS available in 'Plots' section.<br />\n")
+cata("Links to PDF copies of plots are in 'Plots' section below />\n")
 if (wantWeight) {
     HtmlImage(imageData$Link[1], imageData$Label[1], width=1000)
 } else {
