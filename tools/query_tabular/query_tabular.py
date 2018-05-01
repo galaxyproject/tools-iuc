@@ -121,8 +121,8 @@ def __main__():
                     for si, stmt in enumerate(tdef['sql_stmts']):
                         rowcount = run_query(get_connection(options.sqlitedb), stmt, None)
                         if options.debug:
-                            print('\nDB modification: %s  \nrowcount: %s' % \
-                                (stmt, rowcount), file=sys.stderr)
+                            print('\nDB modification: %s  \nrowcount: %s' %
+                                  (stmt, rowcount), file=sys.stderr)
                 if 'queries' in tdef:
                     for qi, qstmt in enumerate(tdef['queries']):
                         if 'header' in qstmt:
@@ -139,8 +139,8 @@ def __main__():
                                                  no_header=no_header,
                                                  comment_char=comment_char)
                         if options.debug:
-                            print('\nSQL: %s  \nrowcount: %s' % \
-                                (query, rowcount), file=sys.stderr)
+                            print('\nSQL: %s  \nrowcount: %s' %
+                                  (query, rowcount), file=sys.stderr)
         except Exception as e:
             exit('Error: %s' % (e))
 
@@ -165,8 +165,8 @@ def __main__():
                                  no_header=options.no_header,
                                  comment_char=options.comment_char)
             if options.debug:
-                print('\nSQL: %s  \nrowcount: %s' % \
-                    (query, rowcount), file=sys.stderr)
+                print('\nSQL: %s  \nrowcount: %s' %
+                      (query, rowcount), file=sys.stderr)
         except Exception as e:
             exit('Error: %s' % (e))
 
