@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import print_function
+
 import argparse
 
 import eutils
@@ -49,7 +51,7 @@ if __name__ == '__main__':
                         'key': tmp[5],
                     })
                 except KeyError:
-                    print "Could not parse line: %s" % line
+                    print("Could not parse line: %s" % line)
 
     payload = {
         'db': 'pubmed',
@@ -58,4 +60,4 @@ if __name__ == '__main__':
 
     results = c.citmatch(**payload)
     # We get data back as pipe separated, so just replace those with tabs
-    print results.replace('|', '\t')
+    print(results.replace('|', '\t'))

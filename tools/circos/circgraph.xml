@@ -1,0 +1,409 @@
+<?xml version="1.0"?>
+<tool id="circgraph" name="Circos Builder" version="@WRAPPER_VERSION@">
+    <description>creates circos plots from standard bioinformatics datatypes.</description>
+    <macros>
+        <import>macros.xml</import>
+        <import>macros_conffiles.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>circos --version</version_command>
+    <command detect_errors="aggressive"><![CDATA[
+## Directory structure
+mkdir -p circos/conf/ circos/data/ &&
+
+#if $reference_genome.reference_genome_source == 'history':
+    ln -s '$reference_genome.genome_fasta' genomeref.fa &&
+#end if
+
+#if $reference_genome.reference_genome_source != 'karyotype':
+    ## Process the karyotype.txt file
+    python '$__tool_directory__/fasta-to-karyotype.py'
+
+        #if str($reference_genome.reference_genome_source) == 'cached':
+            '${reference_genome.fasta_indexes.fields.path}'
+        #else if str($reference_genome.reference_genome_source) == 'history':
+            genomeref.fa
+        #end if
+
+        #if $reference_genome.bands:
+            '${reference_genome.bands}'
+        #end if
+    > circos/conf/karyotype.txt &&
+#else
+    cp $reference_genome.input_karyotype circos/conf/karyotype.txt &&
+#end if
+
+mv '$circos_conf' circos/conf/circos.conf &&
+mv '$ticks_conf' circos/conf/ticks.conf &&
+mv '$ideogram_conf' circos/conf/ideogram.conf &&
+mv '$data_conf'  circos/conf/2d.conf &&
+mv '$links_conf'  circos/conf/links.conf &&
+mv '$test_case_conf' circos/conf/galaxy_test_case.xml &&
+
+## 2D Data Plots
+#for $hi, $data in enumerate($sec_tdd.data):
+    #if str($data.plot_format.plot_format_select) == 'tile':
+        python '$__tool_directory__/unified-tiles.py'
+            '${data.plot_format.data_source}' '${data.plot_format.data_source.ext}'
+            > circos/data/data-${hi}.txt &&
+    #else:
+        python $__tool_directory__/unified-histogram.py
+            $data.plot_format.plot_format_select
+            #if str($data.plot_format.plot_format_select) in ('histogram', 'heatmap'):
+                #for $fi, $file in enumerate($data.plot_format.data_source):
+                    '${file}' '${file.ext}'
+                #end for
+            #else:
+                '${data.plot_format.data_source}' '${data.plot_format.data_source.ext}'
+            #end if
+        > circos/data/data-${hi}.txt &&
+    #end if
+#end for
+
+## Link Tracks
+#for $hi, $data in enumerate($sec_links.data):
+    cp '${data.data_source}' circos/data/links-${hi}.txt &&
+#end for
+
+tar cvfz circos.tar.gz circos &&
+
+circos -conf circos/conf/circos.conf
+    ]]></command>
+    <configfiles>
+        <expand macro="configfile_circos_conf" />
+        <expand macro="configfile_ticks_conf" />
+        <expand macro="configfile_ideogram_conf" />
+        <expand macro="configfile_data_conf" />
+        <expand macro="configfile_links_conf" />
+        <expand macro="test_case" />
+    </configfiles>
+    <inputs>
+        <conditional name="reference_genome">
+            <param name="reference_genome_source" type="select" label="Reference Genome">
+                <option value="history" selected="True">From History</option>
+                <option value="cached">Locally Cached</option>
+                <option value="karyotype">Karyotype</option>
+            </param>
+            <when value="cached">
+                <param name="fasta_indexes" type="select" label="Source FASTA Sequence">
+                    <options from_data_table="all_fasta"/>
+                </param>
+                <!-- TODO: multiple band files? -->
+                <param name="bands" type="data" format="bed6,bed12" optional="true" label="Cytogenetic Bands"
+                    help="If defined, will display cytogenetic bands as part of the karyotype configuration"/>
+            </when>
+            <when value="history">
+                <param name="genome_fasta" type="data" format="fasta" label="Source FASTA Sequence"/>
+                <!-- TODO: multiple band files? -->
+                <param name="bands" type="data" format="bed6,bed12" optional="true" label="Cytogenetic Bands"
+                    help="If defined, will display cytogenetic bands as part of the karyotype configuration"/>
+            </when>
+            <when value="karyotype">
+                <param name="input_karyotype" type="data" format="tabular,txt" label="Karyotype Configuration"/>
+            </when>
+        </conditional>
+
+        <section name="ideogram" title="Ideogram Configuration (Genome/Chromosomes)">
+            <param name="spacing" type="float" value="0.005" label="Spacing Between Ideograms"/>
+            <param name="radius" type="float" value="0.90" label="Radius"/>
+            <param name="thickness" type="float" value="10" label="Thickness"/>
+
+            <section name="ideogram_labels" title="Labels">
+                <param name="show_label" type="boolean" truevalue="yes" falsevalue="no" label="Show Label"/>
+                <!--<param type="float" value="0.95" label="Radius" name="radius"/>-->
+                <!--<param type="float" value="10" label="Thickness" name="thickness"/>-->
+                <param name="parallel" type="boolean" label="Parallel" truevalue="yes" falsevalue="no"
+                    help="When set to yes/true, labels will be perpendicular to the tangent of the circle at the location of the label. Otherwise, they will be parallel with the tangent of the circle"/>
+            </section>
+        </section>
+
+        <section name="ticks" title="Ticks">
+            <param name="show_ticks" type="boolean" truevalue="yes" falsevalue="no" label="Show Ticks"/>
+            <!--<param type="boolean" label="Show Tick Labels" name="show_tick_labels" truevalue="true" falsevalue="false" />-->
+            <param name="radius"  type="float" value="1.0" label="Radius"/>
+            <expand macro="circos_color"/>
+            <param name="multiplier" type="float" value="1e-3" label="Multiplier"
+                help="1e-3 means your tick spacing will be in kb (tick spacing of 5000 = every 5kb, labels will read '5kb'). 1e-6 means mb."/>
+
+            <repeat name="tick_group" title="Tick Group">
+                <param name="spacing" type="float" value="5000" label="Tick Spacing" help="Number of bases"/>
+                <param name="size" type="float" value="10" label="Tick Size"/>
+                <param name="show_tick_labels" type="boolean" truevalue="yes" falsevalue="no" label="Show Tick Labels"/>
+                <param name="label_size" type="float" value="20" label="Label Size"/>
+                <param name="label_offset"  type="float" value="10" label="Label Offset"/>
+                <param name="format" type="select" label="Label Format">
+                    <option value="%d" selected="True">Integer</option>
+                    <option value="%f">Float</option>
+                    <option value="%.1f">Float (one decimal)</option>
+                    <option value="%.2f">Float (two decimals)</option>
+                    <sanitizer>
+                        <valid>
+                            <add value="%" />
+                        </valid>
+                    </sanitizer>
+                </param>
+            </repeat>
+
+        </section>
+
+        <section name="sec_tdd" title="2D Data">
+            <repeat name="data" title="2D Data Plot">
+                <!-- Positioning -->
+                <param name="r1" type="float" value="0.89" label="Outside Radius"/>
+                <param name="r0" type="float" value="0.8" label="Inside Radius"/>
+                <param name="orientation" type="boolean" label="Orient Inwards" truevalue="in" falsevalue="out"
+                    help="When yes/true, the plot will face inwards. I.e. lowest values will be to the outside"/>
+
+                <conditional name="plot_format">
+                    <param name="plot_format_select" type="select" label="Plot Format">
+                        <option value="histogram" selected="True">Histogram</option>
+                        <option value="heatmap">Heatmap</option>
+                        <option value="line">Line</option>
+                        <option value="scatter">Scatter</option>
+                        <option value="tile">Tiles</option>
+                    </param>
+                    <when value="histogram">
+                        <param name="data_source" type="data" format="bed6,bed12,wig,gff3" label="Histogram Data Source"
+                            multiple="True" help="If multiple files are selected, they will be treated as a stacked histogram"/>
+                        <section name="format_specific" title="Plot Format Specific Options">
+                            <expand macro="brewer_scale" label="Fill Color" name="fill_color"/>
+                            <param name="extend_bins" type="boolean" label="Join non-abutting Bins" truevalue="yes" falsevalue="no"
+                                help="Join histogram bins that do not touch (abut)" />
+                        </section>
+                    </when>
+                    <when value="heatmap">
+                        <param name="data_source" type="data" format="bed6,bed12,wig,gff3" label="Heatmap Data Source"
+                            multiple="True" help="If multiple files are selected, they will be plotted alongside each other radially"/>
+                        <section name="format_specific" title="Plot Format Specific Options">
+                            <expand macro="brewer_scale" label="Fill Color" name="fill_color"/>
+                            <param name="scale_log_base" type="float" value="1.0" label="Scale Log Base"
+                                help="If scale_log_base&lt;1, the dynamic range of color mapping of small values will be increased. If scale_log_base&gt;1, then dynamic range of large values will be increased."/>
+                        </section>
+                    </when>
+                    <when value="line">
+                        <param name="data_source" type="data" format="bed6,bed12,wig,gff3" label="Line Data Source"/>
+                        <section name="format_specific" title="Plot Format Specific Options">
+                            <expand macro="circos_color" label="Stroke Color" name="color" value="#000000"/>
+                            <param name="thickness" type="integer" value="0" label="Stroke Thickness"/>
+                        </section>
+                    </when>
+                    <when value="scatter">
+                        <param name="data_source" type="data" format="bed6,bed12,wig,gff3" label="Scatter Plot Data Source"/>
+                        <section name="format_specific" title="Plot Format Specific Options">
+                        <!-- glyph, glyph_size, min, max -->
+                            <param name="glyph" type="select" label="Glyph">
+                                <option value="circle">Circle</option>
+                                <option value="triangle">Triangle</option>
+                                <option value="rectangle">Rectangle</option>
+                            </param>
+                            <param name="glyph_size" type="integer" value="8" label="Glyph Size"/>
+                            <param name="data_min" type="float" value="0.0" label="Data Minimum" help="Minimum value of the range of the plot axis, data outside this range are clipped." />
+                            <param name="data_max" type="float" value="1.0" label="Data Maximum" help="Maximum value of the range of the plot axis, data outside this range are clipped." />
+                            <expand macro="circos_color" name="color" value="#555555" label="Color" />
+                            <expand macro="circos_color" name="stroke_color" value="#000000" label="Stroke Color"/>
+                            <param name="stroke_thickness" type="integer" value="0" label="Stroke Thickness"/>
+                        </section>
+                    </when>
+                    <when value="tile">
+                        <param name="data_source" type="data" format="bed6,bed12,gff3" label="Tile Data Source"
+                            help="If your tile source features have scores in them, they will be used in colouration"/>
+                        <section name="format_specific" title="Plot Format Specific Options">
+                            <expand macro="brewer_scale" name="fill_color" label="Fill Color"/>
+                            <expand macro="circos_color" name="color" value="#000000" label="Stroke Color"/>
+                            <param name="stroke_thickness" type="integer" value="0" label="Stroke Thickness"/>
+                            <param name="layers" type="integer" value="15" label="Layers"/>
+                            <param name="thickness" type="float" value="15" label="Thickness" help="In pixels"/>
+                            <param name="padding" type="float" value="8" label="Padding" help="In pixels"/>
+
+                            <conditional name="overflow">
+                                <param name="overflow_behavior" type="select" label="Overflow Behavior">
+                                    <option value="hide">Hide: overflow tiles are not drawn</option>
+                                    <option value="grow">Grow: new layers are added as required</option>
+                                    <option value="collapse">Collapse: overflow tiles are drawn on the first layer</option>
+                                </param>
+                                <when value="hide">
+                                </when>
+                                <when value="grow">
+                                    <expand macro="circos_color" name="layer_overflow_color" label="Layer Overflow Color"/>
+                                </when>
+                                <when value="collapse">
+                                    <expand macro="circos_color" name="layer_overflow_color"  label="Layer Overflow Color"/>
+                                </when>
+                            </conditional>
+                        </section>
+                    </when>
+                </conditional>
+
+                <expand macro="rules" />
+                <expand macro="axes" />
+                <expand macro="backgrounds" />
+            </repeat>
+        </section>
+        <section name="sec_links" title="Link Tracks">
+            <repeat name="data" title="Link Data">
+                <!-- Positioning -->
+                <param name="radius" type="float" value="0.8" label="Inside Radius"
+                    help="This is the radial position of the termination of the link; for relative values, if radius smaller than 1 then it is defined in terms of the inner ideogram radius, otherwise it is defined in terms of the outer ideogram radius" />
+                <param name="data_source" type="data" format="txt" label="Link Data Source" help="Select file with link data. Format: chr1 start1 end1 chr2 start2 end2" />
+                <conditional name="linktype">
+                    <param name="ribbon" type="select" label="Link Type" help="">
+                        <option value="no" selected="true">basic</option>
+                        <option value="yes">ribbon</option>
+                    </param>
+                    <when value="yes">
+                        <param name="twist" type="select" label="Twist Ribbon">
+                            <option value="" selected="true">auto</option>
+                            <option value="twist=yes">always</option>
+                            <option value="flat=yes">never</option>
+                        </param>
+                    </when>
+                    <when value="no"/>
+                </conditional>
+                <expand macro="circos_color" name="color" value="#000000" label="Link Color"/>
+                <param name="thickness" type="float" value="15" label="Thickness" help="In pixels"/>
+                <param name="bezier_radius" type="float" value="0.1" min="0" max="1" label="Bezier Radius"
+                    help="The radial position of the third control point (in addition to the two positions defined by the link coordinates) used to draw the Bezier curve; if this parameter is 0 then straight lines will be used"/>
+
+                <section name="advanced" title="Advanced Settings">
+                    <param name="zdepth" type="float" value="" optional="true" label="Z-depth"
+                        help="Optional. Datasets with a higher z-depth value are drawn on top of data sets with a lower value. Only useful if plotting multiple link tracks"/>
+                    <param name="crest" type="float" value="0.5" min="0" max="1" label="Crest"
+                        help="Two additional Bezier control points can be set by using the crest parameter. When defined, points p3 and p4 are added. These points lie at the same angular position as the start and end link termini and have the radial position. In the crest=0 extreme, p3 and p4 are at the same position as p0,p1. In this case, crest has no effect. When crest=1, p3,p4 are at the radial position of p2, the control point set by bezier_radius"/>
+                    <param name="bezier_radius_purity" type="float" value="0.75" min="0" max="1" label="Bezier Radius Purity"
+                        help="The bezier_radius_purity adjusts the position of p2 for each link. The p2 control point will move along the line formed by the original p2 location and the intersection of p0-p1 and the bisecting radius. When purity = 1, p2' = p2. When purity = 0, p2' = midpoint(p0,p1)"/>
+                    <conditional name="perturbation">
+                        <param name="perturb" type="select" label="Perturb links?"
+                            help="A set of parameters can be used to randomly adjust bezier_radius, bezier_radius_purity, and crest parameters to give the links a more disorganized, organic feel. By perturbing each link you can also show additional texture in the data among links which would have ordinarily overlapped. Each parameter's perturbation amount is defined as a pair of values - pmin,pmax. These are the minimum and maximum multipliers by which the value can be perturbed">
+                            <option value="no" selected="true">no</option>
+                            <option value="yes">yes</option>
+                        </param>
+                        <when value="yes">
+                            <param name="perturb_crest_min" type="float" value="0.5" label="Crest min"
+                                help="For example setting (min,max) = (0.5,1.2) will cause parameter to be randomly scaled between 50-120%"/>
+                            <param name="perturb_crest_max" type="float" value="1.5" label="Crest max"
+                                help="For example setting (min,max) = (0.5,1.2) will cause parameter to be randomly scaled between 50-120%"/>
+                            <param name="perturb_bezier_radius_min" type="float" value="0.5" label="Bezier Radius min"
+                                help="For example setting (min,max) = (0.5,1.2) will cause parameter to be randomly scaled between 50-120%"/>
+                            <param name="perturb_bezier_radius_max" type="float" value="1.5" label="Bezier Radius max"
+                                help="For example setting (min,max) = (0.5,1.2) will cause parameter to be randomly scaled between 50-120%"/>
+                            <param name="perturb_bezier_radius_purity_min" type="float" value="0.5" label="Bezier Radius Purity min"
+                                help="For example setting (min,max) = (0.5,1.2) will cause parameter to be randomly scaled between 50-120%"/>
+                            <param name="perturb_bezier_radius_purity_max" type="float" value="1.5" label="Bezier Radius Purity max"
+                                help="For example setting (min,max) = (0.5,1.2) will cause parameter to be randomly scaled between 50-120%"/>
+                        </when>
+                        <when value="no"/>
+                    </conditional>
+                </section>
+                <expand macro="linkrules"/>
+            </repeat>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_png" format="png" from_work_dir="circos.png" label="Circos Plot (png)"/>
+        <data name="output_svg" format="svg" from_work_dir="circos.svg" label="Circos Plot (svg)"/>
+        <data name="output_tar" format="tar.gz" from_work_dir="circos.tar.gz" label="Circos Conf Files"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="reference_genome|reference_genome_source" value="history"/>
+            <param name="reference_genome|genome_fasta" value="1/input.fa" />
+            <!-- ideograms -->
+            <param name="ideogram|spacing" value="0.005" />
+            <param name="ideogram|radius" value="0.9" />
+            <param name="ideogram|thickness" value="10.0" />
+            <param name="ideogram|ideogram_labels|show_label" value="yes" />
+            <param name="ideogram|ideogram_labels|parallel" value="no" />
+            <!-- Ticks -->
+            <param name="ticks|show_ticks" value="yes" />
+            <param name="ticks|radius" value="1.0" />
+            <param name="ticks|color" value="#17365d" />
+            <param name="ticks|multiplier" value="0.001" />
+            <param name="ticks|tick_group_0|tickspacing" value="5000.0" />
+            <param name="ticks|tick_group_0|size" value="20.0" />
+            <param name="ticks|tick_group_0|show_tick_labels" value="yes" />
+            <param name="ticks|tick_group_0|label_size" value="20.0" />
+            <param name="ticks|tick_group_0|label_offset" value="10.0" />
+            <param name="ticks|tick_group_0|label_format" value="%d" />
+            <param name="ticks|tick_group_1|tickspacing" value="500.0" />
+            <param name="ticks|tick_group_1|size" value="10.0" />
+            <param name="ticks|tick_group_1|show_tick_labels" value="no" />
+            <param name="ticks|tick_group_1|label_size" value="20.0" />
+            <param name="ticks|tick_group_1|label_offset" value="10.0" />
+            <param name="ticks|tick_group_1|label_format" value="%d" />
+            <!-- Data -->
+            <param name="sec_tdd|data_0|r0" value="0.8" />
+            <param name="sec_tdd|data_0|r1" value="0.89" />
+            <param name="sec_tdd|data_0|orientation" value="out" />
+            <param name="sec_tdd|data_0|plot_format|plot_format_select" value="histogram" />
+            <param name="sec_tdd|data_0|plot_format|data_source" value="1/0-0.wig" />
+            <param name="sec_tdd|data_0|plot_format|format_specific|fill_color" value="purples-13-seq" />
+            <param name="sec_tdd|data_0|plot_format|format_specific|extend_bins" value="no" />
+
+            <param name="sec_tdd|data_1|r0" value="0.7" />
+            <param name="sec_tdd|data_1|r1" value="0.79" />
+            <param name="sec_tdd|data_1|orientation" value="out" />
+            <param name="sec_tdd|data_1|plot_format|plot_format_select" value="tile" />
+            <param name="sec_tdd|data_1|plot_format|data_source" value="1/1.gff3" />
+            <param name="sec_tdd|data_1|plot_format|format_specific|fill_color" value="rdylgn-15-div" />
+            <param name="sec_tdd|data_1|plot_format|format_specific|color" value="#000000" />
+            <param name="sec_tdd|data_1|plot_format|format_specific|stroke_thickness" value="1" />
+            <param name="sec_tdd|data_1|plot_format|format_specific|layers" value="15" />
+            <param name="sec_tdd|data_1|plot_format|format_specific|thickness" value="15.0" />
+            <param name="sec_tdd|data_1|plot_format|format_specific|padding" value="8.0" />
+            <param name="sec_tdd|data_1|plot_format|format_specific|overflow|overflow_behavior" value="grow" />
+            <param name="sec_tdd|data_1|plot_format|format_specific|overflow|layer_overflow_color" value="#ffc000" />
+
+            <param name="sec_tdd|data_2|r0" value="0.6" />
+            <param name="sec_tdd|data_2|r1" value="0.69" />
+            <param name="sec_tdd|data_2|orientation" value="out" />
+            <param name="sec_tdd|data_2|plot_format|plot_format_select" value="scatter" />
+            <param name="sec_tdd|data_2|plot_format|data_source" value="1/2.wig" />
+            <param name="sec_tdd|data_2|plot_format|format_specific|glyph" value="triangle" />
+            <param name="sec_tdd|data_2|plot_format|format_specific|glyph_size" value="8" />
+            <param name="sec_tdd|data_2|plot_format|format_specific|data_min" value="0.0" />
+            <param name="sec_tdd|data_2|plot_format|format_specific|data_max" value="1.0" />
+            <param name="sec_tdd|data_2|plot_format|format_specific|color" value="#555555" />
+            <param name="sec_tdd|data_2|plot_format|format_specific|stroke_color" value="#000000" />
+            <param name="sec_tdd|data_2|plot_format|format_specific|stroke_thickness" value="0" />
+            <!-- Links -->
+            <param name="sec_links|data_0|radius" value="0.59" />
+            <param name="sec_links|data_0|data_source" value="1/links.txt" />
+            <param name="sec_links|data_0|linktype|ribbon" value="yes" />
+            <param name="sec_links|data_0|color" value="#9966ff" />
+            <param name="sec_links|data_0|bezier_radius" value="0.3" />
+            <param name="sec_links|data_0|sec_link_rule|rules_0|conditions_0|application|application_select" value="pos1" />
+            <param name="sec_links|data_0|sec_link_rule|rules_0|conditions_0|application|comparison|compare" value="lt" />
+            <param name="sec_links|data_0|sec_link_rule|rules_0|conditions_0|application|comparison|compval" value="25000" />
+            <param name="sec_links|data_0|sec_link_rule|rules_0|actions_0|action|action_select" value="color" />
+            <param name="sec_links|data_0|sec_link_rule|rules_0|actions_0|action|action_value" value="#ffcc00" />
+
+            <param name="sec_links|data_1|radius" value="0.45" />
+            <param name="sec_links|data_1|data_source" value="1/links2.txt" />
+            <param name="sec_links|data_1|linktype|ribbon" value="yes" />
+            <param name="sec_links|data_1|color" value="#42aa42" />
+            <param name="sec_links|data_1|bezier_radius" value="0" />
+
+            <!-- Outputs -->
+            <output name="output_png" file="1/output.png" compare="sim_size" delta="15000" ftype="png" />
+            <output name="output_svg" file="1/output.svg" compare="sim_size" ftype="svg" />
+        </test>
+    </tests>
+    <help><![CDATA[
+Circos
+======
+
+Circos is a software package for visualizing data and information. It visualizes data in a circular layout — this makes Circos ideal for exploring relationships between objects or positions. There are other reasons why a circular layout is advantageous, not the least being the fact that it is attractive.
+
+Circos is ideal for creating publication-quality infographics and illustrations with a high data-to-ink ratio, richly layered data and pleasant symmetries. You have fine control each element in the figure to tailor its focus points and detail to your audience.
+
+.. image:: $PATH_TO_IMAGES/circos-sample-panel.png
+   :alt: several example circos plots
+
+For more information see the Circos documentation_.
+
+.. _documentation: http://circos.ca/documentation/
+
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>

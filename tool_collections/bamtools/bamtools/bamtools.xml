@@ -1,0 +1,246 @@
+<?xml version="1.0"?>
+<tool id="bamtools" name="Convert, Merge, Randomize" version="@VERSION@.0">
+    <description>BAM datasets and perform other transformations</description>
+    <macros>
+          <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code">
+        <![CDATA[
+            ##set up input files
+            ln -s '${input_bams}' localbam.bam &&
+            ln -s '${input_bams.metadata.bam_index}' localbam.bam.bai &&
+            #if str( $analysis_type.analysis_type_selector ) == 'convert':
+                #if str( $analysis_type.format_type.format_type_selector ) == 'pileup':
+                    #set $reference_fasta_filename = 'localref.fa'
+                    #if str( $analysis_type.format_type.reference_source.reference_source_selector ) == 'history':
+                        ln -s '${analysis_type.format_type.reference_source.ref_file}' '${reference_fasta_filename}' &&
+                        samtools faidx '${reference_fasta_filename}' 2>&1 || echo 'Error running samtools faidx for bamtools convert' >&2 &&
+                    #else:
+                        #set $reference_fasta_filename = str( $analysis_type.format_type.reference_source.ref_file.fields.path )
+                    #end if
+                #end if
+            #end if
+            bamtools
+            #if str( $analysis_type.analysis_type_selector ) == 'convert':
+                convert
+                -format ${analysis_type.format_type.format_type_selector}
+                #if str( $analysis_type.format_type.format_type_selector ) == 'pileup':
+                    ${analysis_type.format_type.mapqual}
+                    -fasta '${reference_fasta_filename}'
+                #elif str( $analysis_type.format_type.format_type_selector ) == 'sam':
+                    ${analysis_type.format_type.noheader}
+                #end if
+                -out '$out_file1'
+            #elif str( $analysis_type.analysis_type_selector ) == 'count':
+                count
+                > '$out_file1'
+            #elif str( $analysis_type.analysis_type_selector ) == 'coverage':
+                coverage
+                -out '$out_file1'
+            #elif str( $analysis_type.analysis_type_selector ) == 'header':
+                header
+                > '$out_file1'
+            #elif str( $analysis_type.analysis_type_selector ) == 'merge':
+                merge
+                -out '$out_file1'
+            #elif str( $analysis_type.analysis_type_selector ) == 'random':
+                random
+                -n ${analysis_type.count}
+                -seed ${analysis_type.seed}
+                -out '$out_file1'
+            #elif str( $analysis_type.analysis_type_selector ) == 'revert':
+                revert
+                ${analysis_type.keepDuplicate}
+                ${analysis_type.keepQualities}
+                -out '$out_file1'
+            #elif str( $analysis_type.analysis_type_selector ) == 'sort':
+                sort
+                ${analysis_type.byname}
+                -out '$out_file1'
+            #end if
+            -in localbam.bam
+        ]]>
+    </command>
+    <inputs>
+        <param name="input_bams" type="data" format="bam" label="BAM dataset(s) to filter" />
+        <conditional name="analysis_type">
+            <param name="analysis_type_selector" type="select" label="Select BAM manipulation" help="See help below for detailed description of each tool">
+                <option value="convert">Convert</option>
+                <option value="count">Count</option>
+                <option value="coverage">Coverage</option>
+                <option value="header">Header</option>
+                <option value="merge">Merge</option>
+                <option value="random">Random</option>
+                <option value="revert">Revert</option>
+                <!-- The sort option below is commented out as BAM files in Galaxy are reference sorted by dafault. -->
+                <!-- Allowing users for sort files may break donstream functionality. -->
+                <!-- To enable sort option simply uncomment the line below: -->
+                <!--  <option value="sort">Sort</option> -->
+            </param>
+            <when value="convert">
+                <conditional name="format_type">
+                    <param name="format_type_selector" type="select" help="Select what to convert your BAM to">
+                        <option value="bed">BED</option>
+                        <option value="fasta">FASTA</option>
+                        <option value="fastq">FASTQ</option>
+                        <option value="json">JSON</option>
+                        <option value="pileup">Pileup</option>
+                        <option value="sam">SAM</option>
+                        <option value="yaml">YAML</option>
+                    </param>
+                    <when value="bed"/>
+                    <when value="fasta"/>
+                    <when value="fastq"/>
+                    <when value="json"/>
+                    <when value="yaml"/>
+                    <when value="pileup">
+                        <conditional name="reference_source">
+                            <param name="reference_source_selector" type="select" label="Choose the source for the reference list">
+                                <option value="cached">Locally cached</option>
+                                <option value="history">History</option>
+                            </param>
+                            <when value="cached">
+                                <param name="ref_file" type="select" label="Using reference genome">
+                                    <options from_data_table="sam_fa_indexes">
+                                        <!--<filter type="data_meta" key="dbkey" ref="input_bam" column="value"/>-->
+                                    </options>
+                                    <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file"/>
+                                </param>
+                            </when>
+                            <when value="history"> <!-- FIX ME!!!! -->
+                                <param name="ref_file" type="data" format="fasta" label="Using reference file" />
+                            </when>
+                        </conditional>
+                        <param name="mapqual" type="boolean" truevalue="-mapqual" falsevalue="" label="Print quality scores?" />
+                    </when>
+                    <when value="sam">
+                        <param name="noheader" type="boolean" truevalue="-noheader" falsevalue="" label="Do not print header" />
+                    </when>
+                </conditional>
+            </when>
+            <when value="count" />
+            <when value="coverage" />
+            <when value="header" />
+            <when value="merge" />
+            <when value="random">
+                <param name="count" type="integer" value="10000" label="Number of random alignments to grab" help="No duplicate checking is perfomed" />
+                <param name="seed" type="integer" value="1024" label="Random number generator seed" help="Use the same seed for reproducible results" />
+            </when>
+            <when value="revert">
+                <param name="keepDuplicate" type="boolean" truevalue="-keepDuplicate" falsevalue="" label="Keep duplicates marked" help="Do not remove duplicate marks" />
+                <param name="keepQualities" type="boolean" truevalue="-keepQualities" falsevalue="" label="Keep base qualities" help="Do not replace qualities with contect of OQ tag" />
+            </when>
+            <!--
+            <when value="sort">
+                <param name="byname" type="boolean" truevalue="-byname" falsevalue="" label="Sort by name" help="Checked: sort by name; Unchecked: sort by coordinate"/>
+            </when>
+            -->
+        </conditional>
+    </inputs>
+    <outputs>
+        <data format="txt" name="out_file1">
+            <change_format>
+                <when input="analysis_type.format_type.format_type_selector" value="bed" format="bed" />
+                <when input="analysis_type.format_type.format_type_selector" value="fasta" format="fasta" />
+                <when input="analysis_type.format_type.format_type_selector" value="fastq" format="fastq" />
+                <when input="analysis_type.format_type.format_type_selector" value="sam" format="sam" />
+                <when input="analysis_type.format_type.format_type_selector" value="pileup" format="pileup" />
+                <when input="analysis_type.analysis_type_selector" value="count" format="tabular" />
+                <when input="analysis_type.analysis_type_selector" value="coverage" format="tabular" />
+                <when input="analysis_type.analysis_type_selector" value="merge" format="bam" />
+                <when input="analysis_type.analysis_type_selector" value="random" format="bam" />
+                <when input="analysis_type.analysis_type_selector" value="revert" format="bam" />
+                <when input="analysis_type.analysis_type_selector" value="sort" format="bam" />
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_bams" ftype="bam" value="bamtools-input1.bam"/>
+            <param name="analysis_type_selector" value="convert"/>
+            <param name="format_type_selector" value="pileup"/>
+            <param name="reference_source_selector" value="history" />
+            <param name="mapqual" value="true" />
+            <param name="ref_file" ftype="fasta" value="bamtools-fasta.fa"/>
+            <output name="out_file1" file="bamtools-convert-pileup.pu" />
+        </test>
+        <test>
+            <param name="input_bams" ftype="bam" value="bamtools-input1.bam"/>
+            <param name="analysis_type_selector" value="count"/>
+            <output name="out_file1" file="bamtools-count.tab" />
+        </test>
+        <test>
+            <param name="input_bams" ftype="bam" value="bamtools-input1.bam"/>
+            <param name="analysis_type_selector" value="coverage"/>
+            <output name="out_file1" file="bamtools-coverage.tab" />
+        </test>
+        <test>
+            <param name="input_bams" ftype="bam" value="bamtools-input1.bam"/>
+            <param name="analysis_type_selector" value="header"/>
+            <output name="out_file1" file="bamtools-header.txt" />
+        </test>
+    </tests>
+    <help>
+
+**What is does**
+
+BAMTools is a collection of utilities for manipulation on BAM files. It is based on BAMtools suite of tools by Derek Barnett (https://github.com/pezmaster31/bamtools).
+This Galaxy implementation of BAMTools utilities includes seven utilities - Convert, Count, Coverage, Header, Merge, Random, and Revert - decsribed in detail below.
+
+-----
+
+**Convert**
+
+Converts BAM dataset(s) into BED, FASTA, FASTQ, JSON, Pileup, SAM, or YAML formats. Note that the conversion to the pileup format requires providing a reference sequence either
+cashed at this Galaxy instance, or provided by you as a FASTA dataset from History.
+
+-----
+
+**Count**
+
+Counts a number of alignments in a BAM dataset(s).
+
+-----
+
+**Coverage**
+
+Prints per-base coverage for a BAM dataset.
+
+-----
+
+**Header**
+
+Prints header from a BAM dataset(s).
+
+------
+
+**Merge**
+
+Merges multiple BAM datasets into a single one. Obviously, you need to select multiple BAMs as input, which is done by pressing the "**Add new BAM dataset(s) to filter**" button.
+
+------
+
+**Random**
+
+Grabs a specified number of random lines from BAM dataset(s).
+
+------
+
+**Revert**
+
+Removes duplicate marks and restores original (non-recalibrated) base qualities.
+
+-----
+
+.. class:: infomark
+
+**More information**
+
+Additional information about BAMtools can be found at https://github.com/pezmaster31/bamtools/wiki
+
+    </help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btr174</citation>
+    </citations>
+</tool>

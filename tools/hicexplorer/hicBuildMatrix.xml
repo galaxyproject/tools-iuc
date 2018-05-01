@@ -1,0 +1,268 @@
+<tool id="hicexplorer_hicbuildmatrix" name="@BINARY@" version="@WRAPPER_VERSION@.0">
+    <description>create a contact matrix</description>
+    <macros>
+        <token name="@BINARY@">hicBuildMatrix</token>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" >
+        <requirement type="package" version="1.6">samtools</requirement>
+    </expand>
+    <command detect_errors="exit_code"><![CDATA[
+
+        mkdir ./QCfolder &&
+        mkdir $qc.files_path &&
+        hicBuildMatrix
+
+            --samFiles
+            #for $repeat in $samFiles:
+                '${repeat.samFile}'
+            #end for
+
+            #if $restrictionCutFileBinSize_conditional.restrictionCutFileBinSize_selector == "optionRestrictionCutFile":
+                --restrictionCutFile '$restrictionCutFileBinSize_conditional.restrictionCutFile'
+                --minDistance $restrictionCutFileBinSize_conditional.minDistance
+                --maxLibraryInsertSize $restrictionCutFileBinSize_conditional.maxLibraryInsertSize
+            #end if
+
+            #if $restrictionCutFileBinSize_conditional.restrictionCutFileBinSize_selector == "optionBinSize":
+                --binSize $restrictionCutFileBinSize_conditional.binSize
+            #end if
+
+
+            #if $restrictionSequence:
+                --restrictionSequence '$restrictionSequence'
+            #end if
+
+            #if $region:
+                --region '$region'
+            #end if
+
+            --outFileName matrix.$outputFormat
+
+            #if $outBam_Boolean:
+                $outBam_Boolean ./unsorted.bam
+            #end if
+
+            $keepSelfCircles
+
+            #if $minMappingQuality and $minMappingQuality is not None:
+                --minMappingQuality $minMappingQuality
+            #end if
+
+            #if $danglingSequence:
+                --danglingSequence '$danglingSequence'
+            #end if
+
+            --threads @THREADS@
+
+            --QCfolder ./QCfolder
+        &&
+        mv ./QCfolder/* $qc.files_path/
+        &&
+        mv $qc.files_path/hicQC.html $qc
+        && mv $qc.files_path/*.log raw_qc
+        && mv matrix.$outputFormat matrix
+        #if $outBam_Boolean:
+            && samtools sort ./unsorted.bam -o sorted.bam
+        #end if
+
+]]>
+    </command>
+    <inputs>
+        <repeat max="2" min="2" name="samFiles" title="Sam/Bam files to process (forward/reverse)" 
+                help="Please use the special BAM datatype: qname_input_sorted.bam and use for 'bowtie2' the '--reorder' option to create a BAM file.">
+            <param name="samFile" type="data" format="sam,qname_input_sorted.bam"/>
+        </repeat>
+        <conditional name="restrictionCutFileBinSize_conditional">
+            <param name="restrictionCutFileBinSize_selector" type="select" label="Choose to use a restriction cut file or a bin size">
+                <option value="optionRestrictionCutFile">Restriction cut file</option>
+                <option value="optionBinSize" selected="True">Bin size</option>
+            </param>
+            <when value="optionRestrictionCutFile">
+                <param argument="--restrictionCutFile" type="data" format="bed" optional="true" label="BED file with all restriction cut places"
+                        help="Should contaion only  mappable restriction sites. If given, the bins are set to match the restriction fragments
+                        (i.e. the region between one restriction site and the next)." />
+                <param argument="--minDistance" type="integer" value="" optional="true" label="Minimum distance between restriction sites"
+                        help="Restriction sites that are closer that this distance are merged into one.
+                        This option only applies if --restrictionCutFile is given."/>
+                <param argument="--maxLibraryInsertSize" type="integer" value="" optional="true"
+                        label="Maximum library insert size defines different cut offs based on the maximum expected library size"
+                        help="*This is not the average fragment size* but the higher end of the fragment size distribution (obtained using for example Fragment Analyzer)
+                              which usually is between 800 to 1500 bp. If this value if not known use the default of 1000. The insert value is used to decide if two mates
+                              belong to the same fragment (by checking if they are within this max insert size) and to decide if a mate
+                              is too far away from the nearest restriction site." />
+            </when>
+            <when value="optionBinSize">
+                <param argument="--binSize" type="integer" value="" optional="true" label="Bin size in bp"
+                    help="If used, the restriction cut places (if given) are used to only consider reads that are in the vicinity of the resctriction sites.
+                    Otherwise all reads in the interval are considered. "/>
+            </when>
+        </conditional>
+
+        <param argument="--restrictionSequence" type="text" optional="true" label="Sequence of the restriction site"
+            help="This is used to discard reads that end/start with such sequence and that are considered un-ligated fragments or
+            &quot;dangling-ends&quot;. If not given, such statistics will not be available." />
+
+        <expand macro="region" />
+
+        <param argument="--keepSelfCircles" type="boolean" truevalue="--keepSelfCircles" falsevalue=""
+            label="Keep self circles"
+            help="If set, outward facing reads without any restriction fragment (self circles) are kept. They will be counted and shown in the QC plots." />
+
+        <expand macro="minMappingQuality" />
+
+        <param argument="--danglingSequence" type="text" optional="true" label="Dangling sequence"
+            help="Sequence left by the restriction enzyme after cutting.
+                    Each restriction enzyme recognizes a different DNA sequence and, 
+                    after cutting, they leave behind a specific ‘sticky’ end or dangling end sequence.
+                    For example, for HindIII the restriction site is AAGCTT and the dangling end is AGCT. 
+                    For DpnII, the restriction site and dangling end sequence are the same: GATC. 
+                    This information is easily found on the description of the restriction enzyme.
+                    The dangling sequence is used to classify and report reads whose 5’ end starts with such sequence as dangling-end reads.
+                    A significant portion of dangling-end reads in a sample are indicative of a problem with the re-ligation step of the protocol. "/>
+
+        <param name='outBam_Boolean' type='boolean' truevalue='--outBam'  falsevalue="" checked="false" label="Save valid Hi-C reads in BAM file"
+                    help="A bam
+                    file containing all valid Hi-C reads can be created
+                    using this option. This bam file could be useful to
+                    inspect the distribution of valid Hi-C reads pairs or
+                    for other downstream analyses, but is not used by any
+                    HiCExplorer tool. Computation will be significantly
+                    longer if this option is set."/>
+
+        <param name='outputFormat' type='select' label="Output file format">
+            <option value='h5'>HiCExplorer format</option>
+            <option value="cool">cool</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="outBam" from_work_dir="sorted.bam" format="bam" label="${tool.name} BAM file on ${on_string}">
+            <filter>outBam_Boolean</filter>
+        </data>
+        <data name="outFileName" from_work_dir="matrix" format="h5" label="${tool.name} MATRIX on ${on_string}">
+            <change_format>
+                <when input="outputFormat" value="cool" format="cool" />
+            </change_format>
+        </data>
+        <data name="qc" format="html" label="${tool.name} QC on ${on_string}"/>
+
+        <data name="raw_qc" from_work_dir='raw_qc' format='txt' label="${tool.name} raw QC on ${on_string}" />
+    </outputs>
+    <tests>
+        <test>
+            <repeat name="samFiles">
+                <param name="samFile" value="small_test_R1_unsorted.sam"/>
+            </repeat>
+            <repeat name="samFiles">
+                <param name="samFile" value="small_test_R2_unsorted.sam"/>
+            </repeat>
+            <conditional name="restrictionCutFileBinSize_conditional">
+                <param name="restrictionCutFileBinSize_selector" value="optionBinSize"/>
+                <param name="binSize" value="5000"/>
+            </conditional>
+            <param name='outputFormat' value='h5'/>
+            <param name='outBam_Boolean' value="True" />
+            <output name="outBam" file="small_test_matrix_result_sorted.bam" ftype="bam"/>
+            <output name="outFileName" file="small_test_matrix_2.h5" ftype="h5" compare="sim_size"/>
+            <output name="raw_qc" file='raw_qc_report' compare='diff' lines_diff='2'/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Creation of the contact matrix
+===============================
+
+
+**hicBuildMatrix** creates a contact matrix based on Hi-C read pairs. It requires two sam or bam files
+corresponding to the first and second mates of the paired-end Hi-C reads mapped on the reference genome.
+The sam and bam files should not be sorted by position. There are two main options to create the Hi-C contact matrix,
+either by fixed bin size (eg. 10000 bp) or by bins of variable length following restriction enzyme sites location in the genome (restriction enzyme resolution).
+**hicBuildMatrix** generates a quality control output that can be used to analyze the quality of the Hi-C reads to assess if the experiment and sequencing were successful.
+
+_________________
+
+
+Usage
+-----
+
+
+This tool must be used on paired sam / bam files produced with a program that supports local alignment (e.g. Bowtie2) where both PE reads are mapped using the --local option.
+
+_________________
+
+
+Output
+------
+
+**hicBuildMatrix** creates multiple outputs:
+
+    - The contact matrix used by HiCExplorer for all downstream analyses.
+    - A bam file with the accepted alignments, which can be useful to inspect the distribution of valid Hi-C reads pairs, notably around restriction enzyme sites or for other downstream analyses. This file is not used by any HiCExplorer tools.
+    - A quality control report to assess if the Hi-C protocol and library contrusction were successful.
+
+Example plot
+++++++++++++
+
+.. image:: hicPlotMatrix.png
+   :width: 50%
+
+Contact matrix of *Drosophila melanogaster* embryos built with **hicBuildMatrix** and visualized using ``hicPlotMatrix``. Hi-C matrix bins were merged to a 25 kb bin size before plotting using ``hicMergeMatrixBins``.
+
+
+
+
+Quality report
+++++++++++++++
+
+A quality report is produced alongside the contact matrix.
+
+.. image:: $PATH_TO_IMAGES/hicQC.png
+   :width: 40%
+
+Several plots, that are described in details below, are comprised inside this report.
+
+.. image:: $PATH_TO_IMAGES/hicQC_pairs_sequenced.png
+   :width: 40%
+
+On the plot above, we can see how many reads were sequenced per sample (pairs considered), how many reads were mappable, unique and of high quality and how many reads passed all quality controls and are thus useful for further analysis (pairs used). All quality controls used for read filtering are explained below.
+
+.. image:: $PATH_TO_IMAGES/hicQC_unmappable_and_non_unique.png
+   :width: 40%
+
+The figure above contains the fraction of reads with respect to the total number of reads that did not map, that have a low quality score or that didn't map uniquely to the genome. In our example we can see that Sample 3 has the highest fraction of pairs used. We explain the differences between the three samples on the plot below.
+
+.. image:: $PATH_TO_IMAGES/hicQC_pairs_discarded.png
+   :width: 40%
+
+This figure contains the fraction of read pairs (with respect to mappable and unique reads) that were discarded when building the Hi-C matrix. You can find the description of each category below:
+
+    - **Dangling ends:** reads that start with the restriction site and constitute reads that were digested but not ligated. Sample 1 in our example has a high fraction of dangling ends (and thus a low proportion of pairs used). Reasons for this can be inefficient ligation or insufficient removal of danging ends during samples preparation.
+
+    - **Duplicated pairs:** reads that have the same sequence due to PCR amplification. For example, Sample 2 was amplified too much and thus has a very high fraction of duplicated pairs.
+
+    - **Same fragment:** read mates facing inward, separated by up to 800bp that do not have a restriction enzyme site in between. These read pairs are not valid Hi-C pairs and are thus discarded from further analyses.
+
+    - **Self circle:** read pairs within 25kb with 'outward' read orientation.
+
+    - **Self ligation:** read pairs with a restriction site in between that are within 800bp.
+
+.. image:: $PATH_TO_IMAGES/hicQC_distance.png
+   :width: 40%
+
+The figure above contains the fraction of read pairs (with respect to mappable reads) that compose inter chromosomal, short range (< 20kb) or long range contacts. Inter chromosomal reads of a wild-type sample are expected to be low. Trans-chromosomal contacts can be primarily considered as random ligation events. These would be expected to contribute to technical noise that may obscure some of the finer features in the Hi-C datasets (Nagano *et al.* 2015, Comparison of Hi-C results using in-solution versus in-nucleus ligation, doi: https://doi.org/10.1186/s13059-015-0753-7). As such, a high fraction of inter chromosomal reads is an indicator of low sample quality, but it can also be associated to cell cycle changes (Nagano *et al.* 2018, Cell-cycle dynamics of chromosomal organisation at single-cell resolution, doi: https://doi.org/10.1038/nature23001).
+
+Short range and long range contacts proportions can be associated to how the fixation is performed during Hi-C sample preparation. These two proportions also directly impact the Hi-C corrected counts versus genomic distance plots generated by hicPlotDistVsCounts.
+
+.. image:: $PATH_TO_IMAGES/hicQC_read_orientation.png
+   :width: 40%
+
+The last figure shows the fractions of inward, outward, left or right read pairs (with respect to mappable reads). Deviations from an equal distribution indicates problems during sample preparation.
+
+_________________
+
+| For more information about HiCExplorer please consider our documentation on readthedocs.io_.
+
+.. _readthedocs.io: http://hicexplorer.readthedocs.io/en/latest/index.html
+]]></help>
+    <expand macro="citations" />
+</tool>

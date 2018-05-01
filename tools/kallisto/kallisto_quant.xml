@@ -1,0 +1,162 @@
+<?xml version="1.0"?>
+<tool id="kallisto_quant" name="Kallisto quant" version="@VERSION@.3">
+    <description>- quantify abundances of RNA-Seq transcripts</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code">
+        <![CDATA[
+        #if $reference_transcriptome.reference_transcriptome_source == "history":
+            ln -s '$reference_transcriptome.reference' reference.fa &&
+            kallisto index reference.fa -i reference.kallisto &&
+            #set index_path = 'reference.kallisto'
+        #else:
+            #set index_path = $reference_transcriptome.index.fields.path
+        #end if
+        kallisto quant -i '$index_path'
+            $bias --bootstrap-samples $bootstrap_samples --seed $seed $fusion $pseudobam
+            #if $pseudobam:
+                -o .
+            #else:
+                --threads \${GALAXY_SLOTS:-1}
+                -o .
+            #end if
+            #if str($single_paired.single_paired_selector) == 'single':
+                --single
+                #set $single_reads = $single_paired.reads
+                --fragment-length $single_paired.fragment_length
+                --sd $single_paired.sd
+                '$single_reads'
+            #else:
+                #if str($single_paired.collection.collection_selector) == 'datasets':
+                    #set $forward_reads = $single_paired.collection.forward
+                    #set $reverse_reads = $single_paired.collection.reverse
+                #else:
+                    #set $forward_reads = $single_paired.collection.reads.forward
+                    #set $reverse_reads = $single_paired.collection.reads.reverse
+                #end if
+                #set $reads = "'%s' '%s'" % ($forward_reads, $reverse_reads)
+                $reads
+            #end if
+            #if $pseudobam:
+                | samtools sort -O bam -@ \${GALAXY_SLOTS:-1} -o '$pseudobam_output' -
+            #end if
+            && cat run_info.json
+        ]]>
+    </command>
+    <inputs>
+        <expand macro="reference_input" />
+        <conditional name="single_paired">
+            <param name="single_paired_selector" type="select" label="Single-end or paired reads">
+                <option value="single" selected="true">Single-end</option>
+                <option value="paired">Paired</option>
+            </param>
+            <when value="single">
+                <param name="reads" type="data" format="fastq,fastq.gz" label="Reads in FASTQ format" />
+                <param name="fragment_length" argument="--fragment-length" type="integer" value="200" label="Average fragment length" help="Illumina typically produces reads of 180-200bp" />
+                <param argument="--sd" type="integer" value="20" label="Estimated standard deviation of fragment length" />
+            </when>
+            <when value="paired">
+                <conditional name="collection">
+                    <param name="collection_selector" type="select" label="Collection or individual datasets">
+                        <option value="datasets" selected="true">Individual files</option>
+                        <option value="collection">Pair or list of pairs</option>
+                    </param>
+                    <when value="datasets">
+                        <param name="forward" type="data" format="fastq,fastq.gz" label="Forward reads" />
+                        <param name="reverse" type="data" format="fastq,fastq.gz" label="Reverse reads" />
+                    </when>
+                    <when value="collection">
+                        <param name="reads" type="data_collection" format="fastq,fastq.gz" collection_type="paired" label="Collection of reads" />
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+        <param argument="--bias" type="boolean" truevalue="--bias" falsevalue="" label="Perform sequence based bias correction" />
+        <param name="bootstrap_samples" argument="--bootstrap-samples" type="integer" value="0" label="Number of bootstrap samples" help="default: 0" />
+        <param argument="--seed" type="integer" value="42" label="Seed for the bootstrap sampling" help="default: 42" />
+        <param argument="--fusion" type="boolean" truevalue="--fusion" falsevalue="" label="Search for fusions" help="for Pizzly" />
+        <param argument="--pseudobam" type="boolean" truevalue="--pseudobam" falsevalue="" label="Output pseudoalignments in BAM format" />
+    </inputs>
+    <outputs>
+        <data format="h5" name="abundance_h5" from_work_dir="abundance.h5" label="${tool.name} on ${on_string}: Abundances (HDF5)" />
+        <data format="tabular" name="abundance_tab" from_work_dir="abundance.tsv" label="${tool.name} on ${on_string}: Abundances (tabular)" />
+        <data format="bam" name="pseudobam_output" from_work_dir="abundance.txt" label="${tool.name} on ${on_string}: Pseudoalignments">
+            <filter>pseudobam</filter>
+        </data>
+        <data format="tabular" name="fusion_output" from_work_dir="fusion.txt" label="${tool.name} on ${on_string}: Pizzly input (tabular)">
+            <filter>fusion</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="reference_transcriptome_source" value="history" />
+            <param name="reference" ftype="fasta" value="mm10_chrM.fa" />
+            <param name="single_paired_selector" value="paired" />
+            <param name="collection_selector" value="datasets" />
+            <param name="forward" ftype="fastq" value="mm10_chrM-1.f.fq" />
+            <param name="reverse" ftype="fastq" value="mm10_chrM-1.r.fq" />
+            <output name="abundance_tab" file="kallisto_quant_out1.tab" ftype="tabular" />
+        </test>
+        <test>
+            <param name="reference_transcriptome_source" value="history" />
+            <param name="reference" ftype="fasta" value="mm10_chrM.fa" />
+            <param name="single_paired_selector" value="paired" />
+            <param name="collection_selector" value="collection" />
+            <param name="reads">
+                <collection type="paired">
+                    <element name="forward" value="mm10_chrM-1.f.fq" />
+                    <element name="reverse" value="mm10_chrM-1.r.fq" />
+                </collection>
+            </param>
+            <output name="abundance_tab" file="kallisto_quant_out2.tab" ftype="tabular" />
+        </test>
+        <test>
+            <param name="reference_transcriptome_source" value="history" />
+            <param name="reference" ftype="fasta" value="mm10_chrM.fa" />
+            <param name="single_paired_selector" value="single" />
+            <param name="collection_selector" value="collection" />
+            <param name="reads" ftype="fastq" value="mm10_chrM-1.f.fq" />
+            <output name="abundance_tab" file="kallisto_quant_out3.tab" ftype="tabular" />
+        </test>
+        <test>
+            <param name="reference_transcriptome_source" value="history" />
+            <param name="reference" ftype="fasta" value="felCat8_chrM.fa" />
+            <param name="single_paired_selector" value="paired" />
+            <param name="collection_selector" value="datasets" />
+            <param name="pseudobam" value="true" />
+            <param name="forward" ftype="fastq" value="felCat8_chrM_F.fq" />
+            <param name="reverse" ftype="fastq" value="felCat8_chrM_R.fq" />
+            <output name="abundance_tab" file="kallisto_quant_out4.tab" ftype="tabular" />
+            <output name="pseudobam_output" file="kallisto_quant_out4.bam" ftype="bam" />
+        </test>
+        <test>
+            <param name="reference_transcriptome_source" value="cached" />
+            <param name="single_paired_selector" value="paired" />
+            <param name="collection_selector" value="datasets" />
+            <param name="pseudobam" value="true" />
+            <param name="forward" ftype="fastq" dbkey="sacCer2" value="sacCer2_chrM_F.fq.gz" />
+            <param name="reverse" ftype="fastq" dbkey="sacCer2" value="sacCer2_chrM_R.fq" />
+            <output name="abundance_tab" file="kallisto_quant_out5.tab" ftype="tabular" />
+            <output name="pseudobam_output" file="kallisto_quant_out5.bam" ftype="bam" />
+        </test>
+        <test>
+            <param name="reference_transcriptome_source" value="history" />
+            <param name="reference" ftype="fasta" value="hg38_transcripts.fa" />
+            <param name="single_paired_selector" value="paired" />
+            <param name="collection_selector" value="datasets" />
+            <param name="fusion" value="true" />
+            <param name="forward" ftype="fastq" dbkey="hg38" value="hg38_F.fq.gz" />
+            <param name="reverse" ftype="fastq" dbkey="hg38" value="hg38_R.fq.gz" />
+            <output name="fusion_output" file="fusion.txt" ftype="tabular" />
+        </test>
+
+    </tests>
+    <help>
+ <![CDATA[
+ kallisto is a program for quantifying abundances of transcripts from RNA-Seq data, or more generally of target sequences using high-throughput sequencing reads. It is based on the novel idea of pseudoalignment for rapidly determining the compatibility of reads with targets, without the need for alignment. On benchmarks with standard RNA-Seq data, kallisto can quantify 30 million human reads in less than 3 minutes on a Mac desktop computer using only the read sequences and a transcriptome index that itself takes less than 10 minutes to build. Pseudoalignment of reads preserves the key information needed for quantification, and kallisto is therefore not only fast, but also as accurate as existing quantification tools. In fact, because the pseudoalignment procedure is robust to errors in the reads, in many benchmarks kallisto significantly outperforms existing tools.
+ ]]>
+     </help>
+    <expand macro="citations" />
+</tool>
