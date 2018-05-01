@@ -16,65 +16,55 @@
 #    You should have received a copy of the GNU Affero General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#
-#This is a shell script wrapper for 'fastx_barcode_splitter.pl'
+#  Modified by Lance Parsons (lparsons@princeton.edu)
+#  2011-03-15  Adapted to allow galaxy to determine filetype
+#  2015-10-21  Updated to make compatible with OSX (BSD sed)
+#  2015-11-13  Removed LIBRARY_NAME, no longer needed
+#  2016-04-28  Output summary as simple tabular output
+
+# This is a shell script wrapper for 'fastx_barcode_splitter.pl'
 #
 # 1. Output files are saved at the dataset's files_path directory.
-#    
-# 2. 'fastx_barcode_splitter.pl' outputs a textual table.
-#    This script turns it into pretty HTML with working URL
-#    (so lazy users can just click on the URLs and get their files)
+
+if [ "$1x" = "x" ]; then
+  echo "Usage: $0 [BARCODE FILE] [FASTQ FILE] [OUTPUT_PATH] [FILETYPE]" >&2
+  exit 1
+fi
 
 BARCODE_FILE="$1"
 FASTQ_FILE="$2"
-LIBNAME="$3"
-OUTPUT_PATH="$4"
+OUTPUT_PATH="$3"
+FILETYPE="$4"
 shift 4
 # The rest of the parameters are passed to the split program
 
-if [ "$OUTPUT_PATH" == "" ]; then
-	echo "Usage: $0 [BARCODE FILE] [FASTQ FILE] [LIBRARY_NAME] [OUTPUT_PATH]" >&2
-	exit 1
+if [ "${OUTPUT_PATH}x" = "x" ]; then
+  echo "Usage: $0 [BARCODE FILE] [FASTQ FILE] [OUTPUT_PATH] [FILETYPE]" >&2
+  exit 1
 fi
-
-#Sanitize library name, make sure we can create a file with this name
-LIBNAME=${LIBNAME//\.gz/}
-LIBNAME=${LIBNAME//\.txt/}
-LIBNAME=${LIBNAME//[^[:alnum:]]/_}
 
 if [ ! -r "$FASTQ_FILE" ]; then
-	echo "Error: Input file ($FASTQ_FILE) not found!" >&2
-	exit 1
+  echo "Error: Input file ($FASTQ_FILE) not found!" >&2
+  exit 1
 fi
 if [ ! -r "$BARCODE_FILE" ]; then
-	echo "Error: barcode file ($BARCODE_FILE) not found!" >&2
-	exit 1
+  echo "Error: barcode file ($BARCODE_FILE) not found!" >&2
+  exit 1
 fi
 mkdir -p "$OUTPUT_PATH"
 if [ ! -d "$OUTPUT_PATH" ]; then
-	echo "Error: failed to create output path '$OUTPUT_PATH'" >&2
-	exit 1
+  echo "Error: failed to create output path '$OUTPUT_PATH'" >&2
+  exit 1
 fi
 
-PUBLICURL=""
 BASEPATH="$OUTPUT_PATH/"
-#PREFIX="$BASEPATH"`date "+%Y-%m-%d_%H%M__"`"${LIBNAME}__"
-PREFIX="$BASEPATH""${LIBNAME}__"
-SUFFIX=".txt"
+PREFIX="$BASEPATH"
+SUFFIX=".$FILETYPE"
+DIRECTORY="$(cd "$(dirname "$0")" && pwd)"
 
-RESULTS=`zcat -f < "$FASTQ_FILE" | fastx_barcode_splitter.pl --bcfile "$BARCODE_FILE" --prefix "$PREFIX" --suffix "$SUFFIX" "$@"`
+RESULTS=$(gzip -cdf "$FASTQ_FILE" | "fastx_barcode_splitter.pl" --bcfile "$BARCODE_FILE" --prefix "$PREFIX" --suffix "$SUFFIX" "$@")
 if [ $? != 0 ]; then
-	echo "error"
+  echo "error"
 fi
 
-#
-# Convert the textual tab-separated table into simple HTML table,
-# with the local path replaces with a valid URL
-echo "<html><body><table border=1>"
-echo "$RESULTS" | sed -r "s|$BASEPATH(.*)|<a href=\"\\1\">\\1</a>|" | sed '
-i<tr><td>
-s|\t|</td><td>|g
-a<\/td><\/tr>
-'
-echo "<p>"
-echo "</table></body></html>"
+echo "$RESULTS"
