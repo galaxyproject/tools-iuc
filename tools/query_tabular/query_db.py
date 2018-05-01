@@ -67,4 +67,5 @@ def run_query(conn, query, outputFile, no_header=False, comment_char='#'):
             outputFile.write("%s\n" % '\t'.join(
                 [str(val) if val is not None else '' for val in row]))
     else:
+        conn.commit()
         return results
