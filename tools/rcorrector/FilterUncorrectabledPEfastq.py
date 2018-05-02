@@ -16,10 +16,10 @@ Currently, this script only handles paired-end data, and handle either unzipped
 or gzipped files on the fly, so long as the gzipped files end with 'gz'.
 """
 
-import sys        
+# import sys
 import gzip
-from itertools import izip,izip_longest
 import argparse
+from itertools import izip,izip_longest
 from os.path import basename
 
 def get_input_streams(r1file,r2file):
