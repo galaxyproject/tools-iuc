@@ -19,7 +19,8 @@ or gzipped files on the fly, so long as the gzipped files end with 'gz'.
 # import sys
 import argparse
 import gzip
-# from itertools import izip, izip_longest
+from itertools import izip_longest
+# izip, 
 from os.path import basename
 
 
