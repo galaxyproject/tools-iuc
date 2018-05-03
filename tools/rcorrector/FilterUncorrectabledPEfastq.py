@@ -19,7 +19,7 @@ or gzipped files on the fly, so long as the gzipped files end with 'gz'.
 # import sys
 import argparse
 import gzip
-from itertools import izip, izip_longest
+# from itertools import izip, izip_longest
 from os.path import basename
 
 
@@ -74,8 +74,8 @@ if __name__ == "__main__":
                     pair_cor_count += 1
                 head1 = head1.split('l:')[0][:-1]  # keeps all before the low kmer count statistic and removes the trailing whitespace character
                 head2 = head2.split('l:')[0][:-1]
-                #head1 = head1.replace(' cor', '')
-                #head2 = head2.replace(' cor', '')
+                # head1 = head1.replace(' cor', '')
+                # head2 = head2.replace(' cor', '')
                 r1out.write('%s\n' % '\n'.join([head1, seq1, placeholder1, qual1]))
                 r2out.write('%s\n' % '\n'.join([head2, seq2, placeholder2, qual2]))
     unfix_log = open('rmunfixable.log', 'w')
