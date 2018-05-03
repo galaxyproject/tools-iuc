@@ -59,6 +59,9 @@ def __main__():
                       help='comment character to prefix column header line')
     parser.add_option('-o', '--output', dest='output', default=None,
                       help='Output file for query results')
+    parser.add_option('-d', '--debug', dest='debug', default=False,
+                      action='store_true',
+                      help='Output info to stderr')
     (options, args) = parser.parse_args()
 
     # determine output destination
@@ -109,9 +112,35 @@ def __main__():
         try:
             with open(options.jsonfile) as fh:
                 tdef = json.load(fh)
+                if options.debug:
+                    print('JSON: %s' % tdef, file=sys.stderr)
                 if 'tables' in tdef:
                     for ti, table in enumerate(tdef['tables']):
                         _create_table(ti, table)
+                if 'sql_stmts' in tdef:
+                    for si, stmt in enumerate(tdef['sql_stmts']):
+                        rowcount = run_query(get_connection(options.sqlitedb), stmt, None)
+                        if options.debug:
+                            print('\nDB modification: %s  \nrowcount: %s' %
+                                  (stmt, rowcount), file=sys.stderr)
+                if 'queries' in tdef:
+                    for qi, qstmt in enumerate(tdef['queries']):
+                        if 'header' in qstmt:
+                            no_header = False
+                            comment_char = qstmt['header']
+                        else:
+                            no_header = True
+                            comment_char = None
+                        with open(qstmt['result_file'], 'w') as fh:
+                            query = qstmt['query']
+                            rowcount = run_query(get_connection(options.sqlitedb),
+                                                 query,
+                                                 fh,
+                                                 no_header=no_header,
+                                                 comment_char=comment_char)
+                        if options.debug:
+                            print('\nSQL: %s  \nrowcount: %s' %
+                                  (query, rowcount), file=sys.stderr)
         except Exception as e:
             exit('Error: %s' % (e))
 
@@ -131,9 +160,13 @@ def __main__():
             exit('Error: %s' % (e))
     else:
         try:
-            run_query(get_connection(options.sqlitedb), query, outputFile,
-                      no_header=options.no_header,
-                      comment_char=options.comment_char)
+            rowcount = run_query(get_connection(options.sqlitedb),
+                                 query, outputFile,
+                                 no_header=options.no_header,
+                                 comment_char=options.comment_char)
+            if options.debug:
+                print('\nSQL: %s  \nrowcount: %s' %
+                      (query, rowcount), file=sys.stderr)
         except Exception as e:
             exit('Error: %s' % (e))
 
