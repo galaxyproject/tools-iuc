@@ -266,8 +266,8 @@ if ( $stage <= 2 )
 if ( $stage <= 3 )
 {
 	print STDERR ( "Error correction\n" ) ;
-	print STDERR ( "$WD/rcorrector @rcorrectorArguments $fileArguments -c tmp_$crc.jf_dump\n" ) ;
-	die "Failed at stage 3.\n" if ( system( "$WD/rcorrector @rcorrectorArguments $fileArguments -c tmp_$crc.jf_dump" ) != 0 ) ;
+	print STDERR ( "rcorrector @rcorrectorArguments $fileArguments -c tmp_$crc.jf_dump\n" ) ;
+	die "Failed at stage 3.\n" if ( system( "rcorrector @rcorrectorArguments $fileArguments -c tmp_$crc.jf_dump" ) != 0 ) ;
 }
 
 system( "rm tmp_$crc.bc tmp_$crc.mer_counts tmp_$crc.jf_dump" );
