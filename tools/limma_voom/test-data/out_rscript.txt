@@ -316,12 +316,12 @@ mdsOutPdf <- makeOut("mdsplot_nonorm.pdf")
 mdsOutPng <- makeOut("mdsplot_nonorm.png")
 nmdsOutPdf <- makeOut("mdsplot.pdf")
 nmdsOutPng <- makeOut("mdsplot.png")
-maOutPdf <- character()   # Initialise character vector
-maOutPng <- character()
+mdOutPdf <- character()   # Initialise character vector
+mdOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
-    maOutPdf[i] <- makeOut(paste0("maplot_", contrastData[i], ".pdf"))
-    maOutPng[i] <- makeOut(paste0("maplot_", contrastData[i], ".png"))
+    mdOutPdf[i] <- makeOut(paste0("mdplot_", contrastData[i], ".pdf"))
+    mdOutPng[i] <- makeOut(paste0("mdplot_", contrastData[i], ".png"))
     topOut[i] <- makeOut(paste0(deMethod, "_", contrastData[i], ".tsv"))
 }
 normOut <- makeOut(paste0(deMethod, "_normcounts.tsv"))
@@ -563,30 +563,30 @@ for (i in 1:length(contrastData)) {
     linkAddr <- paste0(deMethod, "_", contrastData[i], ".tsv")
     linkData <- rbind(linkData, c(linkName, linkAddr))
 
-    # Plot MA (log ratios vs mean average) using limma package on weighted
-    pdf(maOutPdf[i])
-    limma::plotMD(fit, status=status, coef=i,
-                  main=paste("MA Plot:", unmake.names(contrastData[i])),
-                  col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+    # Plot MD (log ratios vs mean average) using limma package on weighted
+    pdf(mdOutPdf[i])
+    limma::plotMD(fit, status=status[, i], coef=i,
+                  main=paste("MD Plot:", unmake.names(contrastData[i])),
+                  hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                   xlab="Average Expression", ylab="logFC")
 
     abline(h=0, col="grey", lty=2)
 
-    linkName <- paste0("MA Plot_", contrastData[i], " (.pdf)")
-    linkAddr <- paste0("maplot_", contrastData[i], ".pdf")
+    linkName <- paste0("MD Plot_", contrastData[i], " (.pdf)")
+    linkAddr <- paste0("mdplot_", contrastData[i], ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
-    png(maOutPng[i], height=600, width=600)
-    limma::plotMD(fit, status=status, coef=i,
-                  main=paste("MA Plot:", unmake.names(contrastData[i])),
-                  col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+    png(mdOutPng[i], height=600, width=600)
+    limma::plotMD(fit, status=status[, i], coef=i,
+                  main=paste("MD Plot:", unmake.names(contrastData[i])),
+                  hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                   xlab="Average Expression", ylab="logFC")
 
     abline(h=0, col="grey", lty=2)
 
-    imgName <- paste0("MA Plot_", contrastData[i])
-    imgAddr <- paste0("maplot_", contrastData[i], ".png")
+    imgName <- paste0("MD Plot_", contrastData[i])
+    imgAddr <- paste0("mdplot_", contrastData[i], ".png")
     imageData <- rbind(imageData, c(imgName, imgAddr))
     invisible(dev.off())
 }
@@ -689,7 +689,7 @@ cata("<ul>\n")
 
 if (filtCPM || filtSmpCount || filtTotCount) {
     if (filtCPM) {
-    tempStr <- paste("Genes without more than", opt$cmpReq,
+    tempStr <- paste("Genes without more than", opt$cpmReq,
                                      "CPM in at least", opt$sampleReq, "samples are insignificant",
                                      "and filtered out.")
     } else if (filtSmpCount) {
@@ -724,19 +724,19 @@ if (wantRobust) {
 }
 if (opt$pAdjOpt!="none") {
     if (opt$pAdjOpt=="BH" || opt$pAdjOpt=="BY") {
-        tempStr <- paste0("MA-Plot highlighted genes are significant at FDR ",
+        tempStr <- paste0("MD Plot highlighted genes are significant at FDR ",
                         "of ", opt$pValReq," and exhibit log2-fold-change of at ",
                         "least ", opt$lfcReq, ".")
         ListItem(tempStr)
     } else if (opt$pAdjOpt=="holm") {
-        tempStr <- paste0("MA-Plot highlighted genes are significant at adjusted ",
+        tempStr <- paste0("MD Plot highlighted genes are significant at adjusted ",
                         "p-value of ", opt$pValReq,"  by the Holm(1979) ",
                         "method, and exhibit log2-fold-change of at least ",
                         opt$lfcReq, ".")
         ListItem(tempStr)
     }
   } else {
-        tempStr <- paste0("MA-Plot highlighted genes are significant at p-value ",
+        tempStr <- paste0("MD Plot highlighted genes are significant at p-value ",
                       "of ", opt$pValReq," and exhibit log2-fold-change of at ",
                       "least ", opt$lfcReq, ".")
         ListItem(tempStr)
