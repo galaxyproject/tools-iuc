@@ -419,7 +419,7 @@ imageData[1, ] <- c("MDS Plot", "mdsplot.png")
 invisible(dev.off())
 
 pdf(mdsOutPdf)
-plotMDS(data, labels=labels, cex=0.5)
+plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot")
 linkData[1, ] <- c("MDS Plot.pdf", "mdsplot.pdf")
 invisible(dev.off())
 
