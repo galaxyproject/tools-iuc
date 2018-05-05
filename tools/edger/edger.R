@@ -504,7 +504,7 @@ for (i in 1:length(contrastData)) {
     pdf(mdOutPdf[i])
     limma::plotMD(res, status=status,
                                 main=paste("MD Plot:", unmake.names(contrastData[i])), 
-                                col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+                                hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                                 xlab="Average Expression", ylab="logFC")
     
     abline(h=0, col="grey", lty=2)
@@ -517,7 +517,7 @@ for (i in 1:length(contrastData)) {
     png(mdOutPng[i], height=600, width=600)
     limma::plotMD(res, status=status,
                                 main=paste("MD Plot:", unmake.names(contrastData[i])), 
-                                col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+                                hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                                 xlab="Average Expression", ylab="logFC")
     
     abline(h=0, col="grey", lty=2)
