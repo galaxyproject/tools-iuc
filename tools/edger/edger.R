@@ -471,7 +471,7 @@ if (wantLRT) {
 if (wantNorm) { 
         normalisedCounts <- cpm(data, normalized.lib.sizes=TRUE, log=TRUE) 
         normalisedCounts <- data.frame(data$genes, normalisedCounts)
-        write.table (normalisedCounts, file=normOut, row.names=FALSE, sep="\t")
+        write.table (normalisedCounts, file=normOut, row.names=FALSE, sep="\t", quote=FALSE)
         linkData <- rbind(linkData, c("edgeR_normcounts.tsv", "edgeR_normcounts.tsv"))
 }
 
@@ -494,7 +494,7 @@ for (i in 1:length(contrastData)) {
                                              
     # Write top expressions table
     top <- topTags(res, n=Inf, sort.by="PValue")
-    write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
+    write.table(top, file=topOut[i], row.names=FALSE, sep="\t", quote=FALSE)
     
     linkName <- paste0("edgeR_", contrastData[i], ".tsv")
     linkAddr <- paste0("edgeR_", contrastData[i], ".tsv")
