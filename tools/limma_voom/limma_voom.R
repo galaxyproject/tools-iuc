@@ -565,9 +565,9 @@ for (i in 1:length(contrastData)) {
 
     # Plot MD (log ratios vs mean average) using limma package on weighted
     pdf(mdOutPdf[i])
-    limma::plotMD(fit, status=status, coef=i,
+    limma::plotMD(fit, status=status[, i], coef=i,
                   main=paste("MD Plot:", unmake.names(contrastData[i])),
-                  col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+                  hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                   xlab="Average Expression", ylab="logFC")
 
     abline(h=0, col="grey", lty=2)
@@ -578,9 +578,9 @@ for (i in 1:length(contrastData)) {
     invisible(dev.off())
 
     png(mdOutPng[i], height=600, width=600)
-    limma::plotMD(fit, status=status, coef=i,
+    limma::plotMD(fit, status=status[, i], coef=i,
                   main=paste("MD Plot:", unmake.names(contrastData[i])),
-                  col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+                  hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                   xlab="Average Expression", ylab="logFC")
 
     abline(h=0, col="grey", lty=2)
