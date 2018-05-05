@@ -622,7 +622,7 @@ cata("<ul>\n")
 
 if (filtCPM || filtSmpCount || filtTotCount) {
     if (filtCPM) {
-    tempStr <- paste("Genes without more than", opt$cmpReq,
+    tempStr <- paste("Genes without more than", opt$cpmReq,
                                      "CPM in at least", opt$sampleReq, "samples are insignificant",
                                      "and filtered out.")
     } else if (filtSmpCount) {
