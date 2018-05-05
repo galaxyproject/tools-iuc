@@ -338,7 +338,9 @@ flatCount <- numeric()
 data <- list()
 data$counts <- counts
 if (haveAnno) {
-    data$genes <- geneanno
+  # order annotation by genes in counts (assumes gene ids are in 1st column of geneanno)
+  annoord <- geneanno[match(row.names(counts), geneanno[,1]), ]
+  data$genes <- annoord
 } else {
     data$genes <- data.frame(GeneID=row.names(counts))
 }
