@@ -306,9 +306,13 @@ bcvOutPdf <- makeOut("bcvplot.pdf")
 bcvOutPng <- makeOut("bcvplot.png")
 qlOutPdf <- makeOut("qlplot.pdf")
 qlOutPng <- makeOut("qlplot.png")
-mdsOutPdf <- makeOut("mdsplot.pdf")
-mdsOutPng <- makeOut("mdsplot.png")
-mdOutPdf <- character()   # Initialise character vector
+mdsOutPdf <- character()   # Initialise character vector
+mdsOutPng <- character()
+for (i in 1:ncol(factors)) {
+    mdsOutPdf[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".pdf"))
+    mdsOutPng[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".png"))
+}
+mdOutPdf <- character()
 mdOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
@@ -412,16 +416,40 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 
 # Plot MDS
 labels <- names(counts)
+
+# MDS plot
 png(mdsOutPng, width=600, height=600)
-# Currently only using a single factor
-plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot")
-imageData[1, ] <- c("MDS Plot", "mdsplot.png")
+plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main=paste("MDS Plot:", names(factors)[1]))
+imgName <- paste0("MDS Plot_", names(factors)[1], ".png")
+imgAddr <- paste0("mdsplot_", names(factors)[1], ".png")
+imageData[1, ] <- c(imgName, imgAddr)
 invisible(dev.off())
 
 pdf(mdsOutPdf)
-plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot")
-linkData[1, ] <- c("MDS Plot.pdf", "mdsplot.pdf")
+plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main=paste("MDS Plot:", names(factors)[1]))
+linkName <- paste0("MDS Plot_", names(factors)[1], ".pdf")
+linkAddr <- paste0("mdsplot_", names(factors)[1], ".pdf")
+linkData[1, ] <- c(linkName, linkAddr)
 invisible(dev.off())
+
+# If additional factors create additional MDS plots coloured by factor
+if (ncol(factors) > 1) {
+    for (i in 2:ncol(factors)) {
+        png(mdsOutPng[i], width=600, height=600)
+        plotMDS(data, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
+        imgName <- paste0("MDS Plot_", names(factors)[i], ".png")
+        imgAddr <- paste0("mdsplot_", names(factors)[i], ".png")
+        imageData <- rbind(imageData, c(imgName, imgAddr))
+        invisible(dev.off())
+
+        pdf(mdsOutPdf[i])
+        plotMDS(data, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
+        linkName <- paste0("MDS Plot_", names(factors)[i], ".pdf")
+        linkAddr <- paste0("mdsplot_", names(factors)[i], ".pdf")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
+        invisible(dev.off())
+    }
+}
 
 # BCV Plot
 png(bcvOutPng, width=600, height=600)
