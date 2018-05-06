@@ -306,9 +306,13 @@ bcvOutPdf <- makeOut("bcvplot.pdf")
 bcvOutPng <- makeOut("bcvplot.png")
 qlOutPdf <- makeOut("qlplot.pdf")
 qlOutPng <- makeOut("qlplot.png")
-mdsOutPdf <- makeOut("mdsplot.pdf")
-mdsOutPng <- makeOut("mdsplot.png")
-mdOutPdf <- character()   # Initialise character vector
+mdsOutPdf <- character()   # Initialise character vector
+mdsOutPng <- character()
+for (i in 1:ncol(factors)) {
+    mdsOutPdf[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".pdf"))
+    mdsOutPng[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".png"))
+}
+mdOutPdf <- character()
 mdOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
@@ -338,7 +342,9 @@ flatCount <- numeric()
 data <- list()
 data$counts <- counts
 if (haveAnno) {
-    data$genes <- geneanno
+  # order annotation by genes in counts (assumes gene ids are in 1st column of geneanno)
+  annoord <- geneanno[match(row.names(counts), geneanno[,1]), ]
+  data$genes <- annoord
 } else {
     data$genes <- data.frame(GeneID=row.names(counts))
 }
@@ -410,16 +416,40 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 
 # Plot MDS
 labels <- names(counts)
+
+# MDS plot
 png(mdsOutPng, width=600, height=600)
-# Currently only using a single factor
-plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot")
-imageData[1, ] <- c("MDS Plot", "mdsplot.png")
+plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main=paste("MDS Plot:", names(factors)[1]))
+imgName <- paste0("MDS Plot_", names(factors)[1], ".png")
+imgAddr <- paste0("mdsplot_", names(factors)[1], ".png")
+imageData[1, ] <- c(imgName, imgAddr)
 invisible(dev.off())
 
 pdf(mdsOutPdf)
-plotMDS(data, labels=labels, cex=0.5)
-linkData[1, ] <- c("MDS Plot.pdf", "mdsplot.pdf")
+plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main=paste("MDS Plot:", names(factors)[1]))
+linkName <- paste0("MDS Plot_", names(factors)[1], ".pdf")
+linkAddr <- paste0("mdsplot_", names(factors)[1], ".pdf")
+linkData[1, ] <- c(linkName, linkAddr)
 invisible(dev.off())
+
+# If additional factors create additional MDS plots coloured by factor
+if (ncol(factors) > 1) {
+    for (i in 2:ncol(factors)) {
+        png(mdsOutPng[i], width=600, height=600)
+        plotMDS(data, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
+        imgName <- paste0("MDS Plot_", names(factors)[i], ".png")
+        imgAddr <- paste0("mdsplot_", names(factors)[i], ".png")
+        imageData <- rbind(imageData, c(imgName, imgAddr))
+        invisible(dev.off())
+
+        pdf(mdsOutPdf[i])
+        plotMDS(data, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
+        linkName <- paste0("MDS Plot_", names(factors)[i], ".pdf")
+        linkAddr <- paste0("mdsplot_", names(factors)[i], ".pdf")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
+        invisible(dev.off())
+    }
+}
 
 # BCV Plot
 png(bcvOutPng, width=600, height=600)
@@ -469,7 +499,7 @@ if (wantLRT) {
 if (wantNorm) { 
         normalisedCounts <- cpm(data, normalized.lib.sizes=TRUE, log=TRUE) 
         normalisedCounts <- data.frame(data$genes, normalisedCounts)
-        write.table (normalisedCounts, file=normOut, row.names=FALSE, sep="\t")
+        write.table (normalisedCounts, file=normOut, row.names=FALSE, sep="\t", quote=FALSE)
         linkData <- rbind(linkData, c("edgeR_normcounts.tsv", "edgeR_normcounts.tsv"))
 }
 
@@ -492,7 +522,7 @@ for (i in 1:length(contrastData)) {
                                              
     # Write top expressions table
     top <- topTags(res, n=Inf, sort.by="PValue")
-    write.table(top, file=topOut[i], row.names=FALSE, sep="\t")
+    write.table(top, file=topOut[i], row.names=FALSE, sep="\t", quote=FALSE)
     
     linkName <- paste0("edgeR_", contrastData[i], ".tsv")
     linkAddr <- paste0("edgeR_", contrastData[i], ".tsv")
@@ -502,7 +532,7 @@ for (i in 1:length(contrastData)) {
     pdf(mdOutPdf[i])
     limma::plotMD(res, status=status,
                                 main=paste("MD Plot:", unmake.names(contrastData[i])), 
-                                col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+                                hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                                 xlab="Average Expression", ylab="logFC")
     
     abline(h=0, col="grey", lty=2)
@@ -515,7 +545,7 @@ for (i in 1:length(contrastData)) {
     png(mdOutPng[i], height=600, width=600)
     limma::plotMD(res, status=status,
                                 main=paste("MD Plot:", unmake.names(contrastData[i])), 
-                                col=alpha(c("firebrick", "blue"), 0.4), values=c("1", "-1"),
+                                hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                                 xlab="Average Expression", ylab="logFC")
     
     abline(h=0, col="grey", lty=2)
@@ -620,7 +650,7 @@ cata("<ul>\n")
 
 if (filtCPM || filtSmpCount || filtTotCount) {
     if (filtCPM) {
-    tempStr <- paste("Genes without more than", opt$cmpReq,
+    tempStr <- paste("Genes without more than", opt$cpmReq,
                                      "CPM in at least", opt$sampleReq, "samples are insignificant",
                                      "and filtered out.")
     } else if (filtSmpCount) {
