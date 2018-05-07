@@ -594,7 +594,7 @@ for (i in 1:length(contrastData)) {
 
     # PNG of MD and Volcano
     png(mdvolOutPng[i], width=1200, height=600)
-    par(mfrow=c(1, 2), mar=c(5,4,4,2)+0.1, oma=c(0,0,0.5,0))
+    par(mfrow=c(1, 2), mar=c(5,4,2,2)+0.1, oma=c(0,0,2,0))
     limma::plotMD(fit, status=status[, i], coef=i, main="MD Plot",
                    hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                    xlab="Average Expression", ylab="logFC")
