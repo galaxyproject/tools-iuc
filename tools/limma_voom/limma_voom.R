@@ -426,14 +426,14 @@ print("Generating MDS plot")
 labels <- names(counts)
 
 for (i in 1:ncol(factors)) {
-    png(mdsOutPng, width=600, height=600)
+    png(mdsOutPng[i], width=600, height=600)
     plotMDS(data, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
     imgName <- paste0("MDS Plot_", names(factors)[i], ".png")
     imgAddr <- paste0("mdsplot_", names(factors)[i], ".png")
     imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
     invisible(dev.off())
 
-    pdf(mdsOutPdf)
+    pdf(mdsOutPdf[i])
     plotMDS(data, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
     linkName <- paste0("MDS Plot_", names(factors)[i], ".pdf")
     linkAddr <- paste0("mdsplot_", names(factors)[i], ".pdf")
