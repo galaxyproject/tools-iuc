@@ -22,6 +22,7 @@
 #       robOpt", "b", 0, "logical"          -String specifying if robust options should be used
 #       trend", "t", 1, "double"            -Float for prior.count if limma-trend is used instead of voom
 #       weightOpt", "w", 0, "logical"       -String specifying if voomWithQualityWeights should be used
+#       volhiOpt", "v", 1, "integer"        -Integer specifying number of genes to highlight in volcano plot
 #
 # OUT:
 #       MDS Plot
@@ -49,12 +50,8 @@ library(limma, quietly=TRUE, warn.conflicts=FALSE)
 library(scales, quietly=TRUE, warn.conflicts=FALSE)
 library(getopt, quietly=TRUE, warn.conflicts=FALSE)
 
-if (packageVersion("limma") < "3.20.1") {
-    stop("Please update 'limma' to version >= 3.20.1 to run this tool")
-}
-
 ################################################################################
-### Function Delcaration
+### Function Declaration
 ################################################################################
 # Function to sanitise contrast equations so there are no whitespaces
 # surrounding the arithmetic operators, leading or trailing whitespace
