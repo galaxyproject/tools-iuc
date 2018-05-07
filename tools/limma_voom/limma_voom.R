@@ -319,11 +319,13 @@ for (i in 1:ncol(factors)) {
 }
 
 mdOutPdf <- character()
-mdOutPng <- character()
+volOutPdf <- character()
+mdvolOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
     mdOutPdf[i] <- makeOut(paste0("mdplot_", contrastData[i], ".pdf"))
-    mdOutPng[i] <- makeOut(paste0("mdplot_", contrastData[i], ".png"))
+    volOutPdf[i] <- makeOut(paste0("volplot_", contrastData[i], ".pdf"))
+    mdvolOutPng[i] <- makeOut(paste0("mdvolplot_", contrastData[i], ".png"))
     topOut[i] <- makeOut(paste0(deMethod, "_", contrastData[i], ".tsv"))
 }
 
@@ -565,22 +567,55 @@ for (i in 1:length(contrastData)) {
 
     abline(h=0, col="grey", lty=2)
 
-    linkName <- paste0("MD Plot_", contrastData[i], " (.pdf)")
+    linkName <- paste0("MD Plot_", contrastData[i], ".pdf")
     linkAddr <- paste0("mdplot_", contrastData[i], ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
-    png(mdOutPng[i], height=600, width=600)
-    limma::plotMD(fit, status=status[, i], coef=i,
-                  main=paste("MD Plot:", unmake.names(contrastData[i])),
-                  hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
-                  xlab="Average Expression", ylab="logFC")
+    # Plot Volcano
+    pdf(volOutPdf[i])
+    if (haveAnno) {
+        # labels must be in second column currently
+        limma::volcanoplot(fit, coef=i,
+            main=paste("Volcano Plot:", unmake.names(contrastData[i])),
+            highlight=10,
+            names=fit$genes[, 2])
+    } else {
+        limma::volcanoplot(fit, coef=i,
+            main=paste("Volcano Plot:", unmake.names(contrastData[i])),,
+            highlight=10,
+            names=fit$genes$GeneID)
+    }
+    linkName <- paste0("Volcano Plot_", contrastData[i], ".pdf")
+    linkAddr <- paste0("volplot_", contrastData[i], ".pdf")
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())
+
+    # PNG of MD and Volcano
+    png(mdvolOutPng[i], width=1200, height=600)
+    par(mfrow=c(1, 2), mar=c(5,4,4,2)+0.1, oma=c(0,0,0.5,0))
+    limma::plotMD(fit, status=status[, i], coef=i, main="MD Plot",
+                   hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
+                   xlab="Average Expression", ylab="logFC")
 
     abline(h=0, col="grey", lty=2)
 
-    imgName <- paste0("MD Plot_", contrastData[i])
-    imgAddr <- paste0("mdplot_", contrastData[i], ".png")
+    # Volcano plots
+    if (haveAnno) {
+        # labels must be in second column currently
+        limma::volcanoplot(fit, coef=i, main="Volcano Plot",
+            highlight=10,
+            names=fit$genes[, 2])
+    } else {
+        limma::volcanoplot(fit, coef=i, main="Volcano Plot",
+            highlight=10,
+            names=fit$genes$GeneID)
+    }
+
+    imgName <- paste0("MDVol Plot_", contrastData[i])
+    imgAddr <- paste0("mdvolplot_", contrastData[i], ".png")
     imageData <- rbind(imageData, c(imgName, imgAddr))
+    title(paste0("Contrast: ", unmake.names(contrastData[i])), outer=TRUE, cex.main=1.5)
     invisible(dev.off())
 }
 sigDiff <- data.frame(Up=upCount, Flat=flatCount, Down=downCount)
@@ -619,7 +654,7 @@ cata("<html>\n")
 
 cata("<body>\n")
 cata("<h3>Limma Analysis Output:</h3>\n")
-cata("Links to PDF copies of plots are in 'Plots' section below />\n")
+cata("Links to PDF copies of plots are in 'Plots' section below <br />\n")
 if (wantWeight) {
     HtmlImage(imageData$Link[1], imageData$Label[1], width=1000)
 } else {
@@ -627,7 +662,11 @@ if (wantWeight) {
 }
 
 for (i in 2:nrow(imageData)) {
-    HtmlImage(imageData$Link[i], imageData$Label[i])
+    if (grepl("mdvol", imageData$Link[i])) {
+        HtmlImage(imageData$Link[i], imageData$Label[i], width=1200)
+    } else {
+        HtmlImage(imageData$Link[i], imageData$Label[i])
+    }
 }
 
 cata("<h4>Differential Expression Counts:</h4>\n")
