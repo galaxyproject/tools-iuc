@@ -311,12 +311,9 @@ contrastData <- unlist(strsplit(opt$contrastData, split=","))
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
-
-mdsOutPdf <- makeOut("mdsplot_nonorm.pdf")
-mdsOutPng <- makeOut("mdsplot_nonorm.png")
-nmdsOutPdf <- makeOut("mdsplot.pdf")
-nmdsOutPng <- makeOut("mdsplot.png")
-mdOutPdf <- character()   # Initialise character vector
+mdsOutPdf <- character() # Initialise character vector
+mdsOutPng <- character()
+mdOutPdf <- character()
 mdOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
@@ -420,13 +417,17 @@ print("Generating MDS plot")
 labels <- names(counts)
 png(mdsOutPng, width=600, height=600)
 # Currently only using a single factor
-plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot (unnormalised)")
-imageData[1, ] <- c("MDS Plot (unnormalised)", "mdsplot_nonorm.png")
+plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main=paste("MDS Plot:", names(factors)[1]))
+imgName <- paste0("MDS Plot_", names(factors)[1], ".png")
+imgAddr <- paste0("mdsplot_", names(factors)[1], ".png")
+imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
 invisible(dev.off())
 
 pdf(mdsOutPdf)
-plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot (unnormalised)")
-linkData[1, ] <- c("MDS Plot (unnormalised).pdf", "mdsplot_nonorm.pdf")
+plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main=paste("MDS Plot:", names(factors)[1]))
+linkName <- paste0("MDS Plot_", names(factors)[1], ".pdf")
+linkAddr <- paste0("mdsplot_", names(factors)[1], ".pdf")
+linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
 invisible(dev.off())
 
 if (wantTrend) {
@@ -526,22 +527,6 @@ if (wantTrend) {
     }
     plotData <- vData
 }
-
-print("Generating normalised MDS plot")
-png(nmdsOutPng, width=600, height=600)
-# Currently only using a single factor
-plotMDS(plotData, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot (normalised)")
-imgName <- "MDS Plot (normalised)"
-imgAddr <- "mdsplot.png"
-imageData <- rbind(imageData, c(imgName, imgAddr))
-invisible(dev.off())
-
-pdf(nmdsOutPdf)
-plotMDS(plotData, labels=labels, cex=0.5)
-linkName <- paste0("MDS Plot (normalised).pdf")
-linkAddr <- paste0("mdsplot.pdf")
-linkData <- rbind(linkData, c(linkName, linkAddr))
-invisible(dev.off())
 
 
 print("Generating DE results")
