@@ -22,6 +22,7 @@
 #       robOpt", "b", 0, "logical"          -String specifying if robust options should be used
 #       trend", "t", 1, "double"            -Float for prior.count if limma-trend is used instead of voom
 #       weightOpt", "w", 0, "logical"       -String specifying if voomWithQualityWeights should be used
+#       volhiOpt", "v", 1, "integer"        -Integer specifying number of genes to highlight in volcano plot
 #
 # OUT:
 #       MDS Plot
@@ -49,12 +50,8 @@ library(limma, quietly=TRUE, warn.conflicts=FALSE)
 library(scales, quietly=TRUE, warn.conflicts=FALSE)
 library(getopt, quietly=TRUE, warn.conflicts=FALSE)
 
-if (packageVersion("limma") < "3.20.1") {
-    stop("Please update 'limma' to version >= 3.20.1 to run this tool")
-}
-
 ################################################################################
-### Function Delcaration
+### Function Declaration
 ################################################################################
 # Function to sanitise contrast equations so there are no whitespaces
 # surrounding the arithmetic operators, leading or trailing whitespace
@@ -170,7 +167,8 @@ spec <- matrix(c(
     "normOpt", "n", 1, "character",
     "robOpt", "b", 0, "logical",
     "trend", "t", 1, "double",
-    "weightOpt", "w", 0, "logical"),
+    "weightOpt", "w", 0, "logical",
+    "volhiOpt", "v", 1, "integer"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -311,19 +309,24 @@ contrastData <- unlist(strsplit(opt$contrastData, split=","))
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
+mdsOutPdf <- character() # Initialise character vector
+mdsOutPng <- character()
+for (i in 1:ncol(factors)) {
+    mdsOutPdf[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".pdf"))
+    mdsOutPng[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".png"))
+}
 
-mdsOutPdf <- makeOut("mdsplot_nonorm.pdf")
-mdsOutPng <- makeOut("mdsplot_nonorm.png")
-nmdsOutPdf <- makeOut("mdsplot.pdf")
-nmdsOutPng <- makeOut("mdsplot.png")
-mdOutPdf <- character()   # Initialise character vector
-mdOutPng <- character()
+mdOutPdf <- character()
+volOutPdf <- character()
+mdvolOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
     mdOutPdf[i] <- makeOut(paste0("mdplot_", contrastData[i], ".pdf"))
-    mdOutPng[i] <- makeOut(paste0("mdplot_", contrastData[i], ".png"))
+    volOutPdf[i] <- makeOut(paste0("volplot_", contrastData[i], ".pdf"))
+    mdvolOutPng[i] <- makeOut(paste0("mdvolplot_", contrastData[i], ".png"))
     topOut[i] <- makeOut(paste0(deMethod, "_", contrastData[i], ".tsv"))
 }
+
 normOut <- makeOut(paste0(deMethod, "_normcounts.tsv"))
 rdaOut <- makeOut(paste0(deMethod, "_analysis.RData"))
 sessionOut <- makeOut("session_info.txt")
@@ -418,16 +421,22 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 # Plot MDS
 print("Generating MDS plot")
 labels <- names(counts)
-png(mdsOutPng, width=600, height=600)
-# Currently only using a single factor
-plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot (unnormalised)")
-imageData[1, ] <- c("MDS Plot (unnormalised)", "mdsplot_nonorm.png")
-invisible(dev.off())
 
-pdf(mdsOutPdf)
-plotMDS(data, labels=labels, cex=0.5)
-linkData[1, ] <- c("MDS Plot (unnormalised).pdf", "mdsplot_nonorm.pdf")
-invisible(dev.off())
+for (i in 1:ncol(factors)) {
+    png(mdsOutPng[i], width=600, height=600)
+    plotMDS(data, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
+    imgName <- paste0("MDS Plot_", names(factors)[i], ".png")
+    imgAddr <- paste0("mdsplot_", names(factors)[i], ".png")
+    imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
+    invisible(dev.off())
+
+    pdf(mdsOutPdf[i])
+    plotMDS(data, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
+    linkName <- paste0("MDS Plot_", names(factors)[i], ".pdf")
+    linkAddr <- paste0("mdsplot_", names(factors)[i], ".pdf")
+    linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+    invisible(dev.off())
+}
 
 if (wantTrend) {
     # limma-trend approach
@@ -527,22 +536,6 @@ if (wantTrend) {
     plotData <- vData
 }
 
-print("Generating normalised MDS plot")
-png(nmdsOutPng, width=600, height=600)
-# Currently only using a single factor
-plotMDS(plotData, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main="MDS Plot (normalised)")
-imgName <- "MDS Plot (normalised)"
-imgAddr <- "mdsplot.png"
-imageData <- rbind(imageData, c(imgName, imgAddr))
-invisible(dev.off())
-
-pdf(nmdsOutPdf)
-plotMDS(plotData, labels=labels, cex=0.5)
-linkName <- paste0("MDS Plot (normalised).pdf")
-linkAddr <- paste0("mdsplot.pdf")
-linkData <- rbind(linkData, c(linkName, linkAddr))
-invisible(dev.off())
-
 
 print("Generating DE results")
 status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
@@ -572,22 +565,55 @@ for (i in 1:length(contrastData)) {
 
     abline(h=0, col="grey", lty=2)
 
-    linkName <- paste0("MD Plot_", contrastData[i], " (.pdf)")
+    linkName <- paste0("MD Plot_", contrastData[i], ".pdf")
     linkAddr <- paste0("mdplot_", contrastData[i], ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
-    png(mdOutPng[i], height=600, width=600)
-    limma::plotMD(fit, status=status[, i], coef=i,
-                  main=paste("MD Plot:", unmake.names(contrastData[i])),
-                  hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
-                  xlab="Average Expression", ylab="logFC")
+    # Plot Volcano
+    pdf(volOutPdf[i])
+    if (haveAnno) {
+        # labels must be in second column currently
+        limma::volcanoplot(fit, coef=i,
+            main=paste("Volcano Plot:", unmake.names(contrastData[i])),
+            highlight=opt$volhiOpt,
+            names=fit$genes[, 2])
+    } else {
+        limma::volcanoplot(fit, coef=i,
+            main=paste("Volcano Plot:", unmake.names(contrastData[i])),,
+            highlight=opt$volhiOpt,
+            names=fit$genes$GeneID)
+    }
+    linkName <- paste0("Volcano Plot_", contrastData[i], ".pdf")
+    linkAddr <- paste0("volplot_", contrastData[i], ".pdf")
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())
+
+    # PNG of MD and Volcano
+    png(mdvolOutPng[i], width=1200, height=600)
+    par(mfrow=c(1, 2), mar=c(5,4,2,2)+0.1, oma=c(0,0,2,0))
+    limma::plotMD(fit, status=status[, i], coef=i, main="MD Plot",
+                   hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
+                   xlab="Average Expression", ylab="logFC")
 
     abline(h=0, col="grey", lty=2)
 
-    imgName <- paste0("MD Plot_", contrastData[i])
-    imgAddr <- paste0("mdplot_", contrastData[i], ".png")
+    # Volcano plots
+    if (haveAnno) {
+        # labels must be in second column currently
+        limma::volcanoplot(fit, coef=i, main="Volcano Plot",
+            highlight=opt$volhiOpt,
+            names=fit$genes[, 2])
+    } else {
+        limma::volcanoplot(fit, coef=i, main="Volcano Plot",
+            highlight=opt$volhiOpt,
+            names=fit$genes$GeneID)
+    }
+
+    imgName <- paste0("MDVol Plot_", contrastData[i])
+    imgAddr <- paste0("mdvolplot_", contrastData[i], ".png")
     imageData <- rbind(imageData, c(imgName, imgAddr))
+    title(paste0("Contrast: ", unmake.names(contrastData[i])), outer=TRUE, cex.main=1.5)
     invisible(dev.off())
 }
 sigDiff <- data.frame(Up=upCount, Flat=flatCount, Down=downCount)
@@ -626,7 +652,7 @@ cata("<html>\n")
 
 cata("<body>\n")
 cata("<h3>Limma Analysis Output:</h3>\n")
-cata("Links to PDF copies of plots are in 'Plots' section below />\n")
+cata("Links to PDF copies of plots are in 'Plots' section below <br />\n")
 if (wantWeight) {
     HtmlImage(imageData$Link[1], imageData$Label[1], width=1000)
 } else {
@@ -634,7 +660,11 @@ if (wantWeight) {
 }
 
 for (i in 2:nrow(imageData)) {
-    HtmlImage(imageData$Link[i], imageData$Label[i])
+    if (grepl("mdvol", imageData$Link[i])) {
+        HtmlImage(imageData$Link[i], imageData$Label[i], width=1200)
+    } else {
+        HtmlImage(imageData$Link[i], imageData$Label[i])
+    }
 }
 
 cata("<h4>Differential Expression Counts:</h4>\n")
