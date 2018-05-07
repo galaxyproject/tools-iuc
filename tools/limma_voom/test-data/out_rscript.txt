@@ -23,6 +23,7 @@
 #       trend", "t", 1, "double"            -Float for prior.count if limma-trend is used instead of voom
 #       weightOpt", "w", 0, "logical"       -String specifying if voomWithQualityWeights should be used
 #       volhiOpt", "v", 1, "integer"        -Integer specifying number of genes to highlight in volcano plot
+#       treatOpt", "T", 0, "logical"        -String specifying if TREAT function shuld be used
 #
 # OUT:
 #       MDS Plot
@@ -168,7 +169,8 @@ spec <- matrix(c(
     "robOpt", "b", 0, "logical",
     "trend", "t", 1, "double",
     "weightOpt", "w", 0, "logical",
-    "volhiOpt", "v", 1, "integer"),
+    "volhiOpt", "v", 1, "integer",
+    "treatOpt", "T", 0, "logical"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -233,6 +235,12 @@ if (is.null(opt$trend)) {
     wantTrend <- TRUE
     deMethod <- "limma-trend"
     priorCount <- opt$trend
+}
+
+if (is.null(opt$treatOpt)) {
+    wantTreat <- FALSE
+} else {
+    wantTreat <- TRUE
 }
 
 
@@ -536,6 +544,10 @@ if (wantTrend) {
     plotData <- vData
 }
 
+if (wantTreat) {
+    print("Applying TREAT")
+    fit <- treat(fit, lfc=opt$lfcReq)
+}
 
 print("Generating DE results")
 status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
@@ -549,7 +561,11 @@ for (i in 1:length(contrastData)) {
     flatCount[i] <- sumStatus["NotSig", i]
 
     # Write top expressions table
-    top <- topTable(fit, coef=i, number=Inf, sort.by="P")
+    if (wantTreat) {
+        top <- topTreat(fit, coef=i, number=Inf, sort.by="P")
+    } else{
+        top <- topTable(fit, coef=i, number=Inf, sort.by="P")
+    }
     write.table(top, file=topOut[i], row.names=FALSE, sep="\t", quote=FALSE)
 
     linkName <- paste0(deMethod, "_", contrastData[i], ".tsv")
@@ -751,6 +767,9 @@ if (wantWeight) {
 }
 if (wantRobust) {
     ListItem("eBayes was used with robust settings (robust=TRUE).")
+}
+if (wantTreat) {
+    ListItem(paste("Testing significance relative to a fold-change threshold (TREAT) of", opt$lfcReq, "was performed."))
 }
 if (opt$pAdjOpt!="none") {
     if (opt$pAdjOpt=="BH" || opt$pAdjOpt=="BY") {
