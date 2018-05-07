@@ -313,6 +313,11 @@ contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
 mdsOutPdf <- character() # Initialise character vector
 mdsOutPng <- character()
+for (i in 1:ncol(factors)) {
+    mdsOutPdf[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".pdf"))
+    mdsOutPng[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".png"))
+}
+
 mdOutPdf <- character()
 mdOutPng <- character()
 topOut <- character()
@@ -321,6 +326,7 @@ for (i in 1:length(contrastData)) {
     mdOutPng[i] <- makeOut(paste0("mdplot_", contrastData[i], ".png"))
     topOut[i] <- makeOut(paste0(deMethod, "_", contrastData[i], ".tsv"))
 }
+
 normOut <- makeOut(paste0(deMethod, "_normcounts.tsv"))
 rdaOut <- makeOut(paste0(deMethod, "_analysis.RData"))
 sessionOut <- makeOut("session_info.txt")
@@ -415,20 +421,22 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 # Plot MDS
 print("Generating MDS plot")
 labels <- names(counts)
-png(mdsOutPng, width=600, height=600)
-# Currently only using a single factor
-plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main=paste("MDS Plot:", names(factors)[1]))
-imgName <- paste0("MDS Plot_", names(factors)[1], ".png")
-imgAddr <- paste0("mdsplot_", names(factors)[1], ".png")
-imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
-invisible(dev.off())
 
-pdf(mdsOutPdf)
-plotMDS(data, labels=labels, col=as.numeric(factors[, 1]), cex=0.8, main=paste("MDS Plot:", names(factors)[1]))
-linkName <- paste0("MDS Plot_", names(factors)[1], ".pdf")
-linkAddr <- paste0("mdsplot_", names(factors)[1], ".pdf")
-linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
-invisible(dev.off())
+for (i in 1:ncol(factors)) {
+    png(mdsOutPng, width=600, height=600)
+    plotMDS(data, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
+    imgName <- paste0("MDS Plot_", names(factors)[i], ".png")
+    imgAddr <- paste0("mdsplot_", names(factors)[i], ".png")
+    imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
+    invisible(dev.off())
+
+    pdf(mdsOutPdf)
+    plotMDS(data, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
+    linkName <- paste0("MDS Plot_", names(factors)[i], ".pdf")
+    linkAddr <- paste0("mdsplot_", names(factors)[i], ".pdf")
+    linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+    invisible(dev.off())
+}
 
 if (wantTrend) {
     # limma-trend approach
