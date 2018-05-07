@@ -170,7 +170,8 @@ spec <- matrix(c(
     "normOpt", "n", 1, "character",
     "robOpt", "b", 0, "logical",
     "trend", "t", 1, "double",
-    "weightOpt", "w", 0, "logical"),
+    "weightOpt", "w", 0, "logical",
+    "volhiOpt", "v", 1, "integer"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -578,12 +579,12 @@ for (i in 1:length(contrastData)) {
         # labels must be in second column currently
         limma::volcanoplot(fit, coef=i,
             main=paste("Volcano Plot:", unmake.names(contrastData[i])),
-            highlight=10,
+            highlight=opt$volhiOpt,
             names=fit$genes[, 2])
     } else {
         limma::volcanoplot(fit, coef=i,
             main=paste("Volcano Plot:", unmake.names(contrastData[i])),,
-            highlight=10,
+            highlight=opt$volhiOpt,
             names=fit$genes$GeneID)
     }
     linkName <- paste0("Volcano Plot_", contrastData[i], ".pdf")
@@ -604,11 +605,11 @@ for (i in 1:length(contrastData)) {
     if (haveAnno) {
         # labels must be in second column currently
         limma::volcanoplot(fit, coef=i, main="Volcano Plot",
-            highlight=10,
+            highlight=opt$volhiOpt,
             names=fit$genes[, 2])
     } else {
         limma::volcanoplot(fit, coef=i, main="Volcano Plot",
-            highlight=10,
+            highlight=opt$volhiOpt,
             names=fit$genes$GeneID)
     }
 
