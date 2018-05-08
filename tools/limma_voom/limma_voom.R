@@ -526,14 +526,14 @@ labels <- names(counts)
 for (i in 1:ncol(factors)) {
     png(mdsOutPng[i], width=600, height=600)
     plotMDS(y, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
-    imgName <- paste0("MDS Plot_", names(factors)[i], ".png")
+    imgName <- paste0("MDSPlot_", names(factors)[i], ".png")
     imgAddr <- paste0("mdsplot_", names(factors)[i], ".png")
     imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
     invisible(dev.off())
 
     pdf(mdsOutPdf[i])
     plotMDS(y, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
-    linkName <- paste0("MDS Plot_", names(factors)[i], ".pdf")
+    linkName <- paste0("MDSPlot_", names(factors)[i], ".pdf")
     linkAddr <- paste0("mdsplot_", names(factors)[i], ".pdf")
     linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
     invisible(dev.off())
@@ -556,15 +556,15 @@ if (wantTrend) {
 
     png(saOutPng, width=600, height=600)
     plotSA(fit, main="SA Plot")
-    imgName <- "SA Plot.png"
+    imgName <- "SAPlot.png"
     imgAddr <- "saplot.png"
     imageData <- rbind(imageData, c(imgName, imgAddr))
     invisible(dev.off())
 
     pdf(saOutPdf, width=14)
     plotSA(fit, main="SA Plot")
-    linkName <- paste0("SA Plot.pdf")
-    linkAddr <- paste0("saplot.pdf")
+    linkName <- "SAPlot.pdf"
+    linkAddr <- "saplot.pdf"
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
@@ -584,15 +584,15 @@ if (wantTrend) {
         # Creating voom data object and plot
         png(voomOutPng, width=1000, height=600)
         vData <- voomWithQualityWeights(y, design=design, plot=TRUE)
-        imgName <- "Voom Plot.png"
+        imgName <- "VoomPlot.png"
         imgAddr <- "voomplot.png"
         imageData <- rbind(imageData, c(imgName, imgAddr))
         invisible(dev.off())
 
         pdf(voomOutPdf, width=14)
         vData <- voomWithQualityWeights(y, design=design, plot=TRUE)
-        linkName <- paste0("Voom Plot.pdf")
-        linkAddr <- paste0("voomplot.pdf")
+        linkName <- "VoomPlot.pdf"
+        linkAddr <- "voomplot.pdf"
         linkData <- rbind(linkData, c(linkName, linkAddr))
         invisible(dev.off())
 
@@ -604,15 +604,15 @@ if (wantTrend) {
         # Creating voom data object and plot
         png(voomOutPng, width=600, height=600)
         vData <- voom(y, design=design, plot=TRUE)
-        imgName <- "Voom Plot"
+        imgName <- "VoomPlot"
         imgAddr <- "voomplot.png"
         imageData <- rbind(imageData, c(imgName, imgAddr))
         invisible(dev.off())
 
         pdf(voomOutPdf)
         vData <- voom(y, design=design, plot=TRUE)
-        linkName <- paste0("Voom Plot.pdf")
-        linkAddr <- paste0("voomplot.pdf")
+        linkName <- "VoomPlot.pdf"
+        linkAddr <- "voomplot.pdf"
         linkData <- rbind(linkData, c(linkName, linkAddr))
         invisible(dev.off())
 
@@ -637,8 +637,11 @@ if (wantTrend) {
     plotData <- vData
 }
 
+
+print("Generating DE results")
+
 if (wantTreat) {
-    print("Applying TREAT")
+    print("Applying TREAT method")
     if (wantRobust) {
         fit <- treat(fit, lfc=opt$lfcReq, robust=TRUE)
     } else {
@@ -646,7 +649,6 @@ if (wantTreat) {
     }
 }
 
-print("Generating DE results")
 status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
                        lfc=opt$lfcReq)
 sumStatus <- summary(status)
@@ -678,7 +680,7 @@ for (i in 1:length(contrastData)) {
 
     abline(h=0, col="grey", lty=2)
 
-    linkName <- paste0("MD Plot_", contrastData[i], ".pdf")
+    linkName <- paste0("MDPlot_", contrastData[i], ".pdf")
     linkAddr <- paste0("mdplot_", contrastData[i], ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
@@ -697,14 +699,14 @@ for (i in 1:length(contrastData)) {
             highlight=opt$volhiOpt,
             names=fit$genes$GeneID)
     }
-    linkName <- paste0("Volcano Plot_", contrastData[i], ".pdf")
+    linkName <- paste0("VolcanoPlot_", contrastData[i], ".pdf")
     linkAddr <- paste0("volplot_", contrastData[i], ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
     # PNG of MD and Volcano
     png(mdvolOutPng[i], width=1200, height=600)
-    par(mfrow=c(1, 2), mar=c(5,4,2,2)+0.1, oma=c(0,0,2,0))
+    par(mfrow=c(1, 2), mar=c(5,4,2,2)+0.1, oma=c(0,0,3,0))
     limma::plotMD(fit, status=status[, i], coef=i, main="MD Plot",
                    hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                    xlab="Average Expression", ylab="logFC")
@@ -723,7 +725,7 @@ for (i in 1:length(contrastData)) {
             names=fit$genes$GeneID)
     }
 
-    imgName <- paste0("MDVol Plot_", contrastData[i])
+    imgName <- paste0("MDVolPlot_", contrastData[i])
     imgAddr <- paste0("mdvolplot_", contrastData[i], ".png")
     imageData <- rbind(imageData, c(imgName, imgAddr))
     title(paste0("Contrast: ", unmake.names(contrastData[i])), outer=TRUE, cex.main=1.5)
