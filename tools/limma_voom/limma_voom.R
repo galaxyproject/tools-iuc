@@ -319,6 +319,8 @@ contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
 denOutPng <- makeOut("densityplots.png")
 denOutPdf <- makeOut("DensityPlots.pdf")
+boxOutPng <- makeOut("boxplots.png")
+boxOutPdf <- makeOut("BoxPlots.pdf")
 mdsOutPdf <- character() # Initialise character vector
 mdsOutPng <- character()
 for (i in 1:ncol(factors)) {
@@ -480,6 +482,39 @@ if (filtCPM || filtSmpCount || filtTotCount) {
     legend("topright", samplenames, text.col=as.numeric(factors[, 1]), bty="n")
     linkName <- "DensityPlots.pdf"
     linkAddr <- "densityplots.pdf"
+    linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+    invisible(dev.off())
+}
+
+# Plot Box plots (before and after normalisation)
+if (opt$normOpt != "none") {
+    png(boxOutPng, width=1200, height=600)
+    par(mfrow=c(1,2), cex.axis=0.8)
+    logcpm <- cpm(y$counts, log=TRUE)
+    boxplot(logcpm, las=2, col=as.numeric(factors[, 1]))
+    abline(h=median(logcpm), col=4)
+    title(main="Box Plot: Unnormalised counts", ylab="Log-cpm")
+    lcpm <- cpm(y, log=TRUE)
+    boxplot(lcpm, las=2, col=as.numeric(factors[, 1]))
+    abline(h=median(lcpm), col=4)
+    title(main="Box Plot: Normalised counts", ylab="Log-cpm")
+    imgName <- "Boxplots.png"
+    imgAddr <- "boxplots.png"
+    imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
+    invisible(dev.off())
+
+    pdf(boxOutPdf, width=14)
+    par(mfrow=c(1,2), cex.axis=0.8)
+    logcpm <- cpm(y$counts, log=TRUE)
+    boxplot(logcpm, las=2, col=as.numeric(factors[, 1]))
+    abline(h=median(logcpm), col=4)
+    title(main="Box Plot: Unnormalised counts", ylab="Log-cpm")
+    lcpm <- cpm(y, log=TRUE)
+    boxplot(lcpm, las=2, col=as.numeric(factors[, 1]))
+    abline(h=median(lcpm), col=4)
+    title(main="Box Plot: Normalised counts", ylab="Log-cpm")
+    linkName <- "BoxPlots.pdf"
+    linkAddr <- "boxplots.pdf"
     linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
     invisible(dev.off())
 }
@@ -732,7 +767,7 @@ cata("<h3>Limma Analysis Output:</h3>\n")
 cata("Links to PDF copies of plots are in 'Plots' section below <br />\n")
 
 for (i in 1:nrow(imageData)) {
-    if (grepl("density|mdvol", imageData$Link[i])) {
+    if (grepl("density|box|mdvol", imageData$Link[i])) {
         HtmlImage(imageData$Link[i], imageData$Label[i], width=1200)
     } else if (wantWeight) {
         HtmlImage(imageData$Link[i], imageData$Label[i], width=1000)
