@@ -546,7 +546,11 @@ if (wantTrend) {
 
 if (wantTreat) {
     print("Applying TREAT")
-    fit <- treat(fit, lfc=opt$lfcReq)
+    if (wantRobust) {
+        fit <- treat(fit, lfc=opt$lfcReq, robust=TRUE)
+    } else {
+        fit <- treat(fit, lfc=opt$lfcReq, robust=FALSE)
+    }
 }
 
 print("Generating DE results")
@@ -765,11 +769,15 @@ if (wantWeight) {
 } else {
     ListItem("Weights were not applied to samples.")
 }
-if (wantRobust) {
-    ListItem("eBayes was used with robust settings (robust=TRUE).")
-}
 if (wantTreat) {
-    ListItem(paste("Testing significance relative to a fold-change threshold (TREAT) of", opt$lfcReq, "was performed."))
+    ListItem(paste("Testing significance relative to a fold-change threshold (TREAT) was performed using a threshold of log2 =", opt$lfcReq, "at FDR of", opt$pValReq, "."))
+}
+if (wantRobust) {
+    if (wantTreat) {
+        ListItem("TREAT was used with robust settings (robust=TRUE).")
+    } else {
+        ListItem("eBayes was used with robust settings (robust=TRUE).")
+    }
 }
 if (opt$pAdjOpt!="none") {
     if (opt$pAdjOpt=="BH" || opt$pAdjOpt=="BY") {
