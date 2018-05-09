@@ -22,13 +22,17 @@
 #       robOpt", "b", 0, "logical"          -String specifying if robust options should be used
 #       trend", "t", 1, "double"            -Float for prior.count if limma-trend is used instead of voom
 #       weightOpt", "w", 0, "logical"       -String specifying if voomWithQualityWeights should be used
-#       volhiOpt", "v", 1, "integer"        -Integer specifying number of genes to highlight in volcano plot
+#       topgenes", "G", 1, "integer"        -Integer specifying no. of genes to highlight in volcano and heatmap
 #       treatOpt", "T", 0, "logical"        -String specifying if TREAT function shuld be used
 #
 # OUT:
+#       Density Plots (if filtering)
+#       Box Plots (if normalising)
 #       MDS Plot
 #       Voom/SA plot
 #       MD Plot
+#       Volcano Plot
+#       Heatmap
 #       Expression Table
 #       HTML file linking to the ouputs
 # Optional:
@@ -37,7 +41,7 @@
 #
 #
 # Author: Shian Su - registertonysu@gmail.com - Jan 2014
-# Modified by: Maria Doyle - Jun 2017, Jan 2018
+# Modified by: Maria Doyle - Jun 2017, Jan 2018, May 2018
 
 # Record starting time
 timeStart <- as.character(Sys.time())
@@ -50,6 +54,7 @@ library(edgeR, quietly=TRUE, warn.conflicts=FALSE)
 library(limma, quietly=TRUE, warn.conflicts=FALSE)
 library(scales, quietly=TRUE, warn.conflicts=FALSE)
 library(getopt, quietly=TRUE, warn.conflicts=FALSE)
+library(gplots, quietly=TRUE, warn.conflicts=FALSE)
 
 ################################################################################
 ### Function Declaration
@@ -169,7 +174,7 @@ spec <- matrix(c(
     "robOpt", "b", 0, "logical",
     "trend", "t", 1, "double",
     "weightOpt", "w", 0, "logical",
-    "volhiOpt", "v", 1, "integer",
+    "topgenes", "G", 1, "integer",
     "treatOpt", "T", 0, "logical"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
@@ -330,11 +335,13 @@ for (i in 1:ncol(factors)) {
 
 mdOutPdf <- character()
 volOutPdf <- character()
+heatOutPdf <- character()
 mdvolOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
     mdOutPdf[i] <- makeOut(paste0("mdplot_", contrastData[i], ".pdf"))
     volOutPdf[i] <- makeOut(paste0("volplot_", contrastData[i], ".pdf"))
+    heatOutPdf[i] <- makeOut(paste0("heatmap_", contrastData[i], ".pdf"))
     mdvolOutPng[i] <- makeOut(paste0("mdvolplot_", contrastData[i], ".png"))
     topOut[i] <- makeOut(paste0(deMethod, "_", contrastData[i], ".tsv"))
 }
@@ -691,16 +698,46 @@ for (i in 1:length(contrastData)) {
         # labels must be in second column currently
         limma::volcanoplot(fit, coef=i,
             main=paste("Volcano Plot:", unmake.names(contrastData[i])),
-            highlight=opt$volhiOpt,
+            highlight=opt$topgenes,
             names=fit$genes[, 2])
     } else {
         limma::volcanoplot(fit, coef=i,
-            main=paste("Volcano Plot:", unmake.names(contrastData[i])),,
-            highlight=opt$volhiOpt,
+            main=paste("Volcano Plot:", unmake.names(contrastData[i])),
+            highlight=opt$topgenes,
             names=fit$genes$GeneID)
     }
     linkName <- paste0("VolcanoPlot_", contrastData[i], ".pdf")
     linkAddr <- paste0("volplot_", contrastData[i], ".pdf")
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())
+
+    # Plot Heatmap
+    topgenes <- rownames(top[1:opt$topgenes, ])
+    if (wantTrend) {
+        topexp <- plotData[topgenes, ]
+    } else {
+        topexp <- plotData$E[topgenes, ]
+    }
+
+    pdf(heatOutPdf[i])
+    par(cex.main=0.8)
+    if (haveAnno) {
+        # labels must be in second column currently
+        heatmap.2(topexp, scale="row",
+            main=paste("Heatmap:", unmake.names(contrastData[i])),
+            col="bluered", trace="none", density.info="none",
+            margin=c(8,6), lhei=c(2,10), dendrogram="column",
+            cexRow=0.7, cexCol=0.7, srtCol=45,
+            labRow=top[topgenes, 2])
+    } else {
+        heatmap.2(topexp, scale="row",
+            main=paste("Heatmap:", unmake.names(contrastData[i])),
+            col="bluered", trace="none", density.info="none",
+            margin=c(8,6), lhei=c(2,10), dendrogram="column",
+            cexRow=0.7, cexCol=0.7, srtCol=45)
+    }
+    linkName <- paste0("Heatmap_", contrastData[i], ".pdf")
+    linkAddr <- paste0("heatmap_", contrastData[i], ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
@@ -710,18 +747,17 @@ for (i in 1:length(contrastData)) {
     limma::plotMD(fit, status=status[, i], coef=i, main="MD Plot",
                    hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
                    xlab="Average Expression", ylab="logFC")
-
     abline(h=0, col="grey", lty=2)
 
     # Volcano plots
     if (haveAnno) {
         # labels must be in second column currently
         limma::volcanoplot(fit, coef=i, main="Volcano Plot",
-            highlight=opt$volhiOpt,
+            highlight=opt$topgenes,
             names=fit$genes[, 2])
     } else {
         limma::volcanoplot(fit, coef=i, main="Volcano Plot",
-            highlight=opt$volhiOpt,
+            highlight=opt$topgenes,
             names=fit$genes$GeneID)
     }
 
