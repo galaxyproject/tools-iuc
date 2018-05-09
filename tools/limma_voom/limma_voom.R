@@ -323,9 +323,9 @@ contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
 denOutPng <- makeOut("densityplots.png")
-denOutPdf <- makeOut("DensityPlots.pdf")
+denOutPdf <- makeOut("densityplots.pdf")
 boxOutPng <- makeOut("boxplots.png")
-boxOutPdf <- makeOut("BoxPlots.pdf")
+boxOutPdf <- makeOut("boxplots.pdf")
 mdsOutPdf <- character() # Initialise character vector
 mdsOutPng <- character()
 for (i in 1:ncol(factors)) {
