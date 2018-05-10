@@ -733,22 +733,17 @@ for (i in 1:length(contrastData)) {
     }
 
     pdf(heatOutPdf[i])
-    par(cex.main=0.8)
+    mycol <- colorpanel(1000,"blue","white","red")
     if (haveAnno) {
         # labels must be in second column currently
-        heatmap.2(topexp, scale="row",
-            main=paste("Heatmap:", unmake.names(contrastData[i])),
-            col="bluered", trace="none", density.info="none",
-            margin=c(8,6), lhei=c(2,10), dendrogram="column",
-            cexRow=0.7, cexCol=0.7, srtCol=45,
-            labRow=top[topgenes, 2])
+        labels <- top[topgenes, 2]
     } else {
-        heatmap.2(topexp, scale="row",
-            main=paste("Heatmap:", unmake.names(contrastData[i])),
-            col="bluered", trace="none", density.info="none",
-            margin=c(8,6), lhei=c(2,10), dendrogram="column",
-            cexRow=0.7, cexCol=0.7, srtCol=45)
+        labels <- rownames(topexp)
     }
+    heatmap.2(topexp, scale="row", Colv=FALSE, Rowv=FALSE, dendrogram="none",
+        main=paste("Contrast:", unmake.names(contrastData[i]), "\nTop", opt$topgenes, "genes by adj.P.Val"),
+        trace="none", density.info="none", lhei=c(2,10), margin=c(8, 6), labRow=labels, cexRow=0.7, srtCol=45,
+        col=mycol, ColSideColors=palette()[as.numeric(factors[,1])])
     linkName <- paste0("Heatmap_", contrastData[i], ".pdf")
     linkAddr <- paste0("heatmap_", contrastData[i], ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
