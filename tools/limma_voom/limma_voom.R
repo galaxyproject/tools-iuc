@@ -496,30 +496,43 @@ if (filtCPM || filtSmpCount || filtTotCount) {
 # Plot Box plots (before and after normalisation)
 if (opt$normOpt != "none") {
     png(boxOutPng, width=1200, height=600)
-    par(mfrow=c(1,2), cex.axis=0.8)
-    logcpm <- cpm(y$counts, log=TRUE)
-    boxplot(logcpm, las=2, col=as.numeric(factors[, 1]))
-    abline(h=median(logcpm), col=4)
+    par(mfrow=c(1,2), mar=c(6,4,2,2)+0.1)
+    labels <- colnames(counts)
+
+    lcpm1 <- cpm(y$counts, log=TRUE)
+    boxplot(lcpm1, las=2, col=as.numeric(factors[, 1]), xaxt="n", xlab="")
+    axis(1, at=seq_along(labels), labels = FALSE)
+    abline(h=median(lcpm1), col=4)
+    text(x=seq_along(labels), y=par("usr")[3]-1, srt=45, adj=1, labels=labels, xpd=TRUE)
     title(main="Box Plot: Unnormalised counts", ylab="Log-cpm")
-    lcpm <- cpm(y, log=TRUE)
-    boxplot(lcpm, las=2, col=as.numeric(factors[, 1]))
-    abline(h=median(lcpm), col=4)
+
+    lcpm2 <- cpm(y, log=TRUE)
+    boxplot(lcpm2, las=2, col=as.numeric(factors[, 1]), xaxt="n",  xlab="")
+    axis(1, at=seq_along(labels), labels = FALSE)
+    text(x=seq_along(labels), y=par("usr")[3]-1, srt=45, adj=1, labels=labels, xpd=TRUE)
+    abline(h=median(lcpm2), col=4)
     title(main="Box Plot: Normalised counts", ylab="Log-cpm")
+
     imgName <- "Boxplots.png"
     imgAddr <- "boxplots.png"
     imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
     invisible(dev.off())
 
     pdf(boxOutPdf, width=14)
-    par(mfrow=c(1,2), cex.axis=0.8)
-    logcpm <- cpm(y$counts, log=TRUE)
-    boxplot(logcpm, las=2, col=as.numeric(factors[, 1]))
-    abline(h=median(logcpm), col=4)
+    par(mfrow=c(1,2), mar=c(6,4,2,2)+0.1)
+
+    boxplot(lcpm1, las=2, col=as.numeric(factors[, 1]), xaxt="n", xlab="")
+    axis(1, at=seq_along(labels), labels = FALSE)
+    abline(h=median(lcpm1), col=4)
+    text(x=seq_along(labels), y=par("usr")[3]-1, srt=45, adj=1, labels=labels, xpd=TRUE)
     title(main="Box Plot: Unnormalised counts", ylab="Log-cpm")
-    lcpm <- cpm(y, log=TRUE)
-    boxplot(lcpm, las=2, col=as.numeric(factors[, 1]))
-    abline(h=median(lcpm), col=4)
+
+    boxplot(lcpm2, las=2, col=as.numeric(factors[, 1]), xaxt="n",  xlab="")
+    axis(1, at=seq_along(labels), labels = FALSE)
+    text(x=seq_along(labels), y=par("usr")[3]-1, srt=45, adj=1, labels=labels, xpd=TRUE)
+    abline(h=median(lcpm2), col=4)
     title(main="Box Plot: Normalised counts", ylab="Log-cpm")
+
     linkName <- "BoxPlots.pdf"
     linkAddr <- "boxplots.pdf"
     linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
