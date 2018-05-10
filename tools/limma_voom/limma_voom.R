@@ -842,8 +842,27 @@ for (i in 1:nrow(sigDiff)) {
 cata("</table>")
 
 cata("<h4>Plots:</h4>\n")
+#PDFs
 for (i in 1:nrow(linkData)) {
-    if (grepl(".pdf", linkData$Link[i])) {
+    if (grepl("density|boxplot|voomplot|saplot", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+  }
+}
+
+for (i in 1:nrow(linkData)) {
+    if (grepl("mdplot", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+  }
+}
+
+for (i in 1:nrow(linkData)) {
+    if (grepl("volplot", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+  }
+}
+
+for (i in 1:nrow(linkData)) {
+    if (grepl("heatmap", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
