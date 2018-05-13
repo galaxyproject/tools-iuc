@@ -334,12 +334,14 @@ mdsamOutPdf <- makeOut("mdplots_samples.pdf")
 mdOutPdf <- character() # Initialise character vector
 volOutPdf <- character()
 heatOutPdf <- character()
+stripOutPdf <- character()
 mdvolOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
     mdOutPdf[i] <- makeOut(paste0("mdplot_", contrastData[i], ".pdf"))
     volOutPdf[i] <- makeOut(paste0("volplot_", contrastData[i], ".pdf"))
     heatOutPdf[i] <- makeOut(paste0("heatmap_", contrastData[i], ".pdf"))
+    stripOutPdf[i] <- makeOut(paste0("stripcharts_", contrastData[i], ".pdf"))
     mdvolOutPng[i] <- makeOut(paste0("mdvolplot_", contrastData[i], ".png"))
     topOut[i] <- makeOut(paste0(deMethod, "_", contrastData[i], ".tsv"))
 }
@@ -790,30 +792,6 @@ for (i in 1:length(contrastData)) {
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
-    # Plot Heatmap
-    topgenes <- rownames(top[1:opt$topgenes, ])
-    if (wantTrend) {
-        topexp <- plotData[topgenes, ]
-    } else {
-        topexp <- plotData$E[topgenes, ]
-    }
-    pdf(heatOutPdf[i])
-    mycol <- colorpanel(1000,"blue","white","red")
-    if (haveAnno) {
-        # labels must be in second column currently
-        labels <- top[topgenes, 2]
-    } else {
-        labels <- rownames(topexp)
-    }
-    heatmap.2(topexp, scale="row", Colv=FALSE, Rowv=FALSE, dendrogram="none",
-        main=paste("Contrast:", unmake.names(contrastData[i]), "\nTop", opt$topgenes, "genes by adj.P.Val"),
-        trace="none", density.info="none", lhei=c(2,10), margin=c(8, 6), labRow=labels, cexRow=0.7, srtCol=45,
-        col=mycol, ColSideColors=col.group)
-    linkName <- paste0("Heatmap_", contrastData[i], ".pdf")
-    linkAddr <- paste0("heatmap_", contrastData[i], ".pdf")
-    linkData <- rbind(linkData, c(linkName, linkAddr))
-    invisible(dev.off())
-
     # PNG of MD and Volcano
     png(mdvolOutPng[i], width=1200, height=600)
     par(mfrow=c(1, 2), mar=c(5,4,2,2)+0.1, oma=c(0,0,3,0))
@@ -841,6 +819,51 @@ for (i in 1:length(contrastData)) {
     imageData <- rbind(imageData, c(imgName, imgAddr))
     title(paste0("Contrast: ", unmake.names(contrastData[i])), outer=TRUE, cex.main=1.5)
     invisible(dev.off())
+
+    # Plot Heatmap
+    topgenes <- rownames(top[1:opt$topgenes, ])
+    if (wantTrend) {
+        topexp <- plotData[topgenes, ]
+    } else {
+        topexp <- plotData$E[topgenes, ]
+    }
+    pdf(heatOutPdf[i])
+    mycol <- colorpanel(1000,"blue","white","red")
+    if (haveAnno) {
+        # labels must be in second column currently
+        labels <- top[topgenes, 2]
+    } else {
+        labels <- rownames(topexp)
+    }
+    heatmap.2(topexp, scale="row", Colv=FALSE, Rowv=FALSE, dendrogram="none",
+        main=paste("Contrast:", unmake.names(contrastData[i]), "\nTop", opt$topgenes, "genes by adj.P.Val"),
+        trace="none", density.info="none", lhei=c(2,10), margin=c(8, 6), labRow=labels, cexRow=0.7, srtCol=45,
+        col=mycol, ColSideColors=col.group)
+    linkName <- paste0("Heatmap_", contrastData[i], ".pdf")
+    linkAddr <- paste0("heatmap_", contrastData[i], ".pdf")
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())
+
+    # Plot Stripcharts of top genes
+    pdf(stripOutPdf[i], title=paste("Contrast:", unmake.names(contrastData[i])))
+    par(mfrow = c(3,2), cex.main=0.8, cex.axis=0.8)
+    cols <- unique(col.group)
+
+    for (j in 1:length(topgenes)) {
+        lfc <- round(top[topgenes[j], "logFC"], 2)
+        pval <- round(top[topgenes[j], "adj.P.Val"], 5)
+        if (wantTrend) {
+            stripchart(plotData[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols,
+                method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
+        } else {
+            stripchart(plotData$E[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols, 
+                method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
+        }
+    }
+    linkName <- paste0("Stripcharts_", contrastData[i], ".pdf")
+    linkAddr <- paste0("stripcharts_", contrastData[i], ".pdf")
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())   
 }
 sigDiff <- data.frame(Up=upCount, Flat=flatCount, Down=downCount)
 row.names(sigDiff) <- contrastData
@@ -930,6 +953,12 @@ for (i in 1:nrow(linkData)) {
 
 for (i in 1:nrow(linkData)) {
     if (grepl("heatmap", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+  }
+}
+
+for (i in 1:nrow(linkData)) {
+    if (grepl("stripcharts", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
