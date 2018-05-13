@@ -324,7 +324,11 @@ contrastData <- unlist(strsplit(opt$contrastData, split=","))
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
-plots <- unlist(strsplit(opt$plots, split=","))
+plots <- character()
+if (!is.null(opt$plots)) {
+    plots <- unlist(strsplit(opt$plots, split=","))
+}
+
 denOutPng <- makeOut("densityplots.png")
 denOutPdf <- makeOut("densityplots.pdf")
 cpmOutPdf <- makeOut("cpmplots.pdf")
@@ -464,7 +468,7 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 ################################################################################
 
 # Plot Density (if filtering low counts)
-if (filtCPM || filtSmpCount || filtTotCount & "d" %in% plots) {) {
+if (filtCPM || filtSmpCount || filtTotCount & "d" %in% plots) {
 
     # PNG
     png(denOutPng, width=1000, height=500)
@@ -516,7 +520,7 @@ if (filtCPM || filtSmpCount || filtTotCount & "d" %in% plots) {) {
 }
 
 # Plot Box plots (before and after normalisation)
-if (opt$normOpt != "none" & "b" in plots) {
+if (opt$normOpt != "none" & "b" %in% plots) {
     png(boxOutPng, width=1000, height=500)
     par(mfrow=c(1,2), mar=c(6,4,2,2)+0.1)
     labels <- colnames(counts)
