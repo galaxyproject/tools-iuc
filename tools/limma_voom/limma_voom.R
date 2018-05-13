@@ -126,7 +126,7 @@ HtmlLink <- function(address, label=address) {
 }
 
 # Function to write code for html images
-HtmlImage <- function(source, label=source, height=600, width=600) {
+HtmlImage <- function(source, label=source, height=500, width=500) {
     cata("<img src=\"", source, "\" alt=\"", label, "\" height=\"", height)
     cata("\" width=\"", width, "\"/>\n")
 }
@@ -467,7 +467,7 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 if (filtCPM || filtSmpCount || filtTotCount & "d" %in% plots) {) {
 
     # PNG
-    png(denOutPng, width=1200, height=600)
+    png(denOutPng, width=1000, height=500)
     par(mfrow=c(1,2), cex.axis=0.8)
 
     # before filtering
@@ -517,7 +517,7 @@ if (filtCPM || filtSmpCount || filtTotCount & "d" %in% plots) {) {
 
 # Plot Box plots (before and after normalisation)
 if (opt$normOpt != "none" & "b" in plots) {
-    png(boxOutPng, width=1200, height=600)
+    png(boxOutPng, width=1000, height=500)
     par(mfrow=c(1,2), mar=c(6,4,2,2)+0.1)
     labels <- colnames(counts)
 
@@ -671,7 +671,7 @@ if (wantTrend) {
     saOutPng <- makeOut("saplot.png")
     saOutPdf <- makeOut("saplot.pdf")
 
-    png(saOutPng, width=600, height=600)
+    png(saOutPng, width=500, height=500)
     plotSA(fit, main="SA Plot")
     imgName <- "SAPlot.png"
     imgAddr <- "saplot.png"
@@ -699,7 +699,7 @@ if (wantTrend) {
 
     if (wantWeight) {
         # Creating voom data object and plot
-        png(voomOutPng, width=1000, height=600)
+        png(voomOutPng, width=1000, height=500)
         vData <- voomWithQualityWeights(y, design=design, plot=TRUE)
         imgName <- "VoomPlot.png"
         imgAddr <- "voomplot.png"
@@ -719,7 +719,7 @@ if (wantTrend) {
 
     } else {
         # Creating voom data object and plot
-        png(voomOutPng, width=600, height=600)
+        png(voomOutPng, width=500, height=500)
         vData <- voom(y, design=design, plot=TRUE)
         imgName <- "VoomPlot"
         imgAddr <- "voomplot.png"
@@ -817,7 +817,7 @@ for (i in 1:length(contrastData)) {
     invisible(dev.off())
 
     # PNG of MD and Volcano
-    png(mdvolOutPng[i], width=1200, height=600)
+    png(mdvolOutPng[i], width=1000, height=500)
     par(mfrow=c(1, 2), mar=c(5,4,2,2)+0.1, oma=c(0,0,3,0))
 
     # MD plot
@@ -932,7 +932,7 @@ cata("Links to PDF copies of plots are in 'Plots' section below <br />\n")
 
 for (i in 1:nrow(imageData)) {
     if (grepl("density|box|mds|mdvol", imageData$Link[i])) {
-        HtmlImage(imageData$Link[i], imageData$Label[i], width=1200)
+        HtmlImage(imageData$Link[i], imageData$Label[i], width=1000)
     } else if (wantWeight) {
         HtmlImage(imageData$Link[i], imageData$Label[i], width=1000)
     } else {
