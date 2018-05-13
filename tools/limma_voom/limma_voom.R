@@ -326,14 +326,11 @@ denOutPng <- makeOut("densityplots.png")
 denOutPdf <- makeOut("densityplots.pdf")
 boxOutPng <- makeOut("boxplots.png")
 boxOutPdf <- makeOut("boxplots.pdf")
-mdsOutPdf <- character() # Initialise character vector
-mdsOutPng <- character()
-for (i in 1:ncol(factors)) {
-    mdsOutPdf[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".pdf"))
-    mdsOutPng[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".png"))
-}
-
-mdOutPdf <- character()
+mdsscreeOutPng <- makeOut("mdsscree.png")
+mdsscreeOutPdf <- makeOut("mdsscree.pdf")
+mdsxOutPdf <- makeOut("mdsplot_extra.pdf")
+mdsxOutPng <- makeOut("mdsplot_extra.png")
+mdOutPdf <- character() # Initialise character vector
 volOutPdf <- character()
 heatOutPdf <- character()
 mdvolOutPng <- character()
@@ -541,21 +538,81 @@ if (opt$normOpt != "none") {
 print("Generating MDS plot")
 labels <- names(counts)
 
-for (i in 1:ncol(factors)) {
-    png(mdsOutPng[i], width=600, height=600)
-    plotMDS(y, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
-    imgName <- paste0("MDSPlot_", names(factors)[i], ".png")
-    imgAddr <- paste0("mdsplot_", names(factors)[i], ".png")
-    imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
-    invisible(dev.off())
+# Scree plot (Variance Explained) code copied from Glimma
 
-    pdf(mdsOutPdf[i])
-    plotMDS(y, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
-    linkName <- paste0("MDSPlot_", names(factors)[i], ".pdf")
-    linkAddr <- paste0("mdsplot_", names(factors)[i], ".pdf")
-    linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
-    invisible(dev.off())
+# get column of matrix
+getCols <- function(x, inds) {
+  x[, inds, drop=FALSE]
 }
+
+x <- cpm(y, log=TRUE)
+ndim <- nsamples - 1
+nprobes <- nrow(x)
+top <- 500
+top <- min(top, nprobes)
+cn <- colnames(x)
+bad <- rowSums(is.finite(x)) < nsamples
+
+if (any(bad)) {
+  warning("Rows containing infinite values have been removed")
+  x <- x[!bad, , drop=FALSE]
+}
+
+dd <- matrix(0, nrow=nsamples, ncol=nsamples, dimnames=list(cn, cn))
+topindex <- nprobes - top + 1L
+for (i in 2L:(nsamples)) {
+  for (j in 1L:(i - 1L)) {
+    dists <- (getCols(x, i) - getCols(x, j))^2
+    dists <- sort.int(dists, partial = topindex )
+    topdist <- dists[topindex:nprobes]
+    dd[i, j] <- sqrt(mean(topdist))
+  }
+}
+
+a1 <- suppressWarnings(cmdscale(as.dist(dd), k=min(ndim, 8), eig=TRUE))
+eigen <- data.frame(name = 1:min(ndim, 8), eigen = round(a1$eig[1:min(ndim, 8)]/sum(a1$eig), 2))
+
+png(mdsscreeOutPng, width=1000, height=500)
+par(mfrow=c(1, 2))
+plotMDS(y, labels=samplenames, col=as.numeric(factors[, 1]), main="MDS Plot: Dims 1 and 2")
+barplot(eigen$eigen, names.arg=eigen$name,  main = "Scree Plot: Variance Explained", xlab = "Dimension", ylab = "Proportion", las=1)
+imgName <- paste0("MDSPlot_", names(factors)[1], ".png")
+imgAddr <- "mdsscree.png"
+imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
+invisible(dev.off())
+
+pdf(mdsscreeOutPdf, width=14)
+par(mfrow=c(1, 2))
+plotMDS(y, labels=samplenames, col=as.numeric(factors[, 1]), main="MDS Plot: Dims 1 and 2")
+barplot(eigen$eigen, names.arg=eigen$name,  main = "Scree Plot: Variance Explained", xlab = "Dimension", ylab = "Proportion", las=1)
+linkName <- paste0("MDSPlot_", names(factors)[1], ".pdf")
+linkAddr <- "mdsscree.pdf"
+linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+invisible(dev.off())
+
+png(mdsxOutPng, width=1000, height=500)
+par(mfrow=c(1, 2))
+for (i in 2:3) {
+    dim1 <- i
+    dim2 <- i + 1
+    plotMDS(y, dim=c(dim1, dim2), labels=samplenames, col=as.numeric(factors[, 1]), main=paste("MDS Plot: Dims", dim1, "and", dim2))
+}
+imgName <- paste0("MDSPlot_extra.png")
+imgAddr <- paste0("mdsplot_extra.png")
+imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
+invisible(dev.off())
+
+pdf(mdsxOutPdf, width=14)
+par(mfrow=c(1, 2))
+for (i in 2:3) {
+    dim1 <- i
+    dim2 <- i + 1
+    plotMDS(y, dim=c(dim1, dim2), labels=samplenames, col=as.numeric(factors[, 1]), main=paste("MDS Plot: Dims", dim1, "and", dim2))
+}
+linkName <- "MDSPlot_extra.pdf"
+linkAddr <- "mdsplot_extra.pdf"
+linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+invisible(dev.off())
 
 if (wantTrend) {
     # limma-trend approach
@@ -807,7 +864,7 @@ cata("<h3>Limma Analysis Output:</h3>\n")
 cata("Links to PDF copies of plots are in 'Plots' section below <br />\n")
 
 for (i in 1:nrow(imageData)) {
-    if (grepl("density|box|mdvol", imageData$Link[i])) {
+    if (grepl("density|box|mds|mdvol", imageData$Link[i])) {
         HtmlImage(imageData$Link[i], imageData$Label[i], width=1200)
     } else if (wantWeight) {
         HtmlImage(imageData$Link[i], imageData$Label[i], width=1000)
@@ -838,7 +895,7 @@ cata("</table>")
 cata("<h4>Plots:</h4>\n")
 #PDFs
 for (i in 1:nrow(linkData)) {
-    if (grepl("density|boxplot|mdsplot|voomplot|saplot", linkData$Link[i])) {
+    if (grepl("density|boxplot|mds|voomplot|saplot", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
