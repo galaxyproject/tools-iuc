@@ -324,6 +324,7 @@ contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
 denOutPng <- makeOut("densityplots.png")
 denOutPdf <- makeOut("densityplots.pdf")
+cpmOutPdf <- makeOut("cpmplots.pdf")
 boxOutPng <- makeOut("boxplots.png")
 boxOutPdf <- makeOut("boxplots.pdf")
 mdsscreeOutPng <- makeOut("mdsscree.png")
@@ -378,9 +379,18 @@ if (haveAnno) {
   data$genes <- data.frame(GeneID=row.names(counts))
 }
 
+# Creating naming data
+samplenames <- colnames(data$counts)
+sampleanno <- data.frame("sampleID"=samplenames, factors)
+
+# Creating colours for the groups
+cols <- as.numeric(factors[, 1])
+col.group <- palette()[cols]
+
 # If filter crieteria set, filter out genes that do not have a required cpm/counts in a required number of
 # samples. Default is no filtering
 preFilterCount <- nrow(data$counts)
+nsamples <- ncol(data$counts)
 
 if (filtCPM || filtSmpCount || filtTotCount) {
 
@@ -389,7 +399,22 @@ if (filtCPM || filtSmpCount || filtTotCount) {
     } else if (filtSmpCount) {
         keep <- rowSums(data$counts >= opt$cntReq) >= opt$sampleReq
     } else if (filtCPM) {
-        keep <- rowSums(cpm(data$counts) >= opt$cpmReq) >= opt$sampleReq
+        myCPM <- cpm(data$counts)
+        thresh <- myCPM >= opt$cpmReq 
+        keep <- rowSums(thresh) >= opt$sampleReq
+
+        # Plot CPM vs raw counts (to check threshold)
+        pdf(cpmOutPdf, width=6.5, height=10)
+        par(mfrow=c(3, 2))
+        for (i in 1:nsamples) {
+            plot(data$counts[, i], myCPM[, i], xlim=c(0,50), ylim=c(0,3), main=samplenames[i], xlab="Raw counts", ylab="CPM")
+            abline(v=10, col="red", lty=2, lwd=2)
+            abline(h=opt$cpmReq, col=4)
+        }
+        linkName <- "CpmPlots.pdf"
+        linkAddr <- "cpmplots.pdf"
+        linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+        invisible(dev.off())        
     }
 
     data$counts <- data$counts[keep, ]
@@ -398,14 +423,6 @@ if (filtCPM || filtSmpCount || filtTotCount) {
 
 postFilterCount <- nrow(data$counts)
 filteredCount <- preFilterCount-postFilterCount
-
-# Creating naming data
-samplenames <- colnames(data$counts)
-sampleanno <- data.frame("sampleID"=samplenames, factors)
-
-# Creating colours for the groups
-cols <- as.numeric(factors[, 1])
-col.group <- palette()[cols]
 
 # Generating the DGEList object "y"
 print("Generating DGEList object")
@@ -443,7 +460,6 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 
 # Plot Density (if filtering low counts)
 if (filtCPM || filtSmpCount || filtTotCount) {
-    nsamples <- ncol(counts)
 
     # PNG
     png(denOutPng, width=1200, height=600)
@@ -934,7 +950,7 @@ cata("</table>")
 cata("<h4>Plots:</h4>\n")
 #PDFs
 for (i in 1:nrow(linkData)) {
-    if (grepl("density|boxplot|mds|mdplots|voomplot|saplot", linkData$Link[i])) {
+    if (grepl("density|cpm|boxplot|mds|mdplots|voomplot|saplot", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
