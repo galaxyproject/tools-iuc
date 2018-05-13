@@ -330,6 +330,7 @@ mdsscreeOutPng <- makeOut("mdsscree.png")
 mdsscreeOutPdf <- makeOut("mdsscree.pdf")
 mdsxOutPdf <- makeOut("mdsplot_extra.pdf")
 mdsxOutPng <- makeOut("mdsplot_extra.png")
+mdsamOutPdf <- makeOut("mdplots_samples.pdf")
 mdOutPdf <- character() # Initialise character vector
 volOutPdf <- character()
 heatOutPdf <- character()
@@ -614,6 +615,21 @@ linkAddr <- "mdsplot_extra.pdf"
 linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
 invisible(dev.off())
 
+
+# Plot MD plots for individual samples
+print("Generating MD plots for samples")
+pdf(mdsamOutPdf, width=6.5, height=10)
+par(mfrow=c(3, 2))
+for (i in 1:nsamples) {
+    plotMD(y, column = i)
+    abline(h=0, col="red", lty=2, lwd=2)
+}
+linkName <- "MDPlots_Samples.pdf"
+linkAddr <- "mdplots_samples.pdf"
+linkData <- rbind(linkData, c(linkName, linkAddr))
+invisible(dev.off())
+
+
 if (wantTrend) {
     # limma-trend approach
     logCPM <- cpm(y, log=TRUE, prior.count=opt$trend)
@@ -895,13 +911,13 @@ cata("</table>")
 cata("<h4>Plots:</h4>\n")
 #PDFs
 for (i in 1:nrow(linkData)) {
-    if (grepl("density|boxplot|mds|voomplot|saplot", linkData$Link[i])) {
+    if (grepl("density|boxplot|mds|mdplots|voomplot|saplot", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
 
 for (i in 1:nrow(linkData)) {
-    if (grepl("mdplot", linkData$Link[i])) {
+    if (grepl("mdplot_", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
