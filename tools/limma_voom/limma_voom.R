@@ -23,7 +23,8 @@
 #       trend", "t", 1, "double"            -Float for prior.count if limma-trend is used instead of voom
 #       weightOpt", "w", 0, "logical"       -String specifying if voomWithQualityWeights should be used
 #       topgenes", "G", 1, "integer"        -Integer specifying no. of genes to highlight in volcano and heatmap
-#       treatOpt", "T", 0, "logical"        -String specifying if TREAT function shuld be used
+#       treatOpt", "T", 0, "logical"        -String specifying if TREAT function should be used
+#       plots, "P", 1, "character"          -String specifying additional plots to be created
 #
 # OUT:
 #       Density Plots (if filtering)
@@ -175,7 +176,8 @@ spec <- matrix(c(
     "trend", "t", 1, "double",
     "weightOpt", "w", 0, "logical",
     "topgenes", "G", 1, "integer",
-    "treatOpt", "T", 0, "logical"),
+    "treatOpt", "T", 0, "logical",
+    "plots", "P", 1, "character"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -322,6 +324,7 @@ contrastData <- unlist(strsplit(opt$contrastData, split=","))
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
+plots <- unlist(strsplit(opt$plots, split=","))
 denOutPng <- makeOut("densityplots.png")
 denOutPdf <- makeOut("densityplots.pdf")
 cpmOutPdf <- makeOut("cpmplots.pdf")
@@ -403,18 +406,20 @@ if (filtCPM || filtSmpCount || filtTotCount) {
         thresh <- myCPM >= opt$cpmReq 
         keep <- rowSums(thresh) >= opt$sampleReq
 
-        # Plot CPM vs raw counts (to check threshold)
-        pdf(cpmOutPdf, width=6.5, height=10)
-        par(mfrow=c(3, 2))
-        for (i in 1:nsamples) {
-            plot(data$counts[, i], myCPM[, i], xlim=c(0,50), ylim=c(0,3), main=samplenames[i], xlab="Raw counts", ylab="CPM")
-            abline(v=10, col="red", lty=2, lwd=2)
-            abline(h=opt$cpmReq, col=4)
+        if ("c" %in% plots) {
+            # Plot CPM vs raw counts (to check threshold)
+            pdf(cpmOutPdf, width=6.5, height=10)
+            par(mfrow=c(3, 2))
+            for (i in 1:nsamples) {
+                plot(data$counts[, i], myCPM[, i], xlim=c(0,50), ylim=c(0,3), main=samplenames[i], xlab="Raw counts", ylab="CPM")
+                abline(v=10, col="red", lty=2, lwd=2)
+                abline(h=opt$cpmReq, col=4)
+            }
+            linkName <- "CpmPlots.pdf"
+            linkAddr <- "cpmplots.pdf"
+            linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+            invisible(dev.off())
         }
-        linkName <- "CpmPlots.pdf"
-        linkAddr <- "cpmplots.pdf"
-        linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
-        invisible(dev.off())        
     }
 
     data$counts <- data$counts[keep, ]
@@ -459,7 +464,7 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 ################################################################################
 
 # Plot Density (if filtering low counts)
-if (filtCPM || filtSmpCount || filtTotCount) {
+if (filtCPM || filtSmpCount || filtTotCount & "d" %in% plots) {) {
 
     # PNG
     png(denOutPng, width=1200, height=600)
@@ -511,7 +516,7 @@ if (filtCPM || filtSmpCount || filtTotCount) {
 }
 
 # Plot Box plots (before and after normalisation)
-if (opt$normOpt != "none") {
+if (opt$normOpt != "none" & "b" in plots) {
     png(boxOutPng, width=1200, height=600)
     par(mfrow=c(1,2), mar=c(6,4,2,2)+0.1)
     labels <- colnames(counts)
@@ -609,43 +614,46 @@ linkAddr <- "mdsscree.pdf"
 linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
 invisible(dev.off())
 
-png(mdsxOutPng, width=1000, height=500)
-par(mfrow=c(1, 2))
-for (i in 2:3) {
-    dim1 <- i
-    dim2 <- i + 1
-    plotMDS(y, dim=c(dim1, dim2), labels=samplenames, col=as.numeric(factors[, 1]), main=paste("MDS Plot: Dims", dim1, "and", dim2))
-}
-imgName <- paste0("MDSPlot_extra.png")
-imgAddr <- paste0("mdsplot_extra.png")
-imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
-invisible(dev.off())
+if ("x" %in% plots) {
+    png(mdsxOutPng, width=1000, height=500)
+    par(mfrow=c(1, 2))
+    for (i in 2:3) {
+        dim1 <- i
+        dim2 <- i + 1
+        plotMDS(y, dim=c(dim1, dim2), labels=samplenames, col=as.numeric(factors[, 1]), main=paste("MDS Plot: Dims", dim1, "and", dim2))
+    }
+    imgName <- paste0("MDSPlot_extra.png")
+    imgAddr <- paste0("mdsplot_extra.png")
+    imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
+    invisible(dev.off())
 
-pdf(mdsxOutPdf, width=14)
-par(mfrow=c(1, 2))
-for (i in 2:3) {
-    dim1 <- i
-    dim2 <- i + 1
-    plotMDS(y, dim=c(dim1, dim2), labels=samplenames, col=as.numeric(factors[, 1]), main=paste("MDS Plot: Dims", dim1, "and", dim2))
+    pdf(mdsxOutPdf, width=14)
+    par(mfrow=c(1, 2))
+    for (i in 2:3) {
+        dim1 <- i
+        dim2 <- i + 1
+        plotMDS(y, dim=c(dim1, dim2), labels=samplenames, col=as.numeric(factors[, 1]), main=paste("MDS Plot: Dims", dim1, "and", dim2))
+    }
+    linkName <- "MDSPlot_extra.pdf"
+    linkAddr <- "mdsplot_extra.pdf"
+    linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+    invisible(dev.off())
 }
-linkName <- "MDSPlot_extra.pdf"
-linkAddr <- "mdsplot_extra.pdf"
-linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
-invisible(dev.off())
 
-
-# Plot MD plots for individual samples
-print("Generating MD plots for samples")
-pdf(mdsamOutPdf, width=6.5, height=10)
-par(mfrow=c(3, 2))
-for (i in 1:nsamples) {
-    plotMD(y, column = i)
-    abline(h=0, col="red", lty=2, lwd=2)
+if ("m" %in% plots) {
+    # Plot MD plots for individual samples
+    print("Generating MD plots for samples")
+    pdf(mdsamOutPdf, width=6.5, height=10)
+    par(mfrow=c(3, 2))
+    for (i in 1:nsamples) {
+        plotMD(y, column = i)
+        abline(h=0, col="red", lty=2, lwd=2)
+    }
+    linkName <- "MDPlots_Samples.pdf"
+    linkAddr <- "mdplots_samples.pdf"
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())
 }
-linkName <- "MDPlots_Samples.pdf"
-linkAddr <- "mdplots_samples.pdf"
-linkData <- rbind(linkData, c(linkName, linkAddr))
-invisible(dev.off())
 
 
 if (wantTrend) {
@@ -836,50 +844,54 @@ for (i in 1:length(contrastData)) {
     title(paste0("Contrast: ", unmake.names(contrastData[i])), outer=TRUE, cex.main=1.5)
     invisible(dev.off())
 
-    # Plot Heatmap
-    topgenes <- rownames(top[1:opt$topgenes, ])
-    if (wantTrend) {
-        topexp <- plotData[topgenes, ]
-    } else {
-        topexp <- plotData$E[topgenes, ]
-    }
-    pdf(heatOutPdf[i])
-    mycol <- colorpanel(1000,"blue","white","red")
-    if (haveAnno) {
-        # labels must be in second column currently
-        labels <- top[topgenes, 2]
-    } else {
-        labels <- rownames(topexp)
-    }
-    heatmap.2(topexp, scale="row", Colv=FALSE, Rowv=FALSE, dendrogram="none",
-        main=paste("Contrast:", unmake.names(contrastData[i]), "\nTop", opt$topgenes, "genes by adj.P.Val"),
-        trace="none", density.info="none", lhei=c(2,10), margin=c(8, 6), labRow=labels, cexRow=0.7, srtCol=45,
-        col=mycol, ColSideColors=col.group)
-    linkName <- paste0("Heatmap_", contrastData[i], ".pdf")
-    linkAddr <- paste0("heatmap_", contrastData[i], ".pdf")
-    linkData <- rbind(linkData, c(linkName, linkAddr))
-    invisible(dev.off())
-
-    # Plot Stripcharts of top genes
-    pdf(stripOutPdf[i], title=paste("Contrast:", unmake.names(contrastData[i])))
-    par(mfrow = c(3,2), cex.main=0.8, cex.axis=0.8)
-    cols <- unique(col.group)
-
-    for (j in 1:length(topgenes)) {
-        lfc <- round(top[topgenes[j], "logFC"], 2)
-        pval <- round(top[topgenes[j], "adj.P.Val"], 5)
+    if ("h" %in% plots) {
+        # Plot Heatmap
+        topgenes <- rownames(top[1:opt$topgenes, ])
         if (wantTrend) {
-            stripchart(plotData[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols,
-                method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
+            topexp <- plotData[topgenes, ]
         } else {
-            stripchart(plotData$E[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols, 
-                method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
+            topexp <- plotData$E[topgenes, ]
         }
+        pdf(heatOutPdf[i])
+        mycol <- colorpanel(1000,"blue","white","red")
+        if (haveAnno) {
+            # labels must be in second column currently
+            labels <- top[topgenes, 2]
+        } else {
+            labels <- rownames(topexp)
+        }
+        heatmap.2(topexp, scale="row", Colv=FALSE, Rowv=FALSE, dendrogram="none",
+            main=paste("Contrast:", unmake.names(contrastData[i]), "\nTop", opt$topgenes, "genes by adj.P.Val"),
+            trace="none", density.info="none", lhei=c(2,10), margin=c(8, 6), labRow=labels, cexRow=0.7, srtCol=45,
+            col=mycol, ColSideColors=col.group)
+        linkName <- paste0("Heatmap_", contrastData[i], ".pdf")
+        linkAddr <- paste0("heatmap_", contrastData[i], ".pdf")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
+        invisible(dev.off())
     }
-    linkName <- paste0("Stripcharts_", contrastData[i], ".pdf")
-    linkAddr <- paste0("stripcharts_", contrastData[i], ".pdf")
-    linkData <- rbind(linkData, c(linkName, linkAddr))
-    invisible(dev.off())   
+
+    if ("s" %in% plots) {
+        # Plot Stripcharts of top genes
+        pdf(stripOutPdf[i], title=paste("Contrast:", unmake.names(contrastData[i])))
+        par(mfrow = c(3,2), cex.main=0.8, cex.axis=0.8)
+        cols <- unique(col.group)
+
+        for (j in 1:length(topgenes)) {
+            lfc <- round(top[topgenes[j], "logFC"], 2)
+            pval <- round(top[topgenes[j], "adj.P.Val"], 5)
+            if (wantTrend) {
+                stripchart(plotData[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols,
+                    method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
+            } else {
+                stripchart(plotData$E[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols, 
+                    method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
+            }
+        }
+        linkName <- paste0("Stripcharts_", contrastData[i], ".pdf")
+        linkAddr <- paste0("stripcharts_", contrastData[i], ".pdf")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
+        invisible(dev.off())
+    }
 }
 sigDiff <- data.frame(Up=upCount, Flat=flatCount, Down=downCount)
 row.names(sigDiff) <- contrastData
