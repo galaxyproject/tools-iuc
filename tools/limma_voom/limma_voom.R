@@ -346,12 +346,14 @@ stripOutPdf <- character()
 mdvolOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
-    mdOutPdf[i] <- makeOut(paste0("mdplot_", contrastData[i], ".pdf"))
-    volOutPdf[i] <- makeOut(paste0("volplot_", contrastData[i], ".pdf"))
-    heatOutPdf[i] <- makeOut(paste0("heatmap_", contrastData[i], ".pdf"))
-    stripOutPdf[i] <- makeOut(paste0("stripcharts_", contrastData[i], ".pdf"))
-    mdvolOutPng[i] <- makeOut(paste0("mdvolplot_", contrastData[i], ".png"))
-    topOut[i] <- makeOut(paste0(deMethod, "_", contrastData[i], ".tsv"))
+    con <- contrastData[i]
+    con <- gsub("\\(|\\)", "", con)
+    mdOutPdf[i] <- makeOut(paste0("mdplot_", con, ".pdf"))
+    volOutPdf[i] <- makeOut(paste0("volplot_", con, ".pdf"))
+    heatOutPdf[i] <- makeOut(paste0("heatmap_", con, ".pdf"))
+    stripOutPdf[i] <- makeOut(paste0("stripcharts_", con, ".pdf"))
+    mdvolOutPng[i] <- makeOut(paste0("mdvolplot_", con, ".png"))
+    topOut[i] <- makeOut(paste0(deMethod, "_", con, ".tsv"))
 }
 
 normOut <- makeOut(paste0(deMethod, "_normcounts.tsv"))
@@ -775,6 +777,8 @@ status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
 sumStatus <- summary(status)
 
 for (i in 1:length(contrastData)) {
+    con <- contrastData[i]
+    con <- gsub("\\(|\\)", "", con)
     # Collect counts for differential expression
     upCount[i] <- sumStatus["Up", i]
     downCount[i] <- sumStatus["Down", i]
@@ -787,19 +791,19 @@ for (i in 1:length(contrastData)) {
         top <- topTable(fit, coef=i, number=Inf, sort.by="P")
     }
     write.table(top, file=topOut[i], row.names=FALSE, sep="\t", quote=FALSE)
-    linkName <- paste0(deMethod, "_", contrastData[i], ".tsv")
-    linkAddr <- paste0(deMethod, "_", contrastData[i], ".tsv")
+    linkName <- paste0(deMethod, "_", con, ".tsv")
+    linkAddr <- paste0(deMethod, "_", con, ".tsv")
     linkData <- rbind(linkData, c(linkName, linkAddr))
 
     # Plot MD (log ratios vs mean average) using limma package on weighted
     pdf(mdOutPdf[i])
     limma::plotMD(fit, status=status[, i], coef=i,
-        main=paste("MD Plot:", unmake.names(contrastData[i])),
+        main=paste("MD Plot:", unmake.names(con)),
         hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
         xlab="Average Expression", ylab="logFC")
     abline(h=0, col="grey", lty=2)
-    linkName <- paste0("MDPlot_", contrastData[i], ".pdf")
-    linkAddr <- paste0("mdplot_", contrastData[i], ".pdf")
+    linkName <- paste0("MDPlot_", con, ".pdf")
+    linkAddr <- paste0("mdplot_", con, ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
@@ -812,11 +816,11 @@ for (i in 1:length(contrastData)) {
         labels <- fit$genes$GeneID
     }
     limma::volcanoplot(fit, coef=i,
-        main=paste("Volcano Plot:", unmake.names(contrastData[i])),
+        main=paste("Volcano Plot:", unmake.names(con)),
         highlight=opt$topgenes,
         names=labels)
-    linkName <- paste0("VolcanoPlot_", contrastData[i], ".pdf")
-    linkAddr <- paste0("volplot_", contrastData[i], ".pdf")
+    linkName <- paste0("VolcanoPlot_", con, ".pdf")
+    linkAddr <- paste0("volplot_", con, ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
@@ -842,10 +846,10 @@ for (i in 1:length(contrastData)) {
             names=fit$genes$GeneID)
     }
 
-    imgName <- paste0("MDVolPlot_", contrastData[i])
-    imgAddr <- paste0("mdvolplot_", contrastData[i], ".png")
+    imgName <- paste0("MDVolPlot_", con)
+    imgAddr <- paste0("mdvolplot_", con, ".png")
     imageData <- rbind(imageData, c(imgName, imgAddr))
-    title(paste0("Contrast: ", unmake.names(contrastData[i])), outer=TRUE, cex.main=1.5)
+    title(paste0("Contrast: ", unmake.names(con)), outer=TRUE, cex.main=1.5)
     invisible(dev.off())
 
     if ("h" %in% plots) {
@@ -865,18 +869,18 @@ for (i in 1:length(contrastData)) {
             labels <- rownames(topexp)
         }
         heatmap.2(topexp, scale="row", Colv=FALSE, Rowv=FALSE, dendrogram="none",
-            main=paste("Contrast:", unmake.names(contrastData[i]), "\nTop", opt$topgenes, "genes by adj.P.Val"),
+            main=paste("Contrast:", unmake.names(con), "\nTop", opt$topgenes, "genes by adj.P.Val"),
             trace="none", density.info="none", lhei=c(2,10), margin=c(8, 6), labRow=labels, cexRow=0.7, srtCol=45,
             col=mycol, ColSideColors=col.group)
-        linkName <- paste0("Heatmap_", contrastData[i], ".pdf")
-        linkAddr <- paste0("heatmap_", contrastData[i], ".pdf")
+        linkName <- paste0("Heatmap_", con, ".pdf")
+        linkAddr <- paste0("heatmap_", con, ".pdf")
         linkData <- rbind(linkData, c(linkName, linkAddr))
         invisible(dev.off())
     }
 
     if ("s" %in% plots) {
         # Plot Stripcharts of top genes
-        pdf(stripOutPdf[i], title=paste("Contrast:", unmake.names(contrastData[i])))
+        pdf(stripOutPdf[i], title=paste("Contrast:", unmake.names(con)))
         par(mfrow = c(3,2), cex.main=0.8, cex.axis=0.8)
         cols <- unique(col.group)
 
@@ -891,8 +895,8 @@ for (i in 1:length(contrastData)) {
                     method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
             }
         }
-        linkName <- paste0("Stripcharts_", contrastData[i], ".pdf")
-        linkAddr <- paste0("stripcharts_", contrastData[i], ".pdf")
+        linkName <- paste0("Stripcharts_", con, ".pdf")
+        linkAddr <- paste0("stripcharts_", con, ".pdf")
         linkData <- rbind(linkData, c(linkName, linkAddr))
         invisible(dev.off())
     }
