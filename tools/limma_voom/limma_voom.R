@@ -430,6 +430,57 @@ if (filtCPM || filtSmpCount || filtTotCount) {
 
     data$counts <- data$counts[keep, ]
     data$genes <- data$genes[keep, , drop=FALSE]
+
+    # Plot Density
+    if ("d" %in% plots) {
+        # PNG
+        png(denOutPng, width=1000, height=500)
+        par(mfrow=c(1,2), cex.axis=0.8)
+
+        # before filtering
+        lcpm1 <- cpm(counts, log=TRUE)
+        plot(density(lcpm1[, 1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
+        title(main="Density Plot: Raw counts", xlab="Log-cpm")
+        for (i in 2:nsamples){
+            den <- density(lcpm1[, i])
+            lines(den$x, den$y, col=col.group[i], lwd=2)
+        }
+
+        # after filtering
+        lcpm2 <- cpm(data$counts, log=TRUE)
+        plot(density(lcpm2[,1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
+        title(main="Density Plot: Filtered counts", xlab="Log-cpm")
+        for (i in 2:nsamples){
+            den <- density(lcpm2[, i])
+            lines(den$x, den$y, col=col.group[i], lwd=2)
+        }
+        legend("topright", samplenames, text.col=col.group, bty="n")
+        imgName <- "Densityplots.png"
+        imgAddr <- "densityplots.png"
+        imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
+        invisible(dev.off())
+
+        # PDF
+        pdf(denOutPdf, width=14)
+        par(mfrow=c(1,2), cex.axis=0.8)
+        plot(density(lcpm1[, 1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
+        title(main="Density Plot: Raw counts", xlab="Log-cpm")
+        for (i in 2:nsamples){
+            den <- density(lcpm1[, i])
+            lines(den$x, den$y, col=col.group[i], lwd=2)
+        }
+        plot(density(lcpm2[, 1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
+        title(main="Density Plot: Filtered counts", xlab="Log-cpm")
+        for (i in 2:nsamples){
+            den <- density(lcpm2[, i])
+            lines(den$x, den$y, col=col.group[i], lwd=2)
+        }
+        legend("topright", samplenames, text.col=col.group, bty="n")
+        linkName <- "DensityPlots.pdf"
+        linkAddr <- "densityplots.pdf"
+        linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+        invisible(dev.off())
+    }
 }
 
 postFilterCount <- nrow(data$counts)
@@ -468,58 +519,6 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 ################################################################################
 ### Data Output
 ################################################################################
-
-# Plot Density (if filtering low counts)
-if (filtCPM || filtSmpCount || filtTotCount & "d" %in% plots) {
-
-    # PNG
-    png(denOutPng, width=1000, height=500)
-    par(mfrow=c(1,2), cex.axis=0.8)
-
-    # before filtering
-    lcpm1 <- cpm(counts, log=TRUE)
-    plot(density(lcpm1[, 1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
-    title(main="Density Plot: Raw counts", xlab="Log-cpm")
-    for (i in 2:nsamples){
-        den <- density(lcpm1[, i])
-        lines(den$x, den$y, col=col.group[i], lwd=2)
-    }
-
-    # after filtering
-    lcpm2 <- cpm(data$counts, log=TRUE)
-    plot(density(lcpm2[,1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
-    title(main="Density Plot: Filtered counts", xlab="Log-cpm")
-    for (i in 2:nsamples){
-        den <- density(lcpm2[, i])
-        lines(den$x, den$y, col=col.group[i], lwd=2)
-    }
-    legend("topright", samplenames, text.col=col.group, bty="n")
-    imgName <- "Densityplots.png"
-    imgAddr <- "densityplots.png"
-    imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
-    invisible(dev.off())
-
-    # PDF
-    pdf(denOutPdf, width=14)
-    par(mfrow=c(1,2), cex.axis=0.8)
-    plot(density(lcpm1[, 1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
-    title(main="Density Plot: Raw counts", xlab="Log-cpm")
-    for (i in 2:nsamples){
-        den <- density(lcpm1[, i])
-        lines(den$x, den$y, col=col.group[i], lwd=2)
-    }
-    plot(density(lcpm2[, 1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
-    title(main="Density Plot: Filtered counts", xlab="Log-cpm")
-    for (i in 2:nsamples){
-        den <- density(lcpm2[, i])
-        lines(den$x, den$y, col=col.group[i], lwd=2)
-    }
-    legend("topright", samplenames, text.col=col.group, bty="n")
-    linkName <- "DensityPlots.pdf"
-    linkAddr <- "densityplots.pdf"
-    linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
-    invisible(dev.off())
-}
 
 # Plot Box plots (before and after normalisation)
 if (opt$normOpt != "none" & "b" %in% plots) {
