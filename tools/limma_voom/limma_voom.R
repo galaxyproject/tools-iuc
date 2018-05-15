@@ -23,7 +23,8 @@
 #       trend", "t", 1, "double"            -Float for prior.count if limma-trend is used instead of voom
 #       weightOpt", "w", 0, "logical"       -String specifying if voomWithQualityWeights should be used
 #       topgenes", "G", 1, "integer"        -Integer specifying no. of genes to highlight in volcano and heatmap
-#       treatOpt", "T", 0, "logical"        -String specifying if TREAT function shuld be used
+#       treatOpt", "T", 0, "logical"        -String specifying if TREAT function should be used
+#       plots, "P", 1, "character"          -String specifying additional plots to be created
 #
 # OUT:
 #       Density Plots (if filtering)
@@ -125,7 +126,7 @@ HtmlLink <- function(address, label=address) {
 }
 
 # Function to write code for html images
-HtmlImage <- function(source, label=source, height=600, width=600) {
+HtmlImage <- function(source, label=source, height=500, width=500) {
     cata("<img src=\"", source, "\" alt=\"", label, "\" height=\"", height)
     cata("\" width=\"", width, "\"/>\n")
 }
@@ -175,7 +176,8 @@ spec <- matrix(c(
     "trend", "t", 1, "double",
     "weightOpt", "w", 0, "logical",
     "topgenes", "G", 1, "integer",
-    "treatOpt", "T", 0, "logical"),
+    "treatOpt", "T", 0, "logical",
+    "plots", "P", 1, "character"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -322,28 +324,36 @@ contrastData <- unlist(strsplit(opt$contrastData, split=","))
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
 
-denOutPng <- makeOut("densityplots.png")
-denOutPdf <- makeOut("DensityPlots.pdf")
-boxOutPng <- makeOut("boxplots.png")
-boxOutPdf <- makeOut("BoxPlots.pdf")
-mdsOutPdf <- character() # Initialise character vector
-mdsOutPng <- character()
-for (i in 1:ncol(factors)) {
-    mdsOutPdf[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".pdf"))
-    mdsOutPng[i] <- makeOut(paste0("mdsplot_", names(factors)[i], ".png"))
+plots <- character()
+if (!is.null(opt$plots)) {
+    plots <- unlist(strsplit(opt$plots, split=","))
 }
 
-mdOutPdf <- character()
+denOutPng <- makeOut("densityplots.png")
+denOutPdf <- makeOut("densityplots.pdf")
+cpmOutPdf <- makeOut("cpmplots.pdf")
+boxOutPng <- makeOut("boxplots.png")
+boxOutPdf <- makeOut("boxplots.pdf")
+mdsscreeOutPng <- makeOut("mdsscree.png")
+mdsscreeOutPdf <- makeOut("mdsscree.pdf")
+mdsxOutPdf <- makeOut("mdsplot_extra.pdf")
+mdsxOutPng <- makeOut("mdsplot_extra.png")
+mdsamOutPdf <- makeOut("mdplots_samples.pdf")
+mdOutPdf <- character() # Initialise character vector
 volOutPdf <- character()
 heatOutPdf <- character()
+stripOutPdf <- character()
 mdvolOutPng <- character()
 topOut <- character()
 for (i in 1:length(contrastData)) {
-    mdOutPdf[i] <- makeOut(paste0("mdplot_", contrastData[i], ".pdf"))
-    volOutPdf[i] <- makeOut(paste0("volplot_", contrastData[i], ".pdf"))
-    heatOutPdf[i] <- makeOut(paste0("heatmap_", contrastData[i], ".pdf"))
-    mdvolOutPng[i] <- makeOut(paste0("mdvolplot_", contrastData[i], ".png"))
-    topOut[i] <- makeOut(paste0(deMethod, "_", contrastData[i], ".tsv"))
+    con <- contrastData[i]
+    con <- gsub("\\(|\\)", "", con)
+    mdOutPdf[i] <- makeOut(paste0("mdplot_", con, ".pdf"))
+    volOutPdf[i] <- makeOut(paste0("volplot_", con, ".pdf"))
+    heatOutPdf[i] <- makeOut(paste0("heatmap_", con, ".pdf"))
+    stripOutPdf[i] <- makeOut(paste0("stripcharts_", con, ".pdf"))
+    mdvolOutPng[i] <- makeOut(paste0("mdvolplot_", con, ".png"))
+    topOut[i] <- makeOut(paste0(deMethod, "_", con, ".tsv"))
 }
 
 normOut <- makeOut(paste0(deMethod, "_normcounts.tsv"))
@@ -378,9 +388,18 @@ if (haveAnno) {
   data$genes <- data.frame(GeneID=row.names(counts))
 }
 
+# Creating naming data
+samplenames <- colnames(data$counts)
+sampleanno <- data.frame("sampleID"=samplenames, factors)
+
+# Creating colours for the groups
+cols <- as.numeric(factors[, 1])
+col.group <- palette()[cols]
+
 # If filter crieteria set, filter out genes that do not have a required cpm/counts in a required number of
 # samples. Default is no filtering
 preFilterCount <- nrow(data$counts)
+nsamples <- ncol(data$counts)
 
 if (filtCPM || filtSmpCount || filtTotCount) {
 
@@ -389,20 +408,83 @@ if (filtCPM || filtSmpCount || filtTotCount) {
     } else if (filtSmpCount) {
         keep <- rowSums(data$counts >= opt$cntReq) >= opt$sampleReq
     } else if (filtCPM) {
-        keep <- rowSums(cpm(data$counts) >= opt$cpmReq) >= opt$sampleReq
+        myCPM <- cpm(data$counts)
+        thresh <- myCPM >= opt$cpmReq 
+        keep <- rowSums(thresh) >= opt$sampleReq
+
+        if ("c" %in% plots) {
+            # Plot CPM vs raw counts (to check threshold)
+            pdf(cpmOutPdf, width=6.5, height=10)
+            par(mfrow=c(3, 2))
+            for (i in 1:nsamples) {
+                plot(data$counts[, i], myCPM[, i], xlim=c(0,50), ylim=c(0,3), main=samplenames[i], xlab="Raw counts", ylab="CPM")
+                abline(v=10, col="red", lty=2, lwd=2)
+                abline(h=opt$cpmReq, col=4)
+            }
+            linkName <- "CpmPlots.pdf"
+            linkAddr <- "cpmplots.pdf"
+            linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+            invisible(dev.off())
+        }
     }
 
     data$counts <- data$counts[keep, ]
     data$genes <- data$genes[keep, , drop=FALSE]
+
+    # Plot Density
+    if ("d" %in% plots) {
+        # PNG
+        png(denOutPng, width=1000, height=500)
+        par(mfrow=c(1,2), cex.axis=0.8)
+
+        # before filtering
+        lcpm1 <- cpm(counts, log=TRUE)
+        plot(density(lcpm1[, 1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
+        title(main="Density Plot: Raw counts", xlab="Log-cpm")
+        for (i in 2:nsamples){
+            den <- density(lcpm1[, i])
+            lines(den$x, den$y, col=col.group[i], lwd=2)
+        }
+
+        # after filtering
+        lcpm2 <- cpm(data$counts, log=TRUE)
+        plot(density(lcpm2[,1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
+        title(main="Density Plot: Filtered counts", xlab="Log-cpm")
+        for (i in 2:nsamples){
+            den <- density(lcpm2[, i])
+            lines(den$x, den$y, col=col.group[i], lwd=2)
+        }
+        legend("topright", samplenames, text.col=col.group, bty="n")
+        imgName <- "Densityplots.png"
+        imgAddr <- "densityplots.png"
+        imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
+        invisible(dev.off())
+
+        # PDF
+        pdf(denOutPdf, width=14)
+        par(mfrow=c(1,2), cex.axis=0.8)
+        plot(density(lcpm1[, 1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
+        title(main="Density Plot: Raw counts", xlab="Log-cpm")
+        for (i in 2:nsamples){
+            den <- density(lcpm1[, i])
+            lines(den$x, den$y, col=col.group[i], lwd=2)
+        }
+        plot(density(lcpm2[, 1]), col=col.group[1], lwd=2, las=2, main="", xlab="")
+        title(main="Density Plot: Filtered counts", xlab="Log-cpm")
+        for (i in 2:nsamples){
+            den <- density(lcpm2[, i])
+            lines(den$x, den$y, col=col.group[i], lwd=2)
+        }
+        legend("topright", samplenames, text.col=col.group, bty="n")
+        linkName <- "DensityPlots.pdf"
+        linkAddr <- "densityplots.pdf"
+        linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+        invisible(dev.off())
+    }
 }
 
 postFilterCount <- nrow(data$counts)
 filteredCount <- preFilterCount-postFilterCount
-
-# Creating naming data
-samplenames <- colnames(data$counts)
-sampleanno <- data.frame("sampleID"=samplenames, factors)
-
 
 # Generating the DGEList object "y"
 print("Generating DGEList object")
@@ -438,87 +520,42 @@ contrasts <- makeContrasts(contrasts=contrastData, levels=design)
 ### Data Output
 ################################################################################
 
-# Plot Density (if filtering low counts)
-if (filtCPM || filtSmpCount || filtTotCount) {
-    nsamples <- ncol(counts)
-
-    # PNG
-    png(denOutPng, width=1200, height=600)
-    par(mfrow=c(1,2), cex.axis=0.8)
-
-    # before filtering
-    logcpm <- cpm(counts, log=TRUE)
-    plot(density(logcpm[,1]), col=as.numeric(factors[1, 1]), lwd=2, las=2, main="", xlab="")
-    title(main="Density Plot: Raw counts", xlab="Log-cpm")
-    for (i in 2:nsamples){
-        den <- density(logcpm[,i])
-        lines(den$x, den$y, col=as.numeric(factors[i, 1]), lwd=2)
-    }
-
-    # after filtering
-    logcpm <- cpm(data$counts, log=TRUE)
-    plot(density(logcpm[,1]), col=as.numeric(factors[1, 1]), lwd=2, las=2, main="", xlab="")
-    title(main="Density Plot: Filtered counts", xlab="Log-cpm")
-    for (i in 2:nsamples){
-        den <- density(logcpm[,i])
-        lines(den$x, den$y, col=as.numeric(factors[i, 1]), lwd=2)
-    }
-    legend("topright", samplenames, text.col=as.numeric(factors[, 1]), bty="n")
-    imgName <- "Densityplots.png"
-    imgAddr <- "densityplots.png"
-    imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
-    invisible(dev.off())
-
-    # PDF
-    pdf(denOutPdf, width=14)
-    par(mfrow=c(1,2), cex.axis=0.8)
-    logcpm <- cpm(counts, log=TRUE)
-    plot(density(logcpm[,1]), col=as.numeric(factors[1, 1]), lwd=2, las=2, main="", xlab="")
-    title(main="Density Plot: Raw counts", xlab="Log-cpm")
-    for (i in 2:nsamples){
-        den <- density(logcpm[,i])
-        lines(den$x, den$y, col=as.numeric(factors[i, 1]), lwd=2)
-    }
-    logcpm <- cpm(data$counts, log=TRUE)
-    plot(density(logcpm[,1]), col=as.numeric(factors[1, 1]), lwd=2, las=2, main="", xlab="")
-    title(main="Density Plot: Filtered counts", xlab="Log-cpm")
-    for (i in 2:nsamples){
-        den <- density(logcpm[,i])
-        lines(den$x, den$y, col=as.numeric(factors[i, 1]), lwd=2)
-    }
-    legend("topright", samplenames, text.col=as.numeric(factors[, 1]), bty="n")
-    linkName <- "DensityPlots.pdf"
-    linkAddr <- "densityplots.pdf"
-    linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
-    invisible(dev.off())
-}
-
 # Plot Box plots (before and after normalisation)
-if (opt$normOpt != "none") {
-    png(boxOutPng, width=1200, height=600)
-    par(mfrow=c(1,2), cex.axis=0.8)
-    logcpm <- cpm(y$counts, log=TRUE)
-    boxplot(logcpm, las=2, col=as.numeric(factors[, 1]))
-    abline(h=median(logcpm), col=4)
+if (opt$normOpt != "none" & "b" %in% plots) {
+    png(boxOutPng, width=1000, height=500)
+    par(mfrow=c(1,2), mar=c(6,4,2,2)+0.1)
+    labels <- colnames(counts)
+
+    lcpm1 <- cpm(y$counts, log=TRUE)
+    boxplot(lcpm1, las=2, col=col.group, xaxt="n", xlab="")
+    axis(1, at=seq_along(labels), labels = FALSE)
+    abline(h=median(lcpm1), col=4)
+    text(x=seq_along(labels), y=par("usr")[3]-1, srt=45, adj=1, labels=labels, xpd=TRUE)
     title(main="Box Plot: Unnormalised counts", ylab="Log-cpm")
-    lcpm <- cpm(y, log=TRUE)
-    boxplot(lcpm, las=2, col=as.numeric(factors[, 1]))
-    abline(h=median(lcpm), col=4)
+
+    lcpm2 <- cpm(y, log=TRUE)
+    boxplot(lcpm2, las=2, col=col.group, xaxt="n",  xlab="")
+    axis(1, at=seq_along(labels), labels = FALSE)
+    text(x=seq_along(labels), y=par("usr")[3]-1, srt=45, adj=1, labels=labels, xpd=TRUE)
+    abline(h=median(lcpm2), col=4)
     title(main="Box Plot: Normalised counts", ylab="Log-cpm")
+
     imgName <- "Boxplots.png"
     imgAddr <- "boxplots.png"
     imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
     invisible(dev.off())
 
     pdf(boxOutPdf, width=14)
-    par(mfrow=c(1,2), cex.axis=0.8)
-    logcpm <- cpm(y$counts, log=TRUE)
-    boxplot(logcpm, las=2, col=as.numeric(factors[, 1]))
-    abline(h=median(logcpm), col=4)
+    par(mfrow=c(1,2), mar=c(6,4,2,2)+0.1)
+    boxplot(lcpm1, las=2, col=col.group, xaxt="n", xlab="")
+    axis(1, at=seq_along(labels), labels = FALSE)
+    abline(h=median(lcpm1), col=4)
+    text(x=seq_along(labels), y=par("usr")[3]-1, srt=45, adj=1, labels=labels, xpd=TRUE)
     title(main="Box Plot: Unnormalised counts", ylab="Log-cpm")
-    lcpm <- cpm(y, log=TRUE)
-    boxplot(lcpm, las=2, col=as.numeric(factors[, 1]))
-    abline(h=median(lcpm), col=4)
+    boxplot(lcpm2, las=2, col=col.group, xaxt="n",  xlab="")
+    axis(1, at=seq_along(labels), labels = FALSE)
+    text(x=seq_along(labels), y=par("usr")[3]-1, srt=45, adj=1, labels=labels, xpd=TRUE)
+    abline(h=median(lcpm2), col=4)
     title(main="Box Plot: Normalised counts", ylab="Log-cpm")
     linkName <- "BoxPlots.pdf"
     linkAddr <- "boxplots.pdf"
@@ -530,21 +567,99 @@ if (opt$normOpt != "none") {
 print("Generating MDS plot")
 labels <- names(counts)
 
-for (i in 1:ncol(factors)) {
-    png(mdsOutPng[i], width=600, height=600)
-    plotMDS(y, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
-    imgName <- paste0("MDSPlot_", names(factors)[i], ".png")
-    imgAddr <- paste0("mdsplot_", names(factors)[i], ".png")
+# Scree plot (Variance Explained) code copied from Glimma
+
+# get column of matrix
+getCols <- function(x, inds) {
+  x[, inds, drop=FALSE]
+}
+
+x <- cpm(y, log=TRUE)
+ndim <- nsamples - 1
+nprobes <- nrow(x)
+top <- 500
+top <- min(top, nprobes)
+cn <- colnames(x)
+bad <- rowSums(is.finite(x)) < nsamples
+
+if (any(bad)) {
+  warning("Rows containing infinite values have been removed")
+  x <- x[!bad, , drop=FALSE]
+}
+
+dd <- matrix(0, nrow=nsamples, ncol=nsamples, dimnames=list(cn, cn))
+topindex <- nprobes - top + 1L
+for (i in 2L:(nsamples)) {
+  for (j in 1L:(i - 1L)) {
+    dists <- (getCols(x, i) - getCols(x, j))^2
+    dists <- sort.int(dists, partial = topindex )
+    topdist <- dists[topindex:nprobes]
+    dd[i, j] <- sqrt(mean(topdist))
+  }
+}
+
+a1 <- suppressWarnings(cmdscale(as.dist(dd), k=min(ndim, 8), eig=TRUE))
+eigen <- data.frame(name = 1:min(ndim, 8), eigen = round(a1$eig[1:min(ndim, 8)]/sum(a1$eig), 2))
+
+png(mdsscreeOutPng, width=1000, height=500)
+par(mfrow=c(1, 2))
+plotMDS(y, labels=samplenames, col=as.numeric(factors[, 1]), main="MDS Plot: Dims 1 and 2")
+barplot(eigen$eigen, names.arg=eigen$name,  main = "Scree Plot: Variance Explained", xlab = "Dimension", ylab = "Proportion", las=1)
+imgName <- paste0("MDSPlot_", names(factors)[1], ".png")
+imgAddr <- "mdsscree.png"
+imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
+invisible(dev.off())
+
+pdf(mdsscreeOutPdf, width=14)
+par(mfrow=c(1, 2))
+plotMDS(y, labels=samplenames, col=as.numeric(factors[, 1]), main="MDS Plot: Dims 1 and 2")
+barplot(eigen$eigen, names.arg=eigen$name,  main = "Scree Plot: Variance Explained", xlab = "Dimension", ylab = "Proportion", las=1)
+linkName <- paste0("MDSPlot_", names(factors)[1], ".pdf")
+linkAddr <- "mdsscree.pdf"
+linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
+invisible(dev.off())
+
+if ("x" %in% plots) {
+    png(mdsxOutPng, width=1000, height=500)
+    par(mfrow=c(1, 2))
+    for (i in 2:3) {
+        dim1 <- i
+        dim2 <- i + 1
+        plotMDS(y, dim=c(dim1, dim2), labels=samplenames, col=as.numeric(factors[, 1]), main=paste("MDS Plot: Dims", dim1, "and", dim2))
+    }
+    imgName <- paste0("MDSPlot_extra.png")
+    imgAddr <- paste0("mdsplot_extra.png")
     imageData <- rbind(imageData, data.frame(Label=imgName, Link=imgAddr, stringsAsFactors=FALSE))
     invisible(dev.off())
 
-    pdf(mdsOutPdf[i])
-    plotMDS(y, labels=labels, col=as.numeric(factors[, i]), cex=0.8, main=paste("MDS Plot:", names(factors)[i]))
-    linkName <- paste0("MDSPlot_", names(factors)[i], ".pdf")
-    linkAddr <- paste0("mdsplot_", names(factors)[i], ".pdf")
+    pdf(mdsxOutPdf, width=14)
+    par(mfrow=c(1, 2))
+    for (i in 2:3) {
+        dim1 <- i
+        dim2 <- i + 1
+        plotMDS(y, dim=c(dim1, dim2), labels=samplenames, col=as.numeric(factors[, 1]), main=paste("MDS Plot: Dims", dim1, "and", dim2))
+    }
+    linkName <- "MDSPlot_extra.pdf"
+    linkAddr <- "mdsplot_extra.pdf"
     linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
     invisible(dev.off())
 }
+
+if ("m" %in% plots) {
+    # Plot MD plots for individual samples
+    print("Generating MD plots for samples")
+    pdf(mdsamOutPdf, width=6.5, height=10)
+    par(mfrow=c(3, 2))
+    for (i in 1:nsamples) {
+        plotMD(y, column = i)
+        abline(h=0, col="red", lty=2, lwd=2)
+    }
+    linkName <- "MDPlots_Samples.pdf"
+    linkAddr <- "mdplots_samples.pdf"
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+    invisible(dev.off())
+}
+
 
 if (wantTrend) {
     # limma-trend approach
@@ -561,7 +676,7 @@ if (wantTrend) {
     saOutPng <- makeOut("saplot.png")
     saOutPdf <- makeOut("saplot.pdf")
 
-    png(saOutPng, width=600, height=600)
+    png(saOutPng, width=500, height=500)
     plotSA(fit, main="SA Plot")
     imgName <- "SAPlot.png"
     imgAddr <- "saplot.png"
@@ -589,7 +704,7 @@ if (wantTrend) {
 
     if (wantWeight) {
         # Creating voom data object and plot
-        png(voomOutPng, width=1000, height=600)
+        png(voomOutPng, width=1000, height=500)
         vData <- voomWithQualityWeights(y, design=design, plot=TRUE)
         imgName <- "VoomPlot.png"
         imgAddr <- "voomplot.png"
@@ -609,7 +724,7 @@ if (wantTrend) {
 
     } else {
         # Creating voom data object and plot
-        png(voomOutPng, width=600, height=600)
+        png(voomOutPng, width=500, height=500)
         vData <- voom(y, design=design, plot=TRUE)
         imgName <- "VoomPlot"
         imgAddr <- "voomplot.png"
@@ -661,6 +776,8 @@ status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
 sumStatus <- summary(status)
 
 for (i in 1:length(contrastData)) {
+    con <- contrastData[i]
+    con <- gsub("\\(|\\)", "", con)
     # Collect counts for differential expression
     upCount[i] <- sumStatus["Up", i]
     downCount[i] <- sumStatus["Down", i]
@@ -673,22 +790,19 @@ for (i in 1:length(contrastData)) {
         top <- topTable(fit, coef=i, number=Inf, sort.by="P")
     }
     write.table(top, file=topOut[i], row.names=FALSE, sep="\t", quote=FALSE)
-
-    linkName <- paste0(deMethod, "_", contrastData[i], ".tsv")
-    linkAddr <- paste0(deMethod, "_", contrastData[i], ".tsv")
+    linkName <- paste0(deMethod, "_", con, ".tsv")
+    linkAddr <- paste0(deMethod, "_", con, ".tsv")
     linkData <- rbind(linkData, c(linkName, linkAddr))
 
     # Plot MD (log ratios vs mean average) using limma package on weighted
     pdf(mdOutPdf[i])
     limma::plotMD(fit, status=status[, i], coef=i,
-                  main=paste("MD Plot:", unmake.names(contrastData[i])),
-                  hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
-                  xlab="Average Expression", ylab="logFC")
-
+        main=paste("MD Plot:", unmake.names(con)),
+        hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
+        xlab="Average Expression", ylab="logFC")
     abline(h=0, col="grey", lty=2)
-
-    linkName <- paste0("MDPlot_", contrastData[i], ".pdf")
-    linkAddr <- paste0("mdplot_", contrastData[i], ".pdf")
+    linkName <- paste0("MDPlot_", con, ".pdf")
+    linkAddr <- paste0("mdplot_", con, ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
@@ -696,60 +810,30 @@ for (i in 1:length(contrastData)) {
     pdf(volOutPdf[i])
     if (haveAnno) {
         # labels must be in second column currently
-        limma::volcanoplot(fit, coef=i,
-            main=paste("Volcano Plot:", unmake.names(contrastData[i])),
-            highlight=opt$topgenes,
-            names=fit$genes[, 2])
+        labels <- fit$genes[, 2]
     } else {
-        limma::volcanoplot(fit, coef=i,
-            main=paste("Volcano Plot:", unmake.names(contrastData[i])),
-            highlight=opt$topgenes,
-            names=fit$genes$GeneID)
+        labels <- fit$genes$GeneID
     }
-    linkName <- paste0("VolcanoPlot_", contrastData[i], ".pdf")
-    linkAddr <- paste0("volplot_", contrastData[i], ".pdf")
-    linkData <- rbind(linkData, c(linkName, linkAddr))
-    invisible(dev.off())
-
-    # Plot Heatmap
-    topgenes <- rownames(top[1:opt$topgenes, ])
-    if (wantTrend) {
-        topexp <- plotData[topgenes, ]
-    } else {
-        topexp <- plotData$E[topgenes, ]
-    }
-
-    pdf(heatOutPdf[i])
-    par(cex.main=0.8)
-    if (haveAnno) {
-        # labels must be in second column currently
-        heatmap.2(topexp, scale="row",
-            main=paste("Heatmap:", unmake.names(contrastData[i])),
-            col="bluered", trace="none", density.info="none",
-            margin=c(8,6), lhei=c(2,10), dendrogram="column",
-            cexRow=0.7, cexCol=0.7, srtCol=45,
-            labRow=top[topgenes, 2])
-    } else {
-        heatmap.2(topexp, scale="row",
-            main=paste("Heatmap:", unmake.names(contrastData[i])),
-            col="bluered", trace="none", density.info="none",
-            margin=c(8,6), lhei=c(2,10), dendrogram="column",
-            cexRow=0.7, cexCol=0.7, srtCol=45)
-    }
-    linkName <- paste0("Heatmap_", contrastData[i], ".pdf")
-    linkAddr <- paste0("heatmap_", contrastData[i], ".pdf")
+    limma::volcanoplot(fit, coef=i,
+        main=paste("Volcano Plot:", unmake.names(con)),
+        highlight=opt$topgenes,
+        names=labels)
+    linkName <- paste0("VolcanoPlot_", con, ".pdf")
+    linkAddr <- paste0("volplot_", con, ".pdf")
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
     # PNG of MD and Volcano
-    png(mdvolOutPng[i], width=1200, height=600)
+    png(mdvolOutPng[i], width=1000, height=500)
     par(mfrow=c(1, 2), mar=c(5,4,2,2)+0.1, oma=c(0,0,3,0))
+
+    # MD plot
     limma::plotMD(fit, status=status[, i], coef=i, main="MD Plot",
-                   hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
-                   xlab="Average Expression", ylab="logFC")
+        hl.col=alpha(c("firebrick", "blue"), 0.4), values=c(1, -1),
+        xlab="Average Expression", ylab="logFC")
     abline(h=0, col="grey", lty=2)
 
-    # Volcano plots
+    # Volcano
     if (haveAnno) {
         # labels must be in second column currently
         limma::volcanoplot(fit, coef=i, main="Volcano Plot",
@@ -761,11 +845,60 @@ for (i in 1:length(contrastData)) {
             names=fit$genes$GeneID)
     }
 
-    imgName <- paste0("MDVolPlot_", contrastData[i])
-    imgAddr <- paste0("mdvolplot_", contrastData[i], ".png")
+    imgName <- paste0("MDVolPlot_", con)
+    imgAddr <- paste0("mdvolplot_", con, ".png")
     imageData <- rbind(imageData, c(imgName, imgAddr))
-    title(paste0("Contrast: ", unmake.names(contrastData[i])), outer=TRUE, cex.main=1.5)
+    title(paste0("Contrast: ", unmake.names(con)), outer=TRUE, cex.main=1.5)
     invisible(dev.off())
+
+    if ("h" %in% plots) {
+        # Plot Heatmap
+        topgenes <- rownames(top[1:opt$topgenes, ])
+        if (wantTrend) {
+            topexp <- plotData[topgenes, ]
+        } else {
+            topexp <- plotData$E[topgenes, ]
+        }
+        pdf(heatOutPdf[i])
+        mycol <- colorpanel(1000,"blue","white","red")
+        if (haveAnno) {
+            # labels must be in second column currently
+            labels <- top[topgenes, 2]
+        } else {
+            labels <- rownames(topexp)
+        }
+        heatmap.2(topexp, scale="row", Colv=FALSE, Rowv=FALSE, dendrogram="none",
+            main=paste("Contrast:", unmake.names(con), "\nTop", opt$topgenes, "genes by adj.P.Val"),
+            trace="none", density.info="none", lhei=c(2,10), margin=c(8, 6), labRow=labels, cexRow=0.7, srtCol=45,
+            col=mycol, ColSideColors=col.group)
+        linkName <- paste0("Heatmap_", con, ".pdf")
+        linkAddr <- paste0("heatmap_", con, ".pdf")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
+        invisible(dev.off())
+    }
+
+    if ("s" %in% plots) {
+        # Plot Stripcharts of top genes
+        pdf(stripOutPdf[i], title=paste("Contrast:", unmake.names(con)))
+        par(mfrow = c(3,2), cex.main=0.8, cex.axis=0.8)
+        cols <- unique(col.group)
+
+        for (j in 1:length(topgenes)) {
+            lfc <- round(top[topgenes[j], "logFC"], 2)
+            pval <- round(top[topgenes[j], "adj.P.Val"], 5)
+            if (wantTrend) {
+                stripchart(plotData[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols,
+                    method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
+            } else {
+                stripchart(plotData$E[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols, 
+                    method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
+            }
+        }
+        linkName <- paste0("Stripcharts_", con, ".pdf")
+        linkAddr <- paste0("stripcharts_", con, ".pdf")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
+        invisible(dev.off())
+    }
 }
 sigDiff <- data.frame(Up=upCount, Flat=flatCount, Down=downCount)
 row.names(sigDiff) <- contrastData
@@ -774,10 +907,10 @@ row.names(sigDiff) <- contrastData
 if (wantRda) {
     print("Saving RData")
     if (wantWeight) {
-      save(counts, data, y, status, plotData, labels, factors, wts, fit, top, contrasts, design,
+      save(counts, data, y, status, plotData, labels, factors, wts, fit, top, contrastData, contrasts, design,
            file=rdaOut, ascii=TRUE)
     } else {
-      save(counts, data, y, status, plotData, labels, factors, fit, top, contrasts, design,
+      save(counts, data, y, status, plotData, labels, factors, fit, top, contrastData, contrasts, design,
            file=rdaOut, ascii=TRUE)
     }
     linkData <- rbind(linkData, c((paste0(deMethod, "_analysis.RData")), (paste0(deMethod, "_analysis.RData"))))
@@ -805,8 +938,8 @@ cata("<h3>Limma Analysis Output:</h3>\n")
 cata("Links to PDF copies of plots are in 'Plots' section below <br />\n")
 
 for (i in 1:nrow(imageData)) {
-    if (grepl("density|box|mdvol", imageData$Link[i])) {
-        HtmlImage(imageData$Link[i], imageData$Label[i], width=1200)
+    if (grepl("density|box|mds|mdvol", imageData$Link[i])) {
+        HtmlImage(imageData$Link[i], imageData$Label[i], width=1000)
     } else if (wantWeight) {
         HtmlImage(imageData$Link[i], imageData$Label[i], width=1000)
     } else {
@@ -834,8 +967,33 @@ for (i in 1:nrow(sigDiff)) {
 cata("</table>")
 
 cata("<h4>Plots:</h4>\n")
+#PDFs
 for (i in 1:nrow(linkData)) {
-    if (grepl(".pdf", linkData$Link[i])) {
+    if (grepl("density|cpm|boxplot|mds|mdplots|voomplot|saplot", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+  }
+}
+
+for (i in 1:nrow(linkData)) {
+    if (grepl("mdplot_", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+  }
+}
+
+for (i in 1:nrow(linkData)) {
+    if (grepl("volplot", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+  }
+}
+
+for (i in 1:nrow(linkData)) {
+    if (grepl("heatmap", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+  }
+}
+
+for (i in 1:nrow(linkData)) {
+    if (grepl("stripcharts", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
