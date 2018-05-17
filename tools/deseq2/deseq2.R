@@ -48,6 +48,7 @@ spec <- matrix(c(
   "help", "h", 0, "logical",
   "outfile", "o", 1, "character",
   "countsfile", "n", 1, "character",
+  "header", "H", 0, "logical",
   "factors", "f", 1, "character",
   "files_to_labels", "l", 1, "character",
   "plots" , "p", 1, "character",
@@ -84,6 +85,12 @@ verbose <- if (is.null(opt$quiet)) {
   TRUE
 } else {
   FALSE
+}
+
+if (!is.null(opt$header)) {
+  hasHeader <- TRUE
+} else {
+  hasHeader <- FALSE
 }
 
 if (!is.null(opt$tximport)) {
@@ -137,15 +144,6 @@ rownames(sampleTable) <- labs
 
 primaryFactor <- factors[1]
 designFormula <- as.formula(paste("~", paste(rev(factors), collapse=" + ")))
-
-if (verbose) {
-  cat("DESeq2 run information\n\n")
-  cat("sample table:\n")
-  print(sampleTable[,-c(1:2),drop=FALSE])
-  cat("\ndesign formula:\n")
-  print(designFormula)
-  cat("\n\n")
-}
 
 # these are plots which are made once for each analysis
 generateGenericPlots <- function(dds, factors) {
@@ -202,13 +200,28 @@ if (verbose) {
 # For JSON input from Galaxy, path is absolute
 dir <- ""
 
-if (!useTXI) {
+if (!useTXI & hasHeader) {
+    countfiles <- lapply(as.character(sampleTable$filename), function(x){read.delim(x, row.names=1)})
+    tbl <- do.call("cbind", countfiles)
+    rownames(sampleTable) <- colnames(tbl) # take sample ids from header
+  # check for htseq report lines
+    oldSpecialNames <- c("no_feature", "ambiguous", "too_low_aQual",
+        "not_aligned", "alignment_not_unique")
+    specialRows <- (substr(rownames(tbl), 1, 1) == "_") | rownames(tbl) %in% oldSpecialNames
+    tbl <- tbl[!specialRows, , drop = FALSE]
+
+    dds <- DESeqDataSetFromMatrix(countData = tbl,
+                                  colData = sampleTable[,-c(1:2), drop=FALSE],
+                                  design = designFormula)
+} else if (!useTXI & !hasHeader) {
+
   # construct the object from HTSeq files
   dds <- DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
                                     directory = dir,
                                     design =  designFormula)
   labs <- unname(unlist(filenames_to_labels[colnames(dds)]))
   colnames(dds) <- labs
+
 } else {
     # construct the object using tximport
     # first need to make the tx2gene table
@@ -232,7 +245,16 @@ if (!useTXI) {
                                     designFormula)
 }
 
-if (verbose) cat(paste(ncol(dds), "samples with counts over", nrow(dds), "genes\n"))
+if (verbose) {
+  cat("DESeq2 run information\n\n")
+  cat("sample table:\n")
+  print(sampleTable[,-c(1:2),drop=FALSE])
+  cat("\ndesign formula:\n")
+  print(designFormula)
+  cat("\n\n")
+  cat(paste(ncol(dds), "samples with counts over", nrow(dds), "genes\n"))
+}
+
 # optional outlier behavior
 if (is.null(opt$outlier_replace_off)) {
   minRep <- 7
