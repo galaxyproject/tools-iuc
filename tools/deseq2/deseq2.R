@@ -8,14 +8,14 @@
 #   'factors' a JSON list object from Galaxy
 #
 # the output file has columns:
-# 
+#
 #   baseMean (mean normalized count)
 #   log2FoldChange (by default a moderated LFC estimate)
 #   lfcSE (the standard error)
 #   stat (the Wald statistic)
 #   pvalue (p-value from comparison of Wald statistic to a standard Normal)
 #   padj (adjusted p-value, Benjamini Hochberg correction on genes which pass the mean count filter)
-# 
+#
 # the first variable in 'factors' will be the primary factor.
 # the levels of the primary factor are used in the order of appearance in factors.
 #
@@ -204,7 +204,8 @@ if (!useTXI & hasHeader) {
     countfiles <- lapply(as.character(sampleTable$filename), function(x){read.delim(x, row.names=1)})
     tbl <- do.call("cbind", countfiles)
     rownames(sampleTable) <- colnames(tbl) # take sample ids from header
-  # check for htseq report lines
+
+    # check for htseq report lines (from DESeqDataSetFromHTSeqCount function)
     oldSpecialNames <- c("no_feature", "ambiguous", "too_low_aQual",
         "not_aligned", "alignment_not_unique")
     specialRows <- (substr(rownames(tbl), 1, 1) == "_") | rownames(tbl) %in% oldSpecialNames
@@ -264,7 +265,7 @@ if (is.null(opt$outlier_replace_off)) {
 }
 if (is.null(opt$outlier_filter_off)) {
   cooksCutoff <- TRUE
-} else {  
+} else {
   cooksCutoff <- FALSE
   if (verbose) cat("outlier filtering off\n")
 }
