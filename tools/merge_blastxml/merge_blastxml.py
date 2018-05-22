@@ -29,8 +29,8 @@
 # DEALINGS IN THE SOFTWARE
 
 import re
-import sys
 import shutil
+import sys
 xmlfiles = sys.argv[2:]
 xmlout = sys.argv[1]
 
@@ -46,7 +46,7 @@ def merge(split_files, output_file):
     iter_num = 2  # we only start using this from the 2nd file onwards
     for f in split_files:
         h = open(f)
-        body = False
+        # body = False
         first_line = False
         header = h.readline()
         if not header:
