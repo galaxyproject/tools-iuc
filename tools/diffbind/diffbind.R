@@ -94,12 +94,35 @@ if ( !is.null(opt$plots) ) {
 
 # Output differential binding sites
 resSorted <- diff_bind[order(diff_bind$FDR),]
-write.table(as.data.frame(resSorted), file = opt$outfile, sep="\t", quote = FALSE, append=TRUE, row.names = FALSE)
+# Convert from GRanges (1-based) to bed format (adapted from https://www.biostars.org/p/89341/)
+if (opt$format == "bed") {
+    resSorted  <- data.frame(Chrom=seqnames(resSorted),
+        Start=start(resSorted) - 1,
+        End=end(resSorted),
+        Name=rep("DiffBind", length(resSorted)),
+        Score=rep("0", length(resSorted)),
+        Strand=gsub("\\*", ".", strand(resSorted)))
+} else {
+    # Convert to interval format
+    df <- as.data.frame(resSorted)
+    extrainfo <- NULL
+    for (i in 1:nrow(df)) {
+        extrainfo[i] <- paste0(c(df$width[i], df[i, 6:ncol(df)]), collapse="|")
+    }
+    resSorted  <- data.frame(Chrom=seqnames(resSorted),
+    Start=start(resSorted) - 1,
+    End=end(resSorted),
+    Name=rep("DiffBind", length(resSorted)),
+    Score=rep("0", length(resSorted)),
+    Strand=gsub("\\*", ".", strand(resSorted)),
+    Comment=extrainfo)
+}
+write.table(resSorted, file = opt$outfile, sep="\t", quote = FALSE, append=TRUE, row.names = FALSE)
 
 # Output binding affinity scores
 if (!is.null(opt$bmatrix)) {
     bmat <- dba.peakset(sample_count, bRetrieve=TRUE, DataType=DBA_DATA_FRAME)
-    write.table(as.data.frame(bmat), file="bmatrix.tab", sep="\t", quote=FALSE, row.names=FALSE)
+    write.table(bmat, file="bmatrix.tab", sep="\t", quote=FALSE, row.names=FALSE)
 }
 
 # Output RData file
