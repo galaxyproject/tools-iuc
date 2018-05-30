@@ -131,6 +131,11 @@ write.table(resSorted, file = opt$outfile, sep="\t", quote = FALSE, append=TRUE,
 # Output binding affinity scores
 if (!is.null(opt$bmatrix)) {
     bmat <- dba.peakset(sample_count, bRetrieve=TRUE, DataType=DBA_DATA_FRAME)
+    # Output as 0-based tabular
+    bmat <- data.frame(Chrom=bmat[, 1],
+        Start=bmat[, 2] - 1,
+        End=bmat[, 3],
+        bmat[, 4:ncol(bmat)])
     write.table(bmat, file="bmatrix.tab", sep="\t", quote=FALSE, row.names=FALSE)
 }
 
