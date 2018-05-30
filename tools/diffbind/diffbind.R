@@ -94,7 +94,7 @@ if ( !is.null(opt$plots) ) {
 
 # Output differential binding sites
 resSorted <- diff_bind[order(diff_bind$FDR),]
-# Convert from GRanges (1-based) to bed format (adapted from https://www.biostars.org/p/89341/)
+# Convert from GRanges (1-based) to 0-based format (adapted from https://www.biostars.org/p/89341/)
 if (opt$format == "bed") {
     resSorted  <- data.frame(Chrom=seqnames(resSorted),
         Start=start(resSorted) - 1,
@@ -102,20 +102,29 @@ if (opt$format == "bed") {
         Name=rep("DiffBind", length(resSorted)),
         Score=rep("0", length(resSorted)),
         Strand=gsub("\\*", ".", strand(resSorted)))
-} else {
-    # Convert to interval format
+} else if (opt$format == "interval") {
+     # Output as interval
     df <- as.data.frame(resSorted)
     extrainfo <- NULL
     for (i in 1:nrow(df)) {
         extrainfo[i] <- paste0(c(df$width[i], df[i, 6:ncol(df)]), collapse="|")
     }
     resSorted  <- data.frame(Chrom=seqnames(resSorted),
-    Start=start(resSorted) - 1,
-    End=end(resSorted),
-    Name=rep("DiffBind", length(resSorted)),
-    Score=rep("0", length(resSorted)),
-    Strand=gsub("\\*", ".", strand(resSorted)),
-    Comment=extrainfo)
+        Start=start(resSorted) - 1,
+        End=end(resSorted),
+        Name=rep("DiffBind", length(resSorted)),
+        Score=rep("0", length(resSorted)),
+        Strand=gsub("\\*", ".", strand(resSorted)),
+        Comment=extrainfo)
+} else {
+    # Output as 0-based tabular
+    resSorted <- data.frame(Chrom=seqnames(resSorted),
+        Start=start(resSorted) - 1,
+        End=end(resSorted),
+        Name=rep("DiffBind", length(resSorted)),
+        Score=rep("0", length(resSorted)),
+        Strand=gsub("\\*", ".", strand(resSorted)),
+        mcols(resSorted))
 }
 write.table(resSorted, file = opt$outfile, sep="\t", quote = FALSE, append=TRUE, row.names = FALSE)
 
