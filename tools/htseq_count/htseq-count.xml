@@ -1,0 +1,387 @@
+<tool id="htseq_count" name="htseq-count" version="0.9.1" profile="16.04">
+    <description> - Count aligned reads in a BAM file that overlap features in a GFF file</description>
+    <requirements>
+        <requirement type="package" version="0.9.1">htseq</requirement>
+        <requirement type="package" version="1.7">samtools</requirement>
+    </requirements>
+
+    <stdio>
+        <exit_code range="1:" level="fatal" description="Unknown error occurred" />
+        <regex match="htseq-count: (command ){0,1}not found" source="stderr" level="fatal" description="The HTSeq python package is not properly installed, contact Galaxy administrators" />
+        <regex match="samtools: (command ){0,1}not found" source="stderr" level="fatal" description="The samtools package is not properly installed, contact Galaxy administrators" />
+        <regex match="Error: Feature (.+) does not contain a '(.+)' attribute" source="both" level="fatal" description="Error parsing the GFF file, at least one feature of the specified 'Feature type' does not have a value for the specified 'ID Attribute'" />
+        <regex match="Error occured in line (\d+) of file" source="stderr" level="fatal" description="Unknown error parsing the GFF file" />
+        <regex match="Error" source="stderr" level="fatal" description="Unknown error occured" />
+    </stdio>
+
+    <version_command>htseq-count -h | grep version | sed 's/^\(.*\)*\(version .*\)\./\2/'</version_command>
+
+    <command><![CDATA[
+    ##set up input files
+    #set $reference_fasta_filename = "localref.fa"
+    #set $name_sorted_alignment_filename = "name_sorted_alignment.sam"
+    #if str( $advanced_options.advanced_options_selector ) == "advanced":
+        #if str( $advanced_options.samout_conditional.samout ) == "Yes":
+            #if str( $advanced_options.samout_conditional.reference_source.reference_source_selector ) == "history":
+                ln -s "${advanced_options.samout_conditional.reference_source.ref_file}" "${reference_fasta_filename}" &&
+                samtools faidx '${reference_fasta_filename}' 2>&1 || echo "Error running samtools faidx for htseq-count" >&2 &&
+            #else:
+                #set $reference_fasta_filename = str( $advanced_options.samout_conditional.reference_source.ref_file.fields.path )
+            #end if
+        #end if
+    #end if
+
+    #if $samfile.extension == 'bam':
+        samtools sort -n --output-fmt=SAM -o '$name_sorted_alignment_filename' '$samfile' &&
+    #else
+        samtools view -Su -t '${reference_fasta_filename}.fai' '$samfile' | samtools sort -n --output-fmt=SAM -o '$name_sorted_alignment_filename' - &&
+    #end if
+
+    htseq-count
+        --mode=$mode
+        --stranded=$stranded
+        --minaqual=$minaqual
+        --type='$featuretype'
+        --idattr='$idattr'
+
+    #if str( $advanced_options.advanced_options_selector ) == "advanced":
+        --nonunique=$advanced_options.nonunique
+        --secondary-alignments=${advanced_options.secondary_alignments}
+        --supplementary-alignments=${advanced_options.supplementary_alignments}
+        #if $advanced_options.samout_conditional.samout == "Yes":
+            --samout='$__new_file_path__/${samoutfile.id}_tmp.sam'
+        #end if
+    #end if
+
+    --order=name
+    --format=sam
+    '$name_sorted_alignment_filename'
+
+    "$gfffile" | awk '{if ($1 ~ "no_feature|ambiguous|too_low_aQual|not_aligned|alignment_not_unique") print $0 | "cat 1>&2"; else print $0}'
+         > '$counts'
+        2> '$othercounts'
+
+    #if str( $advanced_options.advanced_options_selector ) == "advanced":
+        #if $advanced_options.samout_conditional.samout == "Yes":
+            && samtools view -Su
+                -t '${reference_fasta_filename}.fai'
+                '$__new_file_path__/${samoutfile.id}_tmp.sam'
+            | samtools sort -o '$samoutfile' -
+        #end if
+    #end if
+    ]]>
+    </command>
+
+    <inputs>
+        <param format="sam,bam" name="samfile" type="data" label="Aligned SAM/BAM File"/>
+        <param format="gff" name="gfffile" type="data" label="GFF File"/>
+        <param name="mode" type="select" label="Mode" argument="--mode">
+            <help>Mode to handle reads overlapping more than one feature.</help>
+            <option value="union" selected="True">Union</option>
+            <option value="intersection-strict">Intersection (strict)</option>
+            <option value="intersection-nonempty">Intersection (nonempty)</option>
+        </param>
+        <param name="stranded" type="select" label="Stranded" argument="--stranded">
+            <help>Specify whether the data is from a strand-specific assay.
+                **Be sure to choose the correct value** (see help for more
+                information).</help>
+            <option value="yes" selected="True">Yes</option>
+            <option value="no">No</option>
+            <option value="reverse">Reverse</option>
+        </param>
+        <param name="minaqual" type="integer" value="10" label="Minimum alignment quality" argument="--minaqual">
+            <help>Skip all reads with alignment quality lower than the given minimum value.</help>
+        </param>
+        <param name="featuretype" type="text" value="exon" label="Feature type" argument="--type">
+            <help>Feature type (3rd column in GFF file) to be used. All features of other types are ignored. The default, suitable for RNA-Seq and Ensembl GTF files, is exon.</help>
+        </param>
+        <param name="idattr" type="text" value="gene_id" label="ID Attribute" argument="--idattr">
+            <help>GFF attribute to be used as feature ID. Several GFF lines with the same feature ID will be considered as parts of the same feature. The feature ID is used to identity the counts in the output table. All features of the specified type MUST have a value for this attribute. The default, suitable for RNA-Seq and Ensembl GTF files, is gene_id.</help>
+        </param>
+
+        <conditional name="advanced_options">
+            <param name="advanced_options_selector" type="select" label="Set advanced options">
+                <option value="simple" selected="true">Default settings</option>
+                <option value="advanced">Set advanced options</option>
+            </param>
+            <when value="simple">
+            </when>
+            <when value="advanced">
+                <param argument="--nonunique" type="select" label="How to count nonunique or ambiguous mapping reads">
+                    <option value="none" selected="true">None - do not count nonuniquely or ambiguously mapped reads for any features</option>
+                    <option value="all">All - count nonuniquely or ambiguously mapped reads in BOTH in the nonunique or ambiguous category AND for any features they overlap</option>
+                </param>
+                <param argument="--secondary-alignments" name="secondary_alignments" type="boolean" truevalue="ignore" falsevalue="score" checked="false" label="Ignore seconday alignments (0x100 flag)" />
+                <param argument="--supplementary-alignments" name="supplementary_alignments" type="boolean" truevalue="ignore" falsevalue="score" checked="false" label="Ignore supplementary alignments (0x800 flag)" />
+                <conditional name="samout_conditional">
+                    <param name="samout" type="select" label="Additional BAM Output">
+                        <help>Write out all SAM alignment records into an output BAM file, annotating each line with its assignment to a feature or a special counter (as an optional field with tag ‘XF’).</help>
+                        <option value="No" selected="True">Do not output additional BAM file</option>
+                        <option value="Yes">Output additional BAM file</option>
+                    </param>
+                    <when value="Yes">
+                        <conditional name="reference_source">
+                            <param name="reference_source_selector" type="select" label="Choose the source for the reference list">
+                                <option value="cached">Locally cached</option>
+                                <option value="history">History</option>
+                            </param>
+                            <when value="cached">
+                                <param name="ref_file" type="select" label="Using reference genome">
+                                    <options from_data_table="sam_fa_indexes">
+                                        <filter type="data_meta" key="dbkey" ref="samfile" column="1"/>
+                                    </options>
+                                    <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file"/>
+                                </param>
+                            </when>
+                            <when value="history">
+                                <param name="ref_file" type="data" format="fasta" label="Using reference file" />
+                            </when>
+                        </conditional>
+                    </when>
+                    <when value="No">
+                        <!-- Do nothing -->
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+    </inputs>
+
+    <outputs>
+        <data format="tabular" name="counts" metadata_source="samfile" label="${tool.name} on ${on_string}">
+            <actions>
+                <action name="column_names" type="metadata" default="Geneid,${samfile.element_identifier}" />
+            </actions>
+        </data>
+        <data format="tabular" name="othercounts" metadata_source="samfile" label="${tool.name} on ${on_string} (no feature)">
+            <actions>
+                <action name="column_names" type="metadata" default="Category,${samfile.element_identifier}" />
+            </actions>
+        </data>
+        <data format="bam" name="samoutfile" metadata_source="samfile" label="${tool.name} on ${on_string} (BAM)">
+            <filter>advanced_options['advanced_options_selector'] == 'advanced' and  advanced_options['samout_conditional']['samout'] == "Yes"</filter>
+        </data>
+    </outputs>
+
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="samfile" value="htseq-test.sam" />
+            <param name="gfffile" value="htseq-test.gff" />
+            <output name="counts" file="htseq-test_counts.tsv" />
+            <output name="othercounts" file="htseq-test_othercounts.tsv" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="samfile" value="htseq-test.sam" />
+            <param name="gfffile" value="htseq-test.gff" />
+            <output name="counts" file="htseq-test_counts.tsv" />
+            <output name="othercounts" file="htseq-test_othercounts.tsv" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="samfile" value="htseq-test.bam" />
+            <param name="gfffile" value="htseq-test.gff" />
+            <output name="counts" file="htseq-test_counts.tsv" />
+            <output name="othercounts" file="htseq-test_othercounts.tsv" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="samfile" value="htseq-test-paired.bam" />
+            <param name="gfffile" value="htseq-test.gff" />
+            <output name="counts" file="htseq-test-paired_counts.tsv" />
+            <output name="othercounts" file="htseq-test-paired_othercounts.tsv" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="samfile" value="htseq-test-paired.bam" />
+            <param name="gfffile" value="htseq-test.gff" />
+            <param name="samout" value="No" />
+            <output name="counts" file="htseq-test-paired_counts.tsv" />
+            <output name="othercounts" file="htseq-test-paired_othercounts.tsv" />
+        </test>
+        <test expect_num_outputs="3">
+            <param name="samfile" value="htseq-test.sam" />
+            <param name="gfffile" value="htseq-test.gff" />
+            <param name="advanced_options_selector" value="advanced" />
+            <param name="samout" value="Yes" />
+            <param name="reference_source_selector" value="history" />
+            <param name="ref_file" value="htseq-test_reference.fasta" />
+            <output name="counts" file="htseq-test_counts.tsv" />
+            <output name="othercounts" file="htseq-test_othercounts.tsv" />
+            <output name="samoutfile" file="htseq-test_samout.bam" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="samfile" value="htseq-test.sam" />
+            <param name="gfffile" value="htseq-test.gff" />
+            <param name="advanced_options_selector" value="advanced" />
+            <param name="nonunique" value="all" />
+            <param name="secondary_alignments" value="ignore" />
+            <param name="supplementary_alignments" value="ignore" />
+            <output name="counts" file="htseq-test_counts_nonunique.tsv" />
+            <output name="othercounts" file="htseq-test_othercounts.tsv" />
+        </test>
+    </tests>
+
+    <help>
+<![CDATA[
+Overview
+--------
+
+This tool takes an alignment file in SAM or BAM format and feature file in GFF format
+and calculates the number of reads mapping to each feature. It uses the *htseq-count*
+script that is part of the HTSeq python module. See
+http://www-huber.embl.de/users/anders/HTSeq/doc/count.html for details.
+
+A feature is an interval (i.e., a range of positions) on a chromosome or a union of
+such intervals.  In the case of RNA-Seq, the features are typically genes, where
+each gene is considered here as the union of all its exons. One may also consider
+each exon as a feature, e.g., in order to check for alternative splicing. For
+comparative ChIP-Seq, the features might be binding regions from a pre-determined
+list.
+
+
+Overlap Modes
+-------------
+
+Special care must be taken to decide how to deal with reads that align to or
+overlap with more than one feature. The ``htseq-count`` script allows to choose
+between three modes. See also the FAQ_, if the following explanation seems too
+technical.
+
+The three overlap resolution modes of `htseq-count` work as follows. For each
+position *i* in the read, a set *S(i)* is defined as the set of all features
+overlapping position *i*. Then, consider the set *S*, which is (with *i*
+running through all position within the read or a read pair)
+
+- the union of all the sets *S(i)* for mode ``union``. This mode is
+  recommended for most use cases.
+- the intersection of all the sets *S(i)* for mode ``intersection-strict``.
+- the intersection of all non-empty sets *S(i)* for mode
+  ``intersection-nonempty``.
+
+If *S* contains precisely one feature, the read (or read pair) is counted for
+this feature. If *S* is empty, the read (or read pair) is counted as
+``no_feature``. If *S* contains more than one feature, ``htseq-count`` behaves
+differently based on the ``--nonunique`` option:
+
+- ``--nonunique none`` (default): the read (or read pair) is counted as
+  ``ambiguous`` and not counted for any features. Also, if the read (or read
+  pair) aligns to more than one location in the reference, it is scored as
+  ``alignment_not_unique``.
+- ``--nonunique all``: the read (or read pair) is counted as ``ambiguous`` and
+  is also counted in all features to which it was assigned. Also, if the read
+  (or read pair) aligns to more than one location in the reference, it is
+  scored as ``alignment_not_unique`` and also separately for each location.
+
+Notice that when using ``--nonunique all`` the sum of all counts will not be
+equal to the number of reads (or read pairs), because those with multiple
+alignments or overlaps get scored multiple times.
+
+The following figure illustrates the effect of these three modes and the
+``--nonunique`` option:
+
+.. image:: count_modes.png
+
+
+Strandedness
+------------
+
+**Important: The default for strandedness is yes. Be sure to choose the correct value.**
+
+To check which value is correct, select forward and reverse independently. If
+the overall counts drop at one condition then the opposite condition is
+correct, otherwise your data is not stranded.
+
+Output
+------
+
+The script outputs a table with counts for each feature, followed by the special counters, which count reads that were not counted for any feature for various reasons, namely
+
+- *no_feature*: reads which could not be assigned to any feature (set S as described above was empty).
+
+- *ambiguous*: reads which could have been assigned to more than one feature and hence were not counted for any of these (set S had mroe than one element).
+
+- *too_low_aQual*: reads which were not counted due to the -a option, see below
+
+- *not_aligned*: reads in the SAM file without alignment
+
+- *alignment_not_unique*: reads with more than one reported alignment. These reads are recognized from the NH optional SAM field tag. (If the aligner does not set this field, multiply aligned reads will be counted multiple times.)
+
+
+Options Summary
+---------------
+
+Usage: htseq-count [options] sam_file gff_file
+
+This script takes an alignment file in SAM format and a feature file in GFF
+format and calculates for each feature the number of reads mapping to it. See
+https://htseq.readthedocs.io/en/release_0.9.1/count.html for details.
+
+Options:
+  -f <format>, --format=<format>
+
+      Format of the input data. Possible values are sam (for text SAM files) and bam (for binary BAM files). Default is sam.
+
+  -r <order>, --order=<order>
+
+      For paired-end data, the alignment have to be sorted either by read name or by alignment position. If your data is not sorted, use the samtools sort function of samtools to sort it. Use this option, with name or pos for <order> to indicate how the input data has been sorted. The default is name.
+
+      If name is indicated, htseq-count expects all the alignments for the reads of a given read pair to appear in adjacent records in the input data. For pos, this is not expected; rather, read alignments whose mate alignment have not yet been seen are kept in a buffer in memory until the mate is found. While, strictly speaking, the latter will also work with unsorted data, sorting ensures that most alignment mates appear close to each other in the data and hence the buffer is much less likely to overflow.
+
+  --max-reads-in-buffer=<number>
+
+      When <alignment_file> is paired end sorted by position, allow only so many reads to stay in memory until the mates are found (raising this number will use more memory). Has no effect for single end or paired end sorted by name. (default: 30000000)
+
+  -s <yes/no/reverse>, --stranded=<yes/no/reverse>
+
+      whether the data is from a strand-specific assay (default: yes)
+
+      For stranded=no, a read is considered overlapping with a feature regardless of whether it is mapped to the same or the opposite strand as the feature. For stranded=yes and single-end reads, the read has to be mapped to the same strand as the feature. For paired-end reads, the first read has to be on the same strand and the second read on the opposite strand. For stranded=reverse, these rules are reversed.
+
+  -a <minaqual>, --a=<minaqual>
+
+      skip all reads with alignment quality lower than the given minimum value (default: 10 — Note: the default used to be 0 until version 0.5.4.)
+
+  -t <feature type>, --type=<feature type>
+
+      feature type (3rd column in GFF file) to be used, all features of other type are ignored (default, suitable for RNA-Seq analysis using an Ensembl GTF file: exon)
+
+  -i <id attribute>, --idattr=<id attribute>
+
+      GFF attribute to be used as feature ID. Several GFF lines with the same feature ID will be considered as parts of the same feature. The feature ID is used to identity the counts in the output table. The default, suitable for RNA-Seq analysis using an Ensembl GTF file, is gene_id.
+
+  --additional-attr=<id attributes>
+
+      Additional feature attributes, which will be printed as an additional column after the primary attribute column but before the counts column(s). The default is none, a suitable value to get gene names using an Ensembl GTF file is gene_name.
+
+  -m <mode>, --mode=<mode>
+
+      Mode to handle reads overlapping more than one feature. Possible values for <mode> are union, intersection-strict and intersection-nonempty (default: union)
+
+  --nonunique=<nonunique mode>
+
+      Mode to handle reads that align to or are assigned to more than one feature in the overlap <mode> of choice (see -m option). <nonunique mode> are none and all (default: none)
+
+  --secondary-alignments=<mode>
+
+      Mode to handle secondary alignments (SAM flag 0x100). <mode> can be score and ignore (default: score)
+
+  --supplementary-alignments=<mode>
+
+      Mode to handle supplementary/chimeric alignments (SAM flag 0x800). <mode> can be score and ignore (default: score)
+
+  -o <samout>, --samout=<samout>
+
+      write out all SAM alignment records into an output SAM file called <samout>, annotating each line with its assignment to a feature or a special counter (as an optional field with tag ‘XF’)
+
+  -q, --quiet
+
+      suppress progress report and warnings
+
+  -h, --help
+
+      Show a usage summary and exit
+
+.. _FAQ: https://htseq.readthedocs.io/en/release_0.9.1/count.html#frequenctly-asked-questions
+
+]]>
+    </help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btu638</citation>
+    </citations>
+</tool>

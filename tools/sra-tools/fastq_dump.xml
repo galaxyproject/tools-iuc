@@ -1,0 +1,358 @@
+<tool id="fastq_dump" name="Download and Extract Reads in FASTA/Q" version="@VERSION@.3">
+    <description>format from NCBI SRA</description>
+    <macros>
+        <import>sra_macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>fastq-dump --version</version_command>
+    <command detect_errors="exit_code">
+        <![CDATA[
+
+    #if $input.input_select=="file_list":
+    
+        for acc in `cat $input.file_list` ;
+        do
+    
+    #elif $input.input_select=="accession_number":
+
+        ## Stripping leading and trailing spaces in case user typed them in 
+        acc="${input.accession}" &&
+    
+    #end if
+
+    #if $input.input_select=="file_list" or $input.input_select=="accession_number":
+    
+        [ ""\$acc" =~ ^[E|S|D]RR[0-9]{1,}$" ] && (
+    
+    #end if
+
+    ## Need to set the home directory to the current working directory,
+    ## else the tool tries to write to home/.ncbi and fails when used
+    ## with a cluster manager.
+    export HOME=\$PWD &&
+    vdb-config --restore-defaults &&
+    #if $input.input_select == "file":
+        fastq-dump --log-level fatal --accession '${input.file.name}'
+    #else:
+        vdb-config -s "/repository/user/main/public/root=\$PWD" &&
+        ## Do not use prefetch if region is specified, to avoid downloading
+        ## the complete sra file.
+        #if ( str( $adv.region ) == "" ) and ( str( $adv.minID ) == "" ) and ( str( $adv.maxID ) == "" ):
+            ASCP_PATH=`command -v ascp` &&
+            ASCP_KEY=`dirname \$ASCP_PATH`/asperaweb_id_dsa.openssh || true &&
+            prefetch -X 200G --ascp-path "\$ASCP_PATH|\$ASCP_KEY" "\$acc" &&
+            ## Duplicate vdb-config, in case settings changed between prefetch and
+            ## dump command.
+            vdb-config -s "/repository/user/main/public/root=\$PWD" &&
+        #end if
+        fastq-dump --accession "\$acc"
+        --split-files
+    #end if
+    --defline-seq '@\$sn[_\$rn]/\$ri'
+    --defline-qual '+'
+
+    $adv.split
+    #if str( $adv.alignments ) == "aligned":
+        --aligned
+    #end if
+    #if str( $adv.alignments ) == "unaligned":
+        --unaligned
+    #end if
+    #if str( $adv.minID ) != "":
+        --minSpotId "$adv.minID"
+    #end if
+    #if str( $adv.maxID ) != "":
+        --maxSpotId "$adv.maxID"
+    #end if
+    #if str( $adv.minlen ) != "":
+        --minReadLen "$adv.minlen"
+    #end if
+    #if str( $adv.readfilter ) != "":
+        --read-filter "$adv.readfilter"
+    #end if
+    #if str( $adv.region ) != "":
+        --aligned-region "$adv.region"
+    #end if
+    #if str( $adv.spotgroups ) != "":
+        --spot-groups "$adv.spotgroups"
+    #end if
+    #if str( $adv.matepairDist ) != "":
+        --matepair-distance "$adv.matepairDist"
+    #end if
+    $adv.clip
+    $adv.skip_technical
+
+    #if str( $outputformat ) == "fastqsanger.gz":
+        --gzip
+    #elif str( $outputformat ) == "fastqsanger.bz2":   
+        --bzip2
+    #end if
+    #if $input.input_select=="file":
+        --stdout
+        "$input.file" > "$output_file"
+    
+    #elif $input.input_select=="accession_number":
+        --stdout
+        "\$acc" > "$output_accession" )
+    #end if
+
+    #if $input.input_select=="file_list":
+        ) ; done
+
+        ;
+
+        for i in `ls *.fast* | cut -f 1 -d '_' | uniq` ; do
+            count=`ls \$i* | wc -l` ;
+            data=(\$(ls -d \$i*));
+      
+            if [ "\$count" -eq 2 ]; then
+                mv "\${data[0]}" "\${data[0]}"_forward.$outputformat;  mv "\${data[1]}" "\${data[1]}"_reverse.$outputformat ;
+            elif [ "\$count" -eq 1 ]; then
+                 mv "\${data[0]}" "\${data[0]}"__single.$outputformat ;
+            fi;
+        done
+
+
+    #end if
+
+
+    ]]>
+    </command>
+    <inputs>
+        <expand macro="input_conditional"/>
+        <param name="outputformat" type="select" display="radio" label="Select output format" help="Compression will greatly reduce the amount of space occupied by downloaded data. Downstream applications such as a short-read mappers will accept compressed data as input. Consider this example: an uncoimpressed 400 Mb fastq datasets compresses to 100 Mb or 80 Mb by gzip or bzip2, respectively. " argument="--gzip --bzip2">
+            <option value="fastqsanger.gz">gzip compressed fastq</option>
+            <option value="fastqsanger">Uncompressed fastq</option>
+            <option value="fastqsanger.bz2">bzip2 compressed fastq</option>
+        </param>
+        <section name="adv" title="Advanced Options" expanded="False">
+            <param name="minID" type="integer" label="Minimum spot ID" optional="true" help="Minimum spot id to be dumped." argument="--minSpotId"/>
+            <param name="maxID" type="integer" label="Maximum spot ID" optional="true" help="Maximum spot id to be dumped." argument="--maxSpotId"/>
+            <param name="minlen" type="integer" label="Minimum read length" optional="true" help="Filter by sequence length. Will dump only reads longer or equal to this value." argument="--minReadLen"/>
+            <param name="split" type="boolean" checked="true" truevalue="--split-spot" falsevalue="" label="Split spot by read pairs" help="Split spots into individual reads." argument="--split-spot"/>
+            <expand macro="alignments"/>
+            <expand macro="region"/>
+            <expand macro="matepairDist"/>
+            <param name="readfilter" type="select" value="" label="filter by value" argument="--read-filter">
+                <option value="">None</option>
+                <option value="pass">pass</option>
+                <option value="reject">reject</option>
+                <option value="criteria">criteria</option>
+                <option value="redacted">redacted</option>
+            </param>
+            <param name="spotgroups" type="text" label="Filter by spot-groups" optional="true" argument="--spot-groups"/>
+            <param name="clip" type="boolean" truevalue="--clip" falsevalue="" argument="--clip" label="Apply left and right clips" />
+            <param name="skip_technical" type="boolean" truevalue="--skip-technical" falsevalue="" checked="False" label="Dump only biological reads" argument="--skip-technical"/>
+        </section>
+    </inputs>
+    <outputs>
+        <collection name="list_paired" type="list:paired" label="Pair-end data (fastq-dump)">
+            <filter>input['input_select'] == "file_list"</filter>
+
+        <!-- Use named regex group to grab pattern
+             <identifier_0>_<identifier_1>.fq. Here identifier_0 is the list
+             identifier in the nested collection and identifier_1 is either
+             forward or reverse (for instance samp1_forward.fq).
+        -->
+        
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_\d+.fastq_(?P&lt;identifier_1&gt;[^_]+)\.fastqsanger" ext="fastqsanger" />
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_\d+.fastq.gz_(?P&lt;identifier_1&gt;[^_]+)\.fastqsanger.gz" ext="fastqsanger.gz" />
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_\d+.fastq.bz2_(?P&lt;identifier_1&gt;[^_]+)\.fastqsanger.bz2" ext="fastqsanger.bz2" />
+        </collection>
+        <collection name="output_collection" type='list' label="Single-end data (fastq-dump)">
+            <filter>input['input_select'] == "file_list"</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_\d+.fastq__single\.fastqsanger" directory="." ext='fastqsanger'/>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_\d+.fastq.gz__single\.fastqsanger.gz" directory="." ext='fastqsanger.gz'/>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_\d+.fastq.bz2__single\.fastqsanger.bz2" directory="." ext='fastqsanger.bz2'/>
+        </collection>
+        <data format="fastqsanger" name="output_accession" label="${input.accession} (fastq-dump)">
+            <filter>input['input_select'] == "accession_number"</filter>
+            <change_format>
+                <when input="outputformat" value="fastqsanger.gz" format="fastqsanger.gz"/>
+                <when input="outputformat" value="fastqsanger.bz2" format="fastqsanger.bz2"/>
+            </change_format>
+        </data>
+        <data format="fastqsanger" name="output_file" label="${input.file.name} (fastq-dump)">
+            <filter>input['input_select'] == "file"</filter>
+            <change_format>
+                <when input="outputformat" value="fastqsanger.gz" format="fastqsanger.gz"/>
+                <when input="outputformat" value="fastqsanger.bz2" format="fastqsanger.bz2"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_select" value="accession_number"/>
+            <param name="outputformat" value="fastqsanger"/>
+            <param name="accession" value="SRR044777"/>
+            <param name="skip_technical" value="True"/>
+            <output name="output_accession">
+                <assert_contents>
+                    <not_has_text text="rRNA_primer"/>
+                    <has_text text="F47USSH02GNP1D" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_select" value="accession_number"/>
+            <param name="outputformat" value="fastqsanger.gz"/>
+            <param name="accession" value="SRR925743"/>
+            <param name="maxID" value="5"/>
+            <output name="output_accession" file="fastq_dump_result.fastq.gz" decompress="True"/>
+        </test>
+        <test>
+            <param name="input_select" value="accession_number"/>
+            <param name="outputformat" value="fastqsanger"/>
+            <param name="accession" value="SRR925743"/>
+            <param name="maxID" value="5"/>
+            <output name="output_accession" file="fastq_dump_result.fastq" ftype="fastqsanger"/>
+        </test>
+        <test>
+            <param name="input_select" value="file_list"/>
+            <param name="outputformat" value="fastqsanger"/>
+            <param name="file_list" value="list_pe"/>
+            <param name="maxID" value="5"/>
+            <output_collection name="list_paired" type="list:paired">
+                <element name="DRR015708">
+                    <element name="forward" file="DRR015708_forward.fastqsanger">
+                    </element>
+                    <element name="reverse" file="DRR015708_reverse.fastqsanger">
+                    </element>
+                </element>
+            </output_collection>
+        </test>
+        <test>
+            <param name="input_select" value="file_list"/>
+            <param name="outputformat" value="fastqsanger"/>
+            <param name="file_list" value="list_pe2"/>
+            <param name="maxID" value="5"/>
+            <output_collection name="list_paired" type="list:paired">
+                <element name="ERR027433">
+                    <element name="forward" file="ERR027433_forward.fastqsanger">
+                    </element>
+                    <element name="reverse" file="ERR027433_reverse.fastqsanger">
+                    </element>
+                </element>
+            </output_collection>
+        </test>      
+        <test>
+            <param name="input_select" value="file_list"/>
+            <param name="outputformat" value="fastqsanger"/>
+            <param name="file_list" value="list_se"/>
+            <param name="maxID" value="5"/>
+            <output_collection name="output_collection" type="list">
+                <element name="SRR1993644" file="SRR1993644.fastqsanger"/>
+            </output_collection>
+        </test>            
+    </tests>
+    <help><![CDATA[
+**What it does?**
+
+This tool extracts data (in fastq_ format) from the Short Read Archive (SRA) at the National Center for Biotechnology Information (NCBI). It is based on the fastq-dump_ utility of the SRA Toolkit.
+
+**How to use it?**
+
+There are three ways in which you can download data:
+
+ 1. Data for single accession
+ 2. Multiple datasets using a list of accessions
+ 3. Extract data from already uploaded SRA dataset
+
+Below we discuss each in detail.
+
+------
+
+**Uploading data for a single accession**
+
+When you type a single accession number (e.g., `SRR1582967`) into **Accession** box and click **Execute** the tool will fetch data for you. It is important to keep the following in mind:
+
+ - if data is paired-ended (or mate-paired) the tool will generate a single *interleaved* dataset, in which forward and reverse mates are alternating (see an example dataset below)
+ - if data is single ended, a standard single fastq dataset will be produced
+
+-----
+
+**Uploading multiple datasets using a list of accessions**
+
+A more realistic scenario is when you want to upload a number of datasets at once. To do this you need a list of accession, where there is only one accession per line (see below for information on how to generate such a file). Once you have this file:
+
+ 1. Upload it into your history using Galaxy's upload tool
+ 2. Once the list of accessions is uploaded choose *List of SRA accessions, one per line* from **select input type** dropdown
+ 3. Choose uploaded file within the **sra accession list** field
+ 4. Click **Execute**
+
+.. class:: warningmark
+
+Fastq datasets produced by this option will be saved in Galaxy's history as a collection_ - a single history element containing multiple datasets. In fact, two collections will be produced: one containing paired-end data and another containing single-end data. Single-end or pair-end collections may be empty if the accessions provided in the list contain only SINGLE or PAIRED data, respectively.
+
+-----
+
+**Extract data from already uploaded SRA dataset**
+
+If a SRA dataset is present in the history, it can be converted into fastq dataset by setting **select input type** drop-down to *SRA archive in current history*. Just like in the case of extracting data for single accession number the following applies:
+
+ - if data is paired-ended (or mate-pair) the tool will generate a single *interleaved* dataset, in which forward and reverse mates are alternating (see example below).
+ - if data is single ended, a standard fastq dataset will be produced
+
+@ACCESSION_LIST_HOWTO@
+
+-----
+
+**Paired-end (and mate-pair) data in fastq format**
+
+Paired end datasets can be represented as two individual datasets:
+
+First dataset::
+
+ @1/1
+ AGGGATGTGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTA
+ +
+ EGGEGGGDFGEEEAEECGDEGGFEEGEFGBEEDDECFEFDD@CDD<ED
+ @2/1
+ AGGGATGTGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTA
+ +
+ HHHHHHEGFHEEFEEHEEHHGGEGGGGEFGFGGGGHHHHFBEEEEEFG
+
+Second dataset::
+
+ @1/2
+ CCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAAC
+ +
+ GHHHDFDFGFGEGFBGEGGEGEGGGHGFGHFHFHHHHHHHEF?EFEFF
+ @2/2
+ CCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAAC
+ +
+ HHHHHHHHHHHHHGHHHHHHGHHHHHHHHHHHFHHHFHHHHHHHHHHH
+
+Or a single *interleaved* dataset::
+
+ @1/1
+ AGGGATGTGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTA
+ +
+ EGGEGGGDFGEEEAEECGDEGGFEEGEFGBEEDDECFEFDD@CDD<ED
+ @1/2
+ CCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAAC
+ +
+ GHHHDFDFGFGEGFBGEGGEGEGGGHGFGHFHFHHHHHHHEF?EFEFF
+ @2/1
+ AGGGATGTGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTAGGGTTA
+ +
+ HHHHHHEGFHEEFEEHEEHHGGEGGGGEFGFGGGGHHHHFBEEEEEFG
+ @2/2
+ CCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAACCCTAAC
+ +
+ HHHHHHHHHHHHHGHHHHHHGHHHHHHHHHHHFHHHFHHHHHHHHHHH
+
+----
+
+
+.. _fastq: https://en.wikipedia.org/wiki/FASTQ_format
+.. _fastq-dump: https://ncbi.github.io/sra-tools/fastq-dump.html
+.. _collection: https://galaxyproject.org/tutorials/collections/
+.. _link: http://www.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?view=studies
+
+@SRATOOLS_ATTRRIBUTION@
+
+]]>
+    </help>
+    <expand macro="citation"/>
+  </tool>

@@ -1,0 +1,434 @@
+<tool name="OrthoFinder OnlyGroups" id="orthofinder_onlygroups" version="2.1.2">
+    <description>finds orthogroups in a set of proteomes</description>
+    <requirements>
+        <requirement type="package" version="2.1.2">orthofinder</requirement>
+    </requirements>
+    <command>
+    <![CDATA[
+        ## prepare inputs
+        #if $init.start == "fasta":
+            #set $infiles = ""
+            #for $input in $init.input_fasta
+                ln -s '$input' '${input.element_identifier}.fasta' &&
+                #set $infiles = $infiles + str($input.element_identifier) + ","
+            #end for
+            #set $infiles = $infiles[:-1]
+        #elif $init.start == "blast":
+            #set $infilesbl = ""
+            #for $input in $init.input_blast_out
+                ln -s '$input' '$input.element_identifier' &&
+                #set $infilesbl = $infilesbl + str($input.element_identifier) + ","
+            #end for
+            #set $infilesbl = $infilesbl[:-1]
+
+            #set $infilesfa = ""
+            #for $input in $init.input_blast_fa
+                ln -s '$input' '$input.element_identifier' &&
+                #set $infilesfa = $infilesfa + str($input.element_identifier) + ","
+            #end for
+            #set $infilesfa = $infilesfa[:-1]
+
+            ln -s $init.specIDs $init.specIDs.element_identifier &&
+            ln -s $init.seqIDs $init.seqIDs.element_identifier &&
+        #end if
+
+        ## start Orthofinder
+        orthofinder
+        #if $init.start == "fasta":
+            -f .
+            -S $init.search.search_program
+        #elif $init.start == "blast":
+            -b .
+        #end if
+
+        -I $I -og -t \${GALAXY_SLOTS:-1} -a \${GALAXY_SLOTS:-1} &&
+
+        #if $init.start == "fasta":
+            mv Results_* results
+            #if $init.search.search_program == "blast":
+                #if $init.search.keepblastout:
+                    && mkdir -p results/WorkingDirectory/blast results/WorkingDirectory/fa &&
+                    mv results/WorkingDirectory/Blast* results/WorkingDirectory/blast/ &&
+                    mv results/WorkingDirectory/*.fa results/WorkingDirectory/fa/
+                #end if
+            #end if
+        #elif $init.start == "blast":
+            mkdir results  &&
+            mv *.csv results/ &&
+            mv Orthogroups.txt results/
+        #end if
+    ]]>
+    </command>
+    <inputs>
+        <!-- Control where Orthofinder starts -->
+        <conditional name="init">
+            <param name="start" type="select" label="Orthofinder starting point" help="OrthoFinder_OnlyGroups works in 2 steps. Choose 'From fasta proteomes' to run OrthoFinder_OnlyGroups from scratch and 'From blast results' if you have all the blast results from a previous OrthoFinder_OnlyGroups run.">
+                <option value="fasta" selected="true">From fasta proteomes</option>
+                <option value="blast">From blast results</option>
+            </param>
+
+            <when value="fasta">
+                <param name="input_fasta" type="data" format="fasta" multiple="true" label="Select input fasta proteomes" help="One fasta file per species; species and sequences names in the results will remain the same than in the input files."/>
+                <conditional name="search">
+                    <param name="search_program" type="select" label="Sequence search program" help="Choose between blast, blast_gz, diamond">
+                        <option value="blast" selected="true">blast</option>
+                        <option value="blast_gz">blast_gz</option>
+                        <option value="diamond">diamond</option>
+                    </param>
+                    <when value="blast">
+                        <param name="keepblastout" type="boolean" checked="true" label="Do you want to get the blast results?" help="Used to re-run OrthoFinder_OnlyGroups from pre-computed blast results"/>
+                    </when>
+                    <when value="diamond"></when>
+                    <when value="blast_gz"></when>
+                </conditional>
+            </when>
+
+            <when value="blast">
+                <param name="input_blast_out" type="data_collection" collection_type="list" format="txt" label="Select the pre-computed blast files" help="blastX_Y.txt files from the blast output files of a previous OrthoFinder_OnlyGroups run." />
+                <param name="input_blast_fa" type="data_collection" collection_type="list" format="fasta" label="Select the fasta files" help="= SpeciesX.fa files from the blast output files of a previous OrthoFinder_OnlyGroups run." />
+                <param name="specIDs" type="data" format="txt" label="Select the SpeciesIds file" help="SpeciesIDs.txt file from the blast output files of a previous OrthoFinder_OnlyGroups run."/>
+                <param name="seqIDs" type="data" format="txt" label="Select the SequencesIds file" help="SequencesIDs.txt file from the blast output files of a previous OrthoFinder_OnlyGroups run."/>
+            </when>
+        </conditional>
+        <param argument="-I" type="float" value="1.5" label="Inflation parameter" help="Modify inflation parameter for MCL. Not recommended." />
+    </inputs>
+    <outputs>
+        <!-- Orthogroups results -->
+        <data format="txt" name="orthogroups1" label="Orthogroups.txt" from_work_dir="results/Orthogroups.txt" />
+        <data format="csv" name="orthogroups2" label="Orthogroups.csv" from_work_dir="results/Orthogroups.csv" />
+        <data format="csv" name="specs_overlap" label="Orthogroups_SpeciesOverlaps.csv" from_work_dir="results/Orthogroups_SpeciesOverlaps.csv" />
+        <data format="csv" name="unassigned_genes" label="Orthogroups_UnassignedGenes.csv" from_work_dir="results/Orthogroups_UnassignedGenes.csv" />
+        <data format="csv" name="stat_overall" label="Statistics_Overall.csv" from_work_dir="results/Statistics_Overall.csv" />
+        <data format="csv" name="stat_specs" label="Statistics_PerSpecies.csv" from_work_dir="results/Statistics_PerSpecies.csv" />
+
+        <!-- working directory : blast outputs-->
+        <collection name="wdblast" type="list" label="Blast_outputs">
+            <discover_datasets pattern="__name_and_ext__" directory="results/WorkingDirectory/blast" />
+            <filter>init['start'] == "fasta" and init['search']['search_program'] == "blast" and init['search']['keepblastout']</filter>
+        </collection>
+        <collection name="wdfasta" type="list" label="Fasta_from_blast" >
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.fa" directory="results/WorkingDirectory/fa" format="fasta" />
+            <filter>init['start'] == "fasta" and init['search']['search_program'] == "blast" and init['search']['keepblastout']</filter>
+        </collection>
+        <collection name="genetrees" type="list" label="Gene trees">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.txt" directory="results/WorkingDirectory/trees" format="nhx" />
+            <filter>dogenetrees</filter>
+        </collection>
+        <data format="txt" name="SpeciesIDs" label="SpeciesIDs.txt" from_work_dir="results/WorkingDirectory/SpeciesIDs.txt" >
+            <filter>init['start'] == "fasta" and init['search']['search_program'] == "blast" and init['search']['keepblastout']"</filter>
+        </data>
+        <data format="txt" name="SequenceIDs" label="SequencesIDs.txt" from_work_dir="results/WorkingDirectory/SequenceIDs.txt" >
+            <filter>init['start'] == "fasta" and init['search']['search_program'] == "blast" and init['search']['keepblastout']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test orthofinder -f . -og when input files has no extension fasta/faa/fa ... -->
+        <test>
+            <conditional name="init">
+                <param name="start" value="fasta" />
+                <param name="input_fasta" ftype="fasta" value="inputs/no_fa_ext/AcAcaud_trinity,inputs/no_fa_ext/AmAmphi_trinity,inputs/no_fa_ext/ApApomp_trinity,inputs/no_fa_ext/AsAsp1_trinity" />
+                <conditional name="search">
+                    <param name="search_program" value="blast"/>
+                    <param name="keepblastout" value="false" />
+                </conditional>
+            </conditional>
+            <param name="inflation" value="1.5" />
+            <output name="specs_overlap">
+                <assert_contents>
+                    <has_text text="AcAcaud_trinity"/>
+                    <has_text text="AmAmphi_trinity"/>
+                    <has_text text="ApApomp_trinity"/>
+                    <has_text text="AsAsp1_trinity"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+            <output name="unassigned_genes">
+                <assert_contents>
+                    <has_text text="AcAcaud_trinity"/>
+                    <has_text text="AmAmphi_trinity"/>
+                    <has_text text="ApApomp_trinity"/>
+                    <has_text text="AsAsp1_trinity"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+            <output name="stat_overall">
+                <assert_contents>
+                    <has_text text="Number of genes in orthogroups"/>
+                    <has_text text="Number of unassigned genes"/>
+                    <has_text text="Percentage of orthogroups"/>
+                    <has_text text="Number of orthogroups"/>
+                    <has_text text="Number of genes"/>
+                    <has_text text="G50 (assigned genes)"/>
+                    <has_text text="G50 (all genes)"/>
+                    <has_text text="O50 (assigned genes)"/>
+                    <has_text text="O50 (all genes)"/>
+                </assert_contents>
+            </output>
+            <output name="stat_specs">
+                <assert_contents>
+                    <has_text text="AcAcaud_trinity"/>
+                    <has_text text="AmAmphi_trinity"/>
+                    <has_text text="ApApomp_trinity"/>
+                    <has_text text="AsAsp1_trinity"/>
+                    <has_text text="Number of genes per-species in orthogroup"/>
+                    <has_text text="Percentage of orthogroups"/>
+                    <has_text text="Number of orthogroups"/>
+                    <has_text text="Number of genes"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test orthofinder -f -og -->
+        <test>
+            <conditional name="init">
+                <param name="start" value="fasta" />
+                <param name="input_fasta" ftype="fasta" value="inputs/proteomes/Mycoplasma_agalactiae.faa,inputs/proteomes/Mycoplasma_gallisepticum.faa,inputs/proteomes/Mycoplasma_genitalium.faa,inputs/proteomes/Mycoplasma_hyopneumoniae.faa" />
+                <conditional name="search">
+                    <param name="search_program" value="blast"/>
+                    <param name="keepblastout" value="false" />
+                </conditional>
+            </conditional>
+            <param name="inflation" value="1.5" />
+            <output name="specs_overlap">
+                <assert_contents>
+                    <has_text text="Mycoplasma_agalactiae"/>
+                    <has_text text="Mycoplasma_gallisepticum"/>
+                    <has_text text="Mycoplasma_genitalium"/>
+                    <has_text text="Mycoplasma_hyopneumoniae"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+            <output name="unassigned_genes">
+                <assert_contents>
+                    <has_text text="Mycoplasma_agalactiae"/>
+                    <has_text text="Mycoplasma_gallisepticum"/>
+                    <has_text text="Mycoplasma_genitalium"/>
+                    <has_text text="Mycoplasma_hyopneumoniae"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+            <output name="stat_overall">
+                <assert_contents>
+                    <has_text text="Number of genes in orthogroups"/>
+                    <has_text text="Number of unassigned genes"/>
+                    <has_text text="Percentage of orthogroups"/>
+                    <has_text text="Number of orthogroups"/>
+                    <has_text text="Number of genes"/>
+                    <has_text text="G50 (assigned genes)"/>
+                    <has_text text="G50 (all genes)"/>
+                    <has_text text="O50 (assigned genes)"/>
+                    <has_text text="O50 (all genes)"/>
+                </assert_contents>
+            </output>
+            <output name="stat_specs">
+                <assert_contents>
+                    <has_text text="Mycoplasma_agalactiae"/>
+                    <has_text text="Mycoplasma_gallisepticum"/>
+                    <has_text text="Mycoplasma_genitalium"/>
+                    <has_text text="Mycoplasma_hyopneumoniae"/>
+                    <has_text text="Number of genes per-species in orthogroup"/>
+                    <has_text text="Percentage of orthogroups"/>
+                    <has_text text="Number of orthogroups"/>
+                    <has_text text="Number of genes"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <test>
+            <conditional name="init">
+                <param name="start" value="fasta" />
+                <param name="input_fasta" ftype="fasta" value="inputs/proteomes/Mycoplasma_agalactiae.faa,inputs/proteomes/Mycoplasma_gallisepticum.faa,inputs/proteomes/Mycoplasma_genitalium.faa,inputs/proteomes/Mycoplasma_hyopneumoniae.faa" />
+                <conditional name="search">
+                    <param name="search_program" value="blast"/>
+                    <param name="keepblastout" value="true" />
+                </conditional>
+            </conditional>
+            <param name="inflation" value="1.5" />
+            <output name="specs_overlap">
+                <assert_contents>
+                    <has_text text="Mycoplasma_agalactiae"/>
+                    <has_text text="Mycoplasma_gallisepticum"/>
+                    <has_text text="Mycoplasma_genitalium"/>
+                    <has_text text="Mycoplasma_hyopneumoniae"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+            <output name="unassigned_genes">
+                <assert_contents>
+                    <has_text text="Mycoplasma_agalactiae"/>
+                    <has_text text="Mycoplasma_gallisepticum"/>
+                    <has_text text="Mycoplasma_genitalium"/>
+                    <has_text text="Mycoplasma_hyopneumoniae"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+            <output name="stat_overall">
+                <assert_contents>
+                    <has_text text="Number of genes in orthogroups"/>
+                    <has_text text="Number of unassigned genes"/>
+                    <has_text text="Percentage of orthogroups"/>
+                    <has_text text="Number of orthogroups"/>
+                    <has_text text="Number of genes"/>
+                    <has_text text="G50 (assigned genes)"/>
+                    <has_text text="G50 (all genes)"/>
+                    <has_text text="O50 (assigned genes)"/>
+                    <has_text text="O50 (all genes)"/>
+                </assert_contents>
+            </output>
+            <output name="stat_specs">
+                <assert_contents>
+                    <has_text text="Mycoplasma_agalactiae"/>
+                    <has_text text="Mycoplasma_gallisepticum"/>
+                    <has_text text="Mycoplasma_genitalium"/>
+                    <has_text text="Mycoplasma_hyopneumoniae"/>
+                    <has_text text="Number of genes per-species in orthogroup"/>
+                    <has_text text="Percentage of orthogroups"/>
+                    <has_text text="Number of orthogroups"/>
+                    <has_text text="Number of genes"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+            <output name="SequenceIDs" value="inputs/blastids/SequenceIDs.txt" />
+            <output_collection name="wdfasta" type="list" count="4"/>
+            <output_collection name="wdblast" type="list" count="16"/>
+        </test>
+
+        <!-- test -S diamond -->
+        <test>
+            <conditional name="init">
+                <param name="start" value="fasta" />
+                <param name="input_fasta" ftype="fasta" value="inputs/proteomes/Mycoplasma_agalactiae.faa,inputs/proteomes/Mycoplasma_gallisepticum.faa,inputs/proteomes/Mycoplasma_genitalium.faa,inputs/proteomes/Mycoplasma_hyopneumoniae.faa" />
+                <conditional name="search">
+                    <param name="search_program" value="diamond"/>
+                </conditional>
+            </conditional>
+            <param name="inflation" value="1.5" />
+            <output name="specs_overlap">
+                <assert_contents>
+                    <has_text text="Mycoplasma_agalactiae"/>
+                    <has_text text="Mycoplasma_gallisepticum"/>
+                    <has_text text="Mycoplasma_genitalium"/>
+                    <has_text text="Mycoplasma_hyopneumoniae"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+            <output name="unassigned_genes">
+                <assert_contents>
+                    <has_text text="Mycoplasma_agalactiae"/>
+                    <has_text text="Mycoplasma_gallisepticum"/>
+                    <has_text text="Mycoplasma_genitalium"/>
+                    <has_text text="Mycoplasma_hyopneumoniae"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+            <output name="stat_overall">
+                <assert_contents>
+                    <has_text text="Number of genes in orthogroups"/>
+                    <has_text text="Number of unassigned genes"/>
+                    <has_text text="Percentage of orthogroups"/>
+                    <has_text text="Number of orthogroups"/>
+                    <has_text text="Number of genes"/>
+                    <has_text text="G50 (assigned genes)"/>
+                    <has_text text="G50 (all genes)"/>
+                    <has_text text="O50 (assigned genes)"/>
+                    <has_text text="O50 (all genes)"/>
+                </assert_contents>
+            </output>
+            <output name="stat_specs">
+                <assert_contents>
+                    <has_text text="Mycoplasma_agalactiae"/>
+                    <has_text text="Mycoplasma_gallisepticum"/>
+                    <has_text text="Mycoplasma_genitalium"/>
+                    <has_text text="Mycoplasma_hyopneumoniae"/>
+                    <has_text text="Number of genes per-species in orthogroup"/>
+                    <has_text text="Percentage of orthogroups"/>
+                    <has_text text="Number of orthogroups"/>
+                    <has_text text="Number of genes"/>
+                    <has_n_columns n="5"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- test orthofinder -b -og -->
+        <test>
+            <conditional name="init">
+                <param name="start" value="blast" />
+                <param name="input_blast_out">
+                    <collection type="list">
+                        <element name="Blast0_0.txt" value="inputs/blastout/Blast0_0.txt"/>
+                        <element name="Blast0_1.txt" value="inputs/blastout/Blast0_1.txt"/>
+                        <element name="Blast0_2.txt" value="inputs/blastout/Blast0_2.txt"/>
+                        <element name="Blast0_3.txt" value="inputs/blastout/Blast0_3.txt"/>
+                        <element name="Blast1_0.txt" value="inputs/blastout/Blast1_0.txt"/>
+                        <element name="Blast1_1.txt" value="inputs/blastout/Blast1_1.txt"/>
+                        <element name="Blast1_2.txt" value="inputs/blastout/Blast1_2.txt"/>
+                        <element name="Blast1_3.txt" value="inputs/blastout/Blast1_3.txt"/>
+                        <element name="Blast2_0.txt" value="inputs/blastout/Blast2_0.txt"/>
+                        <element name="Blast2_1.txt" value="inputs/blastout/Blast2_1.txt"/>
+                        <element name="Blast2_2.txt" value="inputs/blastout/Blast2_2.txt"/>
+                        <element name="Blast2_3.txt" value="inputs/blastout/Blast2_3.txt"/>
+                        <element name="Blast3_0.txt" value="inputs/blastout/Blast3_0.txt"/>
+                        <element name="Blast3_1.txt" value="inputs/blastout/Blast3_1.txt"/>
+                        <element name="Blast3_2.txt" value="inputs/blastout/Blast3_2.txt"/>
+                        <element name="Blast3_3.txt" value="inputs/blastout/Blast3_3.txt"/>
+                    </collection>
+                </param>
+                <param name="input_blast_fa">
+                    <collection type="list">
+                        <element name="Species0.fa" value="inputs/blastfa/Species0.fa"/>
+                        <element name="Species1.fa" value="inputs/blastfa/Species1.fa"/>
+                        <element name="Species2.fa" value="inputs/blastfa/Species2.fa"/>
+                        <element name="Species3.fa" value="inputs/blastfa/Species3.fa"/>
+                    </collection>
+                </param>
+                <param name="specIDs" ftype="txt" value="inputs/blastids/SpeciesIDs.txt"/>
+                <param name="seqIDs" ftype="txt" value="inputs/blastids/SequenceIDs.txt"/>
+            </conditional>
+            <param name="inflation" value="1.5" />
+            <output name="orthogroups1" value="results_fromblast/Orthogroups.txt"/>
+            <output name="orthogroups2" value="results_fromblast/Orthogroups.csv"/>
+            <output name="specs_overlap" value="results_fromblast/Orthogroups_SpeciesOverlaps.csv"/>
+            <output name="unassigned_genes" value="results_fromblast/Orthogroups_UnassignedGenes.csv"/>
+            <output name="stat_overall" value="results_fromblast/Statistics_Overall.csv" lines_diff="2"/>
+            <output name="stat_specs" value="results_fromblast/Statistics_PerSpecies.csv"/>
+        </test>
+    </tests>
+    <help>
+======================
+OrthoFinder OnlyGroups
+======================
+
+Full readme at https://github.com/davidemms/OrthoFinder/blob/master/README.md
+Summary sketch at https://github.com/davidemms/OrthoFinder/blob/master/OrthoFinder-options.pdf
+
+OrthoFinder is a fast, accurate and comprehensive analysis tool for comparative genomics. It finds orthologues and orthogroups infers gene trees for all orthogroups and infers a rooted species tree for the species being analysed. OrthoFinder also provides comprehensive statistics for comparative genomic analyses. OrthoFinder is simple to use and all you need to run it is a set of protein sequence files (one per species) in FASTA format (Emms, D.M. and Kelly, S., 2015).
+
+.. class:: infomark
+
+This galaxy tool implements the first part of the Orthofinder program, e.g. the clustering of orthogroups of genes.
+
+If you have already ran OrthoFinder, the tool allows to re-run the analysis from the pre-computed blast-results.
+
+-----------
+Input files
+-----------
+    - When using "from fasta" option (e.g Orthofinder from scratch) : the input files are a set of proteomes in fasta format (on file per species). Choose this option if you have no OrthoFinder results yet.
+    - When using "from blast results" option : the input files are all the following files from of a previous OrthoFinder run (these files appear only if you have chosen to keep them while launching a previous run):
+        - A dataset collection / multiple datasets for the blast outputs
+        - A dataset collection / multiple datasets for .fa files
+        - The SpeciesIDs.txt file
+        - The SequencesIDs.txt file
+
+----------
+Parameters
+----------
+    - Sequence search program : You can choose either blast, blast_gz, or diamond (diamond is faster)
+    - Get the blast results : Check "Yes" if, while using blast as the sequence search program, you want to retrieve the blast output files
+    - Inflation : the inflation parameter; modify this parameter is not recommended.
+
+    </help>
+    <citations>
+        <citation type="doi">10.1186/s13059-015-0721-2</citation>
+    </citations>
+</tool>

@@ -1,0 +1,250 @@
+<tool id="stacks_ustacks" name="Stacks: ustacks" version="@WRAPPER_VERSION@.0">
+    <description>align short reads into stacks</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <command><![CDATA[
+
+        @CLEAN_EXT@
+
+        mkdir stacks_inputs stacks_outputs
+
+        &&
+
+        #if $sample.is_of_type('fastqsanger')
+            #set $data_path = "stacks_inputs/" + $clean_ext($sample.element_identifier) + ".fq"
+            #set inputype = "fastq"
+        #else if $sample.is_of_type('fastqsanger.gz')
+            #set $data_path = "stacks_inputs/" + $clean_ext($sample.element_identifier) + ".fq.gz"
+            #set inputype = "gzfastq"
+        #else
+            #set $data_path = "stacks_inputs/" + $clean_ext($sample.element_identifier) + ".fa"
+            #set inputype = "fasta"
+        #end if
+
+        ln -s '${sample}' '${data_path}'
+
+        &&
+
+        ustacks
+
+            -p \${GALAXY_SLOTS:-1}
+
+            -f $data_path
+
+            -t $inputype
+
+            ## Batch description
+            -i 1
+
+            -m $m
+            -M $M
+            $R
+            $H
+
+            ## Assembly
+            $assembly_options.keep_high_cov
+            $assembly_options.d
+            --max_locus_stacks $assembly_options.max_locus_stacks
+            #if str($assembly_options.k_len)
+                --k_len $assembly_options.k_len
+            #end if
+
+            #if $gapped.use_gapped == "yes"
+                --gapped
+                --max_gaps $gapped.max_gaps
+                --min_aln_len $gapped.min_aln_len
+            #end if
+
+            ## snp_model
+            #if str( $snp_options.select_model.model_type) == "bounded"
+                --model_type bounded
+                --bound_low $snp_options.select_model.bound_low
+                --bound_high $snp_options.select_model.bound_high
+                --alpha $snp_options.select_model.alpha
+            #else if str( $snp_options.select_model.model_type) == "snp"
+                --model_type snp
+                --alpha $snp_options.select_model.alpha
+            #else
+                --model_type fixed
+                --bc_err_freq $bc_err_freq
+            #end if
+
+            -o stacks_outputs
+
+            2>&1 | tee ustacks.log
+
+            ## If input is in gz format, stacks will output gzipped files (no option to control this)
+            #if $sample.is_of_type('fastqsanger.gz')
+                && gunzip stacks_outputs/*.gz
+            #end if
+
+            &&
+
+            stacks_summary.py --stacks-prog ustacks --res-dir stacks_outputs --logfile ustacks.log --summary stacks_outputs/summary.html
+    ]]></command>
+
+    <inputs>
+        <param name="sample" argument="-f" format="fastqsanger,fastqsanger.gz,fasta" type="data" label="Input short reads from an individual" />
+
+        <param name="m" argument="-m" type="integer" value="2" label="Minimum depth of coverage required to create a stack"/>
+        <param name="M" argument="-M" type="integer" value="2" label="Maximum distance (in nucleotides) allowed between stacks"/>
+        <param name="R" argument="-R" type="boolean" checked="false" truevalue="-R" falsevalue="" label="Retain unused reads" />
+        <param name="H" argument="-H" type="boolean" checked="false" truevalue="-H" falsevalue="" label="Disable calling haplotypes from secondary reads" />
+
+        <section name="assembly_options" title="SNP Model Options (ustacks options)" expanded="True">
+            <param name="keep_high_cov" argument="--keep_high_cov" type="boolean" checked="false" truevalue="--keep-high-cov" falsevalue="" label="Disable the algorithm that removes highly-repetitive stacks and nearby errors. " />
+            <param name="d" argument="-d" type="boolean" checked="false" truevalue="-d" falsevalue="" label="Enable the Deleveraging algorithm, used for resolving over merged tags" />
+            <param name="max_locus_stacks" argument="--max_locus_stacks" type="integer" value="3" label="Maximum number of stacks at a single de novo locus"/>
+            <param name="k_len" argument="--k_len" type="integer" value="" optional="true" label="K-mer size for matching between alleles and loci (automatically calculated by default)"/>
+        </section>
+
+        <conditional name="gapped">
+            <param name="use_gapped" argument="--gapped" type="select" label="Perform gapped alignments between stacks">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="max_gaps" argument="--max_gaps" type="integer" value="2" label="Number of gaps allowed between stacks before merging"/>
+                <param name="min_aln_len" argument="--min_aln_len" type="float" value="0.8" min="0.0" max="1.0" label="Minimum length of aligned sequence in a gapped alignment"/>
+            </when>
+        </conditional>
+
+        <!-- SNP Model options -->
+        <section name="snp_options" title="SNP Model Options (ustacks options)" expanded="False">
+            <expand macro="snp_options_full"/>
+        </section>
+    </inputs>
+
+    <outputs>
+        <data format="txt" name="output_log" label="ustacks.log with ${tool.name} on ${on_string}" from_work_dir="ustacks.log" />
+
+        <data format="html" name="output_summary" label="Summary from ${tool.name} on ${on_string}" from_work_dir="stacks_outputs/summary.html" />
+
+        <collection name="tabs" type="list" label="Stacks from ${on_string}">
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.tags)\.tsv$" ext="tabular" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.snps)\.tsv$" ext="tabular" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.alleles)\.tsv$" ext="tabular" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.models)\.tsv$" ext="tabular" directory="stacks_outputs" />
+        </collection>
+    </outputs>
+
+    <tests>
+        <test>
+            <param name="sample" value="demultiplexed/PopA_01.1.fq" ftype="fastqsanger" />
+
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="done." />
+                </assert_contents>
+            </output>
+            <output name="output_summary">
+                <assert_contents>
+                    <has_text text="Stacks Statistics" />
+                </assert_contents>
+            </output>
+
+            <output_collection name="tabs">
+                <element name="PopA_01.tags">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+                <element name="PopA_01.snps">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+                <element name="PopA_01.alleles">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+                <element name="PopA_01.models">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test>
+            <param name="sample" value="demultiplexed/PopA_01.1.fq.gzip" ftype="fastqsanger.gz" />
+
+            <output name="output_log">
+                <assert_contents>
+                    <has_text text="done." />
+                </assert_contents>
+            </output>
+            <output name="output_summary">
+                <assert_contents>
+                    <has_text text="Stacks Statistics" />
+                </assert_contents>
+            </output>
+
+            <output_collection name="tabs">
+                <element name="PopA_01.tags">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+                <element name="PopA_01.snps">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+                <element name="PopA_01.alleles">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+                <element name="PopA_01.models">
+                    <assert_contents>
+                        <has_text text="generated on " />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+
+    <help>
+<![CDATA[
+.. class:: infomark
+
+**What it does**
+
+The unique stacks program will take as input a set of short-read sequences and align them into exactly-matching stacks. Comparing the stacks it will form a set of loci and detect SNPs at each locus using a maximum likelihood framework
+
+--------
+
+**Input files**
+
+FASTQ, FASTA
+
+**Output files**
+
+- XXX.tags.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: For the tags file, each stack will start in the file with a consensus sequence for the entire stack followed by the flags for that stack. Then, each individual read that was merged into that stack will follow. The next stack will start with another consensus sequence.
+
+
+- XXX.snps.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: If a stack has two SNPs called within it, then there will be two lines in this file listing each one.
+
+
+- XXX.alleles.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+@STACKS_INFOS@
+]]>
+    </help>
+    <expand macro="citation" />
+</tool>

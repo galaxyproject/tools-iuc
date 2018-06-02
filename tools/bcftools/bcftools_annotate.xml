@@ -1,0 +1,291 @@
+<?xml version='1.0' encoding='utf-8'?>
+<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@VERSION@">
+    <description>Annotate and edit VCF/BCF files</description>
+    <macros>
+        <token name="@EXECUTABLE@">annotate</token>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <expand macro="version_command" />
+    <command detect_errors="aggressive"><![CDATA[
+@PREPARE_ENV@
+@PREPARE_INPUT_FILE@
+#set $annotation_file = None
+#set $annotation_hdr = None
+#set $section = $sec_annofile
+#if $section.annofile.anno_fmt == 'vcf':
+  #set $annotation_file = 'annotations.vcf.gz'
+  bgzip -c "$section.annofile.annotations" > $annotation_file &&
+  bcftools index $annotation_file &&
+#elif $section.annofile.anno_fmt == 'tab':
+  #if $section.annofile.annotations.is_of_type('bed')
+    #set $annotation_file = 'annotations.bed.gz'
+    bgzip -c "$section.annofile.annotations" > $annotation_file &&
+    tabix -s 1 -b 2 -e 3 $annotation_file &&
+  #else:
+    #set $annotation_file = 'annotations.tab.gz'
+    bgzip -c "$section.annofile.annotations" > $annotation_file &&
+    tabix -s 1 -b 2 -e 2 $annotation_file &&
+  #end if
+  #if $section.annofile.header_file:
+    #set $annotation_hdr = $section.annofile.header_file
+  #elif $section.annofile.header_lines:
+    #set $annotation_hdr = 'annotation.hdr'
+    grep '^\#\#INFO' ${hdr_file} > $annotation_hdr &&
+  #end if
+#end if
+#set $section = $sec_restrict
+
+bcftools @EXECUTABLE@
+@PREPARE_REGIONS_FILE@
+
+#set $section = $sec_annofile
+@COLUMNS@
+#if $annotation_file:
+  --annotations "${annotation_file}"
+#end if
+#if $annotation_hdr:
+    --header-lines "${annotation_hdr}"
+#end if
+
+#if $section.set_id:
+  --set-id "${section.set_id}"
+#end if
+#if $section.mark_sites:
+  --mark-sites "${section.mark_sites}"
+#end if
+
+#set $section = $sec_annotate
+#if $section.rename_chrs:
+  --rename-chrs "${section.rename_chrs}"
+#end if
+#if $section.remove:
+  --remove "${section.remove}"
+#end if
+
+## Default section
+#set $section = $sec_restrict
+@INCLUDE@
+@EXCLUDE@
+@COLLAPSE@
+@REGIONS@
+@SAMPLES@
+
+@OUTPUT_TYPE@
+@THREADS@
+
+## Primary Input/Outputs
+@INPUT_FILE@
+> '$output_file'
+]]>
+    </command>
+    <configfiles>
+        <configfile name="hdr_file"><![CDATA[#slurp
+#if $sec_annofile.annofile.anno_fmt == 'tab' and str($sec_annofile.annofile.header_lines) != '':
+$sec_annofile.annofile.header_lines.__str__.strip()#slurp
+#end if]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="macro_input" />
+        <section name="sec_annofile" expanded="false" title="Add Annotations">
+            <expand macro="macro_columns" />
+            <conditional name="annofile">
+                <param name="anno_fmt" type="select" label="Annotations File">
+                    <option value="none">None</option>
+                    <option value="vcf">From a VCF/BCF file</option>
+                    <option value="tab">From a BED or tab-delimited file</option>
+                </param>
+                <when value="none"/>
+                <when value="vcf">
+                    <param name="annotations" type="data" format="vcf" label="Annotations VCF"/>
+                </when>
+                <when value="tab">
+                    <param name="annotations" type="data" format="tabular,bed" label="Annotations">
+                        <help><![CDATA[
+                        BED, or a tab-delimited file with mandatory columns CHROM, POS (or, alternatively, FROM and TO),
+                        optional columns REF and ALT, and arbitrary number of annotation columns.
+                        Note that in case of tab-delimited file, the coordinates POS, FROM and TO are one-based and inclusive.
+                        ]]></help>
+                    </param>
+                    <param name="header_file" type="data" format="txt" label="Header Lines File" optional="True" help="lines which should be appended to the VCF header" />
+                    <param name="header_lines" type="text" area="True" label="Header Lines" optional="True" help="lines which should be appended to the VCF header" >
+                        <help><![CDATA[
+                        ##INFO=<ID=NUMERIC_TAG,Number=1,Type=Integer,Description="Example header line">
+                        ##INFO=<ID=STRING_TAG,Number=1,Type=String,Description="Yet another header line">
+                        ]]></help>
+                        <sanitizer sanitize="False"/>
+                    </param>
+                </when>
+            </conditional>
+            <param name="mark_sites" type="text" value="" label="Mark Sites TAG"
+                help="add INFO/TAG flag to sites which are (&quot;+&quot;) or are not (&quot;-&quot;) listed in the annotations file" />
+            <param name="set_id" type="text" value="" optional="true" label="Set Id">
+                <help>Assign ID on the fly using the given format.
+                By default all existing IDs are replaced.
+                If the format string is preceded by "+", only missing IDs will be set.
+                For example: '%CHROM\_%POS\_%REF\_%FIRST_ALT'
+                </help>
+                <sanitizer sanitize="False"/>
+                <validator type="regex" message="">^([+]?(%[A-Z]+)(\_%[A-Z]+)*)?$</validator>
+            </param>
+        </section>
+        <section name="sec_annotate" expanded="false" title="Change Annotations">
+            <param name="remove" type="text" value="" label="Remove annotations" optional="true">
+                <help><![CDATA[
+                 List of annotations to remove.
+                 Use "FILTER" to remove all filters or "FILTER/SomeFilter" to remove a specific filter.
+                 Similarly, "INFO" can be used to remove all INFO tags and "FORMAT" to remove all FORMAT tags except GT.
+                 To remove all INFO tags except "FOO" and "BAR", use "^INFO/FOO,INFO/BAR" (and similarly for FORMAT and FILTER).
+                 "INFO" can be abbreviated to "INF" and "FORMAT" to "FMT".
+                ]]></help>
+                <validator type="regex" message="">^(\^?[A-Z]+(/\w+)?(,\^?[A-Z]+(/\w+)?)*)?$</validator>
+            </param>
+            <param name="rename_chrs" type="data" format="tabular" label="Rename CHROM" optional="True"
+                   help="rename chromosomes according to the map in file, with old_name new_name pairs separated by whitespaces, each on a separate line." />
+        </section>
+        <section name="sec_restrict" expanded="false" title="Restrict to">
+            <expand macro="macro_include" />
+            <expand macro="macro_exclude" />
+            <expand macro="macro_collapse" />
+            <expand macro="macro_regions" />
+            <expand macro="macro_samples" />
+        </section>
+        <expand macro="macro_select_output_type" />
+    </inputs>
+    <outputs>
+        <expand macro="macro_vcf_output"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_file" ftype="vcf" value="annotate.vcf" />
+            <param name="anno_fmt" value="tab" />
+            <param name="annotations" value="annotate.tab" />
+            <param name="header_file" value="annotate.hdr" />
+            <param name="columns" value="CHROM,POS,REF,ALT,ID,QUAL,INFO/T_INT,INFO/T_FLOAT,INDEL" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="snp_3000150" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="annotate.vcf" />
+            <param name="anno_fmt" value="tab" />
+            <param name="annotations" value="annotate2.tab" />
+            <param name="header_file" value="annotate.hdr" />
+            <param name="columns" value="CHROM,FROM,TO,T_STR" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="T_STR=region_3000150_3106154" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="annotate.vcf" />
+            <param name="anno_fmt" value="vcf" />
+            <param name="annotations" value="annots.vcf" />
+            <param name="columns" value="STR,ID,QUAL,FILTER" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="idIndel" />
+                    <has_text text="STR=testSNP" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="annotate2.vcf" />
+            <param name="anno_fmt" value="vcf" />
+            <param name="annotations" value="annots2.vcf" />
+            <param name="columns" value="ID,QUAL,FILTER,INFO,FMT" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="q99" />
+                    <has_text text="FLAG;IINT=88,99;IFLT=8.8,9.9;ISTR=888,999" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="annotate2.vcf" />
+            <param name="anno_fmt" value="vcf" />
+            <param name="annotations" value="annots2.vcf" />
+            <param name="columns" value="ID,QUAL,FILTER,INFO,FMT" />
+            <param name="samples" value="A" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="q11" />
+                    <has_text text="FLAG;IINT=88,99;IFLT=8.8,9.9;ISTR=888,999" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="annotate3.vcf" />
+            <param name="anno_fmt" value="none" />
+            <param name="remove" value="ID,QUAL,^FILTER/fltA,FILTER/fltB,^INFO/AA,INFO/BB,^FMT/GT,FMT/PL" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <not_has_text text="fltY" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" ftype="vcf" value="annotate3.vcf" />
+            <param name="anno_fmt" value="none" />
+            <param name="remove" value="FORMAT" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <not_has_text text="GT:X:PL:Y:AA" />
+                </assert_contents>
+            </output>
+        </test>
+
+    </tests>
+    <help><![CDATA[
+==================================
+ bcftools @EXECUTABLE@
+==================================
+
+Annotate and edit VCF/BCF files.
+
+Examples:
+
+    # Remove three fields
+    bcftools annotate -x ID,INFO/DP,FORMAT/DP file.vcf.gz
+
+    # Remove all INFO fields and all FORMAT fields except for GT and PL
+    bcftools annotate -x INFO,^FORMAT/GT,FORMAT/PL file.vcf
+
+    # Add ID, QUAL and INFO/TAG, not replacing TAG if already present
+    bcftools annotate -a src.bcf -c ID,QUAL,+TAG dst.bcf
+
+    # Carry over all INFO and FORMAT annotations except FORMAT/GT
+    bcftools annotate -a src.bcf -c INFO,^FORMAT/GT dst.bcf
+
+    # Annotate from a tab-delimited file with six columns (the fifth is ignored),
+    # first indexing with tabix. The coordinates are 1-based.
+    tabix -s1 -b2 -e2 annots.tab.gz
+    bcftools annotate -a annots.tab.gz -h annots.hdr -c CHROM,POS,REF,ALT,-,TAG file.vcf
+
+    # Annotate from a tab-delimited file with regions (1-based coordinates, inclusive)
+    tabix -s1 -b2 -e3 annots.tab.gz
+    bcftools annotate -a annots.tab.gz -h annots.hdr -c CHROM,FROM,TO,TAG inut.vcf
+
+    # Annotate from a bed file (0-based coordinates, half-closed, half-open intervals)
+    bcftools annotate -a annots.bed.gz -h annots.hdr -c CHROM,FROM,TO,TAG input.vcf
+
+@REGIONS_HELP@
+@EXPRESSIONS_HELP@
+
+@BCFTOOLS_MANPAGE@#@EXECUTABLE@
+
+@BCFTOOLS_WIKI@
+]]>
+    </help>
+    <expand macro="citations" />
+</tool>

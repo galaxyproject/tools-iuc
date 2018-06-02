@@ -1,0 +1,217 @@
+<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@.1">
+    <description>adding your own custom annotations</description>
+    <macros>
+        <import>gemini_macros.xml</import>
+        <token name="@BINARY@">annotate</token>
+    </macros>
+    <expand macro="requirements" />
+    <expand macro="stdio" />
+    <expand macro="version_command" />
+    <command>
+<![CDATA[
+
+    ## For GEMINI to work correctly, tabixed file must have form [name].[bed|vcf].gz
+    #set $tabixed_file = "tabixed.%s.gz" % $annotate_source.ext
+    bgzip -c "$annotate_source" > $tabixed_file &&
+    tabix -p "$annotate_source.ext" $tabixed_file &&
+
+        gemini @BINARY@
+            -f $tabixed_file
+            -c $column_name
+            -a $a.a_selector
+            #if $a.a_selector == 'extract':
+                -t $a.column_type
+                -e $a.column_extracts
+                -o $a.operation
+            #end if
+            $region_only
+            "${ infile }"
+            > "${ outfile }"
+]]>
+
+    </command>
+    <inputs>
+        <expand macro="infile" />
+        <param name="annotate_source" type="data" format="vcf,bed" label="File containing the annotations in BED/VCF format" help="(-f)"/>
+
+        <param name="column_name" type="text" value=""
+            label="The name of the column to be added to the variant table" 
+            help=" If the input file is a VCF, then this is the name of the info field to pull. (-c)">
+            <sanitizer invalid_char=" ">
+                <valid initial="string.letters,string.digits">
+                    <add value="_" />
+                </valid>
+            </sanitizer>
+        </param>
+        <conditional name="a">
+            <param name="a_selector" type="select" label="How should the annotation file be used?" help="(-a)">
+                <option value="boolean">Did a variant overlap a region or not? (boolean)</option>
+                <option value="count">How many regions did a variant overlap? (count)</option>
+                <option value="extract" selected="True">Extract specific values from a BED/VCF file. (extract)</option>
+            </param>
+            <when value="extract">
+
+                <param name="column_extracts" label="Column to extract information from for list annotations. For BED files, this is the column number. For VCF files, this is the name of the INFO field."
+                    type="text" force_select="true" help="(-e)"/>
+
+
+                <param name="column_type" type="select" label="What data type(s) should be used to represent the new values in the database?"
+                    help="(-t)">
+                    <option value="float">Decimal precision number (float)</option>
+                    <option value="integer">Integer number (integer)</option>
+                    <option value="text">Text columns such as “valid”, “yes” (text)</option>
+                </param>
+
+                <param name="operation" type="select" label="Operation to apply to the extract column values ..."
+                    help="in the event that a variant overlaps multiple annotations in your annotation file. (-o)">
+                    <option value="mean">Compute the average of the (numeric) values</option>
+                    <option value="sum">Compute the sum of the (numeric) values</option>
+                    <option value="median">Compute the median of the (numeric) values</option>
+                    <option value="min">Compute the minimum of the (numeric) values</option>
+                    <option value="max">Compute the maximum of the (numeric) values</option>
+                    <option value="mode">Compute the maximum of the (numeric) values</option>
+                    <option value="first">Use the value from the first record in the annotation file</option>
+                    <option value="last">Use the value from the last record in the annotation file</option>
+                    <option value="list">Create a comma-separated list of the observed (text) values</option>
+                    <option value="uniq_list">Create a comma-separated list of non-redundant observed (text) values</option>
+                </param>
+
+            </when>
+            <when value="boolean"/>
+            <when value="count"/>
+        </conditional>
+        <param name="region_only" argument="--region-only" type="boolean" checked="false"
+            truevalue="--region-only" falsevalue=""
+            label="If set, only region coordinates will be considered when annotating variants."
+            help="The default is to annotate using region coordinates as well as REF and ALT
+                variant values. This option is only valid if annotation is a VCF file"/>
+    </inputs>
+    <outputs>
+        <data name="outfile" format="tabular" />
+    </outputs>
+    <tests>
+        <test>
+            <param name="infile" value="gemini_annotate_input.db" ftype="gemini.sqlite" />
+            <param name="annotate_source" value="anno.bed" />
+            <param name="a_selector" value="count" />
+            <param name="column_name" value="anno5" />
+            <output name="outfile" file="gemini_annotate_result.tabular" />
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+It is inevitable that researchers will want to enhance the GEMINI framework with their own, custom annotations. GEMINI provides a sub-command called annotate for exactly this purpose.
+
+**Details**
+
+It is inevitable that researchers will want to enhance the GEMINI framework with their own, custom annotations. GEMINI provides a sub-command called annotate for exactly this purpose. As long as you provide a tabix‘ed annotation file in BED or VCF format, the annotate tool will, for each variant in the variants table, screen for overlaps in your annotation file and update a one or more new column in the variants table that you may specify on the command line. This is best illustrated by a following **example**.
+
+**Input files**
+
+Let’s assume you have already created a GEMINI database of a **VCF file** using the *load module*.
+
+Now, let’s imagine you have an annotated file in **BED format** (important.bed) that describes regions of the genome that are particularly relevant to your lab’s research. You would like to annotate in the GEMINI database which variants overlap these crucial regions. We want to store this knowledge in a new column in the variants table called important_variant that tracks whether a given variant overlapped (1) or did not overlap (0) intervals in your annotation file.
+
+  *To do this, you must first TABIX your BED file*
+
+**-a boolean - Did a variant overlap a region or not?**
+
+Now, you can use this *TABIX*’ed file to annotate which variants overlap your important regions. In the example below, the results will be stored in a new column called “important”. The **-t boolean** option says that you just want to track whether (1) or not (0) the variant overlapped one or more of your regions.
+
+Since a new columns has been created in the database, we can now directly query the new column. In the example results below, the first and third variants overlapped a crucial region while the second did not::
+
+    chr22   100    101    1   1
+    chr22   200    201    2   0
+    chr22   300    500    3   1
+
+**-a count - How many regions did a variant overlap?**
+
+Instead of a simple yes or no, we can use the **-t count** option to count how many important regions a variant overlapped. It turns out that the 3rd variant actually overlapped two important regions::
+
+    chr22   100    101    1   1
+    chr22   200    201    2   0
+    chr22   300    500    3   2
+
+**-a extract - Extract specific values from a BED file**
+
+Lastly, we may also extract values from specific fields in a BED file (or from the INFO field in a VCF) and populate one or more new columns in the database based on overlaps with the annotation file and the values of the fields therein. To do this, we use the **-a extract** option.
+
+This is best described with an example. To set this up, let’s imagine that we have a VCF file from a different experiment and we want to annotate the variants in our GEMINI database with the allele frequency and depth tags from the INFO fields for the same variants in this other VCF file.
+
+Now that we have a proper *TABIX*’ed VCF file, we can use the **-a extract** option to populate new columns in the GEMINI database. In order to do so, we must specify:
+
+ 1) its type (e.g., text, int, float,) (**-t**)
+ 2) the field in the INFO column of the VCF file that we should use to extract data with which to populate the new column (**-e**)
+ 3) what operation should be used to summarize the data in the event of multiple overlaps in the annotation file (**-o**)
+ 4) (optionally) the name of the column we want to add (**-c**), if this is not specified, it will use the value from **-e**.
+
+For example, let’s imagine we want to create a new column called “other_allele_freq” (**-c**) using the AF field in our VCF file to populate it.
+
+This create a new column in my.db called other_allele_freq and this new column will be a FLOAT (**-t float**). In the event of multiple records in the VCF file overlapping a variant in the database, the average (**-o mean**) of the allele frequencies values from the VCF file will be used.
+
+At this point, one can query the database based on the values of the new other_allele_freq column (using **GEMINI query**).
+
+**-t TYPE - Specifying the column type(s) when using -a extract**
+
+The annotate tool will create three different types of columns via the **-t** option:
+
+ 1) Floating point columns for annotations with decimal precision as above (-t float)
+ 2) Integer columns for integral annotations (-t integer)
+ 3) Text columns for string columns such as “valid”, “yes”, etc. (-t text)
+
+  *The -t option is only valid when using the -a extract option.*
+
+**-o OPERATION - Specifying the summary operations when using -a extract**
+
+In the event of multiple overlaps between a variant and records in the annotation file, the annotate tool can summarize the values observed with multiple options:
+
+  - -o mean       Compute the average of the values. They must be numeric.
+  - -o median     Compute the median of the values. They must be numeric.
+  - -o min        Compute the minimum of the values. They must be numeric.
+  - -o max        Compute the maximum of the values. They must be numeric.
+  - -o mode       Compute the maximum of the values. They must be numeric.
+  - -o first      Use the value from the first record in the annotation file.
+  - -o last       Use the value from the last record in the annotation file.
+  - -o list       Create a comma-separated list of the observed values.
+  - -o uniq_list  Create a comma-separated list of the distinct observed values.
+  - -o sum        Compute the sum of the values. They must be numeric.
+
+The -o option is only valid when using the -a extract option.
+
+**Annotating with VCF**
+
+Most of the examples to this point have pulled a column from a tabix indexed bed file. It is likewise possible to pull from the INFO field of a tabix index VCF. The syntax is identical but the **-e** operation will specify the names of fields in the INFO column to pull. By default, those names will be used, but that can still be specified with the **-c column**.
+
+To put a DP column in the db, set:
+
+  -o list, -e DP, -t integer
+
+... and name it 'depth', set:
+
+  -o list, -e DP, -c depth, -t integer
+
+
+Missing values are allowed since we expect that in some cases an annotation VCF will not have all INFO fields specified for all variants.
+
+*We recommend decomposing and normalizing variants before annotating. See Step 1. split, left-align, and trim variants for a detailed explanation of how to do this. To do that see the GEMINI* preprocessing_ *website.*
+
+**Extracting and populating multiple columns at once**
+
+One can also extract and populate multiple columns at once by providing comma-separated lists (no spaces) of column names (**-c**), types (**-t**), numbers (**-e**), and summary operations (**-o**). For example, recall that in the VCF example above, we created a *TABIX*’ed BED file containg the allele frequency and depth values from the INFO field as the 4th and 5th columns in the BED, respectively.
+
+Instead of running the annotate tool twice (once for each column), we can run the tool once and load both columns in the same run. For example with settings:
+
+  - -a extract
+  - -c other_allele_freq,other_depth
+  - -t float,integer
+  - -e 4,5
+  - -o mean,max
+
+We can then use each of the new columns to filter variants with a *GEMINI query*:
+
+.. _preprocessing: https://gemini.readthedocs.org/en/latest/content/preprocessing.html#preprocess
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

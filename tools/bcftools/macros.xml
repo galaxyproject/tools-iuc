@@ -1,0 +1,680 @@
+<macros>
+  <token name="@VERSION@">1.4.0</token>
+  <xml name="stdio">
+    <stdio>
+      <exit_code range="1:" />
+      <exit_code range=":-1" />
+      <regex match="Error:" />
+      <regex match="Exception:" />
+    </stdio>
+  </xml>
+  <xml name="requirements">
+    <requirements>
+      <requirement type="package" version="1.4">bcftools</requirement>
+      <requirement type="package" version="1.4">htslib</requirement>
+      <yield />
+    </requirements>
+  </xml>
+  <xml name="samtools_requirement">
+      <requirement type="package" version="1.3.1">samtools</requirement>
+  </xml>
+  <xml name="version_command">
+    <version_command>bcftools 2&gt;&amp;1 | grep 'Version:'</version_command>
+  </xml>
+
+  <xml name="citations">
+    <citations>
+      <citation type="doi">10.1093/bioinformatics/btp352</citation>
+      <yield />
+    </citations>
+  </xml>
+  <token name="@BCFTOOLS_WIKI@">https://github.com/samtools/bcftools/wiki</token>
+  <token name="@BCFTOOLS_MANPAGE@">http://samtools.github.io/bcftools/bcftools.html</token>
+  <token name="@THREADS@">
+  --threads \${GALAXY_SLOTS:-4}
+  </token>
+  <token name="@PREPARE_ENV@">
+<![CDATA[
+export BCFTOOLS_PLUGINS=`which bcftools | sed 's,bin/bcftools,libexec/bcftools,'`;
+]]>
+  </token>
+  <xml name="macro_input">
+    <param name="input_file" type="data" format="vcf,vcf_bgzip,bcf,bcf_bgzip" label="VCF/BCF Data" />
+  </xml>
+  <token name="@PREPARE_INPUT_FILE@">
+<![CDATA[
+## May need to symlink input if there is an associated
+#set $input_vcf = 'input.vcf.gz'
+#if $input_file.is_of_type('vcf')
+  bgzip -c '$input_file' > $input_vcf &&
+  bcftools index $input_vcf &&
+#elif $input_file.is_of_type('vcf_bgzip')
+  ln -s '$input_file' $input_vcf &&
+#elif $input_file.is_of_type('bcf')
+  #set $input_vcf = 'input.bcf'
+  ln -s '$input_file' $input_vcf &&
+  #if $input_file.metadata.bcf_index:
+    ln -s '${input_file.metadata.bcf_index}' ${input_vcf}.csi &&
+  #else
+    bcftools index $input_vcf &&
+  #end if
+#elif $input_file.is_of_type('bcf_bgzip')
+  ln -s '$input_file' $input_vcf &&
+#end if
+]]>
+  </token>
+  <token name="@INPUT_FILE@">
+$input_vcf
+  </token>
+
+  <xml name="macro_inputs">
+    <param name="input_files" type="data" format="vcf,bcf" label="Other VCF/BCF Datasets" multiple="True" />
+  </xml>
+  <token name="@PREPARE_INPUT_FILES@">
+<![CDATA[
+## May need to symlink input if there is an associated
+#set $input_vcfs = []
+#set $vcfs_list_file = 'vcfs_list'
+#for (i, input_file) in enumerate($input_files):
+  #set $input_vcf = 'input' + str($i) + '.vcf.gz'
+  #if $input_file.is_of_type('vcf')
+    bgzip -c '$input_file' > $input_vcf &&
+    bcftools index $input_vcf &&
+  #elif $input_file.is_of_type('vcf_bgz')
+    ln -s '$input_file' $input_vcf
+  #elif $input_file.is_of_type('bcf')
+    #set $input_vcf = 'input' + str($i) + '.bcf.gz'
+    ln -s '$input_file' $input_vcf &&
+    #if $input_file.metadata.bcf_index:
+      ln -s '${input_file.metadata.bcf_index}' ${input_vcf}.csi &&
+    #else
+      bcftools index $input_vcf &&
+    #end if
+  #elif $input_file.is_of_type('bcfvcf_bgz')
+    ln -s '$input_file' $input_vcf &&
+  #end if
+  echo '$input_vcf' >> $vcfs_list_file &&
+  $input_vcfs.append($input_vcf)
+#end for
+]]>
+  </token>
+  <token name="@INPUT_FILES@">
+#echo ' '.join($input_vcfs)#
+  </token>
+  <token name="@INPUT_LIST_FILE@">
+$vcfs_list_file
+  </token>
+
+  <xml name="macro_fasta_ref">
+    <param name="fasta_ref" argument="--fasta-ref" type="data" format="data" label="Reference sequence in FASTA format" optional="True" />
+  </xml>
+  <token name="@PREPARE_FASTA_REF@">
+<![CDATA[
+#set $input_fa_ref = None
+#if 'fasta_ref' in $section and $section.fasta_ref:
+  #set $input_fa_ref = 'ref.fa'
+  ln -s '$section.fasta_ref' $input_fa_ref &&
+  samtools faidx $input_fa_ref &&
+#end if
+]]>
+  </token>
+  <token name="@FASTA_REF@">
+#if $input_fa_ref is not None:
+  --fasta-ref $input_fa_ref
+#elif 'fasta_ref' in $section and $section.fasta_ref:
+  --fasta-ref '${section.fasta_ref}'
+#end if
+  </token>
+
+  <xml name="macro_ref_fasta">
+    <conditional name="reference_source">
+       <param name="reference_source_selector" type="select" label="Choose the source for the reference genome">
+         <option value="cached">Locally cached</option>
+         <option value="history">History</option>
+       </param>
+       <when value="cached">
+         <param name="ref_file" type="select" label="Select reference genome">
+           <options from_data_table="fasta_indexes">
+             <!--<filter type="data_meta" key="dbkey" ref="input_bam" column="value"/>-->
+           </options>
+           <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file"/>
+         </param>
+       </when>
+       <when value="history"> <!-- FIX ME!!!! -->
+         <param name="ref_file" type="data" format="fasta" label="Using reference file" />
+       </when>
+     </conditional>
+  </xml>
+
+
+  <xml name="macro_AF_file">
+    <param name="AF_file" argument="--AF-file" type="data" format="tabular" label="Allele frequencies file" optional="True" help="Tab-delimited file containing the columns CHR,POS,REF,ALT,AF" />
+  </xml>
+  <!-- This may need to bgzip and tabix the file -->
+  <token name="@PREPARE_AF_FILE@">
+<![CDATA[
+#if 'AF_file' in $section and $section.AF_file:
+    #pass
+#end if
+]]>
+  </token>
+  <token name="@AF_FILE@">
+#if 'AF_file' in $section and $section.AF_file:
+  --AF-file '${section.AF_file}'
+#end if
+  </token>
+
+  <xml name="macro_estimate_AF">
+      <param name="estimate_AF" argument="--estimate-AF" type="data" format="data" label="Estimate allele frequency" optional="True" help="calculate AC,AN counts on the fly, using either all samples (&quot;-&quot;) or samples listed in &lt;file&gt;" />
+  </xml>
+  <token name="@ESTIMATE_AF@">
+#if 'estimate_AF' in $section and $section.estimate_AF:
+  --estimate-AF "${section.estimate_AF}"
+#end if
+  </token>
+
+  <xml name="macro_exons_file">
+    <param name="exons_file" type="data" format="tabular" label="exons file" optional="True" help="tab-delimited file with exons for indel frameshifts (chr,from,to; 1-based, inclusive, bgzip compressed)" />
+  </xml>
+  <token name="@PREPARE_EXONS_FILE@">
+<![CDATA[
+#set $exons_path = None
+#if 'exons_file' in $section and $section.exons_file:
+    #set $exons_path = 'exons_file.tab.gz'
+    bgzip -c "$section.exons_file" > $exons_path &&
+    tabix -s 1 -b 2 -e 3 $exons_path &&
+#end if
+]]>
+  </token>
+  <token name="@EXONS_FILE@">
+#if 'exons_file' in $section and $section.exons_file:
+  --exons $exons_path
+#end if
+  </token>
+
+  <xml name="macro_ploidy_file">
+    <param name="ploidy_file" type="data" format="tabular" label="Ploidy file" optional="True" help="tab-delimited list of CHROM,FROM,TO,SEX,PLOIDY" />
+  </xml>
+  <token name="@PLOIDY_FILE@">
+#if 'ploidy_file' in $section and $section.ploidy_file:
+  --ploidy "${section.ploidy_file}"
+#end if
+  </token>
+
+  <xml name="macro_collapse_opt_none">
+      <option value="none">none - require the exact same set of alleles in all files</option>
+  </xml>
+  <xml name="macro_collapse_opt_id">
+      <option value="id">id - only records with identical ID column are compatible. </option>
+  </xml>
+  <xml name="macro_collapse">
+    <param name="collapse" type="select" label="Collapse" optional="True" help="Controls how to treat records with duplicate positions and defines compatible records across multiple input files">
+      <option value="snps">snps - allow different alleles, as long as they all are SNPs</option>
+      <option value="indels">indels - allow different alleles, as long as they all are indels</option>
+      <option value="both">both - indels and snps </option>
+      <option value="some">some - at least some of the ALTs must match</option>
+      <option value="any">any - any combination of alleles</option>
+      <yield/>
+    </param>
+  </xml>
+  <token name="@COLLAPSE@">
+#if $section.collapse:
+  --collapse ${section.collapse}
+#end if
+  </token>
+
+  <xml name="macro_apply_filters">
+    <param name="apply_filters" type="text" value="" label="Apply Filters" optional="true"
+           help="(-f --apply-filters) Skip sites where FILTER column does not contain any of the strings listed (e.g. &quot;PASS,.&quot;)">
+      <validator type="regex" message="FILTER terms separated by commas">^([^ \t\n\r\f\v,]+(,[^ \t\n\r\f\v,]+)*)?$</validator>
+    </param>
+  </xml>
+  <token name="@APPLY_FILTERS@">
+#if $section.apply_filters:
+  --apply-filters '${section.apply_filters}'
+#end if
+  </token>
+
+  <xml name="macro_select_output_type">
+    <param name="output_type" type="select">
+      <option value="b">compressed BCF</option>
+      <!-- no galaxy datatypes for these
+      <option value="u">uncompressed BCF</option>
+      <option value="z">compressed VCF</option>
+      -->
+      <option value="v">uncompressed VCF</option>
+    </param>
+  </xml>
+  <token name="@OUTPUT_TYPE@">
+#if str($output_type) != "__none__":
+  --output-type '${output_type}'
+#end if
+  </token>
+
+  <xml name="macro_vcf_output">
+      <data name="output_file" format="vcf">
+        <change_format>
+          <when input="output_type" value="b" format="bcf" />
+          <when input="output_type" value="u" format="bcf" />
+          <when input="output_type" value="z" format="vcf_bgzip" />
+          <when input="output_type" value="v" format="vcf" />
+        </change_format>
+      </data>
+  </xml>
+
+  <xml name="macro_regions">
+    <conditional name="regions">
+        <param name="regions_src" type="select" label="Regions">
+            <option value="__none__">None</option>
+            <option value="regions">regions</option>
+            <option value="regions_file">regions-file</option>
+        </param>
+        <when value="__none__"/>
+        <when value="regions">
+            <param name="regions" type="text" value="" label="restrict to comma-separated list of regions" optional="true"
+                   help="Each region is specifed as: chr or chr:pos or chr:from-to">
+                 <validator type="regex" message="">^(\w+(:\d+(-\d+)?)?(,\w+(:\d+(-\d+)?)?)*)?$</validator>
+            </param>
+        </when>
+        <when value="regions_file">
+            <param name="regions_file" type="data" format="vcf,bed,tabular" label="Regions File" optional="True" help="restrict to regions listed in a file" />
+        </when>
+    </conditional>
+  </xml>
+  <token name="@PREPARE_REGIONS_FILE@">
+<![CDATA[
+#set $regions_path = None
+#if 'regions' in $section
+  #if $section.regions.regions_src == 'regions_file' and $section.regions.regions_file:
+    #if $section.regions.regions_file.ext.startswith('bed'):
+      #set $regions_path = 'regions_file.bed'
+      ln -s '$section.regions.regions_file' $regions_path &&
+    #end if
+  #end if
+#end if
+]]>
+  </token>
+  <token name="@REGIONS@">
+#if $section.regions.regions_src == 'regions' and $section.regions.regions != '':
+  --regions '$section.regions.regions'
+#elif $section.regions.regions_src == 'regions_file' and $section.regions.regions_file:
+  #if $regions_path is not None:
+    --regions-file '$regions_path'
+  #else:
+    --regions-file '$section.regions.regions_file'
+  #end if
+#end if
+  </token>
+  <xml name="macro_targets_file">
+            <param name="targets_file" type="data" format="tabular" label="Targets File" help="restrict to targets listed in a file" >
+              <yield/>
+            </param>
+            <param name="invert_targets_file" type="boolean" truevalue="^" falsevalue="" label="Invert Targets" help="inverts the query/filtering applied by the target file selection" />
+  </xml>
+  <token name="@PREPARE_TARGETS_FILE@">
+<![CDATA[
+#set $targets_path = None
+#if 'targets' in $section
+  #if $section.targets.targets_src == 'targets_file':
+    #set $targets_path = 'targets_file.tab.gz'
+    bgzip -c "$section.targets.targets_file" > $targets_path &&
+    tabix -s 1 -b 2 -e 2 $targets_path &&
+  #end if
+#elif $tgts_sec.targets_file:
+  #set $targets_path = 'targets_file.tab.gz'
+  bgzip -c "$section.targets_file" > $targets_path &&
+  tabix -s 1 -b 2 -e 2 $targets_path &&
+#end if
+]]>
+  </token>
+  <token name="@TARGETS_FILE@">
+<![CDATA[
+#if $targets_path is not None:
+  --targets-file "${section.invert_targets_file}${targets_path}"
+#elif $section.targets_file:
+  --targets-file "${section.invert_targets_file}${section.targets_file}"
+#end if
+]]>
+  </token>
+
+  <xml name="macro_targets">
+    <conditional name="targets">
+        <param name="targets_src" type="select" label="Targets">
+            <option value="__none__">None</option>
+            <option value="targets">targets</option>
+            <option value="targets_file">targets-file</option>
+        </param>
+        <when value="__none__"/>
+        <when value="targets">
+            <param name="targets" type="text" value="" label="Restrict to comma-separated list of targets" optional="true"
+                   help="Each target is specifed as: chr or chr:pos or chr:from-to">
+                 <validator type="regex" message="">^(\w+(:\d+(-\d+)?)?(,\w+(:\d+(-\d+)?)?)*)?$</validator>
+            </param>
+            <param name="invert_targets_file" type="boolean" truevalue="^" falsevalue="" label="Invert Targets" help="inverts the query/filtering applied by the targets" />
+        </when>
+        <when value="targets_file">
+            <expand macro="macro_targets_file">
+            </expand>
+        </when>
+    </conditional>
+  </xml>
+  <token name="@TARGETS@">
+<![CDATA[
+#if $targets_path:
+  --targets-file "${section.targets.invert_targets_file}${targets_path}"
+#else:
+  #if $section.targets.targets_src == 'targets' and $section.targets.targets != '':
+    --targets '${section.targets.invert_targets_file}${section.targets.targets}'
+  #elif $section.targets.targets_src == 'targets_file' and $section.targets.targets_file:
+    --targets-file "${section.targets.invert_targets_file}${section.targets.targets_file}"
+  #end if
+#end if
+]]>
+  </token>
+
+  <xml name="macro_samples">
+      <param name="samples" type="text" value="" label="Samples" optional="true"
+             help="(-s) comma separated list of samples to annotate (or exclude)">
+          <validator type="regex" message="">^(\w+(,\w+)*)?$</validator>
+      </param>
+      <param name="invert_samples" type="boolean" truevalue="^" falsevalue="" checked="false" label="Invert Samples"
+             help="inverts the query/filtering applied by Samples (adds &quot;^&quot; prefix to exclude)" />
+      <param name="samples_file" type="data" format="tabular" label="Samples File" optional="True"
+             help="(-S) file of samples to include" />
+      <param name="invert_samples_file" type="boolean" truevalue="^" falsevalue="" checked="false" label="Invert Samples File"
+             help="inverts the query/filtering applied by Samples File" />
+  </xml>
+  <token name="@SAMPLES@">
+#set $samples_defined = False
+#if str($section.samples) != '':
+  #set $samples_defined = True
+  --samples '${section.invert_samples}${section.samples}'
+#end if
+#if $section.samples_file:
+  #set $samples_defined = True
+  --samples-file "${section.invert_samples_file}${section.samples_file}"
+#end if
+  </token>
+
+  <xml name="macro_sample">
+      <param name="sample" type="text" label="Sample" optional="True" help="apply variants of the given sample" />
+  </xml>
+  <token name="@SAMPLE@">
+#if $section.sample:
+  --sample '${section.sample}'
+#end if
+  </token>
+
+
+  <xml name="macro_include">
+    <param name="include" type="text" label="Include" optional="True" help="(-i) select sites for which the expression is true">
+        <validator type="regex" message="Single quote not allowed">^[^']*$</validator>
+        <sanitizer sanitize="False"/>
+    </param>
+  </xml>
+  <token name="@INCLUDE@">
+#if $section.include:
+  --include '${section.include}'
+#end if
+  </token>
+
+  <xml name="macro_exclude">
+    <param name="exclude" type="text" label="Exclude" optional="True" help="(-e) exclude sites for which the expression is true">
+        <validator type="regex" message="Single quote not allowed">^[^']*$</validator>
+        <sanitizer sanitize="False"/>
+    </param>
+  </xml>
+  <token name="@EXCLUDE@">
+#if $section.exclude:
+  --exclude '${section.exclude}'
+#end if
+  </token>
+
+  <xml name="macro_columns">
+    <param name="columns" type="text" value="" label="Columns" optional="true"
+            help="list of columns in the annotation file, e.g. CHROM,POS,REF,ALT,-,INFO/TAG. See man page for details">
+        <validator type="regex" message="COLUMN names  separated by commas">^([^,]+(,[^,]+)*)?$</validator>
+    </param>
+  </xml>
+  <token name="@COLUMNS@">
+#if $section.columns != '':
+  --columns '${section.columns}'
+#end if
+  </token>
+
+  <xml name="macro_haploid2diploid">
+    <param name="haploid2diploid" type="boolean" truevalue="--haploid2diploid" falsevalue="" label="Haploid2Diploid" help="convert haploid genotypes to diploid homozygotes" />
+  </xml>
+
+  <xml name="macro_vcf_ids">
+    <param name="vcf_ids" type="boolean" truevalue="--vcf-ids" falsevalue="" label="Vcf Ids" help="output VCF IDs instead of CHROM:POS_REF_ALT" />
+  </xml>
+  <token name="@VCF_IDS@">
+${section.vcf_ids}
+  </token>
+
+  <token name="@OUTPUT_HELP@">
+      <![CDATA[
+Output Type
+-----------
+
+Output compressed BCF (b), or uncompressed VCF (v).
+Use the BCF option when piping between bcftools subcommands to speed up
+performance by removing unecessary compression/decompression
+and VCF<->BCF conversion.
+
+This Galaxy tool recommends using the compressed BCF format
+as piping is not implemented, and uncompressed data would
+use unnecessary amounts of space.
+  ]]></token>
+  <token name="@REGIONS_HELP@">
+      <![CDATA[
+Region Selections
+-----------------
+
+Regions can be specified in a VCF,
+BED, or tab-delimited file (the default). The columns of the
+tab-delimited file are: CHROM, POS, and, optionally, POS_TO,
+where positions are 1-based and inclusive. Uncompressed
+files are stored in memory, while bgzip-compressed and
+tabix-indexed region files are streamed. Note that sequence
+names must match exactly, "chr20" is not the same as "20".
+Also note that chromosome ordering in FILE will be
+respected, the VCF will be processed in the order in which
+chromosomes first appear in FILE. However, within
+chromosomes, the VCF will always be processed in ascending
+genomic coordinate order no matter what order they appear in
+FILE. Note that overlapping regions in FILE can result in
+duplicated out of order positions in the output. This option
+requires indexed VCF/BCF files.
+  ]]></token>
+  <token name="@TARGETS_HELP@"><![CDATA[
+Targets
+-------
+
+Similar to regions, but the next position is accessed by streaming the whole
+VCF/BCF rather than using the tbi/csi index. Both regions and targets options can be
+applied simultaneously: regions uses the index to jump to a region and targets discards
+positions which are not in the targets. Unlike regions, targets can be prefixed with
+"^" to request logical complement. For example, "^X,Y,MT" indicates that
+sequences X, Y and MT should be skipped. Yet another difference between the two
+is that regions checks both start and end positions of indels, whereas targets checks
+start positions only.
+
+For the bcftools call command, with the option -C alleles, third column of the
+targets file must be comma-separated list of alleles, starting with the
+reference allele. Note that the file must be compressed and index. Such a file
+can be easily created from a VCF using::
+
+    bcftools query -f'%CHROM\t%POS\t%REF,%ALT\n' file.vcf | bgzip -c > als.tsv.gz && tabix -s1 -b2 -e2 als.tsv.gz
+      ]]>
+      <!-- TODO: galaxy-ify -->
+  </token>
+
+
+  <token name="@COLLAPSE_HELP@">
+Collapse
+--------
+
+Controls how to treat records with duplicate positions and defines compatible
+records across multiple input files. Here by "compatible" we mean records which
+should be considered as identical by the tools. For example, when performing
+line intersections, the desire may be to consider as identical all sites with
+matching positions (bcftools isec -c all), or only sites with matching variant
+type (bcftools isec -c snps  -c indels), or only sites with all alleles
+identical (bcftools isec -c none).
+
+
++------------+----------------------------------------------------------------+
+| Flag value | Result                                                         |
++============+================================================================+
+| none       | only records with identical REF and ALT alleles are compatible |
++------------+----------------------------------------------------------------+
+| some       | only records where some subset of ALT alleles match are        |
+|            | compatible                                                     |
++------------+----------------------------------------------------------------+
+| all        | all records are compatible, regardless of whether the ALT      |
+|            | alleles match or not. In the case of records with the same     |
+|            | position, only the first wil lbe considered and appear on      |
+|            | output.                                                        |
++------------+----------------------------------------------------------------+
+| snps       | any SNP records are compatible, regardless of whether the ALT  |
+|            | alleles match or not. For duplicate positions, only the first  |
+|            | SNP record will be considered and appear on output.            |
++------------+----------------------------------------------------------------+
+| indels     | all indel records are compatible, regardless of whether the    |
+|            | REF and ALT alleles match or not. For duplicate positions,     |
+|            | only the first indel record will be considered and appear on   |
+|            | output.                                                        |
++------------+----------------------------------------------------------------+
+| both       | abbreviation of "-c indels  -c snps"                           |
++------------+----------------------------------------------------------------+
+| id         | only records with identical ID column are compatible.          |
+|            | Supportedby bcftools merge only.                               |
++------------+----------------------------------------------------------------+
+  </token>
+
+  <token name="@EXPRESSIONS_HELP@">
+      <![CDATA[
+Expressions
+-----------
+
+Valid expressions may contain:
+
+-  numerical constants, string constants
+
+   ::
+
+      1, 1.0, 1e-4
+      "String"
+
+-  arithmetic operators
+
+   ::
+
+      +,*,-,/
+
+-  comparison operators
+
+   ::
+
+      == (same as =), >, >=, <=, <, !=
+
+-  regex operators "~" and its negation "!~"
+
+   ::
+
+      INFO/HAYSTACK ~ "needle"
+
+-  parentheses
+
+   ::
+
+      (, )
+
+-  logical operators
+
+   ::
+
+      && (same as &), ||,  |
+
+-  INFO tags, FORMAT tags, column names
+
+   ::
+
+      INFO/DP or DP
+      FORMAT/DV, FMT/DV, or DV
+      FILTER, QUAL, ID, REF, ALT[0]
+
+-  1 (or 0) to test the presence (or absence) of a flag
+
+   ::
+
+      FlagA=1 && FlagB=0
+
+-  "." to test missing values
+
+   ::
+
+      DP=".", DP!=".", ALT="."
+
+-  missing genotypes can be matched regardless of phase and ploidy (".|.", "./.", ".") using this expression
+
+   ::
+
+      GT="."
+
+-  TYPE for variant type in REF,ALT columns (indel,snp,mnp,ref,other)
+
+   ::
+
+      TYPE="indel" | TYPE="snp"
+
+-  array subscripts, "*" for any field
+
+   ::
+
+      (DP4[0]+DP4[1])/(DP4[2]+DP4[3]) > 0.3
+      DP4[*] == 0
+      CSQ[*] ~ "missense_variant.*deleterious"
+
+-  function on FORMAT tags (over samples) and INFO tags (over vector fields)
+
+   ::
+
+      MAX, MIN, AVG, SUM, STRLEN, ABS
+
+-  variables calculated on the fly if not present: number of alternate alleles; number of samples; count of alternate alleles; minor allele count (similar to AC but is always smaller than 0.5); frequency of alternate alleles (AF=AC/AN); frequency of minor alleles (MAF=MAC/AN); number of alleles in called genotypes
+
+   ::
+
+      N_ALT, N_SAMPLES, AC, MAC, AF, MAF, AN
+
+**Notes:**
+
+-  String comparisons and regular expressions are case-insensitive
+-  If the subscript "*" is used in regular expression search, the whole field
+   is treated as one string. For example, the regex ``STR[*]~"B,C"`` will be
+   true for the string vector INFO/STR=AB,CD.
+-  Variables and function names are case-insensitive, but not tag names. For
+   example, "qual" can be used instead of "QUAL", "strlen()" instead of
+   "STRLEN()" , but not "dp" instead of "DP".
+
+**Examples:**
+
+   ::
+
+      MIN(DV)>5
+      MIN(DV/DP)>0.3
+      MIN(DP)>10 & MIN(DV)>3
+      FMT/DP>10  & FMT/GQ>10 .. both conditions must be satisfied within one sample
+      FMT/DP>10 && FMT/GQ>10 .. the conditions can be satisfied in different samples
+      QUAL>10 |  FMT/GQ>10   .. selects only GQ>10 samples
+      QUAL>10 || FMT/GQ>10   .. selects all samples at QUAL>10 sites
+      TYPE="snp" && QUAL>=10 && (DP4[2]+DP4[3] > 2)
+      MIN(DP)>35 && AVG(GQ)>50
+      ID=@file       .. selects lines with ID present in the file
+      ID!=@~/file    .. skip lines with ID present in the ~/file
+      MAF[0]<0.05    .. select rare variants at 5% cutoff
+  ]]></token>
+</macros>
