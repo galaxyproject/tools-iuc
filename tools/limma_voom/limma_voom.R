@@ -345,6 +345,7 @@ heatOutPdf <- character()
 stripOutPdf <- character()
 mdvolOutPng <- character()
 topOut <- character()
+glimmaOut <- character()
 for (i in 1:length(contrastData)) {
     con <- contrastData[i]
     con <- gsub("\\(|\\)", "", con)
@@ -354,6 +355,7 @@ for (i in 1:length(contrastData)) {
     stripOutPdf[i] <- makeOut(paste0("stripcharts_", con, ".pdf"))
     mdvolOutPng[i] <- makeOut(paste0("mdvolplot_", con, ".png"))
     topOut[i] <- makeOut(paste0(deMethod, "_", con, ".tsv"))
+    glimmaOut[i] <- makeOut(paste0("glimma_", con, "/MD-Plot.html"))
 }
 
 normOut <- makeOut(paste0(deMethod, "_normcounts.tsv"))
@@ -806,6 +808,17 @@ for (i in 1:length(contrastData)) {
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
+    # Generate Glimma interactive MD plot and table, requires annotation file (assumes gene names in 2nd column)
+    if (haveAnno) {
+        Glimma::glMDPlot(fit, coef=i, counts=y$counts, anno=y$genes, groups=factors[, 1],
+             status=status[, i], sample.cols=col.group,
+             main=paste("MD Plot:", unmake.names(con)), side.main=colnames(y$genes)[2],
+             folder=paste0("glimma_", unmake.names(con)), launch=FALSE)
+        linkName <- paste0("Glimma_MDPlot_", con, ".html")
+        linkAddr <- paste0("glimma_", con, "/MD-Plot.html")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
+    }
+
     # Plot Volcano
     pdf(volOutPdf[i])
     if (haveAnno) {
@@ -1013,6 +1026,13 @@ if (wantRda) {
         }
     }
 }
+
+cata("<h4>Glimma Interactive Results:</h4>\n")
+    for (i in 1:nrow(linkData)) {
+        if (grepl("glimma", linkData$Link[i])) {
+            HtmlLink(linkData$Link[i], linkData$Label[i])
+        }
+    }
 
 cata("<p>Alt-click links to download file.</p>\n")
 cata("<p>Click floppy disc icon associated history item to download ")
