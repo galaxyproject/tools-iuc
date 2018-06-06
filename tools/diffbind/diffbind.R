@@ -69,6 +69,8 @@ if ( length(ctrls) != 0 ) {
                         stringsAsFactors=FALSE)
 }
 
+print(sampleTable)
+
 sample = dba(sampleSheet=sampleTable, peakFormat='bed', scoreCol=opt$scorecol, bLowerScoreBetter=opt$lowerbetter)
 
 if ( !is.null(opt$summits) ) {
