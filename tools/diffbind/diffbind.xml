@@ -1,4 +1,4 @@
-<tool id="diffbind" name="DiffBind" version="2.6.6.3">
+<tool id="diffbind" name="DiffBind" version="2.6.6.4">
     <description> differential binding analysis of ChIP-Seq peak data</description>
     <requirements>
         <requirement type="package" version="2.6.6">bioconductor-diffbind</requirement>
@@ -37,16 +37,18 @@ echo $(R --version | grep version | grep -v GNU)", DiffBind version" $(R --vanil
     #set $bam_controls = list()
 
     #for $file in $g.peaks:
-        #set $file_name = re.sub('[^\w\-\s]', '_', str($file.element_identifier))
-        ln -s '${file}' ${g.groupName}-${file_name}-peaks.bed &&
-        $peak_files.append(str($g.groupName) + '-' + $file_name + '-peaks.bed')
+        #set $file_name = str($g.groupName) + "-" + re.sub('[^\w\-]', '_', str($file.element_identifier)) + "-peaks.bed"
+        ln -s '${file}' '${file_name}' &&
+        $peak_files.append($file_name)
     #end for
 
     #for $bam in $g.bamreads:
-        #set $bam_name = re.sub('[^\w\-\s]', '_', str($bam.element_identifier))
-        ln -s '${bam}' ${bam_name}-bamreads.bam &&
-        ln -s ${bam.metadata.bam_index} ${bam_name}-bamreads.bai &&
-        $bam_files.append($bam_name + '-bamreads.bam')
+        #set $bam_name = re.sub('[^\w\-]', '_', str($bam.element_identifier))
+        #set $bam_file = $bam_name + "-bamreads.bam"
+        #set $bam_index = $bam_name + "-bamreads.bai"
+        ln -s '${bam}' '${bam_file}' &&
+        ln -s '${bam.metadata.bam_index}' '${bam_index}' &&
+        $bam_files.append($bam_file)
     #end for
 
     $temp_factor.append( {str($g.groupName): $peak_files} )
@@ -54,10 +56,14 @@ echo $(R --version | grep version | grep -v GNU)", DiffBind version" $(R --vanil
 
     #if str( $g.bamcontrol ) != 'None':
         #for $ctrl in $g.bamcontrol:
-            #set $ctrl_name = re.sub('[^\w\-\s]', '_', str($ctrl.element_identifier))
-            ln -s '${ctrl}' ${g.groupName}-${ctrl_name}-bamcontrol.bam &&
-            ln -s ${ctrl.metadata.bam_index} ${g.groupName}-${ctrl_name}-bamcontrol.bai &&
-            $bam_controls.append(str($g.groupName) + '-' + $ctrl_name + '-bamcontrol.bam')
+            #set $ctrl_name = re.sub('[^\w\-]', '_', str($ctrl.element_identifier))
+            #set $ctrl_file = $ctrl_name + "-bamcontrol.bam"
+            #set ctrl_index = $ctrl_name + "-bamcontrol.bai"
+            #if $ctrl_file not in json.dumps($temp_factor):
+                ln -s '${ctrl}' '${ctrl_file}' &&
+                ln -s '${ctrl.metadata.bam_index}' '${ctrl_index}' &&
+            #end if
+            $bam_controls.append($ctrl_file)
         #end for
         $temp_factor.append( {str($g.groupName): $bam_controls} )
     #end if
@@ -113,8 +119,8 @@ Rscript '$__tool_directory__/diffbind.R'
                 <validator type="empty_field" />
             </param>
             <param name="peaks" type="data" format="bed" multiple="true" label="Peak files" help="Result of your Peak calling experiment"/>
-            <param name="bamreads" type="data" format="bam" multiple="true" label="Read BAM file" help="Specify the Read BAM file used in the Peak calling."/>
-            <param name="bamcontrol" type="data" format="bam" multiple="true" optional="True" label="Control BAM file" help="If specifying a control BAM file, all samples are required to specify one, see Help section below."/>
+            <param name="bamreads" type="data" format="bam" multiple="true" label="Read BAM files" help="Specify the Read BAM files used in the Peak calling. The input order of the BAM files for the samples MUST match the input order of the peaks files."/>
+            <param name="bamcontrol" type="data" format="bam" multiple="true" optional="True" label="Control BAM files" help="If specifying a control BAM file, all samples are required to specify one, see Help section below. The input order of the BAM files for the samples MUST match the input order of the peaks files."/>
         </repeat>
 
         <param name="scorecol" type="integer" min="0" value="8" label="Score Column" help="Column in peak files that contains peak scores. Default: 8 (narrowPeak)">
@@ -204,6 +210,24 @@ Rscript '$__tool_directory__/diffbind.R'
                 </assert_contents>
             </output>
         </test>
+        <!-- Ensure control BAMs input works -->
+        <test expect_num_outputs="1">
+            <repeat name="rep_group">
+                <param name="groupName" value="Resistant"/>
+                <param name="peaks" ftype="bed" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="BT474_ER_1.bam,BT474_ER_2.bam" />
+                <param name="bamcontrol" ftype="bam" value="input1.bam,input2.bam" />
+            </repeat>
+            <repeat name="rep_group">
+                <param name="groupName" value="Responsive"/>
+                <param name="peaks" ftype="bed" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam,MCF7_ER_2.bam" />
+                <param name="bamcontrol" ftype="bam" value="input1.bam,input2.bam" />
+            </repeat>
+            <param name="scorecol" value="5" />
+            <param name="format" value="interval"/>
+            <output name="outfile" ftype="interval" value="out_diffbind_ctrl.interval" />
+        </test>
         <!-- Ensure BED output works -->
         <test expect_num_outputs="1">
             <repeat name="rep_group">
@@ -266,7 +290,7 @@ use of a blocking factor, and the fourth revisiting occupancy data (peak calls) 
 as well as comparing the results of an occupancy-based analysis with an affinity-based one.
 Finally, certain technical aspects of the how these analyses are accomplished are detailed.
 
-Note this DiffBind tool requires a minimum of four samples (two groups with two replicates each).
+**Note this DiffBind tool requires a minimum of four samples (two groups with two replicates each).**
 
 -----
 
