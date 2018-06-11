@@ -519,6 +519,7 @@ for (i in 1:length(factorList)) {
 
 # Calculating normalising factors
 print("Calculating Normalisation Factors")
+logcounts <- y #store for plots
 y <- calcNormFactors(y, method=opt$normOpt)
 
 # Generate contrasts information
@@ -660,7 +661,11 @@ if ("m" %in% plots) {
     pdf(mdsamOutPdf, width=6.5, height=10)
     par(mfrow=c(3, 2))
     for (i in 1:nsamples) {
-        plotMD(y, column = i)
+        if (opt$normOpt != "none") {
+            plotMD(logcounts, column=i, main=paste(colnames(logcounts)[i], "(before)"))
+            abline(h=0, col="red", lty=2, lwd=2)
+        }
+        plotMD(y, column=i)
         abline(h=0, col="red", lty=2, lwd=2)
     }
     linkName <- "MDPlots_Samples.pdf"
