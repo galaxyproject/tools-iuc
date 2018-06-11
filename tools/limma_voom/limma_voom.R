@@ -177,7 +177,8 @@ spec <- matrix(c(
     "weightOpt", "w", 0, "logical",
     "topgenes", "G", 1, "integer",
     "treatOpt", "T", 0, "logical",
-    "plots", "P", 1, "character"),
+    "plots", "P", 1, "character",
+    "libinfoOpt", "L", 0, "logical"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -248,6 +249,12 @@ if (is.null(opt$treatOpt)) {
     wantTreat <- FALSE
 } else {
     wantTreat <- TRUE
+}
+
+if (is.null(opt$libinfoOpt)) {
+    wantLibinfo <- FALSE
+} else {
+    wantLibinfo <- TRUE
 }
 
 
@@ -761,6 +768,16 @@ if (wantTrend) {
     plotData <- vData
 }
 
+ # Save library size info
+if (wantLibinfo) {
+    efflibsize <- round(y$samples$lib.size * y$samples$norm.factors)
+    libsizeinfo <- cbind(y$samples, EffectiveLibrarySize=efflibsize)
+    libsizeinfo$lib.size <- round(libsizeinfo$lib.size)
+    names(libsizeinfo)[names(libsizeinfo)=="sampleID"] <- "SampleID"
+    names(libsizeinfo)[names(libsizeinfo)=="lib.size"] <- "LibrarySize"
+    names(libsizeinfo)[names(libsizeinfo)=="norm.factors"] <- "NormalisationFactor"
+    write.table(libsizeinfo, file="libsizeinfo", row.names=FALSE, sep="\t", quote=FALSE)
+}
 
 print("Generating DE results")
 
