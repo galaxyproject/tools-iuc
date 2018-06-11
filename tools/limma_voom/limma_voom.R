@@ -177,7 +177,8 @@ spec <- matrix(c(
     "weightOpt", "w", 0, "logical",
     "topgenes", "G", 1, "integer",
     "treatOpt", "T", 0, "logical",
-    "plots", "P", 1, "character"),
+    "plots", "P", 1, "character",
+    "libinfoOpt", "L", 0, "logical"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -250,6 +251,12 @@ if (is.null(opt$treatOpt)) {
     wantTreat <- TRUE
 }
 
+if (is.null(opt$libinfoOpt)) {
+    wantLibinfo <- FALSE
+} else {
+    wantLibinfo <- TRUE
+}
+
 
 if (!is.null(opt$filesPath)) {
     # Process the separate count files (adapted from DESeq2 wrapper)
@@ -283,14 +290,14 @@ if (!is.null(opt$filesPath)) {
 
 } else {
     # Process the single count matrix
-    counts <- read.table(opt$matrixPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    counts <- read.table(opt$matrixPath, header=TRUE, sep="\t", strip.white=TRUE, stringsAsFactors=FALSE)
     row.names(counts) <- counts[, 1]
     counts <- counts[ , -1]
     countsRows <- nrow(counts)
 
     # Process factors
     if (is.null(opt$factInput)) {
-            factorData <- read.table(opt$factFile, header=TRUE, sep="\t")
+            factorData <- read.table(opt$factFile, header=TRUE, sep="\t", strip.white=TRUE)
             factors <- factorData[, -1, drop=FALSE]
     }  else {
             factors <- unlist(strsplit(opt$factInput, "|", fixed=TRUE))
@@ -313,7 +320,7 @@ if (!is.null(opt$filesPath)) {
 
  # if annotation file provided
 if (haveAnno) {
-    geneanno <- read.table(opt$annoPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    geneanno <- read.table(opt$annoPath, header=TRUE, sep="\t", quote= "", strip.white=TRUE, stringsAsFactors=FALSE)
 }
 
 #Create output directory
@@ -512,6 +519,7 @@ for (i in 1:length(factorList)) {
 
 # Calculating normalising factors
 print("Calculating Normalisation Factors")
+logcounts <- y #store for plots
 y <- calcNormFactors(y, method=opt$normOpt)
 
 # Generate contrasts information
@@ -653,7 +661,11 @@ if ("m" %in% plots) {
     pdf(mdsamOutPdf, width=6.5, height=10)
     par(mfrow=c(3, 2))
     for (i in 1:nsamples) {
-        plotMD(y, column = i)
+        if (opt$normOpt != "none") {
+            plotMD(logcounts, column=i, main=paste(colnames(logcounts)[i], "(before)"))
+            abline(h=0, col="red", lty=2, lwd=2)
+        }
+        plotMD(y, column=i)
         abline(h=0, col="red", lty=2, lwd=2)
     }
     linkName <- "MDPlots_Samples.pdf"
@@ -761,6 +773,16 @@ if (wantTrend) {
     plotData <- vData
 }
 
+ # Save library size info
+if (wantLibinfo) {
+    efflibsize <- round(y$samples$lib.size * y$samples$norm.factors)
+    libsizeinfo <- cbind(y$samples, EffectiveLibrarySize=efflibsize)
+    libsizeinfo$lib.size <- round(libsizeinfo$lib.size)
+    names(libsizeinfo)[names(libsizeinfo)=="sampleID"] <- "SampleID"
+    names(libsizeinfo)[names(libsizeinfo)=="lib.size"] <- "LibrarySize"
+    names(libsizeinfo)[names(libsizeinfo)=="norm.factors"] <- "NormalisationFactor"
+    write.table(libsizeinfo, file="libsizeinfo", row.names=FALSE, sep="\t", quote=FALSE)
+}
 
 print("Generating DE results")
 
