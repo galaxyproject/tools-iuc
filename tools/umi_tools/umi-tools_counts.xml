@@ -1,0 +1,188 @@
+<tool id="umi_tools_count" name="UMI-tools count" version="@VERSION@.0">
+    <description>Count UMIs from BAM files</description>
+    <macros>
+        <import>macros.xml</import>
+        <xml name="sanitize_tag" >
+            <sanitizer invalid_char="">
+                <valid initial="string.letters,string.digits" />
+            </sanitizer>
+        </xml>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+
+    ln -s '${input_bam}' 'input.bam' &&
+    ln -s '${input_bam.metadata.bam_index}' 'input.bam.bai' &&
+    
+    umi_tools count
+        -I input.bam
+        '$bam_paired'
+        --extract-umi-method='$barcodes.extract_umi_method.value'
+        #if $barcodes.extract_umi_method == 'read_id':
+            --umi-separator='$barcodes.delimiter'
+        #else if $barcodes.extract_umi_method == 'tag':
+            --umi-tag='$barcodes.umi_tag'
+            --cell-tag='$barcodes.cell_tag'
+        #end if
+        --method='$grouping_method.value'
+        --edit-distance-threshold='$hamming_distance'
+        --mapping-quality='$advanced.mapping_quality'
+        --per-gene
+        $wide_format_cell_counts
+        $advanced.per_contig
+        '$advanced.per_cell'
+        #if $advanced.gene_tag:
+            --gene-tag='$advanced.gene_tag'
+        #end if
+        #if $advanced.skip_tags_regex.value:
+            --skip-tags-regex='$advanced.skip_tags_regex'
+        #end if
+        #if $advanced.random_seed != 0:
+            --random-seed='$advanced.random_seed'
+        #end if
+        -S '$out_counts'
+        -L '$out_log'
+    ]]></command>
+    <inputs>
+        <param name="input_bam" type="data" format="bam" label="Sorted BAM file" help="Please use the samtools sort tool to ensure a correct BAM input" />
+
+        <param name="bam_paired" type="boolean" truevalue="--paired" falsevalue="" checked="false"
+               label="Bam is paired-end"
+               help="both read pairs will be output. This will also force the use of the template length to determine 
+reads with the same mapping coordinates." />
+
+        <conditional name="barcodes" >
+            <param name="extract_umi_method" type="select" label="Umi Extract Method" help="How are the barcodes encoded in the read?" >
+                <option value="read_id" selected="true">Barcodes are contained at the end of the read seperated by a delimiter</option>
+                <option value="tag" >Barcodes are contained in tags</option>
+                <option value="umis" >Barcodes were extracted using umis</option>
+            </param>
+            <when value="read_id" >
+                <param name="delimiter" type="text" label="Delimiter between read id and the UMI" value="_" >
+                    <expand macro="sanitize_tag" />
+                </param>
+            </when>
+            <when value="tag" >
+                <param name="umi_tag" type="text" label="Tag which contains the UMI" >
+                    <expand macro="sanitize_tag" />
+                </param>
+                <param name="cell_tag" type="text" label="Tag which contains the cell barcode" >
+                    <expand macro="sanitize_tag" />
+                </param>
+            </when>
+            <when value="umis"></when>
+        </conditional>
+
+        <param name="grouping_method" type="select" label="Method to identify group of reads" help="UMIs with the same (or similar) codes can be grouped together. The simplest methods 'unique' and 'percentile' group identical 
+UMIs, however 'cluster', 'adjacency', and 'directional' can group similar umis with edit distances less than some threshold. Unique: Reads group share the exact same UMI. Percentile: Reads group share the same UMI, and UMIs with 
+counts &lt; 1% of the median counts for UMIs at the same position are ignored. Cluster: Identify clusters of connected UMIs (based on hamming distance threshold). Adjacency: Same as cluster, but considers only directly ajacent 
+UMIs in the cluster. Directional: Identify cluster of connected UMIs based on hamming distance and umi." >
+            <option value="unique" >Unique</option>
+            <option value="percentile">Percentile</option>
+            <option value="cluster">Cluster</option>
+            <option value="adjacency">Adjacency</option>
+            <option value="directional" selected="true" >Directional</option>
+        </param>
+
+        <param name="hamming_distance" type="integer" label="Edit distance threshold" min="0" value="1" />
+        <param name="wide_format_cell_counts" type="boolean" truevalue="--wide-format-cell-counts" falsevalue="" checked="false" label="Output a mtrix of genes and cells, instead of a flat file" />
+
+        <section name="advanced" title="Extra parameters" >
+            <param name="mapping_quality" type="integer" min="0" value="0" label="Minimum mapping quality" />
+            <!-- Currently hard-coded parameter. Leave here if useful to future wrapper  -->
+            <!-- <param argument="-\-per-gene" name="per_gene" type="text" label="Group reads together if they have the same gene" help="Reads will be grouped together if they have the same gene. This is useful if your library 
+prep generates PCR duplicates with non-identical alignment positions such as CEL-Seq. Note this option is hardcoded to be on with the count command. I.e counting is always performed per-gene. Must be combined with either 
+-\-gene-tag or -\-per-contig option" /> -->
+            <param name="gene_tag" type="text" label="Deduplicate per gene." help="The gene information is encoded in the bam read tag." value="" >
+                <expand macro="sanitize_tag" />
+            </param>
+            <param name="skip_tags_regex" type="text" label="Skip any reads where the gene matches this tag" value="" >
+                <sanitizer invalid_char="">
+                    <valid initial="string.letters,string.digits">
+                        <add value="!="/>
+                        <add value="-"/>
+                        <add value="_"/>
+                        <add value="."/>
+                        <add value="?"/>
+                        <add value="&lt;"/><!-- left triangle bracket -->
+                        <add value="&gt;"/><!-- right triangle bracket -->
+                        <add value="&#91;"/> <!-- left square bracket -->
+                        <add value="&#93;"/> <!-- right square bracket -->
+                        <add value="&#94;"/> <!-- caret -->
+                        <add value="&#123;"/> <!-- left curly -->
+                        <add value="&#125;"/> <!-- right curly -->
+                        <add value="&#40;"/> <!-- left parenthesis -->
+                        <add value="&#41;"/> <!-- right parenthesis -->
+                    </valid>
+                </sanitizer>
+            </param>
+            <param name="per_contig" type="boolean" truevalue="--per-contig" falsevalue="" checked="false"
+                label="Deduplicate per contig (field 3 in BAM; RNAME)"
+                help="All reads with the same contig will be considered to have the same alignment position. This is useful if you have aligned to a reference transcriptome with one transcript per gene." />
+            <param name="per_cell" type="boolean" truevalue="--per-cell" falsevalue="" checked="false"
+                label="Group reads only if they have the same cell barcode." />
+            <param name="random_seed" type="integer" min="0" value="0" label="Random Seed" />
+        </section>        
+    </inputs>
+    <outputs>
+        <data name="out_counts" format="tsv" />
+        <data name="out_log" format="txt" />
+    </outputs>
+    <tests>
+        <test><!--count_single_gene_tag:-->
+            <param name="input_bam" value="chr19_gene_tags.bam" />
+            <param name="random_seed" value="123456789" />
+            <param name="grouping_method" value="directional" />
+            <param name="gene_tag" value="XF" />
+            <param name="skip_tags_regex" value="^[__|Unassigned]" />
+            <param name="extract_umi_method" value="umis" />
+            <output name="out_counts" value="count_single_gene_tag.tsv" />
+        </test>
+        <test><!--count_single_cells_gene_tag:-->
+            <param name="input_bam" value="chr19_gene_tags.bam" />
+            <param name="random_seed" value="123456789" />
+            <param name="grouping_method" value="directional" />
+            <param name="gene_tag" value="XF" />
+            <param name="skip_tags_regex" value="^[__|Unassigned]" />
+            <param name="per_cell" value="true" /><!-- new -->
+            <param name="extract_umi_method" value="umis" />
+            <output name="out_counts" value="count_single_cells_gene_tag.tsv" />
+        </test>
+        <test><!--count_single_cells_wide_gene_tag:-->
+            <param name="input_bam" value="chr19_gene_tags.bam" />
+            <param name="random_seed" value="123456789" />
+            <param name="grouping_method" value="directional" />
+            <param name="gene_tag" value="XF" />
+            <param name="skip_tags_regex" value="^[__|Unassigned]" />
+            <param name="per_cell" value="true" /><!-- new -->
+            <param name="extract_umi_method" value="umis" />
+            <param name="wide_format_cell_counts" value="true" />
+            <output name="out_counts" value="count_single_cells_gene_tag_wide.tsv" />
+        </test>
+    </tests>
+    <help><![CDATA[
+
+UMI Tools count - Count reads per gene from BAM using UMIs
+----------------------------------------------------------
+
+Purpose
+-------
+
+The purpose of this command is to count the number of reads per gene based
+on the mapping co-ordinate and the UMI attached to the read.
+
+
+It is assumed that the FASTQ files were processed with extract_umi.py
+before mapping and thus the UMI is the last word of the read name. e.g:
+
+@HISEQ:87:00000000_AATT
+
+where AATT is the UMI sequeuence.
+
+If you have used an alternative method which does not separate the
+read id and UMI with a "_", such as bcl2fastq which uses ":", you can
+specify the separator, or if your UMIs are encoded in a tag you can also specify this.
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>
