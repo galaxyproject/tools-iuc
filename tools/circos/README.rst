@@ -72,12 +72,21 @@ And the bands should be provided in BED3/6/9/12 format.::
     ctgB   0     6079    p3   900   -   0     0     255,0,255
 
 
-**Outputs**::
+**Outputs**
+
+On stdout::
 
     #     chr id 0 length color
     chr - ctgA 0 0 50001 set3-12-qual-1
     chr - ctgB 1 0 6079 set3-12-qual-2
 
     #    chr        start   end     color
-    band ctgA p1 p1 0       500     gneg
-    band ctgA p2 p2 750     1250    gneg
+    band ctgA p1 p1 0       500     gx-karyotype-1
+    band ctgA p2 p2 500     500001  gx-karyotype-2
+    band ctgB p3 p3 0       6079    gx-karyotype-3
+
+On stderr::
+
+    gx-karyotype-1 = 0,255,0
+    gx-karyotype-2 = 0,0,255
+    gx-karyotype-3 = 255,0,255
