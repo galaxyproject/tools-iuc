@@ -12,7 +12,7 @@ log = logging.getLogger()
 MODE = sys.argv[1]
 
 # Pair up (file, extension) pairs from sys.argv
-files = zip(sys.argv[2:][0::2], sys.argv[2:][1::2])
+files = list(zip(sys.argv[2:][0::2], sys.argv[2:][1::2]))
 
 # Our output data structure. This could be much more efficient.
 data = {}
