@@ -15,13 +15,14 @@ Output:
 
 Python 3.5+ is required.
 """
-# Implemented by: Chao (Cico) Zhang 
+# Implemented by: Chao (Cico) Zhang
 # Homepage: https://Hi-IT.org
 # Date: 14 Mar 2017
 # Last modified: 23 May 2018
 
 import argparse
 import sys
+
 import numpy as np
 import pandas as pd
 
@@ -77,9 +78,9 @@ else:  # The input is not complete
     sys.exit('The parameters of the model are incomplete.')
 
 # Calculate the threshold P-value
-pie = lam + (1-lam) * alpha
-p_threshold = np.power((pie - lam * args.fdr)/(args.fdr - lam * args.fdr),
-                       1/(alpha - 1))
+pie = lam + (1 - lam) * alpha
+p_threshold = np.power((pie - lam * args.fdr) / (args.fdr - lam * args.fdr),
+                       1 / (alpha - 1))
 print(p_threshold)
 # Calculate the scores
 input_pvalues = pd.read_csv(args.nodes, sep='\t', names=['node', 'pvalue'])

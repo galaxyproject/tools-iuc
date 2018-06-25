@@ -18,8 +18,9 @@ This tool is only designed for visualizing the output of Heinz tool.
 # Version: 0.2
 
 import argparse
-from graphviz import Source
 import sys
+
+from graphviz import Source
 
 
 def get_args():
