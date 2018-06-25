@@ -22,8 +22,9 @@ Python 3.5+ is required.
 
 import argparse
 import sys
-import pandas as pd
 import numpy as np
+import pandas as pd
+
 
 parser = argparse.ArgumentParser(description='Transform a P-value into a '
                                  'score which can be used as the input of '

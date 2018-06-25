@@ -17,8 +17,8 @@ This tool is only designed for visualizing the output of Heinz tool.
 # Date: 2 Aug 2017
 # Version: 0.2
 
-from graphviz import Source
 import argparse
+from graphviz import Source
 import sys
 
 
