@@ -3,12 +3,15 @@ import sys
 
 from Bio import SeqIO
 
+colormap = {}
 
+# Process fasta data, extracting only headers
 for idx, seq in enumerate(SeqIO.parse(sys.argv[1], 'fasta')):
-    sys.stdout.write("chr - {seq_id} {idx} 0 {length} set3-12-qual-{color}\n".format(
+    sys.stdout.write("chr - {seq_id} {seq_id} 0 {length} set3-12-qual-{color}\n".format(
         seq_id=seq.id, idx=idx, length=len(seq), color=((idx + 1) % 12)
     ))
 
+# Process optional cytogenetic bands
 if len(sys.argv) > 2:
     # band hs1 p36.32 p36.32 2200000 5100000 gpos25
     # band hs1 p36.31 p36.31 5100000 6900000 gneg
@@ -18,14 +21,23 @@ if len(sys.argv) > 2:
     with open(sys.argv[2], 'r') as handle:
         for line in handle:
             lineData = dict(zip(COLS, line.split()))
+            color = lineData.get('itemRgb', 'gpos50')
+            if color not in colormap:
+                colormap[color] = 'gx-karyotype-%s' % len(colormap.keys())
+
             sys.stdout.write("band {chrom} {name} {name} {chromStart} {chromEnd} {color}\n".format(
                 # Can access name because requiring >bed3
                 name=lineData['name'],
                 chrom=lineData['chrom'],
                 chromStart=lineData['chromStart'],
                 chromEnd=lineData['chromEnd'],
-                # ????
-                color=lineData.get('itemRgb', 'gpos50'),
+                # 255,0,0 is a valid colour specifier
+                color=colormap[color],
+            ))
+
+            sys.stderr.write("{colorName} = {color}\n".format(
+                colorName=colormap[color],
+                color=color
             ))
     # band
     # ID

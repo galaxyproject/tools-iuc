@@ -41,3 +41,43 @@ Features
 -  [x] Test cases
 -  [ ] Grids?
 -  [ ] Fine grained Z-depth control
+
+
+Scripts
+-------
+
+fasta-to-karyotype.py
+~~~~~~~~~~~~~~~~~~~~~
+
+script to generate the karyotype file and append cytogenetic bands (when supplied.)
+
+**Usage**:
+
+    python fasta-to-karyotype.py fasta-file [cytogenetic-band-file]
+
+**Inputs**:
+
+For the fasta file, this looks as normal.::
+
+    >ctgA
+    ...
+    >ctgB
+    ...
+
+And the bands should be provided in BED3/6/9/12 format.::
+
+
+    ctgA   0     500     p1   960   +   0     0     0,255,0
+    ctgA   500   50001   p2   900   -   500   500   0,0,255
+    ctgB   0     6079    p3   900   -   0     0     255,0,255
+
+
+**Outputs**::
+
+    #     chr id 0 length color
+    chr - ctgA 0 0 50001 set3-12-qual-1
+    chr - ctgB 1 0 6079 set3-12-qual-2
+
+    #    chr        start   end     color
+    band ctgA p1 p1 0       500     gneg
+    band ctgA p2 p2 750     1250    gneg
