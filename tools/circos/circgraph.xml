@@ -12,30 +12,34 @@
 ## Directory structure
 mkdir -p circos/conf/ circos/data/ &&
 
-#if $reference_genome.reference_genome_source == 'history':
-    ln -s '$reference_genome.genome_fasta' genomeref.fa &&
+#if $reference_genome.ref.ref_source == 'history':
+    ln -s '$reference_genome.ref.genome_fasta' genomeref.fa &&
 #end if
 
-#if $reference_genome.reference_genome_source != 'karyotype':
+#if $reference_genome.ref.ref_source != 'karyotype':
     ## Process the karyotype.txt file
     python '$__tool_directory__/fasta-to-karyotype.py'
 
-        #if str($reference_genome.reference_genome_source) == 'cached':
-            '${reference_genome.fasta_indexes.fields.path}'
-        #else if str($reference_genome.reference_genome_source) == 'history':
-            genomeref.fa
-        #end if
-
-        #if $reference_genome.bands:
-            '${reference_genome.bands}'
-        #end if
-     > circos/conf/karyotype.txt
-    2> circos/conf/karyotype-colors.conf &&
+    #if str($reference_genome.ref.ref_source) == 'cached':
+        '${reference_genome.ref.fasta_indexes.fields.path}'
+    #else if str($reference_genome.ref.ref_source) == 'history':
+        genomeref.fa
+    #end if
+    > circos/conf/karyotype.txt &&
 #else
-    touch circos/conf/karyotype-colors.conf &&
-    cp $reference_genome.input_karyotype circos/conf/karyotype.txt &&
-    #if $reference_genome.bands:
-        cat $reference_genome.bands >> circos/conf/karyotype.txt
+    cp $reference_genome.ref.input_karyotype circos/conf/karyotype.txt &&
+#end if
+
+touch circos/conf/karyotype-colors.conf &&
+#if $reference_genome.bands:
+    #if $reference_genome.convert_bands:
+        python '$__tool_directory__/process-cytogenetic-bands.py'
+            '${reference_genome.bands}'
+            >> circos/conf/karyotype.txt
+            2> circos/conf/karyotype-colors.conf &&
+    #else
+        cat '${reference_genome.bands}'
+            >> circos/conf/karyotype.txt &&
     #end if
 #end if
 
@@ -79,7 +83,7 @@ cp '${data.data_source}' circos/data/highlight-${hi}.txt &&
 
 tar cvfz circos.tar.gz circos &&
 
-circos -conf circos/conf/circos.conf
+circos -conf circos/conf/circos.conf -noparanoid
     ]]></command>
     <configfiles>
         <expand macro="configfile_circos_conf" />
@@ -91,30 +95,39 @@ circos -conf circos/conf/circos.conf
         <expand macro="test_case" />
     </configfiles>
     <inputs>
-        <conditional name="reference_genome">
-            <param name="reference_genome_source" type="select" label="Reference Genome">
-                <option value="history" selected="True">From History</option>
-                <option value="cached">Locally Cached</option>
-                <option value="karyotype">Karyotype</option>
-            </param>
-            <when value="cached">
-                <param name="fasta_indexes" type="select" label="Source FASTA Sequence">
-                    <options from_data_table="all_fasta"/>
+        <section name="reference_genome" title="Reference Genome and Cytogenetic Bands" expanded="true">
+            <conditional name="ref">
+                <param name="ref_source" type="select" label="Reference Genome">
+                    <option value="history" selected="True">From History</option>
+                    <option value="cached">Locally Cached</option>
+                    <option value="karyotype">Karyotype</option>
                 </param>
-                <param name="bands" type="data" format="tabular" optional="true" label="Cytogenetic Bands"
-                    help="If defined, will display cytogenetic bands as part of the karyotype configuration"/>
-            </when>
-            <when value="history">
-                <param name="genome_fasta" type="data" format="fasta" label="Source FASTA Sequence"/>
-                <param name="bands" type="data" format="tabular" optional="true" label="Cytogenetic Bands"
-                    help="If defined, will display cytogenetic bands as part of the karyotype configuration"/>
-            </when>
-            <when value="karyotype">
-                <param name="input_karyotype" type="data" format="tabular,txt" label="Karyotype Configuration"/>
-                <param name="bands" type="data" format="tabular" optional="true" label="Cytogenetic Bands"
-                    help="If defined, will display cytogenetic bands as part of the karyotype configuration"/>
-            </when>
-        </conditional>
+                <when value="cached">
+                    <param name="fasta_indexes" type="select" label="Source FASTA Sequence">
+                        <options from_data_table="all_fasta"/>
+                    </param>
+                </when>
+                <when value="history">
+                    <param name="genome_fasta" type="data" format="fasta" label="Source FASTA Sequence"/>
+                </when>
+                <when value="karyotype">
+                    <param name="input_karyotype" type="data" format="tabular,txt" label="Karyotype Configuration"/>
+                </when>
+            </conditional>
+            <param name="limit_chromosomes" type="text" optional="true" label="Limit/Filter Chromosomes" help="Syntax is: 'hs1;hs2;hs3' (-hs1 syntax is not currently supported.) You can additionally select a subset of a chromosome with the syntax: 'hs1:1-1000;hs2:3000-9000'">
+                <sanitizer>
+                    <valid initial="string.letters,string.digits">
+                        <add value=";"/>
+                        <add value=":"/>
+                        <add value="-"/>
+                    </valid>
+                </sanitizer>
+            </param>
+            <param name="bands" type="data" format="tabular" optional="true" label="Cytogenetic Bands"
+                help="If defined, will display cytogenetic bands as part of the karyotype configuration. This field accepts any tabular format file. If you provide a BED file you should enable automatic conversion below. Otherwise disable conversion below and it is expected that your file have 7 columns: 'band', chromosome ID (should match fasta), band ID, band ID (again), start, end, color (gneg, gpos, or r,g,b triple). E.g. a complete row would look like: 'band chr1 p32.2 p32.2 56100000 59000000 gneg25'"/>
+            <param name="convert_bands" type="boolean" truevalue="yes" falsevalue="no" label="Convert bands from BED format to circos karyotype band format" checked="true"
+                help="Automatically reformat BED file into the appropriate columns. This should be a BED 6+ file, BED 9+ if you want the colours from the BED file automatically used. Otherwise everything will appear grey."/>
+        </section>
         <section name="outputs" title="Outputs" expanded="true">
             <param name="png" type="boolean" truevalue="yes" falsevalue="no" label="Output PNG" checked="true"/>
             <param name="svg" type="boolean" truevalue="yes" falsevalue="no" label="Output SVG" checked="false"/>
