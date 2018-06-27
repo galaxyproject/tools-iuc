@@ -8,7 +8,8 @@
     </macros>
     <expand macro="requirements"/>
     <version_command>circos --version</version_command>
-    <command detect_errors="aggressive"><![CDATA[
+    <command detect_errors="exit_code"><![CDATA[
+set -ex;
 ## Directory structure
 mkdir -p circos/conf/ circos/data/ &&
 
@@ -43,6 +44,12 @@ touch circos/conf/karyotype-colors.conf &&
     #end if
 #end if
 
+#if $plot_options.colour_profile:
+    #if str($plot_options.colour_profile) == 'cg':
+        cat '$__tool_directory__/colours/cg.conf' >> circos/conf/karyotype-colors.conf &&
+    #end if
+#end if
+
 mv '$circos_conf' circos/conf/circos.conf &&
 mv '$ticks_conf' circos/conf/ticks.conf &&
 mv '$ideogram_conf' circos/conf/ideogram.conf &&
@@ -58,22 +65,7 @@ cp '${data.data_source}' circos/data/highlight-${hi}.txt &&
 
 ## 2D Data Plots
 #for $hi, $data in enumerate($sec_tdd.data):
-    #if str($data.plot_format.plot_format_select) == 'tile':
-        python '$__tool_directory__/unified-tiles.py'
-            '${data.plot_format.data_source}' '${data.plot_format.data_source.ext}'
-            > circos/data/data-${hi}.txt &&
-    #else:
-        python $__tool_directory__/unified-histogram.py
-            $data.plot_format.plot_format_select
-            #if str($data.plot_format.plot_format_select) in ('histogram', 'heatmap'):
-                #for $fi, $file in enumerate($data.plot_format.data_source):
-                    '${file}' '${file.ext}'
-                #end for
-            #else:
-                '${data.plot_format.data_source}' '${data.plot_format.data_source.ext}'
-            #end if
-        > circos/data/data-${hi}.txt &&
-    #end if
+    cp '${data.plot_format.data_source}' circos/data/data-${hi}.txt &&
 #end for
 
 ## Link Tracks
@@ -145,16 +137,27 @@ circos -conf circos/conf/circos.conf -noparanoid
                 </when>
             </conditional>
             <param name="radius" type="integer" label="Image Radius" value="1500" min="500" max="5000" help="Plot radius. Final plot dimensions will be 2*r by 2*r"/>
+            <param name="colour_profile" type="select" label="Load additional colour profiles" optional="true">
+                <option value="cg">Complete Genomics</option>
+            </param>
         </section>
 
         <section name="ideogram" title="Ideogram Configuration (Genome/Chromosomes)">
+            <param name="units" type="select" label="Chromosome units" help="Setting this to MB allows usage of numbers like 5u to represent 5MB, rather than having to specify 5000000 or 5e6">
+                <option value="bases">Bases</option>
+                <option value="kb">Kilobases</option>
+                <option value="mb" selected="true">Megabases</option>
+                <option value="gb">Gigabases</option>
+            </param>
+
             <param name="spacing" type="float" value="0.005" label="Spacing Between Ideograms"/>
             <param name="radius" type="float" value="0.90" label="Radius"/>
             <param name="thickness" type="float" value="10" label="Thickness"/>
 
             <section name="ideogram_labels" title="Labels">
                 <param name="show_label" type="boolean" truevalue="yes" falsevalue="no" label="Show Label" checked="true"/>
-                <!--<param type="float" value="0.95" label="Radius" name="radius"/>-->
+                <param type="float" value="0.075" label="Radius" name="radius_offset"/>
+                <param type="integer" value="24" label="Label Font Size" name="size"/>
                 <!--<param type="float" value="10" label="Thickness" name="thickness"/>-->
                 <param name="parallel" type="boolean" label="Parallel" truevalue="yes" falsevalue="no" checked="true"
                     help="When set to yes/true, labels will be perpendicular to the tangent of the circle at the location of the label. Otherwise, they will be parallel with the tangent of the circle"/>
@@ -164,6 +167,9 @@ circos -conf circos/conf/circos.conf -noparanoid
                 <param name="show_bands" type="boolean" truevalue="yes" falsevalue="no" label="Show Bands" checked="true"/>
                 <param name="fill_bands" type="boolean" truevalue="yes" falsevalue="no" label="Fill Bands" checked="true"/>
                 <param name="band_transparency" type="integer" label="Fill Bands" value="0" min="0" max="5" help="0 is solid, 1 is the least transparent, and 5 is the most transparent"/>
+
+                <param type="integer" value="2" label="Band Stroke Thickness" name="band_stroke_thickness"/>
+                <expand macro="circos_color" label="Band Stroke Color" name="band_stroke_color" value="#000000"/>
             </section>
         </section>
 
@@ -174,7 +180,7 @@ circos -conf circos/conf/circos.conf -noparanoid
                 help="1e-3 means your tick spacing will be in kb (tick spacing of 5000 = every 5kb, labels will read '5kb'). 1e-6 means mb."/>
 
             <repeat name="tick_group" title="Tick Group">
-                <param name="spacing" type="float" value="5000" label="Tick Spacing" help="Number of bases"/>
+                <param name="spacing" type="text" value="5000" label="Tick Spacing" help="Number of bases (number + u syntax works)"/>
                 <param name="size" type="float" value="10" label="Tick Size"/>
                 <expand macro="circos_color"/>
                 <conditional name="ticks">
@@ -193,6 +199,7 @@ circos -conf circos/conf/circos.conf -noparanoid
                                 </valid>
                             </sanitizer>
                         </param>
+                        <param name="format_ext" type="boolean" truevalue="yes" falsevalue="no" checked="true" label="Show unit in tick labels" help="If your chromosome units is set to kilobases and you have enabled this option and enabled tick labels, they will include the size value, e.g. '500 kb' "/>
                     </when>
                     <when value="no">
                     </when>
@@ -228,17 +235,30 @@ circos -conf circos/conf/circos.conf -noparanoid
                         <option value="tile">Tiles</option>
                     </param>
                     <when value="histogram">
-                        <param name="data_source" type="data" format="bed6,bed12,wig,gff3" label="Histogram Data Source"
-                            multiple="True" help="If multiple files are selected, they will be treated as a stacked histogram"/>
+                        <param name="data_source" type="data" format="tabular" label="Histogram Data Source"/>
                         <section name="format_specific" title="Plot Format Specific Options">
-                            <expand macro="brewer_scale" label="Fill Color" name="fill_color"/>
+                            <expand macro="circos_color" label="Fill Color" name="fill_color" default="#000000"/>
+                            <param name="fill_under" type="boolean" label="Fill underneath the histogram" truevalue="yes" falsevalue="no" checked="true" />
                             <param name="extend_bins" type="boolean" label="Join non-abutting Bins" truevalue="yes" falsevalue="no"
                                 help="Join histogram bins that do not touch (abut)" />
+
+                            <conditional name="minmax">
+                                <param name="minmax_select" type="select" label="Minimum / maximum options">
+                                    <option value="yes">Supply min/max values</option>
+                                    <option value="no" selected="true">Autodetect</option>
+                                </param>
+                                <when value="yes">
+                                    <param name="min_value" type="float" value="1.0" label="Minimum value" />
+                                    <param name="max_value" type="float" value="5.0" label="Maximum value" />
+                                </when>
+                                <when value="no">
+                                </when>
+                            </conditional>
+
                         </section>
                     </when>
                     <when value="heatmap">
-                        <param name="data_source" type="data" format="bed6,bed12,wig,gff3" label="Heatmap Data Source"
-                            multiple="True" help="If multiple files are selected, they will be plotted alongside each other radially"/>
+                        <param name="data_source" type="data" format="tabular" label="Heatmap Data Source"/>
                         <section name="format_specific" title="Plot Format Specific Options">
                             <expand macro="brewer_scale" label="Fill Color" name="fill_color"/>
                             <param name="scale_log_base" type="float" value="1.0" label="Scale Log Base"
@@ -246,14 +266,14 @@ circos -conf circos/conf/circos.conf -noparanoid
                         </section>
                     </when>
                     <when value="line">
-                        <param name="data_source" type="data" format="bed6,bed12,wig,gff3" label="Line Data Source"/>
+                        <param name="data_source" type="data" format="tabular" label="Line Data Source"/>
                         <section name="format_specific" title="Plot Format Specific Options">
                             <expand macro="circos_color" label="Stroke Color" name="color" value="#000000"/>
                             <param name="thickness" type="integer" value="0" label="Stroke Thickness"/>
                         </section>
                     </when>
                     <when value="scatter">
-                        <param name="data_source" type="data" format="bed6,bed12,wig,gff3" label="Scatter Plot Data Source"/>
+                        <param name="data_source" type="data" format="tabular" label="Scatter Plot Data Source"/>
                         <section name="format_specific" title="Plot Format Specific Options">
                         <!-- glyph, glyph_size, min, max -->
                             <param name="glyph" type="select" label="Glyph">
@@ -270,7 +290,7 @@ circos -conf circos/conf/circos.conf -noparanoid
                         </section>
                     </when>
                     <when value="tile">
-                        <param name="data_source" type="data" format="bed6,bed12,gff3" label="Tile Data Source"
+                        <param name="data_source" type="data" format="tabular" label="Tile Data Source"
                             help="If your tile source features have scores in them, they will be used in colouration"/>
                         <section name="format_specific" title="Plot Format Specific Options">
                             <expand macro="brewer_scale" name="fill_color" label="Fill Color"/>
