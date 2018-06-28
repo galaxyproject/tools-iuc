@@ -7,10 +7,9 @@
     <expand macro="stdio" />
     <expand macro="version_command" />
     <command><![CDATA[
-    #for $bam_count, $input_bam in enumerate( $reference_source.input_bam ):
-        ln -s '${input_bam}' 'localbam_${bam_count}.bam' &&
-        ln -s '${input_bam.metadata.bam_index}' 'localbam_${bam_count}.bam.bai' &&
-    #end for
+    
+    #set $input_bams = $reference_source.input_bam
+    @PREPIDX_MULTIPLE@
 
     #if $reference_source.reference_source_selector == "history":
         ln -s '${reference_source.ref_file}' &&
@@ -23,9 +22,10 @@
     #else:
         -f '${reference_source.ref_file}'
     #end if
-    #for $bam_count, $input_bam in enumerate( $reference_source.input_bam ):
-        localbam_${bam_count}.bam
+    #for $i in range(len( $input_bams )):
+        '${i}'
     #end for
+
     #if str( $advanced_options.advanced_options_selector ) == "advanced":
         #if str( $advanced_options.filter_by_flags.filter_flags ) == "filter":
             #if $advanced_options.filter_by_flags.require_flags:
@@ -89,7 +89,7 @@
         ${genotype_likelihood_computation_type.output_read_names}
         ${genotype_likelihood_computation_type.output_all_pos}
     #end if
-    --output '$output_mpileup'
+    --output output_file
     ]]></command>
 
     <configfiles>
@@ -146,12 +146,20 @@ ${pasted_data}
                     <option value="--BCF">BCF</option>
                 </param>
                 <param name="compressed" argument="--uncompressed" type="boolean" truevalue="" falsevalue="--uncompressed" checked="False" label="Compress output" />
-                <param name="output_tags" argument="--output-tags" type="select" optional="True" multiple="True" display="checkboxes" label="Optional tags to output">
+		<param name="output_tags" argument="--output-tags" type="select" optional="True" multiple="True" display="checkboxes" label="Optional (FORMAT/INFO) tags to output">
+                    <option value="AD">AD (Allelic depth, FORMAT)</option>
+                    <option value="AD/INFO">AD (Total allelic depth, INFO)</option>
+                    <option value="ADF">AD (Allelic depth on forward strand, FORMAT)</option>
+                    <option value="ADF/INFO">AD (Total allelic depth on forward strand, INFO)</option>
+                    <option value="ADR">AD (Allelic depth on reverse strand, FORMAT)</option>
+                    <option value="ADR/INFO">AD (Total allelic depth on reverse strand, INFO)</option>
                     <option value="DP">DP (Number of high-quality bases)</option>
-                    <option value="DPR">DRP (Number of high-quality bases for each observed allele)</option>
+                    <!-- deprecated options
                     <option value="DV">DV (Number of high-quality non-reference bases)</option>
-                    <option value="DP4">DP4 (Number of high-quality ref-forward, ref-reverse, alt-forward and alt-reverse bases)</option>
+                    <option value="DPR">DRP (Number of high-quality bases for each observed allele)</option>
                     <option value="INFO/DPR">INFO/DPR (Number of high-quality bases for each observed allele)</option>
+                    <option value="DP4">DP4 (Number of high-quality ref-forward, ref-reverse, alt-forward and alt-reverse bases)</option>
+                    -->
                     <option value="SP">SP (Phred-scaled strand bias P-value)</option>
                 </param>
                 <conditional name="perform_indel_calling">
@@ -175,7 +183,6 @@ ${pasted_data}
                     </when>
                     <when value="do_not_perform_indel_calling" />
                 </conditional>
-
             </when>
             <when value="do_not_perform_genotype_likelihood_computation">
                 <param name="base_position_on_reads" argument="--output-BP" type="boolean" truevalue="-O" falsevalue="" checked="False" label="Output base positions on reads" />
@@ -255,11 +262,20 @@ ${pasted_data}
         </conditional>
     </inputs>
     <outputs>
-        <data name="output_mpileup" format="pileup" label="${tool.name} on ${on_string}">
-            <change_format>
-                <when format="bcf" input="genotype_likelihood_computation_type.output_format" value="--BCF" />
-                <when format="vcf" input="genotype_likelihood_computation_type.output_format" value="--VCF" />
-            </change_format>
+        <data name="output_file_pu" from_work_dir="output_file" format="pileup" label="${tool.name} on ${on_string} pileup">
+            <filter>genotype_likelihood_computation_type['genotype_likelihood_computation_type_selector'] == 'do_not_perform_genotype_likelihood_computation'</filter>
+        </data>
+        <data name="output_file_bcf" from_work_dir="output_file" format="bcf_uncompressed" label="${tool.name} on ${on_string} bcf">
+            <filter>genotype_likelihood_computation_type['genotype_likelihood_computation_type_selector'] == 'perform_genotype_likelihood_computation' and genotype_likelihood_computation_type['output_format']=='--BCF' and not genotype_likelihood_computation_type['compressed']</filter>
+        </data>
+        <data name="output_file_bcfc" from_work_dir="output_file" format="bcf" label="${tool.name} on ${on_string} bcf compress">
+            <filter>genotype_likelihood_computation_type['genotype_likelihood_computation_type_selector'] == 'perform_genotype_likelihood_computation' and genotype_likelihood_computation_type['output_format']=='--BCF' and genotype_likelihood_computation_type['compressed']</filter>
+        </data>
+        <data name="output_file_vcf" from_work_dir="output_file" format="vcf" label="${tool.name} on ${on_string} vcf">
+            <filter>genotype_likelihood_computation_type['genotype_likelihood_computation_type_selector'] == 'perform_genotype_likelihood_computation' and genotype_likelihood_computation_type['output_format']=='--VCF' and not genotype_likelihood_computation_type['compressed']</filter>
+        </data>
+        <data name="output_file_vcfc" from_work_dir="output_file" format="vcf_bgzip" label="${tool.name} on ${on_string} cvf compress">
+            <filter>genotype_likelihood_computation_type['genotype_likelihood_computation_type_selector'] == 'perform_genotype_likelihood_computation' and genotype_likelihood_computation_type['output_format']=='--VCF' and genotype_likelihood_computation_type['compressed']</filter>
         </data>
     </outputs>
     <tests>
@@ -267,26 +283,36 @@ ${pasted_data}
             <param name="reference_source_selector" value="history" />
             <param name="ref_file" ftype="fasta" value="phiX.fasta" />
             <param name="input_bam" ftype="bam" value="samtools_mpileup_in_1.bam" />
-            <param name="genotype_likelihood_computation_type_selector" value="do_not_perform_genotype_likelihood_computation" />
-            <param name="advanced_options_selector" value="basic" />
-            <param name="base_position_on_reads" value="true" />
-            <param name="output_mapping_quality" value="true" />
-            <output name="output_mpileup" file="samtools_mpileup_out_1.pileup" />
+            <conditional name="genotype_likelihood_computation_type">
+                <param name="genotype_likelihood_computation_type_selector" value="do_not_perform_genotype_likelihood_computation" />
+                <param name="base_position_on_reads" value="true" />
+                <param name="output_mapping_quality" value="true" />
+            </conditional>
+            <conditional name="advanced_options">
+                <param name="advanced_options_selector" value="basic" />
+            </conditional>
+            <output name="output_file" file="samtools_mpileup_out_1.pileup" />
         </test>
         <test>
             <param name="reference_source_selector" value="history" />
             <param name="ref_file" ftype="fasta" value="phiX.fasta" />
             <param name="input_bam" ftype="bam" value="phiX.bam" />
-            <param name="genotype_likelihood_computation_type_selector" value="perform_genotype_likelihood_computation" />
-            <param name="gap_extension_sequencing_error_probability" value="20" />
-            <param name="coefficient_for_modeling_homopolymer_errors" value="100" />
-            <param name="perform_indel_calling_selector" value="perform_indel_calling" />
-            <param name="skip_indel_calling_above_sample_depth" value="250" />
-            <param name="gap_open_sequencing_error_probability" value="40" />
-            <param name="platform_list_repeat" value="0" />
-            <param name="advanced_options_selector" value="basic" />
-            <param name="genotype_likelihood_computation_type|output_format" value="VCF" />
-            <output name="output_mpileup" file="samtools_mpileup_out_2.vcf" ftype="vcf" lines_diff="8" />
+            <conditional name="genotype_likelihood_computation_type">
+                <param name="genotype_likelihood_computation_type_selector" value="perform_genotype_likelihood_computation" />
+                <param name="output_format" value="--VCF" />
+                <conditional name="perform_indel_calling">
+                    <param name="perform_indel_calling_selector" value="perform_indel_calling" />
+                    <param name="gap_extension_sequencing_error_probability" value="20" />
+                    <param name="coefficient_for_modeling_homopolymer_errors" value="100" />
+                    <param name="skip_indel_calling_above_sample_depth" value="250" />
+                    <param name="gap_open_sequencing_error_probability" value="40" />
+                    <param name="platform_list_repeat" value="0" />
+                </conditional>
+            </conditional>
+            <conditional name="advanced_options">
+                <param name="advanced_options_selector" value="basic" />
+            </conditional>
+            <output name="output_file" file="samtools_mpileup_out_2.vcf" ftype="vcf" lines_diff="8" />
         </test>
         <test>
             <param name="reference_source_selector" value="history" />
@@ -297,7 +323,7 @@ ${pasted_data}
             <param name="minimum_base_quality" value="0" /><!-- most reads have ultra low quality resuling in empty columns -->
             <param name="base_position_on_reads" value="true" />
             <param name="output_mapping_quality" value="true" />
-            <output name="output_mpileup" file="samtools_mpileup_out_3.pileup" />
+            <output name="output_file" file="samtools_mpileup_out_3.pileup" />
         </test>
     </tests>
     <help><![CDATA[
