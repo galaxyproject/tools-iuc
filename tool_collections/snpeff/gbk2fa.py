@@ -22,7 +22,7 @@ def get_file_handle(gbk_filename):
     f_type = magic.from_file(args.genbank_file, mime=True)
     if f_type == 'text/plain':
         input_handle = open(gbk_filename, "r")
-    elif f_type == 'application/gzip':
+    elif f_type == 'application/gzip' or f_type == 'application/x-gzip':
         input_handle = gzip.open(gbk_filename, "rt")
     elif f_type == 'application/x-bzip2':
         input_handle = bz2.open(gbk_filename, "rt")
