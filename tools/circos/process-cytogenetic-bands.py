@@ -24,6 +24,20 @@ with open(sys.argv[1], 'r') as handle:
         color = lineData.get('itemRgb', 'gpos50')
 
         if color not in colormap:
+            # Color MUST be an RGB triplet
+            if color.count(',') != 2:
+                continue
+            tmp = color.replace(',', '')
+            # Try interpreting it, without `,`s as an integer. If it fails this
+            # test there are non-numerical values and they might try and send
+            # us an `eval()` or a colour name. We do not currently support
+            # colour names just in case.
+            try:
+                int(tmp)
+            except ValueError:
+                # Does not look like an int
+                continue
+
             colormap[color] = 'gx-karyotype-%s' % len(colormap.keys())
 
             sys.stderr.write("{colorName} = {color}\n".format(
