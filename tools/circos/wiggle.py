@@ -6,17 +6,14 @@ class Wiggle:
         stop_position = start_position + self.parserConfig['span'] - 1
         self.stepIdx += 1
 
-        for position in range(start_position, stop_position):
-            yield (self.parserConfig['chrom'], position, value)
+        yield (self.parserConfig['chrom'], start_position, stop_position, value)
 
     def variableStepParser(self, line):
         (start, value) = line.strip().split()
         start = int(start)
         start_position = start
         stop_position = start + self.parserConfig['span']
-
-        for position in range(start_position, stop_position):
-            yield (self.parserConfig['chrom'], position, value)
+        yield (self.parserConfig['chrom'], start_position, stop_position, value)
 
     def walk(self, handle):
 
@@ -53,3 +50,5 @@ class Wiggle:
             else:
                 for data in parser(line):
                     yield data
+
+
