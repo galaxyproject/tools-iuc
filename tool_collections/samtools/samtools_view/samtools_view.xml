@@ -1,0 +1,438 @@
+<tool id="samtools_view" name="Samtools view" version="2.0.1">
+    <description>Reformat, filter, or subsample alignments in SAM/BAM/CRAM format</description>
+    <macros>
+    <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command><![CDATA[
+        @ADDTHREADS@
+        ## prepare reference data
+        @PREPFAIDX@
+        @PREPIDX@
+
+        ## fix outtype in case of same
+	#if str($outtype) == 'same':
+                ## TODO is the test for BAM useful (I guess this is necessay, since qname sorted and native BAM can also be uploaded...)
+                #if 'bam' in $input.ext:
+                    #set outtype = 'bam'
+                #elif $input.is_of_type('sam'):
+                    #set outtype = 'sam'
+		#elif $input.is_of_type('cram'):
+                    #set outtype = 'cram'
+		#end if
+	#end if
+
+	##call samtools view
+        samtools view
+	-@ \$addthreads
+
+        #if $outtype == 'count':
+        	-c
+        #elif $outtype == 'bam':
+        	-b
+        #elif $outtype == 'cram':
+        	-C
+        #end if
+
+	## filter options (regions filter is the last parameter)
+	#if $cond_filter.select_filter == 'yes':	
+		#if $cond_filter.cond_region.select_region == 'bed' and str( $cond_filter.cond_region.bedfile ) != 'None'
+			-L '$cond_filter.bedfile'
+		#end if
+		#if $cond_filter.cond_rg.select_rg == 'text':
+			-r '$cond_filter.cond_rg.readgr'
+		#else if $cond_filter.cond_rg.select_rg == 'file':
+			-R '$cond_filter.cond_rg.rgfile'
+		#end if
+		#if str($cond_filter.quality) != '' and int( $cond_filter.quality ) > 0
+			-q $cond_filter.quality
+		#end if
+		#if str( $cond_filter.library ) != ''
+			-l '$cond_filter.library'
+		#end if
+		#if str( $cond_filter.cigarcons ) != ''
+			-m $cond_filter.cigarcons
+		#end if
+		#if str($cond_filter.inclusive_filter) != 'None':
+			#set $filter = $cond_filter.inclusive_filter
+			@FLAGS@
+			-f $flags
+		#end if
+		#if str($cond_filter.exclusive_filter) != 'None':
+			#set $filter = $cond_filter.exclusive_filter
+			@FLAGS@
+			-F $flags
+		#end if
+		#if str($cond_filter.exclusive_filter_all) != 'None':
+			#set $filter = $cond_filter.exclusive_filter_all
+			@FLAGS@
+			-G $flags
+		#end if
+		#for $i, $s in enumerate($cond_filter.readtags)
+                    -x '${s.readtag}'
+                #end for
+	#end if
+	#if $cond_subsample.select_subsample == 'yes':
+		#set fraction=str($cond_subsample.subsample).split('.')[1]
+		#if str($cond_subsample.seed) == '':
+                    -s "\${RANDOM}".$fraction
+		#else
+                    -s $cond_subsample.seed.$fraction
+		#end if
+	#end if
+
+	## output options
+	$adv_output.header
+	$adv_output.collapsecigar
+	#if $adv_output.outputpassing == 'yes'
+		-U inv_outfile
+	#end if
+	-o outfile
+
+	## additional reference data
+        #if $reffa!=None:
+	    -T '$reffa'
+            -t '$reffai'
+        #else:    
+	    --output-fmt-option no_ref
+        #end if
+
+        infile
+	
+	## region filter need to be at the end
+	#if $cond_filter.select_filter == 'yes' and $cond_filter.cond_region.select_region == 'text':
+		'$cond_filter.cond_region.regions'
+        #end if
+
+## if data is converted from an unsorted file (SAM, CRAM, or unsorted BAM) to BAM
+## then sort the output by coordinate, 
+#if 'bam' in $input.ext and ( $input.metadata.sort_order == 'coordinate' or $input.metadata.sort_order == 'queryname'):
+    #set sortedin = True
+#else:
+    #set sortedin = False
+#end if
+
+#if not $sortedin and $outtype == 'bam':
+    && samtools sort
+        -@ \$addthreads -m \${GALAXY_MEMORY_MB:-768}M -T sorttemp
+        -O bam
+        -o 'tmpsam'
+        outfile
+        && mv tmpsam outfile
+    #if $adv_output.outputpassing == 'yes':
+        && samtools sort
+            -@ \$addthreads -m \${GALAXY_MEMORY_MB:-768}M -T sorttemp
+            -O bam
+            -o 'tmpsam'
+            inv_outfile
+        && mv tmpsam inv_outfile
+    #end if
+#end if
+    ]]></command>
+    <inputs>
+        <!-- note unsorted bam includes all derived bam types (inlcuding bam which is sorted) -->
+        <param name="input" format="sam,unsorted.bam,cram" type="data" label="SAM/BAM/CRAM data set" />
+        <param name="outtype" type="select" argument="-b/-C/-c" label="Output type">
+            <help>Select output type. In case of counts only the total number of alignments is returned. All filters are taken into account</help>
+            <option value="same" selected="True">Same as input</option>
+            <option value="sam">SAM</option>
+            <option value="bam">BAM (-b)</option>
+            <option value="cram">CRAM (-C)</option>
+            <option value="count">Count of alignments (-c)</option>
+        </param>
+        <conditional name="cond_filter">
+            <param name="select_filter" type="select" label="Filter alignment">
+                <option value="yes">Yes</option>
+                <option value="no" selected="True">No</option>
+            </param>
+            <when value="yes">
+                <conditional name="cond_region">
+                    <param name="select_region" type="select" label="Filter by regions">
+                        <option value="no" selected="True">No</option>
+                        <option value="text">Manualy specify regions</option>
+                        <option value="bed">Regions from BED file</option>
+                    </param>
+                    <when value="no"/>
+                    <when value="text">
+                        <param name="regions" type="text" optional="false" label="Filter by regions" help="One or more space-separated region specifications to restrict output to only those alignments which overlap the specified region(s)."/>
+                    </when>
+                    <when value="bed">
+                        <param name="bedfile" format="bed" argument="-L" optional="false" type="data" label="Filter by intervals in a bed file" help="Only output alignments overlapping the intervals in the input bed file." />
+                    </when>
+                </conditional>
+                <conditional name="cond_rg">
+                    <param name="select_rg" type="select" label="Filter by readgroup">
+                        <option value="no" selected="True">No</option>
+                        <option value="text">Single read group </option>
+                        <option value="file">Read groups from file</option>
+                    </param>
+                    <when value="no"/>
+                    <when value="text">
+                        <param name="readgr" type="text" argument="-r" label="Filter by read group" help="Only output alignments in read group." />
+                    </when>
+                    <when value="file">
+                        <param name="rgfile" type="data" format="tabular" argument="-R" label="Filter by read groups in file" help="Output alignments in read groups listed in FILE." />
+                    </when>
+                </conditional>
+                <param name="quality" type="integer" argument="-q" optional="true" min="0" label="Filter by quality" help="Skip alignments with MAPQ smaller than INT." />
+                <param name="library" type="text" argument="-l" optional="true" label="Filter by library" help="Only output alignments in library STR" />
+                <param name="cigarcons" type="integer" argument="-m" optional="true" min="0" label="Filter by number of CIGAR bases consuming query sequence" help="Only output alignments with number of CIGAR bases consuming query sequence greater than or equal INT." />
+                <param name="inclusive_filter" argument="-f" type="select" multiple="True" label="Require that these flags are set">
+                    <expand macro="flag_options" />
+                </param>
+                <param name="exclusive_filter" argument="-F" type="select" multiple="True" label="Exclude reads with any of the following flags set">
+                    <expand macro="flag_options" />
+                </param>
+                <param name="exclusive_filter_all" argument="-G" type="select" multiple="True" label="Exclude reads with all of the following flags set">
+                    <expand macro="flag_options" />
+                </param>
+                <!-- TODO could also make this a text field (comma/space separated) -->
+                <repeat name="readtags" title="Filter by read tags">
+                    <param name="readtag" type="text" argument="-x" label="Filter by read tag" help="Read tag to exclude from output."/>
+                </repeat>
+            </when>
+            <when value="no"/>
+        </conditional>
+        <conditional name="cond_subsample">
+            <param name="select_subsample" type="select" argument="-s" label="Subsample alignment">
+                <option value="yes">Yes</option>
+                <option value="no" selected="True">No</option>
+            </param>
+            <when value="yes">
+                <param name="subsample" type="float" optional="False" value="0.5" min="0" max="1" label="Subsampling fraction" help="sets the fraction of templates/pairs to subsample." />
+                <param name="seed" type="integer" optional="True" label="Seed for random number generator" help="If empty a random seed is used." />
+            </when>
+            <when value="no"/>
+        </conditional>
+	<conditional name="addref_cond">
+            <param name="addref_select" type="select" argument="-T"  label="Reference data">
+                <help>Reference data as fasta(.gz). Required for SAM input without @SQ headers and for writing CRAM output.</help>
+                <option value="no" selected="True">No</option>
+                <option value="history">Use a genome/index from the history</option>
+                <option value="cached">Use a built-in genome</option>
+            </param>
+            <when value="no"/>
+            <when value="history">
+                <!-- TODO I decided against the possibility to upload only fai (-t). OK?  -->
+                <!-- TODO planemo complains about fasta.gz -->
+                <param name="ref" format="fasta,fasta.gz" optional="true" type="data" label="Reference FILE">
+                </param>
+            </when>
+            <when value="cached">
+                <param name="ref" type="select" label="Using reference genome">
+                    <options from_data_table="fasta_indexes">
+                        <filter column="1" key="dbkey" ref="input" type="data_meta" />
+                        <validator message="No reference genome is available for the build associated with the selected input dataset" type="no_options" />
+                    </options>
+                </param>
+            </when>
+        </conditional>
+
+        <section name="adv_output" title="Output Options" expanded="false">
+            <param name="header" type="select" argument="-h/-H" label="Header options">
+                <option value="-h">Include header in SAM output (-h)</option>
+                <option value="-H">Return header only (-H)</option>
+                <option value="" selected="True">Exclude header</option>
+            </param>
+            <param name="outputpassing" type="boolean" argument="-U" truevalue="yes" falsevalue="no" checked="false" label="Output alignments not passing the filter" help="Write alignments that are not selected by the various filter options to an extra data set. When this option is used, all alignments (or all alignments intersecting the regions specified) are written to either the output data set or this extra output data set, but never both." />
+            <param name="collapsecigar" type="boolean" argument="-B" truevalue="-B" falsevalue="" checked="false" label="Collapse backward CIGAR operation" help="Collapse the backward CIGAR operation." />
+        </section>
+    </inputs>
+    <outputs>
+        <!-- TODO do I need an action for dbkey? -->
+        <data name="outputsam" format_source="input" from_work_dir="outfile" label="${tool.name} on ${on_string}: filtered alignments">
+            <filter>outtype != 'count'</filter>
+            <!-- TODO is change_format deprecated? how can I modify the type for the different bam types? -->
+            <change_format>
+                <when input="outtype" value="sam" format="sam" />
+                <when input="outtype" value="bam" format="bam" />
+                <when input="outtype" value="cram" format="cram" />
+            </change_format>
+        </data>
+        <data name="invoutputsam" format_source="input" from_work_dir="inv_outfile"  label="${tool.name} on ${on_string}: unfiltered alignments">
+            <filter>adv_output['outputpassing'] == 'yes' and outtype != 'count'</filter>
+            <change_format>
+                <when input="outtype" value="sam" format="sam" />
+                <when input="outtype" value="bam" format="bam" />
+                <when input="outtype" value="cram" format="cram" />
+            </change_format>
+        </data>
+        <data name="outputcnt" format="txt" from_work_dir="sam" label="${tool.name} on ${on_string}: Counts">
+            <filter>outtype == 'count'</filter>
+        </data>
+    </outputs>
+    <tests>
+	<!-- sam to bam (copied from the sam_to_bam tool) -->
+        <test>
+            <param name="input" ftype="sam" value="sam_to_bam_in1.sam" />
+            <param name="outtype" value="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" ftype="fasta" dbkey="equCab2" value="chr_m.fasta" />
+            </conditional>
+            <output name="outputsam" ftype="bam" file="sam_to_bam_out1.bam" />
+        </test>
+        <test>
+            <param name="input" ftype="sam" dbkey="equCab2" value="sam_to_bam_in1.sam" />
+            <param name="outtype" value="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="cached" />
+                <param name="ref" value="equCab2chrM" />
+            </conditional>
+            <output name="outputsam" ftype="bam" file="sam_to_bam_out2.bam" />
+        </test>
+        <test>
+            <param name="input" ftype="sam" value="sam_to_bam_noheader_in2.sam" />
+            <param name="outtype" value="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" ftype="fasta" dbkey="equCab2" value="chr_m.fasta" />
+            </conditional>
+            <output name="outputsam" ftype="bam" file="sam_to_bam_out3.bam" />
+        </test>
+        <!-- bam to cram + region filter (adapted from bam_to_cram tool)-->
+        <test>
+            <param name="input" value="test.bam" ftype="bam" />
+            <param name="outtype" value="cram" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" />
+            </conditional>
+            <conditional name="cond_filter">
+                <param name="select_filter" value="yes" />
+                <conditional name="cond_region">
+                    <param name="select_region" value="no"/>
+                </conditional>
+            </conditional>
+            <output name="outputsam" file="test.cram" compare="sim_size" delta="250" />
+        </test>
+        <test>
+            <param name="input" value="test.sam" ftype="sam" />
+            <param name="outtype" value="cram" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" />
+            </conditional>
+            <conditional name="cond_filter">
+                <param name="select_filter" value="yes" />
+                <conditional name="cond_region">
+                    <param name="select_region" value="no"/>
+                </conditional>
+            </conditional>
+            <output name="outputsam" file="test.cram" compare="sim_size" delta="250" />
+        </test>
+        <test>
+            <param name="input" value="test.bam" ftype="bam" />
+            <param name="outtype" value="cram" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" />
+            </conditional>
+            <conditional name="cond_filter">
+                <param name="select_filter" value="yes" />
+                <conditional name="cond_region">
+                    <param name="select_region" value="text"/>
+                    <param name="regions" value="CHROMOSOME_I" />
+                </conditional>
+            </conditional>
+            <output name="outputsam" file="test.cram" compare="sim_size" delta="250" />
+        </test>
+        <!-- bam to sam + header options (adapted from bam_to_sam tool)-->
+        <test>
+            <param ftype="bam" name="input" value="bam_to_sam_in1.bam" />
+            <param name="outtype" value="sam" />
+            <param name="header" value="-h" />
+            <output file="bam_to_sam_out1.sam" name="outputsam" />
+        </test>
+        <test>
+            <param ftype="bam" name="input" value="bam_to_sam_in1.bam" />
+            <param name="outtype" value="sam" />
+            <param name="header" value="-H" />
+            <output file="bam_to_sam_out2.sam" name="outputsam" />
+        </test>
+        <test>
+            <param ftype="bam" name="input" value="bam_to_sam_in1.bam" />
+            <param name="outtype" value="sam" />
+            <param name="header" value="" />
+            <output file="bam_to_sam_out3.sam" name="outputsam" />
+        </test>
+        <!-- cram to bam + region (adapted from cram_to_bam tool)-->
+        <test>
+            <param name="input" value="test.cram" ftype="cram" />
+            <param name="outtype" value="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" />
+            </conditional>
+            <output name="outputsam" file="test.bam" compare="sim_size" delta="250" />
+        </test>
+        <test>
+            <param name="input" value="test.cram" ftype="cram" />
+            <param name="outtype" value="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" />
+            </conditional>
+            <param name="target_region" value="region" />
+            <param name="region_string" value="CHROMOSOME_I" />
+            <output name="outputsam" file="test.bam" compare="sim_size" delta="250" />
+        </test>
+        <test>
+            <param name="input" value="test.cram" ftype="cram" />
+            <param name="outtype" value="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" />
+            </conditional>
+            <param name="target_region" value="regions_bed_file" />
+            <param name="regions_bed_file" value="test.bed" ftype="bed" />
+
+            <output name="outputsam" file="test.bam" compare="sim_size" delta="250" />
+        </test>
+        <test>
+            <param name="input" value="test2.cram" dbkey="equCab2" ftype="cram" />
+            <param name="outtype" value="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="cached" />
+                <param name="ref" value="equCab2chrM" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="no"/>
+            </conditional>
+            <output name="outputsam" file="sam_to_bam_out2.bam" compare="sim_size" delta="250" />
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+With no options or regions specified, prints all alignments in the specified input alignment file (in SAM, BAM, or CRAM format) to standard output in SAM format (with no header).
+
+You may specify one or more space-separated region specifications after the input filename to restrict output to only those alignments which overlap the specified region(s). Use of region specifications requires a coordinate-sorted and indexed input file (in BAM or CRAM format).
+
+Regions can be specified as: RNAME[:STARTPOS[-ENDPOS]] and all position coordinates are 1-based.
+
+Important note: when multiple regions are given, some alignments may be output multiple times if they overlap more than one of the specified regions.
+
+Examples of region specifications:
+
+- chr1 Output all alignments mapped to the reference sequence named 'chr1' (i.e. @SQ SN:chr1).
+- chr2:1000000 The region on chr2 beginning at base position 1,000,000 and ending at the end of the chromosome.
+- chr3:1000-2000 The 1001bp region on chr3 beginning at base position 1,000 and ending at base position 2,000 (including both end positions).
+- '*' Output the unmapped reads at the end of the file. (This does not include any unmapped reads placed on a reference sequence alongside their mapped mates.)
+- . Output all alignments. (Mostly unnecessary as not specifying a region at all has the same effect.)
+
+
+The -b, -C, -1, -u, -h, -H, and -c options change the output format from the default of headerless SAM, and the -o and -U options set the output file name(s).
+
+The -t and -T options provide additional reference data. One of these two options is required when SAM input does not contain @SQ headers, and the -T option is required whenever writing CRAM output.
+
+The -L, -r, -R, -q, -l, -m, -f, and -F options filter the alignments that will be included in the output to only those alignments that match certain criteria.
+
+The -x, -B, and -s options modify the data which is contained in each alignment.
+
+Finally, the -@ option can be used to allocate additional threads to be used for compression, and the -? option requests a long help message.
+    </help>
+    <expand macro="citations"/>
+</tool>
