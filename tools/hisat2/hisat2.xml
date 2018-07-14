@@ -1,4 +1,4 @@
-<tool id="hisat2" name="HISAT2" version="2.1.0+galaxy1" profile="17.01">
+<tool id="hisat2" name="HISAT2" version="2.1.0+galaxy2" profile="17.01">
     <description>A fast and sensitive alignment program</description>
     <macros>
         <import>hisat2_macros.xml</import>
@@ -6,6 +6,7 @@
     <requirements>
         <requirement type="package" version="2.1.0">hisat2</requirement>
         <requirement type="package" version="1.8">samtools</requirement>
+        <requirement type="package" version="1.3">seqtk</requirement>
     </requirements>
     <stdio>
         <regex level="fatal" match="hisat2-align exited with value 1" source="both" />
@@ -93,7 +94,27 @@
         #set read2 = "input_r.fastq"
     #end if
     ln -s '${library.input_1.reverse}' ${read2} &&
-
+#elif str( $library.type ) == "paired_interleaved":
+    #if $library.input_1.is_of_type("fastq.gz", "fastqsanger.gz"):
+        #set read1 = "input_f.fastq.gz"
+        #set compressed = "GZ"
+    #else if $library.input_1.is_of_type("fastq.bz2", "fastqsanger.bz2"):
+        #set read1 = "input_f.fastq.bz2"
+        #set compressed = "BZ2"
+    #else if $library.input_1.is_of_type('fasta'):
+        #set reads_are_fastq = False
+        #set read1 = "input_f.fasta"
+    #else:
+        #set read1 = "input_f.fastq"
+    #end if
+    ln -f -s '${library.input_1}' ${read1} &&
+    #if $library.input_1.is_of_type("fastq.bz2", "fastqsanger.bz2"):
+        #set read1 = "<(bzcat input_f.* | seqtk seq -1 /dev/stdin)"
+        #set read2 = "<(bzcat input_f.* | seqtk seq -2 /dev/stdin)"
+    #else:
+        #set read1 = "<(seqtk seq -1 input_f.*)"
+        #set read2 = "<(seqtk seq -2 input_f.*)"
+    #end if
 #else:
     #if $library.input_1.is_of_type("fastq.gz", "fastqsanger.gz"):
         #set read1 = "input_f.fastq.gz"
@@ -155,10 +176,14 @@ hisat2
     #end if
 
 #else:
-
-    -1 '${read1}'
-    -2 '${read2}'
-
+    ##quotes are embedded in r1 and r2 variables, needed to allow use of <()
+    #if str( $library.type ) == "paired_interleaved":
+      -1 ${read1}
+      -2 ${read2}
+    #else:
+      -1 '${read1}'
+      -2 '${read2}'
+    #end if
     #if str($adv.output_options.output_options_selector) == "advanced":
         #if str( $adv.output_options.unaligned_file ) == "true":
             #if $compressed == "GZ":
@@ -342,10 +367,11 @@ hisat2
 
         <!-- Reads -->
             <conditional name="library">
-                <param name="type" type="select" label="Single-end or paired-end reads?">
+                <param name="type" type="select" label="Is this a single or paired library">
                     <option value="single">Single-end</option>
                     <option value="paired">Paired-end</option>
-                    <option value="paired_collection">Paired-end Collection</option>
+                    <option value="paired_collection">Paired-end Dataset Collection</option>
+                    <option value="paired_interleaved">Paired-end data from single interleaved dataset</option>
                 </param>
 
                 <when value="single">
@@ -366,6 +392,10 @@ hisat2
 
                 <when value="paired_collection">
                     <param name="input_1" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2,fasta" type="data_collection" collection_type="paired" label="Paired Collection" help="Must be of datatype &quot;fastqsanger&quot; or &quot;fasta&quot;" />
+                    <expand macro="paired_end_options" />
+                </when>
+                <when value="paired_interleaved">
+                    <param name="input_1" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2,fasta" type="data" label="Interleaved FASTQ file" help="Must be of datatype &quot;fastqsanger&quot; or &quot;fasta&quot;. --interleaved"/>
                     <expand macro="paired_end_options" />
                 </when>
             </conditional>
@@ -708,6 +738,38 @@ hisat2
             <param name="new_summary" value="true" />
             <param name="summary_file" value="true" />
             <output name="summary_file" file="hisat_output.summary" ftype="txt" />
+        </test>-->
+        <!-- Ensure interleaved input works -->
+        <test expect_num_outputs="1" >
+            <param name="type" value="paired_interleaved" />
+            <param name="source" value="history" />
+            <param name="history_item" ftype="fasta" value="phiX.fa" />
+            <param name="input_1" ftype="fastqsanger" value="hisat_input_1_interleaved.fastq" />
+            <output name="output_alignments" file="hisat_output_1.bam" ftype="bam" lines_diff="2" />
+        </test>
+        <!-- Ensure interleaved bz input works -->
+        <test expect_num_outputs="1" >
+            <param name="type" value="paired_interleaved" />
+            <param name="source" value="history" />
+            <param name="history_item" ftype="fasta" value="phiX.fa" />
+            <param name="input_1" ftype="fastqsanger.bz2" value="hisat_input_1_interleaved.fastq.bz2" />
+            <output name="output_alignments" file="hisat_output_1.bam" ftype="bam" lines_diff="2" />
+        </test>
+        <!-- Ensure interleaved gz input works -->
+        <test expect_num_outputs="1" >
+            <param name="type" value="paired_interleaved" />
+            <param name="source" value="history" />
+            <param name="history_item" ftype="fasta" value="phiX.fa" />
+            <param name="input_1" ftype="fastqsanger.gz" value="hisat_input_1_interleaved.fastq.gz" />
+            <output name="output_alignments" file="hisat_output_1.bam" ftype="bam" lines_diff="2" />
+        </test>
+        <!-- Ensure interleaved fasta input works -->
+        <test expect_num_outputs="1" >
+            <param name="type" value="paired_interleaved" />
+            <param name="source" value="history" />
+            <param name="history_item" ftype="fasta" value="phiX.fa" />
+            <param name="input_1" ftype="fasta" value="hisat_input_1_interleaved.fasta" />
+            <output name="output_alignments" file="hisat_output_1_noqual.bam" ftype="bam" lines_diff="2" />
         </test>
     </tests>
 
