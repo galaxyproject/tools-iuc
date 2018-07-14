@@ -1,0 +1,173 @@
+<tool id="umi2trans" name="UMI to Transcripts" version="@VERSION@.1">
+    <description>converts UMI counts to Transcript counts based on Bayesian statistics</description>
+    <requirements>
+        <requirement type="package" version="3.3.0" >python</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+    python '$u2t_conf' > '$output_matrix'
+    ]]></command>
+    <configfiles>
+        <configfile name="u2t_conf" >
+import sys
+from math import log
+
+umi_matrix = '$input_matrix'
+barcode_len = int('$barcode_length')
+
+bn = 4 ** barcode_len
+
+with open(umi_matrix, 'r') as f:
+    print f.readline(),
+
+    for line in f:
+        tokens = line.split()
+        gene = tokens[0]
+        out_arr = []
+        
+        for count in map(float, tokens[1:]):
+
+            if count == bn:
+                count = count - .5
+
+            c_out = "0"
+            if count != 0:
+                c_out = "%.14f" % (-log(1 - count/bn) * bn)
+                
+            out_arr.append(c_out)
+
+        print "%s\t%s" % (gene.strip(), '\t'.join(out_arr))
+       
+        </configfile>
+    </configfiles>
+    <inputs>
+        <param name="input_matrix" type="data" format="tabular" label="Count matrix of unique UMIs" />
+        <param name="barcode_length" type="integer" label="The size of the UMI barcodes" min="2" value="6" help="e.g. A barcode format of 'CCCCCCUUUUUU', where Cs are cell barcodes and Us are UMI barcodes, would yield an UMI size of 6. (This means there are 4^6 possible UMIs in our data.)" />
+    </inputs>
+    <outputs>
+        <data name="output_matrix" format_source="input_matrix" />
+    </outputs>
+    <tests>
+        <test><!--barcode: 6, default -->
+            <param name="input_matrix" value="mat.1_10.6.umi.tsv" />
+            <output name="output_matrix" value="mat.1_10.6.trans.tsv" />
+        </test>
+        <test><!--barcode: 10 -->
+            <param name="input_matrix" value="mat.100_1000.10.umi.tsv" />
+            <output name="output_matrix" value="mat.100_1000.10.trans.tsv" />
+        </test>
+    </tests>
+    <help><![CDATA[
+This tool converts discrete UMI counts into approximate Transcript numbers using Bayesian statistics.
+
+Derivation
+===========
+
+Settings
+~~~~~~~~
+
+We have the following values:
+
+* The number of all possible UMI’s, which are defined by the length of the random barcode *k*:
+
+.. math::
+
+ K = 4^k
+
+* The space of all possible UMIs is defined as *K*.
+
+* A specific gene *i*, its number of copies in a specific cell *m*\ :sub:`i`, the observed number of UMIs for that gene *k*\ :sub:`o,i`. The number of unobserved UMIs *k*\ :sub:`n,i` is simply
+
+.. math::
+
+  k_{n,i} = K − k_{o,i}
+
+Bionomial approximation
+~~~~~~~~~~~~~~~~~~~~~~~
+
+We now look at each individual k-mer of the space of all possible UMIs. For one of these k-mers *w*, the probability of observing this k-mer is simply *1/K*.  Thus, the probability of not observing this specific k-mer is:
+
+.. math::
+
+   1 − \frac{1}{K}
+
+The probability of not observing this specific k-mers *w ∈ K* in all of the *m*\ :sub:`i` copies that have been tagged by the UMI is thus:
+
+.. math::
+
+ p_{no}(w) = \left( 1 - \frac{1}{K} \right)^^{m_i} = 
+
+
+which is independent of our specific *w* we looked at. Now we ask what is the expected number of **not** observed k-mers? It is simply the expectation over all possible k-mers, i.e. 
+
+for *w 
+ϵ K* :
+
+.. math::
+
+ E(No-not-observed) =
+
+ = \sum 1. p_{no}(w) =  \sum 1 . \left(1 - \frac{1}{K}\right)^^{m_i}
+
+ = \left( 1- \frac{1}{K} \right)^^{m_i}  \sum 1
+
+ = \left( 1- \frac{1}{K} \right)^^{m_i}  K  =  k_{n,i}
+
+Now we are actually interested in the real number of copies *m*\ :sub:`i`. Using ln on both sides of the above equation gives
+
+.. math::
+
+ m_i . ln\left( 1- \frac{1}{K} \right) = ln\left(\frac{k_{n,i}}{K}\right)
+
+
+as our table provides *k*\ :sub:`o,i` instead of *k*\ :sub:`n,i` we simply use:
+
+.. math::
+
+ \frac{k_{n,i}}{K} =  \frac{K - k_{o,i}}{K} = 1 -  \frac{k_{o,i}}{K}
+
+and thus:
+
+.. math::
+
+ m_i . ln\left( 1- \frac{1}{K} \right) = ln\left(1 -  \frac{k_{o,i}}{K}\right)
+
+Solving for *m*\ :sub:`i` we get
+
+.. math::
+
+ m_i = \frac{ln\left(1 -  \frac{k_{o,i}}{K}\right)}{ln\left( 1- \frac{1}{K} \right)}
+
+We don't like the *ln(1- (1/K))* term in this equation. For that purpose, we use a first order approximation for *ln(1−a)* as it comes from the Taylor approximation of log, where we simply say that 
+
+.. math::
+
+ ln  \left(1- \frac{1}{K}\right) \approx -\frac{1}{K}
+
+Then, our calculation for *m*\ :sub:`i` becomes:
+
+.. math::
+
+ m_i = \frac{ln\left(1 -  \frac{k_{o,i}}{K}\right)}{ln\left( 1- \frac{1}{K} \right)}
+
+ \approx \frac{ln\left(1 -  \frac{k_{o,i}}{K}\right)}{\frac{1}{K}}
+
+ = -K . ln \left( 1 - \frac{k_{0,i}}{K} \right)
+
+which is our formula applied to each value in the input matrix.
+
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+@article{grun2014validation,
+  title={Validation of noise models for single-cell transcriptomics},
+  author={Gr{\"u}n, Dominic and Kester, Lennart and Van Oudenaarden, Alexander},
+  journal={Nature methods},
+  volume={11},
+  number={6},
+  pages={637},
+  year={2014},
+  publisher={Nature Publishing Group}
+}
+</citation>
+    </citations>
+</tool>
