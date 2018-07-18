@@ -7,11 +7,13 @@ FOR CONTRIBUTOR:
 
 FOR REVIEWER:
 * [ ] .shed.yml file ok
-* [ ] Indentation is correct
+* [ ] Indentation is correct (4 spaces)
 * [ ] Tool version/build ok
-* [ ] `<command/>`: file names are escaped
+* [ ] `<command/>`
+  - [ ] Text parameters, input and output files `'single quoted'`
+  - [ ] Use of `<![CDATA[ ... ]]>` tags
 * [ ] Tests
   - [ ] Parameters are reasonably covered
   - [ ] Test files are appropriate
 * [ ] Toolshed user `tools-iuc` has access to associated toolshed repo(s)
-* [ ] Complies with other best practice
+* [ ] Complies with other best practice in [Best Practices Doc](http://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html)
