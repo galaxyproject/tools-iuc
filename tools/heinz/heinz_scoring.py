@@ -13,7 +13,7 @@ Output:
     Scores, which will be used as the input of Heinz.
     First column: names, second column: scores.
 
-Python 3.5+ is required.
+Python 3 is required.
 """
 # Implemented by: Chao (Cico) Zhang
 # Homepage: https://Hi-IT.org
