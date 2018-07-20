@@ -1,4 +1,4 @@
-# New Tool Review Checklist
+# New Tool Review Guide
 
 This document describes a checklist suitable as a guide for reviewers of pull requests against the IUC's tools repo. It is a guide only and reviewer discretion is still advised.
 
@@ -78,12 +78,6 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 * [ ] If there is more than one tool present (tool collection), is there a `macros.xml` file?
 * [ ] Is it appropriate?
 
-**&lt;requirements&gt;**
-
-* [ ] Are there corresponding conda packages?
-* [ ] Are they versioned correctly with `@TOOL_VERSION@`? (or multiple packages/docker containers with correctly described versions)
-* [ ] If using R/Perl/Python/Ruby packages etc versions specified in correctly formatted `*_environment` tags?
-
 **&lt;edam_topics&gt;**
 
 **&lt;edam_operations&gt;**
@@ -91,6 +85,10 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 **&lt;[parallelism]&gt;**
 
 **&lt;requirements&gt;**
+
+* [ ] Are there corresponding conda packages?
+* [ ] Are they versioned correctly with `@TOOL_VERSION@`? (or multiple packages/docker containers with correctly described versions)
+* [ ] If using R/Perl/Python/Ruby packages etc versions specified in correctly formatted `*_environment` tags?
 
 **&lt;~~code~~&gt;**
 
@@ -114,7 +112,6 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 * [ ] Is the Cheetah indented and readable?
 * [ ] Are multiple commands joined with `&&`?
 * [ ] Are any extra temporary files (such as indices etc.) created in the CWD?
-
 
 **&lt;environment_variables&gt;**
 
@@ -167,5 +164,5 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 **&lt;citations&gt;**
 
-* [ ] Is there a citation, if not - should there be one?
-* [ ] Is it in bibtex or doi format?
+* [ ] Is there a citation
+    - [ ] Is it in bibtex or doi format?
