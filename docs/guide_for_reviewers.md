@@ -26,7 +26,7 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 * [ ] Is there a correctly formatted `.shed.yml` file?
 * [ ] Are the categories appropriate?
-* [ ] Does the name match the `.xml` file?
+* [ ] Does the name match the `.xml` file or in the case of multiple tools the folder name?
 * [ ] Is the owner set to `iuc`? If not, is the owner set to a current wrapper?
 * [ ] Is there a `description`?
 * [ ] Are there `homepage_url` & `remote_repository_url` fields and do they point somewhere sensible?
@@ -65,6 +65,7 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 * [ ] id and name sensible and not previously used?
 * [ ] Version follow [PEP 440](https://www.python.org/dev/peps/pep-0440/) with `+galaxyN`?
+    - [ ] Alphanumeric only and no `-`
 * [ ] Is there a `@TOOL_VERSION@` macro token used? (Should there be?)
 * [ ] If there is a `profile`, is it appropriate?
 
@@ -79,6 +80,8 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 * [ ] Is it appropriate?
 
 **&lt;edam_topics&gt;**
+
+* Link to the [EDAM browser](https://bioportal.bioontology.org/ontologies/EDAM?p=classes)
 
 **&lt;edam_operations&gt;**
 
@@ -150,7 +153,6 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 **&lt;tests&gt;**
 
-* [ ] Are there tests?
 * [ ] Is most of the functionality of the tool tested?
 * [ ] Are the test datasets included in the `test-data` directory?
 * [ ] Is the test data of suitable size? (i.e. small..)
@@ -159,7 +161,7 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 **&lt;help&gt;**
 
 * [ ] Is it book-ended with `<![CDATA[ ... ]]>` tags?
-* [ ] Is it correctly formatted *restructuredText*?
+* [ ] Is it correctly formatted [restructuredText](http://docutils.sourceforge.net/docs/ref/rst/restructuredtext.html)?
 * [ ] Are any images in the `./static/images` directory?
 
 **&lt;citations&gt;**
