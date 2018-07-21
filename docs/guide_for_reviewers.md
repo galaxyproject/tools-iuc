@@ -60,11 +60,9 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 * [ ] If there is more than one tool present (tool collection), is there a `macros.xml` file?
 * [ ] Is it appropriate?
 
-**&lt;edam_topics&gt;**
+**&lt;edam_topics&gt; & &lt;edam_operations&gt;**
 
 * Link to the [EDAM browser](https://bioportal.bioontology.org/ontologies/EDAM?p=classes)
-
-**&lt;edam_operations&gt;**
 
 **&lt;[parallelism]&gt;**
 
@@ -130,6 +128,7 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 * [ ] Do the tests pass?
 * [ ] Is the output filtering tested using the `expect_num_outputs` attribute?
 * [ ] Are there unused files in `test-data/`
+* [ ] In the case where the tool uses built in reference data, is there a `tool-data/tool_data_table_conf.xml.test` file?
 
 **&lt;help&gt;**
 
@@ -141,3 +140,10 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 * [ ] Is there a citation
     - [ ] Is it in bibtex or doi format? (doi preferred)
+
+### Data Tables
+
+For tools that use the built in reference data and indices:
+
+* [ ] Is there a `tool-data/*.loc.sample` file?
+* [ ] Is there a `tool-data/tool_data_table_conf.xml.sample` file?
