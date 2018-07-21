@@ -40,26 +40,7 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 **Order of XML Elements**
 
-* [ ] Are the xml elements in the suggested order?
-    * tool
-    * description
-    * macros
-    * edam_topics
-    * edam_operations
-    * parallelism
-    * requirements
-    * ~~code~~ *deprecated*
-    * stdio
-    * version_command
-    * command
-    * environment_variables
-    * configfiles
-    * inputs
-    * request_param_translation
-    * outputs
-    * tests
-    * help
-    * citations
+* [ ] Are the xml elements in the suggested order as in [Best Practices Coding Style](http://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#coding-style)?
 
 **&lt;tool&gt; (name and id etc.)**
 
@@ -89,13 +70,13 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 **&lt;requirements&gt;**
 
-* [ ] Are there corresponding conda packages?
+* [ ] Are there corresponding conda packages in best practice channels?
 * [ ] Are they versioned correctly with `@TOOL_VERSION@`? (or multiple packages/docker containers with correctly described versions)
 * [ ] If using R/Perl/Python/Ruby packages etc versions specified in correctly formatted `*_environment` tags?
 
 **&lt;~~code~~&gt;**
 
-* [ ] this tagset has been deprecated and should not be used.
+* [ ] this tagset has been deprecated and should not be used.  [galaxyproject/galaxy#2712](https://github.com/galaxyproject/galaxy/issues/2712)
 
 **&lt;stdio&gt;**
 
@@ -125,17 +106,7 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 **&lt;inputs&gt; and &lt;parameters&gt;**
 
 *General*
-* [ ] Order of parameter attributes:
-    * name
-    * argument
-    * type
-    * format
-    * min | truevalue
-    * max | falsevalue
-    * value | checked
-    * optional
-    * label
-    * help
+* [ ] Order of parameter attributes as per [Best Practices Coding Style](http://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#coding-style)
 * [ ] Do the `argument` attributes include the long form of the underlying tool parameters?
 
 *Boolean*
@@ -157,6 +128,8 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 * [ ] Are the test datasets included in the `test-data` directory?
 * [ ] Is the test data of suitable size? (i.e. small..)
 * [ ] Do the tests pass?
+* [ ] Is the output filtering tested using the `expect_num_outputs` attribute?
+* [ ] Are there unused files in `test-data/`
 
 **&lt;help&gt;**
 
@@ -167,4 +140,4 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 **&lt;citations&gt;**
 
 * [ ] Is there a citation
-    - [ ] Is it in bibtex or doi format?
+    - [ ] Is it in bibtex or doi format? (doi preferred)
