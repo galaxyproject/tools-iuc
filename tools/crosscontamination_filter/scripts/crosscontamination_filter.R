@@ -18,8 +18,6 @@ input_matrix <- read.table(
 )
 input_matrix[is.na(input_matrix)] <- 0
 
-
-
 spec = list(
     barcodes = 'celseq_barcodes.192.raw',
 
@@ -114,7 +112,7 @@ sanityCheck <- function(spec, matrix.headers){
 }
 
 
-sanityCheck(experiment.spec, colnames(input_matrix))
+sanityCheck(spec, colnames(input_matrix))
 
                                         #
                                         #
@@ -124,14 +122,14 @@ calculatePlateIndexes <- function(plate.form, full.barcode.size){
     num.plates <<- length(names(plate.form))
     batches.per.plate <- length(plate.form[[1]])
     plate.size <- batches.per.plate * full.barcode.size
-    return(seq(plate.size, num.plates * plate.size, plate.size))
+    return(seq(0, num.plates * plate.size, plate.size))
 }
 
 calculateFullBarcodeIndexes <- function(num.batches, full.barcode.size){
     #' For N batches and a list of actually detected barcodes in the header,
     #' generates where the blue lines should be
     bsize <- full.barcode.size
-    return(seq(bsize, num.batches * bsize, bsize))    
+    return(seq(0, num.batches * bsize, bsize))
 }
 
 calculateRealBarcodeIndexes <- function(barcode.form, full.barcode.size){
@@ -144,7 +142,7 @@ calculateRealBarcodeIndexes <- function(barcode.form, full.barcode.size){
         sub.batches <- barcode.form[[key]]  # 1,3,5,7 or 2,4,6,8
         res2 <- lapply(sub.batches, function(bat){
             batches[[bat]] <<- size.of.range
-        })        
+        })
     })
     ## We now have sizes per batch, in order of batch
     ## Need to place these at positions after each full barcode size
@@ -157,35 +155,106 @@ calculateRealBarcodeIndexes <- function(barcode.form, full.barcode.size){
     return(positions)
 }
 
+                                        #
+                                        #
+                                        # Reorder matrix
+                                        #
+reorderMatrixHeaders <- function(headers, barcode.format){
+    #' For Batch get acceptable barcodes
+    form <- barcode.format
+    batch.ordering <- list()
+    batch.ordering.correct <- list()
 
-### MUST! MUST! MUST! REORDER COLUMNS SO THAT FOR EACH BATCH, IT FOLLOWS THE BARCODE ORDER GIVEN IN THE SPEC
+    res <- sapply(names(form), function(key){
+        rng <- as.integer(unlist(strsplit(key, '-')))
+        ranges <- seq(rng[1],rng[2])
+
+        barc.wanted <- barcodes[ranges]
+        barc.unwant <- barcodes[!(barcodes %in% barc.wanted)]
+
+        sub.batches <- form[[key]]  # 1,3,5,7 or 2,4,6,8
+        res2 <- lapply(sub.batches, function(bat){
+            batch_bar <- headers[grepl(paste("P\\d_B",bat,"_([ACGT]+)", sep=""), headers)]
+            barcs.in.batch <- sub("P._B._([ACGT]+)", "\\1", batch_bar)
+            b.wanted <- batch_bar[barcs.in.batch %in% barc.wanted]
+            b.unwant <- batch_bar[barcs.in.batch %in% barc.unwant]
+
+            if (sum(b.wanted %in% b.unwant) > 0){
+                stop("Barcode given twice!", b.wanted[b.wanted %in% b.unwant])
+            }
+            barc_order <- c(b.wanted, b.unwant)
+            batch.ordering[[bat]] <<- barc_order
+            batch.ordering.correct[[bat]] <<- b.wanted
+        })
+    })
+
+    barcode.ordering <- c()
+    barcode.ordering.correct <- c()
+
+    res <- lapply(1:length(batch.ordering), function(bat){
+        barc_order <- batch.ordering[[bat]]
+        barc_order.correct <- batch.ordering.correct[[bat]]
+        barcode.ordering <<- c(barcode.ordering, barc_order)
+        barcode.ordering.correct <<- c(barcode.ordering.correct, barc_order.correct)
+    })
+
+    return(list(all=barcode.ordering,correct=barcode.ordering.correct))
+}
+
+ordering <- reorderMatrixHeaders(colnames(input_matrix), spec.format)
+
+nmatrix <- input_matrix[,ordering$all]
+cmatrix <- input_matrix[,ordering$correct]
+
+library(ggplot2)
+library(gridExtra)
 
 contaminationPlot <- function(columncounts, title = "", indexes.plates, indexes.fullbc, indexes.truebc)
 {
     par(mfrow=c(2,1))
 
-    plot(columncounts, pch = 16, cex = .4, ylab = "Library Size", xlab="Cell No.",
-         main = paste("Contamination Plot\n", title)
-    )
-    abline(v=indexes.plates, col='red', lty=3)
-    abline(v=indexes.fullbc, col='blue', lty=3)
-    abline(v=indexes.truebc, col='green', lty=3)
+    dfer <- data.frame(colcounts=columncounts)
+
+    ## Remove spots where plates and full barcodes mix
+    indexes.fullbc = indexes.fullbc[!(indexes.fullbc %in% indexes.plates)]
+
+    nit <- length(indexes.truebc)
+    nif <- length(indexes.fullbc)
+    nip <- length(indexes.plates)
+    mval <- max(dfer)
+
+    truebcs <- data.frame(x=indexes.truebc, y=rep(0,nit), xend=indexes.truebc, yend=rep(mval,nit))
+    fullbcs <- data.frame(x=indexes.fullbc, y=rep(0,nif), xend=indexes.fullbc, yend=rep(mval,nif))
+    platess <- data.frame(x=indexes.plates, y=rep(0,nip), xend=indexes.plates, yend=rep(2*mval/5,nip))
+
+    p1 <- ggplot() +
+        geom_point(
+            date=dfer, aes(x=1:length(rownames(dfer)), y=dfer$colcounts),
+            pch = 16, cex = 1) +
+        theme(plot.title = element_text(hjust = 0.5)) +
+        labs(title=paste("Contamination Plot\n", title), y="Library Size", x="Cell No.") +
+        geom_segment(data=truebcs, aes(x=x,y=y,xend=xend,yend=yend), col='darkgreen', lty=2, size=0.5) +
+        geom_segment(data=fullbcs, aes(x=x,y=y,xend=xend,yend=yend), col='blue', lty=1, size=0.5) +
+        geom_segment(data=platess, aes(x=x,y=y,xend=xend,yend=yend), col='blue', lty=1, size=1) +
+        scale_y_continuous(breaks=seq(0,mval + 10000, 10000)) +
+        scale_x_continuous(breaks=seq(0,length(rownames(dfer)),500))
+
+    ggsave("test.pdf", device="pdf")
 
     message("Red   = plates")
     message("Blue  = across all barcodes")
     message("Green = across batch-specific barcodes ")
     message("No. cells with lib sizes > 20000 : ", sum(columncounts > 20000))
 
-    hist(log10(columncounts), breaks = 100, xlim = c(0,5))
 }
 
-out_plot = "test.png"
-png(out_plot)
 contaminationPlot(
-    colSums(input_matrix),
-    title="pre-merge",
+    colSums(nmatrix),
+    title="Pre-Filter",
     calculatePlateIndexes(spec$plates, num.barcodes),
     calculateFullBarcodeIndexes(num.batches, num.barcodes),
     calculateRealBarcodeIndexes(spec$format, num.barcodes)
 )
-dev.off()
+
+## TODO -- filter out unwanted, and plot contamination plot and histogram as seperate pages of a PDF
+##      -- also fix the axes report the minimum
