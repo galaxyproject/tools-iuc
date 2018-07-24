@@ -1,27 +1,105 @@
-<tool id="raceid3" name="RaceID3" version="@VERSION@.0">
-    <description>Performs RaceID3 analysis
-    </description>
+<tool id="crosscontamination_filter" name="Cross-contamination Filter" version="@VERSION@.0">
+    <description>for use in single-cell analyses to examine whether any samples stem from false positives</description>
+    <macros>
+        <token name="@VERSION@">0.1</token>
+        <macro name="sanitize_batch">
+            <sanitizer invalid_char="">
+                <valid initial="string.digits">
+                    <add value=","/>
+                </valid>
+            </sanitizer>
+        </macro>
+
+        <macro name="sanitize_regex">
+            <sanitizer invalid_char="">
+                <valid initial="string.letters,string.digits">
+                    <add value="!"/>
+                    <add value="="/>
+                    <add value="-"/>
+                    <add value="."/>
+                    <add value="*"/>
+                    <add value="?"/>
+                    <add value="+"/>
+                    <add value="\\"/>
+                    <add value="_"/>
+                    <add value="&#91;"/> <!-- left square bracket, e.g subselecting from vec[1] -->
+                    <add value="&#93;"/> <!-- right square bracket -->
+                    <add value="&#40;"/> <!-- left parenthesis -->
+                    <add value="&#41;"/> <!-- right parenthesis -->
+                </valid>
+            </sanitizer>
+        </macro>        
+    </macros>
+    
     <requirements>
-        <requirement type="package" version="3.4.1" >r</requirement>
+        <requirement type="package" version="3.4.3" >r</requirement>
+        <requirement type="package" version="2.2.1" >r-ggplot2</requirement>
+        <requirement type="package" version="2.2.1" >r-gridextra</requirement>
     </requirements>
 
-    <!-- <version_command><![CDATA[ -->
-    <!-- Rscript '$__tool_directory__/scripts/cross_contamination.R' -->
-    <!-- ]]></version_command> -->
+
+    <version_command><![CDATA[
+    Rscript '$__tool_directory__/scripts/crosscontamination_filter.R'
+    ]]></version_command>
 
     <command detect_errors="exit_code"><![CDATA[
-    Rscript '$__tool_directory__/scripts/cross_contamination.R' '$crossconf'
-    Rscript '$__tool_directory__/scripts/raceid3.R' '$race3conf'
+    Rscript '$__tool_directory__/scripts/crosscontamination_filter.R' '$crossconf'
     ]]></command>
 
     <configfiles>
-        <configfile name="userconf"><![CDATA[
+        <configfile name="crossconf"><![CDATA[
                                       # BEGIN USER CONFIG
-reader.file = '$input'
-reader.header = T
+script.dir = '$__tool_directory__/scripts'
+input_matrix <- read.table(
+    '$input_table',
+    stringsAsFactors = F,
+    na.strings=c("NA", "-", "?", "."),
+    header=TRUE,
+    row.names=1
+)
+input_matrix[is.na(input_matrix)] <- 0
 
-size.barcodes = 192
-size.batch = 96
+
+#if str($inbuilt_spec.select_use) == "mpi":
+spec = list(
+    barcodes = '$input_barcodes',
+    format = list(
+        "1-96"   = c(1,3,5,7),
+        "97-192" = c(2,4,6,8)
+    ),
+    plates = list(
+        "1" = c(1,2,3,4),
+        "2" = c(5,6,7,8)
+    )
+)
+#elif str($inbuilt_spec.select_use) == "custom":
+spec = list(
+    barcodes = '$input_barcodes',
+    format = list(
+    #for $i, $s in enumerate($inbuilt_spec.barcode_format)
+        "${s.range_start}-${s.range_end}" = c( ${s.batches} ) 
+        #if $i < len(list($inbuilt_spec.barcode_format)) - 1
+        ,
+        #end if
+    #end for
+    ),
+    plates = list(
+    #for $i, $s in enumerate($inbuilt_spec.plate_format)
+        "${s.plate}" = c( ${s.batches} )
+        #if $i < len(list($inbuilt_spec.plate_format)) - 1
+        ,
+        #end if
+    #end for
+    )
+)
+#end if
+
+
+
+regex.extract = '$advanced.regex_extract'
+regex.display = '$advanced.regex_display'
+out.pdf = '$out_plots'
+out.table = '$out_table'
 
                                       # END USER CONFIG
 ]]>
@@ -29,38 +107,92 @@ size.batch = 96
     </configfiles>
 
     <inputs>
-        <param name="input" type="data" format="tsv,tabular" label="Input Table" />
-        
-        <conditional name="cond_filter" >
-            <param name="filter_on" type="select" label="Filter based upon">
-                <option value="plateand">Headers have Plate and Batch</option>
-                <option value="barcodes">Headers have Barcodes</option>
+        <param name="input_table" type="data" format="tsv,tabular" label="Input Matrix" />
+        <param name="input_barcodes" type="data" format="tsv,tabular,txt" label="Complete Barcodes" />
+
+        <conditional name="inbuilt_spec" >
+            <param name="select_use" type="select" label="Plate Protocol" >
+                <option value="mpi">CelSeq2 Plate Protocol (MPI)</option>
+                <option value="custom">Custom</option>
             </param>
 
-            <when value="plateand" >
-                <param name="plate_size" type="integer" min="10" value="192" label="Number of Cells per Plate" />
-                <param name="lane_size" type="integer" min="10" value="96" label="Number of Cells per Batch" />
-            </when>
+            <when value="mpi" ></when>
+            <when value="custom">
+                <repeat name="barcode_format" title="Barcode Format" help="e.g. Batches 1 and 4 use barcodes 1-100 in the Barcodes file, and Batches 2 and 3 use barcodes 101-200 in the Barcodes file; specify '1' and '100' as Range values, and '1,4' as Batch values, and in the next format specify '101' and '200' as Range values and '2,3' as Batch values" >
+                    <param name="range_start" type="integer" label="Barcode Range: Start" min="1" value="1" />
+                    <param name="range_end" type="integer" label="Barcode Range: End" min="2" value="100" />
+                    <param name="batches" type="text" label="Batches utilizing this Range" value="1,4" >
+                        <expand macro="sanitize_batch" />
+                    </param>
+                </repeat>
 
-            <when value="barcodes" >
-                <param name="barc_file" type="data" label="Barcodes file" help="This file should contain all available barcodes without mixing between batches" />
-                <param name="lane_size" type="integer" min="10" value="96" label="Number of Cells per Batch" />
+                <repeat name="plate_format" title="Plate Format" help="e.g. Plate 1 encompasses Batches 1-4, and Plate 2 encompasses Batches 5-8; specify '1' as a Plate value, and '1,2,3,4' as Batch values, and in the next format specify '2' as a Plate value and '5,6,7,8' as Batch values">
+                    <param name="plate" type="integer" label="Plate Number" min="1" value="1" />
+                    <param name="batches" type="text" label="Batches within this Plate Number" value="1,2,3,4" >
+                        <expand macro="sanitize_batch" />
+                    </param>
+                </repeat>
             </when>
         </conditional>
+
+        <section name="advanced" expanded="false" title="RegEx Parameters" >
+            <param name="regex_extract" type="text" label="RegEx to extract Plate, Batch, and Barcodes from headers" value=".*P(\\d)_(\\d)_([ACTG]+)" >
+                <expand macro="sanitize_regex" />
+            </param>
+            <param name="regex_display" type="text" label="RegEx to replace Plate, Batch, and Barcodes from headers" value="P\\1_B\\2_\\3" >
+                <expand macro="sanitize_regex" />
+            </param>
+        </section>
     </inputs>
     <outputs>
-        <data name="out_plot" format="png" label="Contamination Plot: ${tool.name} on ${on_string}" />
-        <data name="out_table" format_source="input" label="Filtered Table: ${tool.name} on ${on_string}" />
+        <data name="out_plots" format="pdf" label="${tool.name} on ${on_string}: Plots" />
+        <data name="out_table" format_source="input" label="${tool.name} on ${on_string}: Filtered Table" />
     </outputs>
 
     <tests>
-        <!-- Barcodes test -->
+        <!-- Inbuilt MPI -->
         <test>
+            <param name="input_table" value="out3.subtable" />
+            <param name="input_barcodes" value="celseq_barcodes.192.raw" />
+            <conditional name="inbuilt_spec" >
+                <param name="select_use" value="mpi" />
+            </conditional>
+            <output name="out_plots" value="test.pdf" />
+            <output name="out_table" value="test.table" />
         </test>
         <!-- Plate and Lane test -->
         <test>
+            <param name="input_table" value="out3.subtable" />
+            <param name="input_barcodes" value="celseq_barcodes.192.raw" />
+            <conditional name="inbuilt_spec" >
+                <param name="select_use" value="custom" />
+
+                <repeat name="barcode_format" >
+                    <param name="range_start" value="1"/>
+                    <param name="range_end" value="96" />
+                    <param name="batches" value="1,3,5,7" />
+                </repeat>
+                <repeat name="barcode_format" >
+                    <param name="range_start" value="97"/>
+                    <param name="range_end" value="192" />
+                    <param name="batches" value="2,4,6,8" />
+                </repeat>
+                <repeat name="plate_format" >
+                    <param name="plate" value="1" />
+                    <param name="batches" value="1,2,3,4" />
+                </repeat>
+                <repeat name="plate_format" >
+                    <param name="plate" value="2" />
+                    <param name="batches" value="5,6,7,8" />
+                </repeat>
+            </conditional>
+            <output name="out_plots" value="test.pdf" />
+            <output name="out_table" value="test.table" />
         </test>
-        
     </tests>
+    <help><![CDATA[
+Lots of text
+]]></help>
+    <citations></citations>
 </tool>
 
