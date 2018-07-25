@@ -1,24 +1,40 @@
 #!/usr/bin/env R
 
-library(ggplot2)
-library(gridExtra)
-
+require(ggplot2)
+require(gridExtra)
 
 log10histoPlot <- function(columncounts, title=""){
+    #' Log10 histogram plot
+    #'
+    #' @param columncounts colSums(input_matrix)
+    #' @param title Title of plot
+    #' @return ggplot grob
     dfer <- data.frame(colcounts=log10(columncounts))
     p1 <- ggplot(dfer, aes(x=colcounts)) +
         geom_histogram(binwidth = 0.05, color="black",fill="white") +
         theme(plot.title = element_text(hjust = 0.5)) +
-        labs(title="Histogram of Post-Filter Matrix Counts", y="Frequency", x="Library Size (Log10)")
+        labs(title=title, y="Frequency", x="Library Size (Log10)")
 
     return(p1)
 }
 
-contaminationPlot <- function(columncounts, title = "", indexes.plates, indexes.fullbc, indexes.truebc, filtered=FALSE)
-{   
+contaminationPlot <- function(columncounts, title = "",
+                              indexes.plates, indexes.fullbc, indexes.truebc,
+                              filtered=FALSE)
+{
+    #' Plots true and false barcodes
+    #'
+    #'
+    #' @param columncounts colSums(input_matrix)
+    #' @param title plot title
+    #' @param indexes.plates plate line positions
+    #' @param indexes.fullbc full batch line positions
+    #' @param indexes.truebc true batch line positions
+    #' @param filtered specifies whether the positions have been adjusted for true barcodes
+    #' @return ggplot grob
     dfer <- data.frame(colcounts=columncounts)
 
-    ## Remove spots where plates and full barcodes mix
+    ## Remove indexes where plates and full barcodes mix
     indexes.fullbc = indexes.fullbc[!(indexes.fullbc %in% indexes.plates)]
     
     nit <- length(indexes.truebc)

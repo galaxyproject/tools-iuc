@@ -1,10 +1,25 @@
 #!/usr/bin/env R
-                                        #
-                                        #
-                                        # Reorder matrix
-                                        #
+##
+## Reorder matrix
+##
+convertHeadersToSensible <- function(regex.from, regex.to, col.names){
+    #' Strips headers of filenames and sets plate, batch, and barcodes
+    #'
+    #' @param regex.from format to extract plate, batch, and barcodes
+    #' @param regex.to format to set
+    #' @param matrix input matrix to rename headers
+    #' @return updated names
+    return(sub(regex.from, regex.to, col.names))
+}
+
 reorderMatrixHeaders <- function(barcodes, headers, barcode.format){
-    #' For Batch get acceptable barcodes
+    #' Reorder headers to segment wanted and unwanted barcodes on opposite sides
+    #' of each batch
+    #'
+    #' @param barcodes list of full barcodes
+    #' @param headers input matrix headers
+    #' @param barcode.format batch list specifying valid barcodes for each batch
+    #' @return list of all barcodes sorted bilaterally by batch, and true barcodes
     form <- barcode.format
     batch.ordering <- list()
     batch.ordering.correct <- list()
