@@ -1,7 +1,6 @@
 #!/usr/bin/env R
 
 require(ggplot2)
-require(gridExtra)
 
 log10histoPlot <- function(columncounts, title=""){
     #' Log10 histogram plot
