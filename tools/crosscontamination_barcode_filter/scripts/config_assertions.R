@@ -39,7 +39,7 @@ checkNoMissingBarcodes <- function(headers, barcodes){
     barcs.in.matrix <- unique(sort(sub(".*_.*_([ACTG]+)", "\\1", headers)))
     not.in <- !(barcs.in.matrix %in% barcodes)
     if (sum(not.in) > 0){
-        message("Warning: Barcodes in matrix not in barcodes file\n", barc.in.matrix[not.in])
+        message("Warning: Barcodes in matrix not in barcodes file\n", barcs.in.matrix[not.in])
     } else {
         message("All input matrix barcodes accounted for.")
     }

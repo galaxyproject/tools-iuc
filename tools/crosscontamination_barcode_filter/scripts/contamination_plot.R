@@ -42,7 +42,7 @@ contaminationPlot <- function(columncounts, title = "",
     mval <- max(dfer)
   
     ## Aesthetics
-    min.height <- -300
+    min.height <- -200
     tf.spacing.left <- 12
     tf.spacing.right <- 12   
     tf.height <- mval - 10000
@@ -55,10 +55,22 @@ contaminationPlot <- function(columncounts, title = "",
     plate.spacing <- if (filtered) 12 else 24
     plate.height.text <- plate.height - 3000
     
-    truebcs <- data.frame(x=indexes.truebc, y=rep(min.height,nit), xend=indexes.truebc, yend=rep(mval,nit))
-    fullbcs <- data.frame(x=indexes.fullbc, y=rep(min.height,nif), xend=indexes.fullbc, yend=rep(mval,nif))
-    platess <- data.frame(x=indexes.plates, y=rep(min.height,nip), xend=indexes.plates, yend=rep(plate.height,nip))
-    connecting.bar <- data.frame(x=min(indexes.plates), y=min.height, xend=max(indexes.plates), yend=min.height)  
+    truebcs <- data.frame(
+        x=indexes.truebc, y=rep(min.height,nit),
+        xend=indexes.truebc, yend=rep(mval,nit)
+    )
+    fullbcs <- data.frame(
+        x=indexes.fullbc, y=rep(min.height,nif),
+        xend=indexes.fullbc, yend=rep(mval,nif)
+    )
+    platess <- data.frame(
+        x=indexes.plates, y=rep(min.height,nip),
+        xend=indexes.plates, yend=rep(plate.height,nip)
+    )
+    connecting.bar <- data.frame(
+        xsta = min(indexes.plates), ysta = min.height,
+        xfin = max(indexes.plates), yfin = min.height
+    )
       
     p1 <- ggplot()
 
@@ -74,7 +86,7 @@ contaminationPlot <- function(columncounts, title = "",
     
     p1 <- p1 +
         geom_segment(data=platess, aes(x=x,y=y,xend=xend,yend=yend), col=plate.color, lty=1, size=1) +
-        geom_segment(data=connecting.bar, aes(x=x,y=y + 200 ,xend=xend,yend=yend), col=plate.color, lty=1, size=1) +
+        geom_segment(data=connecting.bar, aes(x=xsta,y=ysta,xend=xfin,yend=yfin), col=plate.color, lty=1, size=1) +
         geom_point(
             data=dfer, aes(x=1:length(rownames(dfer)), y=dfer$colcounts),
             pch = 16, cex = 1) +

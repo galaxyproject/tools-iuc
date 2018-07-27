@@ -4,7 +4,7 @@ VERSION = "0.1"
 args = commandArgs(trailingOnly = T)
 
 if (length(args) != 1){
-     message(paste("VERSION: ", VERSION))
+     message(paste("VERSION:", VERSION))
      stop("Please provide the config file")
 }
 
