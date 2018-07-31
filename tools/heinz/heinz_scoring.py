@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python
 """Calculate scores for Heinz.
 
 This script transform a p-value into a score:
