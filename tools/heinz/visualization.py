@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python
 """Visualise the output of Heinz.
 
 This script is used to visualize the output of Heinz, which is in the form of
