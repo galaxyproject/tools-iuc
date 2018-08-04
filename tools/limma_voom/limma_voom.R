@@ -166,6 +166,7 @@ spec <- matrix(c(
     "totReq", "y", 0, "logical",
     "cntReq", "z", 1, "integer",
     "sampleReq", "s", 1, "integer",
+    "filtCounts", "F", 0, "logical",
     "normCounts", "x", 0, "logical",
     "rdaOpt", "r", 0, "logical",
     "lfcReq", "l", 1, "double",
@@ -216,6 +217,12 @@ if (is.null(opt$annoPath)) {
     haveAnno <- FALSE
 } else {
     haveAnno <- TRUE
+}
+
+if (is.null(opt$filtCounts)) {
+    wantFilt <- FALSE
+} else {
+    wantFilt <- TRUE
 }
 
 if (is.null(opt$normCounts)) {
@@ -364,7 +371,7 @@ for (i in 1:length(contrastData)) {
     topOut[i] <- makeOut(paste0(deMethod, "_", con, ".tsv"))
     glimmaOut[i] <- makeOut(paste0("glimma_", con, "/MD-Plot.html"))
 }
-
+filtOut <- makeOut(paste0(deMethod, "_filtcounts.tsv"))
 normOut <- makeOut(paste0(deMethod, "_normcounts.tsv"))
 rdaOut <- makeOut(paste0(deMethod, "_analysis.RData"))
 sessionOut <- makeOut("session_info.txt")
@@ -439,6 +446,13 @@ if (filtCPM || filtSmpCount || filtTotCount) {
 
     data$counts <- data$counts[keep, ]
     data$genes <- data$genes[keep, , drop=FALSE]
+
+    if (wantFilt) {
+        print("Outputting filtered counts")
+        filt_counts <- data.frame(data$genes, data$counts)
+        write.table(filt_counts, file=filtOut, row.names=FALSE, sep="\t", quote=FALSE)
+        linkData <- rbind(linkData, data.frame(Label=paste0(deMethod, "_", "filtcounts.tsv"), Link=paste0(deMethod, "_", "filtcounts.tsv"), stringsAsFactors=FALSE))
+    }
 
     # Plot Density
     if ("d" %in% plots) {
