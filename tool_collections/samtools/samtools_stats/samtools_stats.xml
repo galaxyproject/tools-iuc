@@ -9,9 +9,8 @@
     <expand macro="stdio"/>
     <expand macro="version_command"/>
     <command><![CDATA[
-        @PREPIDX@
-        @PREPFAIDX@
-
+        @PREPARE_IDX@
+        @PREPARE_FAIDX@
         samtools stats
             #if $coverage_cond.coverage_select == 'yes':
                 --coverage ${coverage_cond.coverage_min},${coverage_cond.coverage_max},${coverage_cond.coverage_step}
@@ -35,7 +34,8 @@
             #if str($insert_size):
                 --insert-size ${insert_size}
             #end if
-            ## The code below is commented out because using -I/--id options causes the following exception
+	    ## The code below is commented out because using -I/--id options causes 
+	    ## in samtools up to 1.9 the following exception
             ## Samtools-htslib: init_group_id() header parsing not yet implemented
             ##if str($read_group) != "":
             ##    -I "${read_group}"
@@ -62,7 +62,10 @@
             #if $cond_region.select_region == 'tab':
                 -t '$cond_region.targetregions'
             #end if
-
+            $remove_overlaps
+            #if str($cov_threshold):
+                -g $cov_threshold
+            #end if
             infile
 
             #if $cond_region.select_region == 'text':
@@ -71,21 +74,16 @@
             > '$output'
 
             #if $cond_plot.select_plot=='yes':
-                ##&& mkdir '${html_file.files_path}'
                 && plot-bamstats '$output' $cond_plot.log -p '${html_file.files_path}'/
-                && mv '${html_file.files_path}'/index.html '${html_file}'
+		&& mv '${html_file.files_path}'/index.html '${html_file}'
             #end if
 
             #if $split_output_cond.split_output_selector == "yes":
                 #set outputs_to_split = str($split_output_cond.generate_tables).split(',')
                 && mkdir split
                 #for s in str($split_output_cond.generate_tables).split(','):
-                    && name=`cat '$output' | grep '\^$s' | cut -d'.' -f 1 | sed 's/^# //'` &&
-                    ## TODO should empty tab files be generated (and added to the history)?
-                    ## echo \$name > "split/\$name.tab" &&
-                    if grep -q ^$s '$output'; then
-                        awk '/\^/{out=0} /\^$s/{out=1} {if(out==1){print $0}}' '$output' | sed 's/Use `grep .*` to extract this part.//' | sed 's/$s\t//' > "split/\$name.tab";
-                    fi
+                    && name=`cat '$output' | grep '\^$s' | cut -d'.' -f 1 | sed 's/^# //'`
+                    && awk '/\^/{out=0} /\^$s/{out=1} {if(out==1){print $0}}' '$output' | sed 's/Use `grep .*` to extract this part.//' | sed 's/$s\t//' > "split/\$name.tab";
                 #end for
             #end if
     ]]></command>
@@ -119,8 +117,12 @@
                     <option value="GCF">GC Content of first fragments</option>
                     <option value="GCL">GC Content of last fragments</option>
                     <option value="GCC">ACGT content per cycle</option>
+                    <option value="FBC">ACGT content per cycle for first fragments</option>
+                    <option value="LBC">ACGT content per cycle for last fragments</option>
                     <option value="IS">Insert sizes</option>
                     <option value="RL">Read lengths</option>
+                    <option value="FRL">Read lengths for first fragments</option>
+                    <option value="LRL">Read lengths for last fragments</option>
                     <option value="ID">Indel distribution</option>
                     <option value="IC">Indels per cycle</option>
                     <option value="COV">Coverage distribution</option>
@@ -148,9 +150,8 @@
         <param name="gc_depth" argument="--GC-depth" type="float" optional="True" label="Size of GC-depth bins" help="Decreasing bin size increases memory requirement. default=2e4" />
         <param name="insert_size" argument="--insert-size" type="integer" optional="True" label="Maximum insert size" help="default=8000" />
         <!--
-            The -I option of samtools stats returns the following message in version 1.2:
+            The -I option of samtools stats returns the following message up to version 1.9:
             Samtools-htslib: init_group_id() header parsing not yet implemented
-            Abort trap: 6
             Because of this the section below is commented out until this stats bug is fixed
             <param name="read_group" type="select" optional="true" label="Limit to a specific read group name" >
                 <options>
@@ -189,13 +190,15 @@
             </param>
             <when value="no"/>
             <when value="text">
-                <param name="regions" type="text" optional="false" label="Filter by regions" help="One or more space-separated region specifications to restrict output to only those alignments which overlap the specified region(s)."/>
+                <param name="regions" type="text" label="Filter by regions" help="One or more space-separated region specifications to restrict output to only those alignments which overlap the specified region(s)."/>
             </when>
             <when value="tab">
-                <param name="targetregions" argument="-t/--target-regions" type="data" format="tabular" optional="false" label="Target regions file" help="Do stats in these regions only. Tab-delimited file chr,from,to (1-based, inclusive)" />
+                <param name="targetregions" argument="-t/--target-regions" type="data" format="tabular" label="Target regions file" help="Do stats in these regions only. Tab-delimited file chr,from,to (1-based, inclusive)" />
             </when>
         </conditional>
         <param name="sparse" argument="-x/--sparse" type="boolean" truevalue="-x" falsevalue="" checked="False" label="Suppress absence of insertions" help="Suppress outputting IS rows where there are no insertions."/>
+	<param name="remove_overlaps" argument="-p/--remove-overlaps" type="boolean" truevalue="-p" falsevalue="" checked="False" label="Remove overlaps of paired-end reads from coverage and base count computations" />
+	<param name="cov_threshold" argument="-g/--cov-threshold"  optional="true" type="integer" label="Only bases with coverage above this value will be included in the target percentage computation" />
         <conditional name="cond_plot">
             <param name="select_plot" type="select" label="Generate plots with plot-bamstats">
                 <option value="no" selected="True">No</option>
@@ -224,7 +227,7 @@
                 <param name="addref_select" value="history" />
                 <param name="ref" value="test.fa" ftype="fasta" />
             </conditional>
-            <output name="output" file="1.stats.expected" ftype="tabular" lines_diff="2" />
+            <output name="output" file="1.stats.expected" ftype="tabular" lines_diff="3" />
         </test>
         <!-- test_cmd($opts,out=>'stat/1.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/1_map_cigar.sam | tail -n+4", exp_fix=>$efix);-->
         <test>
@@ -233,7 +236,7 @@
                 <param name="addref_select" value="history" />
                 <param name="ref" value="test.fa" ftype="fasta" />
             </conditional>
-            <output name="output" file="2.stats.expected" ftype="tabular" lines_diff="2" />
+            <output name="output" file="2.stats.expected" ftype="tabular" lines_diff="3" />
         </test>
         <!-- test_cmd($opts,out=>'stat/2.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/2_equal_cigar_full_seq.sam | tail -n+4", exp_fix=>$efix);-->
         <!-- test_cmd($opts,out=>'stat/3.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/3_map_cigar_equal_seq.sam | tail -n+4", exp_fix=>$efix);-->
@@ -246,7 +249,7 @@
                 <param name="addref_select" value="history" />
                 <param name="ref" value="test.fa" ftype="fasta" />
             </conditional>
-            <output name="output" file="6.stats.expected" ftype="tabular" lines_diff="2" />
+            <output name="output" file="6.stats.expected" ftype="tabular" lines_diff="3" />
         </test>
         <!-- test_cmd($opts,out=>'stat/6.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa -i 0 $$opts{path}/stat/5_insert_cigar.sam | tail -n+4", exp_fix=>$efix); -->
         <!-- test_cmd($opts,out=>'stat/7.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/7_supp.sam | tail -n+4", exp_fix=>$efix); -->
@@ -262,7 +265,7 @@
                 <param name="select_region" value="tab"/>
                 <param name="targetregions" value="11.stats.targets" ftype="tabular" />
             </conditional>
-            <output name="output" file="11.stats.expected" ftype="tabular" lines_diff="2" />
+            <output name="output" file="11.stats.expected" ftype="tabular" lines_diff="3" />
         </test>
         <!-- test_cmd($opts,out=>'stat/11.stats.expected',cmd=>"$$opts{bin}/samtools stats -t $$opts{path}/stat/11.stats.targets $$opts{path}/stat/11_target.sam | tail -n+4", exp_fix=>$efix); -->
 
@@ -275,10 +278,86 @@
                 <param name="select_region" value="text"/>
                 <param name="regions" value="ref1:10-24 ref1:30-46 ref1:39-56"/>
             </conditional>
-            <output name="output" file="11.stats.expected" ftype="tabular" lines_diff="2" />
+            <output name="output" file="11.stats.expected" ftype="tabular" lines_diff="3" />
         </test>
         <!-- test_cmd($opts,out=>'stat/11.stats.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/11_target.bam ref1:10-24 ref1:30-46 ref1:39-56 | tail -n+4", exp_fix=>$efix);
 -->
+        <test>
+            <param name="input" value="11_target.sam" ftype="sam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="11.stats.targets" ftype="tabular" />
+            </conditional>
+	    <param name="cov_threshold" value="4" />
+            <output name="output" file="11.stats.g4.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/11.stats.g4.expected',cmd=>"$$opts{bin}/samtools stats -g 4 -t $$opts{path}/stat/11.stats.targets $$opts{path}/stat/11_target.sam | tail -n+4", exp_fix=>$efix);-->
+        <test>
+            <param name="input" value="11_target.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="text"/>
+                <param name="regions" value="ref1:10-24 ref1:30-46 ref1:39-56"/>
+            </conditional>
+	    <param name="cov_threshold" value="4" />
+            <output name="output" file="11.stats.g4.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/11.stats.g4.expected',cmd=>"$$opts{bin}/samtools stats -g 4 $$opts{path}/stat/11_target.bam ref1:10-24 ref1:30-46 ref1:39-56 | tail -n+4", exp_fix=>$efix); -->
+        <test>
+            <param name="input" value="12_overlaps.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="12_3reads.bed" ftype="tabular" />
+            </conditional>
+            <output name="output" file="12.3reads.overlap.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/12.3reads.overlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -t $$opts{path}/stat/12_3reads.bed | tail -n+4", exp_fix=>$efix);-->
+        <test>
+            <param name="input" value="12_overlaps.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="12_3reads.bed" ftype="tabular" />
+            </conditional>
+            <param name="remove_overlaps" value="-p"/>
+            <output name="output" file="12.3reads.nooverlap.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/12.3reads.nooverlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -p -t $$opts{path}/stat/12_3reads.bed | tail -n+4", exp_fix=>$efix);-->
+        <test>
+            <param name="input" value="12_overlaps.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="12_2reads.bed" ftype="tabular" />
+            </conditional>
+            <output name="output" file="12.2reads.overlap.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/12.2reads.overlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -t $$opts{path}/stat/12_2reads.bed | tail -n+4", exp_fix=>$efix);-->
+        <test>
+            <param name="input" value="12_overlaps.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="12_2reads.bed" ftype="tabular" />
+            </conditional>
+            <param name="remove_overlaps" value="-p"/>
+            <output name="output" file="12.2reads.nooverlap.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/12.2reads.nooverlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -p -t $$opts{path}/stat/12_2reads.bed | tail -n+4", exp_fix=>$efix);-->
         <test>
             <param name="input" value="samtools_stats_input.bam" ftype="bam" />
             <conditional name="addref_cond">
@@ -306,7 +385,8 @@
                 <discovered_dataset designation="Summary Numbers" ftype="tabular" file="samtools_stats_out1__sn.tab" />
             </output>
         </test>
-    </tests>
+
+</tests>
     <help><![CDATA[
 **What it does**
 
