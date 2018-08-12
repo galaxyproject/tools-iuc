@@ -74,7 +74,7 @@ def main():
     build_picard_index( data_manager_dict, options.fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name, data_table_name=options.data_table_name or DEFAULT_DATA_TABLE_NAME )
 
     # save info to json file
-    open( filename, 'wb' ).write( dumps( data_manager_dict ) )
+    open( filename, 'w' ).write( dumps( data_manager_dict ) )
 
 
 if __name__ == "__main__":

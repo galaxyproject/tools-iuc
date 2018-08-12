@@ -118,20 +118,16 @@ def _move_and_index_fasta_for_sorting(fasta_filename):
 
 
 def _write_sorted_fasta(sorted_names, fasta_offsets, sorted_fasta_filename, unsorted_fasta_filename):
-    unsorted_fh = open(unsorted_fasta_filename)
-    sorted_fh = open(sorted_fasta_filename, 'wb+')
-
-    for name in sorted_names:
-        offset = fasta_offsets[name]
-        unsorted_fh.seek(offset)
-        sorted_fh.write(unsorted_fh.readline())
-        while True:
-            line = unsorted_fh.readline()
-            if not line or line.startswith(">"):
-                break
-            sorted_fh.write(line)
-    unsorted_fh.close()
-    sorted_fh.close()
+    with open(unsorted_fasta_filename, 'rb') as unsorted_fh, open(sorted_fasta_filename, 'wb+') as sorted_fh:
+        for name in sorted_names:
+            offset = fasta_offsets[name]
+            unsorted_fh.seek(offset)
+            sorted_fh.write(unsorted_fh.readline())
+            while True:
+                line = unsorted_fh.readline()
+                if not line or line.startswith(b">"):
+                    break
+                sorted_fh.write(line)
 
 
 def _sort_fasta_as_is(fasta_filename, params):
@@ -504,7 +500,7 @@ def main():
     finally:
         cleanup_before_exit(tmp_dir)
     # save info to json file
-    open(filename, 'wb').write(dumps(data_manager_dict).encode())
+    open(filename, 'w').write(dumps(data_manager_dict))
 
 
 if __name__ == "__main__":

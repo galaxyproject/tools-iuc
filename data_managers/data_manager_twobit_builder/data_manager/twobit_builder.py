@@ -92,7 +92,7 @@ def main():
     build_twobit( data_manager_dict, options.fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name )
 
     # save info to json file
-    open( filename, 'wb' ).write( dumps( data_manager_dict ) )
+    open( filename, 'w' ).write( dumps( data_manager_dict ) )
 
 
 if __name__ == "__main__":

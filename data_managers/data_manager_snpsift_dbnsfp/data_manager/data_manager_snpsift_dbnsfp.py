@@ -195,7 +195,7 @@ def main():
     data_manager_dict['data_tables'][data_table].append(data_table_entry)
 
     # save info to json file
-    open(filename, 'wb').write(json.dumps(data_manager_dict))
+    open(filename, 'w').write(json.dumps(data_manager_dict))
 
 
 if __name__ == "__main__":

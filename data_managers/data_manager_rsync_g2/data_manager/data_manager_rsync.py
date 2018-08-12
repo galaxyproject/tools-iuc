@@ -404,7 +404,7 @@ def main():
     data_manager_dict = fulfill_data_table_entries( data_table_entries, data_manager_dict, target_directory )
 
     # save info to json file
-    open( filename, 'wb' ).write( dumps( data_manager_dict ) )
+    open( filename, 'w' ).write( dumps( data_manager_dict ) )
 
 
 if __name__ == "__main__":

@@ -145,6 +145,6 @@ if __name__ == "__main__":
     # Write output JSON
     print("Outputting JSON")
     print(str(json.dumps(data_tables)))
-    with open(jsonfile, 'wb') as out:
+    with open(jsonfile, 'w') as out:
         out.write(json.dumps(data_tables))
     print("Done.")

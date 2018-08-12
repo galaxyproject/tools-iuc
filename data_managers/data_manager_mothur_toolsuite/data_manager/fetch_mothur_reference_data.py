@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 #
 # Data manager for reference data for the 'mothur_toolsuite' Galaxy tools
+import functools
 import json
 import optparse
 import os
@@ -228,12 +229,12 @@ def download_file(url, target=None, wd=None):
     Returns the name that the file is saved with.
 
     """
-    print "Downloading %s" % url
+    print("Downloading %s" % url)
     if not target:
         target = os.path.basename(url)
     if wd:
         target = os.path.join(wd, target)
-    print "Saving to %s" % target
+    print("Saving to %s" % target)
     open(target, 'wb').write(urllib2.urlopen(url).read())
     return target
 
@@ -254,13 +255,13 @@ def unpack_zip_archive(filen, wd=None):
 
     """
     if not zipfile.is_zipfile(filen):
-        print "%s: not ZIP formatted file"
+        print("%s: not ZIP formatted file")
         return [filen]
     file_list = []
     z = zipfile.ZipFile(filen)
     for name in z.namelist():
-        if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
-            print "Ignoring %s" % name
+        if functools.reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
+            print("Ignoring %s" % name)
             continue
         if wd:
             target = os.path.join(wd, name)
@@ -268,21 +269,21 @@ def unpack_zip_archive(filen, wd=None):
             target = name
         if name.endswith('/'):
             # Make directory
-            print "Creating dir %s" % target
+            print("Creating dir %s" % target)
             try:
                 os.makedirs(target)
             except OSError:
                 pass
         else:
             # Extract file
-            print "Extracting %s" % name
+            print("Extracting %s" % name)
             try:
                 os.makedirs(os.path.dirname(target))
             except OSError:
                 pass
             open(target, 'wb').write(z.read(name))
             file_list.append(target)
-    print "Removing %s" % filen
+    print("Removing %s" % filen)
     os.remove(filen)
     return file_list
 
@@ -305,23 +306,23 @@ def unpack_tar_archive(filen, wd=None):
     """
     file_list = []
     if not tarfile.is_tarfile(filen):
-        print "%s: not TAR file"
+        print("%s: not TAR file")
         return [filen]
     t = tarfile.open(filen)
     for name in t.getnames():
         # Check for unwanted files
-        if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
-            print "Ignoring %s" % name
+        if functools.reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
+            print("Ignoring %s" % name)
             continue
         # Extract file
-        print "Extracting %s" % name
+        print("Extracting %s" % name)
         t.extract(name, wd)
         if wd:
             target = os.path.join(wd, name)
         else:
             target = name
         file_list.append(target)
-    print "Removing %s" % filen
+    print("Removing %s" % filen)
     os.remove(filen)
     return file_list
 
@@ -339,9 +340,9 @@ def unpack_archive(filen, wd=None):
     current working directory.
 
     """
-    print "Unpack %s" % filen
+    print("Unpack %s" % filen)
     ext = os.path.splitext(filen)[1]
-    print "Extension: %s" % ext
+    print("Extension: %s" % ext)
     if ext == ".zip":
         return unpack_zip_archive(filen, wd=wd)
     elif ext == ".tgz":
@@ -382,7 +383,7 @@ def identify_type(filen):
     try:
         return MOTHUR_FILE_TYPES[ext]
     except KeyError:
-        print "WARNING: unknown file type for " + filen + ", skipping"
+        print("WARNING: unknown file type for " + filen + ", skipping")
         return None
 
 
@@ -415,26 +416,26 @@ def fetch_from_mothur_website(data_tables, target_dir, datasets):
     """
     # Make working dir
     wd = tempfile.mkdtemp(suffix=".mothur", dir=os.getcwd())
-    print "Working dir %s" % wd
+    print("Working dir %s" % wd)
     # Iterate over all requested reference data URLs
     for dataset in datasets:
-        print "Handling dataset '%s'" % dataset
+        print("Handling dataset '%s'" % dataset)
         for name in MOTHUR_REFERENCE_DATA[dataset]:
             for f in fetch_files(MOTHUR_REFERENCE_DATA[dataset][name], wd=wd):
                 type_ = identify_type(f)
                 entry_name = "%s (%s)" % (os.path.splitext(os.path.basename(f))[0], name)
-                print "%s\t\'%s'\t.../%s" % (type_, entry_name, os.path.basename(f))
+                print( "%s\t\'%s'\t.../%s" % (type_, entry_name, os.path.basename(f)))
                 if type_ is not None:
                     # Move to target dir
                     ref_data_file = os.path.basename(f)
                     f1 = os.path.join(target_dir, ref_data_file)
-                    print "Moving %s to %s" % (f, f1)
+                    print("Moving %s to %s" % (f, f1))
                     os.rename(f, f1)
                     # Add entry to data table
                     table_name = "mothur_%s" % type_
                     add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
     # Remove working dir
-    print "Removing %s" % wd
+    print("Removing %s" % wd)
     shutil.rmtree(wd)
 
 
@@ -450,7 +451,7 @@ def files_from_filesystem_paths(paths):
     files = []
     for path in paths:
         path = os.path.abspath(path)
-        print "Examining '%s'..." % path
+        print("Examining '%s'..." % path)
         if os.path.isfile(path):
             # Store full path for file
             files.append(path)
@@ -459,7 +460,7 @@ def files_from_filesystem_paths(paths):
             for f in os.listdir(path):
                 files.extend(files_from_filesystem_paths((os.path.join(path, f), )))
         else:
-            print "Not a file or directory, ignored"
+            print("Not a file or directory, ignored")
     return files
 
 
@@ -489,14 +490,14 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
     for f in files:
         type_ = identify_type(f)
         if type_ is None:
-            print "%s: unrecognised type, skipped" % f
+            print("%s: unrecognised type, skipped" % f)
             continue
         ref_data_file = os.path.basename(f)
         target_file = os.path.join(target_dir, ref_data_file)
         entry_name = "%s" % os.path.splitext(ref_data_file)[0]
         if description:
             entry_name += " (%s)" % description
-        print "%s\t\'%s'\t.../%s" % (type_, entry_name, ref_data_file)
+        print("%s\t\'%s'\t.../%s" % (type_, entry_name, ref_data_file))
         # Link to or copy the data
         if link_to_data:
             os.symlink(f, target_file)
@@ -508,7 +509,7 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
 
 
 if __name__ == "__main__":
-    print "Starting..."
+    print("Starting...")
 
     # Read command line
     parser = optparse.OptionParser()
@@ -518,8 +519,8 @@ if __name__ == "__main__":
     parser.add_option('--description', action='store', dest='description', default='')
     parser.add_option('--link', action='store_true', dest='link_to_data')
     options, args = parser.parse_args()
-    print "options: %s" % options
-    print "args   : %s" % args
+    print("options: %s" % options)
+    print("args   : %s" % args)
 
     # Check for JSON file
     if len(args) != 1:
@@ -532,7 +533,7 @@ if __name__ == "__main__":
     params, target_dir = read_input_json(jsonfile)
 
     # Make the target directory
-    print "Making %s" % target_dir
+    print("Making %s" % target_dir)
     os.mkdir(target_dir)
 
     # Set up data tables dictionary
@@ -554,7 +555,7 @@ if __name__ == "__main__":
         paths = options.paths.replace('__cn__', '\n').replace('__cr__', '\r').split()
         import_from_server(data_tables, target_dir, paths, description, link_to_data=options.link_to_data)
     # Write output JSON
-    print "Outputting JSON"
-    print str(json.dumps(data_tables))
-    open(jsonfile, 'wb').write(json.dumps(data_tables))
-    print "Done."
+    print("Outputting JSON")
+    print(str(json.dumps(data_tables)))
+    open(jsonfile, 'w').write(json.dumps(data_tables))
+    print("Done.")

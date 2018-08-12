@@ -50,7 +50,7 @@ def main():
     data_manager_dict = fetch_databases( data_manager_dict, target_directory)
 
     # save info to json file
-    open( filename, 'wb' ).write( json.dumps( data_manager_dict ) )
+    open( filename, 'w' ).write( json.dumps( data_manager_dict ) )
 
 
 if __name__ == "__main__":

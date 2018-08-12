@@ -82,8 +82,8 @@ def main():
         }
     }
 
-    # ... and save it to the json results file
-    with open( sys.argv[1], 'wb' ) as out:
+    # save info to json file
+    with open( sys.argv[1], 'w' ) as out:
         out.write( json.dumps( data_manager_dict ) )
 
 

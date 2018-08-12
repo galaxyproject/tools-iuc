@@ -23,7 +23,7 @@ def main():
         withGTF = "1"
 
     data_manager_dict = {'data_tables': {options.data_table: [dict({"value": options.value, "dbkey": options.dbkey, "name": options.name, "path": options.subdir, "with-gtf": withGTF} )]}}
-    open( options.config_file, 'wb' ).write( json.dumps( data_manager_dict ) )
+    open( options.config_file, 'w' ).write( json.dumps( data_manager_dict ) )
 
 
 if __name__ == "__main__":
