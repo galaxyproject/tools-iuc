@@ -58,6 +58,7 @@ if (args$us == -1) {
 
 # Outputs
 out_dir = "."
+fasta_index = file.path(out_dir, paste0(fa_fn, ".fasta_index"))
 combined_fastq = file.path(out_dir, "combined.fastq")
 aligned_bam = file.path(out_dir, "aligned.bam")
 mapped_bam = file.path(out_dir, "aligned.mapped.bam")
@@ -70,10 +71,10 @@ sc_trim_barcode(combined_fastq,
                 read_structure=read_structure)
 
 print("Building genome index")
-Rsubread::buildindex(basename=file.path(out_dir, "fasta_index"), reference=fa_fn)
+Rsubread::buildindex(basename=fasta_index, reference=fa_fn)
 
 print("Aligning reads to genome")
-Rsubread::align(index=file.path(out_dir, "fasta_index"),
+Rsubread::align(index=fasta_index,
     readfile1=combined_fastq,
     output_file=aligned_bam)
 
@@ -114,7 +115,7 @@ create_report(sample_name=args$samplename,
    read_structure=read_structure,
    filter_settings=list(rmlow=TRUE, rmN=TRUE, minq=20, numbq=2),
    align_bam=aligned_bam,
-   genome_index=file.path(out_dir, "fasta_index"),
+   genome_index=fasta_index,
    map_bam=mapped_bam,
    exon_anno=anno_fn,
    stnd=TRUE,
