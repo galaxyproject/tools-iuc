@@ -28,8 +28,8 @@ option_list <- list(
     make_option(c("-bl1","--bl1"), type="integer", help="Barcode length in Read 1"),
     make_option(c("-bs2","--bs2"), type="integer", help="Barcode start in Read 2"),
     make_option(c("-bl2","--bl2"), type="integer", help="Barcode length in Read 2"),
-    make_option(c("-us2","--us2"), type="integer", help="UMI start in Read 2"),
-    make_option(c("-ul2","--ul2"), type="integer", help="UMI length in Read 2"),
+    make_option(c("-us","--us"), type="integer", help="UMI start in Read 2"),
+    make_option(c("-ul","--ul"), type="integer", help="UMI length in Read 2"),
     make_option(c("-report","--report"), type="logical", help="HTML report of plots"),
     make_option(c("-rdata","--rdata"), type="logical", help="Output RData file")
   )
@@ -46,11 +46,11 @@ read_structure = list(
     bl1 = args$bl1,    # barcode length in fq_R1, 0 since no barcode present
     bs2 = args$bs2,    # barcode start position in fq_R2
     bl2 = args$bl2,   # barcode length in fq_R2
-    us = args$us2,    # UMI start position in fq_R2
-    ul = args$ul2     # UMI length
+    us = args$us,    # UMI start position in fq_R2
+    ul = args$ul     # UMI length
 )
 
-if (args$us2 == -1) {
+if (args$us == -1) {
   has_umi = FALSE
 } else {
   has_umi = TRUE
