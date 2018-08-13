@@ -30,6 +30,10 @@ option_list <- list(
     make_option(c("-bl2","--bl2"), type="integer", help="Barcode length in Read 2"),
     make_option(c("-us","--us"), type="integer", help="UMI start in Read 2"),
     make_option(c("-ul","--ul"), type="integer", help="UMI length in Read 2"),
+    make_option(c("-rmlow","--rmlow"), type="logical", help="Remove reads with N in barcode or UMI"),
+    make_option(c("-rmN","--rmN"), type="logical", help="Remove reads with low quality"),
+    make_option(c("-minq","--minq"), type="integer", help="Minimum read quality"),
+    make_option(c("-numbq","--numbq"), type="integer", help="Maximum number of bases below minq"),
     make_option(c("-report","--report"), type="logical", help="HTML report of plots"),
     make_option(c("-rdata","--rdata"), type="logical", help="Output RData file")
   )
@@ -56,6 +60,8 @@ if (args$us == -1) {
   has_umi = TRUE
 }
 
+filter_settings=list(rmlow=args$rmlow, rmN=args$rmN, minq=args$minq, numbq=args$numbq)
+
 # Outputs
 out_dir = "."
 fasta_index = file.path(out_dir, paste0(fa_fn, ".fasta_index"))
@@ -68,7 +74,8 @@ print("Trimming barcodes")
 sc_trim_barcode(combined_fastq,
                 fq_R1,
                 fq_R2,
-                read_structure=read_structure)
+                read_structure=read_structure,
+                filter_settings=filter_settings)
 
 print("Building genome index")
 Rsubread::buildindex(basename=fasta_index, reference=fa_fn)
@@ -113,7 +120,7 @@ create_report(sample_name=args$samplename,
    r2=fq_R2,
    outfq=combined_fastq,
    read_structure=read_structure,
-   filter_settings=list(rmlow=TRUE, rmN=TRUE, minq=20, numbq=2),
+   filter_settings=filter_settings,
    align_bam=aligned_bam,
    genome_index=fasta_index,
    map_bam=mapped_bam,
