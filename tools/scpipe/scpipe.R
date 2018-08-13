@@ -41,12 +41,6 @@ fa_fn = args$fasta
 anno_fn = args$exons
 fq_R1 = args$read1
 fq_R2 = args$read2
-
-# Outputs
-out_dir = "."
-combined_fastq = file.path(out_dir, "combined.fastq")
-aligned_bam = file.path(out_dir, "aligned.bam")
-mapped_bam = file.path(out_dir, "aligned.mapped.bam")
 read_structure = list(
     bs1 = args$bs1,   # barcode start position in fq_R1, -1 indicates no barcode
     bl1 = args$bl1,    # barcode length in fq_R1, 0 since no barcode present
@@ -55,6 +49,19 @@ read_structure = list(
     us = args$us2,    # UMI start position in fq_R2
     ul = args$ul2     # UMI length
 )
+
+if (args$us2 == -1) {
+  has_umi = FALSE
+} else {
+  has_umi = TRUE
+}
+
+# Outputs
+out_dir = "."
+combined_fastq = file.path(out_dir, "combined.fastq")
+aligned_bam = file.path(out_dir, "aligned.bam")
+mapped_bam = file.path(out_dir, "aligned.mapped.bam")
+
 
 print("Trimming barcodes")
 sc_trim_barcode(combined_fastq,
@@ -89,7 +96,7 @@ print("Assigning reads to exons")
 sc_exon_mapping(aligned_bam, mapped_bam, anno_fn)
 
 print("De-multiplexing data")
-sc_demultiplex(mapped_bam, out_dir, barcode_anno, has_UMI=FALSE)
+sc_demultiplex(mapped_bam, out_dir, barcode_anno, has_UMI=has_umi)
 
 print("Counting genes")
 sc_gene_counting(out_dir, barcode_anno)
