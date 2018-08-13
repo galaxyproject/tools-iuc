@@ -39,8 +39,6 @@ args = parse_args(parser)
 
 fa_fn = args$fasta
 anno_fn = args$exons
-#barcode_annotation_fn = args$barcodes
-
 fq_R1 = args$read1
 fq_R2 = args$read2
 
@@ -49,8 +47,6 @@ out_dir = "."
 combined_fastq = file.path(out_dir, "combined.fastq")
 aligned_bam = file.path(out_dir, "aligned.bam")
 mapped_bam = file.path(out_dir, "aligned.mapped.bam")
-barcode_anno = "sample_index.csv"
-
 read_structure = list(
     bs1 = args$bs1,   # barcode start position in fq_R1, -1 indicates no barcode
     bl1 = args$bl1,    # barcode length in fq_R1, 0 since no barcode present
@@ -74,15 +70,20 @@ Rsubread::align(index=file.path(out_dir, "fasta_index"),
     readfile1=combined_fastq,
     output_file=aligned_bam)
 
-print("Detecting barcodes")
-# detect 10X barcodes and generate sample_index.csv file
-sc_detect_bc(
-    infq=combined_fastq,
-    outcsv=barcode_anno, # bacode annotation output file name
-    bc_len=read_structure$bl2, # barcode length
-    max_reads=5000000,         # only process first 5 million reads
-    min_count = 100             # discard cell barcodes with few than 100 hits
-)
+if (!is.null(args$barcodes)) {
+  barcode_anno=args$barcodes
+} else {
+  print("Detecting barcodes")
+  # detect 10X barcodes and generate sample_index.csv file
+  barcode_anno = "sample_index.csv"
+  sc_detect_bc(
+      infq=combined_fastq,
+      outcsv=barcode_anno, # bacode annotation output file name
+      bc_len=read_structure$bl2, # barcode length
+      max_reads=5000000,         # only process first 5 million reads
+      min_count = 100             # discard cell barcodes with few than 100 hits
+  )
+}
 
 print("Assigning reads to exons")
 sc_exon_mapping(aligned_bam, mapped_bam, anno_fn)
