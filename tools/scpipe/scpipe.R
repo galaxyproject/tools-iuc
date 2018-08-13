@@ -34,8 +34,15 @@ option_list <- list(
     make_option(c("-rmN","--rmN"), type="logical", help="Remove reads with low quality"),
     make_option(c("-minq","--minq"), type="integer", help="Minimum read quality"),
     make_option(c("-numbq","--numbq"), type="integer", help="Maximum number of bases below minq"),
+    make_option(c("-stnd","--stnd"), type="logical", help="Perform strand-specific mapping"),
+    make_option(c("-max_mis","--max_mis"), type="integer", help="Maximum mismatch allowed in barcode"),
+    make_option(c("-UMI_cor","--UMI_cor"), type="integer", help="Correct UMI sequence error"),
+    make_option(c("-gene_fl","--gene_fl"), type="logical", help="Remove low abundant genes"),
+    make_option(c("-max_reads","--max_reads"), type="integer", help="Maximum reads processed"),
+    make_option(c("-min_count","--min_count"), type="integer", help="Minimum count to keep"),
     make_option(c("-report","--report"), type="logical", help="HTML report of plots"),
-    make_option(c("-rdata","--rdata"), type="logical", help="Output RData file")
+    make_option(c("-rdata","--rdata"), type="logical", help="Output RData file"),
+    make_option(c("-nthreads","--nthreads"), type="integer", help="Number of threads")
   )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
@@ -83,7 +90,8 @@ Rsubread::buildindex(basename=fasta_index, reference=fa_fn)
 print("Aligning reads to genome")
 Rsubread::align(index=fasta_index,
     readfile1=combined_fastq,
-    output_file=aligned_bam)
+    output_file=aligned_bam,
+    nthreads=args$nthreads)
 
 if (!is.null(args$barcodes)) {
   barcode_anno=args$barcodes
@@ -93,21 +101,22 @@ if (!is.null(args$barcodes)) {
   barcode_anno = "sample_index.csv"
   sc_detect_bc(
       infq=combined_fastq,
-      outcsv=barcode_anno, # bacode annotation output file name
-      bc_len=read_structure$bl2, # barcode length
-      max_reads=5000000,         # only process first 5 million reads
-      min_count = 100             # discard cell barcodes with few than 100 hits
+      outcsv=barcode_anno,
+      bc_len=read_structure$bl2,
+      max_reads=args$max_reads,
+      min_count=args$min_count,
+      max_mismatch=args$max_mis
   )
 }
 
 print("Assigning reads to exons")
-sc_exon_mapping(aligned_bam, mapped_bam, anno_fn)
+sc_exon_mapping(aligned_bam, mapped_bam, anno_fn, bc_len=read_structure$bl2, UMI_len=read_structure$ul, stnd=args$stnd)
 
 print("De-multiplexing data")
 sc_demultiplex(mapped_bam, out_dir, barcode_anno, has_UMI=has_umi)
 
 print("Counting genes")
-sc_gene_counting(out_dir, barcode_anno)
+sc_gene_counting(out_dir, barcode_anno, UMI_cor=args$UMI_cor, gene_fl=args$gene_fl)
 
 print("Creating SingleCellExperiment object")
 sce <- create_sce_by_dir(out_dir)
@@ -125,12 +134,12 @@ create_report(sample_name=args$samplename,
    genome_index=fasta_index,
    map_bam=mapped_bam,
    exon_anno=anno_fn,
-   stnd=TRUE,
+   stnd=args$stnd,
    fix_chr=FALSE,
    barcode_anno=barcode_anno,
-   max_mis=1,
-   UMI_cor=1,
-   gene_fl=FALSE)
+   max_mis=args$max_mis,
+   UMI_cor=args$UMI_cor,
+   gene_fl=args$gene_fl)
 }
 
 if (!is.null(args$rdata) ) {
