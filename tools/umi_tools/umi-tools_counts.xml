@@ -1,5 +1,5 @@
-<tool id="umi_tools_count" name="UMI-tools count" version="@VERSION@.0">
-    <description>Count UMIs from BAM files</description>
+<tool id="umi_tools_count" name="UMI-tools count" version="@VERSION@.2">
+    <description>performs quantification of UMIs from BAM files</description>
     <macros>
         <import>macros.xml</import>
         <xml name="sanitize_tag" >
@@ -10,93 +10,98 @@
     </macros>
     <expand macro="requirements" />
     <command detect_errors="exit_code"><![CDATA[
+#import re
 
-    ln -s '${input_bam}' 'input.bam' &&
-    ln -s '${input_bam.metadata.bam_index}' 'input.bam.bai' &&
-    
-    umi_tools count
-        -I input.bam
-        '$bam_paired'
-        --extract-umi-method='$barcodes.extract_umi_method.value'
-        #if $barcodes.extract_umi_method == 'read_id':
-            --umi-separator='$barcodes.delimiter'
-        #else if $barcodes.extract_umi_method == 'tag':
-            --umi-tag='$barcodes.umi_tag'
-            --cell-tag='$barcodes.cell_tag'
-        #end if
-        --method='$grouping_method.value'
-        --edit-distance-threshold='$hamming_distance'
-        --mapping-quality='$advanced.mapping_quality'
-        --per-gene
-        $wide_format_cell_counts
-        $advanced.per_contig
-        '$advanced.per_cell'
-        #if $advanced.gene_tag:
-            --gene-tag='$advanced.gene_tag'
-        #end if
-        #if $advanced.skip_tags_regex.value:
-            --skip-tags-regex='$advanced.skip_tags_regex'
-        #end if
-        #if $advanced.random_seed != 0:
-            --random-seed='$advanced.random_seed'
-        #end if
-        -S '$out_counts'
-        -L '$out_log'
+ln -s '${input_bam}' 'input.bam' &&
+ln -s '${input_bam.metadata.bam_index}' 'input.bam.bai' &&
+
+umi_tools count
+    -I input.bam
+    '$paired'
+    --extract-umi-method='$barcodes.extract_umi_method.value'
+#if str($barcodes.extract_umi_method) == 'read_id':
+    --umi-separator='$barcodes.umi_separator.value'
+#else if str($barcodes.extract_umi_method) == 'tag':
+    --umi-tag='$barcodes.umi_tag.value'
+    --cell-tag='$barcodes.cell_tag.value'
+#end if
+    --method='$method.value'
+    --edit-distance-threshold='$edit_distance_threshold'
+    --mapping-quality='$advanced.mapping_quality'
+    --per-gene
+    '$wide_format_cell_counts'
+    '$advanced.per_contig'
+    '$advanced.per_cell'
+
+#if str($advanced.gene_tag) != "":
+    --gene-tag='$advanced.gene_tag.value'
+#end if
+#if str($advanced.skip_tags_regex) != "":
+    --skip-tags-regex='$advanced.skip_tags_regex.value'
+#end if
+#if '$advanced.random_seed' != 0:
+    --random-seed='$advanced.random_seed'
+#end if
+    -S '$out_counts'
+
+
+#if str($cond_extra.prepender) != "none":
+#set $replacer = re.sub('[^\w\_]+', '_', str($input_bam.element_identifier.rsplit('.',1)[0]))
+    #if str($cond_extra.prepender) == "string":
+#set $replacer = str($cond_extra.custom_label)
+    #end if
+
+&& sed -i -r '1s|\b([ACGT]+)\b|'"$replacer"'_\1|g' '$out_counts'
+#end if
+
     ]]></command>
     <inputs>
         <param name="input_bam" type="data" format="bam" label="Sorted BAM file" help="Please use the samtools sort tool to ensure a correct BAM input" />
-
-        <param name="bam_paired" type="boolean" truevalue="--paired" falsevalue="" checked="false"
-               label="Bam is paired-end"
-               help="both read pairs will be output. This will also force the use of the template length to determine 
-reads with the same mapping coordinates." />
-
+        <param argument="--paired" type="boolean" truevalue="--paired" falsevalue="" checked="false" label="Bam is paired-end" help="both read pairs will be output. This will also force the use of the template length to determine reads with the same mapping coordinates." />
         <conditional name="barcodes" >
-            <param name="extract_umi_method" type="select" label="Umi Extract Method" help="How are the barcodes encoded in the read?" >
+            <param argument="--extract-umi-method" name="extract_umi_method" type="select" label="Umi Extract Method" help="How are the barcodes encoded in the read?" >
                 <option value="read_id" selected="true">Barcodes are contained at the end of the read seperated by a delimiter</option>
                 <option value="tag" >Barcodes are contained in tags</option>
                 <option value="umis" >Barcodes were extracted using umis</option>
             </param>
             <when value="read_id" >
-                <param name="delimiter" type="text" label="Delimiter between read id and the UMI" value="_" >
-                    <expand macro="sanitize_tag" />
+                <param argument="--umi-separator" name="umi_separator" type="text" label="Delimiter between read id and the UMI" value="_" >
+                    <sanitizer invalid_char="" >
+                        <valid initial="string.punctuation" />
+                    </sanitizer>
                 </param>
             </when>
             <when value="tag" >
-                <param name="umi_tag" type="text" label="Tag which contains the UMI" >
+                <param argument="--umi-tag" name="umi_tag" type="text" label="Tag which contains the UMI" >
                     <expand macro="sanitize_tag" />
                 </param>
-                <param name="cell_tag" type="text" label="Tag which contains the cell barcode" >
+                <param argument="--cell-tag" name="cell_tag" type="text" label="Tag which contains the cell barcode" >
                     <expand macro="sanitize_tag" />
                 </param>
             </when>
             <when value="umis"></when>
         </conditional>
-
-        <param name="grouping_method" type="select" label="Method to identify group of reads" help="UMIs with the same (or similar) codes can be grouped together. The simplest methods 'unique' and 'percentile' group identical 
-UMIs, however 'cluster', 'adjacency', and 'directional' can group similar umis with edit distances less than some threshold. Unique: Reads group share the exact same UMI. Percentile: Reads group share the same UMI, and UMIs with 
-counts &lt; 1% of the median counts for UMIs at the same position are ignored. Cluster: Identify clusters of connected UMIs (based on hamming distance threshold). Adjacency: Same as cluster, but considers only directly ajacent 
-UMIs in the cluster. Directional: Identify cluster of connected UMIs based on hamming distance and umi." >
+        <param argument="--method"  type="select" label="Method to identify group of reads" help="UMIs with the same (or similar) codes can be grouped together. The simplest methods 'unique' and 'percentile' group identical
+UMIs, however 'cluster', 'adjacency', and 'directional' can group similar umis with edit distances less than some threshold. Unique: Reads group share the exact same UMI. Percentile: Reads group share the same UMI, and UMIs with
+counts &lt; 1% of the median counts for UMIs at the same position are ignored. Cluster: Identify clusters of connected UMIs (based on hamming distance threshold). Adjacency: Same as cluster, but considers only directly ajacent UMIs in the cluster. Directional: Identify cluster of connected UMIs based on hamming distance and umi." >
             <option value="unique" >Unique</option>
             <option value="percentile">Percentile</option>
             <option value="cluster">Cluster</option>
             <option value="adjacency">Adjacency</option>
             <option value="directional" selected="true" >Directional</option>
         </param>
-
-        <param name="hamming_distance" type="integer" label="Edit distance threshold" min="0" value="1" />
-        <param name="wide_format_cell_counts" type="boolean" truevalue="--wide-format-cell-counts" falsevalue="" checked="false" label="Output a mtrix of genes and cells, instead of a flat file" />
-
+        <param argument="--edit-distance-threshold" name="edit_distance_threshold" type="integer" label="Edit distance threshold" min="0" value="1" />
+        <param argument="--wide-format-cell-counts" name="wide_format_cell_counts" type="boolean" truevalue="--wide-format-cell-counts" falsevalue="" checked="true" label="Output a matrix of genes and cells, instead of a flat file" />
         <section name="advanced" title="Extra parameters" >
-            <param name="mapping_quality" type="integer" min="0" value="0" label="Minimum mapping quality" />
+            <param argument="--mapping-quality" name="mapping_quality" type="integer" min="0" value="0" label="Minimum mapping quality" />
             <!-- Currently hard-coded parameter. Leave here if useful to future wrapper  -->
-            <!-- <param argument="-\-per-gene" name="per_gene" type="text" label="Group reads together if they have the same gene" help="Reads will be grouped together if they have the same gene. This is useful if your library 
-prep generates PCR duplicates with non-identical alignment positions such as CEL-Seq. Note this option is hardcoded to be on with the count command. I.e counting is always performed per-gene. Must be combined with either 
+            <!-- <param argument="-\-per-gene" name="per_gene" type="text" label="Group reads together if they have the same gene" help="Reads will be grouped together if they have the same gene. This is useful if your library
+prep generates PCR duplicates with non-identical alignment positions such as CEL-Seq. Note this option is hardcoded to be on with the count command. I.e counting is always performed per-gene. Must be combined with either
 -\-gene-tag or -\-per-contig option" /> -->
-            <param name="gene_tag" type="text" label="Deduplicate per gene." help="The gene information is encoded in the bam read tag." value="" >
+            <param argument="--gene-tag" name="gene_tag" type="text" label="Deduplicate per gene." value="XT" help="The gene information is encoded in the bam read tag." >
                 <expand macro="sanitize_tag" />
             </param>
-            <param name="skip_tags_regex" type="text" label="Skip any reads where the gene matches this tag" value="" >
+            <param argument="--skip-tags-regex" name="skip_tags_regex" type="text" label="Skip any reads where the gene matches this tag" value="" >
                 <sanitizer invalid_char="">
                     <valid initial="string.letters,string.digits">
                         <add value="!="/>
@@ -116,48 +121,89 @@ prep generates PCR duplicates with non-identical alignment positions such as CEL
                     </valid>
                 </sanitizer>
             </param>
-            <param name="per_contig" type="boolean" truevalue="--per-contig" falsevalue="" checked="false"
-                label="Deduplicate per contig (field 3 in BAM; RNAME)"
-                help="All reads with the same contig will be considered to have the same alignment position. This is useful if you have aligned to a reference transcriptome with one transcript per gene." />
-            <param name="per_cell" type="boolean" truevalue="--per-cell" falsevalue="" checked="false"
-                label="Group reads only if they have the same cell barcode." />
-            <param name="random_seed" type="integer" min="0" value="0" label="Random Seed" />
-        </section>        
+            <param argument="--per-contig" name="per_contig" type="boolean" truevalue="--per-contig" falsevalue="" checked="false" label="Deduplicate per contig (field 3 in BAM; RNAME)"  help="All reads with the same contig will be considered to have the same alignment position. This is useful if you have aligned to a reference transcriptome with one transcript per gene." />
+            <param argument="--per-cell" name="per_cell" type="boolean" truevalue="--per-cell" falsevalue="" checked="true" label="Group reads only if they have the same cell barcode." />
+            <param argument="--random-seed" name="random_seed" type="integer" min="0" value="0" label="Random Seed" />
+        </section>
+        <conditional name="cond_extra" >
+            <param name="prepender" type="select" label="Prepend a label to all column headers" help="This preserves uniqueness when merging with other files with the same headers. Note: filename must not contain a '.' character" >
+                <option value="none" selected="true" >No modifications</option>
+                <option value="string">Custom Label</option>
+                <option value="dataset name">Dataset Name</option>
+            </param>
+            <when value="none"></when>
+            <when value="dataset name"></when>
+            <when value="string">
+                <param name="custom_label" type="text" label="Label to Prepend" >
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters,string.digits">
+                            <add value="-"/>
+                            <add value="_"/>
+                            <add value="."/>
+                        </valid>
+                    </sanitizer>
+                </param>
+            </when>
+        </conditional>
     </inputs>
     <outputs>
-        <data name="out_counts" format="tsv" />
-        <data name="out_log" format="txt" />
+        <data name="out_counts" format="tabular" />
     </outputs>
     <tests>
         <test><!--count_single_gene_tag:-->
             <param name="input_bam" value="chr19_gene_tags.bam" />
             <param name="random_seed" value="123456789" />
-            <param name="grouping_method" value="directional" />
+            <param name="method" value="directional" />
             <param name="gene_tag" value="XF" />
             <param name="skip_tags_regex" value="^[__|Unassigned]" />
             <param name="extract_umi_method" value="umis" />
+            <param name="wide_format_cell_counts" value="false" />
+            <param name="per_cell" value="false" />
             <output name="out_counts" value="count_single_gene_tag.tsv" />
         </test>
         <test><!--count_single_cells_gene_tag:-->
             <param name="input_bam" value="chr19_gene_tags.bam" />
             <param name="random_seed" value="123456789" />
-            <param name="grouping_method" value="directional" />
+            <param name="method" value="directional" />
             <param name="gene_tag" value="XF" />
             <param name="skip_tags_regex" value="^[__|Unassigned]" />
-            <param name="per_cell" value="true" /><!-- new -->
+            <param name="per_cell" value="true" />
             <param name="extract_umi_method" value="umis" />
+            <param name="wide_format_cell_counts" value="false" />
             <output name="out_counts" value="count_single_cells_gene_tag.tsv" />
         </test>
         <test><!--count_single_cells_wide_gene_tag:-->
             <param name="input_bam" value="chr19_gene_tags.bam" />
             <param name="random_seed" value="123456789" />
-            <param name="grouping_method" value="directional" />
+            <param name="method" value="directional" />
             <param name="gene_tag" value="XF" />
             <param name="skip_tags_regex" value="^[__|Unassigned]" />
-            <param name="per_cell" value="true" /><!-- new -->
+            <param name="per_cell" value="true" />
             <param name="extract_umi_method" value="umis" />
             <param name="wide_format_cell_counts" value="true" />
             <output name="out_counts" value="count_single_cells_gene_tag_wide.tsv" />
+        </test>
+        <test><!-- count ENSDARG00000019692, with defaults -->
+            <param name="input_bam" value="fc.ENSDARG00000019692.bam" />
+            <param name="method" value="unique" />
+            <output name="out_counts" value="fc.ENSDARG00000019692.counts" />
+        </test>
+        <test><!-- count ENSDARG00000019692, relabel string -->
+            <param name="input_bam" value="fc.ENSDARG00000019692.bam" />
+            <param name="method" value="unique" />
+            <conditional name="cond_extra" >
+                <param name="prepender" value="string" />
+                <param name="custom_label" value="test" />
+            </conditional>
+            <output name="out_counts" value="fc.ENSDARG00000019692.counts.test" />
+        </test>
+        <test><!-- count ENSDARG00000019692, relabel filename -->
+            <param name="input_bam" value="fc.ENSDARG00000019692.bam" />
+            <param name="method" value="unique" />
+            <conditional name="cond_extra" >
+                <param name="prepender" value="dataset name" />
+            </conditional>
+            <output name="out_counts" value="fc.ENSDARG00000019692.counts.name" />
         </test>
     </tests>
     <help><![CDATA[

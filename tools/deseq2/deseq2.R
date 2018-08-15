@@ -203,7 +203,7 @@ dir <- ""
 if (!useTXI & hasHeader) {
     countfiles <- lapply(as.character(sampleTable$filename), function(x){read.delim(x, row.names=1)})
     tbl <- do.call("cbind", countfiles)
-    rownames(sampleTable) <- colnames(tbl) # take sample ids from header
+    colnames(tbl) <- rownames(sampleTable) # take sample ids from header
 
     # check for htseq report lines (from DESeqDataSetFromHTSeqCount function)
     oldSpecialNames <- c("no_feature", "ambiguous", "too_low_aQual",
