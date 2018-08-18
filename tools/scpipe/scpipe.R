@@ -20,6 +20,7 @@ suppressPackageStartupMessages({
 option_list <- list(
     make_option(c("-fasta","--fasta"), type="character", help="Genome fasta file"),
     make_option(c("-exons","--exons"), type="character", help="Exon annotation gff3 file"),
+    make_option(c("-organism","--organism"), type="character", help="Organism e.g. hsapiens_gene_ensembl"),
     make_option(c("-barcodes","--barcodes"), type="character", help="Cell barcodes csv file"),
     make_option(c("-read1","--read1"), type="character", help="Read 1 fastq.gz"),
     make_option(c("-read2","--read2"), type="character", help="Read 2 fastq.gz"),
@@ -139,7 +140,9 @@ create_report(sample_name=args$samplename,
    barcode_anno=barcode_anno,
    max_mis=args$max_mis,
    UMI_cor=args$UMI_cor,
-   gene_fl=args$gene_fl)
+   gene_fl=args$gene_fl,
+   organism=args$organism,
+   gene_id_type="ensembl_gene_id")
 }
 
 if (!is.null(args$rdata) ) {
