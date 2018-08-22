@@ -32,7 +32,6 @@ metaphlan2.py
     -o '$output_file'
     --input_type '${input_file.datatype.file_ext}'
     --bowtie2_exe `which bowtie2`
-
     #if $db.db_selector == "cached"
         #set $path = $db.cached_db.fields.path
         #set $value = $db.cached_db.fields.value
@@ -42,31 +41,43 @@ metaphlan2.py
         --bowtie2db 'ref_db/ref_db'
         --mpa_pkl 'ref_db/metadata.pkl'
     #end if
-
     --no_map
-
     -t '$analysis_type.analysis_type_select'
     #if $analysis_type.analysis_type_select == "rel_ab" or $analysis_type.analysis_type_select == "rel_ab_w_read_stats"
         --tax_lev '$analysis_type.tax_lev'
     #else if $analysis_type.analysis_type_select == "marker_ab_table"
-        --nreads '$analysis_type.nreads'
+        #if str($analysis_type.nreads) != ''
+            --nreads '$analysis_type.nreads'
+        #end if
     #else if $analysis_type.analysis_type_select == "marker_pres_table"
         --pres_th '$analysis_type.pres_th'
+    #else if $analysis_type.analysis_type_select == "clade_specific_strain_tracker"
+        #if str($analysis_type.clade) != ''
+            --clade  '$analysis_type.clade'
+        #end if
+        --min_ab '$analysis_type.min_ab'
     #end if
-
     --min_cu_len '$min_cu_len'
-    --min_alignment_len '$min_alignment_len'
-
+    #if str($min_alignment_len) != ''
+        --min_alignment_len '$min_alignment_len'
+    #end if
     $ignore_viruses
     $ignore_eukaryotes
     $ignore_bacteria
     $ignore_archaea
-
     --stat_q '$stat_q'
+    #if str($ignore_markers_select.ignore_markers_selector) == 'yes'
+        --ignore_markers '$ignore_markers_select.ignore_markers'
+    #end if
+    $avoid_disqm
+    --stat '$stat'
+    --sample_id_key '$sample_id_key'
+    --sample_id '$sample_id'
+    --mdelim '$mdelim'   
     -s '$sam_output_file'
     --biom '$biom_output_file'
     ]]></command>
-
+    
     <inputs>
         <param name="input_file" type="data" format="fastq,fasta,sam" label="Input file"/>
         <conditional name="db">
@@ -93,6 +104,7 @@ metaphlan2.py
                 <option value="marker_ab_table">Normalized marker counts (only when > 0.0 and normalized by metagenome size if --nreads is specified)</option>
                 <option value="marker_counts">Non-normalized marker counts (use with extreme caution)</option>
                 <option value="marker_pres_table">List of markers present in the sample (threshold at 1.0 if not differently specified with --pres_th</option>
+                <option value="clade_specific_strain_tracker">Obtain all markers present for a specific clade and all its subclades</option>
             </param>
             <when value="rel_ab">
                 <expand macro="tax_lev"/>
@@ -103,31 +115,124 @@ metaphlan2.py
             <when value="reads_map"/>
             <when value="clade_profiles"/>
             <when value="marker_ab_table">
-                <param argument="--nreads" type="integer" value="0" label="Total number of reads in the original metagenome" help="It is used for normalizing the length-normalized counts with the metagenome size as well. No normalization applied if the value is not specified"/>
+                <param argument="--nreads" type="integer" value="" optional="true" label="Total number of reads in the original metagenome" help="It is used for normalizing the length-normalized counts with the metagenome size as well. No normalization applied if the value is not specified"/>
             </when>
             <when value="marker_counts"/>
             <when value="marker_pres_table">
-                <param argument="--pres_th" type="integer" value="0" label=" Threshold for calling a marker present"/>
+                <param argument="--pres_th" type="integer" value="1" label=" Threshold for calling a marker present"/>
+            </when>
+            <when value="clade_specific_strain_tracker">
+                    <param argument="--clade" type="text" optional="true" label="The clade for clade specific strain tracker analysis" />
+                    <param argument="--min_ab" type="float" value="0.1" label="The minimum percentage abundace for the clade in the clade_specific_strain_tracker analysis."/>
             </when>
         </conditional>
         <param argument="--min_cu_len" type="integer" value="2000" label="Minimum total nucleotide length for the markers in a clade for estimating the abundance without considering sub-clade abundances"/>
-        <param argument="--min_alignment_len" type="integer" value="0" label="Sam records for aligned reads with the longest subalignment length smaller than this threshold will be discarded."/>
+        <param argument="--min_alignment_len" type="integer" value="" optional="true" label="Sam records for aligned reads with the longest subalignment length smaller than this threshold will be discarded."/>
         <param argument="--ignore_viruses" type='boolean' checked="true" truevalue='' falsevalue='--ignore_viruses' label="Profile viral organisms?"/>
         <param argument="--ignore_eukaryotes" type='boolean' checked="true" truevalue='' falsevalue='--ignore_eukaryotes' label="Profile eukaryotic organisms?"/>
         <param argument="--ignore_bacteria" type='boolean' checked="true" truevalue='' falsevalue='--ignore_bacteria' label="Profile bacteria organisms?"/>
         <param argument="--ignore_archaea" type='boolean' checked="true" truevalue='' falsevalue='--ignore_archaea' label="Profile archea organisms?"/>
         <param argument="--stat_q" type="float" value="0.1" label="Quantile value for the robust average"/>
+        <conditional name="ignore_markers_select">
+            <param name="ignore_markers_selector" type="select" label="Include a file containing a list of markers to ignore?">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No</option>
+            </param>
+            <when value="yes">
+                    <param argument="--ignore_markers" type="data" format="txt" optional="true" label="File containing a list of markers to ignore." />
+            </when>
+            <when value="no"> </when>
+        </conditional>
+        <param argument="--avoid_disqm" type='boolean' checked="false" truevalue='--avoid_disqm' falsevalue='' label="Deactivate the procedure of disambiguating the quasi-markers based on the marker abundance pattern found in the sample." help="It is generally recommended too keep the disambiguation procedure in order to minimize false positives"/> 
+        <param argument="--stat" type="select" label="Statistical approach for converting marker abundances into clade abundances." >
+            <option value="avg_g">Clade global (i.e. normalizing all markers together) average</option>
+            <option value="avg_l">Average of length-normalized marker counts</option>
+            <option value="tavg_g" selected="true">Truncated clade global average at --stat_q quantile</option>
+            <option value="tavg_l">Trunated average of length-normalized marker counts (at --stat_q)</option>
+            <option value="wavg_g">Winsorized clade global average (at --stat_q)</option>
+            <option value="wavg_l">Winsorized average of length-normalized marker counts (at --stat_q)</option>
+            <option value="med">Median of length-normalized marker counts</option>
+        </param>
+        <param argument="--sample_id_key" type="text" value="#SampleID" label="Specify the sample ID key for this analysis." />
+        <param argument="--sample_id" type="text" value="Metaphlan2_Analysis" label=" Specify the sample ID for this analysis." /> 
+        <param argument="--mdelim" type="text" value="|" label="Delimiter for bug metadata." help="e.g. the pipe in k__Bacteria|p__Proteobacteria" > 
+            <sanitizer invalid_char="">
+                <valid initial="string.ascii_letters,string.digits"><add value="|" /> </valid>
+            </sanitizer>
+        </param>
     </inputs>
-
     <outputs>
         <data name="output_file" format="tabular" label="${tool.name} on ${on_string}: Community profile" />
         <data name="sam_output_file" format="sam" label="${tool.name} on ${on_string}: SAM file" />
         <data name="biom_output_file" format="biom1" label="${tool.name} on ${on_string}: BIOM file" />
     </outputs>
-
     <tests>
         <test>
-            <param name="input_file" value="input_sequences.fasta"/>
+            <param name="input_file" value="input_sequences.fasta" ftype="fasta" />
+            <param name="db_selector" value="history" />
+            <param name="mpa_pkl" value="marker_metadata.json" />
+            <param name="bowtie2db" value="marker_sequences.fasta" />
+            <param name="analysis_type_select" value="rel_ab" />
+            <param name="taxonomic_level" value="a" />
+            <param name="min_cu_len" value="2000" />
+            <param name="ignore_viruses" value="True" />
+            <param name="ignore_eukaryotes" value="True" />
+            <param name="ignore_bacteria" value="True" />
+            <param name="ignore_archaea" value="True" />
+            <param name="ignore_markers_selector" value="no" />
+            <param name="stat_q" value="0.1" />
+            <param name="avoid_disqm" value="False" />
+            <param name="stat" value="tavg_g" />
+            <param name="sample_id_key" value="#SampleID" />
+            <param name="sample_id" value="Metaphlan2_Analysis" />
+            <param name="mdelim" value="|" />
+            <output name="output_file" file="test1.tabular"/>
+            <output name="sam_output_file">
+                <assert_contents>
+                    <has_text text="@SQ" />
+                    <has_text text="gi" />
+                    <has_text text="ref" />
+                </assert_contents>
+            </output>
+            <output name="biom_output_file">
+                <assert_contents>
+                    <has_text text="id" />
+                    <has_text text="MetaPhlAn2_Analysis" />
+                    <has_text text="Biological Observation Matrix 1.0.0" />
+                    <has_text text="s__Bacteroides_stercoris" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" value="input_sequences.fasta" ftype="fasta" />
+            <param name="db_selector" value="history" />
+            <param name="mpa_pkl" value="marker_metadata.json" />
+            <param name="bowtie2db" value="marker_sequences.fasta" />
+            <param name="analysis_type_select" value="reads_map" />
+            <param name="min_cu_len" value="2000" />
+            <param name="min_alignment_len" value="0" />
+            <param name="ignore_viruses" value="True" />
+            <param name="ignore_eukaryotes" value="True" />
+            <param name="ignore_bacteria" value="True" />
+            <param name="ignore_archaea" value="True" />
+            <param name="ignore_markers_selector" value="no" />
+            <param name="stat_q" value="0.1" />
+            <param name="avoid_disqm" value="False" />
+            <param name="stat" value="tavg_g" />
+            <param name="sample_id_key" value="#SampleID" />
+            <param name="sample_id" value="Metaphlan2_Analysis" />
+            <param name="mdelim" value="|" />
+            <output name="output_file" file="test2.tabular"/>
+            <output name="sam_output_file">
+                <assert_contents>
+                    <has_text text="@SQ" />
+                    <has_text text="gi" />
+                    <has_text text="ref" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" value="input_sequences.fasta" ftype="fasta" />
             <param name="db_selector" value="history" />
             <param name="mpa_pkl" value="marker_metadata.json" />
             <param name="bowtie2db" value="marker_sequences.fasta" />
@@ -135,12 +240,121 @@ metaphlan2.py
             <param name="taxonomic_level" value="a" />
             <param name="min_cu_len" value="2000" />
             <param name="min_alignment_len" value="0" />
+            <param name="ignore_viruses" value="False" />
+            <param name="ignore_eukaryotes" value="False" />
+            <param name="ignore_bacteria" value="False" />
+            <param name="ignore_archaea" value="False" />
+            <param name="ignore_markers_selector" value="yes" />
+            <param name="ignore_markers" value="markers.txt" />
+            <param name="stat_q" value="0.1" />
+            <param name="avoid_disqm" value="True" />
+            <param name="stat" value="tavg_g" />
+            <param name="sample_id_key" value="#SampleID" />
+            <param name="sample_id" value="Metaphlan2_Analysis" />
+            <param name="mdelim" value="|" />
+            <output name="output_file" file="output_marker.tabular"/>
+            <output name="sam_output_file">
+                <assert_contents>
+                    <has_text text="@SQ" />
+                    <has_text text="gi" />
+                    <has_text text="ref" />
+                </assert_contents>
+            </output>
+            <output name="biom_output_file" >
+                <assert_contents>
+                    <has_text text="id" />
+                    <has_text text="Biological Observation Matrix 1.0.0" />
+                    <has_text text="matrix_element_type" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" value="input_sequences.fasta" ftype="fasta" />
+            <param name="db_selector" value="history" />
+            <param name="mpa_pkl" value="marker_metadata.json" />
+            <param name="bowtie2db" value="marker_sequences.fasta" />
+            <param name="analysis_type_select" value="marker_ab_table" />
+            <param name="nreads" value="1" />
+            <param name="min_cu_len" value="2000" />
+            <param name="min_alignment_len" value="0" />
             <param name="ignore_viruses" value="" />
             <param name="ignore_eukaryotes" value="" />
             <param name="ignore_bacteria" value="" />
             <param name="ignore_archaea" value="" />
+            <param name="ignore_markers_selector" value="no" />
             <param name="stat_q" value="0.1" />
-            <output name="output_file" file="community_profile.tabular"/>
+            <param name="avoid_disqm" value="False" />
+            <param name="stat" value="tavg_g" />
+            <param name="sample_id_key" value="#SampleID" />
+            <param name="sample_id" value="Metaphlan2_Analysis" />
+            <param name="mdelim" value="|" />
+            <output name="output_file" file="output_nreads.tabular"/>
+            <output name="sam_output_file">
+                <assert_contents>
+                    <has_text text="@SQ" />
+                    <has_text text="gi" />
+                    <has_text text="ref" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" value="input_sequences.fasta" ftype="fasta" />
+            <param name="db_selector" value="history" />
+            <param name="mpa_pkl" value="marker_metadata.json" />
+            <param name="bowtie2db" value="marker_sequences.fasta" />
+            <param name="analysis_type_select" value="marker_pres_table" />
+            <param name="pres_th" value="1" />
+            <param name="min_cu_len" value="2000" />
+            <param name="min_alignment_len" value="0" />
+            <param name="ignore_viruses" value="" />
+            <param name="ignore_eukaryotes" value="" />
+            <param name="ignore_bacteria" value="" />
+            <param name="ignore_archaea" value="" />
+            <param name="ignore_markers_selector" value="no" />
+            <param name="stat_q" value="0.1" />
+            <param name="avoid_disqm" value="False" />
+            <param name="stat" value="tavg_g" />
+            <param name="sample_id_key" value="#SampleID" />
+            <param name="sample_id" value="Metaphlan2_Analysis" />
+            <param name="mdelim" value="|" />
+            <output name="output_file" file="output_pres.tabular"/>
+            <output name="sam_output_file">
+                <assert_contents>
+                    <has_text text="@SQ" />
+                    <has_text text="gi" />
+                    <has_text text="ref" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_file" value="input_sequences.fasta" ftype="fasta" />
+            <param name="db_selector" value="history" />
+            <param name="mpa_pkl" value="marker_metadata.json" />
+            <param name="bowtie2db" value="marker_sequences.fasta" />
+            <param name="analysis_type_select" value="clade_specific_strain_tracker" />
+            <param name="clade" value="s__Bacteroides_stercoris" />
+            <param name="min_ab" value="0.1" />
+            <param name="min_cu_len" value="2000" />
+            <param name="min_alignment_len" value="0" />
+            <param name="ignore_viruses" value="" />
+            <param name="ignore_eukaryotes" value="" />
+            <param name="ignore_bacteria" value="" />
+            <param name="ignore_archaea" value="" />
+            <param name="ignore_markers_selector" value="no" />
+            <param name="stat_q" value="0.1" />
+            <param name="avoid_disqm" value="False" />
+            <param name="stat" value="tavg_g" />
+            <param name="sample_id_key" value="#SampleID" />
+            <param name="sample_id" value="Metaphlan2_Analysis" />
+            <param name="mdelim" value="|" />
+            <output name="output_file" file="output_clade.tabular"/>
+            <output name="sam_output_file">
+                <assert_contents>
+                    <has_text text="@SQ" />
+                    <has_text text="gi" />
+                    <has_text text="ref" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
 
@@ -181,6 +395,41 @@ The marker name correspond to the corresponding sequence name in the FastA file 
 
 The main output file is a tab-separated file with the predicted taxon relative abundances.
 
+It is highly recommended to save the intermediate BowTie2 output for re-running MetaPhlAn extremely quickly.
+
+**Clade-abundance estimation**
+
+The basic usage of Metaphlan2 consists in the identification of the clades (from phyla to species and 
+strains in particular cases) present in the metagenome obtained from a microbiome sample and their 
+relative abundance. This correspond to the default analysis type (Profiling a metagenomes in terms of 
+relative abundances).
+
+**Strain tracking**
+
+Metaphlan 2 introduces the capability of charaterizing organisms at the strain level using non
+aggregated marker information. Such capability comes with several slightly different flavours and 
+are a way to perform strain tracking and comparison across multiple samples. 
+
+Usually, Metaphlan2 is first ran with the default analysis type to profile the species present in
+the community, and then a strain-level profiling can be performed to zoom-in into specific species
+of interest. 
+
+The analysis type, "Normalized marker counts", outputs the  abundance of each marker with a RPK 
+(reads per kil-base). The obtained RPK can be optionally normalized by the total number of reads in 
+the metagenome to guarantee fair comparisons of abundances across samples. The number of reads in the 
+metagenome needs to be specified with "Total number of reads in the original metagenome".
+
+The analysis type, "List of markers present in the sample", lists markers present in the sample that can 
+be obtained. The threshold for calling a marker present set the minimum RPK value to consider a marker present. 
+
+The analysis type, "Normalized marker counts for clades with at least a non-null marker", outputs the list of 
+reports with the same information as the analysis type "Normalized marker counts", but the markers are reported 
+on a clade-by-clade basis.
+
+The analysis type, "Obtain all markers present for a specific clade and all its subclades" performs clade 
+specific strain tracker analysis. For example if the clade is the B. fragulis species, this analysis type reports 
+the presence/absence of the markers for the B. fragulis species and its strains. The minimum clade abundance for 
+reporting the markers can be optionally specified. 
     ]]></help>
 
     <expand macro="citations"/>
