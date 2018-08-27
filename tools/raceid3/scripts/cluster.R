@@ -1,0 +1,103 @@
+#!/usr/bin/env R
+VERSION = "0.1"
+
+args = commandArgs(trailingOnly = T)
+
+if (length(args) != 1){
+     message(paste("VERSION:", VERSION))
+     stop("Please provide the config file")
+}
+
+suppressPackageStartupMessages(require(RaceID))
+suppressPackageStartupMessages(require(scran))
+source(args[1])
+
+sc <- NULL
+if (use.test.data) {
+  sc <- SCseq(intestinalData)
+  message("Loading test data from library")
+} else {
+  sc <- SCseq(in.table)
+}
+
+do.filter <- function(sc){
+    if (!is.null(filt.lbatch.regexes)){
+        lar <- filt.lbatch.regexes
+        nn <- colnames(sc@expdata)
+        filt$LBatch <- lapply(1:length(lar), function(m){ return( nn[grep(lar[[m]], nn)] ) })
+    }
+
+    sc <- do.call(filterdata, c(sc, filt))
+
+    if (filt.use.ccorrect){
+        sc <- do.call(CCcorrect, c(sc, filt.ccc))
+        print(plotdimsat(sc, change=T))
+        print(plotdimsat(sc, change=F))
+    }
+    return(sc)
+}
+
+do.cluster <- function(sc){
+    sc <- do.call(compdist, c(sc, clust.compdist))
+    sc <- do.call(clustexp, c(sc, clust.clustexp))
+    if (clust.clustexp$sat){
+        print(plotsaturation(sc, disp=F))
+        print(plotsaturation(sc, disp=T))
+    }
+    print(plotjaccard(sc))
+    return(sc)
+}
+
+do.outlier <- function(sc){
+    sc <- do.call(findoutliers, c(sc, outlier.findoutliers))
+    if (outlier.use.randomforest){
+        sc <- do.call(rfcorrect, c(sc, outlier.rfcorrect))
+    }
+    print(plotbackground(sc))
+    print(plotsensitivity(sc))
+    print(plotoutlierprobs(sc))
+                                        # Heatmaps
+    x <- clustheatmap(sc, final=FALSE)
+    x <- clustheatmap(sc, final=TRUE)
+    return(sc)
+}
+
+do.clustmap <- function(sc){
+    sc <- do.call(comptsne, c(sc, cluster.comptsne))
+    sc <- do.call(compfr, c(sc, cluster.compfr))
+    print(plotmap(sc, final = FALSE, fr = FALSE))
+    print(plotmap(sc, final = TRUE, fr = FALSE))
+    print(plotmap(sc, final = FALSE, fr = TRUE))
+    print(plotmap(sc, final = TRUE, fr = TRUE))
+    return(sc)
+}
+
+mkgenelist <- function(sc){
+    df <- c()
+    lapply(unique(sc@cpart), function(n){
+        dg <- clustdiffgenes(sc, cl=n, pvalue=genelist.pvalue)
+
+        dg.goi <- dg[dg$fc > genelist.foldchange,]
+        dg.goi.table <- head(dg.goi, genelist.tablelim)
+        df <<- rbind(df, cbind(n, dg.goi.table))
+
+        goi <- head(rownames(dg.goi.table), genelist.plotlim)
+        print(plotmarkergenes(sc, goi))
+    })
+    write.table(df, file=out.genelist, sep="\t", quote=F)
+}
+
+pdf(out.pdf)
+sc <- do.filter(sc)
+message("[Matrix Dimensions]")
+message(paste("genes:",nrow(sc@ndata),", cells:",ncol(sc@ndata)))
+message("note: Errors in clustering after this stage are indicative of over filtering.")
+message(paste(" - genes:",nrow(sc@ndata),", cells:",ncol(sc@ndata)))
+message("- note: Errors in clustering after this stage are indicative of over filtering.")
+sc <- do.cluster(sc)
+sc <- do.outlier(sc)
+sc <- do.clustmap(sc)
+dev.off()
+
+mkgenelist(sc)
+saveRDS(sc, out.rdat)
