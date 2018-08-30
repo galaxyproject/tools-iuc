@@ -87,24 +87,13 @@ verbose <- if (is.null(opt$quiet)) {
   FALSE
 }
 
-if (!is.null(opt$header)) {
-  hasHeader <- TRUE
-} else {
-  hasHeader <- FALSE
+source_local <- function(fname){
+    argv <- commandArgs(trailingOnly = FALSE)
+    base_dir <- dirname(substring(argv[grep("--file=", argv)], 8))
+    source(paste(base_dir, fname, sep="/"))
 }
 
-if (!is.null(opt$tximport)) {
-  if (is.null(opt$tx2gene)) stop("A transcript-to-gene map or a GTF file is required for tximport")
-  if (tolower(file_ext(opt$tx2gene)) == "gtf") {
-    gtfFile <- opt$tx2gene
-  } else {
-    gtfFile <- NULL
-    tx2gene <- read.table(opt$tx2gene, header=FALSE)
-  }
-  useTXI <- TRUE
-} else {
-  useTXI <- FALSE
-}
+source_local('get_deseq_dataset.R')
 
 suppressPackageStartupMessages({
   library("DESeq2")
@@ -197,54 +186,7 @@ if (verbose) {
   cat("\n---------------------\n")
 }
 
-# For JSON input from Galaxy, path is absolute
-dir <- ""
-
-if (!useTXI & hasHeader) {
-    countfiles <- lapply(as.character(sampleTable$filename), function(x){read.delim(x, row.names=1)})
-    tbl <- do.call("cbind", countfiles)
-    colnames(tbl) <- rownames(sampleTable) # take sample ids from header
-
-    # check for htseq report lines (from DESeqDataSetFromHTSeqCount function)
-    oldSpecialNames <- c("no_feature", "ambiguous", "too_low_aQual",
-        "not_aligned", "alignment_not_unique")
-    specialRows <- (substr(rownames(tbl), 1, 1) == "_") | rownames(tbl) %in% oldSpecialNames
-    tbl <- tbl[!specialRows, , drop = FALSE]
-
-    dds <- DESeqDataSetFromMatrix(countData = tbl,
-                                  colData = sampleTable[,-c(1:2), drop=FALSE],
-                                  design = designFormula)
-} else if (!useTXI & !hasHeader) {
-
-  # construct the object from HTSeq files
-  dds <- DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
-                                    directory = dir,
-                                    design =  designFormula)
-  labs <- unname(unlist(filenames_to_labels[colnames(dds)]))
-  colnames(dds) <- labs
-
-} else {
-    # construct the object using tximport
-    # first need to make the tx2gene table
-    # this takes ~2-3 minutes using Bioconductor functions
-    if (!is.null(gtfFile)) {
-      suppressPackageStartupMessages({
-        library("GenomicFeatures")
-      })
-      txdb <- makeTxDbFromGFF(gtfFile, format="gtf")
-      k <- keys(txdb, keytype = "GENEID")
-      df <- select(txdb, keys = k, keytype = "GENEID", columns = "TXNAME")
-      tx2gene <- df[, 2:1]  # tx ID, then gene ID
-    }
-    library("tximport")
-    txiFiles <- as.character(sampleTable[,2])
-    labs <- unname(unlist(filenames_to_labels[sampleTable[,1]]))
-    names(txiFiles) <- labs
-    txi <- tximport(txiFiles, type=opt$txtype, tx2gene=tx2gene)
-    dds <- DESeqDataSetFromTximport(txi,
-                                    sampleTable[,3:ncol(sampleTable),drop=FALSE],
-                                    designFormula)
-}
+dds <- get_deseq_dataset(sampleTable, header=opt$header, designFormula=designFormula, tximport=opt$tximport, txtype=opt$txtype, tx2gene=opt$tx2gene)
 
 if (verbose) {
   cat("DESeq2 run information\n\n")
