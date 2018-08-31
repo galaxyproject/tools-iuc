@@ -312,27 +312,15 @@ def download_from_url(params, tmp_dir, **kwds):
     """
     Download a file from a URL and return a list of filehandles from which to read the data.
 
-    >>> url = 'https://github.com/mvdbeek/tools-devteam/raw/data_manager/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/test.tar'
-    >>> params = {'param_dict': {'reference_source': {'user_url': url}}}
     >>> tmp_dir = tempfile.mkdtemp()
-    >>> fh = download_from_url(params=params, tmp_dir=tmp_dir)[0][0]
-    >>> assert fh.readline().startswith('>FBtr0304171')
-    >>> url = 'https://github.com/mvdbeek/tools-devteam/raw/data_manager/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/test.tar.bz2'
+    >>> url = 'https://github.com/galaxyproject/tools-iuc/raw/master/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/test.tar.bz2'
     >>> params = {'param_dict': {'reference_source': {'user_url': url}}}
     >>> fh = download_from_url(params=params, tmp_dir=tmp_dir)[0][0]
-    >>> assert fh.readline().startswith('>FBtr0304171')
-    >>> url = 'https://github.com/mvdbeek/tools-devteam/raw/data_manager/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/test.tar.gz'
+    >>> assert fh.readline().startswith('b>FBtr0304171')
+    >>> url = 'https://github.com/galaxyproject/tools-iuc/raw/master/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/phiX174.fasta'
     >>> params = {'param_dict': {'reference_source': {'user_url': url}}}
     >>> fh = download_from_url(params=params, tmp_dir=tmp_dir)[0][0]
-    >>> assert fh.readline().startswith('>FBtr0304171')
-    >>> url = 'https://github.com/mvdbeek/tools-devteam/raw/data_manager/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/test.zip'
-    >>> params = {'param_dict': {'reference_source': {'user_url': url}}}
-    >>> fh = download_from_url(params=params, tmp_dir=tmp_dir)[0][0]
-    >>> assert fh.readline().startswith('>FBtr0304171')
-    >>> url = 'https://raw.githubusercontent.com/galaxyproject/tools-devteam/master/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/phiX174.fasta'
-    >>> params = {'param_dict': {'reference_source': {'user_url': url}}}
-    >>> fh = download_from_url(params=params, tmp_dir=tmp_dir)[0][0]
-    >>> assert fh.readline().startswith('>phiX174')
+    >>> assert fh.readline().startswith('b>phiX174')
     """
     urls = filter(bool, [x.strip() for x in params['param_dict']['reference_source']['user_url'].split('\n')])
     return [get_stream_reader(urlopen(url), tmp_dir) for url in urls]
@@ -344,7 +332,7 @@ def download_from_history(params, tmp_dir, **kwds):
     if isinstance(input_filename, list):
         fasta_readers = [get_stream_reader(open(filename, 'rb'), tmp_dir) for filename in input_filename]
     else:
-        fasta_readers = get_stream_reader(open(input_filename), tmp_dir)
+        fasta_readers = get_stream_reader(open(input_filename, 'rb'), tmp_dir)
     return fasta_readers
 
 
