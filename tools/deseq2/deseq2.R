@@ -46,6 +46,7 @@ args <- commandArgs(trailingOnly = TRUE)
 spec <- matrix(c(
   "quiet", "q", 0, "logical",
   "help", "h", 0, "logical",
+  "batch_factors", "", 1, "character",
   "outfile", "o", 1, "character",
   "countsfile", "n", 1, "character",
   "header", "H", 0, "logical",
@@ -187,6 +188,34 @@ if (verbose) {
 }
 
 dds <- get_deseq_dataset(sampleTable, header=opt$header, designFormula=designFormula, tximport=opt$tximport, txtype=opt$txtype, tx2gene=opt$tx2gene)
+
+apply_batch_factors <- function (dds, batch_factors) {
+  rownames(batch_factors) <- batch_factors$identifier
+  batch_factors <- subset(batch_factors, select = -c(identifier, condition))
+  dds_samples <- colnames(dds)
+  batch_samples <- rownames(batch_factors)
+  if (!setequal(batch_samples, dds_samples)) {
+    stop("Batch factor names don't correspond to input sample names, check input files")
+  }
+  dds_data <- colData(dds)
+  # Merge dds_data with batch_factors using indexes, which are sample names
+  # Set sort to False, which maintains the order in dds_data
+  reordered_batch <- merge(dds_data, batch_factors, by.x = 0, by.y = 0, sort=F)
+  batch_factors <- reordered_batch[, ncol(dds_data):ncol(reordered_batch)]
+  for (factor in colnames(batch_factors)) {
+    dds[[factor]] <- batch_factors[[factor]]
+  }
+  colnames(dds) <- reordered_batch[,1]
+  return(dds)
+}
+
+if (!is.null(opt$batch_factors)) {
+  batch_factors <- read.table(opt$batch_factors, sep="\t", header=T)
+  dds <- apply_batch_factors(dds = dds, batch_factors = batch_factors)
+  batch_design <- colnames(batch_factors)[-c(1,2)]
+  designFormula <- as.formula(paste("~", paste(c(batch_design, rev(factors)), collapse=" + ")))
+  design(dds) <- designFormula
+}
 
 if (verbose) {
   cat("DESeq2 run information\n\n")
