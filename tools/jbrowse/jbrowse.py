@@ -945,3 +945,4 @@ if __name__ == '__main__':
             extra_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
 
     jc.add_final_data(extra_data)
+    jc.generate_names()
