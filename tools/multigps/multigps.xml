@@ -1,10 +1,10 @@
-<tool id="multigps" name="MultiGPS" version="0.73.0">
+<tool id="multigps" name="MultiGPS" version="0.74.0">
     <description>analyzes collections of multi-condition ChIP-seq data</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <requirements>
-        <requirement type="package" version="0.73">multigps</requirement>
+        <requirement type="package" version="0.74">multigps</requirement>
     </requirements>
     <command detect_errors="aggressive">
         <![CDATA[
@@ -12,18 +12,13 @@
             mkdir -p $output_dir &&
             multigps
             ## General options
+            --design '$build_design_file'
             ## Append .txt extensions to events hrefs
             ## in output dataset so files will render
             ## in the browser.
             --eventsaretxt
-            ## Do not run the parallel version of meme
-            ## since it is not yet available in conda.
+            ## Do not run the parallel version of meme.
             --meme1proc
-            --expt '$expt'
-            --format $expt.ext
-            #if str($ctrl) != 'None':
-                --ctrl '$ctrl'
-            #end if
             --threads \${GALAXY_SLOTS:-4}
             --geninfo '$chromInfo'
             ## Advanced options
@@ -39,9 +34,9 @@
                     #set rgc = $umc.reference_genome_cond
                     --seq
                     #if str($rgc.reference_genome_source) == 'cached':
-		        '${rgc.reference_genome.fields.path}'
+                        '${rgc.reference_genome.fields.path}'
                     #else:
-		        '${rgc.reference_genome}'
+                        '${rgc.reference_genome}'
                     #end if
                 #end if
                 ## Limits on how many reads
@@ -80,9 +75,9 @@
                 #end if
                 ## Running MultiGPS
                 #if str($aoc.readdistributionfile) != 'None':
-                    --d '$aoc.readdistributionfile'
+                    --readdistributionfile '$aoc.readdistributionfile'
                 #end if
-                --r $aoc.maxtrainingrounds
+                --maxtrainingrounds $aoc.maxtrainingrounds
                 #if str($aoc.nomodelupdate) == 'no':
                     --nomodelupdate
                 #end if
@@ -127,20 +122,20 @@
                             --mememinw $bmc.mememinw
                             --mememaxw $bmc.mememaxw
                         #else:
-                            #set mfoc = $bmc.nomotifprior_cond
+                            #set nmpc = $bmc.nomotifprior_cond
                             --nomotifs
-                            --nomotifprior $mfoc.nomotifprior
-                            #if str($mfoc.nomotifprior) == 'yes':
-                                --memenmotifs $mfoc.memenmotifs
-                                --mememinw $mfoc.mememinw
-                                --mememaxw $mfoc.mememaxw
+                            #if str($nmpc.nomotifprior) == 'yes':
+                                --nomotifprior
+                                --memenmotifs $nmpc.memenmotifs
+                                --mememinw $nmpc.mememinw
+                                --mememaxw $nmpc.mememaxw
                             #end if
                         #end if
                     #end if
                 #end if
                 ## Reporting binding events
                 #if str($rbec.report_binding_events) == 'yes':
-                    --q $rbec.minqvalue
+                    --minqvalue $rbec.minqvalue
                     --minfold $rbec.minfold
                     #if str($rbec.nodifftests) == 'no':
                         --nodifftests
@@ -151,17 +146,76 @@
             #end if
             2>&1
             --out '$output_html.files_path'
-            && cp $output_dir/*.events.txt '$experiment_events'
+            #if str($save_design_file) == 'yes':
+                && cp '$build_design_file' '$output_design_file'
+            #end if
+            && mv $output_dir/*.counts '$replicates_counts'
+            && mv $output_dir/*.bed '$output_bed'
             && mv $output_dir/*.html '$output_html'
             && mv $output_dir/*.table.txt '$all_events_table'
-            && mv $output_dir/*.counts '$replicates_counts'
         ]]>
     </command>
+    <configfiles>
+        <configfile name="build_design_file"><![CDATA[#for $condition_items in $condition_repeat:
+    #for $signal_items in $condition_items.signal_repeat:
+        #if str($signal_items.fixedreadcount_cond.fixedreadcount_select) == 'yes':
+            #set $frc = $signal_items.fixedreadcount_cond.fixedreadcount
+        #else:
+            #set $frc = ''
+        #end if
+${signal_items.signal}	Signal	${signal_items.signal.ext.upper()}	${condition_items.condition_name}	${signal_items.replicate_name}	${condition_items.experiment_type}	${frc}
+    #end for
+    #for $control_items in $condition_items.control_repeat:
+        #if str($control_items.specify_replicate_name_cond.specify_replicate_name) == 'yes':
+            #set $rn = $control_items.specify_replicate_name_cond.replicate_name
+        #else:
+            #set $rn = ''
+        #end if
+        #if str($control_items.fixedreadcount_cond.fixedreadcount_select) == 'yes':
+            #set $frc = $control_items.fixedreadcount_cond.fixedreadcount
+        #else:
+            #set $frc = ''
+        #end if
+${control_items.control}	Control	${control_items.control.ext.upper()}	${condition_items.condition_name}	${rn}	${condition_items.experiment_type}	${frc}
+    #end for
+#end for ]]></configfile>
+    </configfiles>
     <inputs>
-        <param name="expt" type="data" format="bam,bed,scidx" label="Run MultiGPS on">
-            <validator type="unspecified_build" />
+        <repeat name="condition_repeat" title="Condition" min="1">
+            <param name="condition_name" type="text" value="cond" label="Condition name">
+                <validator type="empty_field" />
+            </param>
+            <expand macro="param_experiment_type" />
+            <repeat name="signal_repeat" title="Signal" min="1">
+                <param name="signal" type="data" format="bam,bed,scidx" label="Select signal" help="Supported formats are bam, bed and scidx">
+                    <validator type="unspecified_build" />
+                </param>
+                <param name="replicate_name" type="text" value="1" label="Replicate name">
+                    <validator type="empty_field" />
+                </param>
+                <expand macro="cond_fixedreadcount" />
+            </repeat>
+            <repeat name="control_repeat" title="Control" min="0">
+                <param name="control" type="data" format="bam,bed,scidx" label="Select control" help="Optional, supported formats are bam, bed and scidx">
+                    <validator type="unspecified_build" />
+                </param>
+                <conditional name="specify_replicate_name_cond">
+                    <param  name="specify_replicate_name" type="select" label="Specify replicate name?" help="Optional for control.  If used, the control will only be used for the corresponding named signal replicate">
+                        <option value="no" selected="True">No</option>
+                        <option value="yes">Yes</option>
+                    </param>
+                    <when value="yes">
+                        <param name="replicate_name" type="text" optional="true" label="Replicate name"/>
+                    </when>
+                    <when value="no" />
+                </conditional>
+                <expand macro="cond_fixedreadcount" />
+            </repeat>
+        </repeat>
+        <param name="save_design_file" type="select" display="radio" label="Output design file?">
+            <option value="no" selected="true">No</option>
+            <option value="yes">Yes</option>
         </param>
-        <param name="ctrl" type="data" format="bam,bed,scidx" optional="True" label="Optional file containing reads from a control experiment" help="Must be same forat as the input above" />
         <!-- Advanced options -->
         <conditional name="advanced_options_cond">
             <param name="advanced_options" type="select" label="Advanced options">
@@ -192,7 +246,7 @@
                 </conditional>
                 <!-- Scaling data -->
                 <conditional name="scale_data_cond">
-                    <param  name="scale_data" type="select" label="Set data scaling parameters?" help="Default behavior is to scale signal to corresponding controls using regression on the set of signal/control ratios in 10Kbp windows.">
+                    <param  name="scale_data" type="select" label="Set data scaling parameters?" help="Default behavior is to scale signal to corresponding controls using the Normalization of ChIP-seq (NCIS) method.[2]">
                         <option value="no" selected="True">No</option>
                         <option value="yes">Yes</option>
                     </param>
@@ -282,7 +336,7 @@
                             <when value="cached">
                                 <param name="reference_genome" type="select" label="Using reference genome">
                                     <options from_data_table="all_fasta">
-                                        <filter type="data_meta" key="dbkey" ref="expt" column="1"/>
+                                        <!-- <filter type="data_meta" key="dbkey" ref="expt" column="1"/> does not yet work in a repeat...-->
                                     </options>
                                     <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file"/>
                                 </param>
@@ -290,7 +344,7 @@
                             <when value="history">
                                 <param name="reference_genome" type="data" format="fasta" label="Using reference genome">
                                     <options>
-                                        <filter type="data_meta" key="dbkey" ref="expt"/>
+                                        <!-- <filter type="data_meta" key="dbkey" ref="expt"/> does not yet work in a repeat...-->
                                     </options>
                                     <validator type="no_options" message="The current history does not include a fasta dataset with the build associated with the selected input file"/>
                                 </param>
@@ -358,26 +412,39 @@
         </conditional>
     </inputs>
     <outputs>
-        <data name="replicates_counts" format="tabular" label="${tool.name} replicates counts on ${on_string}"/>
-        <data name="all_events_table" format="tabular" label="${tool.name} all events table on ${on_string}"/>
-        <data name="experiment_events" format="tabular" label="${tool.name} experiment events on ${on_string}"/>
-        <data name="output_html" format="html" label="${tool.name} on ${on_string}"/>
+        <data name="output_design_file" format="tabular" label="${tool.name} (design file) on ${on_string}">
+            <filter>save_design_file == 'yes'</filter>
+        </data>
+        <data name="output_bed" format="bed" label="${tool.name} (bed) on ${on_string}"/>
+        <data name="output_html" format="html" label="${tool.name} (html) on ${on_string}"/>
+        <data name="replicates_counts" format="tabular" label="${tool.name} (replicates counts) on ${on_string}"/>
+        <data name="all_events_table" format="tabular" label="${tool.name} (all events table) on ${on_string}"/>
     </outputs>
     <tests>
         <test>
-            <param name="expt" value="expt_hg19.scidx" ftype="scidx" dbkey="hg19" />
-            <param name="advanced_options_cond" value="hide" />
+            <repeat name="condition_repeat">
+                <repeat name="signal_repeat">
+                    <param name="signal" value="expt_hg19.scidx" ftype="scidx" dbkey="hg19" />
+                </repeat>
+            </repeat>
+            <param name="advanced_options" value="hide" />
             <output name="output_html" file="hg19_output_html1.html" ftype="html" compare="contains"/>
-            <output name="experiment_events" file="hg19_experiment_events1.tabular" ftype="tabular"/>
+            <output name="output_bed" file="hg19_output_bed1.bed" ftype="bed"/>
             <output name="all_events_table" file="hg19_all_events_table1.tabular" ftype="tabular"/>
             <output name="replicates_counts" file="hg19_replicates_counts1.tabular" ftype="tabular"/>
         </test>
         <test>
-            <param name="expt" value="expt_hg19.scidx" ftype="scidx" dbkey="hg19" />
-            <param name="ctrl" value="cntrl_hg19.scidx" ftype="scidx" dbkey="hg19" />
-            <param name="advanced_options_cond" value="display" />
+            <repeat name="condition_repeat">
+                <repeat name="signal_repeat">
+                    <param name="signal" value="expt_hg19.scidx" ftype="scidx" dbkey="hg19" />
+                </repeat>
+                <repeat name="control_repeat">
+                    <param name="control" value="cntrl_hg19.scidx" ftype="scidx" dbkey="hg19" />
+                </repeat>
+            </repeat>
+            <param name="advanced_options" value="display" />
             <output name="output_html" file="hg19_output_html2.html" ftype="html" compare="contains"/>
-            <output name="experiment_events" file="hg19_experiment_events2.tabular" ftype="tabular"/>
+            <output name="output_bed" file="hg19_output_bed2.bed" ftype="bed"/>
             <output name="all_events_table" file="hg19_all_events_table2.tabular" ftype="tabular"/>
             <output name="replicates_counts" file="hg19_replicates_counts2.tabular" ftype="tabular"/>
         </test>
@@ -399,7 +466,7 @@ exists for time and memory intensive analyses if running over many conditions or
 
 * **Loading data:**
 
- - **Optional file containing reads from a control experiment** - must be same format as input experiment
+ - **Optional file containing reads from a control experiment** - file containing reads from a control experiment
  - **Fixed per-base limit** - Fixed per-base limit (default: estimated from background model).
  - **Poisson threshold for filtering per base** - Look at neighboring positions to decide what the per-base limit should be.
  - **Use non-unique reads** - Use non-unique reads.
@@ -453,6 +520,23 @@ exists for time and memory intensive analyses if running over many conditions or
 
     </help>
     <citations>
-        <citation type="doi">10.1371/journal.pcbi.1003501</citation>
+        <citation type="bibtex">
+            @article{Mahony2014,
+            journal = {PLOS Computational Biology},
+            author = {1. Mahony S, Edwards MD, Mazzoni EO, Sherwood RI, Kakumanu A, Morrison CA, Wichterle H, Gifford DK},
+            title = {An Integrated Model of Multiple-Condition ChIP-Seq Data Reveals Predeterminants of Cdx2 Binding},
+            year = {2014},}
+            volume = {10},
+            number = {3},
+            pages = {e1003501},}
+        </citation>
+        <citation type="bibtex">
+            @article{Liang2012,
+            journal = {BMC Bioinformatics},
+            author = {2. Liang, Ketes},
+            title = {Normalization of ChIP-seq data with control},
+            year = {2012},}
+        </citation>
     </citations>
 </tool>
+
