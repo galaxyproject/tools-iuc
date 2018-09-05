@@ -389,10 +389,21 @@ class JbrowseConnector(object):
             # We only expect one input genome per run. This for loop is just
             # easier to write than the alternative / catches any possible
             # issues.
+
+            # Copy the file in workdir, prepare-refseqs.pl will copy it to jbrowse's data dir
+            local_genome = os.path.realpath('./genome.fasta')
+            shutil.copy(genome_node['path'], local_genome)
+
+            cmd = ['samtools', 'faidx', local_genome]
+            self.subprocess_check_call(cmd)
+
             self.subprocess_check_call([
                 'perl', self._jbrowse_bin('prepare-refseqs.pl'),
                 '--trackConfig', json.dumps({'metadata': genome_node['meta']}),
-                '--fasta', genome_node['path']])
+                '--indexed_fasta', os.path.realpath(local_genome)])
+
+            os.unlink(local_genome)
+            os.unlink(local_genome + '.fai')
 
     def generate_names(self):
         # Generate names
