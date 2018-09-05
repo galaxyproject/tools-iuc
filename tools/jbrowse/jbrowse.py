@@ -385,37 +385,14 @@ class JbrowseConnector(object):
         return os.path.realpath(os.path.join(self.jbrowse, 'bin', command))
 
     def process_genomes(self):
-        metadata = None
         for genome_node in self.genome_paths:
-            # TODO: Waiting on https://github.com/GMOD/jbrowse/pull/884
-            self.subprocess_check_call([
-                'perl', self._jbrowse_bin('prepare-refseqs.pl'),
-                '--fasta', genome_node['path']])
             # We only expect one input genome per run. This for loop is just
             # easier to write than the alternative / catches any possible
             # issues.
-            metadata = genome_node['meta']
-
-        # Now, since no one will merge https://github.com/GMOD/jbrowse/pull/884 we get to do UGLY. HACKS
-        # Open the track list for manual editing.
-        trackList = os.path.join(self.outdir, 'data', 'trackList.json')
-        with open(trackList, 'r') as handle:
-            data = json.load(handle)
-
-        # Pull apart ref seqs from non-ref-seqs
-        refSeqs = list([x for x in data['tracks'] if x['key'] == 'Reference sequence'])
-        nonrefSeqs = list([x for x in data['tracks'] if x['key'] != 'Reference sequence'])
-
-        # Fix the ref seq tracks with their metadata.
-        fixedRefSeqs = []
-        for refSeq in refSeqs:
-            refSeq['metadata'] = metadata
-            fixedRefSeqs.append(refSeq)
-
-        data['tracks'] = fixedRefSeqs + nonrefSeqs
-        # Open the track list for manual editing.
-        with open(trackList, 'w') as handle:
-            json.dump(data, handle, indent=2)
+            self.subprocess_check_call([
+                'perl', self._jbrowse_bin('prepare-refseqs.pl'),
+                '--trackConfig', json.dumps({'metadata': genome_node['meta']}),
+                '--fasta', genome_node['path']])
 
     def generate_names(self):
         # Generate names
