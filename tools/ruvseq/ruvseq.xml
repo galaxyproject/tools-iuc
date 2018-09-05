@@ -1,0 +1,307 @@
+<tool id="ruvseq" name="Remove Unwanted Variation" version="1.12.0">
+    <description>from RNA-seq data</description>
+    <requirements>
+        <requirement type="package" version="1.12.0">bioconductor-ruvseq</requirement>
+        <requirement type="package" version="1.18.1">bioconductor-deseq2</requirement>
+        <requirement type="package" version="1.6.0">bioconductor-tximport</requirement>
+        <requirement type="package" version="1.30.0">bioconductor-genomicfeatures</requirement>
+        <requirement type="package" version="0.6.5">r-ggrepel</requirement>
+    </requirements>
+    <stdio>
+        <regex match="Execution halted"
+           source="both"
+           level="fatal"
+           description="Execution halted." />
+        <regex match="Error in"
+           source="both"
+           level="fatal"
+           description="An undefined error occurred, please check your input carefully and contact your administrator." />
+        <regex match="Fatal error"
+           source="both"
+           level="fatal"
+           description="An undefined error occurred, please check your input carefully and contact your administrator." />
+    </stdio>
+    <version_command><![CDATA[
+echo $(R --version | grep version | grep -v GNU)", RUVSeq version" $(R --vanilla --slave -e "library(RUVSeq); cat(sessionInfo()\$otherPkgs\$RUVSeq\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
+    ]]></version_command>
+    <command><![CDATA[
+#if $tximport.tximport_selector == 'tximport':
+    #if $tximport.mapping_format.mapping_format_selector == 'gtf':
+        ln -s '$tximport.mapping_format.gtf_file' mapping.gtf &&
+    #else:
+        ln -s '$tximport.mapping_format.tabular_file' mapping.txt &&
+    #end if
+#end if
+
+Rscript '${__tool_directory__}/ruvseq.R'
+#if $pdf:
+    -p '$plots'
+#end if
+
+--sample_json '$sampleTable'
+
+$header
+
+--min_k $min_k
+--max_k $max_k
+
+#if $tximport.tximport_selector == 'tximport':
+    --txtype $tximport.txtype
+    #if $tximport.mapping_format.mapping_format_selector == 'gtf':
+        --tx2gene mapping.gtf
+    #else:
+        --tx2gene mapping.txt
+    #end if
+#end if
+]]></command>
+    <configfiles>
+        <configfile name="sampleTable">
+#import json
+#set sample_table = []
+#for $level in $rep_factorLevel:
+    #for $file in $level.countsFile:
+        #silent $sample_table.append({"path": str($file), "label": str($file.element_identifier), "condition": str($level.factorLevel)})
+    #end for
+#end for
+#echo json.dumps($sample_table)
+        </configfile>
+    </configfiles>
+    <inputs>
+        <repeat name="rep_factorLevel" title="Factor level" min="2" default="2">
+            <param name="factorLevel" type="text" value="FactorLevel" label="Specify a factor level, typical values could be 'tumor', 'normal', 'treated' or 'control'"
+                help="Only letters, numbers and underscores will be retained in this field">
+                <sanitizer>
+                    <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                </sanitizer>
+            </param>
+            <param name="countsFile" type="data" format="tabular" multiple="true" label="Counts file(s)"/>
+        </repeat>
+        <param name="min_k" type="integer" value="1" min="1" label="Try to find at least this many factors of unwanted variation" />
+        <param name="max_k" type="integer" value="1" min="1" label="Try to find at most this many factors of unwanted variation" />
+        <param name="min_mean_count" type="integer" value="5" min="0" label="Ignore genes with fewer than this many counts on average" />
+        <param name="header" type="boolean" truevalue="-H" falsevalue="" checked="true" label="Files have header?" help="If this option is set to Yes, the tool will assume that the count files have column headers in the first row. Default: Yes" />
+
+        <conditional name="tximport">
+            <param name="tximport_selector" type="select" label="Choice of Input data">
+                <option value="count" selected="True">Count data (e.g. from HTSeq-count, featureCounts or StringTie)</option>
+                <option value="tximport">TPM values (e.g. from kallisto, sailfish or salmon)</option>
+            </param>
+            <when value="tximport">
+                <param name="txtype" type="select" label="Program used to generate TPMs">
+                    <option value="kallisto">kallisto</option>
+                    <option value="sailfish">Sailfish</option>
+                    <option value="salmon">Salmon</option>
+                </param>
+                <conditional name="mapping_format">
+                    <param name="mapping_format_selector" type="select" label="Gene mapping format">
+                        <option value="gtf" selected="True">GTF</option>
+                        <option value="tabular">Transcript-ID and Gene-ID mapping file</option>
+                    </param>
+                    <when value="gtf">
+                        <param name="gtf_file" type="data" format="gtf,gff3" label="GTF/GFF3 file with Transcript - Gene mapping"/>
+                    </when>
+                    <when value="tabular">
+                        <param name="tabular_file" type="data" format="tabular" label="Tabular file with Transcript - Gene mapping"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="count" />
+        </conditional>
+        <param name="pdf" type="boolean" truevalue="1" falsevalue="0" checked="true"
+            label="Visualising the analysis results"
+            help="output an additional PDF files" />
+    </inputs>
+    <outputs>
+        <collection name="unwanted_variation" type="list" label="RUVSeq covariate files on ${on_string}">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tabular" format="tabular" directory="." visible="false"/>
+        </collection>
+        <data format="pdf" name="plots" label="RUVSeq diagonstic plots on ${on_string}">
+            <filter>pdf == True</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!--Ensure counts files with header works -->
+        <test>
+            <repeat name="rep_factorLevel">
+                <param name="factorLevel" value="Treated"/>
+                <param name="countsFile" value="GSM461179_treat_single.counts,GSM461180_treat_paired.counts,GSM461181_treat_paired.counts"/>
+            </repeat>
+            <repeat name="rep_factorLevel">
+                <param name="factorLevel" value="Untreated"/>
+                <param name="countsFile" value="GSM461176_untreat_single.counts,GSM461177_untreat_paired.counts,GSM461178_untreat_paired.counts,GSM461182_untreat_single.counts"/>
+            </repeat>
+            <param name="pdf" value="true"/>
+            <output name="plots" file="ruvseq_diag.pdf" ftype="pdf" compare="sim_size"/>
+            <output_collection name="unwanted_variation" type="list">
+                <element name="batch_effects_control_method_k1">
+                    <assert_contents>
+                        <has_text_matching expression="identifier\tcondition\tW_1"/>
+                        <has_text_matching expression="GSM461179.*\tTreated\t-0.49.*"/>
+                    </assert_contents>
+                </element>
+                <element name="batch_effects_replicate_method_k1">
+                    <assert_contents>
+                        <has_text_matching expression="identifier\tcondition\tW_1"/>
+                        <has_text_matching expression="GSM461179.*\tTreated\t-0.25.*"/>
+                    </assert_contents>
+                </element>
+                <element name="batch_effects_residual_method_k1">
+                    <assert_contents>
+                        <has_text_matching expression="identifier\tcondition\tW_1"/>
+                        <has_text_matching expression="GSM461179.*\tTreated\t-0.60.*"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!--Ensure counts files without header works -->
+        <test>
+            <repeat name="rep_factorLevel">
+                <param name="factorLevel" value="Treated"/>
+                <param name="countsFile" value="GSM461179_treat_single.counts.noheader,GSM461180_treat_paired.counts.noheader,GSM461181_treat_paired.counts.noheader"/>
+            </repeat>
+            <repeat name="rep_factorLevel">
+                <param name="factorLevel" value="Untreated"/>
+                <param name="countsFile" value="GSM461176_untreat_single.counts.noheader,GSM461177_untreat_paired.counts.noheader,GSM461178_untreat_paired.counts.noheader,GSM461182_untreat_single.counts.noheader"/>
+            </repeat>
+            <param name="pdf" value="true"/>
+            <param name="header" value="false"/>
+            <output name="plots" file="ruvseq_diag.pdf" ftype="pdf" compare="sim_size"/>
+            <output_collection name="unwanted_variation" type="list">
+                <element name="batch_effects_control_method_k1">
+                    <assert_contents>
+                        <has_text_matching expression="identifier\tcondition\tW_1"/>
+                        <has_text_matching expression="GSM461179.*\tTreated\t-0.49.*"/>
+                    </assert_contents>
+                </element>
+                <element name="batch_effects_replicate_method_k1">
+                    <assert_contents>
+                        <has_text_matching expression="identifier\tcondition\tW_1"/>
+                        <has_text_matching expression="GSM461179.*\tTreated\t-0.25.*"/>
+                    </assert_contents>
+                </element>
+                <element name="batch_effects_residual_method_k1">
+                    <assert_contents>
+                        <has_text_matching expression="identifier\tcondition\tW_1"/>
+                        <has_text_matching expression="GSM461179.*\tTreated\t-0.60.*"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!--Ensure sailfish files work -->
+        <test>
+            <repeat name="rep_factorLevel">
+                <param name="factorLevel" value="Treated"/>
+                <param name="countsFile" value="sailfish/sailfish_quant.sf1.tab,sailfish/sailfish_quant.sf2.tab,sailfish/sailfish_quant.sf3.tab"/>
+            </repeat>
+            <repeat name="rep_factorLevel">
+                <param name="factorLevel" value="Untreated"/>
+                    <param name="countsFile" value="sailfish/sailfish_quant.sf4.tab,sailfish/sailfish_quant.sf5.tab,sailfish/sailfish_quant.sf6.tab"/>
+            </repeat>
+            <param name="pdf" value="true"/>
+            <param name="tximport_selector" value="tximport"/>
+            <param name="txtype" value="sailfish"/>
+            <param name="mapping_format_selector" value="tabular"/>
+            <param name="tabular_file" value="tx2gene.tab"/>
+            <output name="plots" file="ruvseq_diag_sailfish.pdf" ftype="pdf" compare="sim_size"/>
+            <output_collection name="unwanted_variation" type="list">
+                <element name="batch_effects_control_method_k1">
+                    <assert_contents>
+                        <has_text_matching expression="identifier\tcondition\tW_1"/>
+                        <has_text_matching expression="sailfish_quant.sf1.tab\tTreated\t-0.28.*"/>
+                    </assert_contents>
+                </element>
+                <element name="batch_effects_replicate_method_k1">
+                    <assert_contents>
+                        <has_text_matching expression="identifier\tcondition\tW_1"/>
+                        <has_text_matching expression="sailfish_quant.sf1.tab\tTreated\t-0.44.*"/>
+                    </assert_contents>
+                </element>
+                <element name="batch_effects_residual_method_k1">
+                    <assert_contents>
+                        <has_text_matching expression="identifier\tcondition\tW_1"/>
+                        <has_text_matching expression="sailfish_quant.sf1.tab\tTreated\t-0.22.*"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+RUVSeq normalizes RNA-seq data using factor analysis of control genes or samples. RUVSeq has been designed for detecting unwanted variation using replicate sample information. The current RUVSeq Galaxy tool only implements estimating unwanted variation for primary factors.
+RUVSeq implements 3 different methods for the estimation of unwanted variation:
+
+RUVg estimates the factors of unwanted variation using control genes
+
+RUVs estimates the factors of unwanted variation using replicate samples
+
+RUVr estimating the factors of unwanted variation using residuals.
+
+This tool runs all RUV methods and outputs diagnostic plots and tables with covariates that
+may be used for differential expression analsys.
+
+-----
+
+**Inputs**
+
+**Count Files**
+
+RUVSeq_ takes count tables generated from **featureCounts**, **HTSeq-count** or **StringTie** as input. Count tables must be generated for each sample individually. One header row is assumed, but files with no header (e.g from HTSeq) can be input with the *Files have header?* option set to No.
+
+RUVSeq_ can also take transcript-level counts from quantification tools such as, **kallisto**, **Salmon** and **Sailfish**, and this Galaxy wrapper incorporates the Bioconductor tximport_ package to process the transcript counts for DESeq2.
+
+**Salmon or Sailfish Files**
+
+Salmon or Sailfish ``quant.sf`` files can be imported by setting type to *Salmon* or *Sailfish* respectively above. Note: for previous version of Salmon or Sailfish, in which the quant.sf files start with comment lines you will need to remove the comment lines before inputting here. An example of the format is shown below.
+
+Example:
+
+============ ========== =============== =========== ===========
+Name         Length     EffectiveLength TPM         NumReads
+------------ ---------- --------------- ----------- -----------
+NR_001526    164        20.4518         0           0
+NR_001526_1  164        20.4518         0           0
+NR_001526_2  164        20.4518         0           0
+NM_130786    1764       1956.04         2.47415     109.165
+NR_015380    2129       2139.53         1.77331     85.5821
+NM_001198818 9360       7796.58         2.38616e-07 4.19648e-05
+NM_001198819 9527       7964.62         0           0
+NM_001198820 9410       7855.78         0           0
+NM_014576    9267       7714.88         0.0481114   8.37255
+============ ========== =============== =========== ===========
+
+**kallisto Files**
+
+kallisto ``abundance.tsv`` files can be imported by setting type to *kallisto* above. An example of the format is shown below.
+
+Example:
+
+============ ========== =============== =========== ===========
+target_id    length     eff_length      est_counts  tpm
+------------ ---------- --------------- ----------- -----------
+NR_001526    164        20.4518         0           0
+NR_001526_1  164        20.4518         0           0
+NR_001526_2  164        20.4518         0           0
+NM_130786    1764       1956.04         109.165     2.47415
+NR_015380    2129       2139.53         85.5821     1.77331
+NM_001198818 9360       7796.58         4.19648e-05 2.38616e-07
+NM_001198819 9527       7964.62         0           0
+NM_001198820 9410       7855.78         0           0
+NM_014576    9267       7714.88         8.37255     0.0481114
+============ ========== =============== =========== ===========
+
+-----
+
+**Output**
+
+RUVSeq_ generates a tabular file for each method and each k of variation as well as a summary PDF.
+
+.. _RUVSeq: http://master.bioconductor.org/packages/release/bioc/html/RUVSeq.html
+.. _tximport: https://bioconductor.org/packages/devel/bioc/vignettes/tximport/inst/doc/tximport.html
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1038/nbt.2931</citation>
+    </citations>
+</tool>
