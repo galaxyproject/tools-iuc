@@ -1,17 +1,20 @@
 #!/usr/bin/env python
 
-from __future__ import print_function, division
+from __future__ import division, print_function
+
 import argparse
-from datetime import date
 import functools
+from datetime import date
 import gzip
 import json
-from multiprocessing import Process, Queue
 import os
+from multiprocessing import Process, Queue
 import os.path
-import re
-import requests
+import os
 import sys
+
+import requests
+
 try:
     from io import StringIO
 except ImportError:
@@ -36,11 +39,13 @@ except ImportError:
 # DIVNAME.\d+(.\d+)?.(genomic|protein|rna).(fna|gbff|faa|gpff).gz
 #  where fna and faa are FASTA, gbff and gpff are Genbank
 
+
 def _add_data_table_entry(data_manager_dict, data_table_entry, data_table_name):
     data_manager_dict['data_tables'] = data_manager_dict.get('data_tables', {})
     data_manager_dict['data_tables'][data_table_name] = data_manager_dict['data_tables'].get('all_fasta', [])
     data_manager_dict['data_tables'][data_table_name].append(data_table_entry)
     return data_manager_dict
+
 
 def unzip_to(conn, out_dir, output_filename, chunk_size=4096, debug=False, compress=False):
     input_filename = conn.get()
@@ -59,10 +64,11 @@ def unzip_to(conn, out_dir, output_filename, chunk_size=4096, debug=False, compr
             os.unlink(input_filename)
             input_filename = conn.get()
 
+
 def get_refseq_division(division_name, mol_types, output_directory, debug=False, compress=False):
     base_url = 'https://ftp.ncbi.nlm.nih.gov/refseq/release/'
     valid_divisions = set(['archea', 'bacteria', 'complete', 'fungi', 'invertebrate', 'mitochondrion', 'other',
-                          'plant', 'plasmid', 'plastid', 'protozoa', 'vertebrate_mammalian', 'vertebrate_other', 'viral']) 
+                          'plant', 'plasmid', 'plastid', 'protozoa', 'vertebrate_mammalian', 'vertebrate_other', 'viral'])
     ending_mappings = {
         'genomic': '.genomic.fna.gz',
         'protein': '.protein.faa.gz',
@@ -81,7 +87,7 @@ def get_refseq_division(division_name, mol_types, output_directory, debug=False,
         print('Retrieving {}'.format(division_base_url), file=sys.stderr)
     r = requests.get(division_base_url)
     listing_text = r.text
-    
+
     unzip_queues = {}
     unzip_processes = []
     final_output_filenames = []
@@ -94,10 +100,10 @@ def get_refseq_division(division_name, mol_types, output_directory, debug=False,
         unzip_processes.append(Process(target=unzip_to, args=(q, output_directory, output_filename),
                                        kwargs=dict(debug=debug, compress=compress)))
         unzip_processes[-1].start()
-    
+
     # sample line: <a href="vertebrate_other.86.genomic.gbff.gz">vertebrate_other.86.genomic.gbff.gz</a>   2018-07-13 00:59   10M
     for line in StringIO(listing_text):
-        if not '.gz' in line:
+        if '.gz' not in line:
             continue
         parts = line.split('"')
         assert len(parts) == 3, "Unexpected line format: {}".format(line.rstrip())
@@ -121,6 +127,7 @@ def get_refseq_division(division_name, mol_types, output_directory, debug=False,
 
     return [release_num, final_output_filenames]
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Download RefSeq databases')
     parser.add_argument('--debug', default=False, action='store_true', help='Print debugging output to stderr (verbose)')
@@ -136,7 +143,7 @@ if __name__ == '__main__':
     mol_types = args.mol_types.split(',')
     if args.galaxy_datamanager_filename is not None:
         dm_opts = json.loads(open(args.galaxy_datamanager_filename).read())
-        output_directory = dm_opts['output_data'][0]['extra_files_path'] # take the extra_files_path of the first output parameter
+        output_directory = dm_opts['output_data'][0]['extra_files_path']  # take the extra_files_path of the first output parameter
         data_manager_dict = {}
     else:
         output_directory = args.output_directory
@@ -144,7 +151,7 @@ if __name__ == '__main__':
         if args.pin_date is not None:
             today_str = args.pin_date
         else:
-            today_str = date.today().strftime('%Y-%m-%d') # ISO 8601 date format
+            today_str = date.today().strftime('%Y-%m-%d')  # ISO 8601 date format
         [release_num, fasta_files] = get_refseq_division(division_name, mol_types, output_directory, args.debug, args.compress)
         if args.galaxy_datamanager_filename is not None:
             for i, mol_type in enumerate(mol_types):
@@ -153,7 +160,7 @@ if __name__ == '__main__':
                 dbkey = division_name + '.' + release_num + '.' + mol_type
                 desc = 'RefSeq ' + division_name + ' Release ' + release_num + ' ' + mol_type + ' (' + today_str + ')'
                 path = os.path.join(output_directory, fasta_files[i])
-                _add_data_table_entry(data_manager_dict=data_manager_dict, 
+                _add_data_table_entry(data_manager_dict=data_manager_dict,
                                       data_table_entry=dict(value=unique_key, dbkey=dbkey, name=desc, path=path),
                                       data_table_name='all_fasta')
             open(args.galaxy_datamanager_filename, 'wb').write(json.dumps(data_manager_dict).encode())
