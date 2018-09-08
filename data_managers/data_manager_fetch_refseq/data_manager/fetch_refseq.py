@@ -4,14 +4,13 @@ from __future__ import division, print_function
 
 import argparse
 import functools
-from datetime import date
 import gzip
 import json
 import os
-from multiprocessing import Process, Queue
 import os.path
-import os
 import sys
+from datetime import date
+from multiprocessing import Process, Queue
 
 import requests
 
