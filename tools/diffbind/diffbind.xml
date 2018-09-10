@@ -1,4 +1,4 @@
-<tool id="diffbind" name="DiffBind" version="2.6.6.2">
+<tool id="diffbind" name="DiffBind" version="2.6.6.4">
     <description> differential binding analysis of ChIP-Seq peak data</description>
     <requirements>
         <requirement type="package" version="2.6.6">bioconductor-diffbind</requirement>
@@ -37,16 +37,18 @@ echo $(R --version | grep version | grep -v GNU)", DiffBind version" $(R --vanil
     #set $bam_controls = list()
 
     #for $file in $g.peaks:
-        #set $file_name = re.sub('[^\w\-\s]', '_', str($file.element_identifier))
-        ln -s '${file}' ${g.groupName}-${file_name}-peaks.bed &&
-        $peak_files.append(str($g.groupName) + '-' + $file_name + '-peaks.bed')
+        #set $file_name = str($g.groupName) + "-" + re.sub('[^\w\-]', '_', str($file.element_identifier)) + "-peaks.bed"
+        ln -s '${file}' '${file_name}' &&
+        $peak_files.append($file_name)
     #end for
 
     #for $bam in $g.bamreads:
-        #set $bam_name = re.sub('[^\w\-\s]', '_', str($bam.element_identifier))
-        ln -s '${bam}' ${bam_name}-bamreads.bam &&
-        ln -s ${bam.metadata.bam_index} ${bam_name}-bamreads.bai &&
-        $bam_files.append($bam_name + '-bamreads.bam')
+        #set $bam_name = re.sub('[^\w\-]', '_', str($bam.element_identifier))
+        #set $bam_file = $bam_name + "-bamreads.bam"
+        #set $bam_index = $bam_name + "-bamreads.bai"
+        ln -s '${bam}' '${bam_file}' &&
+        ln -s '${bam.metadata.bam_index}' '${bam_index}' &&
+        $bam_files.append($bam_file)
     #end for
 
     $temp_factor.append( {str($g.groupName): $peak_files} )
@@ -54,10 +56,14 @@ echo $(R --version | grep version | grep -v GNU)", DiffBind version" $(R --vanil
 
     #if str( $g.bamcontrol ) != 'None':
         #for $ctrl in $g.bamcontrol:
-            #set $ctrl_name = re.sub('[^\w\-\s]', '_', str($ctrl.element_identifier))
-            ln -s '${ctrl}' ${g.groupName}-${ctrl_name}-bamcontrol.bam &&
-            ln -s ${ctrl.metadata.bam_index} ${g.groupName}-${ctrl_name}-bamcontrol.bai &&
-            $bam_controls.append(str($g.groupName) + '-' + $ctrl_name + '-bamcontrol.bam')
+            #set $ctrl_name = re.sub('[^\w\-]', '_', str($ctrl.element_identifier))
+            #set $ctrl_file = $ctrl_name + "-bamcontrol.bam"
+            #set ctrl_index = $ctrl_name + "-bamcontrol.bai"
+            #if $ctrl_file not in json.dumps($temp_factor):
+                ln -s '${ctrl}' '${ctrl_file}' &&
+                ln -s '${ctrl.metadata.bam_index}' '${ctrl_index}' &&
+            #end if
+            $bam_controls.append($ctrl_file)
         #end for
         $temp_factor.append( {str($g.groupName): $bam_controls} )
     #end if
@@ -106,15 +112,15 @@ Rscript '$__tool_directory__/diffbind.R'
     <inputs>
         <repeat name="rep_group" title="Group" min="2" max="2" default="2">
             <param name="groupName" type="text" label="Name"
-            help="Name for the Group that the peak and BAM files belong to e.g. Resistant/Responsive (two Groups in total must be specified for DiffBind). NOTE: Please only use letters, numbers or underscores.">
+            help="Name for the Group that the peak and BAM files belong to e.g. Resistant/Responsive (two Groups must be specified for DiffBind). NOTE: Please only use letters, numbers or underscores.">
                 <sanitizer>
                     <valid initial="string.letters,string.digits"><add value="_" /></valid>
                 </sanitizer>
                 <validator type="empty_field" />
             </param>
             <param name="peaks" type="data" format="bed" multiple="true" label="Peak files" help="Result of your Peak calling experiment"/>
-            <param name="bamreads" type="data" format="bam" multiple="true" label="Read BAM file" help="Specify the Read BAM file used in the Peak calling."/>
-            <param name="bamcontrol" type="data" format="bam" multiple="true" optional="True" label="Control BAM file" help="If specifying a control BAM file, all samples are required to specify one, see Help section below."/>
+            <param name="bamreads" type="data" format="bam" multiple="true" label="Read BAM files" help="Specify the Read BAM files used in the Peak calling. The input order of the BAM files for the samples MUST match the input order of the peaks files."/>
+            <param name="bamcontrol" type="data" format="bam" multiple="true" optional="True" label="Control BAM files" help="If specifying a control BAM file, all samples are required to specify one, see Help section below. The input order of the BAM files for the samples MUST match the input order of the peaks files."/>
         </repeat>
 
         <param name="scorecol" type="integer" min="0" value="8" label="Score Column" help="Column in peak files that contains peak scores. Default: 8 (narrowPeak)">
@@ -133,9 +139,9 @@ Rscript '$__tool_directory__/diffbind.R'
         <!-- Output Options -->
         <section name="out" expanded="false" title="Output Options">
             <param name="format" type="select" label="Output Format">
+                <option value="interval" selected="True">Interval</option>
                 <option value="bed">BED</option>
-                <option value="gff">GFF</option>
-                <option value="wig">WIG</option>
+                <option value="tabular">Tabular (tab-separated)</option>
             </param>
             <param name="pdf" type="boolean" truevalue="True" falsevalue="" checked="False" label="Visualising the analysis results" help="output an additional PDF file" />
             <param name="binding_matrix" type="boolean" truevalue="True" falsevalue="" checked="False" label="Output binding affinity matrix?" help="Output a table of the binding scores" />
@@ -146,7 +152,12 @@ Rscript '$__tool_directory__/diffbind.R'
     </inputs>
 
     <outputs>
-        <data name="outfile" format="tabular" label="${tool.name} on ${on_string}: Differentially bound sites" />
+        <data name="outfile" format="interval" label="${tool.name} on ${on_string}: Differentially bound sites">
+            <change_format>
+                <when input="out.format" value="bed" format="bed" />
+                <when input="out.format" value="tabular" format="tabular" />
+            </change_format>
+        </data>
         <data name="plots" format="pdf" label="${tool.name} on ${on_string}: Plots">
             <filter>out['pdf']</filter>
         </data>
@@ -165,33 +176,89 @@ Rscript '$__tool_directory__/diffbind.R'
     </outputs>
 
     <tests>
+        <!-- Ensure outputs work -->
         <test expect_num_outputs="6">
             <repeat name="rep_group">
                 <param name="groupName" value="Resistant"/>
-                <param name="peaks" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
+                <param name="peaks" ftype="bed" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
                 <param name="bamreads" ftype="bam" value="BT474_ER_1.bam,BT474_ER_2.bam" />
             </repeat>
             <repeat name="rep_group">
                 <param name="groupName" value="Responsive"/>
-                <param name="peaks" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
+                <param name="peaks" ftype="bed" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
                 <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam,MCF7_ER_2.bam" />
             </repeat>
             <param name="scorecol" value="5" />
+            <param name="format" value="interval"/>
             <param name="pdf" value="True" />
             <param name="binding_matrix" value="True" />
             <param name="rdata" value="True" />
             <param name="rscript" value="True"/>
             <param name="analysis_info" value="True"/>
-            <output name="outfile" value="out_diffbind.tab" />
+            <output name="outfile" ftype="interval" value="out_diffbind.interval" />
             <output name="plots" value="out_plots.pdf" compare="sim_size" />
-            <output name="binding_matrix" value="out_binding.matrix" />
+            <output name="binding_matrix" value="out_binding_matrix.tab" />
             <output name="rdata" value="DiffBind_analysis.RData" compare="sim_size"/>
-            <output name="rscript" value="out_rscript.txt"/>
-            <output name="analysis_info" value="out_analysis_info.txt" compare="sim_size" >
+            <output name="rscript">
+                <assert_contents>
+                    <has_text text="write.table"/>
+                </assert_contents>
+            </output>
+            <output name="analysis_info" compare="sim_size" >
                 <assert_contents>
                     <has_text text="SessionInfo"/>
                 </assert_contents>
             </output>
+        </test>
+        <!-- Ensure control BAMs input works -->
+        <test expect_num_outputs="1">
+            <repeat name="rep_group">
+                <param name="groupName" value="Resistant"/>
+                <param name="peaks" ftype="bed" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="BT474_ER_1.bam,BT474_ER_2.bam" />
+                <param name="bamcontrol" ftype="bam" value="input1.bam,input2.bam" />
+            </repeat>
+            <repeat name="rep_group">
+                <param name="groupName" value="Responsive"/>
+                <param name="peaks" ftype="bed" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam,MCF7_ER_2.bam" />
+                <param name="bamcontrol" ftype="bam" value="input1.bam,input2.bam" />
+            </repeat>
+            <param name="scorecol" value="5" />
+            <param name="format" value="interval"/>
+            <output name="outfile" ftype="interval" value="out_diffbind_ctrl.interval" />
+        </test>
+        <!-- Ensure BED output works -->
+        <test expect_num_outputs="1">
+            <repeat name="rep_group">
+                <param name="groupName" value="Resistant"/>
+                <param name="peaks" ftype="bed" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="BT474_ER_1.bam,BT474_ER_2.bam" />
+            </repeat>
+            <repeat name="rep_group">
+                <param name="groupName" value="Responsive"/>
+                <param name="peaks" ftype="bed" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam,MCF7_ER_2.bam" />
+            </repeat>
+            <param name="scorecol" value="5" />
+            <param name="format" value="bed"/>
+            <output name="outfile" ftype="bed" value="out_diffbind.bed" />
+        </test>
+        <!-- Ensure tabular output works -->
+        <test expect_num_outputs="1">
+            <repeat name="rep_group">
+                <param name="groupName" value="Resistant"/>
+                <param name="peaks" ftype="bed" value="BT474_ER_1.bed.gz,BT474_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="BT474_ER_1.bam,BT474_ER_2.bam" />
+            </repeat>
+            <repeat name="rep_group">
+                <param name="groupName" value="Responsive"/>
+                <param name="peaks" ftype="bed" value="MCF7_ER_1.bed.gz,MCF7_ER_2.bed.gz"/>
+                <param name="bamreads" ftype="bam" value="MCF7_ER_1.bam,MCF7_ER_2.bam" />
+            </repeat>
+            <param name="scorecol" value="5" />
+            <param name="format" value="tabular"/>
+            <output name="outfile" ftype="tabular" file="out_diffbind.tab" />
         </test>
     </tests>
     <help><![CDATA[
@@ -223,7 +290,7 @@ use of a blocking factor, and the fourth revisiting occupancy data (peak calls) 
 as well as comparing the results of an occupancy-based analysis with an affinity-based one.
 Finally, certain technical aspects of the how these analyses are accomplished are detailed.
 
-Note this DiffBind tool requires a minimum of four samples (two groups with two replicates each).
+**Note this DiffBind tool requires a minimum of four samples (two groups with two replicates each).**
 
 -----
 
@@ -283,7 +350,7 @@ Example:
 
 This tool outputs
 
-    * a table of differentially bound sites
+    * a table of differentially bound sites in Interval, BED or Tabular 0-based format
 
 Optionally, under **Output Options** you can choose to output
 
@@ -295,42 +362,72 @@ Optionally, under **Output Options** you can choose to output
 
 **Differentially Bound Sites**
 
-Example:
+The default output is Interval format, for information on Interval format see here_. Alternatively, you can choose to output BED or Tabular 0-based format as below. For an explanation of the 0-based and 1-based coordinate systems see this `Biostars post`_.
 
-    ========  ======  ======  =====  ======  =====  ===============  ==============  ======  ========  ========
-    seqnames  start   end     width  strand  Conc   Conc_Responsive  Conc_Resistant  Fold    p.value   **FDR**
-    ========  ======  ======  =====  ======  =====  ===============  ==============  ======  ========  ========
-    chr18     394600  396513  1914    \*     7.15   5.55             7.89            -2.35   7.06e-24  9.84e-21
-    chr18     111567  112005  439     \*     5.71   6.53             3.63            2.89    1.27e-08  8.88e-06
-    chr18     346464  347342  879     \*     5      5.77             3.24            2.52    6.51e-06  0.00303
-    chr18     399014  400382  1369    \*     7.62   7                8.05            -1.04   1.04e-05  0.00364
-    chr18     371110  372102  993     \*     4.63   3.07             5.36            -2.3    8.1e-05   0.0226
-    ========  ======  ======  =====  ======  =====  ===============  ==============  ======  ========  ========
+Example - **Interval format**:
+
+    ======  ======  ======  ========  =====  ======  ===========================================
+    Chrom   Start   End     Name      Score  Strand  **Comment**
+    ======  ======  ======  ========  =====  ======  ===========================================
+    chr18   394599  396513  DiffBind    0      \.    1914|7.15|5.55|7.89|-2.35|7.06e-24|9.84e-21
+    chr18   111566  112005  DiffBind    0      \.    439|5.71|6.53|3.63|2.89|1.27e-08|8.88e-06
+    chr18   346463  347342  DiffBind    0      \.    879|5|5.77|3.24|2.52|6.51e-06|0.00303
+    chr18   399013  400382  DiffBind    0      \.    1369|7.62|7|8.05|-1.04|1.04e-05|0.00364
+    chr18   371109  372102  DiffBind    0      \.    993|4.63|3.07|5.36|-2.3|8.1e-05|0.0226
+    ======  ======  ======  ========  =====  ======  ===========================================
 
 Columns contain the following data:
 
-* **seqnames**: Chromosome name
-* **start**: Start position of site
-* **end**: End position of site
-* **width**: Length of site
-* **strand**: Strand
-* **Conc**: Mean read concentration over all the samples (the default calculation uses log2 normalized ChIP read counts with control read counts subtracted)
-* **Responsive**: Mean concentration over the first (e.g. Responsive) group
-* **Resistant**: Mean concentration over second (e.g. Resistant) group
-* **Fold**: Fold shows the difference in mean concentrations between the two groups (e.g. Responsive - Resistant), with a positive value indicating increased binding affinity in the first group and a negative value indicating increased binding affinity in the second group.
-* **p.value**: P-value confidence measure for identifying these sites as differentially bound
-* **FDR**: a multiple testing corrected FDR p-value
+* **Chrom**: Chromosome name
+* **Start**: Start position of site
+* **End**: End position of site
+* **Score**: 0
+* **Name**: DiffBind
+* **Strand**: Strand
+* **Comment**: The pipe ("|") separated values in this column correspond to:
+
+    * *width*: Length of site
+    * *Conc*: Mean read concentration over all the samples (the default calculation uses log2 normalized ChIP read counts with control read counts subtracted)
+    * *Conc_Group1*: Mean concentration over the first group (e.g. Responsive)
+    * *Conc_Group2*: Mean concentration over second group (e.g. Resistant)
+    * *Fold*: Fold shows the difference in mean concentrations between the two groups (e.g. Responsive - Resistant), with a positive value indicating increased binding affinity in the first group and a negative value indicating increased binding affinity in the second group.
+    * *p.value*: P-value confidence measure for identifying these sites as differentially bound
+    * *FDR*: a multiple testing corrected FDR p-value
+
+Example - **BED format**:
+
+    =====  ======  ======  ========  =====  ======
+    Chrom  Start   End     Name      Score  Strand
+    =====  ======  ======  ========  =====  ======
+    chr18  394599  396513  DiffBind    0      \.  
+    chr18  111566  112005  DiffBind    0      \.  
+    chr18  346463  347342  DiffBind    0      \.  
+    chr18  399013  400382  DiffBind    0      \.  
+    chr18  371109  372102  DiffBind    0      \.  
+    =====  ======  ======  ========  =====  ======
+
+Example - **Tabular format**:
+
+    =====  ======  ======  ========  =====  ======  ====  ===============  ==============  =====  ========  ========
+    Chrom  Start   End     Name      Score  Strand  Conc  Conc_Responsive  Conc_Resistant  Fold   p.value   FDR
+    =====  ======  ======  ========  =====  ======  ====  ===============  ==============  =====  ========  ========
+    chr18  394599  396513  DiffBind    0      \.    7.15  5.55             7.89            -2.35  7.06E-24  9.84E-21
+    chr18  111566  112005  DiffBind    0      \.    5.71  6.53             3.63            2.89   1.27E-08  8.88E-06
+    chr18  346463  347342  DiffBind    0      \.    5     5.77             3.24            2.52   6.51E-06  0.00303
+    chr18  399013  400382  DiffBind    0      \.    7.62  7                8.05            -1.04  1.04E-05  0.00364
+    chr18  371109  372102  DiffBind    0      \.    4.63  3.07             5.36            -2.3   8.10E-05  0.0226
+    =====  ======  ======  ========  =====  ======  ====  ===============  ==============  =====  ========  ========
 
 
 **Binding Affinity Matrix**
 
 The final result of counting is a binding affinity matrix containing a (normalized) read count for each sample at every potential binding site. With this matrix, the samples can be re-clustered using affinity, rather than occupancy, data. The binding affinity matrix can be used for QC plotting as well as for subsequent
-differential analysis.
+differential analysis. Note that this output is a tabular 0-based format.
 
 Example:
 
     =====  ======  ======  =========  =========  ==========  ==========
-    CHR    START   END     MCF7_ER_1  MCF7_ER_2  BT474_ER_1  BT474_ER_2
+    Chrom  Start   End     MCF7_ER_1  MCF7_ER_2  BT474_ER_1  BT474_ER_2
     =====  ======  ======  =========  =========  ==========  ==========
     chr18  111567  112005  137.6152   59.87837   29.41393    19.95945
     chr18  189223  189652  19.95945   12.60597   11.55547    23.11095
@@ -426,6 +523,8 @@ Wrapper authors: Bjoern Gruening, Pavankumar Videm
 .. _`Bioconductor package`: https://bioconductor.org/packages/release/bioc/html/DiffBind.html
 .. _`DiffBind User Guide`: https://bioconductor.org/packages/release/bioc/vignettes/DiffBind/inst/doc/DiffBind.pdf
 .. _`Bioconductor post`: https://support.bioconductor.org/p/69924/
+.. _here: https://galaxyproject.org/learn/datatypes/#interval
+.. _`Biostars post`: https://www.biostars.org/p/84686/
 
 ]]>
     </help>
