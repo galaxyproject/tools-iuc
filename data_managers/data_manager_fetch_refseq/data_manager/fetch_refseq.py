@@ -80,7 +80,7 @@ def get_refseq_division(division_name, mol_types, output_directory, debug=False,
         os.mkdir(output_directory)
     release_num_file = base_url + 'RELEASE_NUMBER'
     r = requests.get(release_num_file)
-    release_num = str(int(r.text.strip()))
+    release_num = r.text.strip()
     division_base_url = base_url + division_name
     if debug:
         print('Retrieving {}'.format(division_base_url), file=sys.stderr)
@@ -162,4 +162,4 @@ if __name__ == '__main__':
                 _add_data_table_entry(data_manager_dict=data_manager_dict,
                                       data_table_entry=dict(value=unique_key, dbkey=dbkey, name=desc, path=path),
                                       data_table_name='all_fasta')
-            open(args.galaxy_datamanager_filename, 'wb').write(json.dumps(data_manager_dict).encode())
+            open(args.galaxy_datamanager_filename, 'w').write(json.dumps(data_manager_dict, sort_keys=True))
