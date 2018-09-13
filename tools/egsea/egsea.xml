@@ -1,0 +1,606 @@
+<tool id="egsea" name="EGSEA" version="1.6.0.1">
+    <description> easy and efficient ensemble gene set testing</description>
+    <requirements>
+        <requirement type="package" version="1.6.0">bioconductor-egsea</requirement>
+        <requirement type="package" version="1.4.4">r-optparse</requirement>
+        <requirement type="package" version="0.2.15">r-rjson</requirement>
+        <!--statmod is required for fry-->
+        <requirement type="package" version="1.4.30">r-statmod</requirement>
+    </requirements>
+    <version_command><![CDATA[
+echo $(R --version | grep version | grep -v GNU)", EGSEA version" $(R --vanilla --slave -e "library(EGSEA); cat(sessionInfo()\$otherPkgs\$EGSEA\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", optparse version" $(R --vanilla --slave -e "library(optparse); cat(sessionInfo()\$otherPkgs\$optparse\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", rjson version" $(R --vanilla --slave -e "library(rjson); cat(sessionInfo()\$otherPkgs\$rjson\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", statmod version" $(R --vanilla --slave -e "library(statmod); cat(sessionInfo()\$otherPkgs\$statmod\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
+    ]]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
+## EGSEA requires at least 2 threads
+SLOTS=\${GALAXY_SLOTS:-2};
+[ "\$SLOTS" -eq 1 ] && SLOTS=2;
+
+mkdir ./report_dir  &&
+mkdir '$outReport.extra_files_path' &&
+
+Rscript '$__tool_directory__/egsea.R'
+
+--threads \$SLOTS
+
+#if $input.format=="files":
+
+    ## Adapted from DESeq2 wrapper
+    #import json
+    #set $temp_factor_names = list()
+    #for $fact in $input.rep_factor:
+        #set $temp_factor = list()
+        #for $g in $fact.rep_group:
+            #set $count_files = list()
+            #for $file in $g.countsFile:
+                $count_files.append(str($file))
+            #end for
+            $temp_factor.append( {str($g.groupName): $count_files} )
+        #end for
+
+        $temp_factor.reverse()
+        $temp_factor_names.append([str($fact.factorName), $temp_factor])
+    #end for
+    --filesPath '#echo json.dumps(temp_factor_names)#'
+
+#elif $input.format=="matrix":
+    --matrixPath '$input.counts'
+    #if $input.fact.ffile=='yes':
+        --factFile '$input.fact.finfo'
+    #else:
+        --factInput '${ '|'.join( ['%s::%s' % ($x.factorName, $x.groupNames) for x in $input.fact.rep_factor] ) }'
+    #end if
+#end if
+
+--contrastData '${ ','.join( ['%s' % $x.contrast for x in $rep_contrast] ) }'
+
+--genes '$genes'
+--species $species
+
+--base_methods $base_methods
+--msigdb $msigdb.msigdb_gsets
+--keggdb $keggdb.keggdb_gsets
+--keggupdated $keggdb.kegg_updated
+--gsdb $gsdb.gsdb_gsets
+
+--display_top $advanced.display_top
+--min_size $advanced.min_size
+--fdr_cutoff $advanced.fdr_cutoff
+--combine_method $advanced.combine_method
+--sort_method $advanced.sort_method
+
+--rdaOpt $advanced.rdaOpt
+
+&& cp ./report_dir/index.html '$outReport'
+&& cp -r ./report_dir/* '$outReport.extra_files_path'
+
+#if $advanced.rscriptOpt:
+    && cp '$__tool_directory__/egsea.R' '$outRscript'
+#end if
+
+    ]]></command>
+    <inputs>
+
+   <!-- Counts and Factors -->
+        <conditional name="input">
+            <param name="format" type="select" label="Count Files or Matrix?"
+                help="You can choose to input either separate count files (one per sample) or a single count matrix">
+                <option value="files">Separate Count Files</option>
+                <option value="matrix">Single Count Matrix</option>
+            </param>
+
+            <when value="files">
+                <repeat name="rep_factor" title="Factor" min="1">
+                    <param name="factorName" type="text" label="Name" help="Name of experiment factor of interest (e.g. Genotype). One factor must be entered and there must be two or more groups per factor. Optional additional factors (e.g. Batch) can be entered using the Insert Factor button below, see Help section for more information. NOTE: Please only use letters, numbers or underscores.">
+                    <sanitizer>
+                        <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                    </sanitizer>
+                    </param>
+                    <repeat name="rep_group" title="Group" min="2" default="2">
+                        <param name="groupName" type="text" label="Name"
+                        help="Name of group that the counts files(s) belong to (e.g. WT or Mut). NOTE: Please only use letters, numbers or underscores (case sensitive).">
+                        <sanitizer>
+                            <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                        </sanitizer>
+                        </param>
+                        <param name="countsFile" type="data" format="tabular" multiple="true" label="Counts file(s)"/>
+                    </repeat>
+                </repeat>
+            </when>
+
+            <when value="matrix">
+                <param name="counts" type="data" format="tabular" label="Count Matrix"/>
+
+                <conditional name="fact">
+                    <param name="ffile" type="select" label="Input factor information from file?"
+                        help="You can choose to input the factor and group information for the samples from a file or manually enter below.">
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </param>
+                    <when value="yes">
+                        <param name="finfo" type="data" format="tabular" label="Factor File"/>
+                    </when>
+                    <when value="no" >
+                        <repeat name="rep_factor" title="Factor" min="1">
+                            <param name="factorName" type="text" label="Factor Name"
+                                help="Name of experiment factor of interest (e.g. Genotype). One factor must be entered and there must be two or more groups per factor. Additional factors (e.g. Batch) can be entered using the Insert Factor button below, see Help section below. NOTE: Please only use letters, numbers or underscores.">
+                                <validator type="empty_field" />
+                                <validator type="regex" message="Please only use letters, numbers or underscores">^[\w]+$</validator>
+                            </param>
+                            <param name="groupNames" type="text" label="Groups"
+                                help="Enter the group names for the samples separated with commas e.g. WT,WT,WT,Mut,Mut,Mut. The order of the names must match the order of the samples in the columns of the count matrix. NOTE: Please only use letters, numbers or underscores (case sensitive).">
+                                <validator type="empty_field" />
+                                <validator type="regex" message="Please only use letters, numbers or underscores, and separate levels by commas">^[\w,]+$</validator>
+                            </param>
+                        </repeat>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+
+         <!-- Contrasts -->
+        <repeat name="rep_contrast" title="Contrast" min="1" default="1">
+            <param name="contrast" type="text" label="Contrast of Interest" help="Names of two groups to compare separated by a hyphen e.g. Mut-WT. If the order is Mut-WT the fold changes in the results will be up/down in Mut relative to WT. If you have more than one contrast enter each separately using the Insert Contrast button below. For more info, see Chapter 8 in the limma User's guide: https://www.bioconductor.org/packages/release/bioc/vignettes/limma/inst/doc/usersguide.pdf">
+                <validator type="empty_field" />
+                <validator type="regex" message="Please only use letters, numbers or underscores">^[\w-]+$</validator>
+            </param>
+        </repeat>
+
+        <param name="genes" type="data" format="tabular"
+            label="Symbols Mapping file"
+            help="A file of Entrez Gene IDs mapped to Gene symbols in the format shown in the Help section below."/>
+
+        <param name="species" type="select" label="Species" help="Default: Human">
+            <option value="human" selected="True">Human</option>
+            <option value="mouse">Mouse</option>
+            <option value="rat">Rat</option>
+        </param>
+
+        <param name="base_methods" type="select" display="checkboxes" multiple="True" min="3" label="Gene Set Testing Methods" help="Select at least 3 gene set testing methods">
+            <option value="camera" selected="True">camera</option>
+            <option value="safe">safe</option>
+            <option value="gage">gage</option>
+            <option value="zscore">zscore</option>
+            <option value="gsva">gsva</option>
+            <option value="globaltest" selected="True">globaltest</option>
+            <option value="ora" selected="True">ora</option>
+            <option value="ssgsea">ssgsea</option>
+            <option value="padog">padog</option>
+            <option value="plage">plage</option>
+            <option value="fry">fry</option>
+            <option value="roast">roast</option>
+        </param>
+
+        <section name="msigdb" title="MSigDB Gene Sets" expanded="True">
+            <param name="msigdb_gsets" type="select" display="checkboxes" optional="True" multiple="True" label="MSigDB Gene Set Collections" help="Choose any MSigDB Gene Set Collections you want to use. Default: H: hallmark gene sets">
+                <option value="h" selected="True">H: hallmark gene sets</option>
+                <option value="c1">C1: positional gene sets (human only)</option>
+                <option value="c2">C2: curated gene sets</option>
+                <option value="c3">C3: motif gene sets</option>
+                <option value="c4">C4: computational gene sets</option>
+                <option value="c5">C5: GO gene sets</option>
+                <option value="c6">C6: oncogenic gene sets</option>
+                <option value="c7">C7: immunologic gene sets</option>
+            </param>
+        </section>
+
+        <section name="keggdb" title="KEGG Pathways" expanded="True">
+            <param name="keggdb_gsets" type="select" display="checkboxes" optional="True" multiple="True" label="KEGG Pathways" help="Choose any KEGG Pathways you want to use. Default: None">
+                <option value="keggmet">Metabolism pathways</option>
+                <option value="keggsig">Signalling pathways</option>
+                <option value="keggdis">Disease pathways</option>
+            </param>
+            <param name="kegg_updated" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Download KEGG pathways?" help="Select Yes if you want to download the most recent KEGG pathways, see the Help section below. Default: No"/>
+        </section>
+
+        <section name="gsdb" title="GeneSetDB Gene Sets" expanded="True">
+            <param name="gsdb_gsets" type="select" display="checkboxes" optional="True" multiple="True" label="GeneSigDB Gene Set Collections" help="Choose any GeneSetDB Gene Set Collections you want to use. Default: None">
+                <option value="gsdbpath">Pathway collection</option>
+                <option value="gsdbdis">Disease/Phenotype collection</option>
+                <option value="gsdbdrug">Drug/Chemical collection</option>
+                <option value="gsdbreg">Gene Regulation collection</option>
+                <option value="gsdbgo">Gene Ontology collection</option>
+            </param>
+        </section>
+
+        <section name="advanced" title="Advanced Options">
+            <param name="display_top" type="integer" value="5" min="1" max="20" label="Top Gene Sets to display" help="Set the number of top gene sets to display. Increasing this number increases the time to run, in order to generate the additional plots etc."/>
+            <param name="min_size" type="integer" min="0" value="2" label="Minimum Size of Gene Set" help="Minimum size of a gene set to be included in the analysis. Default: 2" />
+            <param name="fdr_cutoff" type="float" value="0.05" min="0" max="1" label="FDR cutoff" help="Cut-off threshold of differentially expressed genes used for the calculation of Significance Score and Regulation Direction. Default: 0.05"/>
+            <param name="combine_method" type="select" label="Combine Method" help="Method to use to combine the p-values from the different gene set testing methods. Default: wilkinson">
+                <option value="wilkinson" selected="True">wilkinson</option>
+                <option value="fisher">fisher</option>
+                <option value="average">average</option>
+                <option value="logitp">logitp</option>
+                <option value="sump">sump</option>
+                <option value="sumz">sumz</option>
+                <option value="votep">votep</option>
+                <option value="median">median</option>
+            </param>
+            <param name="sort_method" type="select" label="Sort Method" help="Select method to sort the results. Any of EGSEA’s combined scores or the rankings from individual base methods can be used for sorting the results. Default: med.rank">
+                <option value="p.adj">p.adj</option>
+                <option value="p.value">p.value</option>
+                <option value="vote.rank">vote.rank</option>
+                <option value="avg.rank">avg.rank</option>
+                <option value="med.rank" selected="True">med.rank</option>
+                <option value="min.pvalue">min.pvalue</option>
+                <option value="min.rank">min.rank</option>
+                <option value="avg.logfc">avg.logfc</option>
+                <option value="avg.logfc.dir">avg.logfc.dir</option>
+                <option value="direction">direction</option>
+                <option value="significance">significance</option>
+                <option value="camera">camera</option>
+                <option value="roast">roast</option>
+                <option value="safe" >safe</option>
+                <option value="gage">gage</option>
+                <option value="padog">padog</option>
+                <option value="plage">plage</option>
+                <option value="zscore">zscore</option>
+                <option value="gsva">gsva</option>
+                <option value="ssgsea">ssgsea</option>
+                <option value="globaltest">globaltest</option>
+                <option value="ora">ora</option>
+                <option value="fry">fry</option>
+            </param>
+            <param name="rscriptOpt" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Output Rscript?" help="If this option is set to Yes, the Rscript used will be provided as a text file in the output. Default: No"/>
+            <param name="rdaOpt" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Output RData file?" help="Output all the data used by R in the analysis, can be loaded into R. Default: No" />
+        </section>
+        <param name="non_commercial_use" label="I certify that I am not using this tool for commercial purposes." type="boolean" truevalue="NON_COMMERCIAL_USE" falsevalue="COMMERCIAL_USE" checked="False">
+            <validator type="expression" message="This tool is only available for non-commercial use.">value == True</validator>
+        </param>
+    </inputs>
+
+    <outputs>
+        <data name="outReport" format="html" label="${tool.name} on ${on_string}: Report"/>
+        <collection name="outTables" type="list" label="${tool.name} on ${on_string}: Tables">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.txt$" format="tabular" directory="report_dir/ranked-gene-sets-base" visible="false" />
+        </collection>
+        <data name="outRscript" format="txt" from_work_dir="*.txt" label="${tool.name} on ${on_string}: Rscript">
+            <filter>advanced['rscriptOpt'] is True</filter>
+        </data>
+        <data name="outRdata" format="rdata" from_work_dir="EGSEA_analysis.RData" label="${tool.name} on ${on_string}: RData file">
+            <filter>advanced['rdaOpt'] is True</filter>
+        </data>
+    </outputs>
+
+    <tests>
+        <!-- Ensure report is output -->
+        <test expect_num_outputs="1">
+            <param name="non_commercial_use" value="True"/>
+            <param name="format" value="matrix" />
+            <param name="counts" value="il13.counts"/>
+            <param name="genes" value="il13.genes"/>
+            <repeat name="rep_factor">
+                <param name="factorName" value="Treatment"/>
+                <param name="groupNames" value="IL13,IL13Ant,IL13,IL13,IL13Ant"/>
+            </repeat>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="IL13Ant-IL13"/>
+            </repeat>
+            <output_collection name="outTables" count="1">
+                <element name="ranked-h-gene-sets-IL13Ant-IL13" ftype="tabular" file="ranked-h-gene-sets-IL13Ant-IL13.txt"/>
+            </output_collection>
+            <output name="outReport">
+                <assert_contents>
+                    <has_text text="Gene Set Testing Report"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Ensure factors file input works and Rscript is output-->
+        <test expect_num_outputs="2">
+            <param name="non_commercial_use" value="True"/>
+            <param name="format" value="matrix"/>
+            <param name="counts" value="il13.counts"/>
+            <param name="genes" value="il13.genes"/>
+            <param name="ffile" value="yes"/>
+            <param name="finfo" value="il13.group"/>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="IL13Ant-IL13" />
+            </repeat>
+            <param name="rscriptOpt" value="True"/>
+            <output name="outReport">
+                <assert_contents>
+                    <has_text text="Gene Set Testing Report"/>
+                </assert_contents>
+            </output>
+            <output_collection name="outTables" count="1">
+                <element name="ranked-h-gene-sets-IL13Ant-IL13" ftype="tabular" file="ranked-h-gene-sets-IL13Ant-IL13.txt"/>
+            </output_collection>
+            <output name="outRscript" value="out_rscript.txt"/>
+        </test>
+        <!-- Ensure two contrasts works -->
+        <test expect_num_outputs="1">
+            <param name="non_commercial_use" value="True"/>
+            <param name="format" value="matrix"/>
+            <param name="counts" value="il13.counts"/>
+            <param name="genes" value="il13.genes"/>
+            <param name="ffile" value="yes"/>
+            <param name="finfo" value="il13.group"/>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="IL13Ant-IL13"/>
+            </repeat>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="IL13-IL13Ant"/>
+            </repeat>
+            <output_collection name="outTables" count="3">
+                <element name="ranked-h-gene-sets-IL13Ant-IL13" ftype="tabular" file="ranked-h-gene-sets-IL13Ant-IL13.txt"/>
+                <element name="ranked-h-gene-sets-IL13-IL13Ant" ftype="tabular" file="ranked-h-gene-sets-IL13-IL13Ant.txt"/>
+                <element name="ranked-h-gene-sets-IL13-IL13Ant" ftype="tabular" file="ranked-h-gene-sets-compare.txt"/>
+            </output_collection>
+        </test>
+        <!-- Ensure two factors works -->
+        <test expect_num_outputs="1">
+            <param name="non_commercial_use" value="True"/>
+            <param name="format" value="matrix"/>
+            <param name="counts" value="il13.counts"/>
+            <param name="genes" value="il13.genes"/>
+            <param name="ffile" value="yes"/>
+            <param name="finfo" value="il13.group_batch"/>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="IL13Ant-IL13"/>
+            </repeat>
+            <output_collection name="outTables" count="1">
+                <element name="ranked-h-gene-sets-IL13Ant-IL13" ftype="tabular" file="ranked-h-gene-sets-IL13Ant-IL13_batch.txt"/>
+            </output_collection>
+        </test>
+        <!-- Ensure all gene set methods work -->
+        <test expect_num_outputs="1">
+            <param name="non_commercial_use" value="True"/>
+            <param name="format" value="matrix"/>
+            <param name="counts" value="il13.counts"/>
+            <param name="genes" value="il13.genes"/>
+            <param name="ffile" value="yes"/>
+            <param name="finfo" value="il13.group_batch"/>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="IL13Ant-IL13"/>
+            </repeat>
+            <param name="base_methods" value="camera,safe,gage,zscore,gsva,globaltest,ora,ssgsea,padog,plage,fry,roast"/>
+            <output_collection name="outTables" count="1">
+                <element name="ranked-h-gene-sets-IL13Ant-IL13" ftype="tabular" file="ranked-h-gene-sets-IL13Ant-IL13_batch_all.txt"/>
+            </output_collection>
+        </test>
+        <!-- Ensure KEGG updated works -->
+        <test expect_num_outputs="1">
+            <param name="non_commercial_use" value="True"/>
+            <param name="format" value="matrix"/>
+            <param name="counts" value="il13.counts"/>
+            <param name="genes" value="il13.genes"/>
+            <param name="ffile" value="yes"/>
+            <param name="finfo" value="il13.group_batch"/>
+            <repeat name="rep_contrast">
+                <param name="contrast" value="IL13Ant-IL13"/>
+            </repeat>
+            <param name="keggdb_gsets" value="keggmet"/>
+            <param name="kegg_updated" value="True"/>
+            <output_collection name="outTables" count="2">
+                <element name="ranked-h-gene-sets-IL13Ant-IL13" ftype="tabular" file="ranked-h-gene-sets-IL13Ant-IL13_batch.txt"/>
+                <element name="ranked-kegg-gene-sets-IL13Ant-IL13" ftype="tabular" file="ranked-kegg-gene-sets-IL13Ant-IL13.txt"/>
+            </output_collection>
+        </test>
+    </tests>
+
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+EGSEA_, an acronym for *Ensemble of Gene Set Enrichment Analyses*, is a `Bioconductor package`_ that utilizes the analysis results of eleven prominent GSE algorithms from the literature to calculate collective significance scores for gene sets. These methods are currently: **ora, globaltest, plage, safe, zscore, gage, ssgsea, roast, fry, padog, camera, gsva**. The ora, gage, camera and gsva methods depend on a competitive null hypothesis while the remaining seven methods are based on a self-contained hypothesis. EGSEA’s gene set database, the **EGSEAdata** Bioconductor package, contains around 25,000 gene sets from 16 collections from MSigDB_, KEGG_ and GeneSetDB_. Supported organisms are human, mouse and rat, however MSigDB is only available for human and mouse. An example `EGSEA workflow`_ is available at the Bioconductor workflows website.
+
+Currently the **egsea.cnt** function is implemented in this tool. This function takes a raw RNA-Seq count matrix and uses **limma-voom** with TMM normalization to convert the RNA-seq counts into expression values for EGSEA analysis.
+
+EGSEA returns a HTML report of detailed analysis results for each contrast of interest and comparative analysis results. The heatmap view at both the gene set and summary level and the summary level bar plots can be useful summaries to include in publications to highlight the gene set testing results.
+
+.. class:: warningmark
+
+**WARNING: This tool is only available for non-commercial use.**
+
+    The **GAGE** and **Pathview** packages used by EGSEA make use of KEGG data
+    and Non-academic uses may require a KEGG license agreement. Before using, be
+    sure to review, agree, and comply with the relevant licenses for KEGG and
+    MSigDB.
+
+    * `KEGG Licence`_
+    * `MSigDB Licence`_
+
+.. _KEGG Licence: http://www.kegg.jp/kegg/legal.html
+.. _MSigDB Licence: http://software.broadinstitute.org/gsea/license_terms_list.jsp
+
+-----
+
+**Inputs**
+
+**Counts Matrix**
+
+This tool requires a counts matrix (counts table) containing the raw RNA-seq read counts. The first column must contain Entrez Gene IDs that are unique (not repeated) within the counts file. Entrez IDs can be obtained from the **annotateMyIDs** Galaxy tool.
+
+Example:
+
+    =============== ========== ========== ========== ========= ========= =========
+    EntrezID        **WT1**    **WT2**    **WT3**    **Mut1**  **Mut2**  **Mut3**
+    =============== ========== ========== ========== ========= ========= =========
+    1               71         73         69         36         22        28
+    1000            3          4          2          4          0         1
+    10000           2310       2142       2683       1683       2068      2172
+    100009605       3          1          2          1          5         3
+    100009613       9          11         4          13         6         10
+    =============== ========== ========== ========== ========= ========= =========
+
+**Factor Information**
+
+Enter factor names and groups in the tool form, or provide a tab-separated file that has the samples in the same order as listed in the columns of the counts matrix. The second column should contain the primary factor levels (e.g. WT, Mut) with optional additional columns for any secondary factors e.g Batch.
+
+Example:
+
+    ========== ============ =========
+    **Sample** **Genotype** **Batch**
+    ---------- ------------ ---------
+    WT1        WT           b1
+    WT2        WT           b2
+    WT3        WT           b3
+    Mut1       Mut          b1
+    Mut2       Mut          b2
+    Mut3       Mut          b3
+    ========== ============ =========
+
+*Factor Name:* The name of the experimental factor being investigated e.g. Genotype, Treatment. One factor must be entered and spaces must not be used. Optionally, additional factors can be included, these are variables that might influence your experiment e.g. Batch, Gender, Subject. If additional factors are entered, edgeR will fit an additive linear model.
+
+*Groups:* The names of the groups for the factor. These must be entered in the same order as the samples (to which the groups correspond) are listed in the columns of the counts matrix. Spaces must not be used and if entered into the tool form above, the values should be separated by commas.
+
+**Symbols Mapping file**
+
+A file containing the Gene Symbol for each Entrez Gene ID. The first column must be the Entrez Gene IDs and the second column must be the Gene Symbols. It is used for the heatmap visualization. The number of rows should match that of the Counts Matrix.
+
+Example:
+
+    ========= =========
+    EntrezID  Symbols
+    ========= =========
+    1         A1BG
+    1000      CDH2
+    10000     AKT3
+    100009605 TRNAF1
+    100009613 ANO1-AS2
+    ========= =========
+
+-----
+
+**Outputs**
+
+The EGSEA report is an interactive HTML report that is generated to enable a swift navigation through the results of an EGSEA analysis. The pages below are generated for each gene set collection and contrast/comparison.
+
+**Stats Table page**
+
+The Stats Table page shows the detailed statistics of the EGSEA analysis for the top gene sets. It shows the EGSEA scores, individual rankings and additional annotation for each gene set. Hyperlinks to the source of each gene set can be seen in this table when they are available. The "Direction" column shows the regulation direction of a gene set which is calculated based on the logFC, which is either calculated from the limma differential expression analysis or provided by the user. The logFC cutoff and FDR cutoff are applied for this calculation. The calculations of the EGSEA scores can be seen in the references section. The method topSets can be used to generate custom Stats Table.
+
+**Heatmaps page**
+
+The Heatmaps page shows the heatmaps of the gene fold changes for the gene sets that are presented in the Stats Table page. Red indicates up-regulation while blue indicates down-regulation. Only genes that appear in the input expression/count matrix are visualized in the heat map. Gene names are coloured based on their statistical significance in the limma differential expression analysis. The "Interpret Results" link below each heat map allows the user to download the original heat map values along with additional statistics from limma DE analysis ( if available) so that they can be used to perform further analysis in R, e.g., customizing the heat map visualization.
+
+**Summary Plots page**
+
+The Summary Plots page shows the methods ranking plot along with the summary plots of EGSEA analysis. The method plot uses multidimensional scaling (MDS) to visualize the ranking of individual methods on a given gene set collection. The summary plots are bubble plots that visualize the distribution of gene sets based on the EGSEA Significance Score and another EGSEA score (default, p-value). Two summary plots are generated: ranking and directional plots. Each gene set is reprersented with a bubble which is coloured based on the EGSEA ranking (in ranking plots ) or gene set regulation direction (in directional plots) and sized based on the gene set cardinality (in ranking plots) or EGSEA Significance score (in directional plots). Since the EGSEA "Significance Score" is proportional to the p-value and the absolute fold changes, it could be useful to highlight gene sets that have high Significance scores. The blue labels on the summary plot indicate gene sets that do not appear in the top 10 list of gene sets based on the "sort.by" argument (black labels) yet they appear in the top 5 list of gene sets based on the EGSEA "Significance Score". If two contrasts are provided, the rank is calculated based on the "comparison" analysis results and the "Significance Score" is calculated as the mean.
+
+**Pathways page**
+
+The Pathways page shows the KEGG pathways for the gene sets that are presented in the Stats Table of a KEGG gene set collection. The gene fold changes are overlaid on the pathway maps and coloured based on the gene regulation direction: blue for down-regulation and red for up-regulation. Note that this page only appears if a KEGG gene set collection is used in the EGSEA analysis.
+
+**GO Graphs page**
+
+The GO Graphs page shows the Gene Ontology graphs for top 5 GO terms in each of three GO categories: Biological Processes (BP), Molecular Functions (MF), and Cellular Components (CC). Nodes are coloured based on the default sort.by score where red indicates high significance and yellow indicates low significance. Note that this page only appears if a Gene Ontology gene set collection is used, i.e., for the c5 collection from MSigDB or the gsdbgo collection from GeneSetDB.
+
+**Interpret Results link**
+
+The Interpret Results hyperlink in the EGSEA report allows the user to download the fold changes and limma analysis results and thus improve the interpretation of the results.
+
+.. class:: warningmark
+
+Note that the running time of this tool depends on a number of things, including the number of samples and contrasts provided as input, and also the number of gene set testing methods and gene set collections chosen. For example, the `egsea.cnt example`_ in the EGSEA vignette was conducted with 8 samples and 2 contrasts, using the KEGG Signaling and Disease pathways, and 7 of the 12 gene set testing methods, on a MacBook Pro machine that had a 2.8 GHz Intel Core i7 CPU and 16 GB of RAM. The execution time took 145.5 seconds using 16 threads.
+
+.. _egsea.cnt example: https://bioconductor.org/packages/release/bioc/vignettes/EGSEA/inst/doc/EGSEA.pdf
+
+-----
+
+**More Information**
+
+**MSigDB Gene Set Colletions**
+
+The MSigDB_ gene sets are divided into 8 major collections:
+
+* **H: hallmark gene sets**  are coherently expressed signatures derived by aggregating many MSigDB gene sets to represent well-defined biological states or processes.
+* **C1: positional gene sets** for each human chromosome and cytogenetic band.
+* **C2: curated gene sets** are from online pathway databases, publications in PubMed, and knowledge of domain experts.
+* **C3: motif gene sets** are based on conserved cis-regulatory motifs from a comparative analysis of the human, mouse, rat, and dog genomes.
+* **C4: computational gene sets** are defined by mining large collections of cancer-oriented microarray data.
+* **C5: GO gene sets** consist of genes annotated by the same GO terms.
+* **C6: oncogenic gene sets** are defined directly from microarray gene expression data from cancer gene perturbations.
+* **C7: immunologic gene sets** are defined directly from microarray gene expression data from immunologic studies.
+
+-----
+
+**GeneSetDB Gene Set Colletions**
+
+GeneSetDB_ gene sets were obtained from `multiple source databases`_ (shown below) and were classified into five subclasses based on the database content: Pathway, Disease/Phenotype, Drug/Chemical, Genes Regulation and Gene Ontology.
+
+**Pathway**
+
+* Biocarta
+* EHMN (Edinburgh Human Metabolic Network)
+* HumnCyc
+* INOH (Integrating Network Objects with Hierarchies)
+* NetPath
+* PID (Pathway Interaction Database)
+* Reactome
+* Wikipathways
+
+**Disease/Phenotype**
+
+* CancerGenes
+* KEGG Disease
+* HPO (Human Phenotype Ontology)
+* MethCancerDB
+* MethyCancer
+* MPO (Mammalian Phenotype Ontology)
+* SIDER (SIDe Effect Resource)
+
+**Drug/Chemical**
+
+* CTD (Comparative Toxicogenomics Database)
+* DrugBank
+* MATADOR (Manually Annotated Targets and Drugs Online Resource)
+* SMPDB (Small Molecular Pathway DataBase)
+* STITCH (Search Tool for Interactions of Chemicals)
+* T3DB (Toxin and Toxin Target Database)
+
+**Gene Regulation**
+
+* MicroCosm Targets
+* miRTarBase
+* TFactS
+* Rel/NF-kappaB target genes
+
+**Gene Ontology**
+
+* Gene Ontology
+
+-----
+
+**KEGG Pathways**
+
+Obtained by EGSEAdata from the GAGE_ Bioconductor package using the gage function kegg.gsets(). The Pathview_ Bioconductor package is used to visualize the expression data mapped onto the KEGG pathway graphs. Pathview has a GPLv3 licence which means users are required to formally cite the original `Pathview paper`_ (not just mention it) in publications or products. GAGE/Pathview divide the KEGG pathways into 3 categories: Signaling, Metabolism and Disease, listed in this file at the `Pathview website here`_. You can choose if you want to download the most recent KEGG pathways by selecting the ``Download KEGG pathways`` option in the tool form above. Note that downloading the most recent pathways may affect reproducibility as you can't choose what versions of pathways to use.
+
+**Signaling**
+
+* Genetic Information Processing
+* Environmental Information Processing
+* Cellular Processes
+* Organismal Systems
+
+**Metabolism**
+
+* Metabolism
+
+**Disease**
+
+* Human Diseases
+
+-----
+
+Please cite EGSEA_, MSigDB_, KEGG_ and GeneSetDB_ appropriately if you use them.
+
+.. _EGSEA: https://www.ncbi.nlm.nih.gov/pubmed/27694195
+.. _Bioconductor package: https://bioconductor.org/packages/release/bioc/html/EGSEA.html
+.. _MSigDB: http://software.broadinstitute.org/gsea/msigdb
+.. _KEGG: http://www.genome.jp/kegg/
+.. _GeneSetDB: http://genesetdb.auckland.ac.nz/haeremai.html
+.. _EGSEA workflow: https://www.bioconductor.org/help/workflows/EGSEA123/
+.. _multiple source databases: http://genesetdb.auckland.ac.nz/sourcedb.html
+.. _GAGE: https://bioconductor.org/packages/release/bioc/html/gage.html
+.. _Pathview: https://bioconductor.org/packages/release/bioc/html/pathview.html
+.. _Pathview paper: https://www.ncbi.nlm.nih.gov/pubmed/23740750
+.. _Pathview website here: https://pathview.uncc.edu/data/khier.tsv
+
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btw623</citation>
+    </citations>
+</tool>

@@ -1,0 +1,150 @@
+<tool id="rseqc_geneBody_coverage" name="Gene Body Converage (BAM)" version="@WRAPPER_VERSION@.2">
+  <description>
+    Read coverage over gene body.
+  </description>
+
+  <macros>
+    <import>rseqc_macros.xml</import>
+  </macros>
+
+    <expand macro="requirements" />
+
+  <expand macro="stdio" />
+
+  <version_command><![CDATA[geneBody_coverage.py --version]]></version_command>
+
+  <command><![CDATA[
+    #if str($batch_mode.batch_mode_selector) == "merge":
+        #import re
+        #set $input_list = []
+        #for $i, $input in enumerate($batch_mode.inputs):
+            #set $safename = re.sub('[^\w\-_]', '_', $input.element_identifier)
+            #if $safename in $input_list:
+                #set $safename = str($safename) + "." + str($i)
+            #end if
+            $input_list.append($safename)
+            ln -sf '${input}' '${safename}.bam' &&
+            ln -sf '${input.metadata.bam_index}' '${safename}.bam.bai' &&
+            echo '${safename}.bam' >> 'input_list.txt' &&
+        #end for
+        geneBody_coverage.py -i 'input_list.txt' -r '${refgene}' --minimum_length ${minimum_length} -o output
+    #else
+        #set $safename = re.sub('[^\w\-_]', '_', $input.element_identifier)
+        ln -sf '${input}' '${safename}.bam' &&
+        ln -sf '${input.metadata.bam_index}' '${safename}.bam.bai' &&
+        geneBody_coverage.py -i '${safename}.bam' -r '${refgene}' --minimum_length ${minimum_length} -o output
+    #end if
+    ]]>
+  </command>
+
+  <inputs>
+    <conditional name="batch_mode">
+        <param name="batch_mode_selector" type="select" label="Run each sample separately, or combine mutiple samples into one plot">
+            <option value="batch" selected="true">Run each sample separately</option>
+            <option value="merge">Combine multiple samples into a single plot</option>
+        </param>
+        <when value="batch">
+            <param name="input" type="data" label="Input .bam file" format="bam" help="(--input-file)"/>
+        </when>
+        <when value="merge">
+            <param name="inputs" type="data" label="Input .bam file(s)" format="bam" help="(--input-file)" multiple="true"/>
+        </when>
+    </conditional>
+    <expand macro="refgene_param" />
+    <param name="minimum_length" type="integer" value="100" label="Minimum mRNA length (default: 100)" help="Minimum mRNA length in bp, mRNA that are shorter than this value will be skipped (--minimum_length)." />
+    <expand macro="rscript_output_param" />
+  </inputs>
+
+  <outputs>
+    <data name="outputcurvespdf" format="pdf" from_work_dir="output.geneBodyCoverage.curves.pdf" label="${tool.name} on ${on_string} (Curves pdf)" />
+    <data name="outputheatmappdf" format="pdf" from_work_dir="output.geneBodyCoverage.heatMap.pdf" label="${tool.name} on ${on_string} (HeatMap pdf)">
+      <filter>batch_mode['batch_mode_selector'] == 'merge' and len(inputs) >= 3</filter>
+    </data>
+    <expand macro="rscript_output_data" filename="output.geneBodyCoverage.r" />
+    <data name="outputtxt" format="txt" from_work_dir="output.geneBodyCoverage.txt" label="${tool.name} on ${on_string} (text)" />
+  </outputs>
+
+  <!-- PDF Files contain R version, must avoid checking for diff -->
+  <tests>
+    <test>
+      <conditional name="batch_mode">
+        <param name="batch_mode_selector" value="batch" />
+        <param name="input" value="pairend_strandspecific_51mer_hg19_chr1_1-100000.bam" />
+      </conditional>
+      <param name="refgene" value="hg19_RefSeq_chr1_1-100000.bed" />
+      <param name="rscript_output" value="true" />
+      <output name="outputcurvespdf" file="output.geneBodyCoverage.curves.pdf" compare="sim_size" />
+      <output name="outputr" file="output.geneBodyCoverage.r" />
+      <output name="outputtxt" file="output.geneBodyCoverage.txt" />
+    </test>
+    <test>
+      <conditional name="batch_mode">
+        <param name="batch_mode_selector" value="merge" />
+        <param name="inputs" value="pairend_strandspecific_51mer_hg19_chr1_1-100000.bam,pairend_strandspecific_51mer_hg19_chr1_1-100000.bam,pairend_strandspecific_51mer_hg19_chr1_1-100000.bam" />
+      </conditional>
+      <param name="refgene" value="hg19_RefSeq_chr1_1-100000.bed" />
+      <param name="rscript_output" value="true" />
+      <output name="outputcurvespdf" file="output2.geneBodyCoverage.curves.pdf" compare="sim_size" />
+      <output name="outputheatmappdf" file="output2.geneBodyCoverage.heatMap.pdf" compare="sim_size" />
+      <output name="outputr" file="output2.geneBodyCoverage.r" />
+      <output name="outputtxt" file="output2.geneBodyCoverage.txt" />
+    </test>
+
+  </tests>
+
+  <help><![CDATA[
+## geneBody_coverage.py
+
+Read coverage over gene body. This module is used to check if read coverage is uniform and if there is any 5\'/3\' bias. This module scales all transcripts to 100 nt and calculates the number of reads covering each nucleotide position. Finally, it generates plots illustrating the coverage profile along the gene body.
+
+If 3 or more BAM files were provided. This program generates a lineGraph and a heatmap. If fewer than 3 BAM files were provided, only lineGraph is generated. See below for examples.
+
+When heatmap is generated, samples are ranked by the "skewness" of the coverage: Sample with best (worst) coverage will be displayed at the top (bottom) of the heatmap.
+Coverage skewness was measured by `Pearson’s skewness coefficients <http://en.wikipedia.org/wiki/Skewness#Pearson.27s_skewness_coefficients>`_
+
+.. image:: $PATH_TO_IMAGES/geneBody_workflow.png
+    :width: 800 px
+    :scale: 80 %
+
+
+## Inputs
+
+Input BAM/SAM file
+    Alignment file in BAM/SAM format.
+
+Reference gene model
+    Gene Model in BED format.
+
+Minimum mRNA length
+    Minimum mRNA length (bp). mRNA that are shorter than this value will be skipped (default is 100).
+
+## Outputs
+
+Text
+    Table that includes the data used to generate the plots
+
+R Script
+    R script file that reads the data and generates the plot
+
+PDF
+    The final plot, in PDF format
+
+Example plots:
+.. image:: $PATH_TO_IMAGES/Aug_26.geneBodyCoverage.curves.png
+:height: 600 px
+:width: 600 px
+:scale: 80 %
+
+.. image:: $PATH_TO_IMAGES/Aug_26.geneBodyCoverage.heatMap.png
+    :height: 600 px
+    :width: 600 px
+    :scale: 80 %
+
+@ABOUT@
+
+    ]]>
+  </help>
+
+  <expand macro="citations" />
+
+</tool>

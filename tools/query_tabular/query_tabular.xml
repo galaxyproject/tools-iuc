@@ -1,0 +1,689 @@
+<tool id="query_tabular" name="Query Tabular" version="3.0.0">
+    <description>using sqlite sql</description>
+
+    <macros>
+         <import>macros.xml</import>
+    </macros>
+
+    <requirements>
+    </requirements>
+
+    <command detect_errors="exit_code"><![CDATA[
+        cat '$query_file' &&
+        #if $add_to_database.withdb: 
+            #if $save_db:
+                cp '$add_to_database.withdb' '$sqlitedb' &&
+            #else:
+                cp '$add_to_database.withdb' '$workdb' &&
+            #end if 
+        #end if
+        python '$__tool_directory__/query_tabular.py' -d
+        #if $save_db
+        -s '$sqlitedb'
+        #else
+        -s '$workdb'
+        #end if
+        -j '$table_json'
+        #if $sqlquery:
+          -Q '$query_file' 
+          @RESULT_HEADER@
+          -o '$output'
+        #end if
+    ]]></command>
+    <configfiles>
+        <configfile name="query_file">
+$sqlquery
+        </configfile>
+        <configfile name="table_json">
+#import json
+#set $jtbldef = dict()
+#set $jtbls = []
+#set $jtbldef['tables'] = $jtbls
+#for $i,$tbl in enumerate($tables):
+  #set $jtbl = dict()
+  #set $jtbl['file_path'] = str($tbl.table)
+  #if $tbl.tbl_opts.table_name:
+  #set $tname = str($tbl.tbl_opts.table_name)
+  #else
+  #set $tname = 't' + str($i + 1) 
+  #end if
+  #set $jtbl['table_name'] = $tname
+  ## #if $tbl.tbl_opts.sel_cols:
+  ##   #set $jtbl['sel_cols'] = $tbl.tbl_opts.sel_cols el_cols
+  ## #end if
+  #if $tbl.tbl_opts.pkey_autoincr:
+    #set $jtbl['pkey_autoincr'] = str($tbl.tbl_opts.pkey_autoincr)
+  #end if
+  #if $tbl.tbl_opts.column_names_from_first_line:
+    #set $jtbl['firstlinenames'] = True
+  #end if
+  #if $tbl.tbl_opts.col_names:
+  #set $col_names = str($tbl.tbl_opts.col_names)
+    #if $tbl.tbl_opts.load_named_columns:
+      #set $jtbl['load_named_columns'] = True
+    #end if
+  #else 
+  #set $col_names = ''
+  #end if
+  #set $jtbl['column_names'] = $col_names
+  #set $idx_unique = []
+  #set $idx_non = []
+  #for $idx in $tbl.tbl_opts.indexes:
+    #if $idx.unique:
+      #silent $idx_unique.append(str($idx.index_columns))
+    #else:
+      #silent $idx_non.append(str($idx.index_columns))
+    #end if
+  #end for
+  #if len($idx_unique) > 0:
+    #set $jtbl['unique'] = $idx_unique
+  #end if
+  #if len($idx_non) > 0:
+    #set $jtbl['index'] = $idx_non
+  #end if
+  #set $linefilters = $tbl.input_opts.linefilters
+  @LINEFILTERS@
+  #if $input_filters:
+    #set $jtbl['filters'] = $input_filters
+  #end if
+  #set $jtbls += [$jtbl]
+#end for
+#set $jstmts = []
+#for $i,$stmt in enumerate($modify_database.sql_stmts):
+    #set $jstmts += [str($stmt.sqlstmt)]
+#end for
+#if len($jstmts) > 0:
+   #set $jtbldef['sql_stmts'] = $jstmts
+#end if
+#set $jqueries = []
+#for $i,$query in enumerate($addqueries.queries):
+    #set $jquery = dict()
+    #set $jquery['query'] = str($query.sqlquery)
+    #set $jquery['result_file'] = 'results' + str($i) + '.tsv'
+    #if $query.query_result.header == 'yes':
+        #set $header_prefix = ''
+        #if $query.query_result.header_prefix:
+            #set $header_prefix = chr(int(str($query.query_result.header_prefix)))
+        #end if
+        #set $jquery['header'] = $header_prefix
+    #end if
+    #set $jqueries += [$jquery]
+#end for
+#if len($jqueries) > 0:
+   #set $jtbldef['queries'] = $jqueries
+#end if
+#echo $json.dumps($jtbldef)
+        </configfile>
+    </configfiles>
+    <inputs>
+        <param name="workdb" type="hidden" value="workdb.sqlite" label=""/>
+        <section name="add_to_database" expanded="false" title="Add tables to an existing database">
+            <param name="withdb" type="data" format="sqlite" optional="true" label="Add tables to this Database" 
+               help="Make sure your added table names are not already in this database"/>
+        </section>
+        <repeat name="tables" title="Database Table" min="0">
+            <param name="table" type="data" format="tabular" label="Tabular Dataset for Table"/>
+            <section name="input_opts" expanded="false" title="Filter Dataset Input">
+                <expand macro="macro_line_filters" />
+            </section>
+            <section name="tbl_opts" expanded="false" title="Table Options">
+                <param name="table_name" type="text" value="" optional="true" label="Specify Name for Table">
+                    <help>By default, tables will be named: t1,t2,...,tn (table names must be unique)</help>
+                    <validator type="regex" message="Table name should start with a letter and may contain additional letters, digits, and underscores">^[A-Za-z]\w*$</validator>
+                </param>
+                <param name="column_names_from_first_line" type="boolean" truevalue="True" falsevalue="False" checked="false" 
+                    label="Use first line as column names"
+                    help="The names will be quoted if they are not valid SQLite column names."/>
+                <param name="col_names" type="text" value="" optional="true" label="Specify Column Names (comma-separated list)">
+                    <help>By default, table columns will be named: c1,c2,c3,...,cn  (column names for a table must be unique)
+                          You can override the default names by entering a comma -separated list of names, e.g. ',name1,,,name2' would rename the second and fifth columns.
+                    </help>
+                    <sanitizer sanitize="False"/>
+                    <validator type="regex" message="A List of names separated by commas: Column names should start with a letter and may contain additional letters, digits, and underscores. Otherwise, the name must be eclosed in: double quotes, back quotes, or square brackets.">^([A-Za-z]\w*|"\S+[^,"]*"|`\S+[^,`]*`|[[]\S+[^,"]*[]])?(,([A-Za-z]\w*|"\S+.*"|`\S+[^,`]*`|[[]\S+[^,"]*[]])?)*$</validator>
+                </param>
+                <param name="load_named_columns" type="boolean" truevalue="load_named_columns" falsevalue="" checked="false" label="Only load the columns you have named into database"/>
+                <param name="pkey_autoincr" type="text" value="" optional="true" label="Add an auto increment primary key column with this name"
+                       help="Only creates this additional column when a name is entered. (This can not be the same name as any of the other columns in this table.)">
+                        <validator type="regex" message="Column name">^([A-Za-z]\w*)?$</validator>
+                </param>
+                <repeat name="indexes" title="Table Index">
+                    <param name="unique" type="boolean" truevalue="yes" falsevalue="no" checked="False" label="This is a unique index"/>
+                    <param name="index_columns" type="text" value="" label="Index on Columns">
+                        <help>Create an index on the column names: e.g. for default column names:  c1  or c2,c4 ( use the names you gave for columns)</help>
+                        <validator type="regex" message="Column name, separated by commes if more than one">^([A-Za-z]\w*|"\S+[^,"]*"|`\S+[^,`]*`|[[]\S+[^,"]*[]])(,([A-Za-z]\w*|"\S+.*"|`\S+[^,`]*`|[[]\S+[^,"]*[]])?)*$</validator>
+                        <sanitizer sanitize="False"/>
+                    </param>
+                </repeat>
+            </section>
+        </repeat>
+        <section name="modify_database" expanded="false" title="Modify the database">
+            <repeat name="sql_stmts" title="Database Manipulation SQL Statements" min="0">
+                <param name="sqlstmt" type="text" area="true" size="20x80" value="" optional="true" label="SQL Query to modify the database">
+                    <help>These modify the SQLite database</help>
+                    <sanitizer sanitize="False"/>
+                </param>
+            </repeat>
+        </section>
+        <param name="save_db" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Save the sqlite database in your history"
+            help="SQLite to tabular tool can run additional queries on this database"/>
+        <expand macro="sql_query_input"/>
+        <expand macro="result_results_header_line" />
+        <section name="addqueries" expanded="false" title="Additional Queries">
+            <repeat name="queries" title="Database Manipulation SQL Statements" min="0" max="3">
+                <expand macro="sql_query_input"/>
+                <expand macro="result_results_header_line" />
+            </repeat>
+        </section>
+    </inputs>
+    <outputs>
+        <data format="sqlite" name="sqlitedb" label="sqlite db of ${on_string}">
+            <filter>save_db</filter>
+        </data>
+        <data format="tabular" name="output" label="query results on ${on_string}">
+            <filter>not save_db or (sqlquery and len(sqlquery.strip()) > 0)</filter>
+        </data>
+        <data format="tabular" name="output1" label="query 1 results on ${on_string}" from_work_dir="results0.tsv">
+            <filter>len(addqueries['queries']) > 0</filter>
+        </data>
+        <data format="tabular" name="output2" label="query 2 results on ${on_string}" from_work_dir="results1.tsv">
+            <filter>len(addqueries['queries']) > 1</filter>
+        </data>
+        <data format="tabular" name="output3" label="query 3 results on ${on_string}" from_work_dir="results2.tsv">
+            <filter>len(addqueries['queries']) > 2</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="customers.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="comment"/>
+                            <param name="comment_char" value="35"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="table_name" value="customers"/>
+                    <param name="col_names" value="CustomerID,FirstName,LastName,Email,DOB,Phone"/>
+                </section>
+            </repeat>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="sales.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="comment"/>
+                            <param name="comment_char" value="35"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="table_name" value="sales"/>
+                    <param name="col_names" value="CustomerID,Date,SaleAmount"/>
+                </section>
+            </repeat>
+            <param name="sqlquery" value="SELECT FirstName,LastName,sum(SaleAmount) as &quot;TotalSales&quot; FROM customers join sales on customers.CustomerID = sales.CustomerID GROUP BY customers.CustomerID ORDER BY TotalSales DESC"/>
+            <output name="output" file="sales_results.tsv"/>
+        </test>
+
+        <test>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="customers.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="comment"/>
+                            <param name="comment_char" value="35"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="col_names" value=",FirstName,LastName,,DOB,"/>
+                </section>
+            </repeat>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="sales.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="skip"/>
+                            <param name="skip_lines" value="1"/>
+                        </conditional>
+                    </repeat>
+                </section>
+            </repeat>
+            <param name="sqlquery" value="SELECT FirstName,LastName,sum(t2.c3) as &quot;TotalSales&quot; FROM t1 join t2 on t1.c1 = t2.c1 GROUP BY t1.c1 ORDER BY TotalSales DESC;"/>
+            <output name="output" file="sales_results.tsv"/>
+        </test>
+
+        <test>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="customers.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="skip"/>
+                            <param name="skip_lines" value="1"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="col_names" value=",FirstName,LastName,,BirthDate,"/>
+                </section>
+            </repeat>
+            <param name="sqlquery" value="select FirstName,LastName,re_sub('^\d{2}(\d{2})-(\d\d)-(\d\d)','\3/\2/\1',BirthDate) as &quot;DOB&quot; from t1 WHERE re_search('[hp]er',c4)"/>
+            <output name="output" file="regex_results.tsv"/>
+        </test>
+
+        <test>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="IEDB.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="comment"/>
+                            <param name="comment_char" value="35"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="table_name" value="iedb"/>
+                    <param name="col_names" value="ID,allele,seq_num,start,end,length,peptide,method,percentile_rank,ann_ic50,ann_rank,smm_ic50,smm_rank,comblib_sidney2008_score,comblib_sidney2008_rank,netmhcpan_ic50,netmhcpan_rank"/>
+                </section>
+            </repeat>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="netMHC_summary.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="skip"/>
+                            <param name="skip_lines" value="1"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="table_name" value="mhc_summary"/>
+                    <param name="col_names" value="pos,peptide,logscore,affinity,Bind_Level,Protein,Allele"/>
+                </section>
+            </repeat>
+            <param name="sqlquery" value="select iedb.ID,iedb.peptide,iedb.start,iedb.end,iedb.percentile_rank,mhc_summary.logscore,mhc_summary.affinity,mhc_summary.Bind_Level from iedb left outer join mhc_summary on iedb.peptide = mhc_summary.peptide order by affinity,Bind_Level,percentile_rank"/>
+            <output name="output" file="query_results.tsv"/>
+        </test>
+
+        <test>
+            <section name="add_to_database">
+                <param name="withdb" ftype="sqlite" value="testdb.sqlite"/>
+            </section>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="pets.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="regex"/>
+                            <param name="regex_pattern" value="^\d+"/>
+                            <param name="regex_action" value="include_find"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="comment"/>
+                            <param name="comment_char" value="35"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="append_line_num"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="select_columns"/>
+                            <param name="columns" value="7,2,3,4,1"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="replace"/>
+                            <param name="column" value="c4"/>
+                            <param name="regex_pattern" value="(\d+)/(\d+)/(\d+)"/>
+                            <param name="regex_replace" value="19\3-\2-\1"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="table_name" value="people"/>
+                    <param name="col_names" value="id,first,last,dob,pets"/>
+                </section>
+            </repeat>
+            <param name="sqlquery" value="SELECT people.id,first,last,pets,quote FROM people JOIN contacts ON people.first = contacts.first_name"/>
+            <output name="output" file="add_to_db_results.tsv"/>
+        </test>
+
+        <test>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="pets.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="regex"/>
+                            <param name="regex_pattern" value="^\d+"/>
+                            <param name="regex_action" value="include_find"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="comment"/>
+                            <param name="comment_char" value="35"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="append_line_num"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="select_columns"/>
+                            <param name="columns" value="7,2,3,4,1"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="replace"/>
+                            <param name="column" value="c4"/>
+                            <param name="regex_pattern" value="(\d+)/(\d+)/(\d+)"/>
+                            <param name="regex_replace" value="19\3-\2-\1"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="table_name" value="people"/>
+                    <param name="col_names" value="id,first,last,dob,pets"/>
+                </section>
+            </repeat>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="pets.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="regex"/>
+                            <param name="regex_pattern" value="^\d+"/>
+                            <param name="regex_action" value="include_find"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="append_line_num"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="select_columns"/>
+                            <param name="columns" value="c7,c5,c6"/>
+                        </conditional>
+                    </repeat>
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="normalize"/>
+                            <param name="columns" value="c2,c3"/>
+                            <param name="separator" value=","/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="table_name" value="pet"/>
+                    <param name="col_names" value="id,name,animal"/>
+                </section>
+            </repeat>
+            <param name="sqlquery" value="SELECT people.id,first,last,dob,name,animal,pets FROM people JOIN pet ON people.id = pet.id WHERE animal = 'cat'"/>
+            <output name="output" file="pet_normalized_query_results.tsv"/>
+        </test>
+
+        <test>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="psm_report.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="select_columns"/>
+                            <param name="columns" value="1,3,2,6,14,19"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="table_name" value="PSMs"/>
+                    <param name="column_names_from_first_line" value="True"/>
+                    <param name="col_names" value="Scan"/>
+                </section>
+            </repeat>
+            <param name="sqlquery" value="SELECT * from PSMs"/>
+            <conditional name="query_result">
+                <param name="header" value="yes"/>
+                <param name="header_prefix" value=""/>
+            </conditional>
+            <output name="output" file="psm_report_out1.tsv"/>
+        </test>
+
+        <test>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="psm_report.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="select_columns"/>
+                            <param name="columns" value="1,3,2,6,14,19"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="table_name" value="PSMs"/>
+                    <param name="column_names_from_first_line" value="True"/>
+                    <param name="col_names" value="Scan"/>
+                </section>
+            </repeat>
+            <param name="sqlquery" value="SELECT Scan,&quot;m/z&quot;, &quot;Precursor m/z Error [ppm]&quot;, Sequence, &quot;Protein(s)&quot; FROM PSMs WHERE NOT re_search(', ',&quot;Protein(s)&quot;)"/>
+            <conditional name="query_result">
+                <param name="header" value="yes"/>
+                <param name="header_prefix" value=""/>
+            </conditional>
+            <output name="output" file="psm_report_out2.tsv"/>
+        </test>
+
+        <test>
+            <repeat name="tables">
+                <param name="table" ftype="tabular" value="psm_report.tsv"/>
+                <section name="input_opts">
+                    <repeat name="linefilters">
+                        <conditional name="filter">
+                            <param name="filter_type" value="select_columns"/>
+                            <param name="columns" value="1,3,2,6,14,19,23"/>
+                        </conditional>
+                    </repeat>
+                </section>
+                <section name="tbl_opts">
+                    <param name="table_name" value="PSMs"/>
+                    <param name="column_names_from_first_line" value="True"/>
+                    <param name="col_names" value="scan,,,,,,confidence"/>
+                </section>
+            </repeat>
+            <section name="modify_database">
+                <repeat name="sql_stmts">
+                    <param name="sqlstmt" value="UPDATE psms SET confidence = 99.999 WHERE confidence = 100.0"/>
+                </repeat>
+            </section>
+            <param name="sqlquery" value="SELECT scan,&quot;m/z&quot;, &quot;Precursor m/z Error [ppm]&quot;, Sequence, &quot;Protein(s)&quot;, confidence FROM PSMs WHERE NOT re_search(', ',&quot;Protein(s)&quot;)"/>
+            <conditional name="query_result">
+                <param name="header" value="yes"/>
+                <param name="header_prefix" value="#"/>
+            </conditional>
+            <section name="addqueries">
+                <repeat name="queries">
+                    <param name="sqlquery" value="SELECT * FROM psms WHERE confidence > 97.0"/>
+                    <conditional name="query_result">
+                        <param name="header" value="yes"/>
+                        <param name="header_prefix" value=""/>
+                    </conditional>
+                </repeat>
+            </section>
+            <output name="output" file="psm_dbmod_output.tsv"/>
+            <output name="output1" file="psm_dbmod_output1.tsv"/>
+        </test>
+
+    </tests>
+    <help><![CDATA[
+=============
+Query Tabular
+=============
+
+**Inputs**
+
+  Loads tabular datasets into a SQLite_ data base.  
+
+  An existing SQLite_ data base can be used as input, and any selected tabular datasets will be added as new tables in that data base.
+
+
+@LINEFILTERS_HELP@
+
+**Table Options**
+
+  Specify Name for Table:
+
+    - By default tables will be named: t1, t2, t3, etc.
+ 
+    - **Specify Name for Table** 
+      You can provide your own name for a database table, the name should begin with a letter and only contain letters, digits, or underscores. 
+      The name should not be a SQLite key word: https://sqlite.org/lang_keywords.html
+
+
+  There are several ways to name columns in a table:  
+
+    - By default table columns will be named: c1, c2, c3, etc.
+
+    - If **Use first line as column names** is selected, the first line is interpreted as column names, and not loaded into the table as a data row.  
+      Any missing column name will be assigned cn where *n* is the ordinal position of the column, 
+      e.g. a blank header for the second column would be named: c2.
+      The column names will be quoted is they are not valid identifiers, 
+      e.g. if they are SQLite keywords, or start with a non letter character, or contain a character other than a letter, digit, or underscore.
+      The precedent for quoting is to enclose the identifier in double quotes, 
+      else if it contains a double quote enclose in square brackets,
+      else if it contains a square bracket enclose in grave accents.
+      **NOTE:** that this is the first line after line filtering has been applied. 
+      If a line filter *prepend a line number column* had been used, the name of the first column would be "1".
+      You could rename that column using **Specify Column Names**
+
+    - **Specify Column Names** (comma-separated list)
+      This will override any previously assigned column names. 
+      You can also choose to only load those columns for which you provided a name, 
+      but that is better accomplished with the line filter: *select columns*. 
+
+
+  **Table Index**
+
+    Queries on larger tables can be much faster if indexes are specified.  
+    In general, specifiy an index for table columns used in joins with other tables, 
+    or on columns used in SQL query WHERE clauses or in GROUP BY clauses.
+
+
+**Outputs**
+
+  The results of a SQL query are output to the history as a tabular file.
+
+  The SQLite_ data base can also be saved and output as a dataset in the history.  
+
+    *(The* **SQLite to tabular** *tool can run additional queries on this database.)*
+
+
+@QUERY_HELP@
+
+@LINEFILTERS_HELP_EXAMPLE@
+
+
+  Table name: pets
+
+  Table columns: Pets,FirstName,LastName,Birthdate,PetNames,PetType,line_num,entry_num,row_num
+
+  Query: SELECT * FROM pets 
+
+  Result:
+
+     ======  ==========  ========  ==========  =========  ========  =========  ==========  ========
+     #Pets   FirstName   LastName  BirthDate   PetNames   PetType   line_num   entry_num    row_num
+     ======  ==========  ========  ==========  =========  ========  =========  ==========  ========
+     2       Paula       Brown     1978-05-24  Rex        dog              3           1         1
+     2       Paula       Brown     1978-05-24  Fluff      cat              3           1         2
+     1       Steven      Jones     1974-04-04  Allie      cat              4           2         3
+     0       Jane        Doe       1978-05-24                              5           3         4
+     1       James       Smith     1980-10-20  Spot                        6           4         5          
+     ======  ==========  ========  ==========  =========  ========  =========  ==========  ======== 
+
+
+**Normalizing by Line Filtering into 2 Tables** 
+
+*Relational database opertions work with single-valued column entries.  
+To apply relational operations to tabular files that contain fields with lists of values,
+we need to "normalize" those fields, duplicating lines for each item in the list.  
+In this example we create 2 tables, one for single-valued fields and a second with list-valued fields normalized.  
+Becauce we add a line number first for each table, we can join the 2 tables on the line number column.*
+https://en.wikipedia.org/wiki/First_normal_form 
+
+    *People Table*
+
+      ::
+  
+        Filter 1 - by regex expression matching [include]: '^\d+' (include lines that start with a number) 
+        Filter 2 - append a line number column:
+        Filter 3 - regex replace value in column[4]: '(\d+)/(\d+)/(\d+)' '19\3-\2-\1' (convert dates to sqlite format) 
+        Filter 4 - select columns 7,2,3,4,1
+
+      Table: People
+      Columns: id,FirstName,LastName,DOB,Pets
+
+      ==  =========  ========   ==========  ====
+      id  FirstName  LastName   DOB         Pets
+      ==  =========  ========   ==========  ====
+      1     Paula      Brown    1978-05-24  2
+      2     Steven     Jones    1974-04-04  1
+      3     Jane       Doe      1978-05-24  0
+      4     James      Smith    1980-10-20  1
+      ==  =========  ========   ==========  ====
+
+
+    *Pet Table*
+
+      :: 
+
+        Filter 1 - by regex expression matching [include]: '^\d+' (include lines that start with a number) 
+        Filter 2 - append a line number column:
+        Filter 3 - by regex expression matching [exclude]: '^0\t' (exclude lines with no pets)
+        Filter 4 - normalize list columns[5,6]:
+        Filter 5 - select columns 7,5,6
+
+      Table: Pet
+      Columns: id,PetName,PetType
+
+      ==  ========  ========
+      id  PetName   PetType 
+      ==  ========  ========
+      1   Rex       dog     
+      1   Fluff     cat     
+      2   Allie     cat     
+      4   Spot              
+      ==  ========  ========
+
+
+    Query: SELECT FirstName,LastName,PetName FROM People JOIN Pet ON People.id = Pet.id WHERE PetType = 'cat';     
+
+    Result:
+
+     =========  ========  ========
+     FirstName  LastName  PetName 
+     =========  ========  ========
+     Paula      Brown     Fluff   
+     Steven     Jones     Allie   
+     =========  ========  ========
+
+
+    ]]></help>
+</tool>

@@ -1,0 +1,487 @@
+<tool id="stringtie" name="StringTie" version="@TOOL_VERSION@">
+    <description>transcript assembly and quantification</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <expand macro="stdio" />
+    <expand macro="version_command" />
+    <command><![CDATA[
+#import re
+mkdir -p ./special_de_output/sample1/ &&
+
+## Get Guide GTF/GFF if selected
+
+#if str($guide.use_guide) == 'yes':
+    #if $guide.guide_source.guide_gff_select == "history":
+        ln -s '$guide.guide_source.ref_hist' guide.gff &&
+    #elif $guide.guide_source.guide_gff_select == "cached":
+        ln -s '$guide.guide_source.ref_builtin.fields.path' guide.gff &&
+    #end if
+#end if
+
+#if $input_bam.metadata.ftype == 'sam':
+    samtools sort -@ \${GALAXY_SLOTS:-1} '$input_bam' | stringtie
+#else
+    stringtie '$input_bam'
+#end if
+
+-o '$output_gtf'
+-p "\${GALAXY_SLOTS:-1}"
+
+$rna_strandness
+
+#if str($guide.use_guide) == 'yes':
+    -G guide.gff
+    #if $guide.coverage_file:
+        -C '$coverage'
+    #end if
+    $guide.input_estimation
+    #if $guide.special_outputs != 'no':
+        -b ./special_de_output/sample1/
+    #end if
+#end if
+
+#if $adv.name_prefix:
+    -l '$adv.name_prefix'
+#end if
+-f '$adv.fraction'
+-m '$adv.min_tlen'
+-a '$adv.min_anchor_len'
+-j '$adv.min_anchor_cov'
+-c '$adv.min_bundle_cov'
+-g '$adv.bdist'
+-M '$adv.bundle_fraction'
+$adv.disable_trimming
+$adv.multi_mapping
+#if $adv.abundance_estimation:
+    -A '$gene_abundance_estimation'
+#end if
+#if str($adv.omit_sequences).strip() != "":
+    -x '$adv.omit_sequences'
+#end if
+
+#if str($guide.use_guide) == 'yes':
+    #if $guide.special_outputs.special_outputs_select == 'deseq2':
+        #set escaped_element_identifier = re.sub('[^\w\-]', '_', str($input_bam.element_identifier))
+        &&
+        ln -s '$output_gtf' ./special_de_output/sample1/output.gtf
+        &&
+        TAB=\$(printf '\t')
+        &&
+        CR=\$(printf '\r')
+        &&
+        prepDE.py
+        -i ./special_de_output/
+        -g gene_counts.csv
+        -t transcript_counts.csv
+        -l $guide.special_outputs.read_length
+        #if $guide.special_outputs.string:
+            -s '$guide.special_outputs.string'
+        #end if
+        #if $guide.special_outputs.clustering:
+            -c
+            #if $guide.special_outputs.key:
+                -k '$guide.special_outputs.key'
+            #end if
+            --legend '$legend'
+            > /dev/null
+            &&
+            sed -i.bak -e "s/,/\${TAB}/g" -e "s/\${CR}//g" '$legend'
+        #else
+            > /dev/null
+        #end if
+
+        ## Replace commas with tabs
+        &&
+        sed -i.bak -e "s/,/\${TAB}/g" -e "s/\${CR}//g" gene_counts.csv transcript_counts.csv
+        ## Output header
+        &&
+        head -n 1 gene_counts.csv | sed -e 's/sample1/$escaped_element_identifier/' > '$gene_counts'
+        &&
+        head -n 1 transcript_counts.csv | sed -e 's/sample1/$escaped_element_identifier/' > '$transcript_counts'
+        ## Sort count files on the first column
+        &&
+        tail -n +2 gene_counts.csv | sort -t"\${TAB}" -k1,1 >> '$gene_counts'
+        &&
+        tail -n +2 transcript_counts.csv | sort -t"\${TAB}" -k1,1 >> '$transcript_counts'
+    #end if
+#end if
+    ]]></command>
+    <inputs>
+        <param name="input_bam" type="data" format="sam,bam" label="Input mapped reads" help="Input BAM/SAM file containing reads you want to assemble into transcripts"/>
+        <param name="rna_strandness" type="select" label="Specify strand information"
+            help="Select 'Forward (FR)' if your reads are from a forward-stranded library, 'Reverse (RF)' if your reads are from a reverse-stranded library, or 'Unstranded' if your reads are not from a stranded library. See Help section below for more information. Default: Unstranded">
+                <option value="" selected="True">Unstranded</option>
+                <option value="--fr">Forward (FR)</option>
+                <option value="--rf">Reverse (RF)</option>
+        </param>
+        <conditional name="guide">
+            <param name="use_guide" argument="-G" type="select" label="Use a reference file to guide assembly?" help="Use the reference annotation file (in GTF or GFF3 format) to guide the assembly process. The output will include expressed reference transcripts as well as any novel transcripts that are assembled. This option is required by option -e (Use Reference transcripts only), see below.">
+                <option value="yes">Use reference GTF/GFF3</option>
+                <option value="no" selected="True" >Do not use reference GTF/GFF3</option>
+            </param>
+            <when value="no" />
+            <when value="yes">
+                <conditional name="guide_source">
+                    <param name="guide_gff_select" type="select" label="Reference file">
+                        <option value="cached" selected="true">Use a built-in file</option>
+                        <option value="history">Use a file from history</option>
+                    </param>
+                    <when value="cached">
+                        <param name="ref_builtin" type="select" label="Use a built-in GTF" help="If the GTF file for your transcriptome of interest is not listed, contact your Galaxy administrator">
+                            <options from_data_table="gene_sets">
+                                <filter type="sort_by" column="2" />
+                                <validator type="no_options" message="No GTF file is available." />
+                            </options>
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param name="ref_hist" type="data" format="gtf,gff3" label="GTF/GFF3 dataset to guide assembly" />
+                    </when>
+                </conditional>
+                <param name="input_estimation" argument="-e" type="boolean" truevalue="-e" falsevalue="" checked="False" label="Use Reference transcripts only?" help="Limit the processing of read alignments to only estimate and output the assembled transcripts matching the reference transcripts given with the -G option. With this option, read bundles with no reference transcripts (novel transcripts) will be entirely skipped, which may provide a considerable speed boost when the given set of reference transcripts is limited to a set of target genes, for example. Default: No"/>
+                <conditional name="special_outputs">
+                    <param name="special_outputs_select" type="select" label="Output files for differential expression?" help="Select to output additional files that can be used with Ballgown or DESeq2/edgeR. See Help section below for more information">
+                        <option value="ballgown">Ballgown</option>
+                        <option value="deseq2">DESeq2/edgeR/limma-voom</option>
+                        <option value="no" selected="True">No additional output</option>
+                    </param>
+                    <when value="ballgown" />
+                    <when value="deseq2">
+                        <param name="read_length" argument="--length" type="integer" min="0" value="75" label="Specify the average read length" help="Default: 75" />
+                        <param name="clustering" argument="--cluster" type="boolean" truevalue="--cluster" falsevalue="" checked="false" label="Cluster overlapping genes" help="Choose whether to cluster genes with different gene IDs that overlap. Transcripts containing the geneID prefix will be ignored. Default: No" />
+                        <param argument="--string" type="text" label="Prefix used for transcripts" help="If a different prefix was used for geneIDs assigned by StringTie than the default, specify it here. Only letters and numbers will be retained in this field. Default: MSTRG" >
+                            <sanitizer>
+                                <valid initial="string.letters,string.digits"></valid>
+                            </sanitizer>
+                        </param>
+                        <param argument="--key" type="text" label="Prefix for clustering" help="If clustering, what prefix to use for geneIDs assigned by this script. Only letters and numbers will be retained in this field. Default: prepG">
+                            <sanitizer>
+                                <valid initial="string.letters,string.digits"></valid>
+                            </sanitizer>
+                        </param>
+                    </when>
+                    <when value="no" />
+                </conditional>
+                <param name="coverage_file" argument="-C" type="boolean" truevalue="-C" falsevalue="" checked="False" label="Output coverage file?" help="If StringTie is run with this option (requires -G), it returns a file with all the transcripts in the reference annotation that are fully covered, end to end, by reads. The output format is a GTF file as described below. Each line of the GTF is corresponds to a gene or transcript in the reference annotation. Default: No"/>
+            </when>
+        </conditional>
+        <section name="adv" title="Advanced Options">
+            <param name="abundance_estimation" argument="-A" type="boolean" truevalue="-A" falsevalue="" checked="False" label="Output gene abundance estimation file?" help="If selected, gene abundances will be reported in a tab-delimited file, see below for more information. Default: No"/>
+            <param name="omit_sequences" argument="-x" type="text" value="" label="Do not assemble any transcripts on these reference sequence(s)" help="Ignore all read alignments (and thus do not attempt to perform transcript assembly) on the specified reference sequences. This parameter can be a single reference sequence name (e.g. chrM) or a comma-delimited list of sequence names (e.g. chrM,chrX,chrY). This can speed up StringTie especially in the case of excluding the mitochondrial genome, whose genes may have very high coverage in some cases, even though they may be of no interest for a particular RNA-Seq analysis. The reference sequence names are case sensitive, they must match identically the names of chromosomes/contigs of the target genome against which the RNA-Seq reads were aligned in the first place." />
+            <param name="name_prefix" argument="-l" type="text" label="Name prefix for output transcripts" help="This prefix will be added to the name of the transcripts that are output. Only letters and numbers will be retained in this field. Default: STRG">
+                <sanitizer>
+                    <valid initial="string.letters,string.digits"></valid>
+                </sanitizer>
+            </param>
+            <param name="fraction" argument="-f" type="float" min="0.0" max="1.0" value="0.15" label="Minimum isoform fraction" help="Sets the minimum isoform abundance of the predicted transcripts as a fraction of the most abundant transcript assembled at a given locus. Lower abundance transcripts are often artifacts of incompletely spliced precursors of processed transcripts. Default: 0.15"/>
+            <param name="min_tlen" argument="-m" type="integer" min="0" value="200" label="Minimum assembled transcript length" help="Sets the minimum length allowed for the predicted transcripts. Default: 200"/>
+            <param name="min_anchor_len" argument="-a" type="integer" min="0" value="10" label="Minimum anchor length for junctions" help="Junctions that don't have spliced reads that align across them with at least this amount of bases on both sides are filtered out. Default: 10" />
+            <param name="min_anchor_cov" argument="-j" type="integer" min="0" value="1" label="Minimum junction coverage" help="There should be at least this many spliced reads that align across a junction (i.e. junction coverage). This number can be fractional, since some reads align in more than one place. A read that aligns in n places will contribute 1/n to the junction coverage. Default: 1" />
+            <param name="min_bundle_cov" argument="-c" type="integer" min="0" value="2" label="Minimum bundle reads per bp coverage to consider for assembly" help="Sets the minimum read coverage allowed for the predicted transcripts. A transcript with a lower coverage than this value is not shown in the output. Default: 2"/>
+            <param name="bdist" argument="-g" type="integer" min="0" value="50" label="Gap between read mappings triggering a new bundle" help="Minimum locus gap separation value. Reads that are mapped closer than this distance are merged together in the same processing bundle. Default: 50 (bp)"/>
+            <param name="bundle_fraction" argument="-M" type="float" min="0.0" max="1.0" value="0.95" label="Fraction of bundle allowed to be covered by multi-hit reads"  help="Sets the maximum fraction of muliple-location-mapped reads that are allowed to be present at a given locus. Default: 0.95"/>
+            <param name="disable_trimming" argument="-t" type="boolean" truevalue="-t" falsevalue="" checked="False" label="Disable trimming of predicted transcripts based on coverage" help="This parameter disables trimming at the ends of the assembled transcripts. By default StringTie adjusts the predicted transcript's start and/or stop coordinates based on sudden drops in coverage of the assembled transcript. Default: No" />
+            <param name="multi_mapping" argument="-u" type="boolean" truevalue="-u" falsevalue="" checked="False" label="Disable multi-mapping correction" help="Default: No"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_gtf" format="gtf" label="${tool.name} on ${on_string}: Assembled transcripts" />
+        <data name="gene_abundance_estimation" format="gtf" label="${tool.name} on ${on_string}: Gene abundance estimates">
+            <filter>adv['abundance_estimation']</filter>
+        </data>
+        <data name="coverage" format="gtf" label="${tool.name} on ${on_string}: Coverage">
+            <filter>guide['use_guide'] == 'yes' and guide['coverage_file'] is True </filter>
+        </data>
+        <data name="exon_expression" format="tabular" from_work_dir="special_de_output/sample1/e_data.ctab"
+            label="${tool.name} on ${on_string}: exon-level expression measurements">
+            <filter>guide['use_guide'] == 'yes' and guide['special_outputs']['special_outputs_select'] == 'ballgown'</filter>
+        </data>
+        <data name="intron_expression" format="tabular" from_work_dir="special_de_output/sample1/i_data.ctab"
+            label="${tool.name} on ${on_string}: intron-level expression measurements">
+            <filter>guide['use_guide'] == 'yes' and guide['special_outputs']['special_outputs_select'] == 'ballgown'</filter>
+        </data>
+        <data name="transcript_expression" format="tabular" from_work_dir="special_de_output/sample1/t_data.ctab"
+            label="${tool.name} on ${on_string}: transcript-level expression measurements">
+            <filter>guide['use_guide'] == 'yes' and guide['special_outputs']['special_outputs_select'] == 'ballgown'</filter>
+        </data>
+        <data name="exon_transcript_mapping" format="tabular" from_work_dir="special_de_output/sample1/e2t.ctab"
+            label="${tool.name} on ${on_string}: exon to transcript mapping">
+            <filter>guide['use_guide'] == 'yes' and guide['special_outputs']['special_outputs_select'] == 'ballgown'</filter>
+        </data>
+        <data name="intron_transcript_mapping" format="tabular" from_work_dir="special_de_output/sample1/i2t.ctab"
+            label="${tool.name} on ${on_string}: intron to transcript mapping">
+            <filter>guide['use_guide'] == 'yes' and guide['special_outputs']['special_outputs_select'] == 'ballgown'</filter>
+        </data>
+        <data name="gene_counts" format="tabular" from_work_dir="special_de_output/sample1/gene_counts.tsv" label="${tool.name} on ${on_string}: Gene counts">
+            <filter>guide['use_guide'] == 'yes' and guide['special_outputs']['special_outputs_select'] == 'deseq2'</filter>
+        </data>
+        <data name="transcript_counts" format="tabular" from_work_dir="special_de_output/sample1/transcript_counts.tsv" label="${tool.name} on ${on_string}: Transcript counts">
+            <filter>guide['use_guide'] == 'yes' and guide['special_outputs']['special_outputs_select'] == 'deseq2'</filter>
+        </data>
+        <data name="legend" format="tabular" from_work_dir="special_de_output/sample1/legend.tsv" label="${tool.name} on ${on_string}: legend">
+            <filter>guide['use_guide'] == 'yes' and guide['special_outputs']['special_outputs_select'] == 'deseq2' and guide['special_outputs']['clustering'] is True</filter>
+        </data>
+    </outputs>
+    <tests>
+         <!--Ensure default GTF output works -->
+        <test expect_num_outputs="1">
+            <param name="input_bam" ftype="bam" value="stringtie_in1.bam" />
+            <output name="output_gtf" file="stringtie_out1.gtf" ftype="gtf" lines_diff="4" />
+        </test>
+        <!--Ensure fraction option works -->
+        <test expect_num_outputs="1">
+            <param name="input_bam" ftype="bam" value="stringtie_in1.bam" />
+            <param name="fraction" value="0.17" />
+            <output name="output_gtf" file="stringtie_out2.gtf" ftype="gtf" lines_diff="4" />
+        </test>
+        <!--Ensure guide option works -->
+        <test expect_num_outputs="1">
+            <param name="input_bam" ftype="bam" value="stringtie_in1.bam" />
+            <param name="use_guide" value="yes" />
+            <param name="guide_gff_select" value="history" />
+            <param name="ref_hist" ftype="gtf" value="stringtie_in.gtf" />
+            <output name="output_gtf" file="stringtie_out3.gtf" ftype="gtf" lines_diff="4"  />
+        </test>
+        <!--Ensure guide with fraction works -->
+        <test expect_num_outputs="1">
+            <param name="input_bam" ftype="bam" value="stringtie_in1.bam" />
+            <param name="use_guide" value="yes" />
+            <param name="guide_gff_select" value="history" />
+            <param name="ref_hist" ftype="gtf" value="stringtie_in.gtf" />
+            <param name="fraction" value="0.17" />
+            <output name="output_gtf" file="stringtie_out4.gtf" ftype="gtf" lines_diff="4" />
+        </test>
+        <!--Ensure coverage and output for Ballgown works -->
+        <test expect_num_outputs="7">
+            <param name="input_bam" ftype="bam" value="stringtie_in1.bam" />
+            <param name="use_guide" value="yes" />
+            <param name="guide_gff_select" value="history" />
+            <param name="ref_hist" ftype="gtf" value="stringtie_in.gtf" />
+            <param name="special_outputs_select" value="ballgown" />
+            <param name="coverage_file" value="True" />
+            <output name="exon_expression" file="./ballgown/e_data.ctab" ftype="tabular" />
+            <output name="intron_expression" file="./ballgown/i_data.ctab" ftype="tabular" />
+            <output name="transcript_expression" file="./ballgown/t_data.ctab" ftype="tabular" />
+            <output name="exon_transcript_mapping" file="./ballgown/e2t.ctab" ftype="tabular" />
+            <output name="intron_transcript_mapping" file="./ballgown/i2t.ctab" ftype="tabular" />
+            <output name="output_gtf" file="stringtie_out5.gtf" ftype="gtf" lines_diff="4" />
+            <output name="coverage" file="stringtie_out_coverage.gtf" ftype="gtf" />
+        </test>
+        <!--Ensure output for edgeR works -->
+        <test expect_num_outputs="5">
+            <param name="input_bam" ftype="bam" value="stringtie_in1.bam" />
+            <param name="use_guide" value="yes" />
+            <param name="special_outputs_select" value="deseq2" />
+            <param name="input_estimation" value="True" />
+            <param name="guide_gff_select" value="history" />
+            <param name="ref_hist" ftype="gtf" value="stringtie_in.gtf" />
+            <param name="coverage_file" value="True" />
+            <param name="clustering" value="True" />
+            <output name="gene_counts" file="gene_counts_edger.tsv" ftype="tabular" />
+            <output name="transcript_counts" file="transcript_counts_edger.tsv" ftype="tabular" />
+            <output name="legend" file="legend.tsv" ftype="tabular" />
+            <output name="output_gtf" file="stringtie_out6.gtf" ftype="gtf" lines_diff="4" />
+            <output name="coverage" file="stringtie_out_coverage.gtf" ftype="gtf" />
+        </test>
+        <!--Ensure gene abundances output works -->
+        <test expect_num_outputs="2">
+            <param name="input_bam" ftype="bam" value="stringtie_in1.bam" />
+            <param name="use_guide" value="yes" />
+            <param name="guide_gff_select" value="history" />
+            <param name="ref_hist" ftype="gtf" value="stringtie_in.gtf" />
+            <param name="fraction" value="0.17" />
+            <param name="abundance_estimation" value="True" />
+            <output name="output_gtf" file="stringtie_out4.gtf" ftype="gtf" lines_diff="4" />
+            <output name="gene_abundance_estimation" file="stringtie_out7.gtf" ftype="gtf" lines_diff="2" />
+        </test>
+        <!--Ensure another fraction value works -->
+        <test expect_num_outputs="1">
+            <param name="input_bam" ftype="bam" value="stringtie_in1.bam" />
+            <param name="use_guide" value="yes" />
+            <param name="guide_gff_select" value="history" />
+            <param name="ref_hist" ftype="gtf" value="stringtie_in.gtf" />
+            <param name="fraction" value="0.15" />
+            <output name="output_gtf" file="stringtie_out8.gtf" ftype="gtf" lines_diff="4" />
+        </test>
+        <!--Ensure built-in GTFs work -->
+        <test expect_num_outputs="1">
+            <param name="input_bam" ftype="bam" dbkey="hg38" value="stringtie_in1.bam" />
+            <param name="use_guide" value="yes" />
+            <param name="guide_gff_select" value="cached" />
+            <param name="fraction" value="0.15" />
+            <output name="output_gtf" file="stringtie_out8.gtf" ftype="gtf" lines_diff="4" />
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+StringTie_ is a fast and highly efficient assembler of RNA-Seq alignments into potential transcripts. It uses a novel network flow algorithm as well as an optional *de novo* assembly step to assemble and quantitate full-length transcripts representing multiple splice variants for each gene locus. Its input can include not only the alignments of raw reads used by other transcript assemblers, but also alignments of longer sequences that have been assembled from those reads. In order to identify differentially expressed genes between experiments, StringTie's output can be processed by specialized software like Ballgown_, Cuffdiff_ or other programs (DESeq2_, edgeR_, limma_ etc.).
+
+-----
+
+**Inputs**
+
+StringTie takes as input a BAM (or SAM) file of paired-end RNA-seq reads, which must be sorted by genomic location (coordinate position). This file contains spliced read alignments and can be produced directly by programs such as HISAT2_. We recommend using HISAT2 as it is a fast and accurate alignment program. Every spliced read alignment (i.e. an alignment across at least one junction) in the input BAM file must contain the tag XS to indicate the genomic strand that produced the RNA from which the read was sequenced. Alignments produced by HISAT2 (when run with --dta option) already include this tag, but if you use a different read mapper you should check that this XS tag is included for spliced alignments.
+
+*NOTE: be sure to run HISAT2 with the --dta option for alignment (under Spliced alignment options), or your results will suffer.*
+
+Also note that if your reads are from a stranded library, you need to choose the appropriate setting under **Specify strand information** above. As, if Forward (FR) is selected, StringTie will assume the reads are from a --fr library, while if Reverse (RF) is selected, StringTie will assume the reads are from a --rf library, otherwise it is assumed that the reads are from an unstranded library (The widely-used, although now deprecated, TopHat had a similar --library-type option, where fr-firststrand corresponded to RF; fr-secondstrand corresponded to FR). If you don't know whether your reads are from are a stranded library or not, you could use the tool **RSeQC Infer Experiment** to try to determine.
+
+As an option, a reference annotation file in `GTF/GFF3`_ format can be provided to StringTie. In this case, StringTie will prefer to use these "known" genes from the annotation file, and for the ones that are expressed it will compute coverage, TPM and FPKM values. It will also produce additional transcripts to account for RNA-seq data that aren't covered by (or explained by) the annotation. Note that if option -e is not used the reference transcripts need to be fully covered by reads in order to be included in StringTie's output. In that case, other transcripts assembled from the data by StringTie and not present in the reference file will be printed as well.
+
+*NOTE: we highly recommend that you provide annotation if you are analyzing a genome that is well-annotated, such as human, mouse, or other model organisms.*
+
+-----
+
+**Outputs**
+
+StringTie's primary output is
+
+    * a GTF file containing the **Assembled transcripts**
+
+Optionally, it can output
+
+    * a TSV (tab-delimited) file of **Gene abundances**
+
+If a reference GTF/GFF3 file is used as a guide, StringTie can also output:
+
+    * a GTF file containing all **fully-covered reference transcripts** in the provided reference file that are covered end-to-end by reads
+    * Files (tables) for **Ballgown** and/or **DESeq2/edgeR/limma-voom**, which can use them to estimate differential expression
+
+
+**StringTie's primary GTF output**
+
+The primary output of StringTie is a Gene Transfer Format (GTF) file that contains details of the transcripts that StringTie assembles from RNA-Seq data. GTF is an extension of GFF (Gene Finding Format, also called General Feature Format), and is very similar to GFF2 and GFF3. The field definitions for the 9 columns of GTF output can be found at the `Ensembl site here`_. The following is an example of a transcript assembled by StringTie as shown in a GTF file:
+
+=========== ========== =========== ========= ======= ========= ========== ========= ===========================================================================================
+**seqname** **source** **feature** **start** **end** **score** **strand** **frame** **attributes**
+----------- ---------- ----------- --------- ------- --------- ---------- --------- -------------------------------------------------------------------------------------------
+chrX        StringTie  transcript  281394    303355  1000      \+         .         gene_id "ERR188044.1"; transcript_id "ERR188044.1.1"; reference_id "NM_018390"; ref_gene_id
+                                                                                    "NM_018390"; ref_gene_name "PLCXD1"; cov "101.256691"; FPKM "530.078918"; TPM "705.667908";
+chrX        StringTie  exon        281394    281684  1000      \+         .         gene_id "ERR188044.1"; transcript_id "ERR188044.1.1"; exon_number "1"; reference_id
+                                                                                    "NM_018390"; ref_gene_id "NM_018390"; ref_gene_name "PLCXD1"; cov "116.270836";
+=========== ========== =========== ========= ======= ========= ========== ========= ===========================================================================================
+
+
+* **seqname**: Denotes the chromosome, contig, or scaffold for this transcript. Here the assembled transcript is on chromosome X.
+
+* **source**: The source of the GTF file. Since this example was produced by StringTie, this column simply shows 'StringTie'.
+
+* **feature**: Feature type (e.g., exon, transcript, mRNA, 5'UTR).
+
+* **start**: Start position of the feature (exon, transcript, etc), using a 1-based index.
+
+* **end**: End position of the feature, using a 1-based index.
+
+* **score**: A confidence score for the assembled transcript. Currently this field is not used, and StringTie reports a constant value of 1000 if the transcript has a connection to a read alignment bundle.
+
+* **strand**: If the transcript resides on the forward strand, '+'. If the transcript resides on the reverse strand, '-'.
+
+* **frame**: Frame or phase of CDS features. StringTie does not use this field and simply records a ".".
+
+* **attributes**: A semicolon-separated list of tag-value pairs, providing additional information about each feature. Depending on whether an instance is a transcript or an exon and on whether the transcript matches the reference annotation file provided by the user, the content of the attributes field will differ. The following list describes the possible attributes shown in this column:
+
+    * *gene_id*: A unique identifier for a single gene and its child transcript and exons based on the alignments' file name.
+
+    * *transcript_id*: A unique identifier for a single transcript and its child exons based on the alignments' file name.
+
+    * *exon_number*: A unique identifier for a single exon, starting from 1, within a given transcript.
+
+    * *reference_id*: The transcript_id in the reference annotation (optional) that the instance matched.
+
+    * *ref_gene_id*: The gene_id in the reference annotation (optional) that the instance matched.
+
+    * *ref_gene_name*: The gene_name in the reference annotation (optional) that the instance matched.
+
+    * *cov*: The average per-base coverage for the transcript or exon.
+
+    * *FPKM*: Fragments per kilobase of transcript per million read pairs. This is the number of pairs of reads aligning to this feature, normalized by the total number of fragments sequenced (in millions) and the length of the transcript (in kilobases).
+
+    * *TPM*: Transcripts per million. This is the number of transcripts from this particular gene normalized first by gene length, and then by sequencing depth (in millions) in the sample. A detailed explanation and a comparison of TPM and FPKM can be found here_, and TPM was defined `by B. Li and C. Dewey here`_.
+
+
+**Gene abundances in tab-delimited format**
+
+If StringTie is run with the -A option, it returns a file containing gene abundances. The tab-delimited gene abundances output file has nine fields; below is an example of a gene abundance file produced by StringTie using reference annotation:
+
+=========== ============= ============= ========== ========= ======= ============ ======== ========
+**Gene ID** **Gene Name** **Reference** **Strand** **Start** **End** **Coverage** **FPKM** **TPM**
+----------- ------------- ------------- ---------- --------- ------- ------------ -------- --------
+NM_000451   SHOX          chrX          \+         624344    646823  0.000000     0.000000 0.000000
+NM_006883   SHOX          chrX          \+         624344    659411  0.000000     0.000000 0.000000
+=========== ============= ============= ========== ========= ======= ============ ======== ========
+
+* **Gene ID**: The gene identifier comes from the reference annotation provided with the -G option. If no reference is provided this field is replaced with the name prefix for output transcripts (-l).
+* **Gene Name**: This field contains the gene name in the reference annotation provided with the -G option. If no reference is provided this field is populated with '-'.
+* **Reference**: Name of the reference sequence that was used in the alignment of the reads. Equivalent to the 3rd column in the .SAM alignment.
+* **Strand**: '+' denotes that the gene is on the forward strand, '-' for the reverse strand.
+* **Start**: Start position of the gene (1-based index).
+* **End**: End position of the gene (1-based index).
+* **Coverage**: Per-base coverage of the gene.
+* **FPKM**: normalized expression level in FPKM units (see previous section).
+* **TPM**: normalized expression level in RPM units (see previous section).
+
+**Fully covered transcripts matching the reference annotation transcripts (in GTF format)**
+
+If StringTie is run with the use reference guide option (-G), it will also return a file with all the transcripts in the reference annotation that are fully covered, end to end, by reads. The output format is a GTF file as described above. Each line of the GTF is corresponds to a gene or transcript in the reference annotation.
+
+**Ballgown Input Table Files**
+
+An option to output files for Ballgown can be selected under **Output files for differential expression?** above. If selected, StringTie will return Ballgown input table files containing coverage data for the reference transcripts given with the -G option. These tables have these specific names: (1) e2t.ctab, (2) e_data.ctab, (3) i2t.ctab, (4) i_data.ctab, and (5) t_data.ctab. A detailed description of each of these five required inputs to Ballgown can be found at `this link`. With this option StringTie can be used as a direct replacement of the tablemaker program included with the Ballgown distribution.
+
+
+**DESeq2/edgeR/limma-voom Input Table Files**
+
+DESeq2_, edgeR_ and limma_ are three popular Bioconductor_ packages for analyzing differential expression, which take as input a matrix of read counts mapped to particular genomic features (e.g., genes). This read count information can be extracted directly from the files generated by StringTie (run with the -e parameter) by selecting DESeq2/edgeR/limma-voom under **Output files for differential expression?** above. This uses the StringTie helper script ``prepDE.py`` to convert the GTF output from StringTie into two tab-delimited (TSV) files, containing the count matrices for genes and transcripts, using the coverage values found in the output of StringTie -e.
+
+-----
+
+**More Information**
+
+*Evaluating transcript assemblies:*
+A simple way of getting more information about the transcripts assembled by StringTie (summary of gene and transcript counts, novel vs. known etc.), or even performing basic tracking of assembled isoforms across multiple RNA-Seq experiments, is to use the **gffcompare** program. Basic usage information for this program can be found on the `GFF utilities page`_.
+
+*Differential expression analysis:*
+
+Together with HISAT and Ballgown (or DESeq2/edgeR/limma-voom), StringTie can be used for estimating differential expression across multiple RNA-Seq samples and generating plots and differential expression tables as described in our `protocol paper`_ and shown in a diagram in the `StringTie manual here`_.
+
+Our recommended workflow includes the following steps:
+
+ 1. For each RNA-Seq sample, map the reads to the genome with HISAT2 using the --dta option. It is highly recommended to use the reference annotation information when mapping the reads, which can be either embedded in the genome index (built with the --ss and --exon options, see HISAT2 manual), or provided separately at run time (using the --known-splicesite-infile option of HISAT2). The SAM output of each HISAT2 run must be sorted and converted to BAM using samtools as explained above.
+
+ 2. For each RNA-Seq sample, use this StringTie tool to assemble the read alignments obtained in the previous step; it is recommended to run StringTie with the -G option if the reference annotation is available.
+
+ 3. Run the separate **StringTie merge** tool in order to generate a non-redundant set of transcripts observed in all the RNA-Seq samples assembled previously. ``StringTie merge`` takes as input a list of all the assembled transcripts files (in GTF format) previously obtained for each sample, as well as a reference annotation file (-G option) if available.
+
+ 4. For each RNA-Seq sample, run this StringTie tool selecting to output files for Ballgown (or DESeq2/edgeR/limma-voom), which will generate tables of transcript and gene estimated abundances (count files). The option -e (*Use Reference transcripts only*) is not required but is recommended for this run in order to produce more accurate abundance estimations of the input transcripts. Each StringTie run in this step will take as input the sorted read alignments (BAM file) obtained in step 1 for the corresponding sample and the -G option with the merged transcripts (GTF file) generated by ``stringtie merge`` in step 3. Please note that this is the only case where the -G option is not used with a reference annotation, but with the global, merged set of transcripts as observed across all samples. (This step is the equivalent of the *Tablemaker* step described in the original Ballgown pipeline.)
+
+ 5. Ballgown (or DESeq2/edgeR/limma-voom) can now be used to load the coverage tables generated in the previous step and perform various statistical analyses for differential expression, generate plots etc.
+
+An alternate, faster differential expression analysis workflow can be pursued if there is no interest in novel isoforms (i.e. assembled transcripts present in the samples but missing from the reference annotation), or if only a well known set of transcripts of interest are targeted by the analysis. This simplified protocol has only 3 steps (depicted in the `StringTie manual here`_) as it bypasses the individual assembly of each RNA-Seq sample and the "transcript merge" step. This simplified workflow attempts to directly estimate and analyze the expression of a known set of transcripts as given in the reference annotation file.
+
+.. _StringTie: http://ccb.jhu.edu/software/stringtie/
+.. _Ballgown: https://www.biorxiv.org/content/early/2014/09/05/003665
+.. _Cuffdiff: http://cole-trapnell-lab.github.io/cufflinks/cuffdiff/
+.. _DESeq2: https://bioconductor.org/packages/release/bioc/html/DESeq2.html
+.. _edgeR: https://bioconductor.org/packages/release/bioc/html/edgeR.html
+.. _limma: https://bioconductor.org/packages/release/bioc/html/limma.html
+.. _Bioconductor: https://www.bioconductor.org/
+.. _SAM: http://samtools.github.io/hts-specs/SAMv1.pdf
+.. _HISAT2: http://ccb.jhu.edu/software/hisat2
+.. _`GTF/GFF3`: https://ccb.jhu.edu/software/stringtie/gff.shtml
+.. _`this link`: https://github.com/alyssafrazee/ballgown#ballgown-readable-expression-output
+.. _`Ensembl site here`: http://useast.ensembl.org/info/website/upload/gff.html
+.. _here: http://www.rna-seqblog.com/rpkm-fpkm-and-tpm-clearly-explained/
+.. _`by B. Li and C. Dewey here`: http://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-12-323
+.. _`GFF utilities page`: https://ccb.jhu.edu/software/stringtie/gff.shtml#gffcompare
+.. _`protocol paper`: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5032908/
+.. _`StringTie manual here`: https://ccb.jhu.edu/software/stringtie/index.shtml?t=manual
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>

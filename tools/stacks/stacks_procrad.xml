@@ -1,0 +1,379 @@
+<tool id="stacks_procrad" name="Stacks: process radtags" version="@WRAPPER_VERSION@.0">
+<description>the Stacks demultiplexing script</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <command><![CDATA[
+
+        #if $input_type.options_type_selector == "single"
+
+            #if $input_type.input_single.is_of_type('fastqsanger')
+                #set $ext = ".fq"
+                #set inputype = "fastq"
+            #else
+                #set $ext = ".fq.gz"
+                #set inputype = "gzfastq"
+            #end if
+
+            ln -s '$input_type.input_single' R1$ext &&
+        #else
+
+            #if $input_type.inputs_paired1.is_of_type('fastqsanger')
+                #set $ext = ".fq"
+                #set inputype = "fastq"
+            #else
+                #set $ext = ".fq.gz"
+                #set inputype = "gzfastq"
+            #end if
+
+            ln -s '$input_type.inputs_paired1' R1$ext &&
+            ln -s '$input_type.inputs_paired2' R2$ext &&
+        #end if
+
+        mkdir stacks_outputs
+
+        &&
+
+        process_radtags
+
+            #if $input_type.options_type_selector == "single"
+                -f R1$ext
+            #else
+                -1 R1$ext
+                -2 R2$ext
+            #end if
+
+            -i $inputype
+            -b '$barcode'
+
+            $input_type.barcode_encoding
+
+            #if str( $options_enzyme.options_enzyme_selector ) == "1"
+                -e $options_enzyme.enzyme
+            #else
+                --renz_1 $options_enzyme.enzyme --renz_2 $options_enzyme.enzyme2
+            #end if
+
+            #if str( $outype ) != "auto"
+                -y $outype
+            #end if
+
+            $capture
+
+            $options_advanced.retain_header
+
+            #if str($options_advanced.truncate)
+                -t $options_advanced.truncate
+            #end if
+
+            -w $options_advanced.sliding
+
+            $options_advanced.remove
+
+            $options_advanced.discard
+            -s $options_advanced.score
+
+            $options_advanced.rescue
+
+            -o stacks_outputs
+    ]]></command>
+
+    <inputs>
+        <conditional name="input_type">
+            <param name="options_type_selector" type="select" label="Single-end or paired-end reads files">
+                <option value="single" selected="True">Single-end files</option>
+                <option value="paired">Paired-end files</option>
+            </param>
+            <when value="single">
+                <param name="input_single" argument="-f" format="fastqsanger,fastqsanger.gz" type="data" label="singles-end reads infile(s)" help="input files" />
+
+                <param name="barcode_encoding" type="select" label="Barcode location">
+                    <expand macro="barcode_encoding_single" />
+                </param>
+            </when>
+            <when value="paired">
+                <param name="inputs_paired1" argument="-1" format="fastqsanger,fastqsanger.gz" type="data" label="paired-end reads infile(s) 1" help="Files must have this syntax : name_R1_001.fastq" />
+                <param name="inputs_paired2" argument="-2" format="fastqsanger,fastqsanger.gz" type="data" label="paired-end reads infile(s) 2" help="Files must have this syntax : name_R2_001.fastq" />
+
+                <param name="barcode_encoding" type="select" label="Barcode location">
+                    <expand macro="barcode_encoding_pair" />
+                </param>
+            </when>
+        </conditional>
+
+        <param name="barcode" argument="-b" type="data" format="tabular,txt" label="Barcode file" help="Barcode file" />
+
+        <conditional name="options_enzyme">
+            <param name="options_enzyme_selector" type="select" label="Number of enzymes">
+                <option value="1">One</option>
+                <option value="2">Two</option>
+            </param>
+            <when value="1">
+                <param name="enzyme" type="select" label="Enzyme" argument="-e" help="provide the restriction enzyme used" >
+                    <expand macro="enzymes"/>
+                </param>
+            </when>
+            <when value="2">
+                <param name="enzyme" type="select" label="Enzyme" argument="--renz_1" help="provide the restriction enzyme used" >
+                    <expand macro="enzymes"/>
+                </param>
+                <param name="enzyme2" type="select" label="Second enzyme" argument="--renz_2" help="provide the second restriction enzyme used" >
+                    <expand macro="enzymes"/>
+                </param>
+            </when>
+        </conditional>
+
+        <param name="capture" type="boolean" checked="false" truevalue="-D" falsevalue="" argument="-D" label="Capture discarded reads to a file" />
+
+        <section name="options_advanced" title="advanced options" expanded="False">
+            <param name="sliding" type="float" value="0.15" argument="-w" label="Set the size of the sliding window as a fraction of the read length, between 0 and 1 (default 0.15)" />
+            <param name="remove" type="boolean" checked="false" truevalue="-c" falsevalue="" argument="-c" label="Clean data, remove any read with an uncalled base" />
+            <param name="discard" type="boolean" checked="false" truevalue="-q" falsevalue="" argument="-q" label="Discard reads with low quality scores"/>
+            <param name="score" type="integer" value="10" argument="-s" label="Set the score limit. If the average score within the sliding window drops below this value, the read is discarded (default 10)" />
+            <param name="rescue" type="boolean" checked="false" truevalue="-r" falsevalue="" argument="-r" label="Rescue barcodes and RAD-Tags?"/>
+            <param name="truncate" type="integer" value="" optional="True" argument="-t" label="Truncate final read length to this value" />
+            <param name="retain_header" type="boolean" checked="false" truevalue="--retain_header" falsevalue="" argument="--retain_header" label="Retain unmodified FASTQ headers in the output" />
+        </section>
+
+        <param name="outype" argument="-y" type="select" label="Output format" >
+            <option value="auto" selected="True">Same as input</option>
+            <option value="fastq">fastq</option>
+            <option value="fasta">fasta</option>
+            <option value="gzfastq">gzipped fastq</option>
+        </param>
+    </inputs>
+
+    <outputs>
+        <data format="txt" name="output_log" label="results.log with ${tool.name} on ${on_string}: demultiplexed and cleaned reads" from_work_dir="stacks_outputs/process_radtags.log" />
+
+        <collection name="demultiplexed" type="list" label="Demultiplexed reads from ${on_string}">
+            <discover_datasets pattern="(?P&lt;name&gt;.+(\.[12])?)\.fq$" ext="fastqsanger" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+(\.[12])?)\.fq.gz$" ext="fastqsanger.gz" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+(\.[12])?)\.fa$" ext="fasta" directory="stacks_outputs" />
+        </collection>
+        <collection name="remaining" type="list" label="Remaining orphan reads from ${on_string}">
+            <filter>input_type['options_type_selector'] == "paired"</filter>
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.rem(\.[12])?)\.fq$" ext="fastqsanger" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.rem(\.[12])?)\.fq.gz$" ext="fastqsanger.gz" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+\.rem(\.[12])?)\.fa$" ext="fasta" directory="stacks_outputs" />
+        </collection>
+        <collection name="discarded" type="list" label="${tool.name}: discarded reads from ${on_string}">
+            <filter>capture is True</filter>
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.fq\.discards$" ext="fastqsanger" directory="stacks_outputs" />
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.fq\.gz.discards$" ext="fastqsanger" directory="stacks_outputs" /> <!-- discards are never gzipped -->
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.fa\.discards$" ext="fasta" directory="stacks_outputs" />
+        </collection>
+    </outputs>
+
+    <tests>
+        <test>
+            <param name="options_type_selector" value="single"/>
+            <param name="input_single" ftype="fastqsanger" value="procrad/R1.fq"/>
+            <param name="barcode" value="procrad/barcodes"/>
+            <param name="options_enzyme_selector" value="1"/>
+            <param name="enzyme" value="ecoRI"/>
+            <param name="discard" value="true"/>
+            <param name="capture" value="true"/>
+            <output name="output_log" file="procrad/process_radtags.out" compare="sim_size"/>
+            <output_collection name="demultiplexed">
+                <element name="PopA_01" compare="sim_size" file="demultiplexed/PopA_01.1.fq"/>
+            </output_collection>
+            <output_collection name="discarded">
+                <element name="R1">
+                    <assert_contents>
+                        <has_text text="lane1_fakedata0_11" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test>
+            <param name="options_type_selector" value="single"/>
+            <param name="input_single" ftype="fastqsanger" value="procrad/R1.fq"/>
+            <param name="barcode" value="procrad/barcodes"/>
+            <param name="options_enzyme_selector" value="1"/>
+            <param name="enzyme" value="ecoRI"/>
+            <param name="discard" value="true"/>
+            <param name="capture" value="true"/>
+            <param name="outype" value="gzfastq"/>
+            <output name="output_log" file="procrad/process_radtags.out" compare="sim_size"/>
+            <output_collection name="demultiplexed">
+                <element name="PopA_01" ftype="fastqsanger.gz" md5="c7250f50138cbca747b85223aaae9565"/>
+            </output_collection>
+            <output_collection name="discarded">
+                <element name="R1" ftype="fastqsanger" md5="786b30d864332a2d56d9179f0a53add4"/>
+            </output_collection>
+        </test>
+        <test>
+            <param name="options_type_selector" value="paired"/>
+            <param name="inputs_paired1" ftype="fastqsanger" value="procrad/R1.fq"/>
+            <param name="inputs_paired2" ftype="fastqsanger" value="procrad/R2.fq"/>
+            <param name="barcode" value="procrad/barcodes"/>
+            <param name="options_enzyme_selector" value="1"/>
+            <param name="enzyme" value="ecoRI"/>
+            <param name="discard" value="true"/>
+            <param name="capture" value="true"/>
+            <output name="output_log" file="procrad/process_radtags.out" compare="sim_size"/>
+            <output_collection name="demultiplexed">
+                <element name="PopA_01.1" compare="sim_size" file="demultiplexed/PopA_01.1.fq"/>
+            </output_collection>
+            <output_collection name="remaining">
+                <element name="PopA_01.rem.1" compare="sim_size" file="demultiplexed/PopA_01.rem.1.fq"/>
+            </output_collection>
+            <output_collection name="discarded">
+                <element name="R1">
+                    <assert_contents>
+                        <has_text text="lane1_fakedata0_11" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test>
+            <param name="options_type_selector" value="paired"/>
+            <param name="inputs_paired1" ftype="fastqsanger" value="procrad/R1.fq"/>
+            <param name="inputs_paired2" ftype="fastqsanger" value="procrad/R2.fq"/>
+            <param name="barcode" value="procrad/barcodes"/>
+            <param name="options_enzyme_selector" value="1"/>
+            <param name="enzyme" value="ecoRI"/>
+            <param name="discard" value="true"/>
+            <param name="capture" value="true"/>
+            <param name="retain_header" value="true"/>
+            <output name="output_log" file="procrad/process_radtags.out" compare="sim_size"/>
+            <output_collection name="demultiplexed">
+                <element name="PopA_01.1" compare="sim_size" file="demultiplexed/PopA_01.1.fq.header"/>
+            </output_collection>
+            <output_collection name="remaining">
+                <element name="PopA_01.rem.1" compare="sim_size" file="demultiplexed/PopA_01.rem.1.fq"/>
+            </output_collection>
+            <output_collection name="discarded">
+                <element name="R1">
+                    <assert_contents>
+                        <has_text text="lane1_fakedata0_11" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test>
+            <param name="options_type_selector" value="paired"/>
+            <param name="inputs_paired1" ftype="fastqsanger" value="procrad/R1.fq"/>
+            <param name="inputs_paired2" ftype="fastqsanger" value="procrad/R2.fq"/>
+            <param name="barcode" value="procrad/barcodes"/>
+            <param name="options_enzyme_selector" value="1"/>
+            <param name="enzyme" value="ecoRI"/>
+            <param name="discard" value="true"/>
+            <param name="capture" value="true"/>
+            <param name="outype" value="fasta"/>
+            <output name="output_log" file="procrad/process_radtags.out" compare="sim_size"/>
+            <output_collection name="demultiplexed">
+                <element name="PopA_01.1" compare="sim_size" file="demultiplexed/PopA_01.1.fa"/>
+            </output_collection>
+            <output_collection name="remaining">
+                <element name="PopA_01.rem.1" compare="sim_size" file="demultiplexed/PopA_01.rem.1.fa"/>
+            </output_collection>
+            <output_collection name="discarded">
+                <element name="R1">
+                    <assert_contents>
+                        <has_text text="lane1_fakedata0_11" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test>
+            <param name="options_type_selector" value="single"/>
+            <param name="input_single" ftype="fastqsanger" value="procrad/R1.fq.gzip"/>
+            <param name="barcode" value="procrad/barcodes"/>
+            <param name="options_enzyme_selector" value="1"/>
+            <param name="enzyme" value="ecoRI"/>
+            <param name="discard" value="true"/>
+            <param name="capture" value="true"/>
+            <output name="output_log" file="procrad/process_radtags.out" compare="sim_size"/>
+            <output_collection name="demultiplexed">
+                <element name="PopA_01" compare="sim_size" file="demultiplexed/PopA_01.1.fq"/>
+            </output_collection>
+            <output_collection name="discarded">
+                <element name="R1">
+                    <assert_contents>
+                        <has_text text="lane1_fakedata0_11" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test>
+            <param name="options_type_selector" value="single"/>
+            <param name="input_single" ftype="fastqsanger.gz" value="procrad/R1.fq.gzip"/>
+            <param name="barcode" value="procrad/barcodes"/>
+            <param name="options_enzyme_selector" value="1"/>
+            <param name="enzyme" value="ecoRI"/>
+            <param name="discard" value="true"/>
+            <param name="capture" value="true"/>
+            <param name="outype" value="gzfastq"/>
+            <output name="output_log" file="procrad/process_radtags.out" compare="sim_size"/>
+            <output_collection name="demultiplexed">
+                <element name="PopA_01" compare="sim_size" file="demultiplexed/PopA_01.1.fq.gzip"/>
+            </output_collection>
+            <output_collection name="discarded">
+                <element name="R1" ftype="fastqsanger" md5="786b30d864332a2d56d9179f0a53add4"/>
+            </output_collection>
+        </test>
+    </tests>
+
+
+
+    <help>
+<![CDATA[
+.. class:: infomark
+
+**What it does**
+
+This program examines raw reads from an Illumina sequencing run and first, checks that the barcode and the RAD cutsite are intact, and demultiplexes the data. If there are errors in the barcode or the RAD site within a certain allowance process_radtags can correct them. Second, it slides a window down the length of the read and checks the average quality score within the window. If the score drops below 90% probability of being correct (a raw phred score of 10), the read is discarded. This allows for some seqeuncing errors while elimating reads where the sequence is degrading as it is being sequenced. By default the sliding window is 15% of the length of the read, but can be specified on the command line (the threshold and window size can be adjusted).
+
+The process_radtags program can:
+
+- handle data that is barcoded, either inline or using an index, or unbarcoded.
+- use combinatorial barcodes.
+- check and correct for a restriction enzyme cutsite for single or double-digested data.
+- filter adapter sequence while allowing for sequencing error in the adapter pattern.
+- process individual files or whole directories of files.
+- directly read gzipped data
+- filter reads based on Illumina's Chastity filter
+
+**Help**
+
+Input files:
+
+- FASTQ
+
+- Barcode File Format
+
+The barcode file is a very simple format:
+
+======= ===========
+Barcode Sample name
+======= ===========
+ATGGGG  PopA_01
+GGGTAA  PopA_02
+AGGAAA  PopA_03
+TTTAAG  PopA_04
+GGTGTG  PopA_05
+TGATGT  PopA_06
+======= ===========
+
+Combinatorial barcodes are specified, one per column, separated by a tab:
+
+======== ======== ===========
+Barcode1 Barcode2 Sample name
+======== ======== ===========
+CGATA    ACGTA    PopA_01
+CGGCG    CGTA     PopA_02
+GAAGC    CGTA     PopA_03
+GAGAT    CGTA     PopA_04
+CGATA    AGCA     PopA_05
+CGGCG    AGCA     PopA_06
+======== ======== ===========
+
+@STACKS_INFOS@
+]]>
+    </help>
+    <expand macro="citation" />
+</tool>

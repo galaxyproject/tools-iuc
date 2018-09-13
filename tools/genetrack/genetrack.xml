@@ -1,0 +1,173 @@
+<?xml version="1.0"?>
+<tool id="genetrack" name="GeneTrack" version="@WRAPPER_VERSION@.1">
+    <description>peak predictor</description>
+    <macros>
+        <import>genetrack_macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+python '$__tool_directory__/genetrack.py'
+--input_format $input_format_cond.input_format
+#for $i in $input_format_cond.input:
+    --input '${i}' '${i.hid}'
+#end for
+--sigma $sigma
+--exclusion $exclusion
+--up_width $up_width
+--down_width $down_width
+--filter $filter
+    ]]></command>
+    <inputs>
+        <conditional name="input_format_cond">
+            <param name="input_format" type="select" label="Format of files for conversion">
+                <option value="scidx" selected="True">ScIdx</option>
+                <option value="gff">Gff</option>
+            </param>
+            <when value="scidx">
+                <param name="input" type="data" format="scidx" multiple="True" label="Predict peaks on" />
+            </when>
+            <when value="gff">
+                <param name="input" type="data" format="gff" multiple="True" label="Predict peaks on" />
+            </when>
+        </conditional>
+        <param name="sigma" type="integer" value="5" min="1" label="Sigma to use when smoothing reads" help="Higher values increase computation but produce more smoothing." />
+        <param name="exclusion" type="integer" value="20" min="1" label="Peak exclusion zone" help="Exclusion zone around each peak that prevents others from being called." />
+        <param name="up_width" type="integer" value="10" min="0" label="Exclusion zone of upstream called peaks" />
+        <param name="down_width" type="integer" value="10" min="0" label="Exclusion zone of downstream called peaks" />
+        <param name="filter" type="integer" value="1" min="0" label="Absolute read filter" help="Removes peaks with lower peak height." />
+    </inputs>
+    <outputs>
+        <collection name="genetrack_output" type="list" label="Genetrack results on ${on_string}">
+            <discover_datasets pattern="(?P&lt;designation&gt;.*)" directory="output" ext="gff" visible="false" />
+        </collection>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input" value="genetrack_input2.gff" ftype="gff" />
+            <param name="input_format" value="gff" />
+            <param name="sigma" value="5" />
+            <param name="exclusion" value="20" />
+            <param name="up_width" value="10" />
+            <param name="down_width" value="10" />
+            <param name="filter" value="3" />
+            <output_collection name="genetrack_output" type="list">
+                <element name="s5e20u10d10F3_on_data_1" file="genetrack_output2.gff" ftype="gff" />
+            </output_collection>
+        </test>
+        <test>
+            <param name="input" value="genetrack_input3.scidx" ftype="scidx" />
+            <param name="input_format" value="scidx" />
+            <param name="sigma" value="5" />
+            <param name="exclusion" value="20" />
+            <param name="up_width" value="10" />
+            <param name="down_width" value="10" />
+            <param name="filter" value="3" />
+            <output_collection name="genetrack_output" type="list">
+                <element name="s5e20u10d10F3_on_data_1" file="genetrack_output3.gff" ftype="gff" />
+            </output_collection>
+        </test>
+        <test>
+            <param name="input" value="genetrack_input_unsorted4.gff" ftype="gff" />
+            <param name="input_format" value="gff" />
+            <param name="sigma" value="5" />
+            <param name="exclusion" value="20" />
+            <param name="up_width" value="10" />
+            <param name="down_width" value="10" />
+            <param name="filter" value="3" />
+            <output_collection name="genetrack_output" type="list">
+                <element name="s5e20u10d10F3_on_data_1" file="genetrack_output4.gff" ftype="gff" />
+            </output_collection>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+GeneTrack separately identifies peaks on the forward "+” (W) and reverse “-” (C) strand.  The way that GeneTrack
+works is to replace each tag with a probabilistic distribution of occurrences for that tag at and around its mapped
+genomic coordinate.  The distance decay of the probabilistic distribution is set by adjusting the value of the
+tool's **Sigma to use when smoothing reads** parameter.  GeneTrack then sums the distribution over all mapped
+tags.  This results in a smooth continuous trace that can be globally broadened or tightened by adjusting the
+sigma value.  GeneTrack starts with the highest smoothed peak first, treating each strand separately if indicated
+by the data, then sets up an exclusion zone (centered over the peak) defined by the value of the **Peak exclusion
+zone** parameter (see figure).  The exclusion zone prevents any secondary peaks from being called on the same strand
+within that exclusion zone.  In rare cases, it may be desirable to set different exclusion zones upstream (more 5’)
+versus downstream (more 3’) of the peak.
+
+.. image:: $PATH_TO_IMAGES/genetrack.png
+
+GeneTrack continues through the data in order of peak height, until no other peaks are found, and in principle will
+call a peak at a single isolated tag, if no filter is set using the tool's **Absolute read filter** parameter.  A 
+filter value of 1 means that it will stop calling peaks when the tag count in the peak hits 1 (so single tag peaks
+will be excluded in this case).  GeneTrack outputs **chrom** (chromosome number), **strand** (+/W or -/C strand),
+**start** (lower coordinate of exclusion zone), **end** (higher coordinate of exclusion zone), and **value** (peak
+height).  Genetrack's GFF output reports the start (lower coordinate) and end (higher coordinate) of the exclusion
+zone.
+
+In principle, the width of the exclusion zone may be as large as the DNA region occupied by the native protein plus
+a steric exclusion zone between the protein and the exonuclease.  On the other hand the site might be considerably
+smaller if the protein is in a denatured state during exonuclease digestion (since it is pre-treated with SDS).
+
+In general, higher resolution data or smaller binding site size data should use smaller sigma values. Large binding
+site size data such as 147 bp nucleosomal DNA use a larger sigma value like 20 (-s 20).  For transcription factors
+mapped by ChIP-exo, sigma may initially be set at 5, and the exclusion zone set at 20 (-s 5 –e 20).  Sigma is typically
+varied between ~3 and ~20. Too high of a sigma value may merge two independent nearby binding events.  This may be
+desirable if closely bound factors are not distinguishable.  Too low of a sigma value will cause some tags that
+contribute to a binding event to be excluded, because they may not be located sufficiently close to the main peak.
+If alternative (mutually exclusive) binding is expected for two overlapping sites, and these sites are to be
+independently recorded, then an empirically determined smaller exclusion zone width is set.  Thus the value of sigma
+is set empirically for each mapped factor, depending upon the resolution and binding site size of the binding event.
+
+It might make sense to exclude peaks that have only a single tag, where -F 1 is used, or have their tags located on
+only a single coordinate (called Singletons, where stddev=0 in the output file).  However, low coverage datasets might
+be improved by including them, if additional analysis (e.g., motif discovery) validates them. In addition, idealized
+action of the exonuclease in ChIP-exo might place all tags for a peak on a single coordinate.
+
+-----
+
+**Options**
+
+ * **Sigma to use when smoothing reads** - Smooths clusters of tags via a Gaussian distribution.
+ * **Peak exclusion zone** - Exclusion zone around each peak, eliminating all other peaks on the same strand that are within a ± bp distance of the peak.
+ * **Exclusion zone of upstream called peaks** - Defines the exclusion zone centered over peaks upstream of a peak.
+ * **Exclusion zone of downstream called peaks** - Defines the exclusion zone centered over peaks downstream of a peak.
+ * **Filter** - Absolute read filter, restricts output to only peaks with larger peak height.
+ 
+-----
+
+**Output gff Columns**
+
+1. Chromosome
+2. Script
+3. Placeholder (no meaning)
+4. Start of peak exclusion zone (-e 20)
+5. End of peak exclusion zone
+6. Tag sum (not peak height or area under curve, which LionDB provides)
+7. Strand
+8. Placeholder (no meaning)
+9. Attributes (standard deviation of reads located within exclusion zone) = fuzziness of peak
+
+-----
+ 
+**Considerations**
+ 
+In principle, the width of the exclusion zone may be as large as the DNA region occupied by the native protein
+plus a steric exclusion zone between the protein and the exonuclease.  On the other hand the site might be considerably
+smaller if the protein is in a denatured state during exonuclease digestion (since it is pre-treated with SDS).
+ 
+In general, higher resolution data or smaller binding site size data should use smaller sigma values.  Large binding site
+size data such as 147 bp nucleosomal DNA use a larger sigma value like 20 (-s 20).  For transcription factors mapped by
+ChIP-exo, sigma may initially be set at 5, and the exclusion zone set at 20 (-s 5 –e 20).  Sigma is typically varied
+between ~3 and ~20.  Too high of a sigma value may merge two independent nearby binding events.  This may be desirable if
+closely bound factors are not distinguishable.  Too low of a sigma value will cause some tags that contribute to a binding
+event to be excluded, because they may not be located sufficiently close to the main peak.  If alternative (mutually
+exclusive) binding is expected for two overlapping sites, and these sites are to be independently recorded, then an
+empirically determined smaller exclusion zone width is set.  Thus, the value of sigma is set empirically for each mappedfactor depending upon the resolution and binding site size of the binding event.
+
+It might make sense to exclude peaks that have only a single tag, where -F 1 is used, or have their tags located on only
+a single coordinate (called Singletons, where stddev=0 in the output file).  However, low coverage datasets might be
+improved by including them, if additional analysis (e.g., motif discovery) validates them.  In addition, idealized action
+of the exonuclease in ChIP-exo might place all tags for a peak on a single coordinate.
+
+    </help>
+    <expand macro="citations" />
+</tool>

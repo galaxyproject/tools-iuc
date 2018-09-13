@@ -1,0 +1,172 @@
+<tool id="stacks_assembleperead" name="Stacks: assemble read pairs by locus" version="@WRAPPER_VERSION@.0">
+    <description>run the STACKS sort_read_pairs.pl and exec_velvet.pl wrappers</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <command><![CDATA[
+
+        mkdir stacks_inputs reads stacks_outputs
+
+        &&
+
+        #for $input_file in $stacks_col
+            #set $ext = ""
+            #if not str($input_file.element_identifier).endswith('.tsv')
+                #set $ext = ".tsv"
+            #end if
+            ln -s '${input_file}' 'stacks_inputs/${input_file.element_identifier}${ext}' &&
+        #end for
+
+        #for $input_file in $reads
+            #set $name = str($input_file.element_identifier)
+            ## sort_read_pairs is expecting strange fastq names: <sample_name>.fq_2
+            #if $name.endswith('.1.fq')
+                ## handle a common case
+                #set $name = $name[:-5]+".fq_1"
+            #else if $name.endswith('.2.fq')
+                ## handle a common case
+                #set $name = $name[:-5]+".fq_2"
+            #else if not $name.endswith('.fq') and not $name.endswith('.fq_2')
+                ## no extension, consider it's a fq_2 file
+                #set $name = $name + ".fq_2"
+            #end if
+            ln -s '${input_file}' 'reads/${name}' &&
+        #end for
+
+        sort_read_pairs.pl
+            -p stacks_inputs
+            -s 'reads'
+
+            #if $whitelist
+                -w '$whitelist'
+            #end if
+
+            #if $threshold
+                -r $threshold
+            #end if
+
+            -o stacks_outputs
+
+        #if $velvet.use_velvet == "yes"
+            ## remove possible empty files
+            && find stacks_outputs -type f -size 0 -delete
+
+            &&
+            mkdir assembled
+            &&
+            velvet_path=`which velveth` && velvet_path=`dirname "\$velvet_path"`
+            &&
+            exec_velvet.pl -s stacks_outputs -o assembled -c -M ${velvet.contig_length} -e "\$velvet_path"
+        #end if
+
+    ]]></command>
+    <inputs>
+        <param name="stacks_col" argument="-p" format="tabular,txt" type="data_collection" collection_type="list" label="Output from previous Stacks pipeline steps (e.g. denovo_map or refmap)" />
+        <param name="reads" argument="-s" format="fastqsanger" type="data" multiple="true" label="Files containing reads to assemble" help="only R2 reads" />
+
+        <param name="whitelist" argument="-w" format="txt,tabular" type="data" optional="true" label="White list of catalog IDs to include" />
+        <param name="threshold" argument="-r" type="integer" value="" optional="true" label="Minimum number of reads by locus"/>
+
+       <conditional name="velvet">
+            <param name="use_velvet" type="select" label="Perform assembly with Velvet" help="If not selected, the tool will only produce of collection of fasta files (one per locus) containing reads ready to assemble.">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="contig_length" type="integer" value="200" label="Minimum length for asssembled contigs"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <collection name="collated" type="list" label="Collated FASTA files per locus on ${on_string}">
+            <filter>velvet['use_velvet'] == "no"</filter>
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.fa(sta)?$" ext="fasta" directory="stacks_outputs" />
+        </collection>
+
+        <data format="fasta" name="contigs" label="Assembled contigs on ${on_string}" from_work_dir="assembled/collated.fa">
+            <filter>velvet['use_velvet'] == "yes"</filter>
+        </data>
+    </outputs>
+
+    <tests>
+        <test>
+            <param name="stacks_col">
+                <collection type="list">
+                    <element name="batch_1.catalog.alleles.tsv" ftype="tabular" value="genotypes/batch_1.catalog.alleles.tsv" />
+                    <element name="batch_1.catalog.snps.tsv" ftype="tabular" value="genotypes/batch_1.catalog.snps.tsv" />
+                    <element name="batch_1.catalog.tags.tsv" ftype="tabular" value="genotypes/batch_1.catalog.tags.tsv" />
+                    <element name="PopA_01.alleles.tsv" ftype="tabular" value="genotypes/PopA_01.alleles.tsv" />
+                    <element name="PopA_01.matches.tsv" ftype="tabular" value="genotypes/PopA_01.matches.tsv" />
+                    <element name="PopA_01.snps.tsv" ftype="tabular" value="genotypes/PopA_01.snps.tsv" />
+                    <element name="PopA_01.tags.tsv" ftype="tabular" value="genotypes/PopA_01.tags.tsv" />
+                    <element name="PopA_02.alleles.tsv" ftype="tabular" value="genotypes/PopA_02.alleles.tsv" />
+                    <element name="PopA_02.matches.tsv" ftype="tabular" value="genotypes/PopA_02.matches.tsv" />
+                    <element name="PopA_02.snps.tsv" ftype="tabular" value="genotypes/PopA_02.snps.tsv" />
+                    <element name="PopA_02.tags.tsv" ftype="tabular" value="genotypes/PopA_02.tags.tsv" />
+                </collection>
+            </param>
+            <param name="reads" value="demultiplexed/PopA_01.2.fq,demultiplexed/PopA_02.2.fq" ftype="fastqsanger" />
+
+            <output_collection name="collated">
+                <element name="1">
+                    <assert_contents>
+                        <has_text text="CCGATCAGCATCAGTAGTTTTCAACGAGCTGGCCCAATGGTGTATAACTATGTGGTAGAGAGAAACTGCTGCTATCACTCACGATATAAGCCCTCTGACG" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test>
+            <param name="stacks_col">
+                <collection type="list">
+                    <element name="batch_1.catalog.alleles.tsv" ftype="tabular" value="genotypes/batch_1.catalog.alleles.tsv" />
+                    <element name="batch_1.catalog.snps.tsv" ftype="tabular" value="genotypes/batch_1.catalog.snps.tsv" />
+                    <element name="batch_1.catalog.tags.tsv" ftype="tabular" value="genotypes/batch_1.catalog.tags.tsv" />
+                    <element name="PopA_01.alleles.tsv" ftype="tabular" value="genotypes/PopA_01.alleles.tsv" />
+                    <element name="PopA_01.matches.tsv" ftype="tabular" value="genotypes/PopA_01.matches.tsv" />
+                    <element name="PopA_01.snps.tsv" ftype="tabular" value="genotypes/PopA_01.snps.tsv" />
+                    <element name="PopA_01.tags.tsv" ftype="tabular" value="genotypes/PopA_01.tags.tsv" />
+                    <element name="PopA_02.alleles.tsv" ftype="tabular" value="genotypes/PopA_02.alleles.tsv" />
+                    <element name="PopA_02.matches.tsv" ftype="tabular" value="genotypes/PopA_02.matches.tsv" />
+                    <element name="PopA_02.snps.tsv" ftype="tabular" value="genotypes/PopA_02.snps.tsv" />
+                    <element name="PopA_02.tags.tsv" ftype="tabular" value="genotypes/PopA_02.tags.tsv" />
+                </collection>
+            </param>
+            <param name="reads" value="demultiplexed/PopA_01.2.fq,demultiplexed/PopA_02.2.fq" ftype="fastqsanger" />
+            <param name="velvet|use_velvet" value="yes" />
+            <param name="velvet|contig_length" value="20" />
+
+            <output name="contigs">
+                <assert_contents>
+                    <has_text text="|NODE_" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+
+    <help>
+<![CDATA[
+.. class:: infomark
+
+**What it does**
+
+This program will run each of the Stacks sort_read_pairs.pl and exec_velvet.pl utilities to assemble pair-end reads from STACKS pipeline results
+
+--------
+
+**Input file**
+
+Output from denovo_map or ref_map
+
+
+**Output file**
+
+A collated.fa file containing assembled contigs for each locus
+
+@STACKS_INFOS@
+]]>
+    </help>
+    <expand macro="citation" />
+</tool>

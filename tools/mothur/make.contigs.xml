@@ -1,0 +1,219 @@
+<tool profile="16.07" id="mothur_make_contigs" name="Make.contigs" version="@WRAPPER_VERSION@.0">
+    <description>Aligns paired forward and reverse fastq files to contigs as fasta and quality</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command><![CDATA[
+@SHELL_OPTIONS@
+
+## Symlinks creation or On the fly creation of a combo file
+#if $input_type.type == 'list_collection'
+    #for $pair in $input_type.list_paired_collection:
+        ln -s ${pair.forward} `basename ${pair.forward}` &&
+        ln -s ${pair.reverse} `basename ${pair.reverse}` &&
+        echo -e "${pair.name}\t`basename ${pair.forward}`\t`basename ${pair.reverse}`" >> combo_fastq.dat &&
+    #end for
+#elif $input_type.type == 'simple_collection'
+    ln -s '$input_type.paired_collection.forward' ffastq.dat &&
+    ln -s '$input_type.paired_collection.reverse' rfastq.dat &&
+#else
+    ln -s '$input_type.forward_fastq' ffastq.dat &&
+    ln -s '$input_type.reverse_fastq' rfastq.dat &&
+#end if
+
+#if $oligo.add == "yes":
+    ln -s '$oligo.oligos' oligo.oligos.dat &&
+    ln -s '$oligo.findex' oligo.findex.dat &&
+    ln -s '$oligo.rindex' oligo.rindex.dat &&
+#end if
+
+echo 'make.contigs(
+    #if $input_type.type == 'list_collection':
+        file=combo_fastq.dat,
+    #else:
+        ffastq=ffastq.dat,
+        rfastq=rfastq.dat,
+    #end if
+    align=$align,
+    #if $oligo.add == "yes":
+        oligos=oligo.oligos.dat,
+        bdiffs=$oligo.bdiffs,
+        pdiffs=$oligo.pdiffs,
+        tdiffs=$oligo.tdiffs,
+        #if $oligo.findex:
+            findex=oligo.findex.dat,
+        #end if
+        #if $oligo.rindex:
+            rindex=oligo.rindex.dat,
+        #end if
+    #end if
+    match=$match,
+    mismatch=$mismatch,
+    gapopen=$gapopen,
+    gapextend=$gapextend,
+    rename=$rename
+    processors='\${GALAXY_SLOTS:-8}'
+)'
+| sed 's/ //g'  ## mothur trips over whitespace
+| mothur
+| tee mothur.out.log
+    ]]></command>
+    <inputs>
+        <conditional name="input_type">
+            <param name="type" type="select" label="Select a way to provide forward and reverse fastq files ?" help="">
+                <option value="regular" selected="true">Two simple fastq files (forward and reverse)</option>
+                <option value="simple_collection">One pair (paired collection)</option>
+                <option value="list_collection">Multiple pairs - Combo mode (list:paired collection)</option>
+            </param>
+            <when value="regular">
+                <param name="forward_fastq" type="data" format="fastq" label="Forward reads"/>
+                <param name="reverse_fastq" type="data" format="fastq" label="Reverse reads"/>
+            </when>
+            <when value="simple_collection">
+                <param name="paired_collection" type="data_collection" format="fastq" collection_type="paired" label="Fastq pair (collection)" help="Dataset collection made from a single pair of fastq files (forward + reverse)"/>
+            </when>
+            <when value="list_collection">
+                <param name="list_paired_collection" type="data_collection" format="fastq" collection_type="list:paired" label="Fastq pairs (collection)" help="Dataset collection made from multiple pairs of fastq files" />
+            </when>
+        </conditional>
+        <param name="align" type="select" label="align - Select a pairwise alignment method" help="">
+            <option value="needleman" selected="true">needleman (default) </option>
+            <option value="gotoh">gotoh</option>
+            <option value="kmer">kmer</option>
+        </param>
+        <conditional name="oligo">
+            <param name="add" type="select" label="Trim with an oligos file?" help="">
+                <option value="no">no</option>
+                <option value="yes">yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="oligos" type="data" format="mothur.oligos" optional="true" label="oligos - barcodes and primers"
+                    help="a file that can contain the sequences of the forward and reverse primers and barcodes and their sample identifier. Each line of the oligos file can start with the key words &quot;forward&quot;, &quot;reverse&quot; and &quot;barcode&quot; or it can start with a &quot;#&quot; to tell mothur to ignore that line of the oligos file"/>
+                <param name="bdiffs" type="integer" value="0" min="0" label="bdiffs - number of differences to allow in the barcode (default 0)"/>
+                <param name="pdiffs" type="integer" value="0" min="0" label="pdiffs - number of differences to allow in the primer (default 0)"/>
+                <param name="tdiffs" type="integer" value="0" min="0" label="tdiffs - total number of differences to allow in primer and barcode (default 0)"/>
+                <param name="findex" type="data" format="fastq" optional="true" label="forward index file (fastq)"/>
+                <param name="rindex" type="data" format="fastq" optional="true" label="revese index file (fastq)"/>
+            </when>
+        </conditional>
+        <param name="match" type="integer" value="1" label="match - Pairwise alignment reward for a match"/>
+        <param name="mismatch" type="integer" value="-1" label="mismatch - Pairwise alignment penalty for a mismatch"/>
+        <param name="gapopen" type="integer" value="-2" label="gapopen - Pairwise alignment penalty for opening a gap"/>
+        <param name="gapextend" type="integer" value="-1" label="gapextend - Pairwise alignment penalty for extending a gap"/>
+        <param name="rename" type="boolean" checked="true" truevalue="True" falsevalue="False" label="Renames sequences"
+            help="reduce file sizes and greatly reduce the size of the column formatted distance matrix downstream.
+            Uses the rename.seqs command to rename which creates a map file so you can revert to original names at any time"/>
+        <expand macro="param-savelog"/>
+    </inputs>
+    <outputs>
+        <expand macro="logfile-output"/>
+        <data name="fasta" format="fasta" from_work_dir="*fastq.trim.*.fasta" label="${tool.name} on ${on_string}: trim.contigs.fasta"/>
+        <data name="qual" format="qual" from_work_dir="*fastq*.trim.*.qual" label="${tool.name} on ${on_string}: trim.contigs.qual"/>
+        <data name="scrapfasta" format="fasta" from_work_dir="*fastq*.scrap.*.fasta" label="${tool.name} on ${on_string}: scrap.contigs.fasta"/>
+        <data name="scrapqual" format="qual" from_work_dir="*fastq*.scrap.*.qual" label="${tool.name} on ${on_string}: scrap.contigs.qual"/>
+        <data name="report" format="txt" from_work_dir="*fastq*.contigs.report" label="${tool.name} on ${on_string}: report"/>
+        <data name="group" format="mothur.groups" from_work_dir="*fastq*.groups" label="${tool.name} on ${on_string}: group file">
+            <filter>input_type['type'] == 'list_collection'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test with two regular files as input -->
+        <test>
+            <conditional name="input_type">
+                <param name="type" value="regular"/>
+                <param name="forward_fastq" value="Mock_S280_L001_R1_001_small.fastq" ftype="fastq"/>
+                <param name="reverse_fastq" value="Mock_S280_L001_R2_001_small.fastq" ftype="fastq"/>
+            </conditional>
+            <output name="fasta" file="Mock_S280_L001_R1_001_small.trim.contigs.fasta" ftype="fasta"/>
+            <output name="qual" file="Mock_S280_L001_R1_001_small.trim.contigs.qual" ftype="qual"/>
+            <output name="report" file="Mock_S280_L001_R1_001_small.contigs.report" ftype="txt"/>
+            <param name="savelog" value="true"/>
+            <expand macro="logfile-test"/>
+        </test>
+        <!-- Test with a simple paired collection as input -->
+        <test>
+            <conditional name="input_type">
+                <param name="type" value="simple_collection"/>
+                <param name="paired_collection">
+                    <collection type="paired">
+                        <element name="forward" value="Mock_S280_L001_R1_001_small.fastq" />
+                        <element name="reverse" value="Mock_S280_L001_R2_001_small.fastq" />
+                    </collection>
+                </param>
+            </conditional>
+            <output name="fasta" file="Mock_S280_L001_R1_001_small.trim.contigs.fasta" ftype="fasta"/>
+            <output name="qual" file="Mock_S280_L001_R1_001_small.trim.contigs.qual" ftype="qual"/>
+            <output name="report" file="Mock_S280_L001_R1_001_small.contigs.report" ftype="txt"/>
+            <param name="savelog" value="true"/>
+            <expand macro="logfile-test"/>
+        </test>
+        <!-- Test with a simple paired collection as input + extra parameters specified -->
+        <test>
+            <conditional name="input_type">
+                <param name="type" value="simple_collection"/>
+                <param name="paired_collection">
+                    <collection type="paired">
+                        <element name="forward" value="Mock_S280_L001_R1_001_small.fastq" />
+                        <element name="reverse" value="Mock_S280_L001_R2_001_small.fastq" />
+                    </collection>
+                </param>
+            </conditional>
+            <param name="align" value="gotoh"/>
+            <param name="match" value="2"/>
+            <param name="mismatch" value="-2"/>
+            <param name="gapopen" value="-3"/>
+            <param name="gapextend" value="-2"/>
+            <output name="fasta" md5="48e32c65bd9f064c5c0b4ea7695cabe9" ftype="fasta"/>
+            <output name="qual" md5="1e7778cee0d86bfa2759a07bb4356165" ftype="qual"/>
+            <output name="report" md5="5274725ef45890fd6da4650d5d536173" ftype="txt"/>
+            <param name="savelog" value="true"/>
+            <expand macro="logfile-test"/>
+        </test>
+        <!-- Test with a list:paired collection as input -->
+        <test>
+            <conditional name="input_type">
+                <param name="type" value="list_collection"/>
+                <param name="list_paired_collection">
+                    <collection type="list:paired">
+                        <element name="Pair1">
+                            <collection type="paired">
+                                <element name="forward" value="Mock_S280_L001_R1_001_small.fastq" />
+                                <element name="reverse" value="Mock_S280_L001_R2_001_small.fastq" />
+                            </collection>
+                        </element>
+                        <element name="Pair2">
+                            <collection type="paired">
+                                <element name="forward" value="test_forward.fastq" />
+                                <element name="reverse" value="test_reverse.fastq" />
+                            </collection>
+                        </element>
+                    </collection>
+                </param>
+            </conditional>
+            <output name="fasta" md5="91bd3b91adc6559182ad118b767f0a07" ftype="fasta"/>
+            <output name="qual" md5="7094d1ac82a40e9f89cc6cdf5e214da7" ftype="qual"/>
+            <output name="report" md5="96a07f664105e4ddcb645c7cd9f5d692" ftype="txt"/>
+            <output name="group" md5="ef83b393be4103f0b61a021234905210" ftype="mothur.groups"/>
+            <param name="savelog" value="true"/>
+            <expand macro="logfile-test"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+@MOTHUR_OVERVIEW@
+
+**Command Documentation**
+
+The make.contigs_ command reads a forward fastq file and a reverse fastq file and outputs new fasta and quality files.
+
+.. _make.contigs: https://www.mothur.org/wiki/Make.contigs
+
+v.1.27.0: Updated to use Mothur 1.33. Added findex and rindex parmaeters, optionally used with the oligos file.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

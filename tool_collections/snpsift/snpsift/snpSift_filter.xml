@@ -1,0 +1,169 @@
+<tool id="snpSift_filter" name="SnpSift Filter" version="@WRAPPER_VERSION@.galaxy0">
+    <description>Filter variants using arbitrary expressions</description>
+    <macros>
+        <import>snpSift_macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <expand macro="stdio" />
+    <expand macro="version_command" />
+    <command><![CDATA[
+SnpSift -Xmx6G filter -f '$input' -e '$exprFile' $inverse
+#if $filtering.mode == 'field':
+    #if $filtering.replace.pass:
+        --pass
+        #if $filtering.replace.filterId.strip():
+            --filterId '$filtering.replace.filterId'
+        #end if
+    #end if
+    #if $filtering.addFilter.strip():
+        --addFilter '$filtering.addFilter'
+    #end if
+    #if $filtering.rmFilter.strip():
+        --rmFilter '$filtering.rmFilter'
+    #end if
+#end if
+> '$output'
+    ]]></command>
+    <configfiles>
+        <configfile name="exprFile">
+$expr#slurp
+        </configfile>
+    </configfiles>
+    <inputs>
+        <param name="input" type="data" format="vcf" label="Variant input file in VCF format"/>
+        <param name="expr" type="text" label="Filter criteria" help="Need help? See below a few examples">
+            <sanitizer sanitize="False"/>
+        </param>
+        <param name="inverse" type="boolean" truevalue="--inverse" falsevalue="" checked="false" label="Inverse filter" help="Show lines that do not match filter expression" />
+        <conditional name="filtering">
+            <param name="mode" type="select" label="Filter mode">
+                <option value="entries" selected="true">Retain entries that pass filter, remove other entries</option>
+                <option value="field">Change the FILTER field, but retain all entries</option>
+            </param>
+            <when value="entries"/>
+            <when value="field">
+                <conditional name="replace">
+                    <param name="pass" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Set matching entry FILTER to 'PASS'"
+                           help="appends an ID tag to non-matching entry FILTER" />
+                    <when value="no"/>
+                    <when value="yes">
+                        <param name="filterId" type="text" value="" label="ID appended to non-matching (##FILTER tag in header and FILTER VCF field)" help="Default ID is 'SnpSift'"/>
+                    </when>
+                </conditional>
+                <param name="addFilter" type="text" value="" label="Add a string to FILTER VCF field if 'expression' is true" />
+                <param name="rmFilter" type="text" value="" label="Remove a string from FILTER VCF field if 'expression' is true (and 'str' is in the field)" />
+            </when>
+        </conditional>
+    </inputs>
+
+    <outputs>
+        <data name="output" format="vcf" />
+    </outputs>
+    <tests>
+        <test>
+        <param name="input" ftype="vcf" value="test01.vcf"/>
+        <param name="expr" value="QUAL >= 50"/>
+        <param name="mode" value="entries"/>
+        <output name="output">
+            <assert_contents>
+            <has_text text="28837706" />
+            <not_has_text text="NT_166464" />
+            </assert_contents>
+        </output>
+        </test>
+
+        <test>
+        <param name="input" ftype="vcf" value="test01.vcf"/>
+        <param name="expr" value="(CHROM = '19')"/>
+        <param name="mode" value="entries"/>
+        <output name="output">
+            <assert_contents>
+            <has_text text="3205820" />
+            <not_has_text text="NT_16" />
+            </assert_contents>
+        </output>
+        </test>
+
+        <test>
+        <param name="input" ftype="vcf" value="test01.vcf"/>
+        <param name="expr" value="(POS &gt;= 20175) &amp; (POS &lt;= 35549)"/>
+        <param name="mode" value="entries"/>
+        <output name="output">
+            <assert_contents>
+            <has_text text="20175" />
+            <has_text text="35549" />
+            <has_text text="22256" />
+            <not_has_text text="18933" />
+            <not_has_text text="37567" />
+            </assert_contents>
+        </output>
+        </test>
+
+        <test>
+        <param name="input" ftype="vcf" value="test01.vcf"/>
+        <param name="expr" value="( DP &gt;= 5 )"/>
+        <param name="mode" value="entries"/>
+        <output name="output">
+            <assert_contents>
+            <has_text text="DP=5;" />
+            <has_text text="DP=6;" />
+            <not_has_text text="DP=1;" />
+            </assert_contents>
+        </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**SnpSift filter**
+
+You can filter a VCF file using arbitrary expressions, for instance "(QUAL > 30) | (exists INDEL) | ( countHet() > 2 )". The actual expressions can be quite complex, so it allows for a lot of flexibility.
+
+Some examples:
+
+- *I want just the variants from the second million bases of chr1*::
+
+      ( CHROM = 'chr1' ) & ( POS > 1000000 ) & ( POS < 2000000 )
+
+- *Filter value is either 'PASS' or it is missing*::
+
+      (FILTER = 'PASS') | ( na FILTER )
+
+- *I want to filter lines with an ANN annotation EFFECT of 'frameshift_variant' ( for vcf files using Sequence Ontology terms )*::
+
+      ( ANN[*].EFFECT has 'frameshift_variant' )
+
+  **Important** According to the specification, there can be more than one EFFECT separated by & (e.g. 'missense_variant&splice_region_variant', thus using has operator is better than using equality operator (=). For instance 'missense_variant&splice_region_variant' = 'missense_variant' is false, whereas 'missense_variant&splice_region_variant' has 'missense_variant' is true.
+
+- *I want to filter lines with an EFF of 'FRAME_SHIFT' ( for vcf files using Classic Effect names )*::
+
+      ( EFF[*].EFFECT = 'FRAME_SHIFT' )
+
+- *I want to filter out samples with quality less than 30*::
+
+      ( QUAL > 30 )
+
+- *...but we also want InDels that have quality 20 or more*::
+
+      (( exists INDEL ) & (QUAL >= 20)) | (QUAL >= 30 )
+
+- *...or any homozygous variant present in more than 3 samples*::
+
+      (countHom() > 3) | (( exists INDEL ) & (QUAL >= 20)) | (QUAL >= 30 )
+
+- *...or any heterozygous sample with coverage 25 or more*::
+
+      ((countHet() > 0) & (DP >= 25)) | (countHom() > 3) | (( exists INDEL ) & (QUAL >= 20)) | (QUAL >= 30 )
+
+- *I want to keep samples where the genotype for the first sample is homozygous variant and the genotype for the second sample is reference*::
+
+      (isHom( GEN[0] ) & isVariant( GEN[0] ) & isRef( GEN[1] ))
+
+**For information regarding HGVS and Sequence Ontology terms versus classic names**:
+
+- http://snpeff.sourceforge.net/SnpEff_manual.html#cmdline for the options: -classic, -hgvs, and -sequenceOntology
+- http://snpeff.sourceforge.net/SnpEff_manual.html#input for the table containing the classic name and sequence onology term for each effect
+
+@EXTERNAL_DOCUMENTATION@
+- http://snpeff.sourceforge.net/SnpSift.html#filter
+    ]]></help>
+    <expand macro="citations" />
+</tool>

@@ -1,0 +1,258 @@
+<tool name="CollectRnaSeqMetrics" id="picard_CollectRnaSeqMetrics" version="@TOOL_VERSION@.@WRAPPER_VERSION@">
+    <description> collect metrics about the alignment of RNA to various functional classes of loci in the genome</description>
+    <macros>
+        <import>picard_macros.xml</import>
+    <token name="@WRAPPER_VERSION@">1</token>
+    </macros>
+    <expand macro="requirements">
+        <requirement type="package" version="3.4.1">r-base</requirement>
+        <requirement type="package" version="357">ucsc-gff3togenepred</requirement>
+        <requirement type="package" version="357">ucsc-gtftogenepred</requirement>
+    </expand>
+    <command detect_errors="exit_code"><![CDATA[
+      ## Set up input files
+      @symlink_element_identifier@
+      ## Reference sequences
+
+      #set $reference_fasta_filename = "localref.fa"
+
+      @handle_reference_source@
+
+      ## refFlat data
+      ## The awk line below converts a file obtained from UCSC as specified in the tool help to refFlat format
+
+      #if str($gene_reference_source.gene_reference_source_selector) == "gtf"
+        #if $gene_reference_source.refFlat.ext != 'gff3'
+            gtfToGenePred '${gene_reference_source.refFlat}' refFlat.tab.raw &&
+        #else
+            gff3ToGenePred '${gene_reference_source.refFlat}' refFlat.tab.raw &&
+        #end if
+
+        grep -v '^#' refFlat.tab.raw | awk '{print $12"\t"$1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10}' > refFlat.tab &&
+      #else
+        grep -v '^#' ${refFlat} | awk '{print $11"\t"$1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10}' > refFlat.tab &&
+      #end if
+
+
+      ## Start picard command
+
+      @java_options@
+      picard
+      CollectRnaSeqMetrics
+      REF_FLAT=refFlat.tab
+
+      #if str( $ribosomal_intervals ) != "None":
+        RIBOSOMAL_INTERVALS="${ribosomal_intervals}"
+      #end if
+
+      STRAND_SPECIFICITY="${strand_specificity}"
+      MINIMUM_LENGTH="${minimum_length}"
+      CHART_OUTPUT="${pdfFile}"
+
+      #for $sequence_to_ignore in $ignore_list:
+        IGNORE_SEQUENCE="${sequence_to_ignore.sequence}"
+      #end for
+
+      RRNA_FRAGMENT_PERCENTAGE="${rrna_fragment_percentage}"
+      METRIC_ACCUMULATION_LEVEL="${metric_accumulation_level}"
+      INPUT='$escaped_element_identifier'
+      OUTPUT="${outFile}"
+      REFERENCE_SEQUENCE="${reference_fasta_filename}"
+      ASSUME_SORTED="${assume_sorted}"
+      @TMPDIR_OPTION@
+      VALIDATION_STRINGENCY=${validation_stringency}
+
+   ]]></command>
+
+   <inputs>
+      <param format="sam,bam" type="data" name="inputFile" label="Select SAM/BAM dataset or dataset collection" help="If empty, upload or import a SAM/BAM dataset" />
+      <conditional name="reference_source">
+         <param name="reference_source_selector" type="select" label="Load reference genome from">
+            <option value="cached">Local cache</option>
+            <option value="history">History</option>
+         </param>
+         <when value="cached">
+            <param name="ref_file" type="select" label="Using reference genome" help="REFERENCE_SEQUENCE">
+               <options from_data_table="all_fasta"></options>
+               <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file"/>
+            </param>
+         </when>
+         <when value="history">
+            <param name="ref_file" type="data" format="fasta" label="Use the folloing dataset as the reference sequence" help="REFERENCE_SEQUENCE; You can upload a FASTA sequence to the history and use it as reference" />
+         </when>
+      </conditional>
+
+      <conditional name="gene_reference_source">
+         <param name="gene_reference_source_selector" type="select" label="Load gene annotation from">
+            <option value="gtf">GTF/GFF3</option>
+            <option value="refflat">refFlat</option>
+         </param>
+         <when value="gtf">
+              <param name="refFlat"
+                     format="gtf,gff3"
+                     type="data"
+                     label="Gene annotation (GTF/GFF3)"/>
+         </when>
+         <when value="refflat">
+              <param name="refFlat"
+                     format="tabular"
+                     type="data"
+                     label="Gene annotations in refFlat form"
+                     help="See &quot;Obtaining gene annotations in refFlat format&quot; below for help"/>
+         </when>
+      </conditional>
+
+
+      <param name="ribosomal_intervals" format="picard_interval_list" type="data" optional="True" label="Location of rRNA sequences in genome, in interval_list format" help="RIBOSOMAL_INTERVALS; If not specified no bases will be identified as being ribosomal. The list of intervals can be geberated from BED or Interval datasets using Galaxy BedToIntervalList tool"/>
+      <param name="strand_specificity" type="select" label="What is the RNA-seq library strand specificity" help="STRAND_SPECIFICITY; For unpaired reads, use FIRST_READ_TRANSCRIPTION_STRAND if the reads are expected to be on the transcription strand.">
+	 <option value="NONE" selected="True">None</option>
+	 <option value="FIRST_READ_TRANSCRIPTION_STRAND">First read transcription strand</option>
+	 <option value="SECOND_READ_TRANSCRIPTION_STRAND">Second read transcription strand</option>
+      </param>
+      <param name="minimum_length" type="integer" value="500" label="When calculating coverage based values use only use transcripts of this length or greater" help="MINIMUM_LENGTH; default=500"/>
+      <repeat name="ignore_list" title="Sequences to ignore" min="0" help="You can provide multiple sequences by clicking the button below">
+          <param name="sequence" type="text" label="Ignore reads matching this sequence"/>
+      </repeat>
+      <param name="rrna_fragment_percentage" type="float" value="0.8" label="This percentage of the length of a fragment must overlap one of the ribosomal intervals for a read or read pair to be considered rRNA." help="RRNA_FRAGMENT_PERCENTAGE; default=0.8"/>
+      <param name="metric_accumulation_level" type="select" label="The level(s) at which to accumulate metrics" multiple="true" help="METRIC_ACCUMULATION_LEVEL">
+	 <option value="ALL_READS" selected="True">All reads</option>
+	 <option value="SAMPLE">Sample</option>
+	 <option value="LIBRARY">Library</option>
+	 <option value="READ_GROUP">Read group</option>
+      </param>
+      <param name="assume_sorted" type="boolean" label="Assume the input file is already sorted" checked="true" truevalue="true" falsevalue="false" help="ASSUME_SORTED"/>
+
+      <expand macro="VS" />
+
+  </inputs>
+  <outputs>
+      <data format="pdf" name="pdfFile" label="${tool.name} on ${on_string}: Chart PDF"/>
+      <data format="tabular" name="outFile" label="${tool.name} on ${on_string}: Summary stats"/>
+  </outputs>
+
+  <tests>
+    <test>
+      <param name="reference_source_selector" value="history"/>
+      <param name="ref_file" value="picard_CollectRnaSeqMetrics_ref.fa" ftype="fasta"/>
+      <param name="inputFile" value="picard_CollectRnaSeqMetrics.bam" ftype="bam"/>
+      <param name="assume_sorted" value="true" />
+
+      <param name="gene_reference_source_selector" value="refflat" />
+      <param name="refFlat" value="picard_CollectRnaSeqMetrics.refFlat" />
+      <param name="metric_accumulation_level" value="ALL_READS" />
+      <param name="minimum_length" value="500" />
+      <param name="strand_specificity" value="NONE" />
+      <param name="rrna_fragment_percentage" value="0.8" />
+      <output name="outFile" file="picard_CollectRnaSeqMetrics_test1.tab" ftype="tabular" lines_diff="4"/>
+    </test>
+
+    <test>
+      <param name="reference_source_selector" value="history"/>
+      <param name="ref_file" value="picard_CollectRnaSeqMetrics_ref.fa" ftype="fasta"/>
+      <param name="inputFile" value="picard_CollectRnaSeqMetrics.bam" ftype="bam"/>
+      <param name="assume_sorted" value="true" />
+
+      <param name="gene_reference_source_selector" value="gtf" />
+      <param name="refFlat" value="picard_CollectRnaSeqMetrics.gtf" ftype="gtf" />
+      <param name="metric_accumulation_level" value="ALL_READS" />
+      <param name="minimum_length" value="500" />
+      <param name="strand_specificity" value="NONE" />
+      <param name="rrna_fragment_percentage" value="0.8" />
+      <output name="outFile" file="picard_CollectRnaSeqMetrics_test2.tab" ftype="tabular" lines_diff="4"/>
+    </test>
+
+    <test>
+      <param name="reference_source_selector" value="history"/>
+      <param name="ref_file" value="picard_CollectRnaSeqMetrics_ref.fa" ftype="fasta"/>
+      <param name="inputFile" value="picard_CollectRnaSeqMetrics.bam" ftype="bam"/>
+      <param name="assume_sorted" value="true" />
+
+      <param name="gene_reference_source_selector" value="gtf" />
+      <param name="refFlat" value="picard_CollectRnaSeqMetrics.gff3" ftype="gff3" />
+      <param name="metric_accumulation_level" value="ALL_READS" />
+      <param name="minimum_length" value="500" />
+      <param name="strand_specificity" value="NONE" />
+      <param name="rrna_fragment_percentage" value="0.8" />
+      <output name="outFile" file="picard_CollectRnaSeqMetrics_test3.tab" ftype="tabular" lines_diff="4"/>
+    </test>
+  </tests>
+  <help>
+
+.. class:: infomark
+
+**Purpose**
+
+Collects metrics about the alignment of RNA to various functional classes of loci in the genome: coding, intronic, UTR, intergenic, ribosomal.
+
+@dataset_collections@
+
+-----
+
+.. class:: warningmark
+
+**Obtaining gene annotations in refFlat format**
+
+This tool requires gene annotations in refFlat_ format. These data can be obtained from UCSC table browser directly through Galaxy by following these steps:
+
+   1. Click on **Get Data** in the upper part of left pane of Galaxy interface
+   2. Click on **UCSC Main** link
+   3. Set your genome and dataset of interest. It **must** be the same genome build against which you have mapped the reads contained in the BAM file you are analyzing
+   4. In the **output format** field choose **selected fields from primary and related tables**
+   5. Click **get output** button
+   6. In the first table presented at the top of the page select (using checkboxes) first 11 fields:
+      name
+      chrom
+      strand
+      txStart
+      txEnd
+      cdsStart
+      cdsEnd
+      exonCount
+      exonStarts
+      exonEnds
+      proteinId
+   7. Click **done with selection**
+   8. Click **Send query to Galaxy**
+   9. A new dataset will appear in the current Galaxy history
+   10. Use this dataset as the input for **Gene annotations in refFlat form** dropdown of this tool
+
+.. _refFlat: https://genome.ucsc.edu/FAQ/FAQformat.html#format9
+
+@description@
+
+   REF_FLAT=File                 Gene annotations in refFlat form.  Format described here:
+                                 https://genome.ucsc.edu/FAQ/FAQformat.html#format9  Required.
+
+   RIBOSOMAL_INTERVALS=File      Location of rRNA sequences in genome, in interval_list format.  If not specified no bases
+                                 will be identified as being ribosomal. Format described here:
+                                 https://samtools.github.io/htsjdk/javadoc/htsjdk/htsjdk/samtools/util/IntervalList.html and can be
+                                 generated from BED datasetes using Galaxy's wrapper for picard_BedToIntervalList tool
+
+   STRAND_SPECIFICITY=StrandSpecificity
+   STRAND=StrandSpecificity      For strand-specific library prep. For unpaired reads, use FIRST_READ_TRANSCRIPTION_STRAND
+                                 if the reads are expected to be on the transcription strand.  Required. Possible values:
+                                 {NONE, FIRST_READ_TRANSCRIPTION_STRAND, SECOND_READ_TRANSCRIPTION_STRAND}
+
+   MINIMUM_LENGTH=Integer        When calculating coverage based values (e.g. CV of coverage) only use transcripts of this
+                                 length or greater.  Default value: 500.
+
+   IGNORE_SEQUENCE=String        If a read maps to a sequence specified with this option, all the bases in the read are
+                                 counted as ignored bases.
+
+   RRNA_FRAGMENT_PERCENTAGE=Double
+                                 This percentage of the length of a fragment must overlap one of the ribosomal intervals
+                                 for a read or read pair by this must in order to be considered rRNA.  Default value: 0.8.
+
+   METRIC_ACCUMULATION_LEVEL=MetricAccumulationLevel
+   LEVEL=MetricAccumulationLevel The level(s) at which to accumulate metrics.    Possible values: {ALL_READS, SAMPLE,
+                                 LIBRARY, READ_GROUP} This option may be specified 0 or more times.
+
+   ASSUME_SORTED=Boolean
+   AS=Boolean                    If true (default), then the sort order in the header file will be ignored.  Default
+                                 value: true. Possible values: {true, false}
+
+@more_info@
+
+  </help>
+  <expand macro="citations" />
+</tool>

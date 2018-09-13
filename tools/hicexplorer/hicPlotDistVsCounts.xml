@@ -1,0 +1,138 @@
+<tool id="hicexplorer_hicplotdistvscounts" name="@BINARY@" version="@WRAPPER_VERSION@.0">
+    <description>compute distance vs Hi-C counts plot per chromosome</description>
+    <macros>
+        <token name="@BINARY@">hicPlotDistVsCounts</token>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="aggressive"><![CDATA[
+        #import re
+        #set matrices_path=[]
+        #set matrices_labels=[]
+        #for $counter, $m, in enumerate($matrices):
+            #set identifier = re.sub('[^\s\w\-]', '_', str($m.element_identifier))
+            ln -f -s '${m}' '${identifier}_${counter}' &&
+            #silent $matrices_path.append("'%s_%s'" % ($identifier, $counter))
+            #silent $matrices_labels.append("'%s'" % ($identifier))
+        #end for
+
+        @BINARY@
+            --matrices #echo " ".join($matrices_path)#
+            --labels #echo " ".join($matrices_labels)#
+            $skipDiagonal
+            --plotFile plot.png
+            #if $plotsize:
+                --plotsize $plotsize
+            #end if
+            --maxdepth $maxdepth
+            $perchr
+            #set chroms = " ".join([ "'%s'" % $var.chromosomeExclude for $var in $chromosomeExclude ])
+            #if $chromosomeExclude:
+                --chromosomeExclude '$chroms'
+            #end if
+
+            #if $outFileData_Boolean:
+                $outFileData_Boolean ./outFileData
+            #end if
+]]>
+    </command>
+    <inputs>
+        <param argument="--matrices" type="data" format="h5,cool" multiple="True" label="Hi-C corrected matrices"/>
+
+        <param argument="--skipDiagonal" type="boolean" truevalue="--skipDiagonal" falsevalue="" label="Exclude diagonal counts"
+            help="If set, diagonal counts are not included"/>
+        <param argument="--perchr" type="boolean" truevalue="--perchr" falsevalue="" label="Generate plots per chromosome"
+            help="If more than one Hi-C matrix is given for each chromosome a new plot is made. Otherewise, a single plot with one line per chromosome is created." />
+        <param argument="--maxdepth" type="integer" value="3000000" label="Max Depth"
+            help="Maximum distance from diagonal to use. In other words, distances up to maxDeph are computed." />
+        <param argument="--plotsize" type="text" optional="True" label="Plot size"
+            help="Width and height of the plot (in inches). Default is 6 * number of cols, 4 * number of rows. The maximum number of rows is 4. Example: 6 5." />
+        <repeat name="chromosomeExclude" min="0" title="Chromosomes to exclude"
+            help="This is useful for example to exclude the Y chromosome or to reduce the analysis to only a few chromosomes.">
+            <param argument="--chromosomeExclude" type="text" value="" >
+                <validator type="empty_field" />
+            </param>
+        </repeat>
+        <param name='outFileData_Boolean' type='boolean' truevalue='--outFileData'  falsevalue="" checked="false" label="Save data underlying the plots as BAM"
+            help="A bam file containing all data underlying the plots is saved on this file."/>
+    </inputs>
+    <outputs>
+        <data name="plotFile" from_work_dir="plot.png" format="png" label="${tool.name} on [${on_string}]: Plot"/>
+        <data name="outFileData" from_work_dir="outFileData" format="txt" label="${tool.name} data file on ${on_string}">
+            <filter>outFileData_Boolean</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="matrices" ftype="h5" value="small_test_matrix_50kb_res.h5"/>
+            <param name="skipDiagonal" value="False"/>
+            <output name="plotFile" file="hicPlotDistVsCounts_result1.png" ftype="png" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="matrices" ftype="h5" value="small_test_matrix_50kb_res.h5"/>
+            <param name="skipDiagonal" value="False"/>
+            <param name='outFileData_Boolean' value='True'/>
+            <output name="plotFile" file="hicPlotDistVsCounts_result1.png" ftype="png" compare="sim_size"/>
+            <output name="outFileData" file="distVsCounts.txt" ftype="txt" compare="sim_size" delta='600'/>
+        </test>
+        <test>
+            <param name="matrices" ftype="h5" value="small_test_matrix_50kb_res.h5,small_test_matrix_50kb_res.h5"/>
+            <param name="skipDiagonal" value="False"/>
+            <param name="perchr" value="True" />
+            <repeat name="chromosomeExclude">
+                <param name="chromosomeExclude" value="chrUextra"/>
+            </repeat>
+            <repeat name="chromosomeExclude">
+                <param name="chromosomeExclude" value="chrM"/>
+            </repeat>
+            <repeat name="chromosomeExclude">
+                <param name="chromosomeExclude" value="chr3LHet"/>
+            </repeat>
+            <output name="plotFile" file="hicPlotDistVsCounts_result2.png" ftype="png" compare="sim_size" delta="40000"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+Relation of genomic distance and number of contacts
+===================================================
+
+**hicPlotDistVsCounts** allows a quick comparison between multiple Hi-C matrices of the Hi-C counts enrichment at different genomic ranges / distances up to whole chromosome. Biological replicates should display the exact same distribution while samples coming from different cell-lines, treated versus untreated samples or mutant versus wild-type samples should display a different distribution at long and/or close range.
+
+The results of this tool usually reflect the proportion of long-range and short-range contacts calculated in each sample by ``hicQC`` (which is part of ``hicBuildMatrix``). Local TAD or contact enrichments will not impact the results computed by this tool, ``hicPCA`` is better suited for that purpose.
+
+When plotting multiple matrices, the denser ones (more coverage) are scaled down to match the sum of the smaller matrix of the comparison.
+
+_________________
+
+Usage
+-----
+
+**hicPlotDistVsCounts** should be used on corrected matrices with large bins (e.g. at least 30 to 50kb bins), otherwise the curves will be spiky at longer ranges because of the sparness of the contacts, thus the likelyness of the samples will become hard to assess after a certain distance. **hicPlotDistVsCounts** is thus often ran after ``hicMergeMatrixBins`` and ``hicCorrectMatrix``.
+
+_________________
+
+Output
+------
+
+This program makes distance vs. Hi-C counts plots. It can use several matrix files to compare
+them. If the ``--perchr`` option is given, each chromosome is plotted independently.
+Below can be found an example output:
+
+.. image:: $PATH_TO_IMAGES/hicPlotDistVsCounts.png
+   :scale: 50 %
+
+Here, we see that the samples from the first condition are not so well correlated, but they follow the same tendancies and are distinct from the two samples of the second condition. The later are well correlated and display enriched long-range contacts compared to the first condition samples.
+
+
+On the second graph below, the distance vs. Hi-C contact counts is computed and plotted per chromosome:
+
+.. image:: $PATH_TO_IMAGES/hicPlotDistVsCounts_result2.png
+   :scale: 50 %
+
+_________________
+
+| For more information about HiCExplorer please consider our documentation on readthedocs.io_
+
+.. _readthedocs.io: http://hicexplorer.readthedocs.io/en/latest/index.html
+]]></help>
+    <expand macro="citations" />
+</tool>

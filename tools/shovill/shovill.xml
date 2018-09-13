@@ -1,0 +1,169 @@
+<tool id="shovill" name="Shovill" version="0.9.0">
+    <description>Faster SPAdes assembly of Illumina reads</description>
+    <requirements>
+        <requirement type="package" version="0.9.0">shovill</requirement>
+    </requirements>
+    <version_command>shovill --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        shovill
+            --outdir 'out'
+            --cpus \${GALAXY_SLOTS:-1}
+            --ram \${SHOVILL_RAM:-4}
+            #if str($library.lib_type) == "paired"
+                --R1 '$library.R1'
+                --R2 '$library.R2'
+            #else if str($library.lib_type) == "collection"
+                --R1 '$library.input1.forward'
+                --R2 '$library.input1.reverse'
+            #end if
+            $trim
+            --namefmt "$adv.namefmt"
+            --depth '$adv.depth'
+            #if $adv.gsize
+                --gsize '$adv.gsize'
+            #end if
+            #if $adv.kmers
+                --kmers '$adv.kmers'
+            #end if
+            #if $adv.opts
+                --opts '$adv.opts'
+            #end if
+            $adv.nocorr
+            --minlen $adv.minlen
+            --mincov $adv.mincov
+            --asm $adv.asm
+
+    ]]></command>
+    <inputs>
+        <conditional name="library">
+            <param name="lib_type" type="select" label="Input reads type, collection or single library" help="Select 'paired end' for a single library or 'collection' for a paired end collection">
+                <option value="paired" selected="true">Paired End</option>
+                <option value="collection">Paired Collection</option>
+            </param>
+            <when value="paired">
+                <param name="R1" type="data" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2" label="Forward reads (R1)" help="The file of forward reads in FASTQ format"/>
+                <param name="R2" type="data" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2" label="Reverse reads (R2)" help="The file of reverse reads in FASTQ format"/>
+            </when>
+            <when value="collection">
+                <param name="input1" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2" type="data_collection" collection_type="paired" label="Paired collection" help="See help section for an explanation of dataset collections"/>
+            </when>
+        </conditional>
+        <param name="trim" argument="--trim" type="boolean" truevalue="--trim" falsevalue="" label="Trim reads" help="Use Trimmomatic to remove common adaptors first (default: OFF)" />
+        <param name="log" type="boolean" label="Output log file?" checked="true" help="Return the Shovill log file as part of the output. Default is on" />
+        <section name="adv" title="Advanced options" expanded="False">
+            <param name="namefmt" argument="--namefmt" type="text" value="contig%05d" label="Contig name format" help="Format of contig FASTA IDs in 'printf' style (default: 'contig%05d')" >
+                <sanitizer>
+                    <valid initial="string.printable" />
+                </sanitizer>
+            </param>
+            <param name="depth" argument="--depth" type="integer" value="100" label="Depth" help="Sub-sample --R1/--R2 to this depth. Disable with --depth 0 (default: 100)" />
+            <param name="gsize" argument="--gsize" type="text" value="" label="Estimated genome size" help="An estimate of the final genome size, it will autodetect if this is blank. (default: '')" />
+            <param name="kmers" argument="--kmers" type="text" value="" label="List of kmer sizes to use" help="List of K-mer sizes to use in SPAdes. Blank is AUTO. default: ''" />
+            <param name="opts" argument="--opts" type="text" value="" label="Extra SPAdes options" help="eg. --plasmid --sc ... (default: '')" />
+            <param name="nocorr" argument="--nocorr" type="boolean" truevalue="--nocorr" falsevalue="" checked="True" label="Disable post-assembly correction" help="Disable post assembly correction with pilon (default: ON)" />
+            <param name="minlen" argument="--minlen" type="integer" value="0" label="Minimum contig length" help="Minimum length of contig to be output. 0 is AUTO (default: 0)" />
+            <param name="mincov" argument="--mincov" type="integer" value="2" label="Minimum contig coverage" help="Minimum coverage to call part of a contig. 0 is AUTO (default: 2)" />
+            <param name="asm" argument="--asm" type="select" label="Spades result to correct" help="Which SPAdes output to correct for: before_rr, contigs or scaffolds. (default: 'contigs')">
+                <option value="before_rr">before_rr</option>
+                <option value="contigs" selected="true">contigs</option>
+                <option value="scaffolds">scaffolds</option>
+            </param>
+        </section>
+    </inputs>
+
+    <outputs>
+        <data name="shovill_std_log" format="txt" label="${tool.name} on ${on_string} Log file" from_work_dir="out/00-shovill.log" >
+            <filter>log</filter>
+        </data>
+        <data format="fasta" name="contigs" label="${tool.name} on ${on_string}: Contigs" from_work_dir="out/contigs.fa"/>
+        <data format="txt" name="contigs_graph" label="${tool.name} on ${on_string}: Contig Graph" from_work_dir="out/contigs.gfa"/>
+    </outputs>
+
+    <tests>
+        <test> <!-- Test 0: Basic test -->
+            <param name="lib_type" value="paired" />
+            <param name="R1" value="mutant_R1.fastq" ftype="fastqsanger" />
+            <param name="R2" value="mutant_R2.fastq" ftype="fastqsanger" />
+            <output name="contigs" ftype="fasta">
+                <assert_contents>
+                    <has_text text="&gt;contig00001"/>
+                </assert_contents>
+            </output>
+            <output name="shovill_std_log" ftype="txt" >
+                <assert_contents>
+                    <has_text text="Running: seqtk"/>
+                    <has_text text="Running: kmc"/>
+                    <has_text text="Running: lighter"/>
+                    <has_text text="User supplied --nocorr"/>
+                    <has_text text="Running: flash"/>
+                    <has_text text="Running: spades"/>
+                    <has_text text="Done."/>
+                </assert_contents>
+            </output>
+        </test>
+        <test> <!-- Test 1: Auto everything + trim + different name format test -->
+            <param name="lib_type" value="paired" />
+            <param name="R1" value="mutant_R1.fastq" ftype="fastqsanger" />
+            <param name="R2" value="mutant_R2.fastq" ftype="fastqsanger" />
+            <param name="trim" value="true" />
+            <section name="adv">
+                <param name="depth" value="0"/>
+                <param name="minlen" value="0"/>
+                <param name="mincov" value="0"/>
+                <param name="nocorr" value="false"/>
+                <param name="namefmt" value="contig%03d"/>
+            </section>
+            <output name="contigs" ftype="fasta">
+                <assert_contents>
+                    <has_text text="&gt;contig001"/>
+                </assert_contents>
+            </output>
+            <output name="shovill_std_log" ftype="txt" >
+                <assert_contents>
+                    <has_text text="Running: seqtk"/>
+                    <has_text text="Running: kmc"/>
+                    <has_text_matching expression="Running:\s+\S+\s+trimmomatic"/>
+                    <has_text text="Running: lighter"/>
+                    <has_text text="Running: flash"/>
+                    <has_text text="Running: spades"/>
+                    <has_text text="Running: bwa index"/>
+                    <has_text text="Running: (bwa mem"/>
+                    <has_text text="Running: _JAVA"/>
+                    <has_text text="Done."/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+Synopsis:
+  Faster de novo assembly pipeline for Illumina paired end reads based around Spades
+
+Details and options:
+    - Takes paired end Illumina fastq reads
+    - Trim reads:   Use Trimmomatic to remove common adaptors first (default: OFF)
+    - Output log file:  If set to "Yes", tool will return Shovill's log file as part of the output
+
+Advanced options:
+    - Name format:          Format of output contig FASTA IDs in 'printf' style (default: 'contig%05d')
+    - Depth:                Sub-sample the reads to this depth. Disable with *Depth: 0* (default: 100)
+    - Estimated genomesize: An estimate of the final genome size, it will autodetect if this is blank. (default: '')
+    - List of kmers to use: List of K-mer sizes to use in SPAdes. Blank is AUTO. (default: '')
+    - Extra SPAdes options: Extra SPAdes options eg. --plasmid --sc ... (default: '')
+    - Disable post-assembly correction: Disable post assembly correction with pilon (default: ON)
+    - Minimum contig length:    Minimum length of contig to be output. 0 is AUTO (default: 0)
+    - Minimum contig coverage:  Minimum coverage to call part of a contig. 0 is AUTO (default: 2)
+    - Spades result to correct: Spades result to correct: before_rr, contigs or scaffolds (default: 'contigs')
+
+Documentation can be found at Torsten Seemann `site <https://github.com/tseemann/shovill>`_.
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+@UNPUBLISHED{Seemann2017,
+    author = {Seemann, Torsten},
+    title = {Shovill: Faster SPAdes assembly of Illumina reads},
+    year = {2017},
+    url = {https://github.com/tseemann/shovill},
+}
+        </citation>
+    </citations>
+</tool>

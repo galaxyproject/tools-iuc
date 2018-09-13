@@ -1,0 +1,240 @@
+<tool id="quast" name="Quast" version="4.6.3" >
+    <description>Genome assembly Quality</description>
+    <requirements>
+        <requirement type="package" version="4.6.3">quast</requirement>
+    </requirements>
+    <stdio>
+        <regex match="ERROR! exception caught!"
+            source="both"
+            level="fatal"
+            description="Something went wrong. Check the following errors : No labels..." />
+    </stdio>
+    <command>
+    <![CDATA[
+        #import re
+        quast
+        --threads \${GALAXY_SLOTS:-4}
+        -o outputdir
+        #if $gene_selection == "eukaryote":
+            --eukaryote
+        #else if $gene_selection == "metagenes":
+            --meta
+        #end if
+        #if $input_ref:
+            -R '$input_ref'
+            #if $input_operon:
+                -O '$input_operon'
+            #end if
+            #if $annot:
+                -G '$annot'
+            #end if
+        #end if
+        #if $input_size:
+            --est-ref-size $input_size
+        #end if
+        --min-contig $min_contig
+        -l
+        #set names = ','.join( ['"'+ re.sub('[^\w\-_]', '_', str( $x.element_identifier))+'"' for $x in $input ])
+
+        $names
+        --contig-thresholds $threshold_contig
+        #for $k in $input:
+            $k 
+        #end for
+        &&
+        mv outputdir/report.tsv '$quast_tsv' &&
+        ## The sed string below removes non-functional "Main menu" button from the viewer
+        sed '\:<div class="btn btn-inverse" id="to_main_menu_button">:,\:</div>:d' outputdir/icarus_viewers/contig_size_viewer.html > '$contig_size_viewer' &&
+        #if $input_ref:
+            ## The sed string below removes non-functional "Main menu" button from the viewer
+            sed '\:<div class="btn btn-inverse" id="to_main_menu_button">:,\:</div>:d' outputdir/icarus_viewers/alignment_viewer.html > '$alignment_viewer' &&
+        #end if
+        ## The sed string below removes non-functional link from the report page
+        sed "\:<div id='icarus-json'>:,\:</div>:d" outputdir/report.html > '$report_html' &&
+        mv outputdir/report.pdf '$report_pdf' &&
+        mv outputdir/contigs_reports/misassemblies_report.tsv '$mis_ass_tsv' &&
+        mv outputdir/contigs_reports/unaligned_report.tsv '$unalign_tsv' &&
+        mv outputdir/quast.log '$log_txt'
+    ]]>
+    </command>
+    <inputs>
+        <param type="data" format="fasta" name="input" label="Contigs/scaffolds output file" multiple="True"/>
+        <param name="type_file" type="select" label="Type of data">
+            <option value="contig">Contig</option>
+            <option value="scaffold">Scaffold</option>
+        </param>
+        <param name="input_size" type="integer" label="Size of reference genome" optional="True"  argument="--est-ref-size"
+            help="Estimated reference genome size (in bp) for computing NGx statistics, if known. This value will be used only if a reference genome file is not specified "/>
+        <param name="input_ref" type="data" format="fasta" label="Reference genome" optional="True"  argument="-R"
+            help="Many metrics can't be evaluated without a reference. If this is omitted, QUAST will only report the metrics that can be evaluated without a reference."/>
+        <param name="annot" type="data" format="gff, gff3, bed" label="Gene Annotations" optional="True" argument="-G"
+            help="Gene coordinates for the reference genome (only relevant if the reference genome is used). "/>
+        <param name="input_operon" type="data" format="gff, gff3, bed" label="Operon Annotations"  optional="True" argument="-O" help="Operon coordinates for the reference genome (only relevant if the reference genome is used)."/>
+        <param name="gene_selection" type="select" label="Type of organism">
+            <option value="prokaryotes">Prokaryotes</option>
+            <option value="eukaryote">Eukaryote</option>
+        </param>
+        <param name="min_contig" type="integer" value="500" label="Lower Threshold"  argument="--min-contig"
+            help="Set the lower threshold for a contig length. Shorter contigs won't be taken into account [default is 500]"/>
+        <param name="threshold_contig" type="text" value="0,1000" label="Thresholds" argument="--contig-thresholds"
+            help="Set the thresholds for contig length. Comma-separated list of contig length thresholds.[default is 0,1000]"/>
+    </inputs>
+    <outputs>
+        <data format="txt" name="log_txt" label="Quast: Log" />
+        <data format="tabular" name="mis_ass_tsv" label="Quast: Misassemblies">
+            <filter>input_ref is not None</filter>
+        </data>
+        <data format="tabular" name="unalign_tsv" label="Quast: Unaligned contigs">
+            <filter>input_ref is not None</filter>
+        </data>
+        <data format="html" name="contig_size_viewer" label="Quast: Contig view"/>
+        <data format="html" name="alignment_viewer" label="Quast: Alignment view">
+            <filter>input_ref is not None</filter>
+        </data>
+        <data format="tabular" name="quast_tsv" label="Quast: Report (tabulal)"/>
+        <data format="html" name="report_html" label="Quast: Report (HTML)"/>
+        <data format="pdf" name="report_pdf" label="Quast: Report (PDF)"/>
+    </outputs>
+    <tests>
+        <test>
+            <!-- Test with reference and genes annotations -->
+            <param name="input" value="contigs2.fna,contigs1.fna"/>
+            <param name="input_ref" value="reference.fna"/>
+            <param name="type_file" value="contig"/>
+            <param name="annot" value="genes.gff"/>
+            <param name="gene_selection" value="prokaryotes"/>
+            <output name="quast_tsv" file="test1_output.tsv" lines_diff="4"/>
+        </test>
+        <test>
+            <!-- Test without reference -->
+            <param name="input" value="contigs2.fna,contigs1.fna"/>
+            <param name="type_file" value="contig"/>
+            <output name="quast_tsv" file="test2_output.tsv" lines_diff="4"/>
+        </test>
+    </tests>
+    <help>
+<![CDATA[
+**What it does**
+
+QUAST = QUality ASsessment Tool. The tool evaluates genome assemblies by computing various metrics.
+
+If you have one or multiple genome assemblies, you can assess their quality with Quast. It works with or without reference genome. If you are new to Quast, start by reading its `manual page <http://quast.bioinf.spbau.ru/manual.html>`_.
+
+**Using Quast without reference**
+
+Without reference Quast can calculate a number of assembly related-metrics but cannot provide any information about potential misassemblies, inversions, translocations, etc. Suppose you have three assemblies produced by Unicycler corresponding to three different antibiotic treatments *car*, *pit*, and *cef* (these stand for carbenicillin, piperacillin, and cefsulodin, respectively). Evaluating them without reference will produce the following Quast outputs:
+ 
+ * Quast report in HTML format
+ * `Contig viewer <http://quast.bioinf.spbau.ru/manual.html#sec3.4>`_ (an HTML file)
+ * `Quast report <http://quast.bioinf.spbau.ru/manual.html#sec3.1.1>`_ in Tab-delimited format
+ * Quast log (a file technical information about Quast tool execution)
+
+The **tab delimited Quast report** will contain the following information::
+
+ Assembly                  pit_fna cef_fna car_fna
+ # contigs (>= 0 bp)           100      91      94
+ # contigs (>= 1000 bp)         62      58      61
+ Total length (>= 0 bp)    6480635 6481216 6480271
+ Total length (>= 1000 bp) 6466917 6468946 6467103
+ # contigs                      71      66      70
+ Largest contig             848753  848766  662053
+ Total length              6473173 6474698 6473810
+ GC (%)                      66.33   66.33   66.33
+ N50                        270269  289027  254671
+ N75                        136321  136321  146521
+ L50                             7       7       8
+ L75                            15      15      16
+ # N's per 100 kbp            0.00    0.00    0.00
+
+where values are defined as specified in `Quast manual <http://quast.bioinf.spbau.ru/manual.html#sec3.1.1>`_
+
+**Quast report in HTML format** contains graphs in addition to the above metrics, while **Contig viewer** draws contigs ordered from longest to shortest. This ordering is suitable for comparing only largest contigs or number of contigs longer than a specific threshold. The viewer shows N50 and N75 with color and textual indication. If the reference genome is available or at least approximate genome length is known (see `--est-ref-size`), NG50 and NG75 are also shown. You can also tone down contigs shorter than a specified threshold using Icarus control panel:
+
+.. image:: $PATH_TO_IMAGES/contig_view_noR.png
+   :width: 558
+   :height: 412
+
+Also see `Plot description <http://quast.bioinf.spbau.ru/manual.html#sec3.2>`_ section of the manual. 
+
+**Using Quast with reference**
+
+Car, pit, and cef are in fact assemblies of *Pseudomonas aeruginosa* UCBPP-PA14, so we can use its genome as a reference (by supplying a Fasta file containing *P. aeruginosa* pa14 genome to **Reference genome** input box). The following outputs will be produced (note the alignment viewer):
+
+ * Quast report in HTML format
+ * `Contig viewer <http://quast.bioinf.spbau.ru/manual.html#sec3.4>`_ (an HTML file)
+ * `Alignment viewer <http://quast.bioinf.spbau.ru/manual.html#sec3.4>`_ (an HTML file)
+ * `Quast report <http://quast.bioinf.spbau.ru/manual.html#sec3.1.1>`_ in Tab-delimited format
+ * Summary of `misassemblies <http://quast.bioinf.spbau.ru/manual.html#sec3.1.2>`_
+ * Summary of `unaligned contigs <http://quast.bioinf.spbau.ru/manual.html#sec3.1.3>`_
+ * Quast log (a file technical information about Quast tool execution)
+
+With the reference Quast produces a much more comprehensive set of results::
+
+ Assembly                  pit_fna cef_fna car_fna
+ # contigs (>= 0 bp)           100      91      94
+ # contigs (>= 1000 bp)         62      58      61
+ Total length (>= 0 bp)    6480635 6481216 6480271
+ Total length (>= 1000 bp) 6466917 6468946 6467103
+ # contigs                      71      66      70
+ Largest contig             848753  848766  662053
+ Total length              6473173 6474698 6473810
+ Reference length          6537648 6537648 6537648
+ GC (%)                      66.33   66.33   66.33
+ Reference GC (%)            66.29   66.29   66.29
+ N50                        270269  289027  254671
+ NG50                       270269  289027  254671
+ N75                        136321  136321  146521
+ NG75                       136321  136321  136321
+ L50                             7       7       8
+ LG50                            7       7       8
+ L75                            15      15      16
+ LG75                           15      15      17
+ # misassemblies                 0       0       0
+ # misassembled contigs          0       0       0
+ Misassembled contigs length     0       0       0
+ # local misassemblies           1       1       2
+ # unaligned mis. contigs        0       0       0
+ # unaligned contigs         0 + 0   0 + 0   0 + 0
+                              part    part    part
+ Unaligned length                0       0       0
+ Genome fraction (%)        99.015  99.038  99.025
+ Duplication ratio           1.000   1.000   1.000
+ # N's per 100 kbp            0.00    0.00    0.00
+ # mismatches per 100 kbp     3.82    3.63    3.49
+ # indels per 100 kbp         1.19    1.13    1.13
+ Largest alignment          848753  848766  662053
+ Total aligned length      6473163 6474660 6473792
+ NA50                       270269  289027  254671
+ NGA50                      270269  289027  254671
+ NA75                       136321  136321  146521
+ NGA75                      136321  136321  136321
+ LA50                            7       7       8
+ LGA50                           7       7       8
+ LA75                           15      15      16
+ LGA75                          15      15      17 
+
+where, again, values are defined as specified in `Quast manual <http://quast.bioinf.spbau.ru/manual.html#sec3.1.1>`_. You can see that this report includes a variety of data that can only be computer against a reference assembly. 
+
+ Using reference also produces an **Alignment viewer**:
+
+.. image:: $PATH_TO_IMAGES/Align_view.png
+   :width: 515
+   :height: 395
+
+Alignment viewer highlights regions of interest as, in this case, missassemblies that can potentially point to genome rearrangements (see more `here <http://quast.bioinf.spbau.ru/manual.html#sec3.4>`_).
+
+    ]]>
+    </help>
+
+    <citations>
+        <citation type="bibtex">@ARTICLE{a1,
+            author = {Alexey Gurevich, Vladislav Saveliev, Nikolay Vyahhi, Glenn Tesler},
+            title = {QUAST: quality assessment tool for genomce assemblies, Bioinformatics (2013) 29 (8): 1072-1075}
+        }</citation>
+        <citation type="bibtex">@misc{quast41,
+            title = {{Quast} v4.1},
+            howpublished = {http://bioinf.spbau.ru/quast},
+            note = {Released May 2016}}
+        }</citation>
+    </citations>
+</tool>

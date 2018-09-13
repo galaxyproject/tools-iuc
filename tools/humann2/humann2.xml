@@ -1,0 +1,383 @@
+<tool id="humann2" name="HUMAnN2" version="@WRAPPER_VERSION@.0">
+    <description>to profile presence/absence and abundance of microbial pathways and gene families</description>
+    <macros>
+        <import>humann2_macros.xml</import>
+    </macros>
+    <expand macro="requirements">        
+        <requirement type="package" version="2.3.0">bowtie2</requirement>
+        <requirement type="package" version="2.6.0">metaphlan2</requirement>
+        <requirement type="package" version="0.8.24">diamond</requirement>
+        <requirement type="package" version="2.24">rapsearch</requirement>
+        <requirement type="package" version="2.7.10">python</requirement>
+    </expand>
+    <expand macro="version"/>
+    <command detect_errors="exit_code"><![CDATA[
+#if $nucleotide_db.nucleotide_db_selector == "history"
+    mkdir nucleotide_db
+    &&
+    #for $file in $nucleotide_db.nucleotide_database:
+        cp '$file' 'nucleotide_db/$file.name' &&
+    #end for
+#end if
+
+#if $protein_db.protein_db_selector == "history"
+    mkdir protein_db
+    &&
+    #if $translated_alignment == "diamond"
+        diamond makedb
+            --in '$protein_db.protein_database'
+            --db 'protein_db/protein_db'
+            --threads "\${GALAXY_SLOTS:-4}"
+    #else
+        prerapsearch 
+            -d '$protein_db.protein_database'
+            -n 'protein_db/protein_db'
+    #end if
+    &&
+#end if
+
+#if $taxo_profile.taxonomic_profile_test == "false"
+    #if $taxo_profile.metaphlan2_db_choice.metaphlan2_db_selector == "history"
+        mkdir ref_db
+        &&
+        bowtie2-build '$taxo_profile.metaphlan2_db_choice.bowtie2db' 'ref_db/ref_db'
+        &&
+        python '$__tool_directory__/transform_json_to_pkl.py'
+            --json_input '$taxo_profile.metaphlan2_db_choice.mpa_pkl'
+            --pkl_output 'ref_db/metadata.pkl'
+        &&
+    #end if
+#end if
+
+humann2
+    --input '$input'
+    -o 'output'
+    $bypass.bypass_prescreen
+    $bypass.bypass_nucleotide_index
+    $bypass.bypass_translated_search
+    $bypass.bypass_nucleotide_search
+    
+    #set $metaphlan_option = "-t rel_ab"
+    #if $taxo_profile.taxonomic_profile_test == "true":
+        --taxonomic-profile '$taxo_profile.taxonomic_profile'
+    #else
+        #if $taxo_profile.metaphlan2_db_choice.metaphlan2_db_selector == "history"
+            #set $metaphlan_option += " --bowtie2db " + 'ref_db/ref_db'
+            #set $metaphlan_option += " --mpa_pkl " + 'ref_db/metadata.pkl'
+        #else
+            #set $path = $taxo_profile.metaphlan2_db_choice.cached_db.fields.path
+            #set $value = $taxo_profile.metaphlan2_db_choice.cached_db.fields.value
+            #set $metaphlan_option += " --bowtie2db " + $path + "/" + $value
+            #set $metaphlan_option += " --mpa_pkl " + $path + "/" + $value + ".pkl"
+        #end if
+    #end if
+    --metaphlan-options="$metaphlan_option"
+
+    #if $nucleotide_db.nucleotide_db_selector == "cached"
+        --nucleotide-database '$nucleotide_db.nucleotide_database.fields.path'
+    #else
+        --nucleotide-database nucleotide_db
+    #end if
+
+    --translated-alignment '$translated_alignment'
+    #if $protein_db.protein_db_selector == "cached"
+        --protein-database '$protein_db.protein_database.fields.path'
+    #else
+        --protein-database protein_db
+    #end if
+    --search-mode '$search_mode'
+    --pathways '$pathways' 
+
+    --annotation-gene-index $adv.annotation_gene_index
+    --evalue '$adv.evalue'
+    --threads "\${GALAXY_SLOTS:-4}"
+    --memory-use minimum
+    --prescreen-threshold '$adv.prescreen_threshold'
+    --identity-threshold '$adv.identity_threshold'
+    --translated-subject-coverage-threshold '$adv.translated_subject_coverage_threshold'
+    --translated-query-coverage-threshold '$adv.translated_query_coverage_threshold'
+    #if $adv.id_mapping
+        --id-mapping '$adv.id_mapping'
+    #end if
+    --xipe '$adv.xipe'
+    --minpath '$adv.minpath'
+    --pick-frames '$adv.pick_frames'
+    --gap-fill '$adv.gap_fill'
+    --output-format '$adv.output_format'
+    --output-max-decimals '$adv.output_max_dec'
+    --output-basename 'humann2'
+    $adv.remove_statified_output
+    $adv.remove_column_description_output
+    ]]></command>
+    <inputs>
+        <param argument="--input" type="data" format="fastq,fasta,sam,bam,biom1" label="Input sequence file"/>
+        <section name="bypass" title="Options to bypass some steps" expanded="False">
+            <param name="bypass_prescreen" argument="--bypass-prescreen" type="boolean" truevalue="--bypass-prescreen" falsevalue="" checked="false" label="Bypass the prescreen step and run on the full ChocoPhlAn database?"/>
+            <param name="bypass_nucleotide_index" argument="--bypass-nucleotide-index" type="boolean" truevalue="--bypass-nucleotide-index" falsevalue="" checked="false" label="Bypass the nucleotide index step and run on the indexed ChocoPhlAn database?"/>
+            <param name="bypass_translated_search" argument="--bypass-translated-search" type="boolean" truevalue="--bypass-translated-search" falsevalue="" checked="false" label="Bypass the translated search step?"/>
+            <param name="bypass_nucleotide_search" argument="--bypass-nucleotide-search" type="boolean" truevalue="--bypass-translated-search" falsevalue="" checked="false" label="Bypass the nucleotide search steps?"/>
+        </section>
+        <conditional name="taxo_profile">
+            <param name="taxonomic_profile_test" type="select" label="Use a custom taxonomic profile?" help="The file must have been created by MetaPhlan2">
+                <option value="true">Yes</option>
+                <option value="false" selected="true">No</option>
+            </param>
+            <when value="true">
+                <param name="taxonomic_profile" argument="--taxonomic-profile" type="data" format="tabular,txt" label="Taxonomic profile file"/>
+            </when>
+            <when value="false">
+                <conditional name="metaphlan2_db_choice">
+                    <param name="metaphlan2_db_selector" type="select" label="Database with clade-specific marker genes">
+                        <option value="cached" selected="true">Default MetaPhlAn2 database</option>
+                        <option value="history">From history</option>
+                    </param>
+                    <when value="cached">
+                        <param name="cached_db" label="Cached database with clade-specific marker genes" type="select" >
+                            <options from_data_table="metaphlan2_database" />
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param argument="--bowtie2db" type="data" format="fasta" label="Database with clade-specific marker genes from history"/>
+                        <param argument="--mpa_pkl" type="data" format="json" label="Metadata associate to the database with clade-specific marker genes from history"/>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+        <conditional name="nucleotide_db">
+            <param name="nucleotide_db_selector" type="select" label="Nucleotide database" help="For locally cached databases, you need first to execute the tool to download HUMAnN2 databases">
+                <option value="cached" selected="true">Locally cached</option>
+                <option value="history">From history (as collection)</option>
+            </param>
+            <when value="cached">
+                <param name="nucleotide_database" type="select" label="Nucleotide database">
+                    <options from_data_table="humann2_nucleotide_database"/>
+                </param>
+            </when>
+            <when value="history">
+                <param format="fasta" name="nucleotide_database" argument="--nucleotide-database" type="data_collection" collection_type="list" label="Nucleotide database from history" help="Each file must be named: ^[g__].[s__]"/>
+            </when>
+        </conditional>
+        <param name="translated_alignment" argument="--translated-alignment" type="select" label="Software to use for translated alignment">
+            <option value="rapsearch">Rapsearch</option>
+            <option value="diamond" selected="true">Diamond</option>
+        </param>
+        <conditional name="protein_db">
+            <param name="protein_db_selector" type="select" label="Protein database" help="For locally cached databases, you need first to execute the tool to download HUMAnN2 databases">
+                <option value="cached" selected="true">Locally cached</option>
+                <option value="history">From history</option>
+            </param>
+            <when value="cached">
+                <param name="protein_database" type="select" label="Protein database">
+                    <options from_data_table="humann2_protein_database"/>
+                </param>
+            </when>
+            <when value="history">
+                <param name="protein_database" argument="--protein-database" type="data" format="fasta" label="Protein database from history"/>
+            </when>
+        </conditional>
+        <param name="search_mode" argument="--search-mode" type="select" label="Search for uniref50 or uniref90 gene families?">
+            <option value="uniref50" selected="true">uniref50</option>
+            <option value="uniref90">uniref90</option>
+        </param>
+        <param name="pathways" type="select" label="Database to use for pathway computations" help="(--pathways)">
+            <option value="metacyc" selected="true">MetaCyc</option>
+            <option value="unipathway">UniPathway</option>
+        </param>
+
+        <section name="adv" title="Advanced Options" expanded="False">
+            <param name="annotation_gene_index" argument="--annotation-gene-index" type="integer" value="8" label="Index of the gene in the sequence annotation"/>
+            <param argument="--evalue" type="float" value="1" label="E-value threshold to use with the translated search"/>
+            <param name="prescreen_threshold" argument="--prescreen-threshold" type="float" value="0.01" label="Minimum percentage of reads matching a species"/>
+            <param name="identity_threshold" argument="--identity-threshold" type="float" value="50" label="Identity threshold for alignments"/>
+            <param name="translated_subject_coverage_threshold" argument="--translated-subject-coverage-threshold" type="float" value="50" label="Subject coverage threshold for translated alignments"/>
+            <param name="translated_query_coverage_threshold" argument="--translated-query-coverage-threshold" type="float" value="50" label="Subject coverage threshold for translated alignments"/>
+            <param name="id_mapping" argument="--id-mapping" type="data" format="tsv" optional="true" label="id mapping file for alignments"/>
+            <param argument="--xipe" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Use xipe computation?"/>
+            <param argument="--minpath" type="boolean" truevalue="on" falsevalue="off" checked="true" label="Use minpath computation?"/>
+            <param name="pick_frames" argument="--pick-frames" type="boolean" truevalue="on" falsevalue="off" checked="true" label="Use pick frames computation?"/>
+            <param name="gap_fill" argument="--gap-fill" type="boolean" truevalue="on" falsevalue="off" checked="true" label="Use gap fill computation?"/>
+            <param name="output_format" argument="--output-format" type="select" label="Format of the output files">
+                <option value="tsv" selected="true">TSV</option>
+                <option value="biom">BIOM</option>
+            </param>
+            <param name="output_max_dec" argument="--output-max-decimals" type="integer" value="10" label="Number of decimals to output"/>
+            <param name="remove_statified_output" argument="--remove-stratified-output" type="boolean" truevalue="--remove-stratified-output" falsevalue="" checked="false" label="Remove stratification from output?"/>
+            <param name="remove_column_description_output" argument="--remove-column-description-output" type="boolean" truevalue="--remove-column-description-output" falsevalue="" checked="false" label="Remove stratification from output?"/>
+            
+        </section>
+    </inputs>
+    <outputs>
+        <data format="tsv" name="gene_families_tsv" from_work_dir="output/humann2_genefamilies.tsv" label="${tool.name} on ${on_string}: Gene families and their abundance" >
+            <filter>adv['output_format'] == "tsv"</filter>
+        </data>
+        <data format="biom1" name="gene_families_biom" from_work_dir="output/humann2_genefamilies.biom" label="${tool.name} on ${on_string}: Gene families and their abundance" >
+            <filter>adv['output_format'] == "biom"</filter>
+        </data>
+        <data format="tsv" name="pathcoverage_tsv" from_work_dir="output/humann2_pathcoverage.tsv" label="${tool.name} on ${on_string}: Pathways and their coverage" >
+            <filter>adv['output_format'] == "tsv"</filter>
+        </data>
+        <data format="biom1" name="pathcoverage_biom" from_work_dir="output/humann2_pathcoverage.biom" label="${tool.name} on ${on_string}: Pathways and their coverage" >
+            <filter>adv['output_format'] == "biom"</filter>
+        </data>
+        <data format="tsv" name="pathabundance_tsv" from_work_dir="output/humann2_pathabundance.tsv" label="${tool.name} on ${on_string}: Pathways and their abundance" >
+            <filter>adv['output_format'] == "tsv"</filter>
+        </data>
+        <data format="biom1" name="pathabundance_biom" from_work_dir="output/humann2_pathabundance.biom" label="${tool.name} on ${on_string}: Pathways and their abundance" >
+            <filter>adv['output_format'] == "biom"</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input" value="input_sequences.fasta"/>
+            <param name="bypass_prescreen" value=""/>
+            <param name="bypass_nucleotide_index" value=""/>
+            <param name="bypass_translated_search" value=""/>
+            <param name="bypass_nucleotide_search" value=""/>
+            <param name="nucleotide_db_selector" value="history"/>
+            <param name="nucleotide_database">
+                <collection type="list">
+                    <element name="g__Bacteroides.s__Bacteroides_stercoris.centroids.v0.1.1" ftype="fasta" value="g__Bacteroides.s__Bacteroides_stercoris.centroids.v0.1.1.ffn.gz" />
+                    <element name="g__Bacteroides.s__Bacteroides_thetaiotaomicron.centroids.v0.1.1" ftype="fasta" value="g__Bacteroides.s__Bacteroides_thetaiotaomicron.centroids.v0.1.1.ffn.gz" />
+                </collection>
+            </param>
+            <param name="annotation_gene_index" value="8" />
+            <param name="protein_db_selector" value="history"/>
+            <param name="protein_database" value="reduced_uniref50.fasta"/>
+            <param name="evalue" value="1"/>
+            <param name="search_mode" value="uniref50"/>
+            <param name="prescreen_threshold" value="0.01"/>
+            <param name="identity_threshold" value="50"/>
+            <param name="translated_subject_coverage_threshold" value="50"/>
+            <param name="translated_query_coverage_threshold" value="50"/>
+            <param name="taxonomic_profile_test" value="true"/>
+            <param name="taxonomic_profile" value="taxonomic_profile.tabular"/>
+            <param name="translated_alignment" value="diamond"/>
+            <param name="xipe" value="off"/>
+            <param name="minpath" value="on"/>
+            <param name="pick_frames" value="on"/>
+            <param name="gap_fill" value="off"/>
+            <param name="output_format" value="tsv"/>
+            <param name="output_max_dec" value="10"/>
+            <param name="remove_statified_output" value=""/>
+            <param name="remove_column_description_output" value=""/>
+            <param name="pathways" value="metacyc"/>
+            <output name="gene_families_tsv">
+                <assert_contents>
+                    <has_text text="UniRef50_R5C4D7|g__Bacteroides.s__Bacteroides_thetaiotaomicron" />
+                    <has_text text="UniRef50_R5NYX5: Sodium ion-translocating decarboxylase beta subunit|g__Bacteroides.s__Bacteroides_thetaiotaomicron" />
+                    <has_text text="UniRef50_A0A016FAQ7: N-6 DNA Methylase family protein (Fragment)|g__Bacteroides.s__Bacteroides_stercoris"/>
+                </assert_contents>
+            </output>
+            <output name="pathcoverage_tsv">
+                <assert_contents>
+                    <has_text text="UNMAPPED" />
+                    <has_text text="UNINTEGRATED" />
+                </assert_contents>
+            </output>
+            <output name="pathabundance_tsv">
+                <assert_contents>
+                    <has_text text="UNMAPPED" />
+                    <has_text text="UNINTEGRATED" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input" value="input_sequences.fasta"/>
+            <param name="bypass_prescreen" value=""/>
+            <param name="bypass_nucleotide_index" value=""/>
+            <param name="bypass_translated_search" value=""/>
+            <param name="bypass_nucleotide_search" value=""/>
+            <param name="nucleotide_db_selector" value="history"/>
+            <param name="nucleotide_database">
+                <collection type="list">
+                    <element name="g__Bacteroides.s__Bacteroides_stercoris.centroids.v0.1.1" ftype="fasta" value="g__Bacteroides.s__Bacteroides_stercoris.centroids.v0.1.1.ffn.gz" />
+                    <element name="g__Bacteroides.s__Bacteroides_thetaiotaomicron.centroids.v0.1.1" ftype="fasta" value="g__Bacteroides.s__Bacteroides_thetaiotaomicron.centroids.v0.1.1.ffn.gz" />
+                </collection>
+            </param>
+            <param name="annotation_gene_index" value="8" />
+            <param name="protein_db_selector" value="history"/>
+            <param name="protein_database" value="reduced_uniref50.fasta"/>
+            <param name="evalue" value="1"/>
+            <param name="search_mode" value="uniref90"/>
+            <param name="prescreen_threshold" value="0.01"/>
+            <param name="identity_threshold" value="50"/>
+            <param name="translated_subject_coverage_threshold" value="50"/>
+            <param name="translated_query_coverage_threshold" value="50"/>
+            <param name="taxonomic_profile_test" value="false"/>
+            <param name="metaphlan2_db_selector" value="history"/>
+            <param name="bowtie2db" value="marker_sequences.fasta"/>
+            <param name="mpa_pkl" value="marker_metadata.json"/>
+            <param name="translated_alignment" value="rapsearch"/>
+            <param name="xipe" value="off"/>
+            <param name="minpath" value="on"/>
+            <param name="pick_frames" value="on"/>
+            <param name="gap_fill" value="off"/>
+            <param name="output_format" value="tsv"/>
+            <param name="output_max_dec" value="10"/>
+            <param name="remove_statified_output" value=""/>
+            <param name="remove_column_description_output" value=""/>
+            <param name="pathways" value="unipathway"/>
+            <output name="gene_families_tsv">
+                <assert_contents>
+                    <has_text text="UNMAPPED" />
+                    <has_text text="# Gene Family" />
+                </assert_contents>
+            </output>
+            <output name="pathcoverage_tsv">
+                <assert_contents>
+                    <has_text text="UNMAPPED" />
+                    <has_text text="UNINTEGRATED" />
+                </assert_contents>
+            </output>
+            <output name="pathabundance_tsv">
+                <assert_contents>
+                    <has_text text="UNMAPPED" />
+                    <has_text text="UNINTEGRATED" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+@HELP_HEADER@
+
+This tool corresponds to the main tool in HUMAnN2 pipeline.
+
+**Inputs**
+
+The input is a single file corresponding either to filtered shotgun sequencing metagenome file (fastq, fastq.gz, fasta, or fasta.gz format), alignment file (sam, bam or blastm8 format) or gene table file (tsv or biom format).
+
+A file with a taxonomic profile (obtained with MetaPhlan2) can also be provided to avoid first step of taxonomic profiling needed to select pangenomes in protein database. Otherwise, default MetaPhlAn2 or custom databases can be used for taxonomic profiling. For custom databases, a fasta file with marker gene sequences is required and also a json file containing metadata:
+
+::
+
+  {
+    "taxonomy": {
+            "taxonomy of genome1": genome1_length,
+            "taxonomy of genome2": genome2_length,
+            ...
+        }
+    "markers": {
+            "marker1_name": {
+                "clade": the clade that the marker belongs to,
+                "ext": [list of external genomes where the marker appears],
+                "len": length of the marker,
+                "score": score of the marker,
+                "taxon": the taxon of the marker
+            }
+            ...
+        }
+  }
+
+For functional profiling, HUMAnN2 uses multiple databases. Locally cached nucleotide or protein databases have to be downloaded database before using them (using the dedicated tool). Custom databases can also be used after upload. Nucleotide database have to be provided as a dataset.
+
+**Outputs**
+
+HUMAnN creates three output files:
+
+ - A file with gene families and their abundance
+ - A file with pathways and their abundance
+ - A file with pathways and their coverage
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

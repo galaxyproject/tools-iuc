@@ -1,0 +1,601 @@
+<tool id="macs2_callpeak" name="MACS2 callpeak" version="@VERSION_STRING@.4" profile="17.09">
+    <description>Call peaks from alignment results</description>
+    <macros>
+        <import>macs2_macros.xml</import>
+    </macros>
+    <expand macro="requirements">
+    </expand>
+    <expand macro="stdio" />
+    <expand macro="version_command" />
+    <command><![CDATA[
+        #import re
+
+        @home_dir@
+        #set $temp_stderr = 'macs2_stderr'
+
+        (macs2 callpeak
+
+            ## Treatment File(s)
+
+            #if str($treatment.t_multi_select) == "Yes":
+                -t ${ ' '.join( [ "'%s'" %  $x for $x in $treatment.input_treatment_file] ) }
+                #set identifier = re.sub('[^\w\-]', '_', str($treatment.input_treatment_file[0].element_identifier))
+            #else
+                -t '$treatment.input_treatment_file'
+                #set identifier = re.sub('[^\w\-]', '_', str($treatment.input_treatment_file.element_identifier))
+            #end if
+
+            --name $identifier
+
+            ## Control File(s)
+
+            #if str($control.c_select) == "Yes":
+                #if str($control.c_multiple.c_multi_select) == "Yes":
+                    -c ${ ' '.join( [ "'%s'" %  $x for $x in $control.c_multiple.input_control_file] ) }
+                #else
+                    -c '$control.c_multiple.input_control_file'
+                #end if
+            #end if
+
+            --format $format
+
+        @effective_genome_size@
+
+        ## advanced options
+
+        $advanced_options.nolambda
+        $advanced_options.to_large
+
+        #if $advanced_options.ratio:
+            --ratio $advanced_options.ratio
+        #end if
+
+        #if $advanced_options.slocal:
+            --slocal $advanced_options.slocal
+        #end if
+
+        #if $advanced_options.llocal:
+            --llocal $advanced_options.llocal
+        #end if
+
+        #if $advanced_options.broad_options.broad_options_selector == "broad":
+            --broad
+            --broad-cutoff='${ advanced_options.broad_options.broad_cutoff }'
+        #else
+            $advanced_options.broad_options.call_summits
+        #end if
+
+        #if str( $advanced_options.keep_dup_options.keep_dup_options_selector ) == "user":
+            --keep-dup '${ advanced_options.keep_dup_options.user_keepdup }'
+        #else
+            --keep-dup '${ advanced_options.keep_dup_options.keep_dup_options_selector }'
+        #end if
+
+
+        ## With --bdg two additional output files will be generated.
+        #if "bdg" in str($outputs).split(','):
+            --bdg
+        #end if
+
+        ## cutoff selection
+        #if str( $cutoff_options.cutoff_options_selector ) == "qvalue":
+            --qvalue '${ cutoff_options.qvalue }'
+        #elif str( $cutoff_options.cutoff_options_selector ) == "pvalue":
+            #if str($cutoff_options.pvalue).strip() != "":
+                --pvalue '${ cutoff_options.pvalue }'
+            #end if
+        #end if
+
+        ## model options
+        #if $nomodel_type.nomodel_type_selector == "nomodel":
+            --nomodel
+            --extsize '${ nomodel_type.extsize }'
+            --shift '${ nomodel_type.shift}'
+        #else
+            --mfold '${nomodel_type.mfold_lower}' '${nomodel_type.mfold_upper}'
+
+            #if $nomodel_type.band_width:
+            --bw '${nomodel_type.band_width}'
+            #end if
+        #end if
+
+        2>&1 > $temp_stderr)
+        #if "peaks_tabular" in str($outputs).split(','):
+            &&
+            cp ${identifier}_peaks.xls '${ output_tabular }'
+        #end if
+
+        ## run R to create pdf from model script
+        #if $nomodel_type.nomodel_type_selector == "create_model" and "pdf" in str($outputs).split(',') and $format != "BAMPE":
+            &&
+            Rscript ${identifier}_model.r > ${identifier}_model.r.log
+        #end if
+
+        #if 'html' in str($outputs).split(','):
+            ## if output files exists, move them to the files_path and create a html result page linking to them
+            &&
+            (
+            count=`ls -1 ${identifier}* 2>/dev/null | wc -l`;
+            if [ \$count != 0 ];
+            then
+                mkdir '${ output_extra_files.files_path }' &&
+                cp -r ${identifier}* '${ output_extra_files.files_path }' &&
+                python '$__tool_directory__/dir2html.py'
+                    '${ output_extra_files.files_path }' $temp_stderr > '${ output_extra_files }';
+            fi;
+            )
+        #end if
+        &&
+        exit_code_for_galaxy=\$? &&
+        cat $temp_stderr 2>&1 &&
+        (exit \$exit_code_for_galaxy)
+    ]]></command>
+    <inputs>
+        <conditional name="treatment">
+            <param name="t_multi_select" type="select" label="Are you pooling Treatment Files?" help="For more information, see Help section below" >
+                <option value="No" selected="True">No</option>
+                <option value="Yes">Yes</option>
+            </param>
+            <when value="No" >
+                <param name="input_treatment_file" argument="-t" type="data" format="bam,sam,bed" label="ChIP-Seq Treatment File" />
+            </when>
+            <when value="Yes">
+                <param name="input_treatment_file" argument="-t" type="data" format="bam,sam,bed" multiple="true" label="ChIP-Seq Treatment File" />
+            </when>
+        </conditional>
+
+        <conditional name="control">
+            <param name="c_select" type="select" label="Do you have a Control File?" >
+                <option value="Yes">Yes</option>
+                <option value="No" selected="True">No</option>
+            </param>
+            <when value="Yes">
+                <conditional name="c_multiple">
+                    <param name="c_multi_select" type="select" label="Are you pooling Control Files?" help="For more information, see Help section below" >
+                        <option value="No" selected="True">No</option>
+                        <option value="Yes">Yes</option>
+                    </param>
+                    <when value="No" >
+                        <param name="input_control_file" argument="-c" type="data" format="bam,sam,bed" label="ChIP-Seq Control File" />
+                    </when>
+                    <when value="Yes">
+                        <param name="input_control_file" argument="-c" type="data" format="bam,sam,bed" multiple="true" label="ChIP-Seq Control File" />
+                    </when>
+                </conditional>
+            </when>
+            <when value="No" />
+        </conditional>
+
+        <param name="format" type="select" label="Format of Input Files" help="For Paired-end BAM (BAMPE) the 'Build model step' will be ignored and the real fragments will be used for each template defined by leftmost and rightmost mapping positions (--format). Default: Single-end BAM">
+            <option value="BAM" selected="True">Single-end BAM</option>
+            <option value="BAMPE">Paired-end BAM</option>
+            <option value="BED">Single-end BED</option>
+        </param>
+
+        <expand macro="conditional_effective_genome_size" />
+
+        <conditional name="nomodel_type">
+            <param name="nomodel_type_selector" type="select" label="Build Model">
+                <option value="nomodel">Do not build the shifting model (--nomodel)</option>
+                <option value="create_model" selected="true">Build the shifting model</option>
+            </param>
+            <when value="create_model">
+                <param name="mfold_lower" type="integer" value="5" label="Set lower mfold bound" help="Select the lower region within MFOLD range of high confidence enrichment ratio against background to build model. Fold-enrichment in regions must be higher than lower limit (--mfold). Default: 5" />
+                <param name="mfold_upper" type="integer" value="50" label="Set upper mfold bound" help="Select the upper region within MFOLD range of high confidence enrichment ratio against background to build model. Fold-enrichment in regions must be lower than the upper limit (--mfold). Default: 50"/>
+                <param name="band_width" type="integer" value="300"
+                label="Band width for picking regions to compute fragment size"
+                help=" You can set this parameter as the medium fragment size expected from sonication or size selection (--bw). Default: 300" />
+            </when>
+            <when value="nomodel">
+                <param name="extsize" type="integer" value="200" label="Set extension size" help="The arbitrary extension size in bp. When nomodel is true, MACS will use this value as fragment size to extend each read towards 3-prime; end, then pile them up. It is exactly twice the number of obsolete SHIFTSIZE. In previous language, each read is moved 5-prime-to-3-prime direction to middle of fragment by 0.5 d, then extended to both direction with 0.5 d. This is equivalent to say each read is extended towards 5-prime-to-3-prime into a d size fragment. --extsize (this option) and --shift (the option below) can be combined when necessary. See --shift option below. Default: 200 (--extsize)."/>
+                <param name="shift" type="integer" value="0" label="Set shift size" help="(NOT the legacy --shiftsize option!) The arbitrary shift in bp. Use discretion while setting it other than default value. When NOMODEL is set, MACS will use this value to move cutting ends (5-prime) towards 5-prime-to-3-prime  direction then apply EXTSIZE to extend them to fragments. When this value is negative, ends will be moved toward 3-prime-to-5-prime  direction. Recommended to keep it as default 0 for ChIP-Seq datasets, or -1 * 0.5 of --extsize (option above) together with --extsize option for detecting enriched cutting loci such as certain DNAseI-Seq datasets. Note, you can't set values other than 0 if format is paired-end data (BAMPE). Default: 0 (--shift)."/>
+            </when>
+        </conditional>
+
+        <conditional name="cutoff_options">
+            <param name="cutoff_options_selector" type="select" label="Peak detection based on" help="default uses q-value">
+                <option value="qvalue" selected="true">q-value</option>
+                <option value="pvalue">p-value</option>
+            </param>
+            <when value="pvalue">
+                <param name="pvalue" type="float" value="" label="p-value cutoff for peak detection" help="default: not set (--pvalue)"/>
+            </when>
+            <when value="qvalue">
+                <param name="qvalue" type="float" value="0.05" label="Minimum FDR (q-value) cutoff for peak detection" help="The q-value (minimum FDR) cutoff to call significant regions. Default is 0.05. For broad marks, you can try 0.05 as cutoff. Q-values are calculated from p-values using Benjamini-Hochberg procedure. (--qvalue)"/>
+            </when>
+        </conditional>
+
+        <param name="outputs" type="select" display="checkboxes" multiple="True" optional="True" label="Additional Outputs" help="PDF is only created when the model is built">
+            <option value="peaks_tabular">Peaks as tabular file (compatible wih MultiQC)</option>
+            <option value="summits">Peak summits</option>
+            <option value="bdg" >Scores in bedGraph files (--bdg)</option>
+            <option value="html">Summary page (html)</option>
+            <option value="pdf">Plot in PDF (only available if a model is created and if BAMPE is not used)</option>
+        </param>
+
+        <section name="advanced_options" title="Advanced Options">
+                <param name="to_large" type="boolean" truevalue="--to-large" falsevalue="" checked="False" optional="True"
+                    label="When set, scale the small sample up to the bigger sample"
+                    help="By default, the bigger dataset will be scaled down towards the smaller dataset, which will lead to smaller p/qvalues and more specific results. Keep in mind that scaling down will bring down background noise more. (--to-large). Default: No"/>
+                <param name="nolambda" type="boolean" truevalue="--nolambda" falsevalue="" checked="False" optional="True"
+                    label="Use fixed background lambda as local lambda for every peak region" help="up to 9X more time consuming (--nolambda). Default: No"/>
+                <param name="ratio" type="float" optional="True"
+                    label="When set, use a custom scaling ratio of ChIP/control (e.g. calculated using NCIS) for linear scaling"
+                    help="(--ratio) Default: ignore"/>
+                <param name="slocal" type="integer" optional="True" label="The small nearby region in basepairs to calculate dynamic lambda"
+                    help="This is used to capture the bias near the peak summit region. Invalid if there is no control data. If you set this to 0, MACS will skip slocal lambda calculation. *Note* that MACS will always perform a d-size local lambda calculation. The final local bias should be the maximum of the lambda value from d, slocal, and llocal size windows. (--slocal). Default: 1000"/>
+                <param name="llocal" type="integer" optional="True" label="The large nearby region in basepairs to calculate dynamic lambda"
+                    help="This is used to capture the surround bias. If you set this to 0, MACS will skip llocal lambda calculation. *Note* that MACS will always perform a d-size local lambda calculation. The final local bias should be the maximum of the lambda value from d, slocal, and llocal size windows. (--llocal) Default: 10000"/>
+                <conditional name="broad_options">
+                    <param name="broad_options_selector" type="select"
+                        label="Composite broad regions" help="by putting nearby highly enriched regions into a broad region with loose cutoff (--broad)">
+                        <option value="nobroad" selected="true">No broad regions</option>
+                        <option value="broad">broad regions</option>
+                    </param>
+                    <when value="broad">
+                        <param name="broad_cutoff" type="float" label="Cutoff for broad region" value="0.1"
+                            help="value is either p-value or q-value as specified above (--broad-cutoff)"/>
+                    </when>
+                    <when value="nobroad">
+                        <param name="call_summits" type="boolean" truevalue="--call-summits" falsevalue="" checked="False"
+                            label="Use a more sophisticated signal processing approach to find subpeak summits in each enriched peak region"
+                            help="(--call-summits)"/>
+                    </when>
+                </conditional>
+                <expand macro="keep_duplicates" />
+        </section>
+    </inputs>
+    <outputs>
+        <!--callpeaks output-->
+        <data name="output_tabular" format="tabular" default_identifier_source="treatment|input_treatment_file" label="${tool.name} on ${on_string} (Peaks in tabular format)">
+            <filter> outputs and 'peaks_tabular' in outputs</filter>
+        </data>
+        <data name="output_broadpeaks" format="bed" from_work_dir="*_peaks.broadPeak" default_identifier_source="treatment|input_treatment_file" label="${tool.name} on ${on_string} (broad Peaks)">
+            <filter>
+            ((
+              advanced_options['broad_options']['broad_options_selector'] == "broad"
+            ))
+            </filter>
+        </data>
+        <data name="output_gappedpeaks" format="bed" from_work_dir="*_peaks.gappedPeak" default_identifier_source="treatment|input_treatment_file" label="${tool.name} on ${on_string} (gapped Peaks)">
+            <filter>
+            ((
+              advanced_options['broad_options']['broad_options_selector'] == "broad"
+            ))
+            </filter>
+        </data>
+        <data name="output_narrowpeaks" format="bed" from_work_dir="*_peaks.narrowPeak" default_identifier_source="treatment|input_treatment_file" label="${tool.name} on ${on_string} (narrow Peaks)">
+            <filter>
+            ((
+              advanced_options['broad_options']['broad_options_selector'] == "nobroad"
+            ))
+            </filter>
+        </data>
+        <data name="output_summits" format="bed" from_work_dir="*_summits.bed" default_identifier_source="treatment|input_treatment_file" label="${tool.name} on ${on_string} (summits in BED)">
+            <filter>outputs and 'summits' in outputs</filter>
+        </data>
+        <data name="output_plot" format="pdf" from_work_dir="*_model.pdf" default_identifier_source="treatment|input_treatment_file" label="${tool.name} on ${on_string} (plot)">
+            <filter>
+            ((
+              outputs and 'pdf' in outputs and
+              nomodel_type['nomodel_type_selector'] == "create_model" and
+              format != "BAMPE"
+            ))
+            </filter>
+        </data>
+        <data name="output_treat_pileup" format="bedgraph" from_work_dir="*_treat_pileup.bdg" default_identifier_source="treatment|input_treatment_file" label="${tool.name} on ${on_string} (Bedgraph Treatment)">
+            <filter>outputs and 'bdg' in outputs</filter>
+        </data>
+        <data name="output_control_lambda" format="bedgraph" from_work_dir="*_control_lambda.bdg" default_identifier_source="treatment|input_treatment_file" label="${tool.name} on ${on_string} (Bedgraph Control)">
+            <filter>outputs and 'bdg' in outputs</filter>
+        </data>
+        <data name="output_extra_files" format="html" default_identifier_source="treatment|input_treatment_file" label="${tool.name} on ${on_string} (html report)">
+            <filter>outputs and 'html' in outputs</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="5">
+            <param name="input_treatment_file" value="ChIP_200K.bed" ftype="bed"/>
+            <param name="c_select" value="Yes"/>
+            <param name="input_control_file" value="Control_200K.bed" ftype="bed"/>
+            <param name="format" value="BED" />
+            <param name="cutoff_options_selector" value="qvalue"/>
+            <param name="qvalue" value="0.05"/>
+            <param name="band_width" value="300"/>
+            <param name="outputs" value="peaks_tabular,bdg,html"/>
+            <param name="effective_genome_size_options_selector" value="user_defined" />
+            <param name="gsize" value="3300000000" />
+            <param name="lower" value="5" />
+            <param name="upper" value="50" />
+            <output name="output_control_lambda" compare="contains" file="callpeak_control_part.bdg" lines_diff="1"/>
+            <output name="output_treat_pileup" compare="contains" file="callpeak_treatment_part.bdg" lines_diff="1"/>
+            <output name="output_tabular" compare="contains" file="callpeak_part.tabular" lines_diff="3"/>
+            <output name="output_extra_files">
+                <assert_contents>
+                    <has_text text="Additional output created by MACS2" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Ensure pdf can be output -->
+        <test expect_num_outputs="2">
+            <param name="input_treatment_file" value="ChIP_200K.bed" ftype="bed"/>
+            <param name="c_select" value="Yes"/>
+            <param name="input_control_file" value="Control_200K.bed" ftype="bed"/>
+            <param name="format" value="BED" />
+            <param name="cutoff_options_selector" value="qvalue"/>
+            <param name="qvalue" value="0.05"/>
+            <param name="band_width" value="300"/>
+            <param name="outputs" value="pdf"/>
+            <param name="effective_genome_size_options_selector" value="user_defined" />
+            <param name="gsize" value="3300000000" />
+            <param name="lower" value="5" />
+            <param name="upper" value="50" />
+            <output name="output_plot" file="magic.pdf" ftype="pdf" compare="contains" />
+        </test>
+        <!-- Ensure BAMPE works -->
+        <test expect_num_outputs="1">
+            <param name="input_treatment_file" ftype="bam" value="bwa-mem-test1.bam"/>
+            <param name="format" value="BAMPE" />
+            <param name="effective_genome_size_options_selector" value="user_defined"/>
+            <param name="gsize" value="3300000000"/>
+            <param name="nomodel_type_selector" value="nomodel"/>
+            <param name="nolambda" value="True"/>
+            <!-- we select PDF as output, but since we are in BAMPE mode, this will not ignored and the expect_num_outputs stays one. -->
+            <param name="outputs" value="pdf"/>
+            <output name="output_narrowpeaks" file="callpeak_bampe_narrow.bed"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+**callpeak** is the main function of the MACS2_ package. MACS identifies enriched binding sites in ChIP-seq experiments. It captures the influence of genome complexity to evaluate the significance of enriched ChIP regions, and improves the spatial resolution of binding sites through combining the information of both sequencing tag position and orientation.
+
+-----
+
+**Inputs**
+
+MACS can be used for ChIP-Seq data (Treatment) alone, or with a Control sample with the increase of specificity (recommended).
+
+A Treatment File is the only REQUIRED parameter for MACS. The file can be in BAM or BED format and this tool will autodetect the format using the first treatment file provided as input. If you have more than one alignment file per sample, you can select to pool them above. MACS can pool files together e.g. as `-t A B C` for treatment or `-c A B C` for control.
+
+Both single-end and paired-end mapping results can be input and you can specify if the data is from paired-end reads above. Paired-end mapping results can be input to MACS as a single BAM file, and just the left mate (5' end) tag will be automatically kept. However, when paired-end format (BAMPE) is specified, MACS will use the real fragments inferred from alignment results for reads pileup.
+
+*Effective Genome Size*
+
+PLEASE assign this parameter to fit your needs!
+
+It's the mappable genome size or effective genome size which is defined as the genome size which can be sequenced. Because of the repetitive features on the chromsomes, the actual mappable genome size will be smaller than the original size, about 90% or 70% of the genome size. The default hs -- 2.7e9 is recommended for UCSC human hg18 assembly. Here are all precompiled parameters for effective genome size from the MACS2_ website:
+
+ hs: 2.7e9
+ mm: 1.87e9
+ ce: 9e7
+ dm: 1.2e8
+
+Or see the **deepTools** website for updated information on calculating `Effective Genome Size`_.
+
+-----
+
+**Outputs**
+
+This tool produces a BED file of narrowPeaks as default output. It can also produce additional outputs, which can be selected under the **Additional Outputs** option above.
+
+    * **a BED file of peaks** (default)
+    * a tabular file of peaks (compatible wih MultiQC)
+    * a BED file of peak summits
+    * two bedGraph files of scores, for treatment pileup and control lambda
+    * a HTML summary page
+    * a PDF plot (if model is built)
+    * a BED file of broad peaks (if **Composite broad regions** is selected under Advanced Options)
+    * a BED file of gapped peaks (if **Composite broad regions** is selected under Advanced Options)
+
+**Peaks BED File**
+
+The default output is the narrowPeak BED file (BED6+4 format). This contains the peak locations, together with peak summit, pvalue and qvalue. You can load it to UCSC genome browser.
+
+    Example:
+
+    ======= ========= ======= ============ ==== === ======= ======== ======= =======
+    1          2        3          4        5    6     7       8         9   **10**
+    ======= ========= ======= ============ ==== === ======= ======== ======= =======
+    chr1    840081    840400  treat1_peak_1  69   .  4.89872 10.50944 6.91052 158
+    chr1    919419    919785  treat1_peak_2  87   .  5.85158 12.44148 8.70936 130
+    chr1    937220    937483  treat1_peak_3  66   .  4.87632 10.06728 6.61759 154
+    ======= ========= ======= ============ ==== === ======= ======== ======= =======
+
+    Columns contain the following data:
+
+* **1st**: chromosome name
+* **2nd**: start position of peak
+* **3rd**: end position of peak
+* **4th**: name of peak
+* **5th**: integer score for display in genome browser (e.g. UCSC)
+* **6th**: strand, either "." (=no strand) or "+" or "-"
+* **7th**: fold-change
+* **8th**: -log10pvalue
+* **9th**: -log10qvalue
+* **10th**: relative summit position to peak start
+
+
+**Peaks tabular File**
+
+A tabular file which contains information about called peaks. You can open it in Excel and sort/filter using Excel functions. This file is compatible with **MultiQC**.
+
+    Example:
+
+    ======= ========= ======= ========== ============== ========== ==================  =================== ================== =============
+    **chr** **start** **end** **length** **abs_summit** **pileup** **-log10(pvalue)**  **fold_enrichment** **-log10(qvalue)**  **name**
+    ======= ========= ======= ========== ============== ========== ==================  =================== ================== =============
+    chr1    840082    840400  319        840240         4.00       10.50944            4.89872             6.91052             treat1_peak_1
+    chr1    919420    919785  366        919550         5.00       12.44148            5.85158             8.70936             treat1_peak_2
+    chr1    937221    937483  263        937375         4.00       10.06728            4.87632             6.61759             treat1_peak_3
+    ======= ========= ======= ========== ============== ========== ==================  =================== ================== =============
+
+    Columns contain the following data:
+
+* **chr**: chromosome name
+* **start**: start position of peak
+* **end**: end position of peak
+* **length**: length of peak region
+* **abs_summit**: absolute peak summit position
+* **pileup**: pileup height at peak summit
+* **-log10(pvalue)**: -log10(pvalue) for the peak summit (e.g. pvalue =1e-10, then this value should be 10)
+* **fold_enrichment**: fold enrichment for this peak summit against random Poisson distribution with local lambda
+* **-log10(qvalue)**: -log10(qvalue) at peak summit
+* **name**: name of peak
+
+*Note that these tabular file coordinates are 1-based which is different than the 0-based BED format (compare the start values in the BED and tabular Example above)*
+
+
+**Summits BED File**
+
+A BED file which contains the peak summits locations for every peaks. The 5th column in this file is -log10qvalue, the same as in the Peaks BED file. If you want to find the motifs at the binding sites, this file is recommended. The file can be loaded directly to UCSC genome browser. Remove the beginning track line if you want to analyze it by other tools.
+
+    Example:
+
+    ======= ========= ======= ============ =======
+    1          2        3          4        **5**
+    ======= ========= ======= ============ =======
+    chr1    840239    840240  treat1_peak_1 6.91052
+    chr1    919549    919550  treat1_peak_2 8.70936
+    chr1    937374    937375  treat1_peak_3 6.61759
+    ======= ========= ======= ============ =======
+
+    Columns contain the following data:
+
+* **1st**: chromosome name
+* **2nd**: start position of peak
+* **3rd**: end position of peak
+* **4th**: name of peak
+* **5th**: -log10qvalue
+
+
+**BedGraph Files**
+
+MACS2 will output two kinds of bedGraph files if the --bdg option is selected under the Additional Outputs option above, which contain the scores for the treatment fragment pileup and control local lambda, respectively. BedGraph files can be imported into genome browsers, such as UCSC genome browser, or be converted into even smaller bigWig files. For more information on bedGraphs, see the `UCSC website here`_.
+
+
+Example:
+
+**Treatment pileup file**
+
+    ======= ========= ======= =======
+    1          2        3      **4**
+    ======= ========= ======= =======
+    chr1    840146    840147  3.00000
+    chr1    840147    840332  4.00000
+    chr1    840332    840335  3.00000
+    ======= ========= ======= =======
+
+
+**Control lambda file**
+
+    ======= ========= ======= =======
+    1          2        3      **4**
+    ======= ========= ======= =======
+    chr1    800953    801258  0.02536
+    chr1    801258    801631  0.25364
+    chr1    801631    801885  0.99858
+    ======= ========= ======= =======
+
+    Columns contain the following data:
+
+* **1st**: chromosome name
+* **2nd**: start position of peak
+* **3rd**: end position of peak
+* **4th**: treatment pileup score or control local lambda score
+
+
+**Broad peaks File**
+
+If the broad option (--broad) is selected unded Advanced Options above, MACS2 will output a broadPeaks file. When this flag is on, MACS will try to composite broad regions in BED12 ( a gene-model-like format ) by putting nearby highly enriched regions into a broad region with loose cutoff. The broad region is controlled by another cutoff through --broad-cutoff. The maximum length of broad region length is 4 times of d from MACS. The broad peaks file is in BED6+3 format which is similar to the narrowPeak file, except for missing the 10th column for annotating peak summits.
+
+    Example:
+
+    ======= ========= ======= ============ ==== === ======= ======= =======
+    1        2         3       4            5    6   7       8       9
+    ======= ========= ======= ============ ==== === ======= ======= =======
+    chr1    840081    840400  treat1_peak_1  52   .  4.08790 8.57605 5.21506
+    chr1    919419    919785  treat1_peak_2  56   .  4.37270 8.90436 5.60462
+    chr1    937220    937483  treat1_peak_3  48   .  4.02343 8.06676 4.86861
+    ======= ========= ======= ============ ==== === ======= ======= =======
+
+
+Columns contain the following data:
+
+* **1st**: chromosome name
+* **2nd**: start position of peak
+* **3rd**: end position of peak
+* **4th**: name of peak
+* **5th**: integer score for display in genome browser (e.g. UCSC)
+* **6th**: strand, either "." (=no strand) or "+" or "-"
+* **7th**: fold-change
+* **8th**: -log10pvalue
+* **9th**: -log10qvalue
+
+
+**Gapped peaks File**
+
+If the broad option (--broad) is selected unded Advanced Options above, MACS2 will also output a gappedPeaks file. The gappedPeak file is in BED12+3 format and contains both the broad region and narrow peaks. The file can be loaded directly to UCSC genome browser.
+
+    Example:
+
+    ======= ========= ======= ============ ==== === ======= ======= === === === === ======= ======= =======
+    1       2         3       4            5    6    7       8       9   10  11  12  13      14     15
+    ======= ========= ======= ============ ==== === ======= ======= === === === === ======= ======= =======
+    chr1    840081    840400  treat1_peak_1  52   .  840081  840400   0   1  319  0  4.08790 8.57605 5.21506
+    chr1    919419    919785  treat1_peak_2  56   .  919419  919785   0   1  366  0  4.37270 8.90436 5.60462
+    chr1    937220    937483  treat1_peak_3  48   .  937220  937483   0   1  263  0  4.02343 8.06676 4.86861
+    ======= ========= ======= ============ ==== === ======= ======= === === === === ======= ======= =======
+
+Columns contain the following data:
+
+* **1st**: chromosome name
+* **2nd**: start position of peak
+* **3rd**: end position of peak
+* **4th**: name of peak
+* **5th**: 10*-log10qvalue, to be more compatible to show grey levels on UCSC browser
+* **6th**: strand, either "." (=no strand) or "+" or "-"
+* **7th**: start of the first narrow peak in the region
+* **8th**: end of the peak
+* **9th**: RGB color key, default colour is 0
+* **10th**: number of blocks, including the starting 1bp and ending 1bp of broad regions
+* **11th**: length of each block, comma-separated values if multiple
+* **12th**: start of each block, comma-separated values if multiple
+* **13th**: fold-change
+* **14th**: -log10pvalue
+* **15th**: -log10qvalue
+
+-----
+
+**More Information**
+
+MACS2 performs the following analysis steps:
+
+ * Artificially extends reads to expected fragment length, and generates coverage map along genome.
+ * Assumes background reads are Poisson distributed. Mean of the Poisson is locally variable and is estimated from control experiment (if available) in 5Kbp or 10Kbp around examined location.
+ * For a given location, asks do we see more reads than we would have expected from the Poisson (p < 0.00005)? If Yes, MACS2 calls a peak.
+
+
+**Tips of fine-tuning peak calling**
+
+Check out these other MACS2 tools:
+
+    * **MACS2 bdgcmp** can be used on the callpeak bedGraph files or bedGraph files from other resources to calculate score track.
+    * **MACS2 bdgpeakcall** can be used on the file generated from bdgcmp or bedGraph file from other resources to call peaks with given cutoff, maximum-gap between nearby mergable peaks and minimum length of peak. bdgbroadcall works similarly to bdgpeakcall, however it will output a broad peaks file in BED12 format.
+    * Differential calling tool **MACS2 bdgdiff**, can be used on 4 bedGraph files which are scores between treatment 1 and control 1, treatment 2 and control 2, treatment 1 and treatment 2, treatment 2 and treatment 1. It will output the consistent and unique sites according to parameter settings for minimum length, maximum gap and cutoff.
+
+.. class:: warningmark
+
+If MACS2 fails, it is usually because it cannot build the model for peaks. You may want to extend **mfold** range by increasing the upper bound or play with **Build model** options. For more information, see the MACS2_ website.
+
+.. _MACS2: https://github.com/taoliu/MACS
+.. _`Effective Genome Size`: http://deeptools.readthedocs.io/en/latest/content/feature/effectiveGenomeSize.html
+.. _`UCSC website here`: https://genome.ucsc.edu/goldenPath/help/bedgraph.html
+
+@citation@
+]]></help>
+  <expand macro="citations" />
+</tool>

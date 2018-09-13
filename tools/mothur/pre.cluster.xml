@@ -1,0 +1,147 @@
+<tool profile="16.07" id="mothur_pre_cluster" name="Pre.cluster" version="@WRAPPER_VERSION@.0">
+    <description>Remove sequences due to pyrosequencing errors</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command><![CDATA[
+@SHELL_OPTIONS@
+
+## create symlinks to input datasets
+ln -s '$fasta' fasta.dat &&
+ln -s '$name' name.dat &&
+ln -s '$group' group.dat &&
+
+echo 'pre.cluster(
+    fasta=fasta.dat,
+    #if $name.is_of_type("mothur.names"):
+        name=name.dat,
+    #elif $name.is_of_type("mothur.count_table"):
+        count=name.dat,
+    #end if
+    #if $group:
+        group=group.dat,
+    #end if
+    diffs=$diffs,
+    match=$match,
+    mismatch=$mismatch,
+    gapopen=$gapopen,
+    gapextend=$gapextend,
+    topdown=$topdown,
+    processors='\${GALAXY_SLOTS:-8}'
+)'
+| sed 's/ //g'  ## mothur trips over whitespace
+| mothur
+| tee mothur.out.log &&
+
+cat fasta* &&
+
+if [ -f fasta.precluster.map ]; then mv fasta.precluster.map fasta.precluster.fasta.map; fi
+    ]]></command>
+    <inputs>
+        <param argument="fasta" type="data" format="fasta" label="fasta - Sequence Fasta"/>
+        <param argument="name" type="data" format="mothur.names,mothur.count_table" optional="true" label="name file or count table - Sequences Name reference"/>
+        <param argument="group" type="data" format="mothur.groups" optional="true" label="group - Sequences Name reference"/>
+        <param argument="diffs" type="integer" value="1" min="0" label="diffs - Number of mismatched bases to allow between sequences in a group (default 1)"/>
+        <param argument="match" type="integer" value="1" label="match - reward for a match (default 1)"/>
+        <param argument="mismatch" type="integer" value="-1" label="mismatch - penalty for a mismatch (default -1)"/>
+        <param argument="gapopen" type="integer" value="-2" label="gapopen - penalty for opening a gap (default -2)"/>
+        <param argument="gapextend" type="integer" value="-1" label="gapextend - penalty for extending a gap (default -1)"/>
+        <param argument="topdown" type="boolean" truevalue="true" falsevalue="false" checked="true" label="topdown"
+            help="cluster from largest abundance to smallest or vice versa. Default=Yes, meaning largest to smallest"/>
+        <expand macro="param-savelog"/>
+    </inputs>
+    <outputs>
+        <expand macro="logfile-output"/>
+        <data name="fasta_out" format_source="fasta" from_work_dir="fasta*.precluster.dat" label="${tool.name} on ${on_string}: precluster.fasta"/>
+        <data name="names_out" format="mothur.names" from_work_dir="fasta*.precluster.names" label="${tool.name} on ${on_string}: precluster.names">
+            <filter>name.ext != "mothur.count_table"</filter>
+        </data>
+        <data name="count_out" format="mothur.count_table" from_work_dir="fasta*.precluster.count_table" label="${tool.name} on ${on_string}: precluster.count_table">
+            <filter>name.ext == "mothur.count_table"</filter>
+        </data>
+        <collection name="map_out" type="list" label="${tool.name} on ${on_string}: precluster.map">
+            <discover_datasets pattern="fasta\.precluster\.(?P&lt;designation&gt;.*)\.map" format="tabular"/>
+        </collection>
+    </outputs>
+    <tests>
+        <test><!-- test with fasta and names file -->
+            <param name="fasta" value="amazon.fasta_head" ftype="fasta"/>
+            <param name="name" value="amazon.head.names" ftype="mothur.names"/>
+            <output name="fasta_out" ftype="fasta">
+                <assert_contents>
+                    <expand macro="test-fasta-format"/>
+                    <has_text text="U68589"/>
+                </assert_contents>
+            </output>
+            <output name="names_out" ftype="mothur.names">
+                <assert_contents>
+                    <expand macro="test-names-format"/>
+                    <has_line_matching expression="^U68589\tU68589$"/>
+                </assert_contents>
+            </output>
+            <output_collection name="map_out" count="1">
+                <element name="fasta" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="ideal_seq_1"/>
+                        <has_text text="U68589"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <param name="savelog" value="true"/>
+            <expand macro="logfile-test"/>
+        </test>
+        <test><!-- test with fasta and count table -->
+            <param name="fasta" value="amazon.fasta_head" ftype="fasta"/>
+            <param name="name" value="amazon.count_table" ftype="mothur.count_table"/>
+            <output name="fasta_out" ftype="fasta">
+                <assert_contents>
+                    <expand macro="test-fasta-format"/>
+                    <has_text text="U68589"/>
+                </assert_contents>
+            </output>
+            <output name="count_out" ftype="mothur.count_table">
+                <assert_contents>
+                    <expand macro="test-count-format"/>
+                    <has_text text="U68589"/>
+                </assert_contents>
+            </output>
+            <output_collection name="map_out" count="1">
+                <element name="fasta" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="ideal_seq_1"/>
+                        <has_text text="U68589"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <param name="savelog" value="true"/>
+            <expand macro="logfile-test"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+@MOTHUR_OVERVIEW@
+
+**Command Documentation**
+
+The pre.cluster_ command implements a pseudo-single linkage algorithm with the goal of removing sequences that
+are likely due to pyrosequencing errors. The basic idea is that abundant sequences are more likely to generate
+erroneous sequences than rare sequences. With that in mind, the algorithm proceeds by ranking sequences in order
+of their abundance. Then we walk through the list of sequences looking for rarer sequences that are within some
+threshold of the original sequence. Those that are within the threshold are merged with the larger sequence.
+The original Huse method performs this task on a distance matrix, whereas we do it based on the original sequences.
+The advantage of our approach is that the algorithm works on aligned sequences instead of a distance matrix.
+This is advantageous because by pre-clustering you remove a large number of sequences making the distance
+calculation much faster.
+
+.. _pre.cluster: https://www.mothur.org/wiki/Pre.cluster
+
+v1.24.0: Updated to mothur 1.33, added count and topdown parameter
+
+    ]]></help>
+    <expand macro="citations">
+        <citation type="doi">10.1098/rstb.1994.0085</citation>
+    </expand>
+</tool>

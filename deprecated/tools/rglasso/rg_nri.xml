@@ -1,0 +1,633 @@
+<tool id="rg_nri" name="NRI" version="0.03">
+  <description>and other model improvement measures</description>
+  <requirements>
+      <requirement type="package" version="3.2.2">R</requirement>
+      <requirement type="package" version="1.3.18">graphicsmagick</requirement>
+      <requirement type="package" version="9.10">ghostscript</requirement>
+      <requirement type="package" version="3.2">glmnet_lars_3_2</requirement>
+  </requirements>
+  <command interpreter="python">
+     rgToolFactory.py --script_path "$runme" --interpreter "Rscript" --tool_name "rg_NRI"
+    --output_dir "$html_file.files_path" --output_html "$html_file" --make_HTML "yes"
+  </command>
+<configfiles>
+<configfile name="runme">
+
+<![CDATA[
+
+### http://www.researchgate.net/publication/264672640_R_function_for_Risk_Assessment_Plot__reclassification_metrics_NRI_IDI_cfNRI code
+### http://cjasn.asnjournals.org/content/early/2012/05/24/CJN.09590911.full is the reference
+### lots of little tweaks and but fixes. Using t as a variable name seems fraught to me.
+### Ross Lazarus october 2014 for a Galaxy tool wrapper using the toolfactory infrastucture
+
+#############################################################################
+###Functions to create risk assessment plots and associated summary statistics
+#############################################################################
+###
+###  (c) 2012 Dr John W Pickering, john.pickering@otago.ac.nz, and Dr David Cairns
+###   Last modified August 2014
+###
+###  Redistribution and use in source and binary forms, with or without
+###   modification, are permitted provided that the following conditions are met:
+###   * Redistributions of source code must retain the above copyright
+###     notice, this list of conditions and the following disclaimer.
+###   * Redistributions in binary form must reproduce the above copyright
+###     notice, this list of conditions and the following disclaimer in
+###     the documentation and/or other materials provided with the distribution
+
+### FUNCTIONS
+### raplot
+###       Produces a Risk Assessment Plot and outputs the coordinates of the four curves
+###       Based on: Pickering, J. W. and Endre, Z. H. (2012). New Metrics for Assessing Diagnostic Potential of
+###       Candidate Biomarkers. Clinical Journal of the American Society of Nephrology, 7, 1355–1364. doi:10.2215/CJN.09590911
+###
+### statistics.raplot
+###       Produces the NRIs, IDIs, IS, IP, AUCs.
+###       Based on: Pencina, M. J., D'Agostino, R. B. and Steyerberg, E. W. (2011).
+### Extensions of net reclassification improvement calculations to measure usefulness of new biomarkers. Statistics in Medicine, 30(1), 11–21. doi:10.1002/sim.4085
+###       Pencina, M. J., D'Agostino, R. B. and Vasan, R. S. (2008). Evaluating the added predictive ability of a new marker: From area under the ROC curve to reclassification and beyond.
+### Statistics in Medicine, 27(2), 157–172. doi:10.1002/sim.2929
+###       DeLong, E., DeLong, D. and Clarke-Pearson, D. (1988). Comparing the areas under 2 or more correlated receiver operating characteristic curves - a nonparametric approach.
+### Biometrics, 44(3), 837–845.
+###
+### summary.raplot
+###       Produces the NRIs, IDIs, IS, IP, AUCs with confidence intervals using a bootstrap or asymptotic procedure. (I prefer bootstrap which is chosed by cis=c("boot"))
+
+
+### Required arguments for all functions:
+###   x1 is calculated risk (eg from a glm) for the null model, i.e. predict(,type="response") on a glm object
+###   x2 is calculated risk (eg from a glm) for the alternative model
+###   y is the case-control indicator (0 for controls, 1 for cases)
+### Optional argument
+###   t are the boundaries of the risks for each group (ie 0, 1 and the thresholds beteween.  eg c(0,0,3,0,7,1)). If missing, defaults to c(0, the incidence, 1)
+
+
+### risk assessment plot
+
+library('e1071')
+library('caret')
+library('pROC')
+library('Hmisc')
+library('pracma')
+
+raplot = function(x1, x2, y, outplot, title) {
+
+    roc.model1 = roc(y, x1)
+    roc.model2 = roc(y, x2)
+    sens.model1 = roc.model1\$sensitivities
+    spec.model1 = 1 - roc.model1\$specificities
+    n.model1 = length(sens.model1)
+    thresh.model1 = roc.model1\$thresholds
+    thresh.model1 = thresh.model1[c(-1,-n.model1)]
+    sens.model1 = sens.model1[c(-1,-n.model1)]
+    spec.model1 = spec.model1[c(-1,-n.model1)]
+    sens.model2 = roc.model2\$sensitivities
+    spec.model2 = 1 - roc.model2\$specificities
+    n.model2 = length(sens.model2)
+    thresh.model2 = roc.model2\$thresholds
+    thresh.model2[1]=0
+    thresh.model2[length(thresh.model2)]=1
+    thresh.model2 = thresh.model2[c(-1,-n.model2)]
+    sens.model2 = sens.model2[c(-1,-n.model2)]
+    spec.model2 = spec.model2[c(-1,-n.model2)]
+
+    n.model1 = length(sens.model1)
+    n.model2 = length(sens.model2)
+
+    ### actual plotting
+    pdf(outplot)
+    plot(thresh.model1, sens.model1, xlim = c(0, 1), ylim = c(0, 1), type = "n",
+         lty = 2, lwd = 2, xlab = "Risk of Event", ylab = "", col = "black", main=title)
+    grid()
+
+    polygon(x = c(thresh.model1, thresh.model2[n.model2:1]),
+            y = c(sens.model1, sens.model2[n.model2:1]), border = NA, col = gray(0.8))
+    polygon(x = c(thresh.model1, thresh.model2[n.model2:1]),
+            y = c(spec.model1, spec.model2[n.model2:1]), border = NA, col = gray(0.8))
+
+    lines(thresh.model1, sens.model1, type = "l", lty = 2, lwd = 2, col = "black")
+    lines(thresh.model2, sens.model2, type = "l", lty = 1, lwd = 2, col = "black")
+
+    lines(thresh.model1, spec.model1, type = "l", lty = 2, lwd = 2, col = "red")
+    lines(thresh.model2, spec.model2, type = "l", lty = 1, lwd = 2, col = "red")
+
+    text(x = -0.15, y = 0.4, labels = "Sensitivity, ", col = "black", xpd = TRUE, srt = 90)
+    text(x = -0.15, y = 0.4 + 0.175, labels = "1-Specificity", col = "red", xpd = TRUE, srt = 90)
+    legend("topleft", c("Event: New model", "Event: Baseline model",
+                         "No Event: New model", "No Event: Baseline model"),
+                          col = c("black", "black", "red", "red"),
+                          lty = c(1,2, 1, 2), lwd = 2, bty = "n")
+    dev.off()
+    return(data.frame("Null.p.sens"=thresh.model1,
+                "Null.sens"=sens.model1,
+                "Null.p.1spec"=thresh.model1,
+                "Null.1spec"=sens.model1,
+                "Alt.p.sens"=thresh.model2,
+                "Alt.sens"=sens.model2,
+                "Alt.p.1spec"=thresh.model2,
+                "Alt.1spec"=sens.model2))
+
+}
+
+
+
+### statistics from a raplot (is an adaptation of improveProb() from Hmisc)
+
+statistics.raplot = function(x1, x2, y, threshvec)
+{
+
+    s = is.na(x1 + x2 + y)  ###Remove rows with missing data
+    if (any(s)) {
+        smiss = sum(s)
+        s = !s
+        x1 = x1[s]
+        x2 = x2[s]
+        y = y[s]
+        print.noquote(paste('Warning: removed',smiss,'cases with missing values'))
+    }
+    n = length(y)
+    y = as.numeric(y)
+    u = sort(unique(y))
+    if (length(u) != 2 || u[1] != 0 || u[2] != 1) {
+        print.noquote("INPUT ERROR: y must have only two values: 0 and 1")
+        sink()
+        quit(save="no",status=2)
+        }
+    r = range(x1, x2)
+    if (r[1] < 0 || r[2] > 1) {
+        print.noquote("INPUT ERROR: x1 and x2 must be in [0,1]")
+        sink()
+        quit(save="no",status=3)
+        }
+    incidence=sum(y)/n
+    if (missing(threshvec)) {
+    threshvec=c(0, incidence,1)
+    print(paste('threshvec missing. using',paste(threshvec,collapse=',')))
+    }
+    a = (y == 1)
+    b = (y == 0)
+    na = sum(a)
+    nb = sum(b)
+    d = x2 - x1
+    ### NRI
+    n.thresh=length(threshvec)-1
+    risk.class.x1.ev=cut2(x1[a],threshvec)
+    risk.class.x2.ev=cut2(x2[a],threshvec)
+    thresh=c()
+    lt = length(threshvec)
+    for (i in 1:(lt-1)) {
+     thresh[i] = paste("[",toString(threshvec[i]),",",toString(threshvec[i+1]),"]")
+    }
+    levels(risk.class.x1.ev)=thresh
+    levels(risk.class.x2.ev)=thresh
+    cM.ev=confusionMatrix(risk.class.x2.ev,risk.class.x1.ev)
+    pup.ev=0
+    pdown.ev=0
+    for (i in 1:(n.thresh-1)) { pup.ev = pup.ev + sum(cM.ev\$table[(i+1):n.thresh,i])}
+    for (i in 2:n.thresh) { pdown.ev = pdown.ev + sum(cM.ev\$table[1:(i-1),i])}
+    pup.ev=pup.ev/na
+    pdown.ev=pdown.ev/na
+    risk.class.x1.ne=cut2(x1[b],threshvec)
+    risk.class.x2.ne=cut2(x2[b],threshvec)
+    levels(risk.class.x1.ne)=thresh
+    levels(risk.class.x2.ne)=thresh
+    cM.ne=confusionMatrix(risk.class.x2.ne,risk.class.x1.ne)
+    pup.ne=0
+    pdown.ne=0
+    for (i in 1:(n.thresh-1)){pup.ne=pup.ev+sum(cM.ne\$table[(i+1):n.thresh,i])}
+    for (i in 2:n.thresh){pdown.ne=pdown.ne+sum(cM.ne\$table[1:(i-1),i])}
+    pdown.ne=pdown.ne/nb
+    pup.ne=pup.ne/nb
+    nri = pup.ev - pdown.ev - (pup.ne - pdown.ne)
+    se.nri = sqrt((pup.ev + pdown.ev)/na + (pup.ne + pdown.ne)/nb)
+    z.nri = nri/se.nri
+    nri.ev = pup.ev - pdown.ev
+    se.nri.ev = sqrt((pup.ev + pdown.ev)/na)
+    z.nri.ev = nri.ev/se.nri.ev
+    nri.ne = pdown.ne - pup.ne
+    se.nri.ne = sqrt((pdown.ne + pup.ne)/nb)
+    z.nri.ne = nri.ne/se.nri.ne
+    ### Category Free NRI calculations
+    cfpup.ev = mean(d[a] > 0)
+    cfpup.ne = mean(d[b] > 0)
+    cfpdown.ev = mean(d[a] < 0)
+    cfpdown.ne = mean(d[b] < 0)
+    cfnri = cfpup.ev - cfpdown.ev - (cfpup.ne - cfpdown.ne)
+    se.cfnri = sqrt((cfpup.ev + cfpdown.ev)/na + (cfpup.ne + cfpdown.ne)/nb)
+    z.cfnri = cfnri/se.cfnri
+    cfnri.ev = cfpup.ev - cfpdown.ev
+    se.cfnri.ev = sqrt((cfpup.ev + cfpdown.ev)/na)
+    z.cfnri.ev = cfnri.ev/se.cfnri.ev
+    cfnri.ne = cfpdown.ne - cfpup.ne
+    se.cfnri.ne = sqrt((cfpdown.ne + cfpup.ne)/nb)
+    z.cfnri.ne = cfnri.ne/se.cfnri.ne
+    ### IDI calculations
+    improveSens = sum(d[a])/na
+    improveSpec = -sum(d[b])/nb
+    idi.ev = mean(improveSens)
+    idi.ne = mean(improveSpec)
+    idi = idi.ev - idi.ne
+    var.ev = var(d[a])/na
+    se.idi.ev = sqrt(var.ev)
+    z.idi.ev = idi.ev/se.idi.ev
+    var.ne = var(d[b])/nb
+    se.idi.ne = sqrt(var.ne)
+    z.idi.ne = idi.ne/se.idi.ne
+    se.idi = sqrt(var.ev + var.ne)
+    z.idi = idi/se.idi
+    ### AUC calculations
+    roc.x1 = roc(y, x1)
+    auc.x1 = auc(roc.x1)
+    ci.auc.x1 = ci.auc(roc.x1)
+    se.auc.x1 = (ci.auc.x1[3] - auc.x1)/qnorm(0.975)
+    roc.x2 = roc(y, x2)
+    auc.x2 = auc(roc.x2)
+    ci.auc.x2 = ci.auc(roc.x2)
+    se.auc.x2 = (ci.auc.x2[3] - auc.x2)/qnorm(0.975)
+    roc.test.x1.x2 = roc.test(roc.x1, roc.x2)  ###Uses the default Delong method
+    sens.x1 = roc.x1\$sensitivities
+    spec.x1 = 1 - roc.x1\$specificities
+    n.x1 = length(sens.x1)
+    x1 = roc.x1\$thresholds
+    x1 = x1[c(-1,-n.x1)]
+    sens.x1 = sens.x1[c(-1,-n.x1)]
+    spec.x1 = spec.x1[c(-1,-n.x1)]
+    sens.x2 = roc.x2\$sensitivities
+    spec.x2 = 1 - roc.x2\$specificities
+    n.x2 = length(sens.x2)
+    x2 = roc.x2\$thresholds
+    x2 = x2[c(-1,-n.x2)]
+    sens.x2 = sens.x2[c(-1,-n.x2)]
+    spec.x2 = spec.x2[c(-1,-n.x2)]
+    ### Integrated sensitivity and 1-specificity calculations
+    is.x1 = trapz(x = x1, y = sens.x1)  ### area under curves (relates to integrated sens, 1-spec)
+    is.x2 = trapz(x = x2, y = sens.x2)
+    ip.x1 = trapz(x = x1, y = spec.x1)
+    ip.x2 = trapz(x = x2, y = spec.x2)
+
+    ### Output
+    output = c(n, na, nb, pup.ev, pup.ne, pdown.ev, pdown.ne, nri, se.nri, z.nri,
+                nri.ev, se.nri.ev, z.nri.ev, nri.ne, se.nri.ne, z.nri.ne,
+                cfpup.ev, cfpup.ne, cfpdown.ev, cfpdown.ne, cfnri, se.cfnri, z.cfnri,
+                cfnri.ev, se.cfnri.ev, z.cfnri.ev, cfnri.ne, se.cfnri.ne, z.cfnri.ne,
+                improveSens, improveSpec, idi.ev, se.idi.ev, z.idi.ev, idi.ne,
+                se.idi.ne, z.idi.ne, idi, se.idi, z.idi, is.x1, NA, is.x2, NA,
+                ip.x1, NA, ip.x2, NA, auc.x1, se.auc.x1, auc.x2, se.auc.x2,
+                roc.test.x1.x2\$p.value,incidence)
+    names(output) = c("n", "na", "nb", "pup.ev", "pup.ne", "pdown.ev", "pdown.ne",
+                       "nri", "se.nri", "z.nri", "nri.ev", "se.nri.ev", "z.nri.ev",
+                       "nri.ne", "se.nri.ne", "z.nri.ne",
+                       "cfpup.ev", "cfpup.ne", "cfpdown.ev", "cfpdown.ne",
+                       "cfnri", "se.cfnri", "z.cfnri", "cfnri.ev", "se.cfnri.ev", "z.cfnri.ev",
+                       "cfnri.ne", "se.cfnri.ne", "z.cfnri.ne", "improveSens", "improveSpec",
+                       "idi.ev", "se.idi.ev", "z.idi.ev", "idi.ne", "se.idi.ne",
+                       "z.idi.ne", "idi", "se.idi", "z.idi", "is.x1", "se.is.x1",
+                       "is.x2", "se.is.x2", "ip.x1", "se.ip.x1", "ip.x2", "se.ip.x2",
+                       "auc.x1", "se.auc.x1", "auc.x2", "se.auc.x2",
+                       "roc.test.x1.x2.pvalue","incidence")
+    resdf = data.frame(N=n, Na=na, Nb=nb, pup.ev=pup.ev, pup.ne=pup.ne, pdown.ev=pdown.ev, pdown.ne=pdown.ne, NRI=nri, NRI.se=se.nri, NRI.z=z.nri,
+                NRI.ev=nri.ev, NRI.ev.se=se.nri.ev, NRI.ev.z=z.nri.ev, NRI.ne=nri.ne, NRI.ne.se=se.nri.ne, NRI.ne.z=z.nri.ne,
+                cfpup.ev=cfpup.ev, cfpup.ne=cfpup.ne, cfpdown.ev=cfpdown.ev, cfpdown.ne=cfpdown.ne, CFNRI=cfnri, CFNRI.se=se.cfnri, CFNRI.z=z.cfnri,
+                CFNRI.ev=cfnri.ev, CFNRI.ev.se=se.cfnri.ev, CFNRI.ev.z=z.cfnri.ev, CFNRI.ne=cfnri.ne, CFNRI.ne.se=se.cfnri.ne, CFNRI.ne.z=z.cfnri.ne,
+                improvSens=improveSens, improvSpec=improveSpec, IDI.ev=idi.ev, IDI.ev.se=se.idi.ev, IDI.ev.z=z.idi.ev, IDI.ne=idi.ne,
+                IDI.ne.se=se.idi.ne, IDI.ne.z=z.idi.ne, IDI=idi, IDI.se=se.idi, IDI.z=z.idi, isx1=is.x1, isx2=is.x2,
+                ipxi=ip.x1, ipx2=ip.x2, AUC.x1=auc.x1, AUC.x1.se=se.auc.x1, AUC.x2=auc.x2, AUC.x2.se=se.auc.x2,
+                roctestpval=roc.test.x1.x2\$p.value,incidence=incidence)
+    tr = t(resdf)
+    tresdf = data.frame(measure=colnames(resdf),value=tr[,1])
+    return(list(resdf=tresdf,output=output))
+}
+
+
+### More comprehensive summary statistics from a raplot
+### Choice of confidence intervals determined through asymptotics or bootstrapping (n.boot = ### of bootstrap resamples)
+### dp is number of decimal places for results table
+
+summary.raplot = function(x1, x2, y, threshvec, cis = "boot", conf.level = 0.95, n.boot = 2000, dp = 4, stat_ra=NA)
+{
+        results = stat_ra
+        if (cis == "boot") {
+            print.noquote("Bootstrap estimates for SE")
+            results.boot = matrix(NA, n.boot, length(names(results)))
+
+            colnames(results.boot) = names(results)
+
+            for (i in 1:n.boot) {
+                ###boot.index = sample(length(cc.status), replace = TRUE)
+                ###risk.model1.boot = risk.model1[boot.index]
+                ###risk.model2.boot = risk.model2[boot.index]
+                ###cc.status.boot = cc.status[boot.index]
+                boot.index = sample(length(y), replace = TRUE)
+                risk.model1.boot = x1[boot.index]
+                risk.model2.boot = x2[boot.index]
+                cc.status.boot = y[boot.index]
+                r = statistics.raplot(x1 = risk.model1.boot, x2 = risk.model2.boot, y = cc.status.boot)
+                results.boot[i, ] = r\$output
+            }
+
+            results.se.boot = apply(results.boot, 2, sd)
+            print(paste(results.se.boot,collapse=','))
+
+
+            results[grep("se", names(results))] = results.se.boot[grep("se", names(results)) - 1]
+
+            }
+
+
+
+    ### calculate cis and return
+
+    z = abs(qnorm((1 - conf.level)/2))
+
+    results.matrix = matrix(NA, 24, 2)
+
+    results.matrix[1, ] = c("Total (n)", results["n"])
+    results.matrix[2, ] = c("Events (n)", results["na"])
+    results.matrix[3, ] = c("Non-events (n)", results["nb"])
+    results.matrix[4, ] = c("Category free NRI and summary statistics","-------------------------")
+    results.matrix[5, ] = c("cfNRI events (%)",
+                             paste(round(100*results["cfnri.ev"], dp-2), " (",
+                                   round(100*results["cfnri.ev"] - z * 100*results["se.cfnri.ev"], dp-2),
+                                    " to ", round(100*results["cfnri.ev"] +
+                                      z * 100*results["se.cfnri.ev"], dp-2), ")", sep = ""))
+    results.matrix[6, ] = c("cfNRI non-events (%)",
+                             paste(round(100*results["cfnri.ne"], dp-2), " (",
+                             round(100*results["cfnri.ne"] - z * 100*results["se.cfnri.ne"], dp)-2,
+                             " to ", round(100*results["cfnri.ne"] +  z * 100*results["se.cfnri.ne"],
+                                           dp-2), ")", sep = ""))
+    results.matrix[7, ] = c("cfNRI (%)",
+                             paste(round(100*results["cfnri"], dp-2), " (",
+                             round(100*results["cfnri"] - z * 100*results["se.cfnri"], dp-2),
+                             " to ", round(100*results["cfnri"] + z * 100*results["se.cfnri"],
+                                           dp-2), ")", sep = ""))
+    results.matrix[8, ] = c("NRI and summary statistics","-------------------------")
+    results.matrix[9, ] = c("NRI events (%)",
+                             paste(round(100*results["nri.ev"], dp-2), " (",
+                                   round(100*results["nri.ev"] - z * 100*results["se.nri.ev"], dp-2),
+                                   " to ", round(100*results["nri.ev"] +
+                                                   z * 100*results["se.nri.ev"], dp-2), ")", sep = ""))
+    results.matrix[10, ] = c("NRI non-events (%)",
+                             paste(round(100*results["nri.ne"], dp-2), " (",
+                                   round(100*results["nri.ne"] - z * 100*results["se.nri.ne"], dp-2),
+                                   " to ", round(100*results["nri.ne"] +  z * 100*results["se.nri.ne"],
+                                                 dp-2), ")", sep = ""))
+    results.matrix[11, ] = c("NRI (%)",
+                             paste(round(100*results["nri"], dp-2), " (",
+                                   round(100*results["nri"] - z * 100*results["se.nri"], dp-2),
+                                   " to ", round(100*results["nri"] + z * 100*results["se.nri"],
+                                                 dp-2), ")", sep = ""))
+    results.matrix[12, ] = c("IDI and summary statistics","-------------------------")
+    results.matrix[13, ] = c("IDI events",
+                             paste(round(results["idi.ev"], dp), " (",
+                              round(results["idi.ev"] - z * results["se.idi.ev"], dp),
+                              " to ", round(results["idi.ev"] + z * results["se.idi.ev"],
+                                            dp), ")", sep = ""))
+    results.matrix[14, ] = c("IDI non-events",
+                              paste(round(results["idi.ne"], dp), " (",
+                              round(results["idi.ne"] - z * results["se.idi.ne"], dp),
+                              " to ", round(results["idi.ne"] + z * results["se.idi.ne"],
+                                            dp), ")", sep = ""))
+    results.matrix[15, ] = c("IDI",
+                              paste(round(results["idi"], dp), " (",
+                              round(results["idi"] - z * results["se.idi"], dp),
+                              " to ", round(results["idi"] + z * results["se.idi"],
+                              dp), ")", sep = ""))
+    results.matrix[16, ] = c("IS (null model)",
+                              paste(round(results["is.x1"], dp), " (",
+                              round(results["is.x1"] - z * results["se.is.x1"], dp),
+                              " to ", round(results["is.x1"] + z * results["se.is.x1"],
+                                            dp), ")", sep = ""))
+    results.matrix[17, ] = c("IS (alt model)",
+                              paste(round(results["is.x2"], dp), " (",
+                              round(results["is.x2"] - z * results["se.is.x2"], dp),
+                              " to ", round(results["is.x2"] + z * results["se.is.x2"],
+                                            dp), ")", sep = ""))
+    results.matrix[18, ] = c("IP (null model)",
+                              paste(round(results["ip.x1"], dp), " (",
+                              round(results["ip.x1"] - z * results["se.ip.x1"], dp),
+                              " to ", round(results["ip.x1"] + z *  results["se.ip.x1"],
+                                            dp), ")", sep = ""))
+    results.matrix[19, ] = c("IP (alt model)",
+                              paste(round(results["ip.x2"], dp), " (",
+                              round(results["ip.x2"] - z * results["se.ip.x2"], dp),
+                              " to ", round(results["ip.x2"] + z * results["se.ip.x2"],
+                                            dp), ")", sep = ""))
+    results.matrix[20, ] = c("AUC","-------------------------")
+    results.matrix[21, ] = c("AUC (null model)",
+                              paste(round(results["auc.x1"], dp), " (",
+                              round(results["auc.x1"] - z * results["se.auc.x1"], dp),
+                              " to ", round(results["auc.x1"] + z * results["se.auc.x1"],
+                                            dp), ")", sep = ""))
+    results.matrix[22, ] = c("AUC (alt model)",
+                              paste(round(results["auc.x2"], dp), " (",
+                              round(results["auc.x2"] - z * results["se.auc.x2"], dp),
+                              " to ", round(results["auc.x2"] +  z * results["se.auc.x2"],
+                                            dp), ")", sep = ""))
+    results.matrix[23, ] = c("difference (P)", round(results["roc.test.x1.x2.pvalue"], dp))
+    results.matrix[24, ] = c("Incidence", round(results["incidence"], dp))
+
+    return(results.matrix)
+}
+
+
+
+]]>
+
+options(width=120)
+options(digits=5)
+logf = file("rgNRI.log", open = "a")
+sink(logf,type = c("output", "message"))
+Out_Dir = "$html_file.files_path"
+Input1 =  "$input1"
+Input2 =  "$input2"
+myTitle = "$title"
+outtab = "$nri_file"
+input1_obs = $input1_observed
+input1_pred = $input1_predicted
+input1_id = $input1_id
+input2_obs = $input2_observed
+input2_pred = $input2_predicted
+input2_id = $input2_id
+in1 = read.table(Input1,head=T,sep='\t')
+in2 = read.table(Input2,head=T,sep='\t')
+id1 = in1[,input1_id]
+id2 = in2[,input2_id]
+useme1 = in1[which(id1 %in% id2),]
+useme2 = in2[which(id2 %in% id1),]
+id1 = useme1[,input1_id]
+id2 = useme2[,input2_id]
+useme1 = useme1[order(id1),]
+useme2 = useme2[order(id2),]
+x1 = useme1[,input1_pred]
+x2 = useme2[,input2_pred]
+y1 = useme1[,input1_obs]
+y2 = useme2[,input2_obs]
+n.boot = $CImeth.nboot
+conf.level = 0.95
+cis = "$CImeth.cis"
+digits = 4
+nydiff = sum(y1 != y2)
+if (nydiff &gt; 0) {
+  print.noquote(paste('Input error: observed status column has',nydiff,'differences - cannot reliably proceed'))
+  quit(save="no",status=1)
+  }
+y = y2
+outplot = 'rgNRI_EventRisk.pdf'
+res = raplot(x1=x1, x2=x2, y=y, outplot=outplot,title=myTitle)
+
+stats = statistics.raplot(x1=x1, x2=x2, y=y)
+res1 = stats\$resdf
+out1 = stats\$output
+print.noquote('Results:')
+print.noquote(res1,digits=4)
+res2 = summary.raplot(x1=x1, x2=x2, y=y, cis = cis, conf.level = conf.level, n.boot = n.boot, dp = digits, stat_ra=out1)
+print.noquote('Summary:')
+print.noquote(res2,digits=4)
+write.table(format(res1,digits=4),outtab,quote=F, col.names=F,sep="\t",row.names=F)
+print.noquote('SessionInfo for this R session:')
+sessionInfo()
+print.noquote('warnings for this R session:')
+warnings()
+sink()
+</configfile>
+</configfiles>
+  <inputs>
+     <param name="title" type="text" value="NRI test" label="Plot Title" help="Will appear as the title for the comparison plot"/>
+    <param name="input1"  type="data" format="tabular" label="Select a tabular file from the baseline model with predicted and observed outcome column for each subject"
+    multiple='False' help="Observed and predicted status columns must be selected from this file below - NOTE both models must be in same order with exact matches in all observed outcomes" optional="False"/>
+    <param name="input1_observed" label="Select column containing observed outcome (0 for no event, 1 for an event)" type="data_column" data_ref="input1" numerical="True"
+         multiple="False" use_header_names="True" optional="False" help = "Observed outcomes are compared in the two files to check that the datasets are from the same data"/>
+    <param name="input1_predicted" label="Select column containing predicted event probabilies from baseline model" type="data_column" data_ref="input1" numerical="True"
+         multiple="False" use_header_names="True" optional="False"  help="Must be in range 0-1"/>
+    <param name="input1_id" label="Select column containing subject ID from baseline model" type="data_column" data_ref="input1" numerical="True"
+         multiple="False" use_header_names="True" optional="False" help="Subect IDs are needed to match subjects to compare predictions in the two inputs"/>
+    <param name="input2"  type="data" format="tabular" label="Select a tabular file from the new model with predicted and observed outcome columns for each subject"
+    multiple='False' help="Observed and predicted status columns must be selected from this file below" />
+    <param name="input2_observed" label="Select column containing observed outcome (0 for no event, 1 for an event)" type="data_column" data_ref="input2" numerical="True"
+         multiple="False" use_header_names="True" optional="False" help = "Observed outcomes are compared in the two files to check that the datasets are from the same data"/>
+    <param name="input2_predicted" label="Select column containing predicted event probabilities from the new model" type="data_column" data_ref="input2" numerical="True"
+         multiple="False" use_header_names="True" optional="False" help="Must be in range 0-1"/>
+    <param name="input2_id" label="Select column containing subject ID from the new model" type="data_column" data_ref="input2" numerical="True"
+         multiple="False" use_header_names="True" optional="False"  help="Subect IDs are needed to match subjects to compare predictions in the two inputs"/>
+    <conditional name="CImeth">
+        <param name="cis" type="select" label="CI calculation method"
+             help="Bootstrap will take time - a long time for thousands - asymptotic is quick and informative">
+                <option value="asymptotic" selected="true">Asymptotic estimate</option>
+                <option value="boot">Bootstrap for empirical CIs</option>
+        </param>
+        <when value="boot">
+            <param name="nboot" type="integer" value="1000" label="Number of bootstrap replicates"/>
+        </when>
+        <when value="asymptotic">
+            <param name="nboot" type="hidden" value="1000"/>
+        </when>
+    </conditional>
+  </inputs>
+  <outputs>
+    <data format="html" name="html_file" label="${title}.html"/>
+    <data format="tabular" name="nri_file" label="${title}_nrires.xls"/>
+  </outputs>
+ <tests>
+    <test>
+     <param name='title' value='nri_test1' />
+     <param name='input1' value='nri_test1.xls' ftype='tabular' />
+     <param name='input2' value='nri_test1.xls' ftype='tabular' />
+     <param name='input1_id' value="1" />
+     <param name='input1_observed' value="2" />
+     <param name='input1_predicted' value="3" />
+     <param name='input2_observed' value="2" />
+     <param name='input2_predicted' value="4" />
+     <output name='html_file' file='nri_test1_out.html'  compare='diff' lines_diff='10' />
+     <output name='nri_file' file='nri_test1_out.xls' />
+    </test>
+</tests>
+<help>
+
+**Before you start**
+
+This is a simple tool to calculate various measures of improvement in prediction between two models described in pickering_paper_
+It is based on an R script pickering_code_ written by Dr John W Pickering and Dr David Cairns from sunny Otago University which
+has been debugged and slightly adjusted to fit a Galaxy tool wrapper.
+
+
+**What it does**
+
+Copied from the documentation in pickering_code_ ::
+
+
+    Functions to create risk assessment plots and associated summary statistics
+
+
+      (c) 2012 Dr John W Pickering, john.pickering@otago.ac.nz, and Dr David Cairns
+       Last modified August 2014
+
+      Redistribution and use in source and binary forms, with or without
+       modification, are permitted provided that the following conditions are met:
+       * Redistributions of source code must retain the above copyright
+         notice, this list of conditions and the following disclaimer.
+       * Redistributions in binary form must reproduce the above copyright
+         notice, this list of conditions and the following disclaimer in
+         the documentation and/or other materials provided with the distribution
+
+     FUNCTIONS
+     raplot
+           Produces a Risk Assessment Plot and outputs the coordinates of the four curves
+           Based on: Pickering, J. W. and Endre, Z. H. (2012). New Metrics for Assessing Diagnostic Potential of
+           Candidate Biomarkers. Clinical Journal of the American Society of Nephrology, 7, 1355–1364. doi:10.2215/CJN.09590911
+
+     statistics.raplot
+           Produces the NRIs, IDIs, IS, IP, AUCs.
+           Based on: Pencina, M. J., D'Agostino, R. B. and Steyerberg, E. W. (2011). Extensions of net reclassification improvement calculations to
+           measure usefulness of new biomarkers. Statistics in Medicine, 30(1), 11–21. doi:10.1002/sim.4085
+           Pencina, M. J., D'Agostino, R. B. and Vasan, R. S. (2008). Evaluating the added predictive ability of a new marker: From area under the
+           ROC curve to reclassification and beyond.
+           Statistics in Medicine, 27(2), 157–172. doi:10.1002/sim.2929
+           DeLong, E., DeLong, D. and Clarke-Pearson, D. (1988). Comparing the areas under 2 or more correlated receiver operating characteristic curves - a nonparametric approach.
+           Biometrics, 44(3), 837–845.
+
+     summary.raplot
+           Produces the NRIs, IDIs, IS, IP, AUCs with confidence intervals using a bootstrap or asymptotic procedure. (I prefer bootstrap which is chosed by cis=c("boot"))
+
+
+     Required arguments for all functions:
+       x1 is calculated risk (eg from a glm) for the null model, i.e. predict(,type="response") on a glm object
+       x2 is calculated risk (eg from a glm) for the alternative model
+       y is the case-control indicator (0 for controls, 1 for cases)
+     Optional argument
+       t are the boundaries of the risks for each group (ie 0, 1 and the thresholds beteween.  eg c(0,0,3,0,7,1)). If missing, defaults to c(0, the incidence, 1)
+
+
+**Input**
+
+The observed and predicted outcomes from two models to be compared.
+
+**Output**
+
+Lots'o'measures (TM) see pickering_paper_ for details
+
+**Attributions**
+
+pickering_paper_ is the paper the caclulations performed by this tool is based on
+
+pickering_code_ is the R function from John Pickering exposed by this Galaxy tool with minor modifications and hacks by Ross Lazarus.
+
+Galaxy_ (that's what you are using right now!) for gluing everything together
+
+Otherwise, all code and documentation comprising this tool was written by Ross Lazarus and is
+licensed to you under the LGPL_ like other rgenetics artefacts
+
+.. _LGPL: http://www.gnu.org/copyleft/lesser.html
+.. _pickering_code: http://www.researchgate.net/publication/264672640_R_function_for_Risk_Assessment_Plot__reclassification_metrics_NRI_IDI_cfNRI
+.. _pickering_paper: http://cjasn.asnjournals.org/content/early/2012/05/24/CJN.09590911.full
+.. _Galaxy: http://getgalaxy.org
+
+
+</help>
+
+<citations>
+    <citation type="doi">10.2215/CJN.09590911</citation>
+</citations>
+</tool>
+
+
+

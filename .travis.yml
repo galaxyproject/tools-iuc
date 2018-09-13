@@ -1,0 +1,127 @@
+# 'sudo required' will give us 7,5 GB memory, but has slower startup times, as we start a VM instead of a Container
+sudo: required
+language: python
+cache: pip
+
+python: 2.7
+
+jobs:
+  include:
+    - stage: lint
+      addons: {}
+      before_install: skip
+      install:
+        - pip install flake8 flake8-import-order planemo
+        - planemo --version
+        - git diff --quiet "$TRAVIS_COMMIT_RANGE" -- ; GIT_DIFF_EXIT_CODE=$?
+        - |
+          if [ "$GIT_DIFF_EXIT_CODE" -gt 1 ] ; then
+              git remote set-branches --add origin master
+              git fetch
+              TRAVIS_COMMIT_RANGE=origin/master...
+          fi
+        - echo $TRAVIS_COMMIT_RANGE
+        - |
+          planemo ci_find_repos --exclude_from .tt_blacklist \
+                                --changed_in_commit_range "$TRAVIS_COMMIT_RANGE" \
+                                --output changed_repositories.list
+        - cat changed_repositories.list
+      script:
+        - set -e
+        - cd "$TRAVIS_BUILD_DIR" && flake8 --exclude=.git,./deprecated/ .
+        - while read -r DIR; do planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive "$DIR"; done < changed_repositories.list
+
+    - stage: test
+      env: CHUNK=0
+
+    - stage: test
+      env: CHUNK=1
+
+    - stage: test
+      env: CHUNK=2
+
+    - stage: test
+      env: CHUNK=3
+
+    - stage: deploy
+      if: (type = push) AND (branch = master)
+      addons: {}
+      before_install: skip
+      install:
+        - pip install planemo
+        - planemo --version
+        - git diff --quiet "$TRAVIS_COMMIT_RANGE" -- ; GIT_DIFF_EXIT_CODE=$?
+        - |
+          if [ "$GIT_DIFF_EXIT_CODE" -gt 1 ] ; then
+              git remote set-branches --add origin master
+              git fetch
+              TRAVIS_COMMIT_RANGE=origin/master...
+          fi
+        - echo $TRAVIS_COMMIT_RANGE
+        - |
+          planemo ci_find_repos --exclude_from .tt_blacklist \
+                                --changed_in_commit_range "$TRAVIS_COMMIT_RANGE" \
+                                --output changed_repositories.list
+        - cat changed_repositories.list
+      script:
+        - set -e
+        - |
+          if [ "$TRAVIS_PULL_REQUEST" == "false" -a "$TRAVIS_BRANCH" == "master" ]; then
+              while read -r DIR; do planemo shed_update --shed_target testtoolshed --shed_email "$SHED_EMAIL" --shed_password "$SHED_PASSWORD" --force_repository_creation "$DIR" || exit 1; done < changed_repositories.list
+              while read -r DIR; do planemo shed_update --shed_target toolshed --shed_email "$SHED_EMAIL" --shed_password "$SHED_PASSWORD" --force_repository_creation "$DIR" || exit 1; done < changed_repositories.list
+          fi
+
+before_install:
+  - export GALAXY_REPO=https://github.com/galaxyproject/galaxy
+  - export GALAXY_RELEASE=release_18.05
+  - export PLANEMO_CONDA_PREFIX="$HOME/conda"
+  - unset JAVA_HOME
+
+install:
+  - pip install planemo
+  - planemo conda_init
+  - export PATH="$PLANEMO_CONDA_PREFIX/bin:$PATH"
+  - conda install -y -c conda-forge conda=4.3.34 
+  - planemo --version
+  - conda --version
+  - git diff --quiet "$TRAVIS_COMMIT_RANGE" -- ; GIT_DIFF_EXIT_CODE=$?
+  - |
+    if [ "$GIT_DIFF_EXIT_CODE" -gt 1 ] ; then
+        git remote set-branches --add origin master
+        git fetch
+        TRAVIS_COMMIT_RANGE=origin/master...
+    fi
+  - echo $TRAVIS_COMMIT_RANGE
+  - |
+    planemo ci_find_repos --exclude data_managers \
+                          --exclude packages \
+                          --exclude_from .tt_blacklist \
+                          --changed_in_commit_range "$TRAVIS_COMMIT_RANGE" \
+                          --output changed_repositories.list
+  - touch changed_repositories_chunk.list changed_tools_chunk.list
+  - |
+    if [ -s changed_repositories.list ]; then
+        if [ $(wc -l < changed_repositories.list) -eq 1 ]; then
+            planemo ci_find_tools --chunk_count 4 --chunk "${CHUNK}" \
+                                  --output changed_tools_chunk.list \
+                                  $(cat changed_repositories.list)
+        else
+            planemo ci_find_repos --chunk_count 4 --chunk "${CHUNK}" \
+                                  --output changed_repositories_chunk.list \
+                                  $(cat changed_repositories.list)
+        fi
+    fi
+  - cat changed_repositories.list
+  - cat changed_repositories_chunk.list
+  - cat changed_tools_chunk.list
+
+script:
+  - set -e
+  - |
+    if [ -s changed_tools_chunk.list ]; then
+        planemo test --conda_dependency_resolution --conda_auto_install --conda_channels iuc,bioconda,conda-forge,defaults --galaxy_branch "$GALAXY_RELEASE" --galaxy_source "$GALAXY_REPO" $(cat changed_tools_chunk.list)
+    elif [ -s changed_repositories_chunk.list ]; then
+        while read -r DIR; do
+            planemo test --conda_dependency_resolution --conda_auto_install --conda_channels iuc,bioconda,conda-forge,defaults --galaxy_branch "$GALAXY_RELEASE" --galaxy_source "$GALAXY_REPO" "$DIR"
+        done < changed_repositories_chunk.list
+    fi

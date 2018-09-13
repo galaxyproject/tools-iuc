@@ -1,0 +1,560 @@
+<?xml version="1.0"?>
+<tool id="maker" name="Maker" profile="16.04" version="@VERSION@.1">
+    <description>genome annotation pipeline</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command><![CDATA[
+        RM_LIB_PATH=\$(dirname \$(which RepeatMasker))/../share/RepeatMasker/Libraries &&
+        mkdir lib &&
+        export REPEATMASKER_LIB_DIR=\$(pwd)/lib &&
+          for file in \$(ls \$RM_LIB_PATH) ; do  ln -s \$RM_LIB_PATH/\$file lib/\$file ; done &&
+        #if $repeat_masking.repeat_source.source_type == "repbase":
+          cp '${repeat_masking.repeat_source.repbase_file}' 'lib/${repeat_masking.repeat_source.repbase_file_name}' &&
+        #end if
+
+        maker -CTL
+
+        &&
+
+        sed "s/cpus=/cpus=\${GALAXY_SLOTS:-4}/g" '$ctl' > maker_opts.ctl
+
+        &&
+
+        #if $abinitio_gene_prediction.aug_prediction.augustus_mode == 'history'
+
+            ## Using an augustus model from history, we need to unzip it and let augustus find it
+
+            cp -r "\$AUGUSTUS_CONFIG_PATH/" augustus_dir/ &&
+
+            mkdir -p 'augustus_dir/species/' &&
+
+            tar -C 'augustus_dir/species/' -xzvf '${abinitio_gene_prediction.aug_prediction.augustus_model}' > /dev/null &&
+
+            export AUGUSTUS_CONFIG_PATH=`pwd`/augustus_dir/ &&
+        #end if
+
+        maker maker_opts.ctl maker_bopts.ctl maker_exe.ctl
+
+        &&
+
+        gff3_merge -d *.maker.output/*_master_datastore_index.log -o '${output_full}'
+
+        &&
+
+        awk '{if ($2 == "maker" || $1 ~ /^\#/) {print}}' '${output_full}' | sed -n '/^\#\#FASTA\$/q;p' > '${output_gff}'
+
+        &&
+
+        awk '{if ($2 != "maker") {print}}' '${output_full}' | sed -n '/^\#\#FASTA\$/q;p' > '${output_evidences}'
+    ]]></command>
+    <configfiles>
+        <!-- Maker doesn't like indentation in its config file... -->
+        <configfile name="ctl"><![CDATA[
+#-----Genome (these are always required)
+genome=${genome} # genome sequence (fasta file or fasta embeded in GFF3 file)
+organism_type=${organism_type} # eukaryotic or prokaryotic. Default is eukaryotic
+
+#-----Re-annotation Using MAKER Derived GFF3
+#if $reannotation.reannotate == 'no'
+maker_gff= # MAKER derived GFF3 file
+est_pass=0 # use ESTs in maker_gff: 1 = yes, 0 = no
+altest_pass=0 # use alternate organism ESTs in maker_gff: 1 = yes, 0 = no
+protein_pass=0 # use protein alignments in maker_gff: 1 = yes, 0 = no
+rm_pass=0 # use repeats in maker_gff: 1 = yes, 0 = no
+model_pass=0 # use gene models in maker_gff: 1 = yes, 0 = no
+pred_pass=0 # use ab-initio predictions in maker_gff: 1 = yes, 0 = no
+other_pass=0 # passthrough anything else in maker_gff: 1 = yes, 0 = no
+#else
+maker_gff=${reannotation.maker_gff} # MAKER derived GFF3 file
+est_pass=${reannotation.est_pass} # use ESTs in maker_gff: 1 = yes, 0 = no
+altest_pass=${reannotation.altest_pass} # use alternate organism ESTs in maker_gff: 1 = yes, 0 = no
+protein_pass=${reannotation.protein_pass} # use protein alignments in maker_gff: 1 = yes, 0 = no
+rm_pass=${reannotation.rm_pass} # use repeats in maker_gff: 1 = yes, 0 = no
+model_pass=${reannotation.model_pass} # use gene models in maker_gff: 1 = yes, 0 = no
+pred_pass=${reannotation.pred_pass} # use ab-initio predictions in maker_gff: 1 = yes, 0 = no
+other_pass=${reannotation.other_pass} # passthrough anything else in maker_gff: 1 = yes, 0 = no
+#end if
+
+#-----EST Evidence (for best results provide a file for at least one)
+#if $est_evidences.est
+est=${est_evidences.est} # set of ESTs or assembled mRNA-seq in fasta format
+#else
+est= # set of ESTs or assembled mRNA-seq in fasta format
+#end if
+#if $est_evidences.altest
+altest=${est_evidences.altest} # EST/cDNA sequence file in fasta format from an alternate organism
+#else
+altest= # EST/cDNA sequence file in fasta format from an alternate organism
+#end if
+#if $est_evidences.est_gff
+est_gff=${est_evidences.est_gff} # aligned ESTs or mRNA-seq from an external GFF3 file
+#else
+est_gff= # aligned ESTs or mRNA-seq from an external GFF3 file
+#end if
+#if $est_evidences.altest_gff
+altest_gff=${est_evidences.altest_gff} # aligned ESTs from a closly relate species in GFF3 format
+#else
+altest_gff= # aligned ESTs from a closly relate species in GFF3 format
+#end if
+
+#-----Protein Homology Evidence (for best results provide a file for at least one)
+#if $protein_evidences.protein
+protein=${protein_evidences.protein}  # protein sequence file in fasta format (i.e. from mutiple oransisms)
+#else
+protein=  # protein sequence file in fasta format (i.e. from mutiple oransisms)
+#end if
+#if $protein_evidences.protein_gff
+protein_gff=${protein_evidences.protein_gff}  # aligned protein homology evidence from an external GFF3 file
+#else
+protein_gff=  # aligned protein homology evidence from an external GFF3 file
+#end if
+
+#-----Repeat Masking (leave values blank to skip repeat masking)
+#if $repeat_masking.repeat_source.source_type == 'repbase'
+
+#if $repeat_masking.repeat_source.species_source.species_from_list == 'yes'
+model_org=${repeat_masking.repeat_source.species_source.species_list}
+#else
+model_org=${repeat_masking.repeat_source.species_source.species_name}
+#end if
+
+rmlib= # provide an organism specific repeat library in fasta format for RepeatMasker
+softmask=${repeat_masking.repeat_source.softmask} # use soft-masking rather than hard-masking in BLAST (i.e. seg and dust filtering)
+
+#else if $repeat_masking.repeat_source.source_type == 'library'
+model_org= # select a model organism for RepBase masking in RepeatMasker
+rmlib=${repeat_masking.repeat_source.repeatmasker.rmlib} # provide an organism specific repeat library in fasta format for RepeatMasker
+
+#if $repeat_masking.repeat_source.repeat_protein
+repeat_protein=${repeat_masking.repeat_source.repeat_protein} # provide a fasta file of transposable element proteins for RepeatRunner
+#else
+repeat_protein= # provide a fasta file of transposable element proteins for RepeatRunner
+#end if
+#if $repeat_masking.repeat_source.rm_gff
+rm_gff=${repeat_masking.repeat_source.rm_gff} # pre-identified repeat elements from an external GFF3 file
+#else
+rm_gff= # pre-identified repeat elements from an external GFF3 file
+#end if
+
+softmask=${repeat_masking.repeat_source.softmask} # use soft-masking rather than hard-masking in BLAST (i.e. seg and dust filtering)
+
+#else
+model_org= # select a model organism for RepBase masking in RepeatMasker
+rmlib= # provide an organism specific repeat library in fasta format for RepeatMasker
+softmask=0 # use soft-masking rather than hard-masking in BLAST (i.e. seg and dust filtering)
+#end if
+
+prok_rm=0 # forces MAKER to repeatmask prokaryotes (no reason to change this), 1 = yes, 0 = no
+
+#-----Gene Prediction
+#if $abinitio_gene_prediction.snaphmm
+snaphmm=${abinitio_gene_prediction.snaphmm} # SNAP HMM file
+#else
+snaphmm= # SNAP HMM file
+#end if
+gmhmm= # GeneMark HMM file, disabled in galaxy as not free
+#if $abinitio_gene_prediction.aug_prediction.augustus_mode == 'builtin'
+augustus_species=${abinitio_gene_prediction.aug_prediction.augustus_species} # Augustus gene prediction species model
+#else if $abinitio_gene_prediction.aug_prediction.augustus_mode == 'history'
+augustus_species=local # Augustus gene prediction species model
+#else
+augustus_species= # Augustus gene prediction species model
+#end if
+fgenesh_par_file= # FGENESH parameter file disabled in galaxy as not free
+#if $gene_prediction.pred_gff
+pred_gff=${gene_prediction.pred_gff} # ab-initio predictions from an external GFF3 file
+#else
+pred_gff= # ab-initio predictions from an external GFF3 file
+#end if
+#if $gene_prediction.model_gff
+model_gff=${gene_prediction.model_gff} # annotated gene models from an external GFF3 file (annotation pass-through)
+#else
+model_gff= # annotated gene models from an external GFF3 file (annotation pass-through)
+#end if
+est2genome=${est_evidences.est2genome} # infer gene predictions directly from ESTs, 1 = yes, 0 = no
+protein2genome=${protein_evidences.protein2genome} # infer predictions from protein homology, 1 = yes, 0 = no
+trna=${gene_prediction.trna} # find tRNAs with tRNAscan, 1 = yes, 0 = no
+#if $gene_prediction.snoscan_rrna
+snoscan_rrna=${gene_prediction.snoscan_rrna} # rRNA file to have Snoscan find snoRNAs
+#else
+snoscan_rrna= # rRNA file to have Snoscan find snoRNAs
+#end if
+unmask=${abinitio_gene_prediction.unmask} # also run ab-initio prediction programs on unmasked sequence, 1 = yes, 0 = no
+
+#-----Other Annotation Feature Types (features MAKER doesn't recognize)
+#if $advanced.other_gff
+other_gff=${advanced.other_gff} # extra features to pass-through to final MAKER generated GFF3 file
+#else
+other_gff= # extra features to pass-through to final MAKER generated GFF3 file
+#end if
+
+#-----External Application Behavior Options
+alt_peptide=${advanced.alt_peptide} # amino acid used to replace non-standard amino acids in BLAST databases
+cpus= # max number of cpus to use in BLAST and RepeatMasker (not for MPI, leave 1 when using MPI)
+
+#-----MAKER Behavior Options
+max_dna_len=${advanced.max_dna_len} # length for dividing up contigs into chunks (increases/decreases memory usage)
+min_contig=${advanced.min_contig} # skip genome contigs below this length (under 10kb are often useless)
+
+pred_flank=${advanced.pred_flank} # flank for extending evidence clusters sent to gene predictors
+pred_stats=${advanced.pred_stats} # report AED and QI statistics for all predictions as well as models
+AED_threshold=${advanced.AED_threshold} # Maximum Annotation Edit Distance allowed (bound by 0 and 1)
+min_protein=${advanced.min_protein} # require at least this many amino acids in predicted proteins
+alt_splice=${advanced.alt_splice} # Take extra steps to try and find alternative splicing, 1 = yes, 0 = no
+always_complete=${advanced.always_complete} # extra steps to force start and stop codons, 1 = yes, 0 = no
+map_forward=${advanced.map_forward} # map names and attributes forward from old GFF3 genes, 1 = yes, 0 = no
+keep_preds=${advanced.keep_preds} # Concordance threshold to add unsupported gene prediction (bound by 0 and 1)
+
+split_hit=${advanced.split_hit} # length for the splitting of hits (expected max intron size for evidence alignments)
+single_exon=${advanced.single_exon.single_exon} # consider single exon EST evidence when generating annotations, 1 = yes, 0 = no
+#if $advanced.single_exon.single_exon == '1'
+single_length=${advanced.single_length} # min length required for single exon ESTs if 'single_exon is enabled'
+#else
+single_length=250 # min length required for single exon ESTs if 'single_exon is enabled'
+#end if
+correct_est_fusion=${advanced.correct_est_fusion} # limits use of ESTs in annotation to avoid fusion genes
+
+tries=2 # number of times to try a contig if there is a failure for some reason
+clean_try=0 # remove all data from previous run before retrying, 1 = yes, 0 = no
+clean_up=0 # removes theVoid directory with individual analysis files, 1 = yes, 0 = no
+TMP= # specify a directory other than the system default temporary directory for temporary files
+        ]]></configfile>
+    </configfiles>
+
+    <inputs>
+        <param name="genome" type="data" format="fasta" label="Genome to annotate"/>
+        <param name="organism_type" type="select" label="Organism type">
+            <option value="eukaryotic">Eukaryotic</option>
+            <option value="prokaryotic">Prokaryotic</option>
+        </param>
+
+        <conditional name="reannotation">
+            <param name="reannotate" type="select" label="Re-annotate using an existing Maker annotation">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="maker_gff" type="data" format="gff" label="Previous Maker annotation"/>
+                <param name="est_pass" type="boolean" truevalue="1" falsevalue="0" label="Re-use ESTs"/>
+                <param name="altest_pass" type="boolean" truevalue="1" falsevalue="0" label="Re-use alternate organism ESTs"/>
+                <param name="protein_pass" type="boolean" truevalue="1" falsevalue="0" label="Re-use protein alignments"/>
+                <param name="rm_pass" type="boolean" truevalue="1" falsevalue="0" label="Re-use repeats"/>
+                <param name="model_pass" type="boolean" truevalue="1" falsevalue="0" label="Re-use gene models"/>
+                <param name="pred_pass" type="boolean" truevalue="1" falsevalue="0" label="Re-use ab-initio predictions"/>
+                <param name="other_pass" type="boolean" truevalue="1" falsevalue="0" label="Passthrough anything else"/>
+            </when>
+        </conditional>
+
+        <section name="est_evidences" title="EST evidences (for best results provide at least one of these)" expanded="True">
+            <param name="est2genome" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Infer gene predictions directly from all ESTs" help="Maker will blindly trust EST alignments to create gene models. Use this only before training ab-initio predictors."/>
+            <param name="est" type="data" format="fasta" label="ESTs or assembled cDNA" optional="True"/>
+            <param name="altest" type="data" format="fasta" label="EST/cDNA from an alternate organism" optional="True"/>
+            <param name="est_gff" type="data" format="gff" label="Aligned ESTs or cDNA" optional="True"/>
+            <param name="altest_gff" type="data" format="gff" label="Aligned EST/cDNA from an alternate organism" optional="True"/>
+        </section>
+
+        <section name="protein_evidences" title="Protein evidences (for best results provide at least one of these)" expanded="True">
+            <param name="protein2genome" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Infer gene predictions directly from all protein alignments" help="Maker will blindly trust protein alignments to create gene models. Use this only before training ab-initio predictors."/>
+            <param name="protein" type="data" format="fasta" label="Protein sequences" help="From mutiple organisms" optional="True"/>
+            <param name="protein_gff" type="data" format="gff" label="Aligned proteins" help="From mutiple organisms" optional="True"/>
+        </section>
+
+        <section name="abinitio_gene_prediction" title="Ab-initio gene prediction" expanded="True">
+            <param name="snaphmm" type="data" format="snaphmm" label="SNAP model" optional="True" help="Leave empty to disable gene prediction by SNAP"/>
+
+            <conditional name="aug_prediction">
+                <param name="augustus_mode" type="select" label="Prediction with Augustus">
+                    <option value="no" selected="true">Don't use Augustus to predict genes</option>
+                    <option value="builtin">Run Augustus with a predefined prediction model</option>
+                    <option value="history">Run Augustus with a custom prediction model</option>
+                </param>
+                <when value="no"/>
+                <when value="history">
+                    <param name="augustus_model" type="data" format="augustus" label="Augustus model"/>
+                </when>
+                <when value="builtin">
+                    <param name="augustus_species" type="select" label="Augustus species model">
+                        <!-- If you update this list, please also update it in augustus and busco tools (../augustus/augustus.xml and ../busco/busco.xml) -->
+                        <option value="human">Homo sapiens</option>
+                        <option value="fly">Drosophila melanogaster</option>
+                        <option value="arabidopsis">Arabidopsis thaliana</option>
+                        <option value="brugia ">Brugia malayi</option>
+                        <option value="aedes">Aedes aegypti</option>
+                        <option value="tribolium2012">Tribolium castaneum</option>
+                        <option value="schistosoma">Schistosoma mansoni</option>
+                        <option value="tetrahymena">Tetrahymena thermophila</option>
+                        <option value="galdieria">Galdieria sulphuraria</option>
+                        <option value="maize">Zea mays</option>
+                        <option value="toxoplasma">Toxoplasma gondii</option>
+                        <option value="caenorhabditis ">Caenorhabditis elegans</option>
+                        <option value="aspergillus_fumigatus">Aspergillus fumigatus</option>
+                        <option value="aspergillus_nidulans ">Aspergillus nidulans</option>
+                        <option value="aspergillus_oryzae ">Aspergillus oryzae</option>
+                        <option value="aspergillus_terreus">Aspergillus terreus</option>
+                        <option value="botrytis_cinerea ">Botrytis cinerea</option>
+                        <option value="candida_albicans ">Candida albicans</option>
+                        <option value="candida_guilliermondii ">Candida guilliermondii</option>
+                        <option value="candida_tropicalis ">Candida tropicalis</option>
+                        <option value="chaetomium_globosum">Chaetomium globosum</option>
+                        <option value="coccidioides_immitis">Coccidioides immitis</option>
+                        <option value="coprinus">Coprinus cinereus</option>
+                        <option value="coprinus_cinereus">Coprinus cinereus</option>
+                        <option value="cryptococcus_neoformans_gattii">Cryptococcus neoformans gattii</option>
+                        <option value="cryptococcus_neoformans_neoformans_B">Cryptococcus neoformans neoformans</option>
+                        <option value="cryptococcus_neoformans_neoformans_JEC21">Cryptococcus neoformans neoformans</option>
+                        <option value="cryptococcus">Cryptococcus neoformans</option>
+                        <option value="debaryomyces_hansenii">Debaryomyces hansenii</option>
+                        <option value="encephalitozoon_cuniculi_GB">Encephalitozoon cuniculi</option>
+                        <option value="eremothecium_gossypii">Eremothecium gossypii</option>
+                        <option value="fusarium_graminearum ">Fusarium graminearum</option>
+                        <option value="histoplasma_capsulatum ">Histoplasma capsulatum</option>
+                        <option value="histoplasma">Histoplasma capsulatum</option>
+                        <option value="kluyveromyces_lactis ">Kluyveromyces lactis</option>
+                        <option value="laccaria_bicolor ">Laccaria bicolor</option>
+                        <option value="lamprey">Petromyzon marinus</option>
+                        <option value="leishmania_tarentolae">Leishmania tarentolae</option>
+                        <option value="lodderomyces_elongisporus">Lodderomyces elongisporus</option>
+                        <option value="magnaporthe_grisea ">Magnaporthe grisea</option>
+                        <option value="neurospora_crassa">Neurospora crassa</option>
+                        <option value="phanerochaete_chrysosporium">Phanerochaete chrysosporium</option>
+                        <option value="pichia_stipitis">Pichia stipitis</option>
+                        <option value="rhizopus_oryzae">Rhizopus oryzae</option>
+                        <option value="saccharomyces_cerevisiae_S288C">Saccharomyces cerevisiae</option>
+                        <option value="saccharomyces_cerevisiae_rm11-1a_1">Saccharomyces cerevisiae</option>
+                        <option value="saccharomyces">Saccharomyces cerevisiae</option>
+                        <option value="schizosaccharomyces_pombe">Schizosaccharomyces pombe</option>
+                        <option value="trichinella">Trichinella spiralis</option>
+                        <option value="ustilago_maydis">Ustilago maydis</option>
+                        <option value="yarrowia_lipolytica">Yarrowia lipolytica</option>
+                        <option value="nasonia">Nasonia vitripennis</option>
+                        <option value="tomato">Solanum lycopersicum</option>
+                        <option value="chlamydomonas">Chlamydomonas reinhardtii</option>
+                        <option value="amphimedon">Amphimedon queenslandica</option>
+                        <option value="pneumocystis">Pneumocystis jirovecii</option>
+                        <option value="chicken">Gallus gallus domesticus (chicken)</option>
+                        <option value="cacao">Theobroma cacao (cacao)</option>
+                        <option value="heliconius_melpomene1">Heliconius melpomene</option>
+                        <option value="xenoturbella">Xenoturbella</option>
+                        <option value="E_coli_K12">E coli K12</option>
+                        <option value="c_elegans_trsk">c elegans trsk</option>
+                        <option value="camponotus_floridanus">Camponotus floridanus</option>
+                        <option value="coyote_tobacco">Coyote tobacco</option>
+                        <option value="s_aureus">Staphylococcus aureus</option>
+                        <option value="thermoanaerobacter_tengcongensis">Thermoanaerobacter tengcongensis</option>
+                        <option value="wheat">wheat</option>
+                        <option value="zebrafish">Danio rerio</option>
+                        <option value="anidulans">Aspergillus nidulans</option>
+                        <option value="bombus_impatiens1">Bombus impatiens1</option>
+                        <option value="bombus_terrestris2">Bombus terrestris2</option>
+                        <option value="botrytis_cinerea">Botrytis cinerea</option>
+                        <option value="brugia_malayi">Brugia malayi</option>
+                        <option value="conidiobolus_coronatus">Conidiobolus coronatus</option>
+                        <option value="cryptococcus_neoformans">Cryptococcus neoformans</option>
+                        <option value="culex_pipiens">Culex pipiens</option>
+                        <option value="elephant_shark">Callorhinchus milii</option>
+                        <option value="honeybee1">Apis mellifera</option>
+                        <option value="phanerochaete_chrysosporium">Phanerochaete chrysosporium</option>
+                        <option value="pea_aphid">Acyrthosiphon pisum</option>
+                        <option value="rhodnius_prolixus">Rhodnius prolixus</option>
+                        <option value="ustilago_maydis">Ustilago maydis</option>
+                        <option value="verticillium_albo_atrum1">Verticillium albo atrum1</option>
+                        <option value="verticillium_longisporum1">Verticillium longisporum1</option>
+                        <option value="Xipophorus_maculatus">Xipophorus_maculatus</option>
+                        <option value="adorsata">adorsata</option>
+                        <option value="ancylostoma_ceylanicum">ancylostoma_ceylanicum</option>
+                        <option value="maker2_athal1">maker2_athal1</option>
+                        <option value="maker2_c_elegans1">maker2_c_elegans1</option>
+                        <option value="maker2_dmel1">maker2_dmel1</option>
+                        <option value="maker2_spomb1">maker2_spomb1</option>
+                        <option value="parasteatoda">parasteatoda</option>
+                        <option value="rice">rice</option>
+                        <option value="schistosoma2">schistosoma2</option>
+                        <option value="sulfolobus_solfataricus">sulfolobus_solfataricus</option>
+                    </param>
+                </when>
+            </conditional>
+            <param name="unmask" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Run ab-initio prediction programs on unmasked sequence" help="Predictors will look for genes in repeated elements (like transposons). Only useful when you believe that transposons might have been integrated into a real gene structure (rare)."/>
+        </section>
+
+        <section name="repeat_masking" title="Repeat masking" expanded="True">
+            <conditional name="repeat_source">
+              <param label="Repeat library source" name="source_type" type="select">
+                <option selected="true" value="repbase">RepBase</option>
+                <option value="library">Custom library of repeats</option>
+                <option value="no">Disable repeat masking (not recommended)</option>
+              </param>
+              <when value="repbase">
+                <param name="repbase_file" type="data" format="embl" label="RepBase (RMRBSeqs.embl) file" />
+                <param name="repbase_file_name" type="hidden" value="RMRBSeqs.embl"/> <!-- This is an ugly hack to allow testing with a fake repbase -->
+                <conditional name="species_source">
+                  <param label="Select species name from a list?" name="species_from_list" type="select">
+                    <option value="yes" selected="true">Yes</option>
+                    <option value="no">No</option>
+                  </param>
+                  <when value="yes">
+                    <param name="species_list" type="select" label="Species">
+                      <option value="anopheles" selected="true">anopheles</option>
+                      <option value="arabidopsis">arabidopsis</option>
+                      <option value="artiodactyl">artiodactyl</option>
+                      <option value="aspergillus">aspergillus</option>
+                      <option value="carnivore">carnivore</option>
+                      <option value="cat">cat</option>
+                      <option value="chicken">chicken</option>
+                      <option value="ciona intestinalis">ciona intestinalis</option>
+                      <option value="ciona savignyi">ciona savignyi</option>
+                      <option value="cow">cow</option>
+                      <option value="danio">danio</option>
+                      <option value="diatoaea">diatomea</option>
+                      <option value="dog">dog</option>
+                      <option value="drosophila">drosophila</option>
+                      <option value="elegans">elegans</option>
+                      <option value="fugu">fugu</option>
+                      <option value="fungi" selected="true">fungi</option>
+                      <option value="human">human</option>
+                      <option value="maize">maize</option>
+                      <option value="mammal">mammal</option>
+                      <option value="mouse">mouse</option>
+                      <option value="pig">pig</option>
+                      <option value="rat">rat</option>
+                      <option value="rice">rice</option>
+                      <option value="rodentia">rodentia</option>
+                      <option value="ruminantia">ruminantia</option>
+                      <option value="wheat">wheat</option>
+                    </param>
+                  </when>
+                  <when value="no">
+                    <param name="species_name" type="text" value="homo sapiens" label="Repeat source species" help="Source species (or clade name) used to select repeats from RepBase" />
+                  </when>
+                </conditional>
+                <param name="softmask" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Use soft-masking rather than hard-masking in BLAST" help="i.e. seg and dust filtering"/>
+              </when>
+              <when value="library">
+                <param name="repeat_protein" type="data" format="fasta" label="Transposable element protein sequences for RepeatRunner" optional="True" />
+                <param name="rm_gff" type="data" format="fasta" label="Pre-identified repeat elements from an external GFF file" optional="True" />
+                <param name="softmask" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Use soft-masking rather than hard-masking in BLAST" help="i.e. seg and dust filtering"/>
+              </when>
+              <when value="no"/>
+            </conditional>
+        </section>
+
+        <section name="gene_prediction" title="Other predictions" expanded="True">
+            <param name="pred_gff" type="data" format="gff" label="Predictions from an external GFF3 file" optional="True"/>
+            <param name="model_gff" type="data" format="gff" label="Annotated gene models from an external GFF3 file" help="annotation pass-through" optional="True"/>
+            <param name="trna" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Find tRNAs with tRNAscan"/>
+            <param name="snoscan_rrna" type="data" format="fasta" label="rRNA file to have Snoscan find snoRNAs" optional="True"/>
+        </section>
+
+        <section name="advanced" title="Advanced settings" expanded="False">
+            <param name="other_gff" type="data" format="gff" label="Extra features to pass-through to final Maker generated GFF3 file" optional="True"/>
+            <param name="alt_peptide" type="text" value="C" size="1" label="Amino acid used to replace non-standard amino acids in BLAST databases">
+                <validator type="regex" message="This must be a single uppercase letter">^[A-Z]$</validator>
+            </param>
+            <param name="max_dna_len" type="integer" value="100000" label="Length for dividing up contigs into chunks" help="Increases/decreases memory usage"/>
+            <param name="min_contig" type="integer" value="1" label="Skip genome contigs below this length" help="Under 10kb are often useless"/>
+            <param name="pred_flank" type="integer" value="200" label="Flank for extending evidence clusters sent to gene predictors"/>
+            <param name="pred_stats" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Report AED and QI statistics for all predictions as well as models"/>
+            <param name="AED_threshold" type="float" min="0" max="1" value="1" label="Maximum Annotation Edit Distance allowed"/>
+            <param name="min_protein" type="integer" value="0" label="Require at least this many amino acids in predicted proteins"/>
+            <param name="alt_splice" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Take extra steps to try and find alternative splicing" help="Will try to output gene isoforms when detected instead of a single consensus isoform.Use this if you have good EST evidences allowing to detect isoforms."/>
+            <param name="always_complete" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Take extra steps to force the finding of a start and stop codons" help="Only cannonical gene structures will be reported, but it can lead to biologically incorrect seqences."/>
+            <param name="map_forward" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Map names and attributes forward from old GFF3 genes"/>
+            <param name="keep_preds" type="float" min="0" max="1" value="0" label="Concordance threshold to add unsupported gene prediction"/>
+            <param name="split_hit" type="integer" value="10000" label="length for the splitting of hits" help="Expected max intron size for evidence alignments"/>
+            <param name="correct_est_fusion" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Limit use of ESTs in annotation to avoid fusion genes"/>
+            <conditional name="single_exon">
+                <param name="single_exon" type="select" label="Consider single exon EST evidence when generating annotations">
+                    <option value="0" selected="true">No</option>
+                    <option value="1">Yes</option>
+                </param>
+                <when value="0"/>
+                <when value="1">
+                    <param name="single_length" type="integer" value="250" label="min length required for single exon ESTs if"/>
+                </when>
+            </conditional>
+        </section>
+    </inputs>
+    <outputs>
+        <data format="gff3" name="output_gff" label="${tool.name} on ${on_string}: final annotation"/>
+        <data format="gff3" name="output_evidences" label="${tool.name} on ${on_string}: evidences"/>
+        <data format="gff3" name="output_full" label="${tool.name} on ${on_string}: full gff (evidences + final annotation)"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="genome" value="genome.fasta"/>
+            <param name="est_evidences|est" value="est.fasta"/>
+            <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
+            <output name="output_gff" file="annot.gff3"/>
+            <output name="output_evidences" file="evidences.gff3" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="genome" value="genome.fasta"/>
+            <param name="organism_type" value="prokaryotic"/>
+            <param name="est_evidences|est" value="est.fasta"/>
+            <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
+            <output name="output_gff" file="annot_proc.gff3"/>
+            <output name="output_evidences" file="evidences_proc.gff3" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="genome" value="genome.fasta"/>
+            <param name="reannotation|reannotate" value="yes"/>
+            <param name="reannotation|maker_gff" value="evidences.gff3"/>
+            <param name="reannotation|est_pass" value="true"/>
+            <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
+            <output name="output_gff" file="annot_reuse.gff3"/>
+            <output name="output_evidences" file="evidences_reuse.gff3" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="genome" value="genome.fasta"/>
+            <param name="abinitio_gene_prediction|snaphmm" value="snap.hmm"/>
+            <param name="abinitio_gene_prediction|aug_prediction|augustus_mode" value="builtin"/>
+            <param name="abinitio_gene_prediction|aug_prediction|augustus_species" value="human"/>
+            <param name="est_evidences|est" value="est.fasta"/>
+            <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
+            <output name="output_gff" file="annot_human.gff3" compare="sim_size"/>
+            <output name="output_evidences" file="evidences_human.gff3" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="genome" value="genome.fasta"/>
+            <param name="abinitio_gene_prediction|snaphmm" value="snap.hmm"/>
+            <param name="abinitio_gene_prediction|aug_prediction|augustus_mode" value="history"/>
+            <param name="abinitio_gene_prediction|aug_prediction|augustus_model" value="local.tar.gz" ftype="augustus"/>
+            <param name="est_evidences|est" value="est.fasta"/>
+            <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
+            <output name="output_gff" file="annot_model.gff3" compare="sim_size"/>
+            <output name="output_evidences" file="evidences_model.gff3" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="genome" value="genome.fasta"/>
+            <param name="est_evidences|est" value="est.fasta"/>
+            <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
+            <output name="output_gff" file="annot_norm.gff3"/>
+            <output name="output_evidences" file="evidences_norm.gff3" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="genome" value="genome.fasta"/>
+            <param name="est_evidences|est" value="est.fasta"/>
+            <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="repbase"/>
+            <param name="repeat_masking|repeat_source|repbase_file" value="fake_repbase.embl" />
+            <param name="repeat_masking|repeat_source|repbase_file_name" value="fake.embl" />
+            <param name="repeat_masking|repeat_source|species_list" value="anopheles" />
+            <output name="output_gff" file="annot_repbase.gff3"/>
+            <output name="output_evidences" file="evidences_norm.gff3" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+        MAKER is a portable and easily configurable genome annotation pipeline. Its purpose is to allow smaller eukaryotic and prokaryotic genome projects to independently annotate their genomes and to create genome databases. MAKER identifies repeats, aligns ESTs and proteins to a genome, produces ab-initio gene predictions and automatically synthesizes these data into gene annotations having evidence-based quality values. MAKER is also easily trainable: outputs of preliminary runs can be used to automatically retrain its gene prediction algorithm, producing higher quality gene-models on seusequent runs. MAKER's inputs are minimal and its ouputs can be directly loaded into a GMOD database. They can also be viewed in the Apollo genome browser; this feature of MAKER provides an easy means to annotate, view and edit individual contigs and BACs without the overhead of a database. MAKER should prove especially useful for emerging model organism projects with minimal bioinformatics expertise and computer resources.
+
+        .. _Maker: http://www.yandell-lab.org/software/maker.html
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

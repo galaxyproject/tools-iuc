@@ -1,0 +1,144 @@
+<tool id="metagenomeseq_normalizaton" name="metagenomeSeq Normalization" version="1.16.0-0.0.1">
+    <description>Cumulative sum scaling</description>
+    <requirements>
+        <requirement type="package" version="1.16.0">bioconductor-metagenomeseq</requirement>
+        <requirement type="package" version="1.2.0">bioconductor-biomformat</requirement>
+    </requirements>
+    <version_command><![CDATA[Rscript -e 'suppressMessages(library("metagenomeSeq"));cat(toString(packageVersion("metagenomeSeq")))']]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        #if "output_r_script" in str( $include_outputs ).split( "," ):
+            cp '${metagenomeseq_normalization_script}' '${output_r_script}' &&
+        #end if
+        Rscript '${metagenomeseq_normalization_script}'
+    ]]>
+    </command>
+    <configfiles>
+         <configfile name="metagenomeseq_normalization_script"><![CDATA[#!/usr/bin/env RScript
+#set $include_files = str( $include_outputs ).split( "," )
+library(metagenomeSeq)
+library(biomformat)
+
+#if $input_abundance_file.is_of_type( 'biom1' ):
+inputMRe = biom2MRexperiment( biomformat::read_biom( "${input_abundance_file}" ) )
+#else:
+##inputMRe = newMRexperiment( counts, phenoData = NULL, featureData = NULL, libSize = NULL, normFactors = NULL)
+#raise "Not yet implemented"
+#end if
+
+#if str( $percentile_type.percentile_type_selector ) == 'cumNormStat':
+p = cumNormStat( inputMRe,  qFlag = ${percentile_type.qFlag}, rel = ${percentile_type.rel} )
+#elif str( $percentile_type.percentile_type_selector ) == 'cumNormStatFast':
+p = cumNormStatFast( inputMRe, rel = ${percentile_type.rel} )
+#else:
+p = ${percentile_type.raw_value}
+#end if
+
+inputMRe = cumNorm(inputMRe, p = p )
+
+#if "output_tabular" in $include_files:
+mat = MRcounts(inputMRe, norm = TRUE, log = ${log2}, sl = ${sl})
+exportMat(mat, file = "${output_tabular_dataset}")
+#end if
+
+#if "output_biom" in $include_files:
+biomformat::write_biom( MRexperiment2biom(inputMRe, id = NULL, norm = TRUE, log = ${log2}, sl = ${sl}, qiimeVersion = TRUE), "${output_biom_dataset}" )
+#end if
+
+#if "output_stats" in $include_files:
+exportStats(inputMRe, p = p, file = "${output_stats}")
+#end if
+    ]]>
+         </configfile>
+    </configfiles>
+<inputs>
+    <param name="input_abundance_file" type="data" format="biom1" label="Input Matrix" help="BIOM format"/>
+
+    <conditional name="percentile_type">
+        <param name="percentile_type_selector" type="select" label="Percentile for which to scale data">
+            <option value="cumNormStat" selected="True">cumNormStat</option>
+            <option value="cumNormStatFast" selected="False">cumNormStatFast</option>
+            <option value="raw" selected="False">Raw</option>
+        </param>
+        <when value="cumNormStat">
+            <param name="qFlag" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="True" label="qFlag" help="Flag to either calculate the proper percentile using R's step-wise quantile function or approximate function."/>
+            <param name="rel" type="float" value="0.1" label="rel" help="Cutoff for the relative difference from one median difference from the reference to the next"/>
+        </when>
+        <when value="cumNormStatFast">
+            <param name="rel" type="float" value="0.1" label="rel" help="Cutoff for the relative difference from one median difference from the reference to the next"/>
+        </when>
+        <when value="raw">
+            <param name="raw_value" type="float" value=".80" label="Percentile" help="Manual Percentile"/>
+        </when>
+    </conditional>
+
+    <param name="log2" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="False" label="Log2 transform scaling" help=""/>
+    <param name="sl" type="integer" value="1000" label="The value to scale by." help="(default=1000)"/>
+
+    <param name="include_outputs" type="select" multiple="True" label="Datasets to create">
+        <option value="output_tabular" selected="True">Normalized Tabular Matrix</option>
+        <!-- <option value="output_biom" selected="True">Normalized BIOM</option> -->
+        <option value="output_stats" selected="True">Simple Statistics</option>
+        <option value="output_r_script" selected="False">R script</option>
+    </param>
+</inputs>
+<outputs>
+    <!-- <data format="biom1" name="output_biom_dataset" label="${tool.name} on ${on_string} (BIOM1)">
+         <filter>"output_biom" in include_outputs</filter>
+    </data> -->
+    <data format="tabular" name="output_tabular_dataset" label="${tool.name} on ${on_string} (Tabular)">
+         <filter>"output_tabular" in include_outputs</filter>
+    </data>
+    <data format="tabular" name="output_stats" label="${tool.name} on ${on_string} (Simple Statistics)">
+        <filter>"output_stats" in include_outputs</filter>
+    </data>
+    <data format="txt" name="output_r_script" label="${tool.name} on ${on_string} (Rscript)">
+        <filter>"output_r_script" in include_outputs</filter>
+    </data>
+</outputs>
+<tests>
+    <test>
+        <param name="input_abundance_file" value="input_1.biom1" ftype="biom1"/>
+        <conditional name="percentile_type">
+            <param name="percentile_type_selector" value="cumNormStat"/>
+            <param name="qFlag" value="TRUE"/>
+            <param name="rel" value=".1"/>
+        </conditional>
+        <param name="log2" value="FALSE"/>
+        <param name="sl" value="1000"/>
+        <output name="output_tabular_dataset">
+            <assert_contents>
+                <has_text_matching expression="SAMPLE_2" />
+            </assert_contents>
+        </output>
+    </test>
+</tests>
+    <help><![CDATA[
+metagenomeSeq Cumulative sum scaling
+====================================
+
+Info
+----
+
+::
+  
+  Cumulative sum scaling based upon percentile selection. You can manually specificy the percentile or calculate it using cumNormStat or cumNormStatFast.
+
+Inputs
+------
+
+::
+  
+  Requires a BIOM formatted file for input. 
+
+Outputs
+-------
+
+::
+  
+  Creates a normalized and scaled output abundance matrix in Tabular format. Additionally can create simple statistics and the RScript.
+
+    ]]></help>
+<citations>
+    <citation type="doi">10.1038/nmeth.2658</citation>
+</citations>
+</tool>

@@ -1,0 +1,11 @@
+out_file = 'output'
+pdf('output.inner_distance_plot.pdf')
+fragsize=rep(c(-248,-243,-238,-233,-228,-223,-218,-213,-208,-203,-198,-193,-188,-183,-178,-173,-168,-163,-158,-153,-148,-143,-138,-133,-128,-123,-118,-113,-108,-103,-98,-93,-88,-83,-78,-73,-68,-63,-58,-53,-48,-43,-38,-33,-28,-23,-18,-13,-8,-3,2,7,12,17,22,27,32,37,42,47,52,57,62,67,72,77,82,87,92,97,102,107,112,117,122,127,132,137,142,147,152,157,162,167,172,177,182,187,192,197,202,207,212,217,222,227,232,237,242,247),times=c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0,1,0,0,2,0,0,2,0,0,0,1,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,1,0,1,0,0,0,0,0,0,0,1,0,1,1,0,1,0,1,0,0,0))
+frag_sd = sd(fragsize)
+frag_mean = mean(fragsize)
+frag_median = median(fragsize)
+write(x=c("Name","Mean","Median","sd"), sep="	", file=stdout(),ncolumns=4)
+write(c(out_file,frag_mean,frag_median,frag_sd),sep="	", file=stdout(),ncolumns=4)
+hist(fragsize,probability=T,breaks=100,xlab="mRNA insert size (bp)",main=paste(c("Mean=",frag_mean,";","SD=",frag_sd),collapse=""),border="blue")
+lines(density(fragsize,bw=10),col='red')
+dev.off()

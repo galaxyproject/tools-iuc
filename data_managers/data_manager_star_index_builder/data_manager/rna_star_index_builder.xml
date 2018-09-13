@@ -1,0 +1,163 @@
+<tool id="rna_star_index_builder_data_manager" name="rnastar index2" tool_type="manage_data" version="0.0.5" profile="17.01">
+    <description>builder</description>
+
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+
+    <expand macro="requirements" />
+
+    <command><![CDATA[
+if [ -z "\$GALAXY_MEMORY_MB" ] ; then
+    GALAXY_MEMORY_BYTES=31000000000 ;
+else
+    GALAXY_MEMORY_BYTES=\$((GALAXY_MEMORY_MB * 1000000)) ;
+fi ;
+
+#import json, os
+#set params = json.loads(open(str($out_file)).read())
+#set target_directory = $params['output_data'][0]['extra_files_path'].encode('ascii', 'replace')
+#set subdir = os.path.basename(target_directory)
+
+mkdir -p '${target_directory}/${subdir}' &&
+
+STAR
+--runMode genomeGenerate
+--genomeFastaFiles '${all_fasta_source.fields.path}'
+--genomeDir '${target_directory}/${subdir}'
+--limitGenomeGenerateRAM \${GALAXY_MEMORY_BYTES}
+#if $GTFconditional.GTFselect == "withGTF":
+    --sjdbGTFfile '${GTFconditional.sjdbGTFfile}'
+    --sjdbOverhang ${GTFconditional.sjdbOverhang}
+#end if
+#if $advanced_options.advanced_options_selector == "advanced":
+    --genomeSAindexNbases ${advanced_options.genomeSAindexNbases}
+    --genomeChrBinNbits ${advanced_options.genomeChrBinNbits}
+    --genomeSAsparseD ${advanced_options.genomeSAsparseD}
+#end if
+--runThreadN \${GALAXY_SLOTS:-2} &&
+
+python '${__tool_directory__}/rna_star_index_builder.py'
+--config-file '${out_file}'
+--value '${all_fasta_source.fields.value}'
+--dbkey '${all_fasta_source.fields.dbkey}'
+#if $name:
+    --name '$name'
+#else
+    --name '${all_fasta_source.fields.name}'
+#end if
+#if str($GTFconditional.GTFselect) == "withGTF":
+    --withGTF 1
+#end if
+--data-table rnastar_index2
+--subdir '${subdir}'
+    ]]></command>
+    <inputs>
+        <param name="all_fasta_source" type="select" label="Source FASTA Sequence">
+            <options from_data_table="all_fasta"/>
+        </param>
+        <param name="name" type="text" value="" label="Informative name for sequence index"
+            help="By using different settings, you may have several indices per reference genome. Give an appropriate description to the index to distinguish between indices"/>
+        <conditional name="GTFconditional">
+            <param name="GTFselect" type="select" label="Reference genome with or without an annotation" help="Must the index have been created WITH a GTF file (if not you can specify one afterward).">
+                <option value="withoutGTF">use genome reference without builtin gene-model</option>
+                <option value="withGTF">use genome reference with builtin gene-model</option>
+            </param>
+            <when value="withGTF">
+                <param argument="--sjdbGTFfile" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions" optional="false" help="Exon junction information for mapping splices"/>
+                <param argument="--sjdbOverhang" type="integer" min="1" value="100" label="Length of the genomic sequence around annotated junctions" help="Used in constructing the splice junctions database. Ideal value is ReadLength-1"/>
+            </when>
+            <when value="withoutGTF" />
+        </conditional>
+        <conditional name="advanced_options">
+            <param name="advanced_options_selector" type="select" label="Advanced options">
+                <option value="default" selected="true">Use default options</option>
+                <option value="advanced">Set advanced options</option>
+            </param>
+            <when value="default" />
+            <when value="advanced">
+                <param argument="--genomeSAindexNbases" type="integer" min="1" value="14"
+                    label="Length (bases) of the SA pre-indexing string"
+                    help="Typically between 10 and 15. Longer strings will use much more memory, but allow
+                        faster searches. For small genomes, the parameter –genomeSAindexNbases must be scaled
+                        down to min(14, log2(GenomeLength)/2 - 1). For example, for 1 megaBase genome, this is
+                        equal to 9, for 100 kiloBase genome, this is equal to 7."/>
+                <param argument="--genomeChrBinNbits" type="integer" min="1" value="18"
+                    label="Log2(chrBin), where chrBin is the size of the bins for genome storage"
+                    help="Each chromosome will occupy an integer number of bins. For a genome with large number
+                        of contigs, it is recommended to scale this parameter as min(18,
+                        log2[max(GenomeLength/NumberOfReferences,ReadLength)]). For example, for 3 gigaBase
+                        genome with 100,000 chromosomes/scaffolds, this is equal to 15."/>
+                <param argument="--genomeSAsparseD" type="integer" min="1" value="1" label="Suffix array sparsity"
+                    help="The distance between indices: use bigger numbers to decrease needed RAM at the cost of
+                        mapping speed reduction"/>
+            </when>
+        </conditional>
+    </inputs>
+
+    <outputs>
+        <data name="out_file" format="data_manager_json"/>
+    </outputs>
+
+    <!-- not available in planemo at the moment of writing
+    <tests>
+        <test>
+            <param name="all_fasta_source" value="phiX.fa"/>
+            <param name="sequence_name" value="phiX"/>
+            <param name="sequence_id" value="minimal-settings"/>
+            <param name="modelformat" value="None"/>
+
+            <output name="out_file" file="test_star_01.data_manager_json"/>
+        </test>
+    </tests>
+    -->
+
+    <help><![CDATA[
+.. class:: infomark
+
+*What it does*
+
+This is a Galaxy datamanager for the rna STAR gap-aware RNA aligner.
+
+Please read the fine manual - that and the google group are the places to learn about the options above.
+
+*Memory requirements*
+
+To run efficiently, RNA-STAR requires enough free memory to
+hold the SA-indexed reference genome in RAM. For Human Genome hg19 this
+index is about 27GB and running RNA-STAR requires approximately ~30GB of RAM.
+For custom genomes, the rule of thumb is to multiply the size of the
+reference FASTA file by 9 to estimated required amount of RAM.
+
+*Note on sjdbOverhang*
+
+From https://groups.google.com/forum/#!topic/rna-star/h9oh10UlvhI::
+
+  James is right, using large enough --sjdbOverhang is safer and should not generally cause any problems with reads of varying length. If your reads are very short, &lt;50b, then I would strongly recommend using optimum --sjdbOverhang=mateLength-1
+  By mate length I mean the length of one of the ends of the read, i.e. it's 100 for 2x100b PE or 1x100b SE. For longer reads you can simply use generic --sjdbOverhang 100.
+  It is a bit confusing because of the way I named this parameter. --sjdbOverhang Noverhang is only used at the genome generation step  for constructing the reference sequence out of the annotations.
+  Basically, the Noverhang exonic bases from the donor site and Noverhang exonic bases from the acceptor site are spliced together for each of the junctions, and these spliced sequences are added to the genome sequence.
+
+  At the mapping stage, the reads are aligned to both genomic and splice sequences simultaneously. If a read maps to one of spliced sequences and crosses the "junction" in the middle of it, the coordinates of two pspliced pieces are translated back to genomic space and added to the collection of mapped pieces, which are then all "stitched" together to form the final alignment. Since in the process of "maximal mapped length" search the read is split into pieces of no longer than --seedSearchStartLmax (=50 by default) bases, even if the read (mate) is longer than --sjdbOverhang, it can still be mapped to the spliced reference, as long as --sjdbOverhang > --seedSearchStartLmax.
+
+  Cheers
+  Alex
+
+*Note on gene model requirements for splice junctions*
+
+From https://groups.google.com/forum/#!msg/rna-star/3Y_aaTuzBrE/lUylTB8h5vMJ::
+
+    When you generate a genome with annotations, you need to specify --sjdbOverhang value, which ideally should be equal to (oneMateLength-1), or you could use a generic value of ~100.
+
+    Your gtf lines look fine to me. STAR needs 3 features from a GTF file:
+    1. Chromosome names in col.1 that agree with chromosome names in genome .fasta files. If you have "chr2L" names in the genome .fasta files, and "2L" in the .gtf file, then you need to use --sjdbGTFchrPrefix chr option.
+    2. 'exon' in col.3 for the exons of all transcripts (this name can be changed with --sjdbGTFfeatureExon)
+    3. 'transcript_id' attribute that assigns each exon to a transcript (--this name can be changed with --sjdbGTFtagExonParentTranscript)
+
+    Cheers
+    Alex
+
+**Notice:** If you leave name, description, or id blank, it will be generated automatically.
+    ]]></help>
+    <expand macro="citations" />
+</tool>

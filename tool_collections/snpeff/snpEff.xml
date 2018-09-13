@@ -1,0 +1,418 @@
+<tool id="snpEff" name="SnpEff eff:" version="@wrapper_version@.galaxy1">
+    <description> annotate variants</description>
+    <macros>
+        <import>snpEff_macros.xml</import>
+    </macros>
+    <requirements>
+        <expand macro="requirement" />
+    </requirements>
+    <expand macro="stdio" />
+    <expand macro="version_command" />
+    <command><![CDATA[
+        snpEff @java_options@ eff
+        -i $inputFormat -o ${outputConditional.outputFormat} -upDownStreamLen $udLength
+        #if $spliceSiteSize and str($spliceSiteSize) != '':
+          -spliceSiteSize "$spliceSiteSize"
+        #end if
+        #if $spliceRegion.setSpliceRegions == 'yes':
+          #if str($spliceRegion.spliceRegionExonSize)
+            -spliceRegionExonSize $spliceRegion.spliceRegionExonSize
+          #end if
+          #if str($spliceRegion.spliceRegionIntronMin)
+            -spliceRegionIntronMin $spliceRegion.spliceRegionIntronMin
+          #end if
+          #if str($spliceRegion.spliceRegionIntronMax)
+            -spliceRegionIntronMax $spliceRegion.spliceRegionIntronMax
+          #end if
+        #end if
+        #if $annotations and str($annotations) != '':
+          #echo " "
+          #echo ' '.join(str($annotations).split(','))
+        #end if
+        #if $filterOut and str($filterOut) != '':
+          #echo " "
+          #echo ' '.join(str($filterOut).split(','))
+        #end if
+        #if $filter.specificEffects == 'yes' and $filter.effects:
+          #for $eff in str($filter.effects).split(','):
+            -no $eff
+          #end for
+        #end if
+        #if $transcripts
+          -onlyTr '$transcripts'
+        #end if
+        #if $intervals     ### fix this for multiple dataset input
+          -interval '$intervals'
+        #end if
+        #if $statsFile:
+          -stats '$statsFile'
+        #end if
+        #if $csvStats:
+            -csvStats '$csvFile'
+        #end if
+        #if str($offset) != 'default':
+          ${offset}
+        #end if
+        #if str($chr).strip() != '':
+          -chr '$chr'
+        #end if
+          $noLog
+        ## Regulation names can include parentheses: H3K4me3-MSC_(VB)_enriched_sites
+        ## Enclose them in in single and double quotes, as the conda snpEff bash script will remove outer quotes
+        #if $snpDb.genomeSrc == 'cached':
+          -dataDir ${snpDb.genomeVersion.fields.path}
+          #if $snpDb.reg_section.regulation and str($snpDb.reg_section.regulation) != '':
+            #set $regs = [x for x in str($snpDb.reg_section.regulation).split(',')]
+            #for reg in $regs:
+              -reg '"${reg}"'
+            #end for
+          #end if
+          $snpDb.genomeVersion
+        #elif $snpDb.genomeSrc == 'history':
+          -dataDir '${snpDb.snpeff_db.extra_files_path}'
+          #if $snpDb.reg_section.regulation and str($snpDb.reg_section.regulation) != '':
+            #set $regs = [x for x in str($snpDb.reg_section.regulation).split(',')]
+            #for reg in $regs:
+              -reg '"${reg}"'
+            #end for
+          #end if
+          '${snpDb.snpeff_db.metadata.genome_version}'
+        #elif $snpDb.genomeSrc == 'custom':
+            -dataDir '${snpDb.snpeff_db.extra_files_path}'
+            -configOption '${snpDb.snpeff_db.metadata.genome_version}'.genome='${snpDb.snpeff_db.metadata.genome_version}'
+            -configOption '${snpDb.snpeff_db.metadata.genome_version}'.codonTable='${snpDb.codon_table}'
+            '${snpDb.snpeff_db.metadata.genome_version}'
+        #else
+          -download
+          '$snpDb.genome_version'
+        #end if
+        '$input' > '$snpeff_output'
+        #if $statsFile:
+            &&
+            #import os
+            #if $csvStats:
+                #set $genes_file = str($csvFile) + '.genes.txt'
+            #else
+                #set $genes_file = str($statsFile) + '.genes.txt'
+            #end if
+            #set $genes_file_name = os.path.split($genes_file)[-1]
+            mkdir '$statsFile.files_path' &&
+            mv '$genes_file' '#echo os.path.join($statsFile.files_path, $genes_file_name)#'
+        #end if
+        #if $outputConditional.outputFormat == 'gatk' and $outputConditional.gatk_v1
+          &&
+          ## Replace real SnpEff version with 2.0.5 to prevent this GATK 1.x error: "The version of SnpEff used to generate the SnpEff input file (x.x) is not currently supported by the GATK. Supported versions are: [2.0.5]"
+          sed -i.bak -e 's/^\#\#SnpEffVersion="\(\S*\s\)/\#\#SnpEffVersion="2.0.5 - real is \1/' '$snpeff_output'
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="vcf,bed" label="Sequence changes (SNPs, MNPs, InDels)"/>
+
+        <param name="inputFormat" type="select" label="Input format">
+            <option value="vcf" selected="true">VCF</option>
+            <option value="bed">BED (Deprecated)</option>
+        </param>
+
+        <conditional name="outputConditional">
+            <param name="outputFormat" type="select" label="Output format">
+                <option value="vcf" selected="true">VCF (only if input is VCF)</option>
+                <option value="gatk">GATK-compatible VCF (only if input is VCF)</option>
+                <option value="bed">BED</option>
+                <option value="bedAnn">BED annotations</option>
+            </param>
+            <when value="vcf" />
+            <when value="gatk">
+                <param name="gatk_v1" type="boolean" checked="true" label="Compatible with GATK 1.x" />
+            </when>
+            <when value="bed" />
+            <when value="bedAnn" />
+        </conditional>
+        <param name="csvStats" type="boolean" truevalue="-csvStats" falsevalue="" checked="false" label="Create CSV report, useful for downstream analysis (-csvStats)" />
+        <conditional name="snpDb">
+            <param name="genomeSrc" type="select" label="Genome source">
+                <!-- These options are referenced in the help section of SnpEff download tool. If you change them, change help of SnpEff download as well -->
+                <option value="cached">Locally installed snpEff database</option>
+                <option value="history">Downloaded snpEff database in your history</option>
+                <option value="named">Download on demand</option>
+                <option value="custom">Custom snpEff database in your history</option>
+            </param>
+            <when value="cached">
+                <param name="genomeVersion" type="select" label="Genome">
+                    <!--GENOME    DESCRIPTION-->
+                    <options from_data_table="snpeffv_genomedb">
+                            <filter type="static_value" name="snpeff_version" value="@snpeff_version@" column="1"/>
+                            <filter type="unique_value" column="2" />
+                    </options>
+                </param>
+                <section name="reg_section" expanded="false" title="Regulation options">
+                    <param name="regulation" type="select" display="checkboxes" multiple="true" label="Non-coding and regulatory annotation" help="These are available for only a few genomes">
+                        <options from_data_table="snpeffv_regulationdb">
+                            <filter type="param_value" ref="genomeVersion" key="genome" column="2" />
+                            <filter type="unique_value" column="3" />
+                        </options>
+                    </param>
+                </section>
+            </when>
+            <when value="history">
+                <param name="snpeff_db" type="data" format="snpeffdb" label="@snpeff_version@ Genome Data">
+                    <options options_filter_attribute="metadata.snpeff_version" >
+                        <filter type="add_value" value="@snpeff_version@" />
+                    </options>
+                    <validator type="expression" message="This version of SnpEff will only work with @snpeff_version@ genome databases">value is not None and value.metadata.snpeff_version == "@snpeff_version@"</validator>
+                </param>
+                <section name="reg_section" expanded="false" title="Regulation options">
+                    <!-- From metadata -->
+                    <param name="regulation" type="select" display="checkboxes" multiple="true" label="Non-coding and regulatory annotation" help="These are available for only a few genomes">
+                        <options>
+                            <filter type="data_meta" ref="snpeff_db" key="regulation" />
+                        </options>
+                    </param>
+                </section>
+            </when>
+            <when value="named">
+                <param name="genome_version" type="text" value="" label="Snpff Genome Version Name (e.g. GRCh38.76)">
+                    <help>@snpeff_database_url@</help>
+                    <validator type="regex" message="A genome version name is required">\S+</validator>
+                </param>
+            </when>
+            <when value="custom">
+                <param name="snpeff_db" type="data" format="snpeffdb" label="@snpeff_version@ Genome Data">
+                    <options options_filter_attribute="metadata.snpeff_version" >
+                        <filter type="add_value" value="@snpeff_version@" />
+                    </options>
+                    <validator type="expression" message="This version of SnpEff will only work with @snpeff_version@ genome databases">value is not None and value.metadata.snpeff_version == "@snpeff_version@"</validator>
+                </param>
+                <param name="codon_table" type="select" label="Select genetic code for this sequence" help="If this sequence uses non-standard genetic code, select one from these options">
+                    <option selected="true" value="Standard">Standard</option>
+                    <option value="Vertebrate_Mitochondrial">Vertebrate_Mitochondrial</option>
+                    <option value="Yeast_Mitochondrial">Yeast_Mitochondrial</option>
+                    <option value="Mold_Mitochondrial">Mold_Mitochondrial</option>
+                    <option value="Protozoan_Mitochondrial">Protozoan_Mitochondrial</option>
+                    <option value="Coelenterate">Coelenterate</option>
+                    <option value="Mitochondrial">Mitochondrial</option>
+                    <option value="Mycoplasma">Mycoplasma</option>
+                    <option value="Spiroplasma">Spiroplasma</option>
+                    <option value="Invertebrate_Mitochondrial">Invertebrate_Mitochondrial</option>
+                    <option value="Ciliate_Nuclear">Ciliate_Nuclear</option>
+                    <option value="Dasycladacean_Nuclear">Dasycladacean_Nuclear</option>
+                    <option value="Hexamita_Nuclear">Hexamita_Nuclear</option>
+                    <option value="Echinoderm_Mitochondrial">Echinoderm_Mitochondrial</option>
+                    <option value="Flatworm_Mitochondrial">Flatworm_Mitochondrial</option>
+                    <option value="Euplotid_Nuclear">Euplotid_Nuclear</option>
+                    <option value="Bacterial_and_Plant_Plastid">Bacterial_and_Plant_Plastid</option>
+                    <option value="Alternative_Yeast_Nuclear">Alternative_Yeast_Nuclear</option>
+                    <option value="Ascidian_Mitochondrial">Ascidian_Mitochondrial</option>
+                    <option value="Alternative_Flatworm_Mitochondrial">Alternative_Flatworm_Mitochondrial</option>
+                    <option value="Blepharisma_Macronuclear">Blepharisma_Macronuclear</option>
+                    <option value="Chlorophycean_Mitochondrial">Chlorophycean_Mitochondrial</option>
+                    <option value="Trematode_Mitochondrial">Trematode_Mitochondrial</option>
+                    <option value="Scenedesmus_obliquus_Mitochondrial">Scenedesmus_obliquus_Mitochondrial</option>
+                    <option value="Thraustochytrium_Mitochondrial">Thraustochytrium_Mitochondrial</option>
+            </param>
+            </when>
+        </conditional>
+
+        <param name="udLength" type="select" label="Upstream / Downstream length" argument="-ud" >
+            <option value="0">No upstream / downstream intervals (0 bases)</option>
+            <option value="200">200 bases</option>
+            <option value="500">500 bases</option>
+            <option value="1000">1000 bases</option>
+            <option value="2000">2000 bases</option>
+            <option value="5000" selected="true">5000 bases</option>
+            <option value="10000">10000 bases</option>
+            <option value="20000">20000 bases</option>
+        </param>
+
+        <param name="spliceSiteSize" type="select" optional="true" label="Set size for splice sites (donor and acceptor) in bases" argument="-ss">
+            <option value="1">1 base</option>
+            <option value="2" selected="true">2 bases</option>
+            <option value="3">3 bases</option>
+            <option value="4">4 bases</option>
+            <option value="5">5 bases</option>
+            <option value="6">6 bases</option>
+            <option value="7">7 bases</option>
+            <option value="8">8 bases</option>
+            <option value="9">9 bases</option>
+        </param>
+
+        <conditional name="spliceRegion">
+            <param name="setSpliceRegions" type="select" label="spliceRegion Settings">
+                <option value="no">Use Defaults</option>
+                <option value="yes">Set Splice Region Parameters</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="spliceRegionExonSize" type="integer" value="" min="1" max="10" optional="true" label="Set size for splice site region within exons. Default: 3 bases" argument="-spliceRegionExonSize"/>
+                <param name="spliceRegionIntronMin" type="integer" value="" min="1" max="10" optional="true" label="Set minimum number of bases for splice site region within intron. Default: 3 bases" argument="-spliceRegionIntronMin"/>
+                <param name="spliceRegionIntronMax" type="integer" value="" min="1" max="10" optional="true" label="Set maximum number of bases for splice site region within intron. Default: 8 bases" argument="-spliceRegionIntronMax"/>
+            </when>
+        </conditional>
+
+        <param name="annotations" type="select" display="checkboxes" multiple="true" label="Annotation options">
+            <option value="-formatEff">Use 'EFF' field compatible with older versions (instead of 'ANN')</option>
+            <option value="-classic">Use Classic Effect names and amino acid variant annotations (NON_SYNONYMOUS_CODING vs missense_variant and G180R vs p.Gly180Arg/c.538G>C)</option>
+            <option value="-sequenceOntology">Override classic and use Sequence Ontolgy terms for effects (missense_variant vs NON_SYNONYMOUS_CODING)</option>
+            <option value="-hgvs">Override classic and use HGVS annotations for amino acid annotations (p.Gly180Arg/c.538G>C vs G180R)</option>
+            <option value="-hgvsOld">Old notation style notation: E.g. 'c.G123T' instead of 'c.123G>T' and 'X' instead of '*'</option>
+            <option value="-hgvs1LetterAa">Use one letter Amino acid codes in HGVS notation. E.g. p.R47G instead of p.Arg47Gly</option>
+            <option value="-hgvsTrId">Use transcript ID in HGVS notation. E.g. ENST00000252100:c.914C>G instead of c.914C>G</option>
+            <option value="-noShiftHgvs">Do not shift variants according to HGVS notation (most 3prime end)</option>
+            <option value="-noHgvs">Do not add HGVS annotations</option>
+            <option value="-canon">Only use canonical transcripts</option>
+            <option value="-onlyProtein">Only use protein coding transcripts</option>
+            <option value="-geneId">Use gene ID instead of gene name (VCF output)</option>
+            <option value="-noExpandIUB">Disable IUB code expansion in input variants</option>
+            <option value="-oicr">Add OICR tag in VCF file</option>
+            <option value="-lof">Add loss of function (LOF) and nonsense mediated decay (NMD) tags</option>
+            <option value="-noLof">Do not add LOF and NMD annotations</option>
+            <option value="-noMotif">Disable motif annotations</option>
+            <option value="-noNextProt">Disable NextProt annotations</option>
+            <option value="-noInteraction">Disable interaction annotations</option>
+            <option value="-cancer">Perform 'cancer' comparisons (somatic vs. germline)</option>
+            <!--  onlyReg option results in frequent exceptions with version 4.3k
+            <option value="-onlyReg">Only use regulation tracks</option>
+            -->
+        </param>
+        <!-- -cancerSamples <file>           : Two column TXT file defining 'oringinal \t derived' samples. -->
+        <param name="intervals" type="data" format="bed" optional="true" label="Use custom interval file for annotation" argument="-interval"/>
+        <param name="transcripts" type="data" format="tabular" optional="true" label="Only use the transcripts in this file" help="Format is one transcript ID per line"/>
+        <param name="filterOut" type="select" display="checkboxes" multiple="true" label="Filter output">
+            <option value="-no-downstream">Do not show DOWNSTREAM changes</option>
+            <option value="-no-intergenic">Do not show INTERGENIC changes</option>
+            <option value="-no-intron">Do not show INTRON changes</option>
+            <option value="-no-upstream">Do not show UPSTREAM changes</option>
+            <option value="-no-utr">Do not show 5_PRIME_UTR or 3_PRIME_UTR changes</option>
+        </param>
+        <conditional name="filter">
+            <param name="specificEffects" type="select" label="Filter out specific Effects">
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="effects" type="select" display="checkboxes" multiple="true" label="Filter output: do not report these Effects">
+                    <option value="CDS">CDS  (coding_sequence_variant) The variant hits a CDS.  MODIFIER</option>
+                    <option value="CHROMOSOME_LARGE_DELETION">CHROMOSOME_LARGE_DELETION  (chromosome) A large parte (over 1%) of the chromosome was deleted.  HIGH</option>
+                    <option value="CODON_CHANGE">CODON_CHANGE  (coding_sequence_variant) One or many codons are changed e.g.: An MNP of size multiple of 3  MODERATE</option>
+                    <option value="CODON_INSERTION">CODON_INSERTION  (inframe_insertion) One or many codons are inserted e.g.: An insert multiple of three in a codon boundary  MODERATE</option>
+                    <option value="CODON_CHANGE_PLUS_CODON_INSERTION">CODON_CHANGE_PLUS_CODON_INSERTION  (disruptive_inframe_insertion) One codon is changed and one or many codons are inserted e.g.: An insert of size multiple of three, not at codon boundary  MODERATE</option>
+                    <option value="CODON_DELETION">CODON_DELETION  (inframe_deletion) One or many codons are deleted e.g.: A deletion multiple of three at codon boundary  MODERATE</option>
+                    <option value="CODON_CHANGE_PLUS_CODON_DELETION">CODON_CHANGE_PLUS_CODON_DELETION  (disruptive_inframe_deletion) One codon is changed and one or more codons are deleted e.g.: A deletion of size multiple of three, not at codon boundary  MODERATE</option>
+                    <option value="DOWNSTREAM">DOWNSTREAM  (downstream_gene_variant) Downstream of a gene (default length: 5K bases)  MODIFIER</option>
+                    <option value="EXON">EXON  (exon_variant) The variant hits an exon (from a non-coding transcript) or a retained intron.  MODIFIER</option>
+                    <option value="EXON_DELETED">EXON_DELETED  (exon_loss_variant) A deletion removes the whole exon.  HIGH</option>
+                    <option value="FRAME_SHIFT">FRAME_SHIFT  (frameshift_variant) Insertion or deletion causes a frame shift e.g.: An indel size is not multple of 3  HIGH</option>
+                    <option value="GENE">GENE  (gene_variant) The variant hits a gene.  MODIFIER</option>
+                    <option value="INTERGENIC">INTERGENIC  (intergenic_region) The variant is in an intergenic region  MODIFIER</option>
+                    <option value="INTERGENIC_CONSERVED">INTERGENIC_CONSERVED  (conserved_intergenic_variant) The variant is in a highly conserved intergenic region  MODIFIER</option>
+                    <option value="INTRAGENIC">INTRAGENIC  (intragenic_variant) The variant hits a gene, but no transcripts within the gene  MODIFIER</option>
+                    <option value="INTRON">INTRON  (intron_variant) Variant hits and intron. Technically, hits no exon in the transcript.  MODIFIER</option>
+                    <option value="INTRON_CONSERVED">INTRON_CONSERVED  (conserved_intron_variant) The variant is in a highly conserved intronic region  MODIFIER</option>
+                    <option value="MICRO_RNA">MICRO_RNA  (miRNA) Variant affects an miRNA  MODIFIER</option>
+                    <option value="NON_SYNONYMOUS_CODING">NON_SYNONYMOUS_CODING  (missense_variant) Variant causes a codon that produces a different amino acid e.g.: Tgg/Cgg, W/R  MODERATE</option>
+                    <option value="NON_SYNONYMOUS_START">NON_SYNONYMOUS_START  (initiator_codon_variant) Variant causes start codon to be mutated into another start codon (the new codon produces a different AA).  e.g.: Atg/Ctg, M/L (ATG and CTG can be START codons)  LOW</option>
+                    <option value="NON_SYNONYMOUS_STOP">NON_SYNONYMOUS_STOP  (stop_retained_variant) Variant causes stop codon to be mutated into another stop codon (the new codon produces a different AA).  e.g.: Atg/Ctg, M/L (ATG and CTG can be START codons)  LOW</option>
+                    <option value="RARE_AMINO_ACID">RARE_AMINO_ACID  (rare_amino_acid_variant) The variant hits a rare amino acid thus is likely to produce protein loss of function  HIGH</option>
+                    <option value="SPLICE_SITE_ACCEPTOR">SPLICE_SITE_ACCEPTOR  (splice_acceptor_variant) The variant hits a splice acceptor site (defined as two bases before exon start, except for the first exon).  HIGH</option>
+                    <option value="SPLICE_SITE_DONOR">SPLICE_SITE_DONOR  (splice_donor_variant) The variant hits a Splice donor site (defined as two bases after coding exon end, except for the last exon).  HIGH</option>
+                    <option value="SPLICE_SITE_REGION">SPLICE_SITE_REGION  (splice_region_variant) A sequence variant in which a change has occurred within the region of the splice site, either within 1-3 bases of the exon or 3-8 bases of the intron.  LOW</option>
+                    <option value="SPLICE_SITE_BRANCH">SPLICE_SITE_BRANCH  (splice_region_variant) A varaint affective putative (Lariat) branch point, located in the intron.  LOW</option>
+                    <option value="SPLICE_SITE_BRANCH_U12">SPLICE_SITE_BRANCH_U12  (splice_region_variant) A varaint affective putative (Lariat) branch point from U12 splicing machinery, located in the intron.  MODERATE</option>
+                    <option value="STOP_LOST">STOP_LOST  (stop_lost) Variant causes stop codon to be mutated into a non-stop codon e.g.: Tga/Cga, */R  HIGH</option>
+                    <option value="START_GAINED">START_GAINED  (5_prime_UTR_premature start_codon_gain_variant) A variant in 5'UTR region produces a three base sequence that can be a START codon.  LOW</option>
+                    <option value="START_LOST">START_LOST  (start_lost) Variant causes start codon to be mutated into a non-start codon.  e.g.: aTg/aGg, M/R  HIGH</option>
+                    <option value="STOP_GAINED">STOP_GAINED  (stop_gained) Variant causes a STOP codon e.g.: Cag/Tag, Q/*  HIGH</option>
+                    <option value="SYNONYMOUS_CODING">SYNONYMOUS_CODING  (synonymous_variant) Variant causes a codon that produces the same amino acid e.g.: Ttg/Ctg, L/L  LOW</option>
+                    <option value="SYNONYMOUS_START">SYNONYMOUS_START  (start_retained) Variant causes start codon to be mutated into another start codon.  e.g.: Ttg/Ctg, L/L (TTG and CTG can be START codons)  LOW</option>
+                    <option value="SYNONYMOUS_STOP">SYNONYMOUS_STOP  (stop_retained_variant) Variant causes stop codon to be mutated into another stop codon.  e.g.: taA/taG, */*  LOW</option>
+                    <option value="TRANSCRIPT">TRANSCRIPT  (transcript_variant) The variant hits a transcript.  MODIFIER</option>
+                    <option value="REGULATION">REGULATION  (regulatory_region_variant) The variant hits a known regulatory feature (non-coding).  MODIFIER</option>
+                    <option value="UPSTREAM">UPSTREAM  (upstream_gene_variant) Upstream of a gene (default length: 5K bases)  MODIFIER</option>
+                    <option value="UTR_3_PRIME">UTR_3_PRIME  (3_prime_UTR_variant) Variant hits 3'UTR region  MODIFIER</option>
+                    <option value="UTR_3_DELETED">UTR_3_DELETED  (3_prime_UTR_truncation + exon_loss) The variant deletes an exon which is in the 3'UTR of the transcript  MODERATE</option>
+                    <option value="UTR_5_PRIME">UTR_5_PRIME  (5_prime_UTR_variant) Variant hits 5'UTR region  MODIFIER</option>
+                    <option value="UTR_5_DELETED">UTR_5_DELETED  (5_prime_UTR_truncation + exon_loss_variant) The variant deletes an exon which is in the 5'UTR of the transcript  MODERATE</option>
+                    <option value="NEXT_PROT">NEXT_PROT  (sequence_feature + exon_loss_variant) A 'NextProt' based annotation. Details are provided in the 'feature type' sub-field (ANN), or in the effect details (EFF).  MODERATE </option>
+                </param>
+            </when>
+        </conditional>
+
+        <param name="offset" type="select" display="radio" label="Chromosomal position" argument="-0 and -1">
+            <option value="default" selected="true">Use default (based on input type)</option>
+            <option value="-0">Force zero-based positions (both input and output)</option>
+            <option value="-1">Force one-based positions (both input and output)</option>
+        </param>
+        <param name="chr" type="text" label="Text to prepend to chromosome name" argument="-chr">
+            <help>
+               By default SnpEff simplifies all chromosome names. For instance 'chr1' is just '1'.
+               You can prepend any string you want to the chromosome name
+            </help>
+            <validator type="regex" message="No whitespace allowed">^\S*$</validator>
+        </param>
+        <param name="generate_stats" type="boolean" truevalue="" falsevalue="-noStats" checked="true" label="Produce Summary Stats" argument="-noStats"/>
+        <param name="noLog" type="boolean" truevalue="-noLog" falsevalue="" checked="true" label="Suppress reporting usage statistics to server" argument="-noLog"/>
+    </inputs>
+    <outputs>
+        <data name="snpeff_output" format="vcf">
+            <change_format>
+                <when input="outputConditional.outputFormat" value="bed" format="bed" />
+                <when input="outputConditional.outputFormat" value="bedAnn" format="bed" />
+            </change_format>
+        </data>
+        <data name="statsFile" format="html" label="${tool.name} on ${on_string} - HTML stats">
+            <filter>generate_stats == True</filter>
+        </data>
+        <data name="csvFile" format="csv" label="${tool.name} on ${on_string} - CSV stats">
+            <filter>csvStats == True</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input" ftype="vcf" value="input.vcf"/>
+            <param name="inputFormat" value="vcf"/>
+            <param name="outputFormat" value="vcf"/>
+            <param name="genomeSrc" value="named"/>
+            <param name="genome_version" value="ebola_zaire"/>
+            <param name="udLength" value="0"/>
+            <param name="generate_stats" value="False"/>
+            <output name="snpeff_output">
+                <assert_contents>
+                    <has_text_matching expression="KJ660346\t572\t.*missense_variant" />
+                    <has_text_matching expression="KJ660346\t1024\t.*synonymous_variant" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+**What it does**
+
+SnpEff is a variant annotation and effect prediction tool. It annotates and predicts the effects of genetic variants (such as amino acid changes).
+
+A typical SnpEff use case would be:
+
+ - **Input**: The inputs are predicted variants (SNPs, insertions, deletions and MNPs). The input file is usually obtained as a result of a sequencing experiment, and it is usually in variant call format (VCF).
+ - **Output**: SnpEff analyzes the input variants. It annotates the variants and calculates the effects they produce on known genes (e.g. amino acid changes). A list of effects and annotations that SnpEff can calculate can be found here.
+
+By genetic variant we mean difference between a genome and a "reference" genome. As an example, imagine we are sequencing a "sample". Here "sample" can mean anything that you are interested in studying, from a cell culture, to a mouse or a cancer patient.  It is a standard procedure to compare your sample sequences against the corresponding "reference genome". For instance you may compare the cancer patient genome against the "reference genome".
+
+In a typical sequencing experiment, you will find many places in the genome where your sample differs from the reference genome. These are called "genomic variants" or just "variants".
+Typically, variants are categorized as follows:
+
+ - SNP (Single-Nucleotide Polymorphism) Reference = 'A', Sample = 'C'
+ - Ins (Insertion) Reference = 'A', Sample = 'AGT'
+ - Del (Deletion) Reference = 'AC', Sample = 'C'
+ - MNP (Multiple-nucleotide polymorphism) Reference = 'ATA', Sample = 'GTC'
+ - MIXED (Multiple-nucleotide and an InDel) Reference = 'ATA', Sample = 'GTCAGT'
+
+This is not a comprehensive list, it is just to give you an idea.
+
+Suppose you have a huge file describing all the differences between your sample and the reference genome. But you want to know more about these variants than just their genetic coordinates. E.g.: Are they in a gene? In an exon? Do they change protein coding? Do they cause premature stop codons? SnpEff can help you answer all these questions. The process of adding this information about the variants is called "Annotation".
+SnpEff provides several degrees of annotations, from simple (e.g. which gene is each variant affecting) to extremely complex annotations (e.g. will this non-coding variant affect the expression of a gene?). It should be noted that the more complex the annotations, the more it relies in computational predictions. Such computational predictions can be incorrect, so results from SnpEff (or any prediction algorithm) cannot be trusted blindly, they must be analyzed and independently validated by corresponding wet-lab experiments.
+
+@snpeff_in_galaxy_info@
+@external_documentation@
+]]>
+    </help>
+    <expand macro="citations" />
+</tool>

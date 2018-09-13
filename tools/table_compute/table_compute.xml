@@ -1,0 +1,800 @@
+<tool id="table_compute" name="Table Compute" version="@VERSION@">
+    <description>computes operations on table data</description>
+    <macros>
+        <token name="@VERSION@">0.1</token>
+        <!-- macro for main input tests -->
+        <macro name="test_inputs_single" >
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="small.tsv" />
+                <param name="reader_row_col" value="true" />
+                <conditional name="user" >
+                    <yield />
+                </conditional>
+            </conditional>
+        </macro>
+        <!-- macro for umi to transcript tests -->
+        <macro name="umi2trans" >
+            <yield />
+            <param name="reader_row_col" value="true" />
+            <conditional name="user" >
+                <param name="mode" value="element" />
+                <param name="element_op" value="gt" />
+                <param name="element_value" value="0" />
+                <conditional name="element" >
+                    <param name="mode" value="custom" />
+                    <param name="custom_expr" value="bn = 4096;\nif (elem == bn){\n    elem = elem - 0.5;\n}\nreturn(-log(1 - elem/bn) * bn)" />
+                </conditional>
+            </conditional>
+        </macro>
+        <macro name="file_opts">
+            <param name="input" type="data" format="tsv,tabular" label="Table" />
+            <param name="reader_header" type="boolean" checked="true" label="Has header for column names?" />
+            <param name="reader_row_col" type="boolean" checked="true" label="First column provides row names?" help="Rows will be automatically numbered if false." />
+            <param name="is_matrix" type="boolean" checked="true" label="All values in the table are of the same type (e.g. all numeric, or all text, etc)" />
+        </macro>
+        <!-- element value macro -->
+        <macro name="elem_val" >
+            <param name="element_value" type="text" optional="true" label="Value to compare elements against" help="This value is converted to numeric if possible, otherwise it is treated as a string" />
+        </macro>
+        <!-- select macros -->
+        <macro name="select_onevalueoperator">
+            <option value="log" >Ln</option>
+            <option value="log10" >Log10</option>
+            <option value="abs" >Absolute</option>
+            <option value="exp" >Exponential</option>
+            <option value="floor" >Floor</option>
+            <option value="ceiling" >Ceiling</option>
+            <option value="sqrt" >Square root</option>
+            <option value="as.hexmode" >Hex</option>
+            <option value="as.logical" >Boolean</option>
+            <option value="as.character" >Character</option>
+            <option value="as.octmode" >Oct</option>
+            <option value="toString" >Convert values to String</option>
+        </macro>
+        <macro name="select_twovaluenumericoperator">
+            <option value="+">Add</option>
+            <option value="-">Subtract</option>
+            <option value="*">Multiply</option>
+            <option value="/">Divide</option>
+            <option value="^" >Power</option>
+            <option value="%/%">Quotient</option>
+            <option value="%%">Remainder</option>
+        </macro>
+        <macro name="select_twovaluebooleanops">
+            <option value="lt" >Less Than</option>
+            <option value="leq" >Less Than or Equal to</option>
+            <option value="gt" >Greater Than</option>
+            <option value="geq" >Greater Than or Equal to</option>
+            <option value="eq" >Equal to</option>
+            <option value="neq" >Not Equal to</option>
+            <yield />
+        </macro>
+        <!-- sanitizer macros -->
+        <macro name="sanitizer_vector">
+            <sanitizer invalid_char="">
+                <valid initial="string.digits">
+                    <add value=","/>
+                    <add value="-"/>
+                </valid>
+            </sanitizer>
+        </macro>
+        <macro name="sanitizer_vectorpositive">
+            <sanitizer invalid_char="">
+                <valid initial="string.digits">
+                    <add value=","/>
+                    <add value=":"/>
+                </valid>
+            </sanitizer>
+        </macro>
+        <macro name="sanitizer_functiondef">
+            <sanitizer invalid_char="">
+                <valid initial="string.letters,string.digits">
+                    <add value="!="/>
+                    <add value="-"/>
+                    <add value="."/>
+                    <add value="?"/>
+                    <add value="&#91;"/> <!-- left square bracket -->
+                    <add value="&#93;"/> <!-- right square bracket -->
+                    <add value="&#40;"/> <!-- left parenthesis -->
+                    <add value="&#41;"/> <!-- right parenthesis -->
+                </valid>
+            </sanitizer>
+        </macro>
+    </macros>
+    <requirements>
+        <requirement type="package" version="3.4.1" >r</requirement>
+    </requirements>
+
+    <version_command><![CDATA[
+        Rscript '$__tool_directory__/scripts/table_compute.R' --version
+    ]]></version_command>
+
+    <command detect_errors="exit_code"><![CDATA[
+        Rscript '$__tool_directory__/scripts/table_compute.R' '$userconf' > '$logfile'
+    ]]></command>
+    <configfiles>
+        <configfile name="userconf"><![CDATA[
+options(stringsAsFactors=FALSE)
+reader.skip = 0
+narm = as.logical('$keep_nas')
+multiple.tables = c()
+
+## Single Table Operations
+#if str($singtabop.use_type) == "single":
+    reader.file = '$singtabop.input'
+    reader.header = as.logical( '$singtabop.reader_header' )
+    reader.row.col = as.integer( as.logical('$singtabop.reader_row_col') )
+    reader.ismatrix = as.logical( '$singtabop.is_matrix' )
+
+    ## sort, select, filtersum, matrixapply, element, histogram
+    user.mode = '$singtabop.user.mode.value'
+
+    #if $singtabop.user.mode.value == 'select':
+        select.cols.unique = !(as.logical( '$singtabop.user.select_cols_keepdupe' ))  ## T,F
+        select.rows.unique = !(as.logical( '$singtabop.user.select_rows_keepdupe' ))  ## T,F
+        select.cols.wanted = as.logical( 'T' ) ## All
+        select.rows.wanted = as.logical( 'T' ) ## All
+        #if $singtabop.user.select_cols_wanted:
+            select.cols.wanted = string2vector( '$singtabop.user.select_cols_wanted' )
+        #end if
+        #if $singtabop.user.select_rows_wanted:
+            select.rows.wanted = string2vector( '$singtabop.user.select_rows_wanted' )
+        #end if
+
+    #else if $singtabop.user.mode.value == 'filtersum':
+        filtersum.op = '$singtabop.user.filtersum_op.value'  ## TwoValueBooleanOperator
+        filtersum.mode = '$singtabop.user.filtersum_mode.value'  ## rowSum, colSum
+        filtersum.value = as.numeric( '$singtabop.user.filtersum_value' )
+    #else if $singtabop.user.mode.value == 'matrixapply':
+        matrixapply.dimension = as.integer('$singtabop.user.dimension.value')
+        matrixapply.custom = as.logical('$singtabop.user.matrixapply_func.use_custom.value')
+        matrixapply.custom.func = NULL
+        matrixapply.op = NULL
+        #if $singtabop.user.matrixapply_func.use_custom.value == 'T':
+            matrixapply.custom.func = '$singtabop.user.matrixapply_func.custom_func.value'
+        #else
+            matrixapply.op = '$singtabop.user.matrixapply_func.inbuilt_op.value'
+        #end if
+    #else if $singtabop.user.mode.value == 'element':
+        element.op = '$singtabop.user.elem_val.element_op'
+        element.value = NULL
+        #if str($singtabop.user.elem_val.element_op) != "T":
+            element.value = '$singtabop.user.elem_val.element_value'
+        #end if
+        element.replace = NULL
+        element.modify.op = NULL
+        element.scale.op = NULL
+        element.scale.value = NULL
+        element.customop = NULL
+        element.mode = '$singtabop.user.element.mode.value'
+        #if str($singtabop.user.element.mode) == "replace":
+            element.replace = '$singtabop.user.element.replace_value'
+        #else if str($singtabop.user.element.mode) == "modify":
+            element.modify.op = '$singtabop.user.element.modify_op.value'
+        #else if str($singtabop.user.element.mode) == "scale":
+            element.scale.op = '$singtabop.user.element.scale_op.value'
+            element.scale.value = as.numeric( '$singtabop.user.element.scale_value' )
+        #else if str($singtabop.user.element.mode) == "custom":
+            element.customop = trimws('$singtabop.user.element.custom_expr.value')
+        #end if
+    #else if $singtabop.user.mode.value == 'fulltable':
+        fulltable.customop = trimws('$singtabop.user.fulltable_custom_expr.value')
+    #end if
+
+#else if str($singtabop.use_type) == "multiple":
+    user.mode = "whole_table_operations"
+    multiple.tables = data.frame(file=character(), header=logical(), row.names=integer(), skip=integer())
+    #for $i, $s in enumerate($singtabop.tables)
+        multiple.tables <- rbind(
+            multiple.tables, 
+            list(file='${s.input}',
+                 header=as.logical('${s.reader_header}'),
+                 row.names=as.integer(as.logical('${s.reader_row_col}')),
+                 ismatrix=as.logical( '${s.is_matrix}' ),
+                 skip=reader.skip
+            )
+        )
+    #end for
+    fulltable.customop = trimws('$singtabop.fulltable_custom_expr.value')
+#end if
+
+outtable = '$table'
+]]>
+        </configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="singtabop" >
+            <param name="use_type" type="select" label="Input Single or Multiple Tables" help="Operations on single tables are better tailored towards more general use-cases. For multiple tables usage, all tables should ideally be of the same dimensions for simple operations, although complex operations are also supported for unequally sized tables (see Help section)." >
+                <option value="single">Single Table</option>
+                <option value="multiple">Multiple Tables</option>
+            </param>
+            <when value="single">
+                <expand macro="file_opts" />
+                <conditional name="user" >
+                    <param name="mode" type="select" label="Type of table operation" >
+                        <option value="select">Select Rows and Columns</option>
+                        <option value="filtersum">Filter by Row or Column Sums</option>
+                        <option value="matrixapply">Compute Expression across Rows or Columns</option>
+                        <option value="element">Compute Expression across All Elements</option>
+                        <option value="fulltable">Perform a Full Table Operation</option>
+                    </param>
+                    <when value="select">
+                        <param name="select_cols_wanted" type="text" optional="true" label="List of columns to keep" help="Comma separated. (e.g. 1,5:10,6,3,99  will select columns 1, 5, 6, ..., 9, 10, 6 again, 3 again, and 99). Leave blank to retain all. See Example #1 for an example of using this mode." >
+                            <expand macro="sanitizer_vectorpositive" />
+                        </param>
+                        <param name="select_rows_wanted" type="text" optional="true" label="List of rows to keep" help="The same rules apply as above" >
+                            <expand macro="sanitizer_vectorpositive" />
+                        </param>
+                        <param name="select_cols_keepdupe" type="boolean" checked="true" label="Keep duplicate columns" help="Keep duplicates when specifying ranges (e.g. if set to false; 1:5,3:6  will yield 1,2,3,4,5,6 instead of 1,2,3,4,5,3,4,5,6). Note that duplicate fields will be post-enumerated  (e.g. a table with three copies of 'col22' will be labelled 'col22' 'col22.1' and 'col22.2' " />
+                        <param name="select_rows_keepdupe" type="boolean" checked="true" label="Keep duplicate rows" help="The same rules apply as above" />
+                    </when>
+                    <when value="filtersum" >
+                        <param name="filtersum_mode" type="select" label="Filter by" help="See Example #2 for an example of using this mode." >
+                            <option value="rowSum">Row Sum</option>
+                            <option value="colSum">Column Sum</option>
+                        </param>
+                        <param name="filtersum_op" type="select" label="Operation to Filter by" >
+                            <expand macro="select_twovaluebooleanops" />
+                        </param>
+                        <param name="filtersum_value" type="float" value="0" label="Against Value" />
+                    </when>
+                    <when value="matrixapply" >
+                        <param name="dimension" type="select" label="Apply for each">
+                            <option value="1">Row</option>
+                            <option value="2">Column</option>
+                        </param>
+                        <conditional name="matrixapply_func">
+                            <param name="use_custom" type="select" label="Function to use" >
+                                <option value="F" selected="true" >In-built</option>
+                                <option value="T">Custom</option>
+                            </param>
+                            <when value="T">
+                                <param name="custom_func" type="text" label="Custom function" help="The parameter name is 'vec', referring to a vector of a specific row or column. Most operators and if/else statements are supported. e.g. sum(vec) + median(vec)" >
+                                    <expand macro="sanitizer_functiondef" />
+                                </param>
+                            </when>
+                            <when value="F">
+                                <param name="inbuilt_op" type="select" label="In-built function">
+                                    <option value="mean" >Mean</option>
+                                    <option value="sd" >Standard Deviation</option>
+                                    <option value="max" >Maximum</option>
+                                    <option value="min" >Minimum</option>
+                                    <option value="sum" >Sum</option>
+                                    <option value="median" >Median</option>
+                                    <option value="summary" >Summary</option>
+                                </param>
+                            </when>
+                        </conditional>
+                    </when>
+                    <when value="fulltable">
+                        <param name="fulltable_custom_expr" type="text" area="true" size="5x25" label="Custom expression" help="The parameter name is 'table', referring to the element being acted on. Most operators and if/else statements are supported. See Example #5 in the Help section." >
+                            <expand macro="sanitizer_functiondef" />
+                        </param>
+                    </when>
+                    <when value="element">
+                        <conditional name="elem_val" >
+                            <param name="element_op" type="select" label="Operation to select elements of interest" >
+                                <expand macro="select_twovaluebooleanops" >
+                                    <option value="T" selected="true">All</option>
+                                </expand>
+                            </param>
+                            <when value="T" />
+                            <when value="lt">
+                                <expand macro="elem_val" />
+                            </when>
+                            <when value="leq">
+                                <expand macro="elem_val" />
+                            </when>
+                            <when value="gt">
+                                <expand macro="elem_val" />
+                            </when>
+                            <when value="geq">
+                                <expand macro="elem_val" />
+                            </when>
+                            <when value="eq">
+                                <expand macro="elem_val" />
+                            </when>
+                            <when value="neq">
+                                <expand macro="elem_val" />
+                            </when>
+                        </conditional>
+                        <conditional name="element" >
+                            <param name="mode" type="select" label="Mode" >
+                                <option value="replace">Replace</option>
+                                <option value="modify">Modify</option>
+                                <option value="scale">Scale</option>
+                                <option value="custom">Custom</option>
+                            </param>
+                            <when value="replace" >
+                                <param name="replace_value" type="text" label="Value to replace selected elements" help="This value is converted to numeric if possible, otherwise it is treated as a string" />
+                            </when>
+                            <when value="modify" >
+                                <param name="modify_op" type="select" label="Operation to modify selected elements" help="e.g. to square root all values, select 'Square Root'" >
+                                    <expand macro="select_onevalueoperator" />
+                                </param>
+                            </when>
+                            <when value="scale">
+                                <param name="scale_op" type="select" label="Operation to scale selected elements by" help="e.g. to raise all values to the power of 5, select 'Power' and and type in '5' in the box below" >
+                                    <expand macro="select_twovaluenumericoperator" />
+                                </param>
+                                <param name="scale_value" type="float" value="0" label="Value to scale using selected operation" />
+                            </when>
+                            <when value="custom">
+                                <param name="custom_expr" type="text" area="true" size="5x25" label="Custom expression" help="The parameter name is 'elem', referring to the element being acted on. Most operators and if/else statements are supported. See Examples #3 and #4 in the Help section." >
+                                    <expand macro="sanitizer_functiondef" />
+                                </param>
+                            </when>
+                        </conditional>
+                    </when>
+                </conditional>
+            </when>
+            <when value="multiple">
+                <repeat name="tables" title="Tables" >
+                    <expand macro="file_opts" />
+                </repeat>
+                <param name="fulltable_custom_expr" type="text" area="true" size="5x25" label="Custom expression" help="The parameter name is 'table', referring to a list of tables. A specific table from the inputs is indicated using array notation on the 'table' variable (e.g. table1 + table3 - table2, will add the first and third input tables and then subtract the second). Most operators and if/else statements are supported. See Example #6 in the Help section for further examples." >
+                    <expand macro="sanitizer_functiondef" />
+                </param>
+            </when>
+        </conditional>
+        <param name="keep_nas" type="boolean" checked="true" label="Ignore NA values" />
+        <param name="show_logfile" type="boolean" checked="false" label="Produce logfile?" />
+    </inputs>
+    <outputs>
+        <data name="table" format="tabular" label="${tool.name} on ${on_string}" />
+        <data name="logfile" format="txt" label="${tool.name} on ${on_string}: Logfile" >
+            <filter>show_logfile</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test><!-- Select -->
+            <expand macro="test_inputs_single" >
+                <param name="mode" value="select" />
+                <param name="select_cols_wanted" value="2:4,2,2" />
+                <param name="select_rows_wanted" value="2:5,3,3" />
+                <param name="select_rows_keepdupe" value="false" />
+                <param name="select_cols_keepdupe" value="true" />
+            </expand>
+            <output name="table" value="small.select.tsv" />
+        </test>
+        <test><!-- Select, cols only -->
+            <expand macro="test_inputs_single" >
+                <param name="mode" value="select" />
+                <param name="select_cols_wanted" value="2:4,2,2" />
+                <param name="select_rows_keepdupe" value="true" />
+                <param name="select_cols_keepdupe" value="true" />
+            </expand>
+            <output name="table" value="small.select.colsonly.tsv" />
+        </test>
+        <test><!-- Select, rows only -->
+            <expand macro="test_inputs_single" >
+                <param name="mode" value="select" />
+                <param name="select_rows_wanted" value="2:5,3,3" />
+                <param name="select_rows_keepdupe" value="false" />
+                <param name="select_cols_keepdupe" value="true" />
+            </expand>
+            <output name="table" value="small.select.rowsonly.tsv" />
+        </test>
+        <test><!-- FilterSum, row -->
+            <expand macro="test_inputs_single" >
+                <param name="mode" value="filtersum" />
+                <param name="filtersum_mode" value="rowSum" />
+                <param name="filtersum_op" value="gt" />
+                <param name="filtersum_value" value="50" />
+            </expand>
+            <output name="table" value="small.fs.rowsum.gt.50.tsv" />
+        </test>
+       <test><!-- FilterSum, col neq 0 -->
+            <expand macro="test_inputs_single" >
+                <param name="mode" value="filtersum" />
+                <param name="filtersum_mode" value="colSum" />
+                <param name="filtersum_op" value="neq" />
+                <param name="filtersum_value" value="0" />
+            </expand>
+            <output name="table" value="small.fs.colsum.neq0.tsv" />
+        </test>
+        <test><!-- Matrix Apply, row max  -->
+            <expand macro="test_inputs_single" >
+                <param name="mode" value="matrixapply" />
+                <param name="dimension" value="1" />
+                <conditional name="matrixapply_func" >
+                    <param name="use_custom" value="F" />
+                    <param name="inbuilt_op" value="max" />
+                </conditional>
+            </expand>
+            <output name="table" value="small.matapp.rowmax.tsv" />
+        </test>
+        <test><!-- Matrix Apply, column custom  -->
+            <expand macro="test_inputs_single" >
+                <param name="mode" value="matrixapply" />
+                <param name="dimension" value="2" />
+                <conditional name="matrixapply_func" >
+                    <param name="use_custom" value="T" />
+                    <param name="custom_func" value="sum(vec)+median(vec)" />
+                </conditional>
+            </expand>
+            <output name="table" value="small.matapp.colcust.tsv" />
+        </test>
+        <test><!-- Element, all, scale, remainder 5  -->
+            <expand macro="test_inputs_single" >
+                <param name="mode" value="element" />
+                <conditional name="elem_val">
+                    <param name="element_op" value="T" />
+                </conditional>
+                <conditional name="element" >
+                    <param name="mode" value="scale" />
+                    <param name="scale_op" value="%%" />
+                    <param name="scale_value" value="5" />
+                </conditional>
+            </expand>
+            <output name="table" value="small.element.scalerem5.tsv" />
+        </test>
+        <test><!-- Element, non-zero, custom -->
+            <expand macro="test_inputs_single" >
+                <param name="mode" value="element" />
+                <conditional name="elem_val">
+                    <param name="element_op" value="gt" />
+                    <param name="element_value" value="0" />
+                </conditional>
+                <conditional name="element" >
+                    <param name="mode" value="custom" />
+                    <!-- valid expression for non-zero vals -->
+                    <param name="custom_expr" value="(log10(elem)+elem)/elem" />
+                </conditional>
+            </expand>
+            <output name="table" value="small.element.custom.tsv" />
+        </test>
+        <test><!-- umi2transcript test1 -->
+            <expand macro="umi2trans" >
+                <param name="input" value="mat1.umi.tsv" />
+                <output name="table" value="mat1.trans.tsv" />
+            </expand>
+        </test>
+        <test><!-- umi2transcript test2 -->
+            <expand macro="umi2trans" >
+                <param name="input" value="mat2.umi.tsv" />
+                <output name="table" value="mat2.trans.tsv" />
+            </expand>
+        </test>
+        <test><!-- B-test: mean and sd in custom func -->
+            <expand macro="test_inputs_single" >
+                <param name="mode" value="fulltable" />
+                <param name="fulltable_custom_expr" value="table - apply(table, 1, mean)/apply(table, 1, sd)" />
+            </expand>
+            <output name="table" value="small.fulltable.tsv" />
+        </test>
+        <test><!-- Multiple table test -->
+            <conditional name="singtabop" >
+                <param name="reader_row_col" value="true" />
+                <param name="use_type" value="multiple" />
+                <repeat name="tables">
+                    <param name="input" value="small.tsv" />
+                </repeat>
+                <repeat name="tables">
+                    <param name="input" value="small.tsv" />
+                </repeat>
+                <repeat name="tables">
+                    <param name="input" value="small.tsv" />
+                </repeat>
+                <param name="fulltable_custom_expr" value="(3 * table1) + log(table3 + 20) - table2" />
+            </conditional>
+            <output name="table" value="small.multiple.tsv" />
+        </test>
+    </tests>
+    <help><![CDATA[
+This tool computes table expressions on the element, row, and column basis. It can subselect, duplicate, as well as perform general and custom expressions on rows/columns/elements.
+
+Only a single operation can be performed on the data. Multiple operations can be performed by chaining successive runs of this tool. This is to provide a more transparent workflow for complex operations.
+
+
+
+Examples
+========
+
+Example 1: Sub-selecting from a table
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We have the following table:
+
+ === === === ===
+  .  c1  c2  c3
+ === === === ===
+ g1  10  20  30
+ g2   3   6   9
+ g3   4   8  12
+ g4  81   6   3
+ === === === ===
+
+and we want to duplicate c1 and remove c2. Also select g1 to g3 and add g2 at the end as well. This would result in the output table:
+
+ === === === ===
+  .  c1  c1  c3
+ === === === ===
+ g1  10  10  30
+ g2   3   3   9
+ g3   4   4  12
+ g2   3   3   9
+ === === === ===
+
+In Galaxy we would select the following:
+
+ * *Has header for column names?* → **Yes**
+ * *First column provides row names?* → **Yes**
+ * *Input Single or Multiple Tables* → **Single Table**
+ * *Type of table operation* →    **Select Rows and Columns**
+
+   * *List of columns to keep* → **1,1,3**
+   * *List of rows to keep* → **1:3,2**
+   * *Keep duplicate columns* → **Yes**
+   * *Keep duplicate rows* → **Yes**
+
+Example 2: Filter for rows with row sums less than 50
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We have the following table:
+
+ === === === ===
+  .  c1  c2  c3
+ === === === ===
+ g1  10  20  30
+ g2   3   6   9
+ g3   4   8  12
+ g4  81   6   3
+ === === === ===
+
+and we want:
+
+ === === === ===
+  .  c1  c2  c3
+ === === === ===
+ g2   3   6   9
+ g3   4   8  12
+ === === === ===
+
+In Galaxy we would select the following:
+
+ * *Has header for column names?* → **Yes**
+ * *First column provides row names?* → **Yes**
+ * *Input Single or Multiple Tables* → **Single Table**
+ * *Type of table operation* →    **Filter by Row or Column Sums**
+
+   * *Filter by* → **Row Sum**
+   * *Operation to Filter by* → **Less Than**
+   * *Against Value* → **50**
+
+
+Example 3: Count the number of values less than 10 per row
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We have the following table:
+
+ === === === ===
+  .  c1  c2  c3
+ === === === ===
+ g1  10  20  30
+ g2   3   6   9
+ g3   4   8  12
+ g4  81   6   3
+ === === === ===
+
+and we want:
+
+ === ===
+  .  vec
+ === ===
+ g1   0
+ g2   3
+ g3   2
+ g4   2
+ === ===
+
+In Galaxy we would select the following:
+
+ * *Has header for column names?* → **Yes**
+ * *First column provides row names?* → **Yes**
+ * *Input Single or Multiple Tables* → **Single Table**
+ * *Type of table operation* →    **Compute Expression across All Elements**
+
+   * *Operation to select elements of interest* → **Less Than**
+
+     * *Value to compare elements against* → **10**
+
+   * *Mode* → **Custom**
+
+     * *Custom Expression* → **elem < 10**
+
+After executing, we would then be presented with a table like so:
+
+ === ===== ===== =====
+  .     c1    c2    c3
+ === ===== ===== =====
+ g1  FALSE FALSE FALSE
+ g2  TRUE  TRUE  TRUE
+ g3  TRUE  TRUE  FALSE
+ g4  FALSE TRUE  TRUE
+ === ===== ===== =====
+
+To get to our desired table, we would then run this table through Galaxy once more:
+
+ * *Has header for column names?* → **Yes**
+ * *First column provides row names?* → **Yes**
+ * *Input Single or Multiple Tables* → **Single Table**
+ * *Type of table operation* →    **Compute Expression across Rows or Columns**
+
+   * *Apply for each* → **Row**
+
+   * *Function to use* → **In-built**
+     * *In-built function* → **sum**
+
+Executing this will sum all the TRUE values in each row.
+
+
+Example 4: Perform a log transformation on all non-zero value
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We have the following table:
+
+ === === === ===
+  .  c1  c2  c3
+ === === === ===
+ g1   0  20  30
+ g2   3   0   9
+ g3   4   8   0
+ g4  81   0   0
+ === === === ===
+
+and we want:
+
+
+ === ========== ========= =========
+  .          c1        c2        c3
+ === ========== ========= =========
+ g1  0          0.1497866 0.1133732
+ g2  0.36620410         0 0.2441361
+ g3  0.34657359 0.2599302 0
+ g4  0.05425246 0         0
+ === ========== ========= =========
+
+In Galaxy we would select the following:
+
+ * *Has header for column names?* → **Yes**
+ * *First column provides row names?* → **Yes**
+ * *Input Single or Multiple Tables* → **Single Table**
+ * *Type of table operation* →  **Compute Expression across All Elements**
+
+   * *Operation to select elements of interest* → **Not Equal to**
+
+     * *Value to compare elements against* → **0**
+
+   * *Mode* → **Custom**
+
+     * *Custom Expression* →
+
+::
+
+         if (elem > 10){
+            elem = elem - 0.5
+         }
+         return(log(elem) / elem)
+
+
+Example 5: Perform a Full table operation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We have the following table:
+
+ === === === ===
+  .  c1  c2  c3
+ === === === ===
+ g1  10  20  30
+ g2   3  10   9
+ g3   4   8  10
+ g4  81  10  10
+ === === === ===
+
+and we want to subtract from each row the mean of that row dividided by the standard deviation of that row to yield:
+
+
+ === ========== ========= =========
+  .          c1        c2        c3
+ === ========== ========= =========
+ g1           8        18        28
+ g2    1.063008  8.063008  7.063008
+ g3    1.599603  5.599603  7.599603
+ g4   80.178699  9.178699  9.178699
+ === ========== ========= =========
+
+In Galaxy we would select the following:
+
+ * *Has header for column names?* → **Yes**
+ * *First column provides row names?* → **Yes**
+ * *Input Single or Multiple Tables* → **Single Table**
+ * *Type of table operation* →  **Perform a Full Table Operation**
+   * *Custom Expression* →
+
+::
+
+         table - apply(table, 1, mean)/apply(table, 1, sd)
+
+
+Example 6: Perform operations on multiple tables
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We have the following three input tables:
+
+Table 1
+
+ === === === ===
+  .  c1  c2  c3
+ === === === ===
+ g1  10  20  30
+ g2   3  10   9
+ g3   4   8  10
+ === === === ===
+
+Table 2
+
+ === === ===
+  .  c1  c2
+ === === ===
+ g1   1   2
+ g2   3   4
+ g3   6   5
+ === === ===
+
+Table 3
+
+ === === === ===
+  .  c1  c2  c3
+ === === === ===
+ g1   1   2   3
+ g2   1   2   3
+ === === === ===
+
+
+*Note that the dimensions of these tables do not match.*
+
+Dimensions:
+ * Table1 [3,3]
+ * Table2 [3,2]
+ * Table3 [2,3]
+
+In order to perform simple operations between Tables, they must be of the same dimensions.
+
+  e.g. To add Table2 to Table3 we would have to transpose one of the tables using the in-built `t` function:
+
+            ::
+
+              table2 + t(table3)
+
+  or
+
+            ::
+
+              t(table2) + table3
+
+
+We can also perform more general operations using all 3 tables, such as taking the average value of the maximum values of Table2 and Table3, and dividing the Table1 values by it.
+
+            ::
+
+             table1 / mean(max(table2), max(table3))
+
+
+To perform these types of operations in Galaxy we would select the following:
+
+ * *Has header for column names?* → **Yes**
+ * *First column provides row names?* → **Yes**
+ * *Input Single or Multiple Tables* → **Multiple Tables**
+ * *Custom Expression* →
+
+            ::
+
+             <insert your desired function>
+
+
+
+]]></help>
+    <citations></citations>
+</tool>

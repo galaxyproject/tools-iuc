@@ -1,0 +1,186 @@
+<tool id="sam_dump" name="Download and Extract Reads in BAM" version="@VERSION@.3">
+    <description>format from NCBI SRA</description>
+    <macros>
+        <import>sra_macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <version_command>sam-dump --version</version_command>
+    <command detect_errors="exit_code">
+<![CDATA[
+    #if $input.input_select=="file_list":
+      for acc in `cat $input.file_list` ;
+      do
+    #elif $input.input_select=="accession_number":
+      acc="${input.accession}" &&
+    #end if
+
+    #if $input.input_select=="file_list" or $input.input_select=="accession_number":
+          [ ""\$acc" =~ ^[E|S|D]RR[0-9]{1,}$" ] && (
+    #end if
+
+        ## Need to set the home directory to the current working directory,
+        ## else the tool tries to write to home/.ncbi and fails when used
+        ## with a cluster manager.
+        export HOME=\$PWD &&
+        vdb-config --restore-defaults &&
+        vdb-config -s "/repository/user/main/public/root=\$PWD" &&
+        ## Do not use prefetch if region is specified, to avoid downloading
+        ## the complete sra file.
+        #if ( str( $adv.region ) == "" ):
+            ASCP_PATH=`command -v ascp` &&
+            ASCP_KEY=`dirname \$ASCP_PATH`/asperaweb_id_dsa.openssh || true &&
+            prefetch -X 200G --ascp-path "\$ASCP_PATH|\$ASCP_KEY" "\$acc" &&
+            ## Duplicate vdb-config, in case settings changed between prefetch and
+            ## dump command.
+            vdb-config -s "/repository/user/main/public/root=\$PWD" &&
+        #end if
+        sam-dump --log-level fatal --disable-multithreading
+        #if str( $adv.region ) != "":
+            --aligned-region '$adv.region'
+        #end if
+        #if str( $adv.matepairDist ) != "":
+            --matepair-distance '$adv.matepairDist'
+        #end if
+        #if str( $adv.minMapq ) != "":
+            --min-mapq '$adv.minMapq'
+        #end if
+        --header
+        #if str( $adv.alignments ) == "both":
+            --unaligned
+        #end if
+        #if str( $adv.alignments ) == "unaligned":
+            --unaligned-spots-only
+        #end if
+        #if (str( $adv.primary ) == "yes") and (str ( $adv.alignments != "unaligned") ):
+            --primary
+        #end if
+        #if $input.input_select == "file":
+            '$input.file'
+        #elif $input.input_select == "accession_number":
+            "\$acc"
+        #elif $input.input_select=="file_list":
+            "\$acc"
+        #end if
+
+        #if str( $outputformat ) == "bam":
+            | samtools view -Sb - 2> /dev/null
+        #end if
+        #if $input.input_select == "file":
+            > '$output_file'
+        #elif $input.input_select == "accession_number":
+            > '$output_accession' )
+        #end if
+
+        #if $input.input_select=="file_list":
+                 #if str( $outputformat ) == "bam":
+                      > "\$acc.bam"
+                 #elif str( $outputformat ) == "sam":
+                      > "\$acc.sam"
+                 #end if
+        ) ; done
+        #end if
+
+        ]]>
+    </command>
+    <inputs>
+        <expand macro="input_conditional"/>
+        <param name="outputformat" type="select" display="radio" label="select output format" help="In vast majority of cases you want to download data in bam format. It is more compact and is accepted by all downstream tools.">
+            <option value="bam">bam</option>
+            <option value="sam">sam</option>
+        </param>
+        <section name="adv" title="Advanced Options" expanded="False">
+            <expand macro="alignments"/>
+            <expand macro="region"/>
+            <expand macro="matepairDist"/>
+            <param name="primary" type="select" value="no">
+                <label>only primary aligments</label>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <expand macro="minMapq"></expand>
+        </section>
+    </inputs>
+    <outputs>
+        <collection name="output_collection" type="list" label="SAM/BAM data (fastq-dump)">
+          <filter>input['input_select'] == "file_list"</filter>
+          <discover_datasets pattern="(?P&lt;designation&gt;.+)\.bam" directory="." ext='bam'/>
+          <discover_datasets pattern="(?P&lt;designation&gt;.+)\.sam" directory="." ext='sam'/>
+        </collection>
+        <data name="output_accession" format="bam" label="${input.accession} (sam-dump)">
+            <filter>input['input_select'] == "accession_number"</filter>
+            <change_format>
+                <when input="outputformat" value="sam" format="sam"/>
+            </change_format>
+        </data>
+        <data name="output_file" format="bam" label="${input.file.name} (sam-dump)">
+            <filter>input['input_select'] == "file"</filter>
+            <change_format>
+                <when input="outputformat" value="sam" format="sam"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_select" value="accession_number"/>
+            <param name="accession" value="SRR925743"/>
+            <param name="outputformat" value="sam"/>
+            <param name="region" value="17:41243452-41277500"/>
+            <output name="output_accession" file="sam_dump_result.sam" compare="contains" ftype="sam"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+**What it does?**
+
+This tool extracts data (in BAM_ format) from the Short Read Archive (SRA) at the National Center for Biotechnology Information (NCBI). It is based on the sam-dump_ utility of the SRA Toolkit.
+
+**How to use it?**
+
+There are three ways in which you can download data:
+
+ 1. Data for single accession
+ 2. Multiple datasets using a list of accessions
+ 3. Extract data from already uploaded SRA dataset
+
+Below we discuss each in detail.
+
+------
+
+**Uploading data for a single accession**
+
+When you type a single accession number (e.g., `SRR1582967`) into **Accession** box and click **Execute** the tool will fetch data for you. As a result you will get a single BAM (or SAM) dataset in the history. 
+
+-----
+
+**Uploading multiple datasets using a list of accessions**
+
+A more realistic scenario is when you want to upload a number of datasets at once. To do this you need a list of accession, where there is only one accession per line (see below for information on how to generate such a file). Once you have this file:
+
+ 1. Upload it into your history using Galaxy's upload tool
+ 2. Once the list of accessions is uploaded choose *List of SRA accessions, one per line* from **select input type** dropdown
+ 3. Choose uploaded file within the **sra accession list** field
+ 4. Click **Execute**
+
+.. class:: warningmark
+
+BAM datasets produced by this option will be saved in Galaxy's history as a collection_ - a single history element containing multiple datasets. 
+
+-----
+
+**Extract data from already uploaded SRA dataset**
+
+If a SRA dataset is present in the history, it can be converted into BAM dataset by setting **select input type** drop-down to *SRA archive in current history*. Just like in the case of extracting data for single accession number a single BAM dataset will be generated in the history. 
+
+@ACCESSION_LIST_HOWTO@
+
+-----
+
+.. _BAM: https://samtools.github.io/hts-specs/SAMv1.pdf
+.. _sam-dump: http://ncbi.github.io/sra-tools/sam-dump.html
+.. _collection: https://galaxyproject.org/tutorials/collections/
+.. _link: http://www.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?view=studies
+
+@SRATOOLS_ATTRRIBUTION@
+    ]]></help>
+    <expand macro="citation"/>
+</tool>
