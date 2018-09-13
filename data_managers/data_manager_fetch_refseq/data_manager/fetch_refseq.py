@@ -155,8 +155,8 @@ if __name__ == '__main__':
         if args.galaxy_datamanager_filename is not None:
             for i, mol_type in enumerate(mol_types):
                 assert mol_type in fasta_files[i], "Filename does not contain expected mol_type ({}, {})".format(mol_type, fasta_files[i])
-                unique_key = division_name + '.' + release_num + '.' + mol_type  # note: this is now same as dbkey
-                dbkey = division_name + '.' + release_num + '.' + mol_type
+                unique_key = 'refseq_' + division_name + '.' + release_num + '.' + mol_type  # note: this is now same as dbkey
+                dbkey = unique_key
                 desc = 'RefSeq ' + division_name + ' Release ' + release_num + ' ' + mol_type + ' (' + today_str + ')'
                 path = os.path.join(output_directory, fasta_files[i])
                 _add_data_table_entry(data_manager_dict=data_manager_dict,
