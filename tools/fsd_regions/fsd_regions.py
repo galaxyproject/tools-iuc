@@ -12,12 +12,12 @@
 
 # USAGE: python FSD_regions_1.6_FINAL.py --inputFile filenameSSCS --inputName1 filenameSSCS --ref_genome  filenameRefGenome --sep "characterWhichSeparatesCSVFile" --output_csv outptufile_name_csv --output_pdf outptufile_name_pdf
 
-import numpy
-import matplotlib.pyplot as plt
 import argparse
+import matplotlib.pyplot as plt
+import numpy
 import sys
-import os
-from matplotlib.backends.backend_pdf import PdfPages
+from . import matplotlib
+from .backends.backend_pdf import PdfPages
 
 def readFileReferenceFree(file, delim):
     with open(file, 'r') as dest_f:
@@ -105,7 +105,7 @@ def compare_read_families_refGenome(argv):
         maximumX = numpy.amax(numpy.concatenate(quantAfterRegion))
         minimumX = numpy.amin(numpy.concatenate(quantAfterRegion))
 
-        ### PLOT ###
+        # PLOT 
         plt.rc('figure', figsize=(11.69, 8.27))  # A4 format
         plt.rcParams['axes.facecolor'] = "E0E0E0"  # grey background color
         plt.rcParams['xtick.labelsize'] = 14
@@ -156,7 +156,7 @@ def compare_read_families_refGenome(argv):
             plt.text(0.75, 0.05 + s, "{:,}\n".format(len(count) / 2), size=11, transform=plt.gcf().transFigure)
 
         plt.legend(loc='upper right', fontsize=14, bbox_to_anchor=(0.9, 1), frameon=True)
-        #plt.title(name1, fontsize=14)
+        # plt.title(name1, fontsize=14)
         plt.xlabel("Family size", fontsize=14)
         plt.ylabel("Absolute Frequency", fontsize=14)
         plt.grid(b=True, which="major", color="#424242", linestyle=":")
@@ -175,19 +175,19 @@ def compare_read_families_refGenome(argv):
         output_file.write("\n\nValues from family size distribution\n")
         output_file.write("{}".format(sep))
         for i in groupUnique:
-            output_file.write("{}{}".format(i,sep))
+            output_file.write("{}{}".format(i, sep))
         output_file.write("\n")
-        j=0
-        for fs in counts[1][0:len(counts[1])-1]:
+        j = 0
+        for fs in counts[1][0:len(counts[1]) - 1]:
             if fs == 21:
                 fs = ">20"
             else:
                 fs = "={}".format(fs)
-            output_file.write("FS{}{}".format(fs,sep))
+            output_file.write("FS{}{}".format(fs, sep))
             for n in range(len(groupUnique)):
                 output_file.write("{}{}".format(int(counts[0][n][j]), sep))
             output_file.write("\n")
-            j+=1
+            j += 1
         output_file.write("sum{}".format(sep))
         for i in counts[0]:
             output_file.write("{}{}".format(int(sum(i)), sep))
@@ -195,11 +195,12 @@ def compare_read_families_refGenome(argv):
         output_file.write("\n\nIn the plot, both family sizes of the ab and ba strands were used.\nWhereas the total numbers indicate only the single count of the tags per region.\n")
         output_file.write("Region{}total nr. of tags per region\n".format(sep))
         for i, count in zip(groupUnique, quantAfterRegion):
-            output_file.write("{}{}{}\n".format(i,sep,len(count) / 2))
-        output_file.write("sum of tags{}{}\n".format(sep,length_regions))
+            output_file.write("{}{}{}\n".format(i, sep, len(count) / 2))
+        output_file.write("sum of tags{}{}\n".format(sep, length_regions))
 
     print("Files successfully created!")
-    #print("Files saved under {}.pdf and {}.csv in {}!".format(title_file, title_file, os.getcwd()))
+    # print("Files saved under {}.pdf and {}.csv in {}!".format(title_file, title_file, os.getcwd()))
+
 
 if __name__ == '__main__':
-  sys.exit(compare_read_families_refGenome(sys.argv))
+    sys.exit(compare_read_families_refGenome(sys.argv))
