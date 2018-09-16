@@ -19,8 +19,8 @@
 import argparse
 import itertools
 import sys
-from collections import Counter
 import operator
+from collections import Counter
 from functools import partial
 from multiprocessing.pool import Pool
 
