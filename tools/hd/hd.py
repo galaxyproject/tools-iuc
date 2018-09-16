@@ -25,6 +25,7 @@ from functools import partial
 from multiprocessing.pool import Pool
 
 import matplotlib.pyplot as plt
+plt.switch_backend('agg')
 import numpy
 from matplotlib.backends.backend_pdf import PdfPages
 
