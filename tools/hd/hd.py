@@ -18,8 +18,8 @@
 
 import argparse
 import itertools
-import sys
 import operator
+import sys
 from collections import Counter
 from functools import partial
 from multiprocessing.pool import Pool
