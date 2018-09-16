@@ -13,31 +13,31 @@
 
 # USAGE: python FSD_Galaxy_1.4_commandLine_FINAL.py --inputFile1 filename --inputName1 filename --inputFile2 filename2 --inputName2 filename2 --inputFile3 filename3 --inputName3 filename3 --inputFile4 filename4 --inputName4 filename4 --sep "characterWhichSeparatesCSVFile" --output_csv outptufile_name_csv --output_pdf outptufile_name_pdf
 
+import argparse
 import numpy
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
-import argparse
 import sys
-import os
-import re
+
 
 def readFileReferenceFree(file):
     with open(file, 'r') as dest_f:
         data_array = numpy.genfromtxt(dest_f, skip_header=0, delimiter='\t', comments='#', dtype='string')
         return(data_array)
 
+
 def make_argparser():
     parser = argparse.ArgumentParser(description='Family Size Distribution of duplex sequencing data')
     parser.add_argument('--inputFile1',
                         help='Tabular File with three columns: ab or ba, tag and family size.')
     parser.add_argument('--inputName1')
-    parser.add_argument('--inputFile2',default=None,
+    parser.add_argument('--inputFile2', default=None,
                         help='Tabular File with three columns: ab or ba, tag and family size.')
     parser.add_argument('--inputName2')
-    parser.add_argument('--inputFile3',default=None,
+    parser.add_argument('--inputFile3', default=None,
                         help='Tabular File with three columns: ab or ba, tag and family size.')
     parser.add_argument('--inputName3')
-    parser.add_argument('--inputFile4',default=None,
+    parser.add_argument('--inputFile4', default=None,
                         help='Tabular File with three columns: ab or ba, tag and family size.')
     parser.add_argument('--inputName4')
     parser.add_argument('--sep', default=",",
@@ -46,8 +46,9 @@ def make_argparser():
                         help='Name of the pdf file.')
     parser.add_argument('--output_csv', default="data.csv",type=str,
                         help='Name of the csv file.')
-   
+
     return parser
+
 
 def compare_read_families(argv):
     parser = make_argparser()
@@ -67,7 +68,7 @@ def compare_read_families(argv):
     title_file2 = args.output_pdf
     sep = args.sep
 
-    if type(sep) is not str or len(sep)>1:
+    if type(sep) is not str or len(sep) > 1:
         print("Error: --sep must be a single character.")
         exit(4)
 
@@ -86,7 +87,7 @@ def compare_read_families(argv):
        plt.subplots_adjust(bottom=0.25)
        if firstFile != str(None):
            file1 = readFileReferenceFree(firstFile)
-           integers = numpy.array(file1[:, 0]).astype(int)  ## keep original family sizes
+           integers = numpy.array(file1[:, 0]).astype(int) # keep original family sizes
 
            # for plot: replace all big family sizes by 22
            data1 = numpy.array(file1[:, 0]).astype(int)
@@ -177,6 +178,7 @@ def compare_read_families(argv):
            file4 = readFileReferenceFree(fourthFile)
 
            data4 = numpy.asarray(file4[:, 0]).astype(int)
+
            bigFamilies4 = numpy.where(data4 > 20)[0]
            data4[bigFamilies4] = 22
 
@@ -214,7 +216,7 @@ def compare_read_families(argv):
        plt.xticks(numpy.array(ticks), ticks1)
 
        plt.legend(loc='upper right', fontsize=14, frameon=True, bbox_to_anchor=(0.9, 1))
-     #  plt.title("Family Size Distribution", fontsize=14)
+       # plt.title("Family Size Distribution", fontsize=14)
        plt.xlabel("Family size", fontsize=14)
        plt.ylabel("Absolute Frequency", fontsize=14)
        plt.margins(0.01, None)
@@ -227,7 +229,7 @@ def compare_read_families(argv):
        output_file.write("\nFamily size")
        for i in label:
            output_file.write("{}{}".format(sep, i))
-      # output_file.write("{}sum".format(sep))
+       # output_file.write("{}sum".format(sep))
        output_file.write("\n")
        j = 0
        for fs in counts[1][0:len(counts[1]) - 1]:
@@ -236,16 +238,12 @@ def compare_read_families(argv):
            else:
                fs = "={}".format(fs)
            output_file.write("FS{}{}".format(fs, sep))
-          # values_of_fs = []
            if len(label) == 1:
                output_file.write("{}{}".format(int(counts[0][j]), sep))
-           #    values_of_fs.append(int(counts[0][j]))
            else:
                for n in range(len(label)):
                    output_file.write("{}{}".format(int(counts[0][n][j]), sep))
-           #        values_of_fs.append(int(counts[0][n][j]))
            output_file.write("\n")
-           #output_file.write("{}\n".format(sum(values_of_fs)))
            j += 1
        output_file.write("sum{}".format(sep))
        values_for_sum = []
@@ -259,7 +257,7 @@ def compare_read_families(argv):
 
        output_file.write("{}\n".format(sum(values_for_sum)))
 
-### Family size distribution after DCS and SSCS
+# Family size distribution after DCS and SSCS
        for dataset, data, name_file in zip(list_to_plot, data_array_list, label):
             maximumX = numpy.amax(dataset)
             minimumX = numpy.amin(dataset)
@@ -296,15 +294,15 @@ def compare_read_families(argv):
             #     for t, s, f in zip(duplTags_double_tag, duplTags_double_seq, duplTags_double):
             #         file.write("{}\t{}\t{}\n".format(t, s, f))
 
-            list1 = [duplTags_double, dataAB, dataBA]  # list for plotting
+            list1 = [duplTags_double, dataAB, dataBA] # list for plotting
 
-            ## information for family size >= 3
+            # information for family size >= 3
             dataAB_FS3 = dataAB[dataAB >= 3]
             dataBA_FS3 = dataBA[dataBA >= 3]
             ab_FS3 = ab[ab >= 3]
             ba_FS3 = ba[ba >= 3]
 
-            duplTags_FS3 = duplTags[(duplTags >= 3) & (duplTagsBA >= 3)]  # ab+ba with FS>=3
+            duplTags_FS3 = duplTags[(duplTags >= 3) & (duplTagsBA >= 3)] # ab+ba with FS>=3
             duplTags_FS3_BA = duplTagsBA[(duplTags >= 3) & (duplTagsBA >= 3)]  # ba+ab with FS>=3
             duplTags_double_FS3 = len(duplTags_FS3)+len(duplTags_FS3_BA) # both ab and ba strands with FS>=3
 
@@ -319,17 +317,17 @@ def compare_read_families(argv):
             ticks1 = map(str, ticks)
             ticks1[len(ticks1) - 1] = ">20"
             plt.xticks(numpy.array(ticks), ticks1)
-            singl = counts[0][2][0]  # singletons
-            last = counts[0][2][len(counts[0][0]) - 1]  # large families
+            singl = counts[0][2][0] # singletons
+            last = counts[0][2][len(counts[0][0]) - 1] # large families
 
             plt.legend(loc='upper right', fontsize=14, bbox_to_anchor=(0.9, 1), frameon=True)
-         #   plt.title(name1, fontsize=14)
+            # plt.title(name1, fontsize=14)
             plt.xlabel("Family size", fontsize=14)
             plt.ylabel("Absolute Frequency", fontsize=14)
             plt.margins(0.01, None)
             plt.grid(b=True, which="major", color="#424242", linestyle=":")
 
-            ## extra information beneath the plot
+            # extra information beneath the plot
             legend = "SSCS ab= \nSSCS ba= \nDCS (total)= \nlength of dataset="
             plt.text(0.1, 0.09, legend, size=12, transform=plt.gcf().transFigure)
 
@@ -363,8 +361,8 @@ def compare_read_families(argv):
             pdf.savefig(fig)
             plt.close()
 
-            #  write same information to a csv file
-            count = numpy.bincount(integers)  # original counts of family sizes
+            # write same information to a csv file
+            count = numpy.bincount(integers) # original counts of family sizes
             output_file.write("\nDataset:{}{}\n".format(sep, name_file))
             output_file.write("max. family size:{}{}\n".format(sep, max(integers)))
             output_file.write("absolute frequency:{}{}\n".format(sep, count[len(count) - 1]))
@@ -374,10 +372,10 @@ def compare_read_families(argv):
             output_file.write(
                 "{}absolute nr.{}rel. freq{}absolute nr.{}rel. freq{}total length\n".format(sep, sep, sep, sep, sep))
             output_file.write("{}{}{}{}{:.3f}{}{}{}{:.3f}{}{}\n\n".format(name_file, sep, singl.astype(int), sep,
-                                                                          singl / len(data), sep,last.astype(int), sep,
+                                                                          singl / len(data), sep, last.astype(int), sep,
                                                                           last / len(data), sep, len(data)))
 
-            ## information for FS >= 1
+            # information for FS >= 1
             output_file.write(
                 "The unique frequencies were calculated from the dataset where the tags occured only once (=ab without DCS, ba without DCS)\n" \
                 "Whereas the total frequencies were calculated from the whole dataset (=including the DCS).\n\n")
@@ -396,14 +394,14 @@ def compare_read_families(argv):
             output_file.write(
                 "length of dataset={}{}{}{}{}{}\n".format(sep, (len(dataAB) + len(dataBA) + len(duplTags)), sep,
                                                           (len(dataAB) + len(dataBA) + len(duplTags)), sep,(len(ab) + len(ba))))
-            ## information for FS >= 3
+            # information for FS >= 3
             output_file.write("FS >= 3{}{}unique:{}total:\n".format(sep, sep, sep))
             output_file.write("nr./rel. freq of ab={}{}{}{:.3f}{}{:.3f}\n".format(sep, len(dataAB_FS3), sep,
                                                                                   float(len(dataAB_FS3)) / (len(dataAB_FS3) + len(dataBA_FS3) + len(duplTags_FS3)),
                                                                                   sep, float(len(dataAB_FS3)) / ( len(ab_FS3) + len(ba_FS3))))
             output_file.write("nr./rel. freq of ba={}{}{}{:.3f}{}{:.3f}\n".format(sep, len(dataBA_FS3), sep,
                                                                                   float(len(dataBA_FS3)) / ( len(dataBA_FS3) + len(dataBA_FS3) + len(duplTags_FS3)),
-                                                                                  sep,float(len(dataBA_FS3)) / (len(ba_FS3) + len(ba_FS3))))
+                                                                                  sep, float(len(dataBA_FS3)) / (len(ba_FS3) + len(ba_FS3))))
             output_file.write(
                 "nr./rel. freq of DCS (total)={}{} ({}){}{:.3f}{}{:.3f} ({:.3f})\n".format(sep, len(duplTags_FS3),duplTags_double_FS3,
                                                                                                         sep, float(len( duplTags_FS3)) / (len(dataBA_FS3) + len(duplTags_FS3)),
@@ -429,4 +427,4 @@ def compare_read_families(argv):
     print("Files successfully created!")
 
 if __name__ == '__main__':
-  sys.exit(compare_read_families(sys.argv))
+    sys.exit(compare_read_families(sys.argv))
