@@ -17,8 +17,8 @@ import sys
 from collections import Counter
 
 import matplotlib.pyplot as plt
-from Bio import SeqIO
 import numpy
+from Bio import SeqIO
 from matplotlib.backends.backend_pdf import PdfPages
 
 

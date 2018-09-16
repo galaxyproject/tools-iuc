@@ -295,15 +295,13 @@ def compare_read_families(argv):
             fig = plt.figure()
 
             plt.subplots_adjust(bottom=0.3)
-            counts = plt.hist(list1, bins=range(minimumX, maximumX + 1), stacked=True,
-                               label=["duplex", "ab", "ba"], edgecolor="black", linewidth=1,
-                               align="left", color=["#FF0000", "#5FB404", "#FFBF00"])
+            counts = plt.hist(list1, bins=range(minimumX, maximumX + 1), stacked=True, label=["duplex", "ab", "ba"], edgecolor="black", linewidth=1, align="left", color=["#FF0000", "#5FB404", "#FFBF00"])
             # tick labels of x axis
             ticks = numpy.arange(minimumX - 1, maximumX, 1)
             ticks1 = map(str, ticks)
             ticks1[len(ticks1) - 1] = ">20"
             plt.xticks(numpy.array(ticks), ticks1)
-            singl = counts[0][2][0] # singletons
+            singl = counts[0][2][0]  # singletons
             last = counts[0][2][len(counts[0][0]) - 1]  # large families
 
             plt.legend(loc='upper right', fontsize=14, bbox_to_anchor=(0.9, 1), frameon=True)
