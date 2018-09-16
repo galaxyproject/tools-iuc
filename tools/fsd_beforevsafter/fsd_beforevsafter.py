@@ -13,13 +13,12 @@
 # --sep "characterWhichSeparatesCSVFile" --output_csv outptufile_name_csv --output_pdf outptufile_name_pdf
 
 import argparse
-from collections import Counter
 import sys
+from collections import Counter
 
-from Bio import SeqIO
 import matplotlib.pyplot as plt
+from Bio import SeqIO
 import numpy
-
 from matplotlib.backends.backend_pdf import PdfPages
 
 

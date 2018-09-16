@@ -17,7 +17,6 @@ import sys
 
 import matplotlib.pyplot as plt
 import numpy
-
 from matplotlib.backends.backend_pdf import PdfPages
 
 
@@ -104,7 +103,7 @@ def compare_read_families_refGenome(argv):
         maximumX = numpy.amax(numpy.concatenate(quantAfterRegion))
         minimumX = numpy.amin(numpy.concatenate(quantAfterRegion))
 
-        # PLOT 
+        # PLOT
         plt.rc('figure', figsize=(11.69, 8.27))  # A4 format
         plt.rcParams['axes.facecolor'] = "E0E0E0"  # grey background color
         plt.rcParams['xtick.labelsize'] = 14
