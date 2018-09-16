@@ -20,6 +20,8 @@ import matplotlib.pyplot as plt
 import numpy
 from matplotlib.backends.backend_pdf import PdfPages
 
+plt.switch_backend('agg')
+
 
 def readFileReferenceFree(file):
     with open(file, 'r') as dest_f:
