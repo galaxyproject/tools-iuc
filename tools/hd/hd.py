@@ -18,10 +18,10 @@
 
 import argparse
 import itertools
-from collections import Counter
 import sys
-from functools import partial
+from collections import Counter
 import operator
+from functools import partial
 from multiprocessing.pool import Pool
 
 import matplotlib.pyplot as plt
