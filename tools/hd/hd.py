@@ -19,10 +19,10 @@
 import argparse
 import itertools
 from collections import Counter
-from functools import partial
 import sys
-from multiprocessing.pool import Pool
+from functools import partial
 import operator
+from multiprocessing.pool import Pool
 
 import matplotlib.pyplot as plt
 import numpy
@@ -838,8 +838,7 @@ def Hamming_Distance_Analysis(argv):
                                             numpy.concatenate([item_b[6] for item_b in diff_list_b]))).astype(int)
             minHD_tags_zeros = numpy.concatenate((numpy.concatenate([item[7] for item in diff_list_a]),
                                                   numpy.concatenate([item_b[7] for item_b in diff_list_b])))
-            HDhalf1min = numpy.concatenate((numpy.concatenate([item[8] for item in diff_list_a]),
-                                             numpy.concatenate([item_b[8] for item_b in diff_list_b]))).astype(int)
+            HDhalf1min = numpy.concatenate((numpy.concatenate([item[8] for item in diff_list_a]), numpy.concatenate([item_b[8] for item_b in diff_list_b]))).astype(int)
             HDhalf2min = numpy.concatenate((numpy.concatenate([item[9] for item in diff_list_a]),
                                             numpy.concatenate([item_b[9] for item_b in diff_list_b]))).astype(int)
 
