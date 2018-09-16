@@ -13,31 +13,30 @@
 # USAGE: python FSD_regions_1.6_FINAL.py --inputFile filenameSSCS --inputName1 filenameSSCS --ref_genome  filenameRefGenome --sep "characterWhichSeparatesCSVFile" --output_csv outptufile_name_csv --output_pdf outptufile_name_pdf
 
 import argparse
+import sys
+
 import matplotlib.pyplot as plt
 import numpy
-import sys
-from . import matplotlib
-from .backends.backend_pdf import PdfPages
+
+from matplotlib.backends.backend_pdf import PdfPages
+
 
 def readFileReferenceFree(file, delim):
     with open(file, 'r') as dest_f:
         data_array = numpy.genfromtxt(dest_f, skip_header=0, delimiter=delim, comments='#', dtype='string')
         return(data_array)
 
+
 def make_argparser():
     parser = argparse.ArgumentParser(description='Family Size Distribution of tags which were aligned to regions of the reference genome')
-    parser.add_argument('--inputFile',
-                        help='Tabular File with three columns: ab or ba, tag and family size.')
+    parser.add_argument('--inputFile', help='Tabular File with three columns: ab or ba, tag and family size.')
     parser.add_argument('--inputName1')
-    parser.add_argument('--ref_genome',
-                        help='TXT File with tags of reads that overlap the region.')
-    parser.add_argument('--output_pdf', default="data.pdf", type=str,
-                       help='Name of the pdf and csv file.')
-    parser.add_argument('--output_csv', default="data.csv", type=str,
-                        help='Name of the pdf and csv file.')
-    parser.add_argument('--sep', default=",",
-                        help='Separator in the csv file.')
+    parser.add_argument('--ref_genome', help='TXT File with tags of reads that overlap the region.')
+    parser.add_argument('--output_pdf', default="data.pdf", type=str, help='Name of the pdf and csv file.')
+    parser.add_argument('--output_csv', default="data.csv", type=str, help='Name of the pdf and csv file.')
+    parser.add_argument('--sep', default=",", help='Separator in the csv file.')
     return parser
+
 
 def compare_read_families_refGenome(argv):
     parser = make_argparser()

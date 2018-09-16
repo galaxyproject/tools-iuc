@@ -9,16 +9,18 @@
 # a FASTA file with tags after trimming as input (optional).
 # The program produces a plot which shows the distribution of family sizes of the DCS from the input files and
 # a CSV file with the data of the plot.
-# USAGE: python FSD before vs after_no_refF1.3_FINAL.py --inputFile_SSCS filenameSSCS --inputName1 filenameSSCS --makeDCS filenameMakeDCS --afterTrimming filenameAfterTrimming -- alignedTags filenameTagsRefGenome 
+# USAGE: python FSD before vs after_no_refF1.3_FINAL.py --inputFile_SSCS filenameSSCS --inputName1 filenameSSCS --makeDCS filenameMakeDCS --afterTrimming filenameAfterTrimming -- alignedTags filenameTagsRefGenome
 # --sep "characterWhichSeparatesCSVFile" --output_csv outptufile_name_csv --output_pdf outptufile_name_pdf
 
 import argparse
-from Bio import SeqIO
 from collections import Counter
-from matplotlib.backends.backend_pdf import PdfPages
+import sys
+
+from Bio import SeqIO
 import matplotlib.pyplot as plt
 import numpy
-import sys
+
+from matplotlib.backends.backend_pdf import PdfPages
 
 
 def readFileReferenceFree(file, delim):
@@ -36,7 +38,7 @@ def readFasta(file):
             line = record.description
             a, b = line.split(" ")
             fs1, fs2 = b.split("-")
-            fs_consensus.extend([fs1,fs2])
+            fs_consensus.extend([fs1, fs2])
     fs_consensus = numpy.array(fs_consensus).astype(int)
     return(tag_consensus, fs_consensus)
 
@@ -74,7 +76,7 @@ def compare_read_families_read_loss(argv):
     title_file2 = args.output_pdf
     sep = args.sep
 
-    if type(sep) is not str or len(sep)>1:
+    if type(sep) is not str or len(sep) > 1:
         print("Error: --sep must be a single character.")
         exit(4)
 
@@ -265,7 +267,7 @@ def compare_read_families_read_loss(argv):
             elif ref_genome == str(None):
                 output_file.write("{}before SSCS building{}atfer DCS building{}after trimming\n".format(sep, sep, sep))
 
-            for fs, sscs, dcs, reference in zip(counts[1][2:len(counts[1])], counts[0][0][2:len(counts[0][0])], counts[0][1][2:len(counts[0][1])],counts[0][2][2:len(counts[0][2])]):
+            for fs, sscs, dcs, reference in zip(counts[1][2:len(counts[1])], counts[0][0][2:len(counts[0][0])], counts[0][1][2:len(counts[0][1])], counts[0][2][2:len(counts[0][2])]):
                 if fs == 21:
                     fs = ">20"
                 else:
@@ -274,12 +276,8 @@ def compare_read_families_read_loss(argv):
             output_file.write("sum{}{}{}{}{}{}\n".format(sep, int(sum(counts[0][0])), sep, int(sum(counts[0][1])), sep, int(sum(counts[0][2]))))
 
         else:
-            output_file.write("{}before SSCS building{}after DCS building{}after trimming{}after alignment to reference\n".format(
-                    sep, sep, sep, sep))
-            for fs, sscs, dcs, trim, reference in zip(counts[1][2:len(counts[1])], counts[0][0][2:len(counts[0][0])],
-                                                      counts[0][1][2:len(counts[0][1])],
-                                                      counts[0][2][2:len(counts[0][2])],
-                                                      counts[0][3][2:len(counts[0][3])]):
+            output_file.write("{}before SSCS building{}after DCS building{}after trimming{}after alignment to reference\n".format(sep, sep, sep, sep))
+            for fs, sscs, dcs, trim, reference in zip(counts[1][2:len(counts[1])], counts[0][0][2:len(counts[0][0])], counts[0][1][2:len(counts[0][1])], counts[0][2][2:len(counts[0][2])], counts[0][3][2:len(counts[0][3])]):
                 if fs == 21:
                     fs = ">20"
                 else:
