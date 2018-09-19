@@ -235,16 +235,11 @@ def compare_read_families(argv):
             output_file.write("\n")
             j += 1
         output_file.write("sum{}".format(sep))
-        #values_for_sum = []
         if len(label) == 1:
             output_file.write("{}{}".format(int(sum(counts[0])), sep))
-            v#alues_for_sum.append(int(sum(counts[0])))
         else:
             for i in counts[0]:
                 output_file.write("{}{}".format(int(sum(i)), sep))
-                #values_for_sum.append(int(sum(i)))
-
-        #output_file.write("{}\n".format(sum(values_for_sum)))
 
         # Family size distribution after DCS and SSCS
         for dataset, data, name_file in zip(list_to_plot, data_array_list, label):
