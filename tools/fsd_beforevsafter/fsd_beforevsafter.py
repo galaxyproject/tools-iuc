@@ -10,7 +10,7 @@
 # The program produces a plot which shows the distribution of family sizes of the DCS from the input files and
 # a CSV file with the data of the plot.
 # USAGE: python FSD before vs after_no_refF1.3_FINAL.py --inputFile_SSCS filenameSSCS --inputName1 filenameSSCS --makeDCS filenameMakeDCS --afterTrimming filenameAfterTrimming -- alignedTags filenameTagsRefGenome
-# --sep "characterWhichSeparatesCSVFile" --output_csv outptufile_name_csv --output_pdf outptufile_name_pdf
+# --output_tabular outptufile_name_tabular --output_pdf outptufile_name_pdf
 
 import argparse
 import sys
@@ -56,11 +56,9 @@ def make_argparser():
     parser.add_argument('--alignedTags', default=None,
                         help=' TXT file with tags aligned to the reference genome and family size.')
     parser.add_argument('--output_pdf', default="data.pdf", type=str,
-                        help='Name of the pdf and csv file.')
-    parser.add_argument('--output_csv', default="data.csv", type=str,
-                        help='Name of the pdf and csv file.')
-    parser.add_argument('--sep', default=",",
-                        help='Separator in the csv file.')
+                        help='Name of the pdf and tabular file.')
+    parser.add_argument('--output_tabular', default="data.tabular", type=str,
+                        help='Name of the pdf and tabular file.')
     return parser
 
 
@@ -73,13 +71,9 @@ def compare_read_families_read_loss(argv):
     makeConsensus = args.makeDCS
     afterTrimming = args.afterTrimming
     ref_genome = args.alignedTags
-    title_file = args.output_csv
+    title_file = args.output_tabular
     title_file2 = args.output_pdf
-    sep = args.sep
-
-    if type(sep) is not str or len(sep) > 1:
-        print("Error: --sep must be a single character.")
-        exit(4)
+    sep = "\t"
 
     with open(title_file, "w") as output_file, PdfPages(title_file2) as pdf:
         # PLOT

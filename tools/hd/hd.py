@@ -13,8 +13,8 @@
 # It is also possible to perform the HD analysis with shortened tags with given sizes as input.
 # The tool can run on a certain number of processors, which can be defined by the user.
 
-# USAGE: python HDnew6_1Plot_FINAL.py --inputFile filename --inputName1 filename --inputFile2 filename2 --inputName2 filename2 --sample_size int/0 --sep "characterWhichSeparatesCSVFile" /
-#        --only_DCS True --FamilySize3 True --subset_tag True --nproc int --minFS int --maxFS int --nr_above_bars True/False--output_csv outptufile_name_csv --output_pdf outptufile_name_pdf
+# USAGE: python hd.py --inputFile filename --inputName1 filename --inputFile2 filename2 --inputName2 filename2 --sample_size int/0 --sep "characterWhichSeparatesCSVFile" /
+#        --only_DCS True --FamilySize3 True --subset_tag True --nproc int --minFS int --maxFS int --nr_above_bars True/False --output_tabular outptufile_name_tabular --output_pdf outputfile_name_pdf
 
 import argparse
 import itertools
@@ -639,8 +639,6 @@ def make_argparser():
     parser.add_argument('--inputName2')
     parser.add_argument('--sample_size', default=1000, type=int,
                         help='Sample size of Hamming distance analysis.')
-    parser.add_argument('--sep', default=",",
-                        help='Separator in the csv file.')
     parser.add_argument('--subset_tag', default=0, type=int,
                         help='The tag is shortened to the given number.')
     parser.add_argument('--nproc', default=4, type=int,
@@ -655,14 +653,14 @@ def make_argparser():
     parser.add_argument('--nr_above_bars', action="store_true",
                         help='If no, values above bars in the histrograms are removed')
 
-    parser.add_argument('--output_csv', default="data.csv", type=str,
-                        help='Name of the csv file.')
+    parser.add_argument('--output_tabular', default="data.tabular", type=str,
+                        help='Name of the tabular file.')
     parser.add_argument('--output_pdf', default="data.pdf", type=str,
                         help='Name of the pdf file.')
     parser.add_argument('--output_pdf2', default="data2.pdf", type=str,
                         help='Name of the pdf file.')
-    parser.add_argument('--output_csv2', default="data2.csv", type=str,
-                        help='Name of the csv file.')
+    parser.add_argument('--output_tabular2', default="data2.tabular", type=str,
+                        help='Name of the tabular file.')
 
     return parser
 
@@ -681,10 +679,10 @@ def Hamming_Distance_Analysis(argv):
     title_savedFile_pdf = args.output_pdf
     title_savedFile_pdf2 = args.output_pdf2
 
-    title_savedFile_csv = args.output_csv
-    title_savedFile_csv2 = args.output_csv2
+    title_savedFile_csv = args.output_tabular
+    title_savedFile_csv2 = args.output_tabular2
 
-    sep = args.sep
+    sep = "\t"
     onlyDuplicates = args.only_DCS
     minFS = args.minFS
     maxFS = args.maxFS
@@ -701,10 +699,6 @@ def Hamming_Distance_Analysis(argv):
     if nproc <= 0:
         print("nproc is smaller or equal zero")
         exit(3)
-
-    if type(sep) is not str or len(sep) > 1:
-        print("sep must be a single character.")
-        exit(4)
 
     if subset < 0:
         print("subset_tag is smaller or equal zero.")
