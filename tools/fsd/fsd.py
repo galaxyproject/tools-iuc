@@ -7,11 +7,11 @@
 #
 # Takes at least one TABULAR file with tags before the alignment to the SSCS, but up to 4 files can be provided, as input.
 # The program produces a plot which shows the distribution of family sizes of the all SSCSs from the input files and
-# a CSV file with the data of the plot, as well as a TXT file with all tags of the DCS and their family sizes.
+# a tabular file with the data of the plot, as well as a TXT file with all tags of the DCS and their family sizes.
 # If only one file is provided, then a family size distribution, which is separated after SSCSs without a partner and DCSs, is produced.
 # Whereas a family size distribution with multiple data in one plot is produced, when more than one file (up to 4) is given.
 
-# USAGE: python FSD_Galaxy_1.4_commandLine_FINAL.py --inputFile1 filename --inputName1 filename --inputFile2 filename2 --inputName2 filename2 --inputFile3 filename3 --inputName3 filename3 --inputFile4 filename4 --inputName4 filename4 --sep "characterWhichSeparatesCSVFile" --output_csv outptufile_name_csv --output_pdf outptufile_name_pdf
+# USAGE: python FSD_Galaxy_1.4_commandLine_FINAL.py --inputFile1 filename --inputName1 filename --inputFile2 filename2 --inputName2 filename2 --inputFile3 filename3 --inputName3 filename3 --inputFile4 filename4 --inputName4 filename4 --output_tabular outptufile_name_tabular --output_pdf outptufile_name_pdf
 
 import argparse
 import sys
@@ -39,9 +39,8 @@ def make_argparser():
     parser.add_argument('--inputName3')
     parser.add_argument('--inputFile4', default=None, help='Tabular File with three columns: ab or ba, tag and family size.')
     parser.add_argument('--inputName4')
-    parser.add_argument('--sep', default=",", help='Separator in the csv file.')
     parser.add_argument('--output_pdf', default="data.pdf", type=str, help='Name of the pdf file.')
-    parser.add_argument('--output_csv', default="data.csv", type=str, help='Name of the csv file.')
+    parser.add_argument('--output_tabular', default="data.tabular", type=str, help='Name of the tabular file.')
     return parser
 
 
@@ -59,13 +58,10 @@ def compare_read_families(argv):
     fourthFile = args.inputFile4
     name4 = args.inputName4
 
-    title_file = args.output_csv
+    title_file = args.output_tabular
     title_file2 = args.output_pdf
-    sep = args.sep
 
-    if type(sep) is not str or len(sep) > 1:
-        print("Error: --sep must be a single character.")
-        exit(1)
+    sep = "\t"
 
     plt.rc('figure', figsize=(11.69, 8.27))  # A4 format
     plt.rcParams['patch.edgecolor'] = "black"
@@ -239,16 +235,16 @@ def compare_read_families(argv):
             output_file.write("\n")
             j += 1
         output_file.write("sum{}".format(sep))
-        values_for_sum = []
+        #values_for_sum = []
         if len(label) == 1:
             output_file.write("{}{}".format(int(sum(counts[0])), sep))
-            values_for_sum.append(int(sum(counts[0])))
+            v#alues_for_sum.append(int(sum(counts[0])))
         else:
             for i in counts[0]:
                 output_file.write("{}{}".format(int(sum(i)), sep))
-                values_for_sum.append(int(sum(i)))
+                #values_for_sum.append(int(sum(i)))
 
-        output_file.write("{}\n".format(sum(values_for_sum)))
+        #output_file.write("{}\n".format(sum(values_for_sum)))
 
         # Family size distribution after DCS and SSCS
         for dataset, data, name_file in zip(list_to_plot, data_array_list, label):

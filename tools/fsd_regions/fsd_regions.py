@@ -8,9 +8,9 @@
 # Takes at least one TABULAR file with tags before the alignment to the SSCS
 # and a TXT with tags of reads that overlap the regions of the reference genome as input.
 # The program produces a plot which shows the distribution of family sizes of the tags from the input files and
-# a CSV file with the data of the plot.
+# a tabular file with the data of the plot.
 
-# USAGE: python FSD_regions_1.6_FINAL.py --inputFile filenameSSCS --inputName1 filenameSSCS --ref_genome  filenameRefGenome --sep "characterWhichSeparatesCSVFile" --output_csv outptufile_name_csv --output_pdf outptufile_name_pdf
+# USAGE: python FSD_regions_1.6_FINAL.py --inputFile filenameSSCS --inputName1 filenameSSCS --ref_genome  filenameRefGenome --output_tabular outptufile_name_tabular --output_pdf outptufile_name_pdf
 
 import argparse
 import sys
@@ -33,9 +33,8 @@ def make_argparser():
     parser.add_argument('--inputFile', help='Tabular File with three columns: ab or ba, tag and family size.')
     parser.add_argument('--inputName1')
     parser.add_argument('--ref_genome', help='TXT File with tags of reads that overlap the region.')
-    parser.add_argument('--output_pdf', default="data.pdf", type=str, help='Name of the pdf and csv file.')
-    parser.add_argument('--output_csv', default="data.csv", type=str, help='Name of the pdf and csv file.')
-    parser.add_argument('--sep', default=",", help='Separator in the csv file.')
+    parser.add_argument('--output_pdf', default="data.pdf", type=str, help='Name of the pdf and tabular file.')
+    parser.add_argument('--output_tabular', default="data.tabular", type=str, help='Name of the pdf and tabular file.')
     return parser
 
 
@@ -48,12 +47,8 @@ def compare_read_families_refGenome(argv):
     name1 = name1.split(".tabular")[0]
     refGenome = args.ref_genome
     title_file = args.output_pdf
-    title_file2 = args.output_csv
-    sep = args.sep
-
-    if type(sep) is not str or len(sep) > 1:
-        print("Error: --sep must be a single character.")
-        exit(3)
+    title_file2 = args.output_tabular
+    sep = "\t"
 
     with open(title_file2, "w") as output_file, PdfPages(title_file) as pdf:
         data_array = readFileReferenceFree(firstFile, "\t")
