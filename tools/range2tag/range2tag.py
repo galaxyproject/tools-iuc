@@ -14,8 +14,8 @@ USAGE: python range2tag.py inputFile.sam ranges.txt outputFile.txt
 """
 
 import argparse
-import re
 import os
+import re
 import sys
 
 import numpy as np
