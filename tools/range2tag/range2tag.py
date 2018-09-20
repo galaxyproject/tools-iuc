@@ -14,11 +14,11 @@ USAGE: python range2tag.py inputFile.sam ranges.txt outputFile.txt
 """
 
 import argparse
-import sys
 import re
+import sys
+import os
 
 import numpy as np
-import os
 
 
 def make_argparser():
