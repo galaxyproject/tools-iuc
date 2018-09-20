@@ -15,9 +15,9 @@ USAGE: python range2tag.py inputFile.sam ranges.txt outputFile.txt
 
 import argparse
 import sys
+import re
 
 import numpy as np
-import re
 import os
 
 
@@ -34,7 +34,7 @@ def make_argparser():
 
 def range2tag(argv):
     parser = make_argparser()
-    args=parser.parse_args(argv[1:])
+    args = parser.parse_args(argv[1:])
 
     inputFile = args.inputFile
     rangesFile = args.rangesFile
@@ -51,8 +51,8 @@ def range2tag(argv):
     with open(rangesFile, 'r') as regs:
         range_array = np.genfromtxt(regs, skip_header=0, delimiter='\t', comments='#')
 
-    start_posList = range_array[:,0].astype(int)
-    stop_posList = range_array[:,1].astype(int)
+    start_posList = range_array[:, 0].astype(int)
+    stop_posList = range_array[:, 1].astype(int)
 
     if len(start_posList) == 0:
         print("Error: start_positions is empty")
@@ -94,7 +94,7 @@ def range2tag(argv):
                         cigar_long = np.concatenate((cigar_long, np.repeat(c_split[i], c_split[i - 1])), axis=0)
 
                 pos = ref_pos[t]
-                seq_pos = 0
+                # seq_pos = 0
                 #    print(pos)
                 if pos < stop_pos:
                     for j in range(0, len(cigar_long)):
