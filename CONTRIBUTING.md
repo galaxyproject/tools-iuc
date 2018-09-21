@@ -65,5 +65,5 @@ assistance).
 * Tools must contain tests (and test-data)
 * The tests must pass (`planemo test --install_galaxy my_tool.xml`)
 * The tools should pass linting by planemo (`planemo lint my_tool.xml`)
-* If there's a relevant paper for the tool, it should be cited in a [citation](https://wiki.galaxyproject.org/Admin/Tools/ToolConfigSyntax#A.3Ccitations.3E_tag_set) block
+* If there's a relevant paper for the tool, it should be cited in a [citation](https://docs.galaxyproject.org/en/latest/dev/schema.html#tool-citations) block
 
