@@ -18,7 +18,7 @@ inclusion.
 
 ## What to contribute
 
-* Wrappers for new tools
+* Wrappers for new [OSI licensed](https://opensource.org/licenses/alphabetical) tools
 * Visualization Plugins
 * Updates for tools
 * Enhancements for tools (e.g. supporting new parameters)
@@ -66,4 +66,5 @@ assistance).
 * The tests must pass (`planemo test --install_galaxy my_tool.xml`)
 * The tools should pass linting by planemo (`planemo lint my_tool.xml`)
 * If there's a relevant paper for the tool, it should be cited in a [citation](https://docs.galaxyproject.org/en/latest/dev/schema.html#tool-citations) block
+* The tool must be licensed to allow use by anyone. The OSI maintains a [list of appropriate](https://opensource.org/licenses/alphabetical). 
 
