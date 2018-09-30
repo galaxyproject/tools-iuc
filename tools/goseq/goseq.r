@@ -40,7 +40,9 @@ category_file = args$category_file
 length_file = args$length_file
 genome = args$genome
 gene_id = args$gene_id
+wallenius_tab = args$wallenius_tab
 sampling_tab = args$sampling_tab
+nobias_tab = args$nobias_tab
 length_bias_plot = args$length_bias_plot
 sample_vs_wallenius_plot = args$sample_vs_wallenius_plot
 repcnt = args$repcnt
@@ -107,7 +109,7 @@ if (category_file == "FALSE") {
 results <- list()
 
 # wallenius approximation of p-values
-if (!is.null(args$wallenius_tab)) {
+if (wallenius_tab != FALSE) {
   GO.wall=goseq(pwf, genome = genome, id = gene_id, use_genes_without_cat = use_genes_without_cat, gene2cat=go_map)
   GO.wall$p.adjust.over_represented = p.adjust(GO.wall$over_represented_pvalue, method=p_adj_method)
   GO.wall$p.adjust.under_represented = p.adjust(GO.wall$under_represented_pvalue, method=p_adj_method)
@@ -116,7 +118,7 @@ if (!is.null(args$wallenius_tab)) {
 }
 
 # hypergeometric (no length bias correction)
-if (!is.null(args$nobias_tab)) {
+if (nobias_tab != FALSE) {
   GO.nobias=goseq(pwf, genome = genome, id = gene_id, method="Hypergeometric", use_genes_without_cat = use_genes_without_cat, gene2cat=go_map)
   GO.nobias$p.adjust.over_represented = p.adjust(GO.nobias$over_represented_pvalue, method=p_adj_method)
   GO.nobias$p.adjust.under_represented = p.adjust(GO.nobias$under_represented_pvalue, method=p_adj_method)
