@@ -151,6 +151,7 @@ if (repcnt > 0) {
 }
 
 if (!is.null(args$top_plot)) {
+  cats_title <- gsub("GO:","", args$fetch_cats)
   # modified from https://bioinformatics-core-shared-training.github.io/cruk-summer-school-2018/RNASeq2018/html/06_Gene_set_testing.nb.html
   pdf("top10.pdf")
   for (m in names(results)) {
@@ -158,12 +159,12 @@ if (!is.null(args$top_plot)) {
       top_n(10, wt=-p.adjust.over_represented)  %>%
       mutate(hitsPerc=numDEInCat*100/numInCat) %>%
       ggplot(aes(x=hitsPerc,
-                   y=term,
+                   y=substr(term, 1, 40), # only use 1st 40 chars of terms otherwise squashes plot
                    colour=p.adjust.over_represented,
                    size=numDEInCat)) +
       geom_point() +
       expand_limits(x=0) +
-      labs(x="% DE in category", y="Category", colour="adj. P value", size="Count", title=paste("Top over-represented categories in", fetch_cats), subtitle=paste(m, " method")) +
+      labs(x="% DE in category", y="Category", colour="adj. P value", size="Count", title=paste("Top over-represented categories in", cats_title), subtitle=paste(m, " method")) +
       theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
     print(p)
   }
