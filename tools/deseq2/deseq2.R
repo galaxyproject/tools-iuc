@@ -3,24 +3,21 @@
 # A command-line interface to DESeq2 for use with Galaxy
 # written by Bjoern Gruening and modified by Michael Love 2016.03.30
 #
-# one of these arguments is required:
+# This argument is required:
 #
 #   'factors' a JSON list object from Galaxy
 #
-#   'sample_table' is a sample table as described in ?DESeqDataSetFromHTSeqCount
-#   with columns: sample name, filename, then factors (variables)
-#
 # the output file has columns:
-# 
+#
 #   baseMean (mean normalized count)
 #   log2FoldChange (by default a moderated LFC estimate)
 #   lfcSE (the standard error)
 #   stat (the Wald statistic)
 #   pvalue (p-value from comparison of Wald statistic to a standard Normal)
 #   padj (adjusted p-value, Benjamini Hochberg correction on genes which pass the mean count filter)
-# 
-# the first variable in 'factors' and first column in 'sample_table' will be the primary factor.
-# the levels of the primary factor are used in the order of appearance in factors or in sample_table.
+#
+# the first variable in 'factors' will be the primary factor.
+# the levels of the primary factor are used in the order of appearance in factors.
 #
 # by default, levels in the order A,B,C produces a single comparison of B vs A, to a single file 'outfile'
 #
@@ -49,12 +46,13 @@ args <- commandArgs(trailingOnly = TRUE)
 spec <- matrix(c(
   "quiet", "q", 0, "logical",
   "help", "h", 0, "logical",
+  "batch_factors", "", 1, "character",
   "outfile", "o", 1, "character",
   "countsfile", "n", 1, "character",
+  "header", "H", 0, "logical",
   "factors", "f", 1, "character",
   "files_to_labels", "l", 1, "character",
   "plots" , "p", 1, "character",
-  "sample_table", "s", 1, "character",
   "tximport", "i", 0, "logical",
   "txtype", "y", 1, "character",
   "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF file (auto detect .gtf/.GTF)
@@ -79,8 +77,8 @@ if (is.null(opt$outfile)) {
   cat("'outfile' is required\n")
   q(status=1)
 }
-if (is.null(opt$sample_table) & is.null(opt$factors)) {
-  cat("'factors' or 'sample_table' is required\n")
+if (is.null(opt$factors)) {
+  cat("'factors' is required\n")
   q(status=1)
 }
 
@@ -90,18 +88,13 @@ verbose <- if (is.null(opt$quiet)) {
   FALSE
 }
 
-if (!is.null(opt$tximport)) {
-  if (is.null(opt$tx2gene)) stop("A transcript-to-gene map or a GTF file is required for tximport")
-  if (tolower(file_ext(opt$tx2gene)) == "gtf") {
-    gtfFile <- opt$tx2gene
-  } else {
-    gtfFile <- NULL
-    tx2gene <- read.table(opt$tx2gene, header=FALSE)
-  }
-  useTXI <- TRUE
-} else {
-  useTXI <- FALSE
+source_local <- function(fname){
+    argv <- commandArgs(trailingOnly = FALSE)
+    base_dir <- dirname(substring(argv[grep("--file=", argv)], 8))
+    source(paste(base_dir, fname, sep="/"))
 }
+
+source_local('get_deseq_dataset.R')
 
 suppressPackageStartupMessages({
   library("DESeq2")
@@ -114,55 +107,33 @@ suppressPackageStartupMessages({
 trim <- function (x) gsub("^\\s+|\\s+$", "", x)
 
 # switch on if 'factors' was provided:
-if (!is.null(opt$factors)) {
-  library("rjson")
-  parser <- newJSONParser()
-  parser$addData(opt$factors)
-  factorList <- parser$getObject()
-  filenames_to_labels <- fromJSON(opt$files_to_labels)
-  factors <- sapply(factorList, function(x) x[[1]])
-  primaryFactor <- factors[1]
-  filenamesIn <- unname(unlist(factorList[[1]][[2]]))
-  labs = unname(unlist(filenames_to_labels[basename(filenamesIn)]))
-  sampleTable <- data.frame(sample=basename(filenamesIn),
-                            filename=filenamesIn,
-                            row.names=filenamesIn,
-                            stringsAsFactors=FALSE)
-  for (factor in factorList) {
-    factorName <- trim(factor[[1]])
-    sampleTable[[factorName]] <- character(nrow(sampleTable))
-    lvls <- sapply(factor[[2]], function(x) names(x))
-    for (i in seq_along(factor[[2]])) {
-      files <- factor[[2]][[i]][[1]]
-      sampleTable[files,factorName] <- trim(lvls[i])
-    }
-    sampleTable[[factorName]] <- factor(sampleTable[[factorName]], levels=lvls)
+library("rjson")
+parser <- newJSONParser()
+parser$addData(opt$factors)
+factorList <- parser$getObject()
+filenames_to_labels <- fromJSON(opt$files_to_labels)
+factors <- sapply(factorList, function(x) x[[1]])
+primaryFactor <- factors[1]
+filenamesIn <- unname(unlist(factorList[[1]][[2]]))
+labs = unname(unlist(filenames_to_labels[basename(filenamesIn)]))
+sampleTable <- data.frame(sample=basename(filenamesIn),
+                          filename=filenamesIn,
+                          row.names=filenamesIn,
+                          stringsAsFactors=FALSE)
+for (factor in factorList) {
+  factorName <- trim(factor[[1]])
+  sampleTable[[factorName]] <- character(nrow(sampleTable))
+  lvls <- sapply(factor[[2]], function(x) names(x))
+  for (i in seq_along(factor[[2]])) {
+    files <- factor[[2]][[i]][[1]]
+    sampleTable[files,factorName] <- trim(lvls[i])
   }
-  rownames(sampleTable) <- labs
-} else {
-  # read the sample_table argument
-  # this table is described in ?DESeqDataSet
-  # one column for the sample name, one for the filename, and
-  # the remaining columns for factors in the analysis
-  sampleTable <- read.delim(opt$sample_table, stringsAsFactors=FALSE)
-  factors <- colnames(sampleTable)[-c(1:2)]
-  for (factor in factors) {
-    lvls <- unique(as.character(sampleTable[[factor]]))
-    sampleTable[[factor]] <- factor(sampleTable[[factor]], levels=lvls)
-  }
+  sampleTable[[factorName]] <- factor(sampleTable[[factorName]], levels=lvls)
 }
+rownames(sampleTable) <- labs
 
 primaryFactor <- factors[1]
 designFormula <- as.formula(paste("~", paste(rev(factors), collapse=" + ")))
-
-if (verbose) {
-  cat("DESeq2 run information\n\n")
-  cat("sample table:\n")
-  print(sampleTable[,-c(1:2),drop=FALSE])
-  cat("\ndesign formula:\n")
-  print(designFormula)
-  cat("\n\n")
-}
 
 # these are plots which are made once for each analysis
 generateGenericPlots <- function(dds, factors) {
@@ -216,45 +187,46 @@ if (verbose) {
   cat("\n---------------------\n")
 }
 
-# if JSON input from Galaxy, path is absolute
-# otherwise, from sample_table, assume it is relative
-dir <- if (is.null(opt$factors)) {
-  "."
-} else {
-  ""
+dds <- get_deseq_dataset(sampleTable, header=opt$header, designFormula=designFormula, tximport=opt$tximport, txtype=opt$txtype, tx2gene=opt$tx2gene)
+
+apply_batch_factors <- function (dds, batch_factors) {
+  rownames(batch_factors) <- batch_factors$identifier
+  batch_factors <- subset(batch_factors, select = -c(identifier, condition))
+  dds_samples <- colnames(dds)
+  batch_samples <- rownames(batch_factors)
+  if (!setequal(batch_samples, dds_samples)) {
+    stop("Batch factor names don't correspond to input sample names, check input files")
+  }
+  dds_data <- colData(dds)
+  # Merge dds_data with batch_factors using indexes, which are sample names
+  # Set sort to False, which maintains the order in dds_data
+  reordered_batch <- merge(dds_data, batch_factors, by.x = 0, by.y = 0, sort=F)
+  batch_factors <- reordered_batch[, ncol(dds_data):ncol(reordered_batch)]
+  for (factor in colnames(batch_factors)) {
+    dds[[factor]] <- batch_factors[[factor]]
+  }
+  colnames(dds) <- reordered_batch[,1]
+  return(dds)
 }
 
-if (!useTXI) {
-  # construct the object from HTSeq files
-  dds <- DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
-                                    directory = dir,
-                                    design =  designFormula)
-  labs <- unname(unlist(filenames_to_labels[colnames(dds)]))
-  colnames(dds) <- labs
-} else {
-    # construct the object using tximport
-    # first need to make the tx2gene table
-    # this takes ~2-3 minutes using Bioconductor functions
-    if (!is.null(gtfFile)) {
-      suppressPackageStartupMessages({
-        library("GenomicFeatures")
-      })
-      txdb <- makeTxDbFromGFF(gtfFile, format="gtf")
-      k <- keys(txdb, keytype = "GENEID")
-      df <- select(txdb, keys = k, keytype = "GENEID", columns = "TXNAME")
-      tx2gene <- df[, 2:1]  # tx ID, then gene ID
-    }
-    library("tximport")
-    txiFiles <- as.character(sampleTable[,2])
-    labs <- unname(unlist(filenames_to_labels[sampleTable[,1]]))
-    names(txiFiles) <- labs
-    txi <- tximport(txiFiles, type=opt$txtype, tx2gene=tx2gene)
-    dds <- DESeqDataSetFromTximport(txi,
-                                    sampleTable[,3:ncol(sampleTable),drop=FALSE],
-                                    designFormula)
+if (!is.null(opt$batch_factors)) {
+  batch_factors <- read.table(opt$batch_factors, sep="\t", header=T)
+  dds <- apply_batch_factors(dds = dds, batch_factors = batch_factors)
+  batch_design <- colnames(batch_factors)[-c(1,2)]
+  designFormula <- as.formula(paste("~", paste(c(batch_design, rev(factors)), collapse=" + ")))
+  design(dds) <- designFormula
 }
 
-if (verbose) cat(paste(ncol(dds), "samples with counts over", nrow(dds), "genes\n"))
+if (verbose) {
+  cat("DESeq2 run information\n\n")
+  cat("sample table:\n")
+  print(sampleTable[,-c(1:2),drop=FALSE])
+  cat("\ndesign formula:\n")
+  print(designFormula)
+  cat("\n\n")
+  cat(paste(ncol(dds), "samples with counts over", nrow(dds), "genes\n"))
+}
+
 # optional outlier behavior
 if (is.null(opt$outlier_replace_off)) {
   minRep <- 7
@@ -264,7 +236,7 @@ if (is.null(opt$outlier_replace_off)) {
 }
 if (is.null(opt$outlier_filter_off)) {
   cooksCutoff <- TRUE
-} else {  
+} else {
   cooksCutoff <- FALSE
   if (verbose) cat("outlier filtering off\n")
 }

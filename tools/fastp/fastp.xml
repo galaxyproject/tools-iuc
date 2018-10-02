@@ -1,4 +1,4 @@
-<tool id="fastp" name="fastp" version="@WRAPPER_VERSION@.0">
+<tool id="fastp" name="fastp" version="@WRAPPER_VERSION@.3">
     <description>- fast all-in-one preprocessing for FASTQ files</description>
     <macros>
         <import>macros.xml</import>
@@ -6,21 +6,38 @@
     <requirements>
         <requirement type="package" version="@WRAPPER_VERSION@">fastp</requirement>
     </requirements>
-    <version_command>fastp --version | tail -n 1</version_command>
+    <version_command>fastp -v</version_command>
     <command detect_errors="exit_code"><![CDATA[
+#import re
 
 ## Link input files
 
-#if $in1.is_of_type('fastq.gz')
-    #set ext = 'fastq.gz'
+#set ext = '.fastq'
+
+#if $single_paired.single_paired_selector == 'paired_collection':
+    #if $single_paired.paired_input.forward.is_of_type('fastq.gz'):
+        #set ext = '.fastq.gz'
+    #end if
+    #set $in1 = $single_paired.paired_input.forward
+    #set $in2 = $single_paired.paired_input.reverse
+    #set $in1_name = re.sub('[^\w\-\s]', '_', str($single_paired.paired_input.name)) + $ext
+    #set $in2_name = re.sub('[^\w\-\s]', '_', str("%s_%s" % ($single_paired.paired_input.name, "R2"))) + $ext
+    #set out1 = $output_paired_coll.forward
+    #set out2 = $output_paired_coll.reverse
+    ln -s '$in1' '$in1_name' &&
+    ln -s '$in2' '$in2_name' &&
 #else
-    #set ext = 'fastq'
-#end if
+    #if $in1.is_of_type('fastq.gz')
+        #set ext = '.fastq.gz'
+    #end if
 
-ln -s '$in1' input1.$ext &&
+    #set $in1_name = re.sub('[^\w\-\s]', '_', str($in1.element_identifier)) + $ext
+    ln -s '$in1' '$in1_name' &&
 
-#if str($single_paired.single_paired_selector) == 'paired':
-    ln -s '$in2' input2.$ext &&
+    #if str($single_paired.single_paired_selector) == 'paired':
+        #set $in2_name = re.sub('[^\w\-\s]', '_', str("%s_R2" % $in2.element_identifier)) + $ext
+        ln -s '$in2' '$in2_name' &&
+    #end if
 #end if
 
 
@@ -28,19 +45,23 @@ ln -s '$in1' input1.$ext &&
 
 fastp
 
+--thread \${GALAXY_SLOTS:-1}
+--report_title 'fastp report for $in1_name'
+
 #if $in1.is_of_type('fastqillumina', 'fastqsolexa', 'fastqillumina.gz', 'fastqsolexa.gz'):
     --phred64
 #end if
 
--i input1.$ext
--o first.$ext
+-i '$in1_name'
+-o first${ext}
 
-#if str($single_paired.single_paired_selector) == 'paired':
-    -I input2.$ext
-    -O second.$ext
+#if str($single_paired.single_paired_selector).startswith('paired'):
+    -I '$in2_name'
+    -O second${ext}
 #end if
 
-## Adapter trimming options
+
+## Adapter Trimming Options
 
 $single_paired.adapter_trimming_options.disable_adapter_trimming
 
@@ -48,14 +69,14 @@ $single_paired.adapter_trimming_options.disable_adapter_trimming
     --adapter_sequence '$single_paired.adapter_trimming_options.adapter_sequence1'
 #end if
 
-#if str($single_paired.single_paired_selector) == 'paired':
+#if str($single_paired.single_paired_selector).startswith('paired'):
     #if str($single_paired.adapter_trimming_options.adapter_sequence2):
         --adapter_sequence_r2 '$single_paired.adapter_trimming_options.adapter_sequence2'
     #end if
 #end if
 
 
-## Global trimming options
+## Global Trimming Options
 
 #if str($single_paired.global_trimming_options.trim_front1):
     -f $single_paired.global_trimming_options.trim_front1
@@ -65,7 +86,7 @@ $single_paired.adapter_trimming_options.disable_adapter_trimming
     -t $single_paired.global_trimming_options.trim_tail1
 #end if
 
-#if str($single_paired.single_paired_selector) == 'paired':
+#if str($single_paired.single_paired_selector).startswith('paired'):
     #if str($single_paired.global_trimming_options.trim_front2):
         -F $single_paired.global_trimming_options.trim_front2
     #end if
@@ -74,76 +95,6 @@ $single_paired.adapter_trimming_options.disable_adapter_trimming
     #end if
 #end if
 
-
-## PolyG tail trimming, useful for NextSeq/NovaSeq data
-
-#if $polyg_tail_trimming.trimming_select in ['', '-g']:
-    #if str($polyg_tail_trimming.poly_g_min_len):
-        --poly_g_min_len $polyg_tail_trimming.poly_g_min_len
-    #end if
-    $polyg_tail_trimming.trimming_select
-#end if
-
-## Per read cutting by quality options
-
-#if $cutting_by_quality_options.cut_by_quality5 or $cutting_by_quality_options.cut_by_quality3:
-
-    $cutting_by_quality_options.cut_by_quality5
-
-    $cutting_by_quality_options.cut_by_quality3
-
-    #if str($cutting_by_quality_options.cut_window_size):
-        -W $cutting_by_quality_options.cut_window_size
-    #end if
-    #if str($cutting_by_quality_options.cut_mean_quality):
-        -M $cutting_by_quality_options.cut_mean_quality
-    #end if
-#end if
-
-
-## Quality filtering options
-
-$quality_filtering_options.disable_quality_filtering
-
-#if str($quality_filtering_options.qualified_quality_phred):
-    -q $quality_filtering_options.qualified_quality_phred
-#end if
-#if str($quality_filtering_options.unqualified_percent_limit):
-    -u $quality_filtering_options.unqualified_percent_limit
-#end if
-#if str($quality_filtering_options.n_base_limit):
-    -n $quality_filtering_options.n_base_limit
-#end if
-
-
-## Length filtering options
-
-$length_filtering_options.disable_length_filtering
-
-#if str($length_filtering_options.length_required):
-    -l $length_filtering_options.length_required
-#end if
-
-
-## Base correction by overlap analysis options
-
-$base_correction_options.correction
-
-
-## UMI processing
-
-#if $umi_processing.umi:
-    $umi_processing.umi
-    #if str($umi_processing.umi_loc):
-        --umi_loc '$umi_processing.umi_loc'
-    #end if
-    #if str($umi_processing.umi_len):
-        --umi_len $umi_processing.umi_len
-    #end if
-    #if str($umi_processing.umi_prefix):
-        --umi_prefix '$umi_processing.umi_prefix'
-    #end if
-#end if
 
 ## Overrepresented sequence analysis
 
@@ -154,113 +105,222 @@ $overrepresented_sequence_analysis.overrepresentation_analysis
 #end if
 
 
-## Thread options
---thread \${GALAXY_SLOTS:-1}
+## Filter Options
+
+## Quality filtering options
+
+$filter_options.quality_filtering_options.disable_quality_filtering
+
+#if str($filter_options.quality_filtering_options.qualified_quality_phred):
+    -q $filter_options.quality_filtering_options.qualified_quality_phred
+#end if
+#if str($filter_options.quality_filtering_options.unqualified_percent_limit):
+    -u $filter_options.quality_filtering_options.unqualified_percent_limit
+#end if
+#if str($filter_options.quality_filtering_options.n_base_limit):
+    -n $filter_options.quality_filtering_options.n_base_limit
+#end if
+
+
+## Length filtering options
+
+$filter_options.length_filtering_options.disable_length_filtering
+
+#if str($filter_options.length_filtering_options.length_required):
+    -l $filter_options.length_filtering_options.length_required
+#end if
+
+## Low complexity filtering options
+
+$filter_options.low_complexity_filter.enable_low_complexity_filter
+
+#if str($filter_options.low_complexity_filter.complexity_threshold):
+    -Y $filter_options.low_complexity_filter.complexity_threshold
+#end if
+
+
+## Read Modification Options
+
+## PolyG tail trimming, useful for NextSeq/NovaSeq data
+
+#if $read_mod_options.polyg_tail_trimming.trimming_select in ['', '-g']:
+    #if str($read_mod_options.polyg_tail_trimming.poly_g_min_len):
+        --poly_g_min_len $read_mod_options.polyg_tail_trimming.poly_g_min_len
+    #end if
+    $read_mod_options.polyg_tail_trimming.trimming_select
+#end if
+
+## PolyX tail trimming
+
+#if $read_mod_options.polyx_tail_trimming.polyx_trimming_select == '-x':
+    $read_mod_options.polyx_tail_trimming.polyx_trimming_select
+    #if str($read_mod_options.polyx_tail_trimming.poly_x_min_len):
+        --poly_x_min_len $read_mod_options.polyx_tail_trimming.poly_x_min_len
+    #end if
+#end if
+
+## UMI processing
+
+#if $read_mod_options.umi_processing.umi:
+    $read_mod_options.umi_processing.umi
+    #if str($read_mod_options.umi_processing.umi_loc):
+        --umi_loc '$read_mod_options.umi_processing.umi_loc'
+    #end if
+    #if str($read_mod_options.umi_processing.umi_len):
+        --umi_len $read_mod_options.umi_processing.umi_len
+    #end if
+    #if str($read_mod_options.umi_processing.umi_prefix):
+        --umi_prefix '$read_mod_options.umi_processing.umi_prefix'
+    #end if
+#end if
+
+## Per read cutting by quality options
+
+#if $read_mod_options.cutting_by_quality_options.cut_by_quality5 or $read_mod_options.cutting_by_quality_options.cut_by_quality3:
+
+    $read_mod_options.cutting_by_quality_options.cut_by_quality5
+
+    $read_mod_options.cutting_by_quality_options.cut_by_quality3
+
+    #if str($read_mod_options.cutting_by_quality_options.cut_window_size):
+        -W $read_mod_options.cutting_by_quality_options.cut_window_size
+    #end if
+    #if str($read_mod_options.cutting_by_quality_options.cut_mean_quality):
+        -M $read_mod_options.cutting_by_quality_options.cut_mean_quality
+    #end if
+#end if
+
+## Base correction by overlap analysis options
+
+$read_mod_options.base_correction_options.correction
 
 &&
 
-mv first.$ext '${out1}'
-#if str($single_paired.single_paired_selector) == 'paired':
+mv first${ext} '${out1}'
+#if str($single_paired.single_paired_selector).startswith('paired'):
     &&
-    mv second.$ext '${out2}'
+    mv second${ext} '${out2}'
 #end if
 ]]></command>
     <inputs>
+
         <conditional name="single_paired">
             <param name="single_paired_selector" type="select" label="Single-end or paired reads">
                 <option value="single" selected="true">Single-end</option>
                 <option value="paired">Paired</option>
+                <option value="paired_collection">Paired Collection</option>
             </param>
             <when value="single">
-                <expand macro="in1" />
-                <section name="adapter_trimming_options" title="Adapter trimming options" expanded="False">
-                    <param name="disable_adapter_trimming" argument="-A" type="boolean" truevalue="-A" falsevalue="" checked="false" label="Disable adapter trimming" help="Adapter trimming is enabled by default. If this option is specified, adapter trimming is disabled."/>
-                    <expand macro="adapter_sequence1" />
-                </section>
-                <section name="global_trimming_options" title="Global trimming options" expanded="False">
-                    <param name="trim_front1" argument="-f" type="integer" optional="true" label="Trim front for input 1" help="Trimming how many bases in front for read1, default is 0."/>
-                    <param name="trim_tail1" argument="-t" type="integer" optional="true" label="Trim tail for input 1" help="Trimming how many bases in tail for read1, default is 0."/>
-                </section>
+                <expand macro="in" />
+                <expand macro="adapter_trimming_options" />
+                <expand macro="global_trimming_options" />
             </when>
             <when value="paired">
-                <expand macro="in1" />
-                <param name="in2" argument="-I" type="data" format="fastq,fastq.gz" optional="true" label="Input 2" help="Input FASTQ file #2."/>
-                <section name="adapter_trimming_options" title="Adapter trimming options" expanded="False">
-                    <param name="disable_adapter_trimming" argument="-A" type="boolean" truevalue="-A" falsevalue="" checked="false" label="Disable adapter trimming" help="Adapter trimming is enabled by default. If this option is specified, adapter trimming is disabled."/>
-                    <expand macro="adapter_sequence1" />
-                    <param name="adapter_sequence2" argument="--adapter_sequence_r2" type="text" optional="true" label="Adapter sequence for input 2" help="The adapter for read2 (PE data only). This is used if R1/R2 are found not overlapped. If not specified, it will be the same as adapter sequence value for input 1.">
-                        <sanitizer>
-                            <valid>
-                                <add value="A"/>
-                                <add value="T"/>
-                                <add value="C"/>
-                                <add value="G"/>
-                            </valid>
-                        </sanitizer>
-                    </param>
-                </section>
-                <section name="global_trimming_options" title="Global trimming options" expanded="False">
-                    <param name="trim_front1" argument="-f" type="integer" optional="true" label="Trim front for input 1" help="Trimming how many bases in front for read1, default is 0."/>
-                    <param name="trim_tail1" argument="-t" type="integer" optional="true" label="Trim tail for input 1" help="Trimming how many bases in tail for read1, default is 0."/>
-                    <param name="trim_front2" argument="-F" type="integer" optional="true" label="Trim front for input 2" help="Trimming how many bases in front for read2. If it's not specified, it will follow read1's settings."/>
-                    <param name="trim_tail2" argument="-T" type="integer" optional="true" label="Trim tail for input 2" help="Trimming how many bases in tail for read2. If it's not specified, it will follow read1's settings."/>
-                </section>
+                <expand macro="in" read_number="1" argument="-i"/>
+                <expand macro="in" read_number="2" argument="-I"/>
+                <expand macro="adapter_trimming_options">
+                    <expand macro="adapter_sequence" read_number="2"/>
+                </expand>
+                <expand macro="global_trimming_options_paired" />
+            </when>
+        <when value="paired_collection">
+                <param name="paired_input" type="data_collection" collection_type="paired" format="fastq,fastq.gz" label="Select paired collection(s)"/>
+                <expand macro="adapter_trimming_options">
+                    <expand macro="adapter_sequence" read_number="2"/>
+                </expand>
+                <expand macro="global_trimming_options_paired" />
             </when>
         </conditional>
-        <conditional name="polyg_tail_trimming">
-            <param name="trimming_select" type="select" label="PolyG tail trimming, useful for NextSeq/NovaSeq data">
-                <option value="" selected="true">Automatic trimming for Illumina NextSeq/NovaSeq data</option>
-                <option value="-g">Force polyG tail trimming</option>
-                <option value="-G">Disable polyG tail trimming</option>
-            </param>
-            <when value="-g">
-                <expand macro="poly_g_min_len" />
-            </when>
-            <when value="">
-                <expand macro="poly_g_min_len" />
-            </when>
-            <when value="-G" />
-        </conditional>
-        <section name="cutting_by_quality_options" title="Per read cutting by quality options" expanded="False">
-            <param name="cut_by_quality5" argument="-5" type="boolean" truevalue="-5" falsevalue="" checked="false" label="Cut by quality in front (5')" help="Enable per read cutting by quality in front (5'), default is disabled (WARNING: this will interfere deduplication for both PE/SE data)."/>
-            <param name="cut_by_quality3" argument="-3" type="boolean" truevalue="-3" falsevalue="" checked="false" label="Cut by quality in tail (3')" help="Enable per read cutting by quality in tail (3'), default is disabled (WARNING: this will interfere deduplication for SE data)."/>
-            <param name="cut_window_size" argument="-W" type="integer" optional="true" label="Cutting window size" help="The size of the sliding window for sliding window trimming, default is 4."/>
-            <param name="cut_mean_quality" argument="-M" type="integer" optional="true" label="Cutting mean quality" help="The bases in the sliding window with mean quality below cutting_quality will be cut, default is Q20."/>
-        </section>
-        <section name="quality_filtering_options" title="Quality filtering options" expanded="False">
-            <param name="disable_quality_filtering" argument="-Q" type="boolean" truevalue="-Q" falsevalue="" checked="false" label="Disable quality filtering" help="Quality filtering is enabled by default. If this option is specified, quality filtering is disabled."/>
-            <param name="qualified_quality_phred" argument="-q" type="integer" optional="true" label="Qualified quality phred" help="The quality value that a base is qualified. Default 15 means phred quality >=Q15 is qualified."/>
-            <param name="unqualified_percent_limit" argument="-u" type="integer" optional="true" label="Unqualified percent limit" help="How many percents of bases are allowed to be unqualified (0~100). Default 40 means 40%."/>
-            <param name="n_base_limit" argument="-n" type="integer" optional="true" label="N base limit" help="If one read's number of N base is >n_base_limit, then this read/pair is discarded. Default is 5."/>
-        </section>
-        <section name="length_filtering_options" title="Length filtering options" expanded="False">
-            <param name="disable_length_filtering" argument="-L" type="boolean" truevalue="-L" falsevalue="" checked="false" label="Disable length filtering" help="Length filtering is enabled by default. If this option is specified, length filtering is disabled."/>
-            <param name="length_required" argument="-l" type="integer" optional="true" label="Length required" help="Reads shorter than this value will be discarded, default is 15."/>
-        </section>
-        <section name="base_correction_options" title="Base correction by overlap analysis options" expanded="False">
-            <param name="correction" argument="-c" type="boolean" truevalue="-c" falsevalue="" checked="false" label="Enable base correction" help="Enable base correction in overlapped regions (only for PE data), default is disabled."/>
-        </section>
-        <section name="umi_processing" title="UMI processing" expanded="False">
-            <param name="umi" argument="-U" type="boolean" truevalue="-U" falsevalue="" checked="false" label="Enable unique molecular identifer" help="Enable unique molecular identifer (UMI) preprocessing."/>
-            <param name="umi_loc" argument="--umi_loc" type="text" optional="true" label="UMI location" help="Specify the location of UMI, can be (index1/index2/read1/read2/per_index/per_read, default is none."/>
-            <param name="umi_len" argument="--umi_len" type="integer" optional="true" label="UMI length" help="If the UMI is in read1/read2, its length should be provided."/>
-            <param name="umi_prefix" argument="--umi_prefix" type="text" optional="true" label="UMI prefix" help="If specified, an underline will be used to connect prefix and UMI (i.e. prefix=UMI, UMI=AATTCG, final=UMI_AATTCG). No prefix by default."/>
-        </section>
-        <section name="overrepresented_sequence_analysis" title="Overrepresented sequence analysis" expanded="False">
+
+        <section name="overrepresented_sequence_analysis" title="Overrepresented Sequence Analysis" expanded="False">
             <param name="overrepresentation_analysis" argument="-p" type="boolean" truevalue="-p" falsevalue="" checked="false" label="Enable overrepresented analysis" help="Enable overrepresented sequence analysis."/>
             <param name="overrepresentation_sampling" argument="-P" type="integer" optional="true" label="Overrepresentation sampling" help="One in (--overrepresentation_sampling) reads will be computed for overrepresentation analysis (1~10000), smaller is slower, default is 20."/>
         </section>
-        <section name="output_options" title="Output options" expanded="False">
+
+        <!-- Filter Options -->
+        <section name="filter_options" title="Filter Options">
+            <section name="quality_filtering_options" title="Quality filtering options" expanded="True">
+                <param name="disable_quality_filtering" argument="-Q" type="boolean" truevalue="-Q" falsevalue="" checked="false" label="Disable quality filtering" help="Quality filtering is enabled by default. If this option is specified, quality filtering is disabled."/>
+                <param name="qualified_quality_phred" argument="-q" type="integer" optional="true" label="Qualified quality phred" help="The quality value that a base is qualified. Default 15 means phred quality >=Q15 is qualified."/>
+                <param name="unqualified_percent_limit" argument="-u" type="integer" optional="true" label="Unqualified percent limit" help="How many percents of bases are allowed to be unqualified (0~100). Default 40 means 40%."/>
+                <param name="n_base_limit" argument="-n" type="integer" optional="true" label="N base limit" help="If one read's number of N base is >n_base_limit, then this read/pair is discarded. Default is 5."/>
+            </section>
+
+            <section name="length_filtering_options" title="Length filtering options" expanded="True">
+                <param name="disable_length_filtering" argument="-L" type="boolean" truevalue="-L" falsevalue="" checked="false" label="Disable length filtering" help="Length filtering is enabled by default. If this option is specified, length filtering is disabled."/>
+                <param name="length_required" argument="-l" type="integer" optional="true" label="Length required" help="Reads shorter than this value will be discarded. Default is 15."/>
+            </section>
+
+            <section name="low_complexity_filter" title="Low complexity filtering options" expanded="True">
+                <param name="enable_low_complexity_filter" argument="-y" type="boolean" truevalue="-y" falsevalue="" checked="false" label="Enable low complexity filter" help="The complexity is defined as the percentage of base that is different from its next base, default is No"/>
+                <param name="complexity_threshold" argument="-Y" type="integer" optional="true" label="Complexity threshold" help="Threshold for low complexity filter (0~100). Default is 30, which means 30% complexity is required."/>
+            </section>
+        </section>
+
+        <!-- Read Modification Options -->
+         <section name="read_mod_options" title="Read Modification Options">
+            <conditional name="polyg_tail_trimming">
+                <param name="trimming_select" type="select" label="PolyG tail trimming" help="This feature is enabled for NextSeq/NovaSeq data by default. NextSeq/NovaSeq data is detected by the machine ID in the FASTQ records.">
+                    <option value="" selected="true">Automatic trimming for Illumina NextSeq/NovaSeq data</option>
+                    <option value="-g">Force polyG tail trimming</option>
+                    <option value="-G">Disable polyG tail trimming</option>
+                </param>
+                <when value="-g">
+                    <expand macro="poly_g_min_len" />
+                </when>
+                <when value="">
+                    <expand macro="poly_g_min_len" />
+                </when>
+                <when value="-G" />
+            </conditional>
+
+            <conditional name="polyx_tail_trimming">
+                <param name="polyx_trimming_select" type="select" label="PolyX tail trimming" help="Similar to polyG tail trimming. When polyG tail trimming and polyX tail trimming are both enabled, fastp will perform polyG trimming first, then perform polyX trimming. Disabled by default.">
+                    <option value="" selected="true">Disable polyX trimming</option>
+                    <option value="-x">Enable polyX tail trimming</option>
+                </param>
+                <when value="-x">
+                    <param name="poly_x_min_len" argument="--poly_x_min_len" type="integer" optional="true" label="PolyX minimum length"
+                    help="The minimum length to detect polyX in the read tail. 10 by default."/>
+                </when>
+                <when value="" />
+            </conditional>
+
+            <section name="umi_processing" title="UMI processing" expanded="True">
+                <param name="umi" argument="-U" type="boolean" truevalue="-U" falsevalue="" checked="false" label="Enable unique molecular identifer" help="Enable unique molecular identifer (UMI) preprocessing."/>
+                <param name="umi_loc" argument="--umi_loc" type="text" optional="true" label="UMI location" help="Specify the location of UMI, can be (index1/index2/read1/read2/per_index/per_read, default is none."/>
+                <param name="umi_len" argument="--umi_len" type="integer" optional="true" label="UMI length" help="If the UMI is in read1/read2, its length should be provided."/>
+                <param name="umi_prefix" argument="--umi_prefix" type="text" optional="true" label="UMI prefix" help="If specified, an underline will be used to connect prefix and UMI (i.e. prefix=UMI, UMI=AATTCG, final=UMI_AATTCG). No prefix by default."/>
+            </section>
+
+            <section name="cutting_by_quality_options" title="Per read cutting by quality options" expanded="True">
+                <param name="cut_by_quality5" argument="-5" type="boolean" truevalue="-5" falsevalue="" checked="false" label="Cut by quality in front (5')" help="Enable per read cutting by quality in front (5'), default is disabled (WARNING: this will interfere deduplication for both PE/SE data)."/>
+                <param name="cut_by_quality3" argument="-3" type="boolean" truevalue="-3" falsevalue="" checked="false" label="Cut by quality in tail (3')" help="Enable per read cutting by quality in tail (3'), default is disabled (WARNING: this will interfere deduplication for SE data)."/>
+                <param name="cut_window_size" argument="-W" type="integer" optional="true" label="Cutting window size" help="The size of the sliding window for sliding window trimming, default is 4."/>
+                <param name="cut_mean_quality" argument="-M" type="integer" optional="true" label="Cutting mean quality" help="The bases in the sliding window with mean quality below cutting_quality will be cut, default is Q20."/>
+            </section>
+
+            <section name="base_correction_options" title="Base correction by overlap analysis options" expanded="True">
+                <param name="correction" argument="-c" type="boolean" truevalue="-c" falsevalue="" checked="false" label="Enable base correction" help="Enable base correction in overlapped regions (only for PE data), default is disabled."/>
+            </section>
+        </section>
+
+        <section name="output_options" title="Output Options" expanded="False">
             <param name="report_html" type="boolean" truevalue="True" falsevalue="False" checked="True" label="Output HTML report" help="fastp provides a QC report for the data Before and After filtering within a single HTML page, which enables comparison of the quality statistics changed by the preprocessing step directly"/>
-            <param name="report_json" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Output JSON report" help="The JSON report contains all the data visualized in the HTML report. The format of the JSON report is manually optimized to be easily readable by humans"/>
+            <param name="report_json" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Output JSON report" help="The JSON report contains all the data visualized in the HTML report. The format of the JSON report is manually optimized to be easily readable by humans and is compatible with MultiQC"/>
         </section>
     </inputs>
 
     <outputs>
-        <data name="out1" format_source="in1" label="${tool.name} on ${on_string}: Read 1 Output"/>
+        <data name="out1" format_source="in1" label="${tool.name} on ${on_string}: Read 1 Output">
+            <filter>single_paired['single_paired_selector'] in ["single", "paired"]</filter>
+        </data>
         <data name="out2" format_source="in2" label="${tool.name} on ${on_string}: Read 2 Output">
             <filter>single_paired['single_paired_selector'] == "paired"</filter>
         </data>
+        <collection name="output_paired_coll" type="paired" structured_like="paired_input" inherit_format="true" label="Paired-end output of ${tool.name} on ${on_string}">
+            <filter>single_paired['single_paired_selector'] == "paired_collection"</filter>
+        </collection>
         <data name="report_html" format="html" from_work_dir="fastp.html" label="${tool.name} on ${on_string}: HTML Report">
             <filter>output_options['report_html'] is True</filter>
         </data>
@@ -270,89 +330,128 @@ mv first.$ext '${out1}'
     </outputs>
 
     <tests>
-        <test>
-            <param name="in1" value="R1.fq" ftype="fastqsanger"/>
+        <!-- Ensure default output works -->
+        <test expect_num_outputs="2">
+            <param name="in1" ftype="fastqsanger" value="R1.fq"/>
             <param name="single_paired_selector" value="single"/>
-            <output name="out1" file="out1.fq" ftype="fastqsanger"/>
+            <output name="out1" ftype="fastqsanger" file="out1.fq"/>
+            <output name="report_html">
+                <assert_contents>
+                    <has_text text="fastp report"/>
+                </assert_contents>
+            </output>
         </test>
-        <test>
-            <param name="in1" value="R1.fq" ftype="fastq"/>
+        <!-- Ensure paired collection works -->
+        <test expect_num_outputs="3">
+            <param name="single_paired_selector" value="paired_collection"/>
+            <param name="paired_input">
+                <collection type="paired">
+                    <element name="forward" value="bwa-mem-fastq1.fq" ftype="fastqsanger" />
+                    <element name="reverse" value="bwa-mem-fastq2.fq" ftype="fastqsanger" />
+                </collection>
+            </param>
+            <output name="report_html">
+                <assert_contents>
+                    <has_text text="fastp report"/>
+                </assert_contents>
+            </output>
+            <output_collection name="output_paired_coll" type="paired">
+                <element name="forward" value="out_bwa1.fq" ftype="fastqsanger"/>
+                <element name="reverse" value="out_bwa2.fq" ftype="fastqsanger"/>
+            </output_collection>
+        </test>
+        <!-- Ensure custom adapter works -->
+        <test expect_num_outputs="2">
+            <param name="in1" ftype="fastq" value="R1.fq"/>
             <param name="single_paired_selector" value="single"/>
             <param name="adapter_sequence1" value="ATCG"/>
-            <output name="out1" file="out_a.fq" ftype="fastq"/>
+            <output name="out1" ftype="fastq" file="out_a.fq"/>
         </test>
-        <test>
-            <param name="in1" value="R1.fq" ftype="fastq"/>
+        <!-- Ensure UMI processing works -->
+        <test expect_num_outputs="2">
+            <param name="in1" ftype="fastq" value="R1.fq"/>
             <param name="single_paired_selector" value="single"/>
             <section name="umi_processing">
                 <param name="umi" value="true"/>
                 <param name="umi_loc" value="read1"/>
                 <param name="umi_len" value="8"/>
             </section>
-            <output name="out1" file="out2.fq" ftype="fastq"/>
+            <output name="out1" ftype="fastq" file="out2.fq"/>
         </test>
-        <test>
-            <param name="in1" value="R1.fq" ftype="fastq"/>
+        <!-- Ensure UMI processing with different lengths works -->
+        <test expect_num_outputs="2">
+            <param name="in1" ftype="fastq" value="R1.fq"/>
             <param name="single_paired_selector" value="single"/>
             <section name="umi_processing">
                 <param name="umi" value="true"/>
                 <param name="umi_loc" value="read1"/>
                 <param name="umi_len" value="12"/>
             </section>
-            <output name="out1" file="out3.fq" ftype="fastq"/>
+            <output name="out1" ftype="fastq" file="out3.fq"/>
         </test>
-        <test>
-            <param name="in1" value="bwa-mem-fastq1.fq" ftype="fastq"/>
-            <param name="in2" value="bwa-mem-fastq2.fq" ftype="fastq"/>
+        <!-- Ensure paired-end fastq works -->
+        <test expect_num_outputs="3">
+            <param name="in1" ftype="fastq" value="bwa-mem-fastq1.fq"/>
+            <param name="in2" ftype="fastq" value="bwa-mem-fastq2.fq"/>
             <param name="single_paired_selector" value="paired"/>
-            <output name="out1" file="out_bwa1.fq" ftype="fastq"/>
-            <output name="out2" file="out_bwa2.fq" ftype="fastq"/>
+            <output name="out1" ftype="fastq" file="out_bwa1.fq"/>
+            <output name="out2" ftype="fastq" file="out_bwa2.fq"/>
         </test>
-        <test>
-            <param name="in1" value="bwa-mem-fastq1.fq" ftype="fastq"/>
-            <param name="in2" value="bwa-mem-fastq2.fq" ftype="fastq"/>
+        <!-- Ensure paired-end UMI processing of Read 1 works -->
+        <test expect_num_outputs="3">
+            <param name="in1" ftype="fastq" value="bwa-mem-fastq1.fq"/>
+            <param name="in2" ftype="fastq" value="bwa-mem-fastq2.fq"/>
             <param name="single_paired_selector" value="paired"/>
             <section name="umi_processing">
                 <param name="umi" value="true"/>
                 <param name="umi_loc" value="read1"/>
                 <param name="umi_len" value="8"/>
             </section>
-            <output name="out1" file="out_bwa_umi_read1_1.fq" ftype="fastq"/>
-            <output name="out2" file="out_bwa_umi_read1_2.fq" ftype="fastq"/>
+            <output name="out1" ftype="fastq" file="out_bwa_umi_read1_1.fq"/>
+            <output name="out2" ftype="fastq" file="out_bwa_umi_read1_2.fq"/>
         </test>
-        <test>
-            <param name="in1" value="bwa-mem-fastq1.fq" ftype="fastq"/>
-            <param name="in2" value="bwa-mem-fastq2.fq" ftype="fastq"/>
+        <!-- Ensure paired-end UMI processing of Read 2 works -->
+        <test expect_num_outputs="3">
+            <param name="in1" ftype="fastq" value="bwa-mem-fastq1.fq"/>
+            <param name="in2" ftype="fastq" value="bwa-mem-fastq2.fq"/>
             <param name="single_paired_selector" value="paired"/>
             <section name="umi_processing">
                 <param name="umi" value="true"/>
                 <param name="umi_loc" value="read2"/>
                 <param name="umi_len" value="8"/>
             </section>
-            <output name="out1" file="out_bwa_umi_read2_1.fq" ftype="fastq"/>
-            <output name="out2" file="out_bwa_umi_read2_2.fq" ftype="fastq"/>
+            <output name="out1" ftype="fastq" file="out_bwa_umi_read2_1.fq"/>
+            <output name="out2" ftype="fastq" file="out_bwa_umi_read2_2.fq"/>
         </test>
-        <test>
-            <param name="in1" value="R1.fq" ftype="fastq"/>
+        <!-- Ensure JSON report output works -->
+        <test expect_num_outputs="2">
+            <param name="in1" ftype="fastqsanger" value="R1.fq"/>
             <param name="single_paired_selector" value="single"/>
-            <output name="out1" file="out1.fq" ftype="fastq"/>
-            <output name="report_html">
+            <param name="report_html" value="False"/>
+            <param name="report_json" value="True"/>
+            <output name="out1" ftype="fastqsanger" file="out1.fq"/>
+            <output name="report_json">
                 <assert_contents>
                     <has_text text="fastp report"/>
                 </assert_contents>
             </output>
         </test>
-        <test>
-            <param name="in1" value="R1.fq.gz" ftype="fastq.gz"/>
+        <!-- Ensure polyG trimming works -->
+        <test expect_num_outputs="2">
+            <param name="in1" ftype="fastq.gz" value="R1.fq.gz"/>
             <param name="single_paired_selector" value="single"/>
             <param name="trimming_select" value="-g"/>
             <param name="poly_g_min_len" value="10"/>
-            <output name="out1" file="out1.fq.gz" ftype="fastq.gz" compare="sim_size"/>
-            <output name="report_html">
-                <assert_contents>
-                    <has_text text="fastp report"/>
-                </assert_contents>
-            </output>
+            <output name="out1" ftype="fastq.gz" decompress="True" file="out1.fq.gz"/>
+        </test>
+        <!-- Ensure polyX trimming works -->
+        <test expect_num_outputs="2">
+            <param name="in1" ftype="fastq.gz" value="R1.fq.gz"/>
+            <param name="single_paired_selector" value="single"/>
+            <param name="trimming_select" value="-G"/>
+            <param name="polyx_trimming_select" value="-x"/>
+            <param name="poly_x_min_len" value="10"/>
+            <output name="out1" ftype="fastq.gz" decompress="True" file="out1.fq.gz"/>
         </test>
     </tests>
     <help><![CDATA[
@@ -366,23 +465,25 @@ fastp_ is a tool designed to provide fast all-in-one preprocessing for FASTQ fil
 
 1. Filter out bad reads (too low quality, too short, or too many N...)
 
-2. Cut low quality bases for per read in its 5' and 3' by evaluating the mean quality from a sliding window (like Trimmomatic but faster).
+2. Cut low quality bases for per read in its 5' and 3' by evaluating the mean quality from a sliding window (like Trimmomatic but faster)
 
 3. Trim all reads in front and tail
 
-4. Cut adapters. Adapter sequences can be automatically detected,which means you don't have to input the adapter sequences to trim them.
+4. Cut adapters. Adapter sequences can be automatically detected, which means you don't have to input the adapter sequences to trim them.
 
-5. Correct mismatched base pairs in overlapped regions of paired end reads, if one base is with high quality while the other is with ultra low quality
+5. Correct mismatched base pairs in overlapped regions of paired end reads, if one base is with high quality while the other is with ultra-low quality
 
-6. Preprocess unique molecular identifer (UMI) enabled data, shift UMI to sequence name.
+6. Trim polyG in 3' ends, which is commonly seen in NovaSeq/NextSeq data. Trim polyX in 3' ends to remove unwanted polyX tailing (i.e. polyA tailing for mRNA-Seq data)
 
-7. Report JSON format result for further interpreting.
+7. Preprocess unique molecular identifer (UMI) enabled data, shift UMI to sequence name
 
-8. Visualize quality control and filtering results on a single HTML page (like FASTQC but faster and more informative).
+8. Report JSON format result for further interpreting
 
-9. Split the output to multiple files (0001.R1.gz, 0002.R1.gz...) to support parallel processing. Two modes can be used, limiting the total split file number, or limitting the lines of each split file.
+9. Visualize quality control and filtering results on a single HTML page (like FASTQC but faster and more informative)
 
-10. Support long reads (data from PacBio / Nanopore devices).
+10. Split the output to multiple files (0001.R1.gz, 0002.R1.gz...) to support parallel processing. Two modes can be used, limiting the total split file number, or limitting the lines of each split file (*Not enabled in this Galaxy tool*)
+
+11. Support long reads (data from PacBio / Nanopore devices)
 
 -----
 
@@ -399,7 +500,7 @@ Single-end or Paired-end FASTQ or FASTQ.GZ reads
 Optionally, under **Output Options** you can choose to output
 
     * HTML report (default is Yes)
-    * JSON report
+    * JSON report (compatible with MultiQC)
 
 .. _fastp: https://github.com/OpenGene/fastp
 

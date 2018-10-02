@@ -1,25 +1,23 @@
 #!/usr/bin/env bash
 
 # 1st test
-mkdir multiqc_WDir
+mkdir -p 'multiqc_WDir/cutadapt'
+cp 'test-data/cutadapt.txt' 'multiqc_WDir/cutadapt/cutadapt.txt'
+sed -i.old 's/You are running/This is/' 'multiqc_WDir/cutadapt/cutadapt.txt'
 
-mkdir 'multiqc_WDir/cutadapt_0'
-cp 'test-data/cutadapt.txt' 'multiqc_WDir/cutadapt_0/cutadapt.txt'
-sed -i.old 's/You are running/This is/' 'multiqc_WDir/cutadapt_0/cutadapt.txt'
+mkdir -p 'multiqc_WDir/fastqc/data_0/file_0'
+cp 'test-data/fastqc_1.txt' 'multiqc_WDir/fastqc/data_0/file_0/fastqc_data.txt'
+mkdir -p 'multiqc_WDir/fastqc/data_0/file_1'
+cp 'test-data/fastqc_2.txt' 'multiqc_WDir/fastqc/data_0/file_1/fastqc_data.txt'
 
-mkdir -p 'multiqc_WDir/fastqc_1/data_0/file_0'
-cp 'test-data/fastqc_1.txt' 'multiqc_WDir/fastqc_1/data_0/file_0/fastqc_data.txt'
-mkdir 'multiqc_WDir/fastqc_1/data_0/file_1'
-cp 'test-data/fastqc_2.txt' 'multiqc_WDir/fastqc_1/data_0/file_1/fastqc_data.txt'
+mkdir -p 'multiqc_WDir/flexbar'
+cp 'test-data/flexbar.txt' 'multiqc_WDir/flexbar/flexbar.txt'
 
-mkdir 'multiqc_WDir/flexbar_2'
-cp 'test-data/flexbar.txt' 'multiqc_WDir/flexbar_2/flexbar.txt'
+mkdir -p 'multiqc_WDir/sortmerna'
+cp 'test-data/sortmerna.txt' 'multiqc_WDir/sortmerna/sortmerna.txt'
 
-mkdir 'multiqc_WDir/sortmerna_3'
-cp 'test-data/sortmerna.txt' 'multiqc_WDir/sortmerna_3/sortmerna.txt'
-
-mkdir 'multiqc_WDir/trimmomatic_4'
-cp 'test-data/trimmomatic.txt' 'multiqc_WDir/trimmomatic_4/trimmomatic.txt'
+mkdir -p 'multiqc_WDir/trimmomatic'
+cp 'test-data/trimmomatic.txt' 'multiqc_WDir/trimmomatic/trimmomatic.txt'
 
 multiqc multiqc_WDir
 
@@ -36,33 +34,38 @@ rm -rf 'multiqc_WDir'
 rm -rf 'multiqc_data/'
 
 # 2nd test
-mkdir multiqc_WDir
+mkdir -p 'multiqc_WDir/bismark'
+cp 'test-data/bismark.txt' 'multiqc_WDir/bismark/bismark_SE_report.txt'
 
-mkdir 'multiqc_WDir/bismark_0'
-cp 'test-data/bismark.txt' 'multiqc_WDir/bismark_0/bismark_SE_report.txt'
+mkdir -p 'multiqc_WDir/bowtie2'
+cp 'test-data/bowtie2_1.txt' 'multiqc_WDir/bowtie2/bowtie2_1.txt'
+cp 'test-data/bowtie2_2.txt' 'multiqc_WDir/bowtie2/bowtie2_2.txt'
 
-mkdir 'multiqc_WDir/bowtie2_1'
-cp 'test-data/bowtie2_1.txt' 'multiqc_WDir/bowtie2_1/bowtie2_1.txt'
-cp 'test-data/bowtie2_2.txt' 'multiqc_WDir/bowtie2_1/bowtie2_2.txt'
+mkdir -p 'multiqc_WDir/hisat2'
+cp 'test-data/hisat2_1.txt' 'multiqc_WDir/hisat2/hisat2_1.txt'
+cp 'test-data/hisat2_2.txt' 'multiqc_WDir/hisat2/hisat2_2.txt'
 
-mkdir 'multiqc_WDir/hisat2_3'
-cp 'test-data/hisat2_1.txt' 'multiqc_WDir/hisat2_3/hisat2_1.txt'
-cp 'test-data/hisat2_2.txt' 'multiqc_WDir/hisat2_3/hisat2_2.txt'
+mkdir -p 'multiqc_WDir/hicexplorer'
+cp 'test-data/hicexplorer1.log' 'multiqc_WDir/hicexplorer/hicexplorer1'
+cp 'test-data/hicexplorer1.log' 'multiqc_WDir/hicexplorer/hicexplorer1_1'
+cp 'test-data/hicexplorer2.log' 'multiqc_WDir/hicexplorer/hicexplorer2'
 
-mkdir 'multiqc_WDir/kallisto_4'
-cp 'test-data/kallisto_1.txt' 'multiqc_WDir/kallisto_4/kallisto_1.txt'
-cp 'test-data/kallisto_2.txt' 'multiqc_WDir/kallisto_4/kallisto_2.txt'
+mkdir -p 'multiqc_WDir/kallisto'
+cp 'test-data/kallisto_1.txt' 'multiqc_WDir/kallisto/kallisto_1.txt'
+cp 'test-data/kallisto_2.txt' 'multiqc_WDir/kallisto/kallisto_2.txt'
 
-mkdir -p 'multiqc_WDir/salmon_5/fld_0/file_0'
-cp 'test-data/salmon.txt' 'multiqc_WDir/salmon_5/fld_0/file_0/flenDist.txt'
+#mkdir -p 'multiqc_WDir/salmon/fld_0/file_0'
+#cp 'test-data/salmon_flenDist.txt' 'multiqc_WDir/salmon/fld_0/file_0/flenDist.txt'
+#mkdir -p 'multiqc_WDir/salmon/fld_1/file_0'
+#cp 'test-data/salmon_meta_info.json' 'multiqc_WDir/salmon/fld_1/file_0/meta_info.json'
 
-mkdir -p 'multiqc_WDir/star_6/log_0'
-cp 'test-data/star_log.txt' 'multiqc_WDir/star_6/log_0/star_log_Log.final.out'
-mkdir 'multiqc_WDir/star_6/genecounts_1'
-cp 'test-data/star_counts.txt' 'multiqc_WDir/star_6/genecounts_1/star_counts_ReadsPerGene.out.tab'
+mkdir -p 'multiqc_WDir/star/log_0'
+cp 'test-data/star_log.txt' 'multiqc_WDir/star/log_0/star_log_Log.final.out'
+mkdir -p 'multiqc_WDir/star/genecounts_1'
+cp 'test-data/star_counts.txt' 'multiqc_WDir/star/genecounts_1/star_counts_ReadsPerGene.out.tab'
 
-mkdir 'multiqc_WDir/tophat_7'
-cp 'test-data/tophat.txt' 'multiqc_WDir/tophat_7/tophat_align_summary.txt'
+mkdir -p 'multiqc_WDir/tophat'
+cp 'test-data/tophat.txt' 'multiqc_WDir/tophat/tophat_align_summary.txt'
 
 multiqc multiqc_WDir
 
@@ -79,63 +82,69 @@ rm -rf 'multiqc_WDir'
 rm -rf 'multiqc_data/'
 
 # 3rd test
-mkdir multiqc_WDir
+mkdir -p 'multiqc_WDir/bamtools'
+cp 'test-data/bamtools.txt' 'multiqc_WDir/bamtools/bamtools.txt'
 
-mkdir 'multiqc_WDir/bamtools_0'
-cp 'test-data/bamtools.txt' 'multiqc_WDir/bamtools_0/bamtools.txt'
+mkdir -p 'multiqc_WDir/bcftools'
+cp 'test-data/bcftools.txt' 'multiqc_WDir/bcftools/bcftools.txt'
 
-mkdir 'multiqc_WDir/bcftools_1'
-cp 'test-data/bcftools.txt' 'multiqc_WDir/bcftools_1/bcftools.txt'
+mkdir -p 'multiqc_WDir/busco'
+cp 'test-data/busco.txt' 'multiqc_WDir/busco/short_summary_busco.txt'
 
-mkdir 'multiqc_WDir/busco_2'
-cp 'test-data/busco.txt' 'multiqc_WDir/busco_2/short_summary_busco.txt'
+mkdir -p 'multiqc_WDir/deeptools'
+cp 'test-data/deeptools_bamPEFragmentSize.txt' 'multiqc_WDir/deeptools/'
+cp 'test-data/deeptools_estimateReadFiltering.txt' 'multiqc_WDir/deeptools/'
+cp 'test-data/deeptools_plotCoverageOutRawCounts.txt' 'multiqc_WDir/deeptools/'
+cp 'test-data/deeptools_plotCoverageStdout.txt' 'multiqc_WDir/deeptools/'
+cp 'test-data/deeptools_plotEnrichment.txt' 'multiqc_WDir/deeptools/'
+cp 'test-data/deeptools_plotFingerprintOutRawCounts.txt' 'multiqc_WDir/deeptools/'
 
-mkdir 'multiqc_WDir/featureCounts_3'
-cp 'test-data/featureCounts.txt' 'multiqc_WDir/featureCounts_3/featureCounts.summary'
+mkdir -p 'multiqc_WDir/featureCounts'
+cp 'test-data/featureCounts.txt' 'multiqc_WDir/featureCounts/featureCounts.summary'
 
-mkdir 'multiqc_WDir/gatk_4'
-cp 'test-data/gatk_BaseRecalibrator.txt' 'multiqc_WDir/gatk_4/gatk_BaseRecalibrator.txt'
-cp 'test-data/gatk_varianteval.txt' 'multiqc_WDir/gatk_4/gatk_varianteval.txt'
+mkdir -p 'multiqc_WDir/gatk'
+cp 'test-data/gatk_BaseRecalibrator.txt' 'multiqc_WDir/gatk/gatk_BaseRecalibrator.txt'
+cp 'test-data/gatk_varianteval.txt' 'multiqc_WDir/gatk/gatk_varianteval.txt'
 
-mkdir 'multiqc_WDir/htseq_5'
-cp 'test-data/htseq.txt' 'multiqc_WDir/htseq_5/htseq.txt'
+mkdir -p 'multiqc_WDir/htseq'
+cp 'test-data/htseq.txt' 'multiqc_WDir/htseq/htseq.txt'
 
-mkdir 'multiqc_WDir/picard_6'
-cp 'test-data/picard_collectGcBias.txt' 'multiqc_WDir/picard_6/picard_collectGcBias.txt'
-cp 'test-data/picard_CollectInsertSizeMetrics.txt' 'multiqc_WDir/picard_6/picard_CollectInsertSizeMetrics.txt'
-cp 'test-data/picard_MarkDuplicates.txt' 'multiqc_WDir/picard_6/picard_MarkDuplicates.txt'
-cp 'test-data/picard_CollectBaseDistributionByCycle.txt' 'multiqc_WDir/picard_6/picard_CollectBaseDistributionByCycle.txt'
-cp 'test-data/picard_CollectRnaSeqMetrics.txt' 'multiqc_WDir/picard_6/picard_CollectRnaSeqMetrics.txt'
-cp 'test-data/picard_CollectAlignmentSummaryMetrics.txt' 'multiqc_WDir/picard_6/picard_CollectAlignmentSummaryMetrics.txt'
+mkdir -p 'multiqc_WDir/picard'
+cp 'test-data/picard_collectGcBias.txt' 'multiqc_WDir/picard/picard_collectGcBias.txt'
+cp 'test-data/picard_CollectInsertSizeMetrics.txt' 'multiqc_WDir/picard/picard_CollectInsertSizeMetrics.txt'
+cp 'test-data/picard_MarkDuplicates.txt' 'multiqc_WDir/picard/picard_MarkDuplicates.txt'
+cp 'test-data/picard_CollectBaseDistributionByCycle.txt' 'multiqc_WDir/picard/picard_CollectBaseDistributionByCycle.txt'
+cp 'test-data/picard_CollectRnaSeqMetrics.txt' 'multiqc_WDir/picard/picard_CollectRnaSeqMetrics.txt'
+cp 'test-data/picard_CollectAlignmentSummaryMetrics.txt' 'multiqc_WDir/picard/picard_CollectAlignmentSummaryMetrics.txt'
 
-mkdir 'multiqc_WDir/prokka_7'
-cp 'test-data/prokka_1.txt' 'multiqc_WDir/prokka_7/prokka_1.txt'
-cp 'test-data/prokka_2.txt' 'multiqc_WDir/prokka_7/prokka_2.txt'
+mkdir -p 'multiqc_WDir/prokka'
+cp 'test-data/prokka_1.txt' 'multiqc_WDir/prokka/prokka_1.txt'
+cp 'test-data/prokka_2.txt' 'multiqc_WDir/prokka/prokka_2.txt'
 
-mkdir -p 'multiqc_WDir/quast_8/file_0'
-cp 'test-data/quast.tsv' 'multiqc_WDir/quast_8/file_0/report.tsv'
+mkdir -p 'multiqc_WDir/quast/file_0'
+cp 'test-data/quast.tsv' 'multiqc_WDir/quast/file_0/report.tsv'
 
-#mkdir 'multiqc_WDir/rsem_9'
-#cp 'test-data/rsem.txt' 'multiqc_WDir/rsem_9/rsem.cnt'
+#mkdir -p 'multiqc_WDir/rsem'
+#cp 'test-data/rsem.txt' 'multiqc_WDir/rsem/rsem.cnt'
 
-mkdir -p 'multiqc_WDir/rseqc_10/read_gc_0'
-cp 'test-data/rseqc.txt' 'multiqc_WDir/rseqc_10/read_gc_0/rseq.GC.xls'
+mkdir -p 'multiqc_WDir/rseqc/read_gc_0'
+cp 'test-data/rseqc.txt' 'multiqc_WDir/rseqc/read_gc_0/rseq.GC.xls'
 
-mkdir 'multiqc_WDir/samblaster_11'
-cp 'test-data/samblaster.txt' 'multiqc_WDir/samblaster_11/samblaster.txt'
+mkdir -p 'multiqc_WDir/samblaster'
+cp 'test-data/samblaster.txt' 'multiqc_WDir/samblaster/samblaster.txt'
 
-mkdir -p 'multiqc_WDir/samtools_12/stats_0'
-cp 'test-data/samtools_stats.txt' 'multiqc_WDir/samtools_12/stats_0/samtools_stats.txt'
-mkdir 'multiqc_WDir/samtools_12/flagstat_1'
-cp 'test-data/samtools_flagstat.txt' 'multiqc_WDir/samtools_12/flagstat_1/samtools_flagstat.txt'
-mkdir 'multiqc_WDir/samtools_12/idxstats_2'
-cp 'test-data/samtools_flagstat.txt' 'multiqc_WDir/samtools_12/idxstats_2/samtools_idxstats_idxstat'
+mkdir -p 'multiqc_WDir/samtools/stats_0'
+cp 'test-data/samtools_stats.txt' 'multiqc_WDir/samtools/stats_0/samtools_stats.txt'
+mkdir -p 'multiqc_WDir/samtools/flagstat_1'
+cp 'test-data/samtools_flagstat.txt' 'multiqc_WDir/samtools/flagstat_1/samtools_flagstat.txt'
+mkdir -p 'multiqc_WDir/samtools/idxstats_2'
+cp 'test-data/samtools_flagstat.txt' 'multiqc_WDir/samtools/idxstats_2/samtools_idxstats_idxstat'
 
-#mkdir 'multiqc_WDir/snpeff_13'
-#cp 'test-data/snpeff.csv' 'multiqc_WDir/snpeff_13/snpeff.txt'
+mkdir -p 'multiqc_WDir/snpeff'
+cp 'test-data/snpeff.csv' 'multiqc_WDir/snpeff/snpeff.txt'
 
-mkdir -p 'multiqc_WDir/vcftools_14/tstv_by_qual_0'
-cp 'test-data/vcftools.txt' 'multiqc_WDir/vcftools_14/tstv_by_qual_0/vcftools.TsTv.qual'
+mkdir -p 'multiqc_WDir/vcftools/tstv_by_qual_0'
+cp 'test-data/vcftools.txt' 'multiqc_WDir/vcftools/tstv_by_qual_0/vcftools.TsTv.qual'
 
 multiqc multiqc_WDir
 
@@ -155,19 +164,16 @@ mv 'multiqc_data/multiqc_picard_insertSize.txt' 'test-data/picard_insertSize_sta
 mv 'multiqc_data/multiqc_prokka.txt' 'test-data/prokka_stats.tabular'
 mv 'multiqc_data/multiqc_quast.txt' 'test-data/quast_stats.tabular'
 #mv 'multiqc_data/multiqc_rsem.txt' 'test-data/rsem_stats.tabular'
-mv 'multiqc_data/multiqc_rseqc.txt' 'test-data/rseqc_stats.tabular'
 mv 'multiqc_data/multiqc_samblaster.txt' 'test-data/samblaster_stats.tabular'
 mv 'multiqc_data/multiqc_samtools_flagstat.txt' 'test-data/samtools_flagstat_stats.tabular'
 mv 'multiqc_data/multiqc_samtools_stats.txt' 'test-data/samtools_stats_stats.tabular'
-#mv 'multiqc_data/multiqc_snpeff.txt' 'test-data/snpeff_stats.tabular'
+mv 'multiqc_data/multiqc_snpeff.txt' 'test-data/snpeff_stats.tabular'
 
 rm -rf 'multiqc_WDir'
 rm -rf 'multiqc_data/'
 
 # 4th test
-mkdir multiqc_WDir
-
-mkdir 'multiqc_WDir/custom_content_0'
+mkdir -p 'multiqc_WDir/custom_content_0'
 cp 'test-data/cc_ko15.bpc.tab' 'multiqc_WDir/custom_content_0/file_0_0.tsv'
 cp 'test-data/cc_wt15.bpc.tab' 'multiqc_WDir/custom_content_0/file_0_1.tsv'
 

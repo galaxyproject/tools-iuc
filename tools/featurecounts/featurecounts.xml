@@ -1,37 +1,39 @@
-<tool id="featurecounts" name="featureCounts" version="1.6.0.2" profile="16.04">
+<tool id="featurecounts" name="featureCounts" version="1.6.3" profile="16.04">
     <description>Measure gene expression in RNA-Seq experiments from SAM or BAM files.</description>
     <requirements>
-        <requirement type="package" version="1.6.0">subread</requirement>
+        <requirement type="package" version="1.6.2">subread</requirement>
+        <requirement type="package" version="1.7">samtools</requirement>
     </requirements>
 
     <version_command>featureCounts -v 2&gt;&amp;1 | grep .</version_command>
     <command detect_errors="exit_code"><![CDATA[
+
         ## Export fc path for its built-in annotation
+
         export FC_PATH=\$(command -v featureCounts | sed 's@/bin/featureCounts$@@') &&
 
         ## Check whether all alignments are from the same type (bam || sam)
         featureCounts
 
-            #if $anno.anno_select=="gtf":
-                #if $anno.gtf_source.ref_source=="history":
-                    -a '$anno.gtf_source.reference_gene_sets'
-                #else:
-                    -a '$anno.gtf_source.reference_gene_sets_builtin.fields.path'
-                #end if
+            #if $anno.anno_select=="history":
+                -a '$anno.reference_gene_sets'
+                -F "GTF"
+            #elif $anno.anno_select=="cached":
+                -a '$anno.reference_gene_sets_builtin.fields.path'
                 -F "GTF"
             #elif $anno.anno_select=="builtin":
-                -a \${FC_PATH}/annotation/${anno.genome}_RefSeq_exon.txt
+                -a \${FC_PATH}/annotation/${anno.bgenome}_RefSeq_exon.txt
                 -F "SAF"
             #end if
 
             -o "output"
             -T \${GALAXY_SLOTS:-2}
 
+            -s  $strand_specificity
             -t '$extended_parameters.gff_feature_type'
             -g '$extended_parameters.gff_feature_attribute'
                 $extended_parameters.summarization_level
                 $extended_parameters.contribute_to_multiple_features
-            -s  $extended_parameters.strand_specificity
                 $extended_parameters.multimapping_enabled.multimapping_counts
 
                 #if str($extended_parameters.multimapping_enabled.multimapping_counts) == " -M":
@@ -57,7 +59,9 @@
                 $extended_parameters.read_reduction
                 $extended_parameters.primary
                 $extended_parameters.ignore_dup
-
+                #if $extended_parameters.R:
+                    $extended_parameters.R
+                #end if
                 #if str($extended_parameters.read_extension_5p) != "0":
                     --readExtension5 $extended_parameters.read_extension_5p
                 #end if
@@ -80,16 +84,9 @@
 
         '${alignment}'
 
-        ## Removal of comment
-        && grep -v "^#" "output"
-
-        #if $format.value != "tabdel_short":
-            ## and remove column-header line
-            | tail -n+2
-        #else
-            ## update header
-            | sed --expression='s|${alignment}|${alignment.element_identifier}|g'
-        #end if
+        ## Remove comment and add sample name to header
+        && grep -v "^#" "output" 
+        | sed -e 's|${alignment}|${alignment.element_identifier}|g'
         > body.txt
         ## Set the right columns for the tabular formats
         #if $format.value == "tabdel_medium":
@@ -100,7 +97,7 @@
             && cut -f 6 body.txt > gene_lengths.txt
             && paste expression_matrix.txt gene_lengths.txt > expression_matrix.txt.bak
             && mv -f expression_matrix.txt.bak '${output_medium}'
-        #elif $format.value == "tabdel_short" or $format.value == "tabdel_short_noheader":
+        #elif $format.value == "tabdel_short":
             && cut -f 1,7 body.txt > '${output_short}'
         #else:
             && cp body.txt '${output_full}'
@@ -111,19 +108,13 @@
         #end if
 
         #if str($extended_parameters.exon_exon_junction_read_counting_enabled.count_exon_exon_junction_reads) == "-J":
-            #if $format.value != "tabdel_short":
-              && tail -n+2 'output.jcounts' > '${output_jcounts}'
-            #else:
-
-              && sed --expression='s|${alignment}|${alignment.element_identifier}|g' 'output.jcounts' > '${output_jcounts}'
-            #end if
+            && sed -e 's|${alignment}|${alignment.element_identifier}|g' 'output.jcounts' > '${output_jcounts}'
         #end if
 
-        #if $format.value != "tabdel_short":
-            && tail -n+2 'output.summary' > '${output_summary}'
-        #else:
-            && sed --expression='s|${alignment}|${alignment.element_identifier}|g' 'output.summary' > '${output_summary}'
+        #if $extended_parameters.R:
+            && samtools sort -o '$output_bam' -@ \${GALAXY_SLOTS:-2} *.featureCounts.bam
         #end if
+        && sed -e 's|${alignment}|${alignment.element_identifier}|g' 'output.summary' > '${output_summary}'
     ]]></command>
     <inputs>
         <param name="alignment"
@@ -131,42 +122,47 @@
                multiple="false"
                format="bam,sam"
                label="Alignment file"
-               help="The input alignment file(s) where the gene expression has to be counted. The file can have a SAM or BAM format; but ALL files must be in the same format" />
+               help="The input alignment file(s) where the gene expression has to be counted. The file can have a SAM or BAM format; but ALL files must be in the same format. Unless you are using a Gene annotation file from the History, these files must have the database/genome attribute already specified e.g. hg38, not the default: ?" >
+        </param>
+
+        <param name="strand_specificity"
+               type="select"
+               label="Specify strand information"
+               argument="-s"
+               help="Indicate if the data is stranded and if strand-specific read counting should be performed. Strand setting must be the same as the strand settings used to produce the mapped BAM input(s)">
+            <option value="0" selected="true">Unstranded</option>
+            <option value="1">Stranded (Forward)</option>
+            <option value="2">Stranded (Reverse)</option>
+        </param>
+
         <conditional name="anno">
             <param name="anno_select" type="select" label="Gene annotation file">
                 <option value="builtin">featureCounts built-in</option>
-                <option value="gtf">GTF file</option>
+                <option value="cached" selected="True">locally cached</option>
+                <option value="history">in your history</option>
             </param>
             <when value="builtin">
-                <param name="genome" type="select" label="Select built-in genome" help="Built-in gene annotations for genomes hg38, hg19, mm10 and mm9 are included in featureCounts">
-                    <option value="hg38">hg38</option>
-                    <option value="hg19">hg19</option>
-                    <option value="mm10">mm10</option>
-                    <option value="mm9">mm9</option>
+                <param name="bgenome" type="select" label="Select built-in genome" help="Built-in gene annotations for genomes hg38, hg19, mm10 and mm9 are included in featureCounts">
+                    <options from_data_table="featurecounts_anno">
+                        <filter type="data_meta" key="dbkey" ref="alignment" column="0"/>
+                    </options>
                 </param>
             </when>
-            <when value="gtf">
-                <conditional name="gtf_source">
-                    <param name="ref_source" type="select" label="Gene annotation file">
-                        <option value="cached">locally cached</option>
-                        <option value="history">in your history</option>
-                    </param>
-                    <when value="cached">
-                        <param name="reference_gene_sets_builtin" type="select" label="Using locally cached annotation" help="If the annotation file you require is not listed here, please contact the Galaxy administrator">
-                            <options from_data_table="gene_sets">
-                                <filter type="sort_by" column="1" />
-                                <validator type="no_options" message="No annotations are available." />
-                            </options>
-                        </param>
-                    </when>
-                    <when value="history">
-                        <param name="reference_gene_sets"
-                               format="gff,gtf,gff3"
-                               type="data"
-                               label="Gene annotation file"
-                               help="The program assumes that the provided annotation file is in GTF format. Make sure that the gene annotation file corresponds to the same reference genome as used for the alignment" />
-                    </when>
-                </conditional>
+            <when value="cached">
+                <param name="reference_gene_sets_builtin" type="select" label="Using locally cached annotation" help="If the annotation file you require is not listed here, please contact the Galaxy administrator">
+                    <options from_data_table="gene_sets">
+                        <filter type="data_meta" key="dbkey" ref="alignment" column="0"/>
+                    </options>
+                    <validator type="no_options" message="An annotation file is not available for the build associated with the selected input file"/>
+                </param>
+            </when>
+            <when value="history">
+                <param name="reference_gene_sets"
+                       format="gff,gtf,gff3"
+                       type="data"
+                       label="Gene annotation file"
+                       help="The program assumes that the provided annotation file is in GTF format. Make sure that the gene annotation file corresponds to the same reference genome as used for the alignment">
+                </param>
             </when>
         </conditional>
 
@@ -174,8 +170,7 @@
                type="select"
                label="Output format"
                help="The output format will be tabular, select the preferred columns here">
-            <option value="tabdel_short_noheader" selected="true">Gene-ID "\t" read-count (DESeq2 IUC wrapper compatible)</option>
-            <option value="tabdel_short">Gene-ID "\t" read-count (MultiQC/edgeR/limma-voom compatible, includes header in output)</option>
+            <option value="tabdel_short">Gene-ID "\t" read-count (MultiQC/DESeq2/edgeR/limma-voom compatible)</option>
             <option value="tabdel_medium">Gene-ID "\t" read-count "\t" gene-length</option>
             <option value="tabdel_full">featureCounts 1.4.0+ default (includes regions provided by the GTF file)</option>
         </param>
@@ -270,23 +265,13 @@
                 label="On feature level"
                 help="If specified, read summarization will be performed at the feature level. By default (-f is not specified), the read summarization is performed at the meta-feature level." />
 
-            <param name ="contribute_to_multiple_features"
+            <param name="contribute_to_multiple_features"
                 type="boolean"
                 truevalue=" -O"
                 falsevalue=""
                 argument="-O"
                 label="Allow read to contribute to multiple features"
                 help="If specified, reads (or fragments if -p is specified) will be allowed to be assigned to more than one matched meta-feature (or matched feature if -f is specified)" />
-
-            <param name="strand_specificity"
-                   type="select"
-                   label="Strand specificity of the protocol"
-                   argument="-s"
-                   help="Indicate if strand-specific read counting should be performed.">
-                <option value="0" selected="true">Unstranded</option>
-                <option value="1">Stranded (forwards)</option>
-                <option value="2">Stranded (reverse)</option>
-            </param>
 
             <conditional name="multimapping_enabled">
                 <param name="multimapping_counts"
@@ -410,6 +395,13 @@
                    label="Ignore reads marked as duplicate"
                    help="If specified, reads that were marked as duplicates will be ignored. Bit Ox400 in the FLAG field of a SAM/BAM file is used for identifying duplicate reads. In paired end data, the entire read pair will be ignored if at least one end is found to be a duplicate read." />
 
+            <param type="boolean"
+                   truevalue="-R BAM"
+                   falsevalue=""
+                   argument="-R"
+                   label="Annotates the alignment file with 'XS:Z:'-tags to described per read or read-pair the corresponding assigned feature(s)."
+                   help="" />
+
             <param name="count_split_alignments_only"
                    type="boolean"
                    truevalue=" --countSplitAlignmentsOnly"
@@ -422,17 +414,23 @@
     <outputs>
         <data format="tabular"
               name="output_medium"
-              label="${tool.name} on ${on_string}">
+              label="${tool.name} on ${on_string}: Counts (with length)">
             <filter>format == "tabdel_medium"</filter>
             <actions>
                 <action name="column_names" type="metadata" default="Geneid,${alignment.element_identifier},Length" />
             </actions>
         </data>
 
+        <data format="bam"
+              name="output_bam"
+              label="${tool.name} on ${on_string}: Alignment file">
+            <filter>extended_parameters['R']</filter>
+        </data>
+
         <data format="tabular"
               name="output_short"
-              label="${tool.name} on ${on_string}">
-            <filter>format == "tabdel_short_noheader" or format == "tabdel_short"</filter>
+              label="${tool.name} on ${on_string}: Counts">
+            <filter>format == "tabdel_short"</filter>
             <actions>
                 <action name="column_names" type="metadata" default="Geneid,${alignment.element_identifier}" />
             </actions>
@@ -440,7 +438,7 @@
 
         <data format="tabular"
               name="output_full"
-              label="${tool.name} on ${on_string}: count table">
+              label="${tool.name} on ${on_string}: Counts (with location)">
             <filter>format == "tabdel_full"</filter>
             <actions>
                 <action name="column_names" type="metadata" default="Geneid,Chr,Start,End,Strand,Length,${alignment.element_identifier}" />
@@ -449,7 +447,7 @@
 
         <data format="tabular"
               name="output_summary"
-              label="${tool.name} on ${on_string}: summary">
+              label="${tool.name} on ${on_string}: Summary">
             <actions>
                 <action name="column_names" type="metadata" default="Status,${alignment.element_identifier}" />
             </actions>
@@ -457,7 +455,7 @@
 
         <data format="tabular"
               name="output_feature_lengths"
-              label="${tool.name} on ${on_string}: feature lengths">
+              label="${tool.name} on ${on_string}: Feature lengths">
             <filter>include_feature_length_file</filter>
             <actions>
                 <action name="column_names" type="metadata" default="Feature,Length" />
@@ -465,7 +463,7 @@
         </data>
 
         <data name="output_jcounts" format="tabular"
-              label="${tool.name} on ${on_string}: junction counts">
+              label="${tool.name} on ${on_string}: Junction counts">
             <filter>extended_parameters['exon_exon_junction_read_counting_enabled']['count_exon_exon_junction_reads']</filter>
             <actions>
                 <action name="column_names" type="metadata"
@@ -474,31 +472,12 @@
         </data>
     </outputs>
     <tests>
-        <test expect_num_outputs="4">
-            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" />
-            <param name="anno_select" value="gtf"/>
-            <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" />
-            <param name="format" value="tabdel_short_noheader" />
-            <param name="include_feature_length_file" value="true"/>
-            <param name="ref_source" value="history" />
-            <param name="count_exon_exon_junction_reads" value="-J"/>
-            <output name="output_short" file="output_1_short.tab">
-                <metadata name="column_names" value="Geneid,featureCounts_input1.bam"/>
-            </output>
-            <output name="output_summary" file="output_1_summary.tab">
-                <metadata name="column_names" value="Status,featureCounts_input1.bam"/>
-            </output>
-            <output name="output_jcounts" file="output_1_jcounts.tab">
-                <metadata name="column_names" value="PrimaryGene,SecondaryGene,Site1_chr,Site1_location,Site1_strand,Site2_chr,Site2_location,Site2_strand,featureCounts_input1.bam"/>
-            </output>
-        </test>
         <test expect_num_outputs="3">
-            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" />
-            <param name="anno_select" value="gtf"/>
-            <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" />
+            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" dbkey="hg38" />
+            <param name="anno_select" value="history"/>
+            <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" dbkey="hg38" />
             <param name="format" value="tabdel_medium" />
             <param name="include_feature_length_file" value="true"/>
-            <param name="ref_source" value="history" />
             <output name="output_medium" file="output_1_medium.tab">
                 <metadata name="column_names" value="Geneid,featureCounts_input1.bam,Length"/>
             </output>
@@ -507,12 +486,11 @@
             </output>
         </test>
         <test expect_num_outputs="3">
-            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" />
-            <param name="anno_select" value="gtf"/>
-            <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" />
+            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" dbkey="hg38" />
+            <param name="anno_select" value="history"/>
+            <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" dbkey="hg38" />
             <param name="format" value="tabdel_full" />
             <param name="include_feature_length_file" value="true"/>
-            <param name="ref_source" value="history" />
             <output name="output_full" file="output_1_full.tab">
                 <metadata name="column_names" value="Geneid,Chr,Start,End,Strand,Length,featureCounts_input1.bam"/>
             </output>
@@ -524,33 +502,58 @@
             </output>
         </test>
         <test expect_num_outputs="4">
-            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" />
-            <param name="anno_select" value="gtf"/>
-            <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" />
+            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" dbkey="hg38" />
+            <param name="anno_select" value="history"/>
+            <param name="reference_gene_sets" value="featureCounts_guide.gff" ftype="gff" dbkey="hg38" />
             <param name="format" value="tabdel_short" />
             <param name="include_feature_length_file" value="true"/>
-            <param name="ref_source" value="history" />
             <param name="count_exon_exon_junction_reads" value="-J"/>
-            <output name="output_short" file="output_1_short_with_header.tab">
+            <output name="output_short" file="output_1_short.tab">
                 <metadata name="column_names" value="Geneid,featureCounts_input1.bam"/>
             </output>
-            <output name="output_summary" file="output_1_summary_with_header.tab">
+            <output name="output_summary" file="output_1_summary.tab">
                 <metadata name="column_names" value="Status,featureCounts_input1.bam"/>
             </output>
-            <output name="output_jcounts" file="output_1_jcounts_with_header.tab">
+            <output name="output_jcounts" file="output_1_jcounts.tab">
                 <metadata name="column_names" value="PrimaryGene,SecondaryGene,Site1_chr,Site1_location,Site1_strand,Site2_chr,Site2_location,Site2_strand,featureCounts_input1.bam"/>
             </output>
         </test>
-        <!-- Ensure built-in annotation works -->
-        <test expect_num_outputs="2">
-            <param name="alignment" value="pairend_strandspecific_51mer_hg19_chr1_1-100000.bam" ftype="bam" />
+        <!-- Ensure featureCounts built-in annotation works -->
+        <test expect_num_outputs="3">
+            <param name="alignment" value="pairend_strandspecific_51mer_hg19_chr1_1-100000.bam" ftype="bam" dbkey="hg19" />
             <param name="anno_select" value="builtin"/>
             <param name="format" value="tabdel_short" />
-            <param name="genome" value="hg19" />
+            <section name="extended_parameters">
+                <param name="R" value="true" />
+            </section>
             <output name="output_short" file="output_builtin_hg19.tab">
                 <metadata name="column_names" value="Geneid,pairend_strandspecific_51mer_hg19_chr1_1-100000.bam"/>
             </output>
             <output name="output_summary" file="output_summary_builtin_hg19.tab"/>
+            <output name="output_bam" file="output.bam" ftype="bam"/>
+        </test>
+        <!-- Ensure cached GTFs work -->
+        <test expect_num_outputs="3">
+            <param name="alignment" value="featureCounts_input1.bam" ftype="bam" dbkey="hg38" />
+            <param name="anno_select" value="cached"/>
+            <param name="format" value="tabdel_medium" />
+            <param name="include_feature_length_file" value="true"/>
+            <output name="output_medium" file="output_1_medium.tab">
+                <metadata name="column_names" value="Geneid,featureCounts_input1.bam,Length"/>
+            </output>
+            <output name="output_summary" file="output_1_summary.tab">
+                <metadata name="column_names" value="Status,featureCounts_input1.bam"/>
+            </output>
+        </test>
+        <!-- Ensure BAM output works -->
+        <test>
+            <param name="alignment" value="subset.sorted.bam" ftype="bam" />
+            <param name="anno_select" value="history" />
+            <param name="reference_gene_sets" value="small.gtf" ftype="gtf" />
+            <section name="extended_parameters" >
+                <param name="R" value="true" />
+            </section>
+            <output name="output_bam" value="subset.sorted.featurecounts.bam" />
         </test>
     </tests>
 
@@ -574,13 +577,27 @@ Annotations for gene regions should be provided in the GFF/GTF format:
  - http://genome.ucsc.edu/FAQ/FAQformat.html#format3
  - http://www.ensembl.org/info/website/upload/gff.html
 
-Alternatively, the featureCounts built-in annotations for genomes hg38, hg19, mm10 and mm9 can be used through selecting the built-in option above. These annotations were downloaded from NCBI RefSeq database and then adapted by merging overlapping exons from the same gene to form a set of disjoint exons for each gene. Genes with the same Entrez gene identifiers were also merged into one gene. See the Subread_ User's Guide for more information.
+Alternatively, the featureCounts built-in annotations for genomes hg38, hg19, mm10 and mm9 can be used through selecting the built-in option above. These annotation files are in simplified annotation format (SAF) as shown below. The GeneID column contains Entrez gene identifiers and each entry (row) is taken as a feature (e.g. an exon).
+
+Example - **Built-in annotation format**:
+
+  ======  ====  =======  =======  ======
+  GeneID  Chr   Start    End      Strand
+  ======  ====  =======  =======  ======
+  497097  chr1  3204563  3207049  -
+  497097  chr1  3411783  3411982  -
+  497097  chr1  3660633  3661579  -
+  ======  ====  =======  =======  ======
+
+These annotation files can be found in the `Subread package`_. You can see the version of Subread used by this wrapper in the tool form above under `Options > Requirements`. To create the files, the annotations were downloaded from NCBI RefSeq database and then adapted by merging overlapping exons from the same gene to form a set of disjoint exons for each gene. Genes with the same Entrez gene identifiers were also merged into one gene. See the `Subread User's Guide`_ for more information. Gene names can be obtained for these Entrez identifiers with the Galaxy **annotateMyIDs** tool.
 
 Output format
 -------------
-FeatureCounts produces a table containing counted reads, per gene, per row. Optionally the last column can be set to be the effective gene-length. These tables are compatible with the DESeq2 Galaxy wrapper by IUC. Column names are added as metadata object.
+FeatureCounts produces a table containing counted reads, per gene, per row. Optionally the last column can be set to be the effective gene-length. These tables are compatible with the DESeq2, edgeR and limma-voom Galaxy wrappers by IUC.
 
-.. _Subread: http://bioinf.wehi.edu.au/subread-package/SubreadUsersGuide.pdf
+.. _Subread: http://subread.sourceforge.net/
+.. _`Subread User's Guide`: http://bioinf.wehi.edu.au/subread-package/SubreadUsersGuide.pdf
+.. _`Subread package`: https://sourceforge.net/projects/subread/files/
     ]]></help>
     <citations>
         <citation type="doi">10.1093/bioinformatics/btt656</citation>

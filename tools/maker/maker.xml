@@ -1,11 +1,19 @@
 <?xml version="1.0"?>
-<tool id="maker" name="Maker" profile="16.04" version="@VERSION@">
+<tool id="maker" name="Maker" profile="16.04" version="@VERSION@.1">
     <description>genome annotation pipeline</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements"/>
     <command><![CDATA[
+        RM_LIB_PATH=\$(dirname \$(which RepeatMasker))/../share/RepeatMasker/Libraries &&
+        mkdir lib &&
+        export REPEATMASKER_LIB_DIR=\$(pwd)/lib &&
+          for file in \$(ls \$RM_LIB_PATH) ; do  ln -s \$RM_LIB_PATH/\$file lib/\$file ; done &&
+        #if $repeat_masking.repeat_source.source_type == "repbase":
+          cp '${repeat_masking.repeat_source.repbase_file}' 'lib/${repeat_masking.repeat_source.repbase_file_name}' &&
+        #end if
+
         maker -CTL
 
         &&
@@ -104,28 +112,41 @@ protein_gff=  # aligned protein homology evidence from an external GFF3 file
 #end if
 
 #-----Repeat Masking (leave values blank to skip repeat masking)
-#if $repeat_masking.repeatmasker.do_rm == 'simple'
-model_org=simple # select a model organism for RepBase masking in RepeatMasker
-rmlib= # provide an organism specific repeat library in fasta format for RepeatMasker
-#else if $repeat_masking.repeatmasker.do_rm == 'lib'
-model_org= # select a model organism for RepBase masking in RepeatMasker
-rmlib=${repeat_masking.repeatmasker.rmlib} # provide an organism specific repeat library in fasta format for RepeatMasker
+#if $repeat_masking.repeat_source.source_type == 'repbase'
+
+#if $repeat_masking.repeat_source.species_source.species_from_list == 'yes'
+model_org=${repeat_masking.repeat_source.species_source.species_list}
 #else
-model_org= # select a model organism for RepBase masking in RepeatMasker
-rmlib= # provide an organism specific repeat library in fasta format for RepeatMasker
+model_org=${repeat_masking.repeat_source.species_source.species_name}
 #end if
-#if $repeat_masking.repeat_protein
-repeat_protein=${repeat_masking.repeat_protein} # provide a fasta file of transposable element proteins for RepeatRunner
+
+rmlib= # provide an organism specific repeat library in fasta format for RepeatMasker
+softmask=${repeat_masking.repeat_source.softmask} # use soft-masking rather than hard-masking in BLAST (i.e. seg and dust filtering)
+
+#else if $repeat_masking.repeat_source.source_type == 'library'
+model_org= # select a model organism for RepBase masking in RepeatMasker
+rmlib=${repeat_masking.repeat_source.repeatmasker.rmlib} # provide an organism specific repeat library in fasta format for RepeatMasker
+
+#if $repeat_masking.repeat_source.repeat_protein
+repeat_protein=${repeat_masking.repeat_source.repeat_protein} # provide a fasta file of transposable element proteins for RepeatRunner
 #else
 repeat_protein= # provide a fasta file of transposable element proteins for RepeatRunner
 #end if
-#if $repeat_masking.rm_gff
-rm_gff=${repeat_masking.rm_gff} # pre-identified repeat elements from an external GFF3 file
+#if $repeat_masking.repeat_source.rm_gff
+rm_gff=${repeat_masking.repeat_source.rm_gff} # pre-identified repeat elements from an external GFF3 file
 #else
 rm_gff= # pre-identified repeat elements from an external GFF3 file
 #end if
+
+softmask=${repeat_masking.repeat_source.softmask} # use soft-masking rather than hard-masking in BLAST (i.e. seg and dust filtering)
+
+#else
+model_org= # select a model organism for RepBase masking in RepeatMasker
+rmlib= # provide an organism specific repeat library in fasta format for RepeatMasker
+softmask=0 # use soft-masking rather than hard-masking in BLAST (i.e. seg and dust filtering)
+#end if
+
 prok_rm=0 # forces MAKER to repeatmask prokaryotes (no reason to change this), 1 = yes, 0 = no
-softmask=${repeat_masking.softmask} # use soft-masking rather than hard-masking in BLAST (i.e. seg and dust filtering)
 
 #-----Gene Prediction
 #if $abinitio_gene_prediction.snaphmm
@@ -359,32 +380,69 @@ TMP= # specify a directory other than the system default temporary directory for
         </section>
 
         <section name="repeat_masking" title="Repeat masking" expanded="True">
-            <conditional name="repeatmasker">
-                <param name="do_rm" type="select" label="Enable repeat masking with RepeatMasker">
+            <conditional name="repeat_source">
+              <param label="Repeat library source" name="source_type" type="select">
+                <option selected="true" value="repbase">RepBase</option>
+                <option value="library">Custom library of repeats</option>
+                <option value="no">Disable repeat masking (not recommended)</option>
+              </param>
+              <when value="repbase">
+                <param name="repbase_file" type="data" format="embl" label="RepBase (RMRBSeqs.embl) file" />
+                <param name="repbase_file_name" type="hidden" value="RMRBSeqs.embl"/> <!-- This is an ugly hack to allow testing with a fake repbase -->
+                <conditional name="species_source">
+                  <param label="Select species name from a list?" name="species_from_list" type="select">
+                    <option value="yes" selected="true">Yes</option>
                     <option value="no">No</option>
-                    <option value="simple" selected="true">Yes, run RepeatMasker with default simple models</option>
-                    <option value="lib">Yes, use an organism specific repeat library (fasta)</option>
-                </param>
-                <!-- full repbase cannot be redistributed (for licensing reasons, see https://hpc.nih.gov/apps/repbase_license.html),
-                    using only the default maker base
-                    model_org is ignored and replaced by 'simple' if the full RepBase is not available.
-                    model_org=simple means maker will search using the simple models shipped by default
-                    Installing RepBase requires to replace files in the RepeatMasker installation dir
-                     -->
-                <when value="no"/>
-                <when value="simple"/>
-                <when value="lib">
-                    <param name="rmlib" type="data" format="fasta" label="Organism specific repeat library for RepeatMasker (fasta)"/>
-                </when>
+                  </param>
+                  <when value="yes">
+                    <param name="species_list" type="select" label="Species">
+                      <option value="anopheles" selected="true">anopheles</option>
+                      <option value="arabidopsis">arabidopsis</option>
+                      <option value="artiodactyl">artiodactyl</option>
+                      <option value="aspergillus">aspergillus</option>
+                      <option value="carnivore">carnivore</option>
+                      <option value="cat">cat</option>
+                      <option value="chicken">chicken</option>
+                      <option value="ciona intestinalis">ciona intestinalis</option>
+                      <option value="ciona savignyi">ciona savignyi</option>
+                      <option value="cow">cow</option>
+                      <option value="danio">danio</option>
+                      <option value="diatoaea">diatomea</option>
+                      <option value="dog">dog</option>
+                      <option value="drosophila">drosophila</option>
+                      <option value="elegans">elegans</option>
+                      <option value="fugu">fugu</option>
+                      <option value="fungi" selected="true">fungi</option>
+                      <option value="human">human</option>
+                      <option value="maize">maize</option>
+                      <option value="mammal">mammal</option>
+                      <option value="mouse">mouse</option>
+                      <option value="pig">pig</option>
+                      <option value="rat">rat</option>
+                      <option value="rice">rice</option>
+                      <option value="rodentia">rodentia</option>
+                      <option value="ruminantia">ruminantia</option>
+                      <option value="wheat">wheat</option>
+                    </param>
+                  </when>
+                  <when value="no">
+                    <param name="species_name" type="text" value="homo sapiens" label="Repeat source species" help="Source species (or clade name) used to select repeats from RepBase" />
+                  </when>
+                </conditional>
+                <param name="softmask" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Use soft-masking rather than hard-masking in BLAST" help="i.e. seg and dust filtering"/>
+              </when>
+              <when value="library">
+                <param name="repeat_protein" type="data" format="fasta" label="Transposable element protein sequences for RepeatRunner" optional="True" />
+                <param name="rm_gff" type="data" format="fasta" label="Pre-identified repeat elements from an external GFF file" optional="True" />
+                <param name="softmask" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Use soft-masking rather than hard-masking in BLAST" help="i.e. seg and dust filtering"/>
+              </when>
+              <when value="no"/>
             </conditional>
-            <param name="repeat_protein" type="data" format="fasta" label="Transposable element protein sequences for RepeatRunner (fasta)" help="Leave empty to skip" optional="True"/>
-            <param name="rm_gff" type="data" format="gff" label="Pre-identified repeat elements from an external GFF file" help="Leave empty to skip" optional="True"/>
-            <param name="softmask" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Use soft-masking rather than hard-masking in BLAST" help="i.e. seg and dust filtering"/>
         </section>
 
         <section name="gene_prediction" title="Other predictions" expanded="True">
             <param name="pred_gff" type="data" format="gff" label="Predictions from an external GFF3 file" optional="True"/>
-            <param name="model_gff" type="data" format="gff" label="Annotated gene models an external GFF3 file" help="annotation pass-through" optional="True"/>
+            <param name="model_gff" type="data" format="gff" label="Annotated gene models from an external GFF3 file" help="annotation pass-through" optional="True"/>
             <param name="trna" type="boolean" truevalue="1" falsevalue="0" checked="false" label="Find tRNAs with tRNAscan"/>
             <param name="snoscan_rrna" type="data" format="fasta" label="rRNA file to have Snoscan find snoRNAs" optional="True"/>
         </section>
@@ -428,6 +486,7 @@ TMP= # specify a directory other than the system default temporary directory for
             <param name="genome" value="genome.fasta"/>
             <param name="est_evidences|est" value="est.fasta"/>
             <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
             <output name="output_gff" file="annot.gff3"/>
             <output name="output_evidences" file="evidences.gff3" compare="sim_size"/>
         </test>
@@ -436,6 +495,7 @@ TMP= # specify a directory other than the system default temporary directory for
             <param name="organism_type" value="prokaryotic"/>
             <param name="est_evidences|est" value="est.fasta"/>
             <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
             <output name="output_gff" file="annot_proc.gff3"/>
             <output name="output_evidences" file="evidences_proc.gff3" compare="sim_size"/>
         </test>
@@ -445,6 +505,7 @@ TMP= # specify a directory other than the system default temporary directory for
             <param name="reannotation|maker_gff" value="evidences.gff3"/>
             <param name="reannotation|est_pass" value="true"/>
             <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
             <output name="output_gff" file="annot_reuse.gff3"/>
             <output name="output_evidences" file="evidences_reuse.gff3" compare="sim_size"/>
         </test>
@@ -455,6 +516,7 @@ TMP= # specify a directory other than the system default temporary directory for
             <param name="abinitio_gene_prediction|aug_prediction|augustus_species" value="human"/>
             <param name="est_evidences|est" value="est.fasta"/>
             <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
             <output name="output_gff" file="annot_human.gff3" compare="sim_size"/>
             <output name="output_evidences" file="evidences_human.gff3" compare="sim_size"/>
         </test>
@@ -465,6 +527,7 @@ TMP= # specify a directory other than the system default temporary directory for
             <param name="abinitio_gene_prediction|aug_prediction|augustus_model" value="local.tar.gz" ftype="augustus"/>
             <param name="est_evidences|est" value="est.fasta"/>
             <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
             <output name="output_gff" file="annot_model.gff3" compare="sim_size"/>
             <output name="output_evidences" file="evidences_model.gff3" compare="sim_size"/>
         </test>
@@ -472,8 +535,19 @@ TMP= # specify a directory other than the system default temporary directory for
             <param name="genome" value="genome.fasta"/>
             <param name="est_evidences|est" value="est.fasta"/>
             <param name="est_evidences|est2genome" value="1"/>
-            <param name="repeat_masking|repeatmasker|do_rm" value="no"/>
+            <param name="repeat_masking|repeat_source|source_type" value="no"/>
             <output name="output_gff" file="annot_norm.gff3"/>
+            <output name="output_evidences" file="evidences_norm.gff3" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="genome" value="genome.fasta"/>
+            <param name="est_evidences|est" value="est.fasta"/>
+            <param name="est_evidences|est2genome" value="1"/>
+            <param name="repeat_masking|repeat_source|source_type" value="repbase"/>
+            <param name="repeat_masking|repeat_source|repbase_file" value="fake_repbase.embl" />
+            <param name="repeat_masking|repeat_source|repbase_file_name" value="fake.embl" />
+            <param name="repeat_masking|repeat_source|species_list" value="anopheles" />
+            <output name="output_gff" file="annot_repbase.gff3"/>
             <output name="output_evidences" file="evidences_norm.gff3" compare="sim_size"/>
         </test>
     </tests>

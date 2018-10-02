@@ -1,14 +1,16 @@
-<tool id="bowtie2" name="Bowtie2" version="2.3.4.1" profile="17.01">
+<tool id="bowtie2" name="Bowtie2" version="2.3.4.2" profile="18.01">
     <description>- map reads against reference genome</description>
     <macros>
         <import>bowtie2_macros.xml</import>
     </macros>
     <requirements>
         <requirement type="package" version="2.3.4">bowtie2</requirement>
-        <requirement type="package" version="1.6">samtools</requirement>
+        <requirement type="package" version="1.8">samtools</requirement>
     </requirements>
     <version_command>bowtie2 --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
+## Use pipefail if available to quit with first non-zero exit code
+set -o | grep -q pipefail && set -o pipefail;
 ## prepare bowtie2 index
 #set index_path = ''
 #if str($reference_genome.source) == "history":
@@ -278,15 +280,6 @@ bowtie2
         -D ${analysis_type.effort_options.D}
         -R ${analysis_type.effort_options.R}
     #end if
-
-    #if str( $analysis_type.sam_options.sam_options_selector ) == "yes":
-        ${analysis_type.sam_options.no_unal}
-        ${analysis_type.sam_options.omit_sec_seq}
-        ${analysis_type.sam_options.sam_no_qname_trunc}
-        ${analysis_type.sam_options.xeq}
-        ${analysis_type.sam_options.soft_clipped_unmapped_tlen}
-    #end if
-
     #if str( $analysis_type.other_options.other_options_selector ) == "yes":
         ${analysis_type.other_options.reorder}
         ${analysis_type.other_options.non_deterministic}
@@ -297,15 +290,26 @@ bowtie2
     ${analysis_type.cline}
 #end if
 
+#if str( $sam_options.sam_options_selector ) == "yes":
+    ${sam_options.no_unal}
+    ${sam_options.omit_sec_seq}
+    ${sam_options.sam_no_qname_trunc}
+    ${sam_options.xeq}
+    ${sam_options.soft_clipped_unmapped_tlen}
+    ${sam_options.reorder}
+#end if
+
 ## mapping stats (i.e. stderr from bowtie2)
 #if $save_mapping_stats
     2> '$mapping_stats'
 #end if
 
 ## output file
-#if ( str( $analysis_type.analysis_type_selector ) != "full" or str( $analysis_type.sam_opt ) != "true" ):
+#if str( $sam_options.sam_options_selector ) == "no" or (str( $sam_options.sam_opt ) == "false" and str($sam_options.reorder) == ''):
     | samtools sort -@\${GALAXY_SLOTS:-2} -O bam -o '$output'
-#else
+#else if $sam_options.reorder:
+    | samtools view -bS - -o '$output'
+#else:
     > '$output_sam'
 #end if
 
@@ -495,29 +499,13 @@ bowtie2
                         <!-- do nothing -->
                     </when>
                 </conditional>
-                <conditional name="sam_options">
-                    <param name="sam_options_selector" type="select" label="Do you want to tweak SAM/BAM Options?" help="See &quot;Output Options&quot; section of Help below for information">
-                        <option value="yes">Yes</option>
-                        <option value="no" selected="true">No</option>
-                    </param>
-                    <when value="yes">
-                        <param name="no_unal" type="boolean" truevalue="--no-unal" falsevalue="" label="Suppress SAM records for reads that failed to align" help="--no-unal; Default=False"/>
-                        <param name="omit_sec_seq" type="boolean" truevalue="--omit-sec-seq" falsevalue="" label="Suppress SEQ and QUAL strings for secondary alignments" help="--omit-sec-seq; Default=False"/>
-                        <param name="sam_no_qname_trunc" argument="--sam-no-qname-trunc" type="boolean" truevalue="--sam-no-qname-trunc" falsevalue="" label="Suppress standard behavior of truncating readname at first whitespace at the expense of generating non-standard SAM"/>
-                        <param argument="--xeq" type="boolean" truevalue="--xeq" falsevalue="" label="Use '='/'X', instead of 'M,' to specify matches/mismatches in SAM record."/>
-                        <param name="soft_clipped_unmapped_tlen" argument="--soft-clipped-unmapped-tlen" type="boolean" truevalue="--soft-clipped-unmapped-tlen" falsevalue="" label=" Exclude soft-clipped bases when reporting TLEN"/>
-                    </when>
-                    <when value="no">
-                        <!-- do nothing -->
-                    </when>
-                </conditional>
                 <conditional name="other_options">
                     <param name="other_options_selector" type="select" label="Do you want to tweak Other Options?" help="See &quot;Other Options&quot; section of Help below for information">
                         <option value="yes">Yes</option>
                         <option value="no" selected="true">No</option>
                     </param>
                     <when value="yes">
-                        <param name="reorder" type="boolean" truevalue="--reorder" falsevalue="" label="Guarantee that output SAM records are printed in an order corresponding to the order of the reads in the original input file" help="--reorder; Default=False"/>
+                        <param name="reorder" type="boolean" truevalue="--reorder" falsevalue="" label="Guarantee that output SAM records are printed in an order corresponding to the order of the reads in the original input file. If selected output file will not be coordinate sorted." help="--reorder; Default=False"/>
                         <param name="seed" type="integer" value="0" min="0" label="Use this number as the seed for pseudo-random number generator" help="--seed; Default=0"/>
                         <param name="non_deterministic" type="boolean" truevalue="--non-deterministic" falsevalue="" label="Re-initialize the pseudo-random generator for each read using the current time" help="--non-deterministic; see Help below for explanation of this option; default=False"/>
                     </when>
@@ -525,8 +513,25 @@ bowtie2
                         <!-- do nothing -->
                     </when>
                 </conditional>
-                <param name="sam_opt" type="boolean" truevalue="true" falsevalue="false" label="Would you like the output to be a SAM file" help="By default, the output from this Bowtie2 wrapper is a sorted BAM file."/>
             </when>
+        </conditional>
+        <conditional name="sam_options">
+            <param name="sam_options_selector" type="select" label="Do you want to tweak SAM/BAM Options?" help="See &quot;Output Options&quot; section of Help below for information">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No</option>
+            </param>
+            <when value="yes">
+                <param name="sam_opt" type="boolean" truevalue="true" falsevalue="false" label="Would you like the output to be a SAM file" help="By default, the output from this Bowtie2 wrapper is a sorted BAM file."/>
+                <param name="no_unal" type="boolean" truevalue="--no-unal" falsevalue="" label="Suppress SAM records for reads that failed to align" help="--no-unal; Default=False"/>
+                <param name="omit_sec_seq" type="boolean" truevalue="--omit-sec-seq" falsevalue="" label="Suppress SEQ and QUAL strings for secondary alignments" help="--omit-sec-seq; Default=False"/>
+                <param name="sam_no_qname_trunc" argument="--sam-no-qname-trunc" type="boolean" truevalue="--sam-no-qname-trunc" falsevalue="" label="Suppress standard behavior of truncating readname at first whitespace at the expense of generating non-standard SAM"/>
+                <param argument="--xeq" type="boolean" truevalue="--xeq" falsevalue="" label="Use '='/'X', instead of 'M,' to specify matches/mismatches in SAM record."/>
+                <param name="soft_clipped_unmapped_tlen" argument="--soft-clipped-unmapped-tlen" type="boolean" truevalue="--soft-clipped-unmapped-tlen" falsevalue="" label=" Exclude soft-clipped bases when reporting TLEN"/>
+                <param name="reorder" argument="--reorder" type="boolean" truevalue="--reorder" falsevalue=""
+                    label="Reorder output to reflect order of the input file"
+                    help="Reorder guarantees that output SAM records are printed in an order corresponding to the order of the reads in the original input file, even when -p is set greater than 1." />
+            </when>
+            <when value="no"/>
         </conditional>
         <param name="save_mapping_stats" type="boolean" checked="False" label="Save the bowtie2 mapping statistics to the history" />
     </inputs>
@@ -552,6 +557,7 @@ bowtie2
                         </action>
                     </when>
                 </conditional>
+                <expand macro="dbKeyActions" />
             </actions>
         </data>
         <data format="fastqsanger" name="output_aligned_reads_l" label="${tool.name} on ${on_string}: aligned reads (L)" >
@@ -574,6 +580,7 @@ bowtie2
                         </action>
                     </when>
                 </conditional>
+                <expand macro="dbKeyActions" />
             </actions>
         </data>
         <data format="fastqsanger" name="output_aligned_reads_r" label="${tool.name} on ${on_string}: aligned reads (R)">
@@ -591,6 +598,7 @@ bowtie2
                         </action>
                     </when>
                 </conditional>
+                <expand macro="dbKeyActions" />
             </actions>
         </data>
         <data format="fastqsanger" name="output_unaligned_reads_r" label="${tool.name} on ${on_string}: unaligned reads (R)">
@@ -608,10 +616,14 @@ bowtie2
                         </action>
                     </when>
                 </conditional>
+                <expand macro="dbKeyActions" />
             </actions>
         </data>
-        <data format="bam" name="output" label="${tool.name} on ${on_string}: aligned reads (sorted BAM)">
+        <data format="bam" name="output" label="${tool.name} on ${on_string}: aligned reads (BAM)">
           <filter>analysis_type['analysis_type_selector'] == "simple" or analysis_type['sam_opt'] is False</filter>
+          <change_format>
+              <when input="sam_options.reorder" value="--reorder" format="qname_input_sorted.bam" />
+          </change_format>
           <actions>
             <conditional name="reference_genome.source">
               <when value="indexed">
@@ -628,6 +640,7 @@ bowtie2
                 </action>
               </when>
             </conditional>
+            <expand macro="dbKeyActions" />
           </actions>
         </data>
         <data format="sam" name="output_sam" label="${tool.name} on ${on_string}: aligned reads (SAM)">
@@ -648,10 +661,14 @@ bowtie2
                 </action>
               </when>
             </conditional>
+            <expand macro="dbKeyActions" />
           </actions>
         </data>
         <data format="txt" name="mapping_stats" label="${tool.name} on ${on_string}: mapping stats">
           <filter>save_mapping_stats is True</filter>
+          <actions>
+            <expand macro="dbKeyActions" />
+          </actions>
         </data>
     </outputs>
     <tests>
@@ -765,6 +782,20 @@ bowtie2
             <param name="input_2" value="bowtie2-fq2.fa" ftype="fasta"/>
             <param name="own_file" value="bowtie2-ref.fasta" />
             <output name="output" file="bowtie2-test_fasta_in.bam" ftype="bam" lines_diff="2"/>
+        </test>
+        <test>
+            <!-- test on fasta paired-end datasets with bam_native as output -->
+            <param name="type" value="paired"/>
+            <param name="paired_options_selector" value="no"/>
+            <param name="unaligned_file" value="false"/>
+            <param name="analysis_type_selector" value="simple"/>
+            <param name="source" value="history" />
+            <param name="input_1" value="bowtie2-fq1.fa" ftype="fasta"/>
+            <param name="input_2" value="bowtie2-fq2.fa" ftype="fasta"/>
+            <param name="own_file" value="bowtie2-ref.fasta" />
+            <param name="sam_options_selector" value="yes" />
+            <param name="reorder" value="true" />
+            <output name="output" file="bowtie2-test_fasta_in_bam_qname_input_sorted.bam" ftype="qname_input_sorted.bam" compare="sim_size"/>
         </test>
     </tests>
     <help><![CDATA[
