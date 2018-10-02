@@ -8,8 +8,8 @@ if (length(args) != 1){
      stop("Please provide the config file")
 }
 
-suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
-suppressWarnings(suppressPackageStartupMessages(require(FateID)))
+suppressPackageStartupMessages(require(RaceID))
+suppressPackageStartupMessages(require(FateID))
 source(args[1])
 
 do.trajectoryinspection.stemID <- function(ltr){

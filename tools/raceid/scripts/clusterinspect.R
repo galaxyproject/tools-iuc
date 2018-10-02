@@ -8,7 +8,7 @@ if (length(args) != 1){
      stop("Please provide the config file")
 }
 
-suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
+suppressPackageStartupMessages(require(RaceID))
 source(args[1])
 
 do.inspect.symbolmap <- function(sc){  
