@@ -8,8 +8,8 @@ if (length(args) != 1){
      stop("Please provide the config file")
 }
 
-suppressPackageStartupMessages(require(RaceID))
-suppressPackageStartupMessages(require(scran))
+suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
+suppressWarnings(suppressPackageStartupMessages(require(scran)))
 source(args[1])
 
 sc <- NULL
@@ -89,11 +89,11 @@ mkgenelist <- function(sc){
 
 pdf(out.pdf)
 sc <- do.filter(sc)
-message("[Matrix Dimensions]")
-message(paste("genes:",nrow(sc@ndata),", cells:",ncol(sc@ndata)))
-message("note: Errors in clustering after this stage are indicative of over filtering.")
-message(paste(" - genes:",nrow(sc@ndata),", cells:",ncol(sc@ndata)))
-message("- note: Errors in clustering after this stage are indicative of over filtering.")
+message(paste(" - Source:: genes:",nrow(sc@expdata),", cells:",ncol(sc@expdata)))
+message(paste(" - Filter:: genes:",nrow(sc@ndata),", cells:",ncol(sc@ndata)))
+message(paste("         :: ",
+              sprintf("%.1f", 100 * nrow(sc@ndata)/nrow(sc@expdata)), "% of genes remain,",
+              sprintf("%.1f", 100 * ncol(sc@ndata)/ncol(sc@expdata)), "% of cells remain"))
 sc <- do.cluster(sc)
 sc <- do.outlier(sc)
 sc <- do.clustmap(sc)
