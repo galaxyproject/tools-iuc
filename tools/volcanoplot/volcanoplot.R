@@ -16,23 +16,49 @@ options(stringAsFactors = FALSE, useFancyQuotes = FALSE)
 args <- commandArgs(trailingOnly = TRUE)
 
 spec <- matrix(c(
-  "input", "i", 1, "character"),
+  "input", "i", 1, "character",
+  "fdr", "a", 1, "integer",
+  "pvalue", "p", 1, "integer",
+  "logfc", "c", 1, "integer",
+  "labels", "l", 1, "integer",
+  "signif", "s", 1, "double",
+  "label_file", "f", 1, "character",
+  "topnum", "t", 1, "integer",
+  "logfc_thresh", "x", 1, "integer"),
   byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
-# Below from http://www.gettinggeneticsdone.com/2016/01/repel-overlapping-text-labels-in-ggplot2.html
+# Below modified from http://www.gettinggeneticsdone.com/2016/01/repel-overlapping-text-labels-in-ggplot2.html
 
-results = read.table(opt$input, header=TRUE, sep="\t")
-results = mutate(results, sig=ifelse(results$padj<0.05, "FDR<0.05", "Not Sig"))
+results <- read.delim(opt$input)
+
+results$fdr <- results[, opt$fdr]
+results$Pvalue <- results[, opt$pvalue]
+results$logFC <- results[, opt$logfc]
+results$labels <- results[, opt$labels]
+
+results <- mutate(results, sig=ifelse((fdr<opt$signif & logFC>opt$logfc_thresh), "Up", ifelse((fdr<opt$signif & logFC < -opt$logfc_thresh),"Down", "Not Sig")))
+results <- results[order(results$Pvalue),]
+if (!is.null(opt$label_file)) {
+	tolabel <- read.delim(opt$label_file)
+} else {
+	tolabel <- head(results[results$fdr<opt$signif, ], opt$topnum)
+}
 
 pdf("out.pdf")
-p = ggplot(results, aes(log2FoldChange, -log10(pvalue))) +
+p <- ggplot(results, aes(logFC, -log10(Pvalue))) +
   geom_point(aes(col=sig)) +
-  scale_color_manual(values=c("red", "black")) +
-  geom_text_repel(data=filter(results, padj<0.05), aes(label=Gene))
+  #geom_text_repel(data=tolabel, aes(label=labels)) +
+  geom_label_repel(data=tolabel, aes(label=labels, fill=factor(sig)), colour="white", segment.colour="black", show.legend=FALSE) +
+  scale_color_manual(values=c("Down"="cornflowerblue", "Not Sig"="grey", "Up"="firebrick")) +
+  scale_fill_manual(values=c("Down"="cornflowerblue", "Not Sig"="grey", "Up"="firebrick")) +
+  theme(panel.grid.major = element_blank(), 
+  	panel.grid.minor = element_blank(),
+  	panel.background = element_blank(),
+  	axis.line = element_line(colour = "black"),
+  	legend.key=element_blank())
 print(p)
 dev.off()
 
 cat("Session information:\n\n")
 sessionInfo()
-
