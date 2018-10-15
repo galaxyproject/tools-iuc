@@ -681,6 +681,36 @@ class JbrowseConnector(object):
         }
         self._add_track_json(data)
 
+    def traverse_to_option_parent(self, splitKey, outputTrackConfig):
+        trackConfigSubDict = outputTrackConfig
+        for part in splitKey[:-1]:
+            if trackConfigSubDict.get(part) is None:
+                trackConfigSubDict[part] = dict()
+            trackConfigSubDict = trackConfigSubDict[part]
+        assert isinstance(trackConfigSubDict, dict), 'Config element {} is not a dict'.format(trackConfigSubDict)
+        return trackConfigSubDict
+
+    def get_formatted_option(self, valType2ValDict, mapped_chars):
+        assert isinstance(valType2ValDict, dict) and len(valType2ValDict.items()) == 1
+        for valType, value in valType2ValDict.items():
+            if valType == "text":
+                for char, mapped_char in mapped_chars.items():
+                    value = value.replace(mapped_char, char)
+            elif valType == "integer":
+                value = int(value)
+            elif valType == "float":
+                value = float(value)
+            else:  # boolean
+                value = {'true': True, 'false': False}[value]
+            return value
+
+    def set_custom_track_options(self, customTrackConfig, outputTrackConfig, mapped_chars):
+        for optKey, optType2ValDict in customTrackConfig.items():
+            splitKey = optKey.split('.')
+            trackConfigOptionParent = self.traverse_to_option_parent(splitKey, outputTrackConfig)
+            optVal = self.get_formatted_option(optType2ValDict, mapped_chars)
+            trackConfigOptionParent[splitKey[-1]] = optVal
+
     def process_annotations(self, track):
         category = track['category'].replace('__pd__date__pd__', TODAY)
         outputTrackConfig = {
@@ -745,6 +775,10 @@ class JbrowseConnector(object):
             if 'menus' in track['conf']['options']:
                 menus = self.cs.parse_menus(track['conf']['options'])
                 outputTrackConfig.update(menus)
+
+            customTrackConfig = track['conf']['options'].get('custom_config', {})
+            if customTrackConfig:
+                self.set_custom_track_options(customTrackConfig, outputTrackConfig, mapped_chars)
 
             # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
