@@ -80,8 +80,7 @@ class ColorScaling(object):
             var opacity = (score - ({min})) / (({max}) - ({min}));
         """,
         'logarithmic': """
-            var opacity = (score - ({min})) / (({max}) - ({min}));
-            opacity = Math.log10(opacity) + Math.log10({max});
+            var opacity = Math.log10(score - ({min})) / Math.log10(({max}) - ({min}));
         """,
         'blast': """
             var opacity = 0;
