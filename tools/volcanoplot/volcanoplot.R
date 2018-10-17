@@ -27,7 +27,8 @@ spec <- matrix(c(
     "title", "T", 1, "character",
     "xlab", "X", 1, "character",
     "ylab", "Y", 1, "character",
-    "legend", "L", 1, "character"),
+    "legend", "L", 1, "character",
+    "llabs", "z", 1, "character"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -38,8 +39,12 @@ results$fdr <- results[, opt$fdr_col]
 results$Pvalue <- results[, opt$pval_col]
 results$logFC <- results[, opt$lfc_col]
 results$labels <- results[, opt$label_col]
+label_down <- unlist(strsplit(opt$llabs, split=","))[1]
+label_notsig <- unlist(strsplit(opt$llabs, split=","))[2]
+label_up <- unlist(strsplit(opt$llabs, split=","))[3]
+colours <- setNames(c("cornflowerblue","grey","firebrick"),c(label_down,label_notsig,label_up))
 
-results <- mutate(results, sig=ifelse((fdr<opt$signif_thresh & logFC>opt$lfc_thresh), "Up", ifelse((fdr<opt$signif_thresh & logFC < -opt$lfc_thresh),"Down", "Not Sig")))
+results <- mutate(results, sig=ifelse((fdr<opt$signif_thresh & logFC>opt$lfc_thresh), label_up, ifelse((fdr<opt$signif_thresh & logFC < -opt$lfc_thresh),label_down, label_notsig)))
 results <- results[order(results$Pvalue),]
 if (!is.null(opt$label_file)) {
     labelfile <- read.delim(opt$label_file)
@@ -54,27 +59,28 @@ pdf("out.pdf")
 p <- ggplot(results, aes(logFC, -log10(Pvalue))) +
     geom_point(aes(col=sig)) +
     geom_label_repel(data=tolabel, aes(label=labels, fill=factor(sig)), colour="white", segment.colour="black", show.legend=FALSE) +
-    scale_color_manual(values=c("Down"="cornflowerblue", "Not Sig"="grey", "Up"="firebrick")) +
-    scale_fill_manual(values=c("Down"="cornflowerblue", "Not Sig"="grey", "Up"="firebrick")) +
+    scale_color_manual(values=colours) +
+    scale_fill_manual(values=colours) +
     theme(panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
         panel.background = element_blank(),
         axis.line = element_line(colour = "black"),
         legend.key=element_blank())
-    if (!is.null(opt$title)) {
-        p <- p + ggtitle(opt$title)
-    }
-    if (!is.null(opt$xlab)) {
-        p <- p + xlab(opt$xlab)
-    }
-    if (!is.null(opt$ylab)) {
-        p <- p + ylab(opt$ylab)
-    }
-    if (!is.null(opt$legend)) {
-        p <- p + labs(colour=opt$legend)
-    } else {
-        p <- p + labs(colour="")
-    }
+if (!is.null(opt$title)) {
+    p <- p + ggtitle(opt$title)
+}
+if (!is.null(opt$xlab)) {
+    p <- p + xlab(opt$xlab)
+}
+if (!is.null(opt$ylab)) {
+    p <- p + ylab(opt$ylab)
+}
+if (!is.null(opt$legend)) {
+    p <- p + labs(colour=opt$legend)
+} else {
+    p <- p + labs(colour="")
+}
+
 print(p)
 dev.off()
 
