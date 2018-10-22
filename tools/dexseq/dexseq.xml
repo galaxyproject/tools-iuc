@@ -6,6 +6,8 @@
     <expand macro="requirements">
         <requirement type="package" version="1.20.0">r-getopt</requirement>
         <requirement type="package" version="0.2.15">r-rjson</requirement>
+        <requirement type="package" version="0.6.4">bcbiogff</requirement>
+        <requirement type="package" version="2.27.1">bedtools</requirement>
     </expand>
     <code file="dexseq_helper.py" />
     <stdio>
@@ -30,40 +32,50 @@
 echo $(R --version | grep version | grep -v GNU)", DEXSeq version" $(R --vanilla --slave -e "library(DEXSeq); cat(sessionInfo()\$otherPkgs\$DEXSeq\$Version)" 2> /dev/null | grep -v -i "WARNING: ")" (depends on DESeq2 "$(R --vanilla --slave -e "library(DESeq2); cat(sessionInfo()\$otherPkgs\$DESeq2\$Version)" 2> /dev/null | grep -v -i "WARNING: ")")"
     ]]></version_command>
     <command><![CDATA[
- mkdir ./html_out &&
- #import json
- Rscript '$__tool_directory__/dexseq.R'
-     -o '$dexseq_out'
-     -p \${GALAXY_SLOTS:-4}
-     #set $temp_factor_names = list()
-     #for $factor in $rep_factorName:
-         #set $temp_factor = list()
-         #set $count_files1 = list()
-         #for $file in $factor.countFiles1:
-             $count_files1.append(str($file))
-         #end for
-         $temp_factor.append( {str($factor.factorLevel1): $count_files1} )
+mkdir ./html_out &&
+#import json
+Rscript '$__tool_directory__/dexseq.R'
+    -o '$dexseq_out'
+    -p \${GALAXY_SLOTS:-4}
+    #set $temp_factor_names = list()
+    #for $factor in $rep_factorName:
+        #set $temp_factor = list()
+        #set $count_files1 = list()
+        #for $file in $factor.countFiles1:
+            $count_files1.append(str($file))
+        #end for
+        $temp_factor.append( {str($factor.factorLevel1): $count_files1} )
 
-         #set $count_files2 = list()
-         #for $file in $factor.countFiles2:
-             $count_files2.append(str($file))
-         #end for
-         $temp_factor.append( {str($factor.factorLevel2): $count_files2} )
-         $temp_factor_names.append([str($factor.factorName), $temp_factor])
-     #end for
-     -f '#echo json.dumps(temp_factor_names)#'
-     -a $gtf
-     -c $fdr_cutoff
+        #set $count_files2 = list()
+        #for $file in $factor.countFiles2:
+            $count_files2.append(str($file))
+        #end for
+        $temp_factor.append( {str($factor.factorLevel2): $count_files2} )
+        $temp_factor_names.append([str($factor.factorName), $temp_factor])
+    #end for
+    -f '#echo json.dumps(temp_factor_names)#'
+    -a $gtf
+    -c $fdr_cutoff
 
-     #if $report:
-         -r ./html_out
-         &&
-         mkdir '$htmlreport.extra_files_path'
-         &&
-         cp ./html_out/testForDEU.html $htmlreport
-         &&
-         cp -r ./html_out/* '$htmlreport.extra_files_path'
-     #end if
+    #if $report:
+        -r ./html_out
+        &&
+        mkdir '$htmlreport.extra_files_path'
+        &&
+        cp ./html_out/testForDEU.html $htmlreport
+        &&
+        cp -r ./html_out/* '$htmlreport.extra_files_path'
+    #end if
+    #if $annotate.annotate_selector == 'yes':
+        ;python '$__tool_directory__/dexseq_annotate.py' 
+        -in '$dexseq_out'
+        -g '$annotate.annotation'
+        -t '$annotate.gff_feature_type'
+        -i '$annotate.gff_feature_attribute'
+        -x '$annotate.gff_transcript_attribute'
+        -a '$annotate.gff_attributes'
+        -o '$dexseq_out_annot'
+    #end if
     ]]></command>
     <inputs>
         <param name="gtf" type="data" format="gtf,gff" label="GTF file created from DEXSeq-Count tool"/>
@@ -94,62 +106,135 @@ echo $(R --version | grep version | grep -v GNU)", DEXSeq version" $(R --vanilla
             label="Visualise the analysis results?"
             help="Output an additional HTML file." />
         <param name="fdr_cutoff" type="float" min="0.0" max="1.0" value="0.05" label="All the genes under this FDR threshold will be shown in the html report"/>
+        <conditional name="annotate">
+            <param name="annotate_selector" type="select" label="Annotate the output table with more information?">
+                <option value="no" selected="True">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="yes" >
+                <param name="annotation"
+                   type="data"
+                   format="gff,gtf,gff3"
+                   argument="-g"
+                   label="Reference annotation in GFF/GTF format" />
+                <param name="gff_feature_type"
+                    type="text"
+                    value="exon"
+                    argument="-t"
+                    label="GFF feature type"
+                    help="This is the 3rd column in GFF file. Only rows which have the matched feature type in the GTF annotation file will be included. `exon' by default." />
+                <param name="gff_feature_attribute"
+                    type="text"
+                    value="gene_id"
+                    argument="-i"
+                    label="GFF feature identifier"
+                    help="GFF attribute to be used as feature identifier. The value of this attribute should match the first column of DESeq2 output (default: gene_id)" />
+                <param name="gff_transcript_attribute"
+                    type="text"
+                    value="transcript_id"
+                    argument="-x"
+                    label="GFF transcript identifier"
+                    help="GFF attribute to be used as transcript identifier. This options is only used for DEXSeq output annotation. Exon numbers are counted for each transcript separately (default: transcript_id)" />
+                <param name="gff_attributes"
+                    type="text"
+                    value="gene_biotype, gene_name"
+                    argument="-a"
+                    label="GFF attributes to include"
+                    help="Comma separated list of attributes from GFF file to include in output. These attributes should associate with your chosen GFF feature type." />
+            </when>
+            <when value="no" />
+        </conditional>
     </inputs>
     <outputs>
         <data format="tabular" name="dexseq_out" label="DEXSeq result file on ${on_string}" />
         <data format="html" name="htmlreport" label="DEXSeq report on ${on_string}">
             <filter>report is True</filter>
         </data>
+        <data format="tabular" name="dexseq_out_annot" label="Annotated DEXSeq result file on ${on_string}" >
+            <filter>annotate['annotate_selector'] == 'yes'</filter>
+        </data>
     </outputs>
     <tests>
         <!-- Ensure default output works-->
         <test expect_num_outputs="1">
-            <param name="gtf" value="dexseq.gtf" ftype="gtf"/>
+            <param name="gtf" value="dm3_78_dexseq.gtf" ftype="gtf"/>
             <repeat name="rep_factorName">
                 <param name="factorName" value="condition"/>
                 <param name="factorLevel1" value="knockdown"/>
-                <param name="countFiles1" value="treated1fb.txt,treated2fb.txt,treated3fb.txt" ftype="tabular"/>
+                <param name="countFiles1" value="GSM461179_treat_single_counts.txt,GSM461180_treat_paired_counts.txt,GSM461181_treat_paired_counts.txt" ftype="tabular"/>
                 <param name="factorLevel2" value="control"/>
-                <param name="countFiles2" value="untreated1fb.txt,untreated2fb.txt,untreated3fb.txt,untreated4fb.txt" ftype="tabular"/>
+                <param name="countFiles2" value="GSM461176_untreat_single_counts.txt,GSM461177_untreat_paired_counts.txt,GSM461178_untreat_paired_counts.txt,GSM461182_untreat_single_counts.txt" ftype="tabular"/>
             </repeat>
             <param name="report" value="False"/>
-            <param name="fdr_cutoff" value="1"/>
-            <output name="dexseq_out" file="dexseq_result.tabular" ftype="tabular"/>
-        </test>
-        <!-- Ensure report works-->
-        <test expect_num_outputs="2">
-            <param name="gtf" value="dexseq.gtf" ftype="gtf"/>
-            <repeat name="rep_factorName">
-                <param name="factorName" value="Treatment"/>
-                <param name="factorLevel1" value="knockdown"/>
-                <param name="countFiles1" value="treated1fb.txt,treated2fb.txt,treated3fb.txt" ftype="tabular"/>
-                <param name="factorLevel2" value="control"/>
-                <param name="countFiles2" value="untreated1fb.txt,untreated2fb.txt,untreated3fb.txt,untreated4fb.txt" ftype="tabular"/>
-            </repeat>
-            <param name="report" value="True"/>
-            <param name="fdr_cutoff" value="1"/>
-            <output name="dexseq_out" file="dexseq_result.tabular" ftype="tabular"/>
+            <param name="fdr_cutoff" value="0.05"/>
+            <output name="dexseq_out">
+                <assert_contents>
+                    <has_text_matching expression="FBgn0039897:E009\tFBgn0039897\tE009\t4.4637.*\t0.0400.*\t11.3937.*\t0.0007.*\t0.1459.*\t4.3560.*\t1.8150.*\t-2.5794.*\tchr4\t257021\t257101\t81\t\+\t1\t0\t2\t3\t6\t8\t15\tFBtr0333671, FBtr0300798, FBtr0300799, FBtr0089116, FBtr0300800, FBtr0308086, FBtr0308087, FBtr0089119, FBtr0300796, FBtr0300797" />
+                </assert_contents>
+            </output>
         </test>
         <!-- Ensure two factors works-->
         <test expect_num_outputs="1">
-            <param name="gtf" value="dexseq.gtf" ftype="gtf"/>
+            <param name="gtf" value="dm3_78_dexseq.gtf" ftype="gtf"/>
             <repeat name="rep_factorName">
                 <param name="factorName" value="condition"/>
                 <param name="factorLevel1" value="knockdown"/>
-                <param name="countFiles1" value="treated1fb.txt,treated2fb.txt,treated3fb.txt" ftype="tabular"/>
+                <param name="countFiles1" value="GSM461179_treat_single_counts.txt,GSM461180_treat_paired_counts.txt,GSM461181_treat_paired_counts.txt" ftype="tabular"/>
                 <param name="factorLevel2" value="control"/>
-                <param name="countFiles2" value="untreated1fb.txt,untreated2fb.txt,untreated3fb.txt,untreated4fb.txt" ftype="tabular"/>
+                <param name="countFiles2" value="GSM461176_untreat_single_counts.txt,GSM461177_untreat_paired_counts.txt,GSM461178_untreat_paired_counts.txt,GSM461182_untreat_single_counts.txt"/>
             </repeat>
             <repeat name="rep_factorName">
                 <param name="factorName" value="libtype"/>
                 <param name="factorLevel1" value="singleend"/>
-                <param name="countFiles1" value="treated1fb.txt,untreated1fb.txt,untreated2fb.txt" ftype="tabular"/>
+                <param name="countFiles1" value="GSM461179_treat_single_counts.txt,GSM461176_untreat_single_counts.txt,GSM461182_untreat_single_counts.txt" ftype="tabular"/>
                 <param name="factorLevel2" value="pairedend"/>
-                <param name="countFiles2" value="treated2fb.txt,treated3fb.txt,untreated3fb.txt,untreated4fb.txt" ftype="tabular"/>
+                <param name="countFiles2" value="GSM461180_treat_paired_counts.txt,GSM461181_treat_paired_counts.txt,GSM461177_untreat_paired_counts.txt,GSM461178_untreat_paired_counts.txt" ftype="tabular"/>
             </repeat>
             <param name="report" value="False"/>
             <param name="fdr_cutoff" value="0.05"/>
-            <output name="dexseq_out" file="dexseq_result_2fact.tabular" ftype="tabular"/>
+            <output name="dexseq_out">
+                <assert_contents>
+                    <has_text_matching expression="FBgn0039890:E002\tFBgn0039890\tE002\t38.2155.*\t0.0093.*\t4.5664.*\t0.0326.*\t0.7457.*\t10.6257.*\t9.0649.*\t-0.4963.*\tchr4\t205296\t205421\t126\t-\t43\t19\t27\t22\t75\t39\t60\tFBtr0308247, FBtr0089149, FBtr0089148, FBtr0089150, FBtr0089151, FBtr0089152, FBtr0089147, FBtr0089146" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Ensure report works-->
+        <!--<test expect_num_outputs="2">
+            <param name="gtf" value="dm3_78_dexseq.gtf" ftype="gtf"/>
+            <repeat name="rep_factorName">
+                <param name="factorName" value="Treatment"/>
+                <param name="factorLevel1" value="knockdown"/>
+                <param name="countFiles1" value="GSM461179_treat_single_counts.txt,GSM461180_treat_paired_counts.txt,GSM461181_treat_paired_counts.txt" ftype="tabular"/>
+                <param name="factorLevel2" value="control"/>
+                <param name="countFiles2" value="GSM461176_untreat_single_counts.txt,GSM461177_untreat_paired_counts.txt,GSM461178_untreat_paired_counts.txt,GSM461182_untreat_single_counts.txt" ftype="tabular"/>
+            </repeat>
+            <param name="report" value="True"/>
+            <param name="fdr_cutoff" value="1"/>
+            <output name="dexseq_out">
+                <assert_contents>
+                    <has_text_matching expression="FBgn0010217:E007\tFBgn0010217\tE007\t1626.5962.*\t0.0396.*\t0.0273.*\t0.8686.*\t0.9972.*\t29.3180.*\t29.1763.*\t-0.0350.*\tchr4\t1053898\t1055183\t1286\t\+\t1550\t1387\t1981\t1017\t1558\t1965\t2250\tFBtr0089187, FBtr0089186, FBtr0333672" />
+                </assert_contents>
+            </output>
+        </test>-->
+        <!-- Ensure annotation works-->
+        <test expect_num_outputs="2">
+            <param name="gtf" value="dm3_78_dexseq.gtf" ftype="gtf"/>
+            <repeat name="rep_factorName">
+                <param name="factorName" value="condition"/>
+                <param name="factorLevel1" value="knockdown"/>
+                <param name="countFiles1" value="GSM461179_treat_single_counts.txt,GSM461180_treat_paired_counts.txt,GSM461181_treat_paired_counts.txt" ftype="tabular"/>
+                <param name="factorLevel2" value="control"/>
+                <param name="countFiles2" value="GSM461176_untreat_single_counts.txt,GSM461177_untreat_paired_counts.txt,GSM461178_untreat_paired_counts.txt,GSM461182_untreat_single_counts.txt" ftype="tabular"/>
+            </repeat>
+            <param name="report" value="False"/>
+            <param name="fdr_cutoff" value="0.05"/>
+            <param name="annotate_selector" value="yes"/>
+            <param name="annotation" value="dm3_78.gtf"/>
+            <output name="dexseq_out_annot">
+                <assert_contents>
+                    <has_text_matching expression="FBgn0026869\+FBgn0264618:E005\tFBgn0026869\+FBgn0264618\tE005\t96.0699.*\t0.0044.*\t0.1417.*\t0.7065.*\t0.9972.*\t13.5036.*\t13.6687.*\t0.0492.*\tchr4\t571380\t572006\t627\t-\t102\t71\t98\t79\t104\t101\t133\tFBtr0089106, FBtr0333706\tprotein_coding\+ncRNA\tThd1\+CR43958\tFBtr0089106:3,FBtr0333706:3" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -161,6 +246,8 @@ Inference of differential exon usage in RNA-Seq.
 
 
 **Inputs**
+
+**Count Files**
 
 DEXSeq_ takes count tables generated from the dexseq_count as input. Count tables must be generated for each sample individually.
 DEXSeq_ is capable of handling multiple factors that effect your experiment. The first factor you input is considered as the primary
@@ -185,6 +272,12 @@ Gender    Female         Male
 ========= ============== ===============
 
 *Note*: Output log2 fold changes are based on primary factor level 1 vs. factor level2. Here the order of factor levels is important. For example, for the factor 'condition' given in above table, DEXSeq computes fold changes of 'Knockdown' samples against 'Wildtype', i.e. the values correspond to up or down regulations of genes in Knockdown samples.
+
+**Annotation File**
+
+To annotate the output table with more information, use the original annotation file (GTF/GFF) which was used for DEXSeq-prepare step.
+
+-----
 
 **Output**
 
