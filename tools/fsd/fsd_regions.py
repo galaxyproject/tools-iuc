@@ -70,7 +70,7 @@ def compare_read_families_refGenome(argv):
         seqDic_ab = dict(zip(all_ab, quant_ab))
         seqDic_ba = dict(zip(all_ba, quant_ba))
 
-        if re.search(r'_(\d)+_(\d)+$', str(mut_array[0,0])) is None:
+        if re.search(r'_(\d)+_(\d)+$', str(mut_array[0, 0])) is None:
             seq_mut, seqMut_index = numpy.unique(numpy.array(mut_array[:, 1]), return_index=True)
             group = mut_array[seqMut_index, 0]
             mut_array = mut_array[seqMut_index, :]
@@ -154,7 +154,7 @@ def compare_read_families_refGenome(argv):
         for i, count in zip(groupUnique, quantAfterRegion):
             index_of_current_region = numpy.where(group == i)[0]
             plt.text(0.55, 0.14 - s, "{}=\n".format(i), size=11, transform=plt.gcf().transFigure)
-            if re.search('_(\d)+_(\d)+$', str(mut_array[0, 0])) is None:
+            if re.search(r'_(\d)+_(\d)+$', str(mut_array[0, 0])) is None:
                 nr_tags_ab = len(numpy.unique(mut_array[index_of_current_region, 1]))
             else:
                 nr_tags_ab = len(mut_array[index_of_current_region, 1])
