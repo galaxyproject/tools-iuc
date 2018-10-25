@@ -58,7 +58,7 @@ def range2tag(argv):
             stop_posList = range_array[2].astype(int)
             chrList = [chrList.tolist()]
             start_posList = [start_posList.tolist()]
-            stop_posList = [stop_posList.tolist()]        
+            stop_posList = [stop_posList.tolist()]
         else:
             chrList = range_array[:, 0]
             start_posList = range_array[:, 1].astype(int)
@@ -122,19 +122,18 @@ def range2tag(argv):
                                     mut_tags = np.vstack((mut_tags, np.array(tags[t])))
                                 # ref_name_next.append(ref_chr_next[t])
             if mut_tags is not None:
-                index = np.repeat("{}_{}_{}".format(chr, start_pos+3, stop_pos-3), mut_tags.size)
+                index = np.repeat("{}_{}_{}".format(chr, start_pos + 3, stop_pos - 3), mut_tags.size)
                 ind.append(index)
                 if mut_tags.size == 1:
                     lst.append(np.vstack([mut_tags.tolist()]))
                 else:
                     lst.append(mut_tags)
             else:
-                print("No tags found in region {}_{}_{}!".format(chr, start_pos+3, stop_pos-3))
+                print("No tags found in region {}_{}_{}!".format(chr, start_pos + 3, stop_pos - 3))
     else:
         tags = np.array(tags)[np.where((cigar != "*"))[0]]
         ref_chr = np.array(ref_chr)[np.where((cigar != "*"))[0]]
         # ref_chr_next = np.array(ref_chr_next)[np.where((cigar != "*"))[0]]
-        
         # only_aligned_tags = np.where((ref_chr != "*") | (ref_chr_next != "*"))[0]
         only_aligned_tags = np.where(ref_chr != "*")[0]
         mut_tags = np.array(np.array(tags)[only_aligned_tags])
@@ -154,4 +153,3 @@ def range2tag(argv):
 
 if __name__ == '__main__':
     sys.exit(range2tag(sys.argv))
-

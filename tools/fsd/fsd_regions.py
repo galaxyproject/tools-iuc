@@ -15,7 +15,6 @@
 import argparse
 import re
 import sys
-from collections import OrderedDict
 
 import matplotlib.pyplot as plt
 import numpy
@@ -71,11 +70,11 @@ def compare_read_families_refGenome(argv):
         seqDic_ab = dict(zip(all_ab, quant_ab))
         seqDic_ba = dict(zip(all_ba, quant_ba))
 
-        if re.search('_(\d)+_(\d)+$', str(mut_array[0,0])) is None:
+        if re.search(r'_(\d)+_(\d)+$', str(mut_array[0,0])) is None:
             seq_mut, seqMut_index = numpy.unique(numpy.array(mut_array[:, 1]), return_index=True)
-            group = mut_array[seqMut_index,0]
-            mut_array = mut_array[seqMut_index,:]
-        length_regions = len(seq_mut)*2
+            group = mut_array[seqMut_index, 0]
+            mut_array = mut_array[seqMut_index, :]
+        length_regions = len(seq_mut) * 2
 
         groupUnique, group_index = numpy.unique(group, return_index=True)
         groupUnique = groupUnique[numpy.argsort(group_index)]
@@ -144,15 +143,14 @@ def compare_read_families_refGenome(argv):
         plt.text(0.45, 0.15, legend, size=11, transform=plt.gcf().transFigure)
 
         plt.text(0.55, 0.22, "total nr. of tags=", size=11, transform=plt.gcf().transFigure)
-        plt.text(0.75, 0.22, "{:,} ({:,})".format(length_regions, length_regions/2), size=11, transform=plt.gcf().transFigure)
+        plt.text(0.75, 0.22, "{:,} ({:,})".format(length_regions, length_regions / 2), size=11, transform=plt.gcf().transFigure)
 
         #  legend4 = '* The total numbers indicate the count of the ab and ba tags per region.\nAn equal sign ("=") is used in the column ba tags, if the counts and the region are identical to the ab tags.'
         #  plt.text(0.1, 0.02, legend4, size=11, transform=plt.gcf().transFigure)
 
         plt.text(0.75, 0.18, "total nr. of tags per region", size=11, transform=plt.gcf().transFigure)
-        #space = numpy.arange(0, len(groupUnique), 0.02)
+        # space = numpy.arange(0, len(groupUnique), 0.02)
         s = 0
-        index_array = 0
         for i, count in zip(groupUnique, quantAfterRegion):
             index_of_current_region = numpy.where(group == i)[0]
             plt.text(0.55, 0.14 - s, "{}=\n".format(i), size=11, transform=plt.gcf().transFigure)
@@ -178,7 +176,7 @@ def compare_read_families_refGenome(argv):
         output_file.write("absolute frequency:{}{}{}{}\n".format(sep, count[len(count) - 1], sep, count2[len(count2) - 1]))
         output_file.write("relative frequency:{}{:.3f}{}{:.3f}\n\n".format(sep, float(count[len(count) - 1]) / sum(count), sep, float(count2[len(count2) - 1]) / sum(count2)))
         output_file.write("total nr. of reads{}{}\n".format(sep, sum(numpy.array(data_array[:, 0]).astype(int))))
-        output_file.write("total nr. of tags{}{} ({})\n".format(sep, length_regions, length_regions/2))
+        output_file.write("total nr. of tags{}{} ({})\n".format(sep, length_regions, length_regions / 2))
 
         output_file.write("\n\nValues from family size distribution\n")
         output_file.write("{}".format(sep))
@@ -212,9 +210,9 @@ def compare_read_families_refGenome(argv):
         output_file.write("\n\nRegion{}total nr. of tags per region\n".format(sep, sep))
 
         for i, count in zip(groupUnique, quantAfterRegion):
-            output_file.write("{}{}{}\n".format(i,sep,len(count) / 2))
+            output_file.write("{}{}{}\n".format(i, sep, len(count) / 2))
     print("Files successfully created!")
 
 
 if __name__ == '__main__':
-   sys.exit(compare_read_families_refGenome(sys.argv))
+    sys.exit(compare_read_families_refGenome(sys.argv))
