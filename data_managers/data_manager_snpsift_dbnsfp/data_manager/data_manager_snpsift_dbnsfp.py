@@ -43,7 +43,7 @@ data_table = 'snpsift_dbnsfps'
 softgenetics_url = 'ftp://dbnsfp:dbnsfp@dbnsfp.softgenetics.com/'
 dbNSFP_file_pat = '(dbNSFP(.*)_variant|dbscSNV(.*)).chr(.*)'
 tokenize = re.compile(r'(\d+)|(\D+)').findall
-dbNSFP_name_pat = 'dbNSFP(v|_light)?(\d*).*?'
+dbNSFP_name_pat = r'dbNSFP(v|_light)?(\d*).*?'
 
 
 def stop_err(msg):
@@ -53,7 +53,7 @@ def stop_err(msg):
 
 def get_nsfp_genome_version(name):
     genome_version = 'hg19'
-    dbNSFP_name_pat = '(dbscSNV|dbNSFP(v|_light)?)(\d*).*?'
+    dbNSFP_name_pat = r'(dbscSNV|dbNSFP(v|_light)?)(\d*).*?'
     m = re.match(dbNSFP_name_pat, name)
     if m:
         (base, mid, ver) = m.groups()
@@ -167,7 +167,7 @@ def main():
     bzip_path = None
     if options.softgenetics:
         dbnsfp_url = softgenetics_url + options.softgenetics
-        db_name = options.db_name if options.db_name else re.sub('\.zip$', '', options.softgenetics)
+        db_name = options.db_name if options.db_name else re.sub(r'\.zip$', '', options.softgenetics)
         genome_version = get_nsfp_genome_version(options.softgenetics)
         tsv = db_name + '.tsv'
         dbnsfp_tsv = download_dbnsfp_database(dbnsfp_url, tsv)
