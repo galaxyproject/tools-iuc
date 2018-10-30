@@ -31,7 +31,7 @@ class ColorScaling(object):
     }}
     """
 
-    COLOR_FUNCTION_TEMPLATE_QUAL = """
+    COLOR_FUNCTION_TEMPLATE_QUAL = r"""
     function(feature, variableName, glyphObject, track) {{
         var search_up = function self(sf, attr){{
             if(sf.get(attr) !== undefined){{
