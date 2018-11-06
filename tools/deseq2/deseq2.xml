@@ -1,5 +1,8 @@
-<tool id="deseq2" name="DESeq2" version="2.11.40.5">
+<tool id="deseq2" name="DESeq2" version="2.11.40.6">
     <description>Determines differentially expressed features from count tables</description>
+    <macros>
+        <import>deseq2_macros.xml</import>
+    </macros>
     <requirements>
         <requirement type="package" version="1.20.0">bioconductor-deseq2</requirement>
         <!-- Optional dependency of tximport, needed to import kallisto results https://github.com/galaxyproject/usegalaxy-playbook/issues/161 -->
@@ -57,14 +60,23 @@ Rscript '${__tool_directory__}/deseq2.R'
     #end if
     #set $filename_to_element_identifiers = {}
     #set $temp_factor_names = list()
-    #for $factor in $rep_factorName:
+    #for $factor in $select_data.rep_factorName:
         #set $temp_factor = list()
         #for $level in $factor.rep_factorLevel:
             #set $count_files = list()
-            #for $file in $level.countsFile:
-                $count_files.append(str($file))
-                $filename_to_element_identifiers.__setitem__(os.path.basename(str($file)),  $file.element_identifier)
-            #end for
+            #if $select_data.how == 'group_tags':
+                #for $group in $level.groups.value:
+                    #for $file in $select_data.countsFile.get_datasets_for_group($group):
+                        $count_files.append(str($file))
+                        $filename_to_element_identifiers.__setitem__(os.path.basename(str($file)),  $file.element_identifier)
+                    #end for
+                #end for
+            #else:
+                #for $file in $level.countsFile:
+                    $count_files.append(str($file))
+                    $filename_to_element_identifiers.__setitem__(os.path.basename(str($file)),  $file.element_identifier)
+                #end for
+            #end if
             $temp_factor.append( {str($level.factorLevel): $count_files} )
         #end for
         $temp_factor.reverse()
@@ -106,23 +118,24 @@ Rscript '${__tool_directory__}/deseq2.R'
     #end if
 ]]></command>
     <inputs>
-        <repeat name="rep_factorName" title="Factor" min="1">
-            <param name="factorName" type="text" value="FactorName" label="Specify a factor name, e.g. effects_drug_x or cancer_markers"
-                help="Only letters, numbers and underscores will be retained in this field">
-                <sanitizer>
-                    <valid initial="string.letters,string.digits"><add value="_" /></valid>
-                </sanitizer>
+        <conditional name="select_data">
+            <param name="how" type="select">
+                <option value="datasets_per_level">Select datasets per level</option>
+                <option value="group_tags">Select group tags corresponding to levels</option>
             </param>
-            <repeat name="rep_factorLevel" title="Factor level" min="2" default="2">
-                <param name="factorLevel" type="text" value="FactorLevel" label="Specify a factor level, typical values could be 'tumor', 'normal', 'treated' or 'control'"
-                    help="Only letters, numbers and underscores will be retained in this field">
-                    <sanitizer>
-                        <valid initial="string.letters,string.digits"><add value="_" /></valid>
-                    </sanitizer>
-                </param>
-                <param name="countsFile" type="data" format="tabular" multiple="true" label="Counts file(s)"/>
-            </repeat>
-        </repeat>
+            <when value="group_tags">
+                <param name="countsFile" type="data_collection" format="tabular" label="Count file(s) collection" multiple="true"/>
+                <expand macro="factor_repeat">
+                    <param name="groups" type="group_tag" data_ref="countsFile" multiple="true" label="Select groups that correspond to this factor level"/>
+                </expand>
+            </when>
+            <when value="datasets_per_level">
+                <expand macro="factor_repeat">
+                    <param name="countsFile" type="data" format="tabular" multiple="true" label="Counts file(s)"/>
+                </expand>
+            </when>
+        </conditional>
+
         <param name="batch_factors" type="data" format="tabular" optional="true" label="(Optional) provide a tabular file with additional batch factors to include in the model." help="You can produce this file using RUVSeq or svaseq."/>
         <param name="header" type="boolean" truevalue="-H" falsevalue="" checked="true" label="Files have header?" help="If this option is set to Yes, the tool will assume that the count files have column headers in the first row. Default: Yes" />
 
@@ -394,6 +407,41 @@ Rscript '${__tool_directory__}/deseq2.R'
             <output name="deseq_out" >
                 <assert_contents>
                     <has_text_matching expression="ENSG00000168671\t1.8841.*\t-0.1180.*\t0.7429.*\t-0.1589.*\t0.8737.*\t0.9999.*" />
+                </assert_contents>
+            </output>
+        </test>
+        <!--Ensure group tags can be used to select factor levels -->
+        <test expect_num_outputs="1">
+            <param name="select_data|how" value="group_tags"/>
+            <param name="select_data|countsFile">
+                <collection type="list">
+                    <element name="1" value="sailfish/sailfish_quant.sf1.tab" tags="group:primary:treated"/>
+                    <element name="2" value="sailfish/sailfish_quant.sf2.tab" tags="group:primary:treated"/>
+                    <element name="3" value="sailfish/sailfish_quant.sf3.tab" tags="group:primary:treated"/>
+                    <element name="4" value="sailfish/sailfish_quant.sf4.tab" tags="group:primary:untreated"/>
+                    <element name="5" value="sailfish/sailfish_quant.sf5.tab" tags="group:primary:untreated"/>
+                    <element name="6" value="sailfish/sailfish_quant.sf6.tab" tags="group:primary:untreated"/>
+                </collection>
+            </param>
+            <repeat name="rep_factorName">
+                <param name="factorName" value="Treatment"/>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="Treated"/>
+                    <param name="groups" value="primary:treated"/>
+                </repeat>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="Untreated"/>
+                    <param name="groups" value="primary:untreated"/>
+                </repeat>
+            </repeat>
+            <param name="pdf" value="False"/>
+            <param name="tximport_selector" value="tximport"/>
+            <param name="txtype" value="sailfish"/>
+            <param name="mapping_format_selector" value="tabular"/>
+            <param name="tabular_file" value="tx2gene.tab"/>
+            <output name="deseq_out" >
+                <assert_contents>
+                    <has_text_matching expression="HOXC11\t0.557.*\t0.324.*\t0.437.*\t0.741.*\t0.458.*\t0.999.*"/>
                 </assert_contents>
             </output>
         </test>
