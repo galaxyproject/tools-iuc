@@ -16,6 +16,18 @@ test <- list()
 test$side = 3
 test$line = 3
 
+do.plotting <- function(sc){
+    print(plotmap(sc, final = FALSE, fr = FALSE))
+    print(do.call(mtext, c("Initial Clustering tSNE", test)))
+    print(plotmap(sc, final = TRUE, fr = FALSE))
+    print(do.call(mtext, c("Final Clustering tSNE", test)))
+    print(plotmap(sc, final = FALSE, fr = TRUE))
+    print(do.call(mtext, c("Initial Clustering Fruchterman-Reingold", test)))
+    print(plotmap(sc, final = TRUE, fr = TRUE))
+    print(do.call(mtext, c("Final Clustering Fruchterman-Reingold", test)))
+}
+
+
 do.inspect.symbolmap <- function(sc){
     if (!is.null(plotsym.use.typeremoveregex)){
         plotsym$types = sub(plotsym.use.typeremoveregex, "", colnames(sc@ndata))
@@ -102,6 +114,7 @@ do.inspect.genesofinterest <- function(sc){
 sc <- in.rdat
 
 pdf(out.pdf)
+if (perform.plotting) do.plotting(sc)
 if (perform.symbolmap) do.inspect.symbolmap(sc)
 if (perform.genesofinterest) do.inspect.genesofinterest(sc)
 if (perform.diffgene) do.inspect.diffgene(sc)

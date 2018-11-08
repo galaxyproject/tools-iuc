@@ -1,5 +1,5 @@
 #!/usr/bin/env R
-VERSION = "0.1"
+VERSION = "0.2"
 
 args = commandArgs(trailingOnly = T)
 
@@ -63,21 +63,11 @@ do.outlier <- function(sc){
 }
 
 do.clustmap <- function(sc){
-    test <- list()
-    test$side = 3
-    test$line = 2.5
     sc <- do.call(comptsne, c(sc, cluster.comptsne))
     sc <- do.call(compfr, c(sc, cluster.compfr))
-    print(plotmap(sc, final = FALSE, fr = FALSE))
-    print(do.call(mtext, c("Initial Clustering tSNE", test)))
-    print(plotmap(sc, final = TRUE, fr = FALSE))
-    print(do.call(mtext, c("Final Clustering tSNE", test)))
-    print(plotmap(sc, final = FALSE, fr = TRUE))
-    print(do.call(mtext, c("Initial Clustering Fruchterman-Reingold", test)))
-    print(plotmap(sc, final = TRUE, fr = TRUE))
-    print(do.call(mtext, c("Final Clustering Fruchterman-Reingold", test)))
     return(sc)
 }
+
 
 mkgenelist <- function(sc){
     df <- c()
@@ -96,19 +86,29 @@ mkgenelist <- function(sc){
 
 pdf(out.pdf)
 par(mfrow=c(2,2))
-sc <- do.filter(sc)
-message(paste(" - Source:: genes:",nrow(sc@expdata),", cells:",ncol(sc@expdata)))
-message(paste(" - Filter:: genes:",nrow(sc@ndata),", cells:",ncol(sc@ndata)))
-message(paste("         :: ",
-              sprintf("%.1f", 100 * nrow(sc@ndata)/nrow(sc@expdata)), "% of genes remain,",
-              sprintf("%.1f", 100 * ncol(sc@ndata)/ncol(sc@expdata)), "% of cells remain"))
-par(mfrow=c(2,2))
-sc <- do.cluster(sc)
-par(mfrow=c(2,2))
-sc <- do.outlier(sc)
-par(mfrow=c(2,2), mar=c(1,1,6,1))
-sc <- do.clustmap(sc)
+
+if (use.filtnormconf){
+    sc <- do.filter(sc)
+    message(paste(" - Source:: genes:",nrow(sc@expdata),", cells:",ncol(sc@expdata)))
+    message(paste(" - Filter:: genes:",nrow(sc@ndata),", cells:",ncol(sc@ndata)))
+    message(paste("         :: ",
+                  sprintf("%.1f", 100 * nrow(sc@ndata)/nrow(sc@expdata)), "% of genes remain,",
+                  sprintf("%.1f", 100 * ncol(sc@ndata)/ncol(sc@expdata)), "% of cells remain"))
+}
+
+if (use.cluster){
+    par(mfrow=c(2,2))
+    sc <- do.cluster(sc)
+
+    par(mfrow=c(2,2))
+    sc <- do.outlier(sc)
+
+    par(mfrow=c(2,2), mar=c(1,1,6,1))
+    sc <- do.clustmap(sc)
+
+    mkgenelist(sc)
+}
+
 dev.off()
 
-mkgenelist(sc)
 saveRDS(sc, out.rdat)
