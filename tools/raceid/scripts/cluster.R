@@ -12,13 +12,6 @@ suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
 suppressWarnings(suppressPackageStartupMessages(require(scran)))
 source(args[1])
 
-sc <- NULL
-if (use.test.data) {
-  sc <- SCseq(intestinalData)
-  message("Loading test data from library")
-} else {
-  sc <- SCseq(in.table)
-}
 
 do.filter <- function(sc){
     if (!is.null(filt.lbatch.regexes)){
