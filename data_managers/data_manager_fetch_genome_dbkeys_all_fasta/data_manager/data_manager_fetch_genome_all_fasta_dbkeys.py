@@ -12,6 +12,7 @@ import tempfile
 import zipfile
 from ftplib import FTP
 from json import dumps, loads
+import html5lib
 
 try:
     # For Python 3.0 and later
@@ -65,6 +66,16 @@ def _get_files_in_ftp_path(ftp, path):
     ftp.retrlines('MLSD %s' % (path), path_contents.append)
     return [line.split(';')[-1].lstrip() for line in path_contents]
 
+def _get_files_in_http_path(path):
+    content = urlopen(path).read()
+    forbidden_chars = set('/?=;')
+    path_contents = []
+    tree = html5lib.parse(content, namespaceHTMLElements=False)
+    for link in tree.findall(".//a"):
+        fl = link.attrib['href']
+        if not any((c in forbidden_chars) for c in fl):
+            path_contents.append(fl)
+    return path_contents
 
 def _get_stream_readers_for_tar(fh, tmp_dir):
     fasta_tar = tarfile.open(fileobj=fh, mode='r:*')
@@ -250,25 +261,31 @@ def _get_ucsc_download_address(params, dbkey):
     UCSC_DOWNLOAD_PATH = '/goldenPath/%s/bigZips/'
     COMPRESSED_EXTENSIONS = ['.tar.gz', '.tgz', '.tar.bz2', '.zip', '.fa.gz', '.fa.bz2']
 
+    ucsc_prefer_http = params['param_dict']['reference_source']['ucsc_prefer_http'] or '0'
+
     email = params['param_dict']['__user_email__']
     if not email:
         email = 'anonymous@example.com'
 
     ucsc_dbkey = params['param_dict']['reference_source']['requested_dbkey'] or dbkey
     UCSC_CHROM_FA_FILENAMES = ['%s.chromFa' % ucsc_dbkey, 'chromFa', ucsc_dbkey]
-
-    ftp = FTP(UCSC_FTP_SERVER)
-    ftp.login('anonymous', email)
-
     ucsc_path = UCSC_DOWNLOAD_PATH % ucsc_dbkey
-    path_contents = _get_files_in_ftp_path(ftp, ucsc_path)
-    ftp.quit()
+
+    if ucsc_prefer_http == '0':
+        protocol_prefix = 'ftp'
+        ftp = FTP(UCSC_FTP_SERVER)
+        ftp.login('anonymous', email)
+        path_contents = _get_files_in_ftp_path(ftp, ucsc_path)
+        ftp.quit()
+    else:
+        protocol_prefix = 'http'
+        path_contents = _get_files_in_http_path('http://%s%s' % (UCSC_FTP_SERVER, ucsc_path))
 
     for ucsc_chrom_fa_filename in UCSC_CHROM_FA_FILENAMES:
         for ext in COMPRESSED_EXTENSIONS:
             if "%s%s" % (ucsc_chrom_fa_filename, ext) in path_contents:
                 ucsc_file_name = "%s%s%s" % (ucsc_path, ucsc_chrom_fa_filename, ext)
-                return "ftp://%s%s" % (UCSC_FTP_SERVER, ucsc_file_name)
+                return "%s://%s%s" % (protocol_prefix, UCSC_FTP_SERVER, ucsc_file_name)
 
     raise Exception('Unable to determine filename for UCSC Genome for %s: %s' % (ucsc_dbkey, path_contents))
 
