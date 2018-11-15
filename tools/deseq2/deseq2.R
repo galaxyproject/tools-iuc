@@ -58,7 +58,7 @@ spec <- matrix(c(
   "tximport", "i", 0, "logical",
   "txtype", "y", 1, "character",
   "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF file (auto detect .gtf/.GTF)
-  "esf", "e", 0, "character",
+  "esf", "e", 1, "character",
   "fit_type", "t", 1, "integer",
   "many_contrasts", "m", 0, "logical",
   "outlier_replace_off" , "a", 0, "logical",
