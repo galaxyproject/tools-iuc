@@ -291,19 +291,14 @@ if (!is.null(opt$countsfile)) {
 }
 
 if (!is.null(opt$rlogfile)) {
-    print("rlogTransformation")
-    labs <- paste0(seq_len(ncol(dds)), ": ", do.call(paste, as.list(colData(dds)[factors])))
     rLogNormalized <-rlogTransformation(dds)
     rLogNormalizedMat <- assay(rLogNormalized)
-    colnames(rLogNormalizedMat) <- labs
     write.table(rLogNormalizedMat, file=opt$rlogfile, sep="\t", col.names=NA, quote=FALSE)
 }
 
 if (!is.null(opt$vstfile)) {
-    labs <- paste0(seq_len(ncol(dds)), ": ", do.call(paste, as.list(colData(dds)[factors])))
     vstNormalized<-varianceStabilizingTransformation(dds)
     vstNormalizedMat <- assay(vstNormalized)
-    colnames(vstNormalizedMat)<-labs
     write.table(vstNormalizedMat, file=opt$vstfile, sep="\t", col.names=NA, quote=FALSE)
 }
 
