@@ -50,8 +50,14 @@ do.outlier <- function(sc){
     print(plotsensitivity(sc))
     print(plotoutlierprobs(sc))
     ## Heatmaps
+    test1 <- list()
+    test1$side = 3
+    test1$line = 0  #1 #3
+
     x <- clustheatmap(sc, final=FALSE)
+    print(do.call(mtext, c(paste("(Initial)"), test1)))  ## spacing is a hack
     x <- clustheatmap(sc, final=TRUE)
+    print(do.call(mtext, c(paste("(Final)"), test1)))  ## spacing is a hack
     return(sc)
 }
 
@@ -63,7 +69,14 @@ do.clustmap <- function(sc){
 
 
 mkgenelist <- function(sc){
+    ## Layout
+    test <- list()
+    test$side = 3
+    test$line = 0  #1 #3
+    test$cex = 0.8
+
     df <- c()
+    options(cex = 1)
     lapply(unique(sc@cpart), function(n){
         dg <- clustdiffgenes(sc, cl=n, pvalue=genelist.pvalue)
 
@@ -73,6 +86,12 @@ mkgenelist <- function(sc){
 
         goi <- head(rownames(dg.goi.table), genelist.plotlim)
         print(plotmarkergenes(sc, goi))
+        print(do.call(mtext, c(paste("                               Cluster ",n), test)))  ## spacing is a hack
+        test$line=-1
+        print(do.call(mtext, c(paste("                               Sig. Genes"), test)))  ## spacing is a hack
+        test$line=-2
+        print(do.call(mtext, c(paste("                               (fc > ", genelist.foldchange,")"), test)))  ## spacing is a hack
+
     })
     write.table(df, file=out.genelist, sep="\t", quote=F)
 }
