@@ -22,7 +22,38 @@ do.filter <- function(sc){
 
     sc <- do.call(filterdata, c(sc, filt))
 
+    ## Get histogram metrics for library size and number of features
+    raw.lib <- log(colSums(as.matrix(sc@expdata)))
+    raw.feat <- log(rowSums(as.matrix(sc@expdata)))
+    filt.lib <- log(colSums(getfdata(sc)))
+    filt.feat <- log(rowSums(getfdata(sc)))
+
+    br <- 50
+    ## Determine limits on plots based on the unfiltered data
+    ## (doesn't work, R rejects limits and norm data is too different to compare to exp data
+    ##  so let them keep their own ranges)
+
+    ## betterrange <- function(floatval){
+    ##     return(10 * (floor(floatval / 10) + 1))
+    ## }
+
+    ## tmp.lib <- hist(raw.lib, breaks=br, plot=F)
+    ## tmp.feat <- hist(raw.feat, breaks=br, plot=F)
+
+    ## lib.y_lim <- c(0,betterrange(max(tmp.lib$counts)))
+    ## lib.x_lim <- c(0,betterrange(max(tmp.lib$breaks)))
+
+    ## feat.y_lim <- c(0,betterrange(max(tmp.feat$counts)))
+    ## feat.x_lim <- c(0,betterrange(max(tmp.feat$breaks)))
+
+    par(mfrow=c(2,2))
+    print(hist(raw.lib, breaks=br, main="ExpData Log(LibSize)")) # , xlim=lib.x_lim, ylim=lib.y_lim)
+    print(hist(raw.feat, breaks=br, main="ExpData Log(NumFeat)")) #, xlim=feat.x_lim, ylim=feat.y_lim)
+    print(hist(filt.lib, breaks=br, main="FiltData Log(LibSize)")) # , xlim=lib.x_lim, ylim=lib.y_lim)
+    print(hist(filt.feat, breaks=br, main="FiltData Log(NumFeat)")) # , xlim=feat.x_lim, ylim=feat.y_lim)
+
     if (filt.use.ccorrect){
+        par(mfrow=c(2,2))
         sc <- do.call(CCcorrect, c(sc, filt.ccc))
         print(plotdimsat(sc, change=T))
         print(plotdimsat(sc, change=F))
@@ -97,7 +128,6 @@ mkgenelist <- function(sc){
 }
 
 pdf(out.pdf)
-par(mfrow=c(2,2))
 
 if (use.filtnormconf){
     sc <- do.filter(sc)
