@@ -1,8 +1,7 @@
 import argparse
 import os
-import sys
-from BCBio import GFF
 from collections import defaultdict
+from BCBio import GFF
 
 
 def strandardize(strand):
@@ -20,7 +19,7 @@ def gff_to_dict(f_gff, feat_type, idattr, txattr, attributes, input_type):
     then they are set to NA.
     """
     annotation = defaultdict(lambda: defaultdict(lambda: 'NA'))
-    exon_pos = defaultdict(lambda: defaultdict(dict))
+    exon_pos = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     tx_info = defaultdict(lambda: defaultdict(str))
 
     with open(f_gff) as gff_handle:
@@ -62,7 +61,6 @@ def gff_to_dict(f_gff, feat_type, idattr, txattr, attributes, input_type):
                     print("No '" + txattr + "' attribute found for the feature at position " + rec.id + ":" + str(
                         start) + ":" + str(end) + ". Please check your GTF/GFF file.")
                     pass
-    gff_handle.close()
 
     bed_entries = []
     # create BED lines only for deseq output
@@ -84,8 +82,10 @@ def gff_to_dict(f_gff, feat_type, idattr, txattr, attributes, input_type):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Annotate DESeq2/DEXSeq tables with more information from GFF/GTF files')
-    parser.add_argument('-in', '--input', required=True, help='DESeq2/DEXSeq output. It is allowed to have extra information, but make sure that the original output columns are not altered')
+    parser = argparse.ArgumentParser(description='Annotate DESeq2/DEXSeq tables with information from GFF/GTF files')
+    parser.add_argument('-in', '--input', required=True,
+                        help='DESeq2/DEXSeq output. It is allowed to have extra information, '
+                             'but make sure that the original output columns are not altered')
     parser.add_argument('-m', '--mode', required=True, choices=["deseq2", "dexseq"], default='deseq2',
                         help='Input file type')
     parser.add_argument('-g', '--gff', required=True, help='The same annotation GFF/GTF file used for couting')
@@ -97,7 +97,7 @@ def main():
     parser.add_argument('-x', '--txattr', default='transcript_id', required=False,
                         help='GFF attribute to be used as transcript ID. Used for DEXSeq output only.'
                              'This should match the first column of DESeq2 output(default: transcript_id)')
-    parser.add_argument('-a', '--attributes', default = 'gene_biotype, gene_name', required=False,
+    parser.add_argument('-a', '--attributes', default='gene_biotype, gene_name', required=False,
                         help='Comma separated attributes to include in output. Default: gene_biotype, gene_name')
     parser.add_argument('-o', '--output', required=True, help='Output file')
     args = parser.parse_args()
@@ -114,70 +114,63 @@ def main():
     attr = [x.strip() for x in args.attributes.split(',')]
     annotation, bed_entries = gff_to_dict(args.gff, args.type, args.idattr, args.txattr, attr, args.mode)
 
-    if args.mode == "dexseq":
-        fh_input = open(args.input, "r")
-        fh_input_bed = open("input.bed", "w")
-        for line in fh_input:
-            f = line.split('\t')
-            fh_input_bed.write('\t'.join([f[11], f[12], f[13], f[0], "0", f[15]]) + "\n")
-        fh_input_bed.close()
-        fh_input.close
+    d_binexon = {}
+    skip_exon_annotation = False
 
-        skip_exon_annotation = False
+    if args.mode == "dexseq":
+        with open(args.input) as fh_input, open("input.bed", "w") as fh_input_bed:
+            for line in fh_input:
+                f = line.split('\t')
+                fh_input_bed.write('\t'.join([f[11], f[12], f[13], f[0], "0", f[15]]) + "\n")
+
         if len(bed_entries) == 0 and args.mode == "dexseq":
             print("It seems there are no transcript ids present in GFF file. Skipping exon annotation.")
             skip_exon_annotation = True
 
         if not skip_exon_annotation:
-            fh_annotation_bed = open("annotation.bed", "w")
-            for line in bed_entries:
-                fh_annotation_bed.write(line + "\n")
-            fh_annotation_bed.close()
+            with open("annotation.bed", "w") as fh_annotation_bed:
+                for line in bed_entries:
+                    fh_annotation_bed.write(line + "\n")
 
             # interset the DEXseq couting bins with exons in the GFF file
             # overlaped positions can be later used to infer which bin corresponds to which exon
             os.system("intersectBed -wo -s -a input.bed -b annotation.bed > overlap.txt")
 
-            d_binexon = {}
-            fh_overlap = open("overlap.txt", "r")
-            for line in fh_overlap:
-                binid = line.split('\t')[3]
-                exonid = line.split('\t')[9]
-                d_binexon.setdefault(binid, []).append(exonid)
-            fh_overlap.close()
+            with open("overlap.txt") as fh_overlap:
+                for line in fh_overlap:
+                    binid = line.split('\t')[3]
+                    exonid = line.split('\t')[9]
+                    d_binexon.setdefault(binid, []).append(exonid)
 
-    fh_input = open(args.input, "r")
-    fh_output = open(args.output, "w")
-    for line in fh_input:
-        # Append the extra information from GFF to DESeq2 output
-        if args.mode == "deseq2":
-            geneid = line.split('\t')[0]
-            annot = [str(annotation[geneid]['chr']),
-                     str(annotation[geneid]['start']),
-                     str(annotation[geneid]['end']),
-                     str(annotation[geneid]['strand'])]
-            for a in attr:
-                annot.append(annotation[geneid][a])
-        # DEXSeq exonic bins might originate from aggrigating multiple genes. They are are separated by '+'
-        # Append the attributes from the GFF but keep the order of the aggregated genes and use '+'
-        # Aappend the transcript id and exon number from the annotation that correspond to the DEXseq counting bins
-        elif args.mode == "dexseq":
-            geneids = line.split('\t')[1].split('+')
+    with open(args.input) as fh_input, open(args.output, 'w') as fh_output:
+        for line in fh_input:
             annot = []
-            for a in attr:
-                tmp = []
-                for geneid in geneids:
-                    tmp.append(str(annotation[geneid][a]))
-                annot.append('+'.join(tmp))
-            if not skip_exon_annotation:
-                binid = line.split('\t')[0]
-                try:
-                    annot.append(','.join(sorted(set(d_binexon[binid]))))
-                except KeyError:
-                    annot.append('NA')
-        fh_output.write(line.rstrip('\n') + '\t' + '\t'.join(annot) + '\n')
-    fh_input.close()
-    fh_output.close()
+            # Append the extra information from GFF to DESeq2 output
+            if args.mode == "deseq2":
+                geneid = line.split('\t')[0]
+                annot = [str(annotation[geneid]['chr']),
+                         str(annotation[geneid]['start']),
+                         str(annotation[geneid]['end']),
+                         str(annotation[geneid]['strand'])]
+                for a in attr:
+                    annot.append(annotation[geneid][a])
+            # DEXSeq exonic bins might originate from aggrigating multiple genes. They are are separated by '+'
+            # Append the attributes from the GFF but keep the order of the aggregated genes and use '+'
+            # Aappend the transcript id and exon number from the annotation that correspond to the DEXseq counting bins
+            elif args.mode == "dexseq":
+                geneids = line.split('\t')[1].split('+')
+                for a in attr:
+                    tmp = []
+                    for geneid in geneids:
+                        tmp.append(str(annotation[geneid][a]))
+                    annot.append('+'.join(tmp))
+                if not skip_exon_annotation:
+                    binid = line.split('\t')[0]
+                    try:
+                        annot.append(','.join(sorted(set(d_binexon[binid]))))
+                    except KeyError:
+                        annot.append('NA')
+            fh_output.write(line.rstrip('\n') + '\t' + '\t'.join(annot) + '\n')
 
 
 if __name__ == "__main__":
