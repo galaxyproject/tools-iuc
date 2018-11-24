@@ -17,13 +17,13 @@
 
 import argparse
 import re
-import sys
 import collections
-import pysam
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
+import pysam
 
 plt.switch_backend('agg')
 
@@ -33,20 +33,17 @@ def readFileReferenceFree(file, delim):
         data_array = np.genfromtxt(dest_f, skip_header=0, delimiter=delim, comments='#', dtype='string')
         return(data_array)
 
+
 def make_argparser():
     parser = argparse.ArgumentParser(description='Family Size Distribution of tags which were aligned to regions of the reference genome')
-    parser.add_argument('--inputFile',
-                        help='Tabular File with three columns: ab or ba, tag and family size.')
+    parser.add_argument('--inputFile', help='Tabular File with three columns: ab or ba, tag and family size.')
     parser.add_argument('--inputName1')
-    parser.add_argument('--bamFile',
-                        help='BAM file with aligned reads.')
-    parser.add_argument('--rangesFile', default=None,
-                        help='BED file with chromosome, start and stop positions.')
-    parser.add_argument('--output_pdf', default="data.pdf", type=str,
-                       help='Name of the pdf and tabular file.')
-    parser.add_argument('--output_tabular', default="data.tabular", type=str,
-                        help='Name of the pdf and tabular file.')
+    parser.add_argument('--bamFile', help='BAM file with aligned reads.')
+    parser.add_argument('--rangesFile', default=None, help='BED file with chromosome, start and stop positions.')
+    parser.add_argument('--output_pdf', default="data.pdf", type=str, help='Name of the pdf and tabular file.')
+    parser.add_argument('--output_tabular', default="data.tabular", type=str, help='Name of the pdf and tabular file.')
     return parser
+
 
 def compare_read_families_refGenome(argv):
     parser = make_argparser()
@@ -56,16 +53,16 @@ def compare_read_families_refGenome(argv):
     name1 = args.inputName1
     name1 = name1.split(".tabular")[0]
     bamFile = args.bamFile
-    
+
     rangesFile = args.rangesFile
     title_file = args.output_pdf
     title_file2 = args.output_tabular
     sep = "\t"
-    
+
     with open(title_file2, "w") as output_file, PdfPages(title_file) as pdf:
         data_array = readFileReferenceFree(firstFile, "\t")
         pysam.index(bamFile)
-        
+
         bam = pysam.AlignmentFile(bamFile, "rb")
         qname_dict = collections.OrderedDict()
 
@@ -143,7 +140,7 @@ def compare_read_families_refGenome(argv):
             seq_mut = qname_dict[i]
             if rangesFile == str(None):
                 seq_mut, seqMut_index = np.unique(np.array(seq_mut), return_index=True)
-            length_regions = length_regions + len(seq_mut)*2
+            length_regions = length_regions + len(seq_mut) * 2
             for r in seq_mut:
                 count_ab = seqDic_ab.get(r)
                 count_ba = seqDic_ba.get(r)
@@ -168,7 +165,7 @@ def compare_read_families_refGenome(argv):
         maximumX = np.amax(np.concatenate(quantAfterRegion))
         minimumX = np.amin(np.concatenate(quantAfterRegion))
 
-        ### PLOT ###
+        # PLOT
         plt.rc('figure', figsize=(11.69, 8.27))  # A4 format
         plt.rcParams['axes.facecolor'] = "E0E0E0"  # grey background color
         plt.rcParams['xtick.labelsize'] = 14
@@ -195,8 +192,7 @@ def compare_read_families_refGenome(argv):
         legend = "max. family size:\nabsolute frequency:\nrelative frequency:\n\ntotal nr. of reads:\n(before SSCS building)"
         plt.text(0.15, 0.085, legend, size=11, transform=plt.gcf().transFigure)
 
-        legend = "AB\n{}\n{}\n{:.5f}\n\n{:,}".format(max(map(int, quant_ab)), count[len(count) - 1], float(count[len(count) - 1]) / sum(count),
-                    sum(np.array(data_array[:, 0]).astype(int)))
+        legend = "AB\n{}\n{}\n{:.5f}\n\n{:,}".format(max(map(int, quant_ab)), count[len(count) - 1], float(count[len(count) - 1]) / sum(count), sum(np.array(data_array[:, 0]).astype(int)))
         plt.text(0.35, 0.105, legend, size=11, transform=plt.gcf().transFigure)
 
         count2 = np.bincount(map(int, quant_ba))  # original counts
@@ -233,20 +229,20 @@ def compare_read_families_refGenome(argv):
         output_file.write("absolute frequency:{}{}{}{}\n".format(sep, count[len(count) - 1], sep, count2[len(count2) - 1]))
         output_file.write("relative frequency:{}{:.3f}{}{:.3f}\n\n".format(sep, float(count[len(count) - 1]) / sum(count), sep, float(count2[len(count2) - 1]) / sum(count2)))
         output_file.write("total nr. of reads{}{}\n".format(sep, sum(np.array(data_array[:, 0]).astype(int))))
-        output_file.write("total nr. of tags{}{} ({})\n".format(sep, length_regions, length_regions/2))
+        output_file.write("total nr. of tags{}{} ({})\n".format(sep, length_regions, length_regions / 2))
         output_file.write("\n\nValues from family size distribution\n")
         output_file.write("{}".format(sep))
         for i in group:
-            output_file.write("{}{}".format(i,sep))
+            output_file.write("{}{}".format(i, sep))
         output_file.write("\n")
 
         j = 0
-        for fs in counts[1][0:len(counts[1])-1]:
+        for fs in counts[1][0:len(counts[1]) - 1]:
             if fs == 21:
                 fs = ">20"
             else:
                 fs = "={}".format(fs)
-            output_file.write("FS{}{}".format(fs,sep))
+            output_file.write("FS{}{}".format(fs, sep))
             if len(group) == 1:
                 output_file.write("{}{}".format(int(counts[0][j]), sep))
             else:
@@ -265,9 +261,10 @@ def compare_read_families_refGenome(argv):
         output_file.write("\n\nIn the plot, both family sizes of the ab and ba strands were used.\nWhereas the total numbers indicate only the single count of the tags per region.\n")
         output_file.write("Region{}total nr. of tags per region\n".format(sep))
         for i, count in zip(group, quantAfterRegion):
-            output_file.write("{}{}{}\n".format(i,sep,len(count) / 2))
+            output_file.write("{}{}{}\n".format(i, sep, len(count) / 2))
 
     print("Files successfully created!")
+
 
 if __name__ == '__main__':
     sys.exit(compare_read_families_refGenome(sys.argv))

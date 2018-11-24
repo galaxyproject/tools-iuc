@@ -15,14 +15,13 @@
 import argparse
 import sys
 from collections import Counter
-import collections
-import pysam
 import re
 
 import matplotlib.pyplot as plt
 import numpy
 from Bio import SeqIO
 from matplotlib.backends.backend_pdf import PdfPages
+import pysam
 
 plt.switch_backend('agg')
 
