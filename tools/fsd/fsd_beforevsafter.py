@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # Family size distribution of DCS from various steps of the Galaxy pipeline
 #
-# Author: Monika Heinzl, Johannes-Kepler University Linz (Austria)
+# Author: Monika Heinzl & Gundula Povysil, Johannes-Kepler University Linz (Austria)
 # Contact: monika.heinzl@edumail.at
 #
 # Takes a TXT file with tags of reads that were aligned to certain regions of the reference genome (optional),
@@ -9,12 +9,15 @@
 # a FASTA file with tags after trimming as input (optional).
 # The program produces a plot which shows the distribution of family sizes of the DCS from the input files and
 # a CSV file with the data of the plot.
-# USAGE: python FSD before vs after_no_refF1.3_FINAL.py --inputFile_SSCS filenameSSCS --inputName1 filenameSSCS --makeDCS filenameMakeDCS --afterTrimming filenameAfterTrimming -- alignedTags filenameTagsRefGenome
-# --output_tabular outptufile_name_tabular --output_pdf outptufile_name_pdf
+# USAGE: python FSD before vs after_no_refF1.3_FINAL.py --inputFile_SSCS filenameSSCS --inputName1 filenameSSCS --makeDCS filenameMakeDCS --afterTrimming filenameAfterTrimming --alignedTags DCSbamFile
+# --output_tabular outputfile_name_tabular --output_pdf outputfile_name_pdf
 
 import argparse
 import sys
 from collections import Counter
+import collections
+import pysam
+import re
 
 import matplotlib.pyplot as plt
 import numpy
@@ -53,8 +56,8 @@ def make_argparser():
                         help='FASTA File with information about tag and family size in the header.')
     parser.add_argument('--afterTrimming', default=None,
                         help='FASTA File with information about tag and family size in the header.')
-    parser.add_argument('--alignedTags', default=None,
-                        help=' TXT file with tags aligned to the reference genome and family size.')
+    parser.add_argument('--bamFile',
+                        help='BAM file with aligned reads.')
     parser.add_argument('--output_pdf', default="data.pdf", type=str,
                         help='Name of the pdf and tabular file.')
     parser.add_argument('--output_tabular', default="data.tabular", type=str,
@@ -65,12 +68,12 @@ def make_argparser():
 def compare_read_families_read_loss(argv):
     parser = make_argparser()
     args = parser.parse_args(argv[1:])
-
+    #
     SSCS_file = args.inputFile_SSCS
     SSCS_file_name = args.inputName1
     makeConsensus = args.makeDCS
     afterTrimming = args.afterTrimming
-    ref_genome = args.alignedTags
+    ref_genome = args.bamFile
     title_file = args.output_tabular
     title_file2 = args.output_pdf
     sep = "\t"
@@ -164,17 +167,25 @@ def compare_read_families_read_loss(argv):
 
 # data of tags aligned to reference genome
         if ref_genome != str(None):
-            mut_array = readFileReferenceFree(ref_genome, " ")
+            pysam.index(ref_genome)
+            bam = pysam.AlignmentFile(ref_genome, "rb")
+            seq_mut = []
+            for read in bam.fetch():
+                if not read.is_unmapped:
+                    if re.search('_', read.query_name):
+                        tags = re.split('_', read.query_name)[0]
+                    else:
+                        tags = read.query_name
+                    seq_mut.append(tags)
+
             # use only unique tags that were alignment to the reference genome
-            seq_mut, seqMut_index = numpy.unique(numpy.array(mut_array[:, 1]), return_index=True)
-
-            # get family sizes
+            seq_mut = numpy.array(seq_mut)
+            seq_mut, seqMut_index = numpy.unique(seq_mut, return_index=True)
+            # get family sizes for each tag in the BAM file
             quant_ab = []
-            for i in seq_mut:
-                quant_ab.append(seqDic_ab.get(i))
-
             quant_ba = []
             for i in seq_mut:
+                quant_ab.append(seqDic_ab.get(i))
                 quant_ba.append(seqDic_ba.get(i))
 
             quant_ab_ref = numpy.array(quant_ab)
@@ -182,6 +193,7 @@ def compare_read_families_read_loss(argv):
             quant_all_ref = numpy.concatenate((quant_ab_ref, quant_ba_ref))
             bigFamilies = numpy.where(quant_all_ref > 20)[0]  # group large family sizes
             quant_all_ref[bigFamilies] = 22
+
             list1.append(quant_all_ref)
             colors.append("#04cec7")
             labels.append("after alignment\nto reference")
@@ -198,22 +210,21 @@ def compare_read_families_read_loss(argv):
         ticks1[len(ticks1) - 1] = ">20"
         plt.xticks(numpy.array(ticks), ticks1)
         if ref_genome != str(None):
-            count = numpy.array(
-                [v for k, v in sorted(Counter(quant_ab_ref).iteritems())])  # count all family sizes from all ab strands
+            count = numpy.array([v for k, v in sorted(Counter(quant_ab_ref).iteritems())])  # count all family sizes from all ab strands
 
-            legend = "max. family size =\nabsolute frequency=\nrelative frequency=\n\ntotal nr. of reads (before)"
-            plt.text(0.1, 0.105, legend, size=11, transform=plt.gcf().transFigure)
+            legend = "max. family size:\nabsolute frequency:\nrelative frequency:\n\ntotal nr. of reads:\n(before SSCS building)"
+            plt.text(0.1, 0.085, legend, size=11, transform=plt.gcf().transFigure)
 
             legend = "AB\n{}\n{}\n{:.5f}\n\n{:,}" \
                 .format(max(quant_ab_ref), count[len(count) - 1], float(count[len(count) - 1]) / sum(count),
                         sum(numpy.array(data_array[:, 0]).astype(int)))
-            plt.text(0.3, 0.105, legend, size=11, transform=plt.gcf().transFigure)
+            plt.text(0.35, 0.105, legend, size=11, transform=plt.gcf().transFigure)
 
             count2 = numpy.array(
                 [v for k, v in sorted(Counter(quant_ba_ref).iteritems())])  # count all family sizes from all ba strands
             legend = "BA\n{}\n{}\n{:.5f}" \
                 .format(max(quant_ba_ref), count2[len(count2) - 1], float(count2[len(count2) - 1]) / sum(count2))
-            plt.text(0.4, 0.15, legend, size=11, transform=plt.gcf().transFigure)
+            plt.text(0.45, 0.1475, legend, size=11, transform=plt.gcf().transFigure)
 
         legend4 = "* In the plot, the family sizes of ab and ba strands and of both duplex tags were used.\nWhereas the total numbers indicate only the single count of the formed duplex tags."
         plt.text(0.1, 0.02, legend4, size=11, transform=plt.gcf().transFigure)
@@ -239,12 +250,12 @@ def compare_read_families_read_loss(argv):
                 "relative frequency:{}{:.3f}{}{:.3f}\n\n".format(sep, float(count[len(count) - 1]) / sum(count), sep,
                                                                  float(count2[len(count2) - 1]) / sum(count2)))
 
-        output_file.write("\n\ntotal nr. of reads{}{}\n".format(sep, sum(numpy.array(data_array[:, 0]).astype(int))))
+        output_file.write("\ntotal nr. of reads before SSCS building{}{}\n".format(sep, sum(numpy.array(data_array[:, 0]).astype(int))))
         output_file.write("\n\nValues from family size distribution\n")
 
         if afterTrimming == str(None) and ref_genome == str(None):
             if afterTrimming == str(None):
-                output_file.write("{}before SSCS buidling{}after DCS building\n".format(sep, sep))
+                output_file.write("{}before SSCS building{}after DCS building\n".format(sep, sep))
             elif ref_genome == str(None):
                 output_file.write("{}before SSCS building{}atfer DCS building\n".format(sep, sep))
 
@@ -258,7 +269,7 @@ def compare_read_families_read_loss(argv):
 
         elif afterTrimming == str(None) or ref_genome == str(None):
             if afterTrimming == str(None):
-                output_file.write("{}before SSCS buidling{}after DCS building{}after alignment to reference\n".format(sep, sep, sep))
+                output_file.write("{}before SSCS building{}after DCS building{}after alignment to reference\n".format(sep, sep, sep))
             elif ref_genome == str(None):
                 output_file.write("{}before SSCS building{}atfer DCS building{}after trimming\n".format(sep, sep, sep))
 
