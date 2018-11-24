@@ -13,14 +13,14 @@
 # --output_tabular outputfile_name_tabular --output_pdf outputfile_name_pdf
 
 import argparse
-import sys
 import re
+import sys
 from collections import Counter
 
 import matplotlib.pyplot as plt
 import numpy
-from Bio import SeqIO
 import pysam
+from Bio import SeqIO
 from matplotlib.backends.backend_pdf import PdfPages
 
 plt.switch_backend('agg')
