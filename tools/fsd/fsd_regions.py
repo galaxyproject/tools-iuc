@@ -16,14 +16,14 @@
 # --output_pdf outputfile_name_pdf
 
 import argparse
-import re
 import collections
+import re
 import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.backends.backend_pdf import PdfPages
 import pysam
+from matplotlib.backends.backend_pdf import PdfPages
 
 plt.switch_backend('agg')
 
