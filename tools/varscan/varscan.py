@@ -15,20 +15,23 @@ import pysam
 class VariantCallingError (RuntimeError):
     """Exception class for issues with samtools and varscan subprocesses."""
 
-    def __init__ (self, message = None, call = '', error = ''):
+    def __init__(self, message=None, call='', error=''):
         self.message = message
         self.call = call.strip()
         self.error = error.strip()
 
-    def __str__ (self):
+    def __str__(self):
         if self.message is None:
             return ''
         if self.error:
             msg_header = '"{0}" failed with:\n{1}\n\n'.format(
-                self.call, self.error)
+                self.call, self.error
+            )
         else:
-            msg_header = '{0} failed.\nNo further information about this error is available.\n\n'.format(
-                self.call)
+            msg_header = '{0} failed.\n'
+            'No further information about this error is available.\n\n'.format(
+                self.call
+            )
         return msg_header + self.message
 
 
@@ -47,7 +50,7 @@ class VarScanCaller (object):
         self.TemporaryContigVCF = partial(
             tempfile.NamedTemporaryFile,
             mode='wb', suffix='', delete=False, dir=os.getcwd()
-            )
+        )
         self.tmpfiles = []
 
     def varcall_parallel(self, normal_purity=None, tumor_purity=None,
@@ -70,7 +73,7 @@ class VarScanCaller (object):
             ('--min-avg-qual', min_basequal),
             ('--p-value', p_value),
             ('--somatic-p-value', somatic_p_value),
-            ]
+        ]
         varcall_engine_options = []
         for option, value in varcall_engine_option_mapping:
             if value is not None:
@@ -92,12 +95,12 @@ class VarScanCaller (object):
                 '-q', '1',
                 '-r', contig + ':',
                 '-f', self.ref_genome
-                ] + self.bam_input_files,
+            ] + self.bam_input_files,
             self.varcall_engine + [
                 '-', '{out}', '--output-vcf', '1', '--mpileup', '1'
-                ] + varcall_engine_options,
+            ] + varcall_engine_options,
             contig
-            ) for contig in self.ref_contigs[::-1]]
+        ) for contig in self.ref_contigs[::-1]]
 
         if verbose:
             print('Starting variant calling ..')
@@ -106,8 +109,9 @@ class VarScanCaller (object):
         subprocesses = []
         error_table = {}
         tmp_io_started = []
-        tmp_io_finished =[]
+        tmp_io_finished = []
         self.tmpfiles = []
+
         def enqueue_stderr_output(out, stderr_buffer):
             for line in iter(out.readline, b''):
                 # Eventually we are going to print the contents of
@@ -140,8 +144,8 @@ class VarScanCaller (object):
                     call_out = self.TemporaryContigVCF(
                         prefix=''.join(
                             c if c.isalnum() else '_' for c in contig
-                            ) + '_',
-                        )
+                        ) + '_',
+                    )
                     # maintain a list of variant call outputs
                     # in the order the subprocesses got launched
                     tmp_io_started.append(call_out.name)
@@ -156,20 +160,21 @@ class VarScanCaller (object):
                         call[1][call[1].index('{out}')] = call_out.name
                         call_out.close()
                     # for reporting purposes, join the arguments for the
-                    # samtools and the variant caller calls into readable strings
+                    # samtools and the variant caller calls into readable
+                    # strings
                     c_str = (' '.join(call[0]), ' '.join(call[1]))
                     error_table[c_str] = [io.StringIO(), io.StringIO()]
                     # start the subprocesses
                     p1 = subprocess.Popen(
                         call[0],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                        )
+                    )
                     p2 = subprocess.Popen(
                         call[1],
                         stdin=p1.stdout,
                         stdout=stdout_p2,
                         stderr=stderr_p2
-                        )
+                    )
                     # subprocess bookkeeping
                     subprocesses.append((c_str, p1, p2, call_out, contig))
                     # make sure our newly launched call does not block
@@ -178,14 +183,16 @@ class VarScanCaller (object):
                     t1 = Thread(
                         target=enqueue_stderr_output,
                         args=(p1.stderr, error_table[c_str][0])
-                        )
+                    )
                     t2 = Thread(
                         target=enqueue_stderr_output,
                         args=(
-                            p2.stderr if self.requires_stdout_redirect else p2.stdout,
+                            p2.stderr
+                            if self.requires_stdout_redirect else
+                            p2.stdout,
                             error_table[c_str][1]
-                            )
                         )
+                    )
                     t1.daemon = t2.daemon = True
                     t1.start()
                     t2.start()
@@ -194,7 +201,7 @@ class VarScanCaller (object):
                         print(
                             'Calling variants for contig: {0}'
                             .format(call[2])
-                            )
+                        )
 
                 # monitor all running calls to see if any of them are done
                 for call, p1, p2, ofo, contig in subprocesses:
@@ -208,22 +215,23 @@ class VarScanCaller (object):
                             print(
                                 error_table[call][0].getvalue(),
                                 error_table[call][1].getvalue(),
-                                file = sys.stderr
-                                )
+                                file=sys.stderr
+                            )
                             raise VariantCallingError(
                                 'Variant Calling for contig {0} failed.'
                                 .format(contig),
-                                call = '{0} | {1}'.format(call[0], call[1])
-                                )
+                                call='{0} | {1}'.format(call[0], call[1])
+                            )
                         if p1_stat == 0 and p2_stat is None:
                             # VarScan is not handling the no output from
                             # samtools mpileup situation correctly so maybe
                             # that's the issue here
-                            last_known_messages = error_table[call][1].getvalue().splitlines()[-4:]
-                            if len(last_known_messages) < 4 or any(
+                            last_words = error_table[call][1].getvalue(
+                            ).splitlines()[-4:]
+                            if len(last_words) < 4 or any(
                                 not msg.startswith('Input stream not ready')
-                                for msg in last_known_messages
-                                ):
+                                for msg in last_words
+                            ):
                                 break
                                 # lets give this process a bit more time
                             # VarScan is waiting for input it will never
@@ -246,13 +254,13 @@ class VarScanCaller (object):
                                 print(
                                     'stderr output from samtools mpileup/'
                                     'bcftools:'.upper(),
-                                    file = sys.stderr
-                                    )
+                                    file=sys.stderr
+                                )
                                 print(
                                     error_table[call][0].getvalue(),
                                     error_table[call][1].getvalue(),
-                                    file = sys.stderr
-                                    )
+                                    file=sys.stderr
+                                )
                             # Discard the collected stderr output from
                             # the call, remove the call from the list of
                             # running calls and close its output file.
@@ -271,7 +279,7 @@ class VarScanCaller (object):
                 for proc in (p1, p2):
                     try:
                         proc.terminate()
-                    except:
+                    except Exception:
                         pass
                 # close currently open files
                 ofo.close()
@@ -286,55 +294,82 @@ class VarScanCaller (object):
                 print()
                 print(
                     'stderr output from samtools mpileup/bcftools:'.upper(),
-                    file = sys.stderr
-                    )
+                    file=sys.stderr
+                )
                 for call, errors in error_table.items():
-                    print (' | '.join(call), ':', file = sys.stderr)
-                    print ('-' * 20, file = sys.stderr)
-                    print ('samtools mpileup output:', file = sys.stderr)
-                    print (errors[0].getvalue(), file = sys.stderr)
-                    print ('varscan somatic output:', file = sys.stderr)
-                    print (errors[1].getvalue(), file = sys.stderr)
+                    print(' | '.join(call), ':', file=sys.stderr)
+                    print('-' * 20, file=sys.stderr)
+                    print('samtools mpileup output:', file=sys.stderr)
+                    print(errors[0].getvalue(), file=sys.stderr)
+                    print('varscan somatic output:', file=sys.stderr)
+                    print(errors[1].getvalue(), file=sys.stderr)
 
     def _add_ref_contigs_to_header(self, header):
         for chrom, length in zip(self.ref_contigs, self.ref_lengths):
             header.add_meta(
                 'contig',
                 items=[('ID', chrom), ('length', length)]
-                )
+            )
 
     def _add_filters_to_header(self, header):
         varscan_fpfilters = {
             'VarCount': 'Fewer than {min_var_count2} variant-supporting reads',
-            'VarFreq':  'Variant allele frequency below {min_var_freq2}',
-            'VarAvgRL': 'Average clipped length of variant-supporting reads < {min_var_len}',
+            'VarFreq': 'Variant allele frequency below {min_var_freq2}',
+            'VarAvgRL':
+                'Average clipped length of variant-supporting reads < '
+                '{min_var_len}',
             'VarReadPos': 'Relative average read position < {min_var_readpos}',
-            'VarDist3': 'Average distance to effective 3\' end < {min_var_dist3}',
-            'VarMMQS': 'Average mismatch quality sum for variant reads > {max_var_mmqs}',
-            'VarMapQual': 'Average mapping quality of variant reads < {min_var_mapqual}',
-            'VarBaseQual': 'Average base quality of variant reads < {min_var_basequal}',
-            'Strand': 'Strand representation of variant reads < {min_strandedness}',
-            'RefAvgRL': 'Average clipped length of ref-supporting reads < {min_ref_len}',
-            'RefReadPos': 'Relative average read position < {min_ref_readpos}',
-            'RefDist3': 'Average distance to effective 3\' end < {min_ref_dist3}',
-            'RefMapQual': 'Average mapping quality of reference reads < {min_ref_mapqual}',
-            'RefBaseQual': 'Average base quality of ref-supporting reads < {min_ref_basequal}',
-            'RefMMQS': 'Average mismatch quality sum for ref-supporting reads > {max_ref_mmqs}',
-            'MMQSdiff': 'Mismatch quality sum difference (var - ref) > {max_mmqs_diff}',
-            'MinMMQSdiff': 'Mismatch quality sum difference (var - ref) < {max_mmqs_diff}',
-            'MapQualDiff': 'Mapping quality difference (ref - var) > {max_mapqual_diff}',
-            'MaxBAQdiff': 'Average base quality difference (ref - var) > {max_basequal_diff}',
-            'ReadLenDiff': 'Average supporting read length difference (ref - var) > {max_relative_len_diff}',
-            }
+            'VarDist3':
+                'Average distance to effective 3\' end < {min_var_dist3}',
+            'VarMMQS':
+                'Average mismatch quality sum for variant reads > '
+                '{max_var_mmqs}',
+            'VarMapQual':
+                'Average mapping quality of variant reads < {min_var_mapqual}',
+            'VarBaseQual':
+                'Average base quality of variant reads < {min_var_basequal}',
+            'Strand':
+                'Strand representation of variant reads < {min_strandedness}',
+            'RefAvgRL':
+                'Average clipped length of ref-supporting reads < '
+                '{min_ref_len}',
+            'RefReadPos':
+                'Relative average read position < {min_ref_readpos}',
+            'RefDist3':
+                'Average distance to effective 3\' end < {min_ref_dist3}',
+            'RefMapQual':
+                'Average mapping quality of reference reads < '
+                '{min_ref_mapqual}',
+            'RefBaseQual':
+                'Average base quality of ref-supporting reads < '
+                '{min_ref_basequal}',
+            'RefMMQS':
+                'Average mismatch quality sum for ref-supporting reads > '
+                '{max_ref_mmqs}',
+            'MMQSdiff':
+                'Mismatch quality sum difference (var - ref) > '
+                '{max_mmqs_diff}',
+            'MinMMQSdiff':
+                'Mismatch quality sum difference (var - ref) < '
+                '{max_mmqs_diff}',
+            'MapQualDiff':
+                'Mapping quality difference (ref - var) > {max_mapqual_diff}',
+            'MaxBAQdiff':
+                'Average base quality difference (ref - var) > '
+                '{max_basequal_diff}',
+            'ReadLenDiff':
+                'Average supporting read length difference (ref - var) > '
+                '{max_relative_len_diff}',
+        }
         for filter_id, description in varscan_fpfilters.items():
             header.filters.add(filter_id, None, None, description)
 
     def _add_indel_info_flag_to_header(self, header):
         header.info.add(
             'INDEL', 0, 'Flag', 'Indicates that the variant is an INDEL'
-            )
+        )
 
-    def _compile_common_header(self, varcall_engine_template, no_filters=False):
+    def _compile_common_header(self, varcall_template, no_filters=False):
         # fix the header generated by VarScan
         # by adding reference and contig information
         common_header = pysam.VariantHeader()
@@ -349,7 +384,7 @@ class VarScanCaller (object):
         self._add_indel_info_flag_to_header(common_header)
         # take the remaining metadata from the template header produced by
         # VarScan
-        with pysam.VariantFile(varcall_engine_template, 'r') as original_data:
+        with pysam.VariantFile(varcall_template, 'r') as original_data:
             varscan_header = original_data.header
         for sample in varscan_header.samples:
             common_header.samples.add(sample)
@@ -365,7 +400,7 @@ class VarScanCaller (object):
 
     def get_allele_specific_pileup_column_stats(
         self, allele, pile_column, ref_fetch
-        ):
+    ):
         # number of reads supporting the given allele on
         # forward and reverse strand, and in total
         var_reads_plus = var_reads_minus = 0
@@ -389,14 +424,14 @@ class VarScanCaller (object):
         avg_mapping_quality = sum(
             mq for mq in var_supp_only(
                 pile_column.get_mapping_qualities()
-                )
-            ) / var_reads_total
+            )
+        ) / var_reads_total
 
         # for the remaining stats we need access to complete
         # read information
         piled_reads = [
             p for p in var_supp_only(pile_column.pileups)
-            ]
+        ]
         assert len(piled_reads) == var_reads_total
         sum_avg_base_qualities = 0
         sum_dist_from_center = 0
@@ -409,31 +444,39 @@ class VarScanCaller (object):
         for p in piled_reads:
             sum_avg_base_qualities += sum(
                 p.alignment.query_qualities
-                )/p.alignment.infer_query_length()
+            ) / p.alignment.infer_query_length()
             sum_clipped_length += p.alignment.query_alignment_length
             unclipped_length = p.alignment.infer_read_length()
             sum_unclipped_length += unclipped_length
             read_center = p.alignment.query_alignment_length / 2
             sum_dist_from_center += 1 - abs(
                 p.query_position - read_center
-                )/read_center
-            sum_dist_from_3prime += 1 - p.query_position/unclipped_length
+            ) / read_center
+            sum_dist_from_3prime += 1 - p.query_position / unclipped_length
 
             sum_num_mismatches = 0
             for qpos, rpos in p.alignment.get_aligned_pairs():
                 if qpos is not None and rpos is not None:
                     if p.alignment.query_sequence[qpos] != ref_fetch(
-                        rpos, rpos+1
-                        ):
+                        rpos, rpos + 1
+                    ):
                         sum_num_mismatches += 1
-                        sum_mismatch_qualities += p.alignment.query_qualities[qpos]
-            sum_num_mismatches_as_fraction += sum_num_mismatches / p.alignment.query_alignment_length
+                        sum_mismatch_qualities += p.alignment.query_qualities[
+                            qpos
+                        ]
+            sum_num_mismatches_as_fraction += (
+                sum_num_mismatches / p.alignment.query_alignment_length
+            )
         avg_basequality = sum_avg_base_qualities / var_reads_total
         avg_pos_as_fraction = sum_dist_from_center / var_reads_total
-        avg_num_mismatches_as_fraction = sum_num_mismatches_as_fraction / var_reads_total
+        avg_num_mismatches_as_fraction = (
+            sum_num_mismatches_as_fraction / var_reads_total
+        )
         avg_sum_mismatch_qualities = sum_mismatch_qualities / var_reads_total
         avg_clipped_length = sum_clipped_length / var_reads_total
-        avg_distance_to_effective_3p_end = sum_dist_from_3prime / var_reads_total
+        avg_distance_to_effective_3p_end = (
+            sum_dist_from_3prime / var_reads_total
+        )
 
         return (
             avg_mapping_quality,
@@ -445,7 +488,7 @@ class VarScanCaller (object):
             avg_sum_mismatch_qualities,
             avg_clipped_length,
             avg_distance_to_effective_3p_end
-            )
+        )
 
     def _postprocess_variant_records(self, invcf, *,
                                      min_var_count2, min_var_count2_lc,
@@ -477,7 +520,7 @@ class VarScanCaller (object):
             normal_reads, tumor_reads = (
                 io_stack.enter_context(
                     pysam.Samfile(fn, 'rb')) for fn in self.bam_input_files
-                )
+            )
             refseq = io_stack.enter_context(pysam.FastaFile(self.ref_genome))
             for record in invcf:
                 if any(len(allele) > 1 for allele in record.alleles):
@@ -489,13 +532,13 @@ class VarScanCaller (object):
                     # a somatic variant => generate pileup from tumor data
                     pile = tumor_reads.pileup(
                         record.chrom, record.start, record.stop
-                        )
+                    )
                     sample_of_interest = 'TUMOR'
                 elif record.info['SS'] in ['1', '3']:
                     # a germline or LOH variant => pileup from normal data
                     pile = normal_reads.pileup(
                         record.chrom, record.start, record.stop
-                        )
+                    )
                     sample_of_interest = 'NORMAL'
                 else:
                     # TO DO: figure out if there is anything interesting to do
@@ -512,24 +555,27 @@ class VarScanCaller (object):
                 # overall read depth at the site
                 read_depth = pile_column.get_num_aligned()
                 assert read_depth > 0
-                assert len(record.alleles) == 2 # no multiallelic sites in varscan
+                # no multiallelic sites in varscan
+                assert len(record.alleles) == 2
                 if record.samples[sample_of_interest]['RD'] > 0:
                     ref_stats, alt_stats = [
                         self.get_allele_specific_pileup_column_stats(
                             allele,
                             pile_column,
-                            partial(pysam.FastaFile.fetch, refseq, record.chrom)
+                            partial(
+                                pysam.FastaFile.fetch, refseq, record.chrom
                             )
+                        )
                         for allele in record.alleles
-                        ]
+                    ]
                 else:
                     ref_stats = None
                     alt_stats = self.get_allele_specific_pileup_column_stats(
                         record.alleles[1],
                         pile_column,
                         partial(pysam.FastaFile.fetch, refseq, record.chrom)
-                        )
-                ref_count=0
+                    )
+                ref_count = 0
                 if ref_stats:
                     ref_count = ref_stats[2] + ref_stats[3]
                     if ref_stats[1] < min_ref_basequal:
@@ -553,20 +599,20 @@ class VarScanCaller (object):
                 alt_count = alt_stats[2] + alt_stats[3]
                 if (
                     alt_count < min_var_count2_lc
-                    ) or (
+                ) or (
                     read_depth >= max_somatic_p_depth and
                     alt_count < min_var_count2
                 ):
                     record.filter.add('VarCount')
-                if alt_count/read_depth < min_var_freq2:
+                if alt_count / read_depth < min_var_freq2:
                     record.filter.add('VarFreq')
                 if alt_stats[1] < min_var_basequal:
                     record.filter.add('VarBaseQual')
                 if alt_count > min_strand_reads:
                     if (
-                        alt_stats[2]/alt_count < min_strandedness
-                        ) or (
-                        alt_stats[3]/alt_count < min_strandedness
+                        alt_stats[2] / alt_count < min_strandedness
+                    ) or (
+                        alt_stats[3] / alt_count < min_strandedness
                     ):
                         record.filter.add('Strand')
                 if alt_stats[2] + alt_stats[3] >= 2:
@@ -595,7 +641,9 @@ class VarScanCaller (object):
                         record.filter.add('MinMMQSdiff')
                     if mmqs_diff > max_mmqs_diff:
                         record.filter.add('MMQSdiff')
-                    if (1 - alt_stats[7]/ref_stats[7]) > max_relative_len_diff:
+                    if (
+                        1 - alt_stats[7] / ref_stats[7]
+                    ) > max_relative_len_diff:
                         record.filter.add('ReadLenDiff')
 
                 yield record
@@ -642,12 +690,12 @@ class VarScanCaller (object):
         temporary_data = self.tmpfiles
         self.tmpfiles = []
         temporary_snp_files = [f + '.snp.vcf' for f in temporary_data]
-        temporary_indel_files  = [f + '.indel.vcf' for f in temporary_data]
+        temporary_indel_files = [f + '.indel.vcf' for f in temporary_data]
 
         for f in temporary_data:
             try:
                 os.remove(f)
-            except:
+            except Exception:
                 pass
 
         def noop_gen(data, **kwargs):
@@ -662,7 +710,7 @@ class VarScanCaller (object):
         output_header = self._compile_common_header(
             temporary_snp_files[0],
             no_filters
-            )
+        )
         if indels_out is None:
             with open(snps_out, 'w') as o:
                 o.write(str(output_header).format(**filter_args))
@@ -682,22 +730,24 @@ class VarScanCaller (object):
                             # contig info
                             self._add_ref_contigs_to_header(indel_invcf.header)
                             self._add_filters_to_header(indel_invcf.header)
-                            self._add_indel_info_flag_to_header(indel_invcf.header)
+                            self._add_indel_info_flag_to_header(
+                                indel_invcf.header
+                            )
                             for record in apply_filters(
                                 self._merge_generator(
                                     snp_invcf,
                                     self._indel_flagged_records(indel_invcf)
-                                    ),
+                                ),
                                 **filter_args
                             ):
                                 o.write(str(record))
                     try:
                         os.remove(snp_f)
-                    except:
+                    except Exception:
                         pass
                     try:
                         os.remove(indel_f)
-                    except:
+                    except Exception:
                         pass
 
         else:
@@ -706,7 +756,9 @@ class VarScanCaller (object):
                 for f in temporary_snp_files:
                     with pysam.VariantFile(f, 'r') as invcf:
                         # fix the input header on the fly
-                        # to avoid Warnings from htslib about missing contig info
+                        # to avoid Warnings from htslib about missing
+                        # contig info and errors because of undeclared
+                        # filters
                         self._add_ref_contigs_to_header(invcf.header)
                         self._add_filters_to_header(invcf.header)
                         for record in apply_filters(
@@ -715,14 +767,16 @@ class VarScanCaller (object):
                             o.write(str(record))
                     try:
                         os.remove(f)
-                    except:
+                    except Exception:
                         pass
             with open(indels_out, 'w') as o:
                 o.write(str(output_header))
                 for f in temporary_indel_files:
                     with pysam.VariantFile(f, 'r') as invcf:
                         # fix the input header on the fly
-                        # to avoid Warnings from htslib about missing contig info
+                        # to avoid Warnings from htslib about missing
+                        # contig info and errors because of undeclared
+                        # filters
                         self._add_ref_contigs_to_header(invcf.header)
                         self._add_filters_to_header(invcf.header)
                         self._add_indel_info_flag_to_header(invcf.header)
@@ -732,8 +786,9 @@ class VarScanCaller (object):
                             o.write(str(record))
                     try:
                         os.remove(f)
-                    except:
+                    except Exception:
                         pass
+
 
 def varscan_call(ref_genome, normal, tumor, output_path, **args):
     """Preparse arguments and orchestrate calling and postprocessing."""
@@ -743,12 +798,12 @@ def varscan_call(ref_genome, normal, tumor, output_path, **args):
             out = (
                 output_path.replace('%T', 'snp'),
                 output_path.replace('%T', 'indel')
-                )
+            )
         else:
             out = (
                 output_path + '.snp',
                 output_path + '.indel'
-                )
+            )
     else:
         out = (output_path, None)
     varcall_parallel_args = {
@@ -759,8 +814,8 @@ def varscan_call(ref_genome, normal, tumor, output_path, **args):
             'threads',
             'verbose',
             'quiet'
-            ]
-        }
+        ]
+    }
     varscan_somatic_args = {
         k: args.pop(k) for k in [
             'normal_purity',
@@ -772,8 +827,8 @@ def varscan_call(ref_genome, normal, tumor, output_path, **args):
             'min_basequal',
             'somatic_p_value',
             'p_value'
-            ]
-        }
+        ]
+    }
 
     v = VarScanCaller(ref_genome, [normal, tumor])
     v.varcall_parallel(**varcall_parallel_args, **varscan_somatic_args)
@@ -786,18 +841,19 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument(
         'ref_genome',
-        metavar='reference_genome', help='the reference genome (in fasta format)'
-        )
+        metavar='reference_genome',
+        help='the reference genome (in fasta format)'
+    )
     p.add_argument(
         '--normal',
         metavar='BAM_file', required=True,
         help='the BAM input file of aligned reads from the normal sample'
-        )
+    )
     p.add_argument(
         '--tumor',
         metavar='BAM_file', required=True,
         help='the BAM input file of aligned reads from the tumor sample'
-        )
+    )
     p.add_argument(
         '-o', '--ofile', required=True,
         metavar='OFILE', dest='output_path',
@@ -805,7 +861,7 @@ if __name__ == '__main__':
              'may use the %%T replacement token or will be used as the '
              'basename for the two output files to be generated (see '
              '-s|--split-output below).'
-        )
+    )
     p.add_argument(
         '-s', '--split-output',
         dest='split_output', action='store_true', default=False,
@@ -814,267 +870,268 @@ if __name__ == '__main__':
              '%%T in the --ofile file name will be replaced with "snp" and '
              '"indel" to generate the names of the SNP and indel output '
              'files, respectively. If %%T is not found in the file name, it '
-             'will get interpreted as a basename to which ".snp"/".indel" will '
-             'be appended.'
-        )
+             'will get interpreted as a basename to which ".snp"/".indel" '
+             'will be appended.'
+    )
     p.add_argument(
         '-B', '--no-BAQ',
         action='store_true',
         help='Disable base quality recalibration '
              '(samtools mpileup -B/--no-BAQ option)'
-        )
+    )
     p.add_argument(
         '-C', '--adjust-MQ',
         metavar='COEFF', type=int, default=0,
         help='Coefficient for downgrading the mapping quality of reads with '
              'excessive mismatches (samtools mpileup -C option; default: 0 '
              '-> no downgrade)'
-        )
+    )
     p.add_argument(
         '--max-pileup-depth',
         dest='max_depth', type=int, default=8000,
         help='Maximum depth of generated pileups (samtools mpileup -d option; '
              'default: 8000)'
-        )
+    )
     p.add_argument(
         '-t', '--threads',
         type=int, default=1,
         help='level of parallelism'
-        )
+    )
     p.add_argument(
         '-v', '--verbose',
         action='store_true',
         help='be verbose about progress'
-        )
+    )
     p.add_argument(
         '-q', '--quiet',
         action='store_true',
         help='suppress output from wrapped tools'
-        )
+    )
     call_group = p.add_argument_group('Variant calling parameters')
     call_group.add_argument(
         '--normal-purity',
         dest='normal_purity', type=float,
         default=1.0,
         help='Estimated purity of the normal sample (default: 1.0)'
-        )
+    )
     call_group.add_argument(
         '--tumor-purity',
         dest='tumor_purity', type=float,
         default=1.0,
         help='Estimated purity of the tumor sample (default: 1.0)'
-        )
+    )
     call_group.add_argument(
         '--min-coverage',
         dest='min_coverage', type=int,
         default=8,
         help='Minimum site coverage required in the normal and in the tumor '
              'sample to call a variant (default: 8)'
-        )
+    )
     call_group.add_argument(
         '--min-var-count',
         dest='min_var_count', type=int,
         default=2,
         help='Minimum number of variant-supporting reads required to call a '
              'variant (default: 2)'
-        )
+    )
     call_group.add_argument(
         '--min-var-freq',
         dest='min_var_freq', type=float,
         default=0.1,
         help='Minimum variant allele frequency for calling (default: 0.1)'
-        )
+    )
     call_group.add_argument(
         '--min-hom-freq',
         dest='min_hom_freq', type=float,
         default=0.75,
         help='Minimum variant allele frequency for homozygous call '
              '(default: 0.75)'
-        )
+    )
     call_group.add_argument(
         '--min-basequal',
         dest='min_basequal', type=int,
         default=15,
         help='Minimum base quality at the variant position to use a read '
              '(default: 15)'
-        )
+    )
     call_group.add_argument(
         '--p-value',
         dest='p_value', type=float,
         default=0.99,
         help='P-value threshold for heterozygous call (default: 0.99)'
-        )
+    )
     call_group.add_argument(
         '--somatic-p-value',
         dest='somatic_p_value', type=float,
         default=0.05,
         help='P-value threshold for somatic call (default: 0.05)'
-        )
+    )
     filter_group = p.add_argument_group('Posterior variant filter parameters')
     filter_group.add_argument(
         '--no-filters',
         dest='no_filters', action='store_true',
         help='Disable all posterior variant filters. '
              'If specified, all following options will be ignored'
-        )
+    )
     filter_group.add_argument(
         '--min-var-count2',
         dest='min_var_count2', type=int,
         default=4,
         help='Minimum number of variant-supporting reads (default: 4)'
-        )
+    )
     filter_group.add_argument(
         '--min-var-count2-lc',
         dest='min_var_count2_lc', type=int,
         default=2,
         help='Minimum number of variant-supporting reads when depth below '
              '--somatic-p-depth (default: 2)'
-        )
+    )
     filter_group.add_argument(
         '--min-var-freq2',
         dest='min_var_freq2', type=float,
         default=0.05,
         help='Minimum variant allele frequency (default: 0.05)'
-        )
+    )
     filter_group.add_argument(
         '--max-somatic-p',
         dest='max_somatic_p', type=float,
         default=0.05,
         help='Maximum somatic p-value (default: 0.05)'
-        )
+    )
     filter_group.add_argument(
         '--max-somatic-p-depth',
         dest='max_somatic_p_depth', type=int,
         default=10,
         help='Depth required to run --max-somatic-p filter (default: 10)'
-        )
+    )
     filter_group.add_argument(
         '--min-ref-readpos',
         dest='min_ref_readpos', type=float,
         default=0.1,
         help='Minimum average relative distance of site from the ends of '
              'ref-supporting reads (default: 0.1)'
-        )
+    )
     filter_group.add_argument(
         '--min-var-readpos',
         dest='min_var_readpos', type=float,
         default=0.1,
         help='Minimum average relative distance of site from the ends of '
              'variant-supporting reads (default: 0.1)'
-        )
+    )
     filter_group.add_argument(
         '--min-ref-dist3',
         dest='min_ref_dist3', type=float,
         default=0.1,
         help='Minimum average relative distance of site from the effective '
              '3\'end of ref-supporting reads (default: 0.1)'
-        )
+    )
     filter_group.add_argument(
         '--min-var-dist3',
         dest='min_var_dist3', type=float,
         default=0.1,
         help='Minimum average relative distance of site from the effective '
              '3\'end of variant-supporting reads (default: 0.1)'
-        )
+    )
     filter_group.add_argument(
         '--min-ref-len',
         dest='min_ref_len', type=int,
         default=90,
         help='Minimum average trimmed length of reads supporting the ref '
              'allele (default: 90)'
-        )
+    )
     filter_group.add_argument(
         '--min-var-len',
         dest='min_var_len', type=int,
         default=90,
         help='Minimum average trimmed length of reads supporting the variant '
              'allele (default: 90)'
-        )
+    )
     filter_group.add_argument(
         '--max-len-diff',
         dest='max_relative_len_diff', type=float,
         default=0.25,
         help='Maximum average relative read length difference (ref - var; '
              'default: 0.25)'
-        )
+    )
     filter_group.add_argument(
         '--min-strandedness',
         dest='min_strandedness', type=float,
         default=0.01,
         help='Minimum fraction of variant reads from each strand '
              '(default: 0.01)'
-        )
+    )
     filter_group.add_argument(
         '--min-strand-reads',
         dest='min_strand_reads', type=int,
         default=5,
         help='Minimum allele depth required to run --min-strandedness filter '
              '(default: 5)'
-        )
+    )
     filter_group.add_argument(
         '--min-ref-basequal',
         dest='min_ref_basequal', type=int,
         default=15,
         help='Minimum average base quality for the ref allele (default: 15)'
-        )
+    )
     filter_group.add_argument(
         '--min-var-basequal',
         dest='min_var_basequal', type=int,
         default=15,
-        help='Minimum average base quality for the variant allele (default: 15)'
-        )
+        help='Minimum average base quality for the variant allele '
+             '(default: 15)'
+    )
     filter_group.add_argument(
         '--max-basequal-diff',
         dest='max_basequal_diff', type=int,
         default=50,
         help='Maximum average base quality diff (ref - var; default: 50)'
-        )
+    )
     filter_group.add_argument(
         '--min-ref-mapqual',
         dest='min_ref_mapqual', type=int,
         default=15,
         help='Minimum average mapping quality of reads supporting the ref '
              'allele (default: 15)'
-        )
+    )
     filter_group.add_argument(
         '--min-var-mapqual',
         dest='min_var_mapqual', type=int,
         default=15,
         help='Minimum average mapping quality of reads supporting the variant '
              'allele (default: 15)'
-        )
+    )
     filter_group.add_argument(
         '--max-mapqual-diff',
         dest='max_mapqual_diff', type=int,
         default=50,
         help='Maximum average mapping quality difference (ref - var; '
              'default: 50)'
-        )
+    )
     filter_group.add_argument(
         '--max-ref-mmqs',
         dest='max_ref_mmqs', type=int,
         default=100,
         help='Maximum mismatch quality sum of reads supporting the ref '
              'allele (default: 100)'
-        )
+    )
     filter_group.add_argument(
         '--max-var-mmqs',
         dest='max_var_mmqs', type=int,
         default=100,
         help='Maximum mismatch quality sum of reads supporting the variant '
              'allele (default: 100)'
-        )
+    )
     filter_group.add_argument(
         '--min-mmqs-diff',
         dest='min_mmqs_diff', type=int,
         default=0,
         help='Minimum mismatch quality sum difference (var - ref; default: 0)'
-        )
+    )
     filter_group.add_argument(
         '--max-mmqs-diff',
         dest='max_mmqs_diff', type=int,
         default=50,
         help='Maximum mismatch quality sum difference (var - ref; default: 50)'
-        )
+    )
     args = vars(p.parse_args())
     varscan_call(**args)
