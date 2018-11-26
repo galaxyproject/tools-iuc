@@ -673,6 +673,7 @@ class VarScanCaller (object):
                 try:
                     record1 = next(vcf1)
                 except StopIteration:
+                    yield record2
                     for record2 in vcf2:
                         yield record2
                     return
@@ -681,6 +682,7 @@ class VarScanCaller (object):
                 try:
                     record2 = next(vcf2)
                 except StopIteration:
+                    yield record1
                     for record1 in vcf1:
                         yield record1
                     return
