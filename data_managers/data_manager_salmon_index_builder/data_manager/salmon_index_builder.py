@@ -34,7 +34,7 @@ def build_salmon_index( data_manager_dict, options, params, sequence_id, sequenc
     if options.kmer_size != '':
         args.append('-k')
         args.append(options.kmer_size)
-    args.extend( [ '-t' , options.fasta_filename, '-i', target_directory ] )
+    args.extend( [ '-t', options.fasta_filename, '-i', target_directory ] )
     proc = subprocess.Popen( args=args, shell=False)
     return_code = proc.wait()
     if return_code:
