@@ -492,7 +492,10 @@ class VarScanCaller (object):
             sum_dist_from_center += 1 - abs(
                 p.query_position - read_center
             ) / read_center
-            sum_dist_from_3prime += 1 - p.query_position / unclipped_length
+            if p.alignment.is_reverse:
+                sum_dist_from_3prime += p.query_position / unclipped_length
+            else:
+                sum_dist_from_3prime += 1 - p.query_position / unclipped_length
 
             sum_num_mismatches = 0
             for qpos, rpos in p.alignment.get_aligned_pairs():
