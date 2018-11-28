@@ -633,7 +633,7 @@ class VarScanCaller (object):
                             record.filter.add('RefReadPos')
                         # ref_stats[5] (avg_num_mismatches_as_fraction
                         # is not a filter criterion in VarScan fpfilter
-                        if ref_stats[6] < max_ref_mmqs:
+                        if ref_stats[6] > max_ref_mmqs:
                             record.filter.add('RefMMQS')
                         if ref_stats[7] < min_ref_len:
                             # VarScan fpfilter does not apply this filter
@@ -669,7 +669,7 @@ class VarScanCaller (object):
                             record.filter.add('VarReadPos')
                         # alt_stats[5] (avg_num_mismatches_as_fraction
                         # is not a filter criterion in VarScan fpfilter
-                        if alt_stats[6] < max_var_mmqs:
+                        if alt_stats[6] > max_var_mmqs:
                             record.filter.add('VarMMQS')
                         if alt_stats[7] < min_var_len:
                             # VarScan fpfilter does not apply this filter
@@ -679,9 +679,9 @@ class VarScanCaller (object):
                         if alt_stats[8] < min_var_dist3:
                             record.filter.add('VarDist3')
                     if ref_count >= 2 and alt_count >= 2:
-                        if (ref_stats[0] - alt_stats[0]) < max_mapqual_diff:
+                        if (ref_stats[0] - alt_stats[0]) > max_mapqual_diff:
                             record.filter.add('MapQualDiff')
-                        if (ref_stats[1] - alt_stats[1]) < max_basequal_diff:
+                        if (ref_stats[1] - alt_stats[1]) > max_basequal_diff:
                             record.filter.add('MaxBAQdiff')
                         mmqs_diff = alt_stats[6] - ref_stats[6]
                         if mmqs_diff < min_mmqs_diff:
