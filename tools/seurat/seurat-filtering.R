@@ -23,14 +23,14 @@ option_list <- list(
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
 args = parse_args(parser)
 
-counts <- read.delim(args$counts, row.names=1)
+counts <- read.delim(args$counts, row.names=1, check.names=F)
 seuset <- CreateSeuratObject(raw.data = counts, min.cells = args$min.cells, min.genes = args$min.genes)
 
 # Open PDF for plots
 pdf(args$pdf)
 
 VlnPlot(object = seuset, features.plot = c("nGene", "nUMI"), nCol = 2)
-GenePlot(object = seuset, gene1 = "nUMI", gene2 = "nGene", col=rgb(0,0,0, alpha=0.5))
+GenePlot(object = seuset, gene1 = "nUMI", gene2 = "nGene", col=rgb(0,0,0, alpha=0.5), pch=20)
 
 if (!is.null(args$low.thresholds)){
     lowthresh <- args$low.thresholds
@@ -51,6 +51,6 @@ seuset <- FilterCells(object = seuset, subset.names = c("nUMI"),
 # Close PDF for plots
 dev.off()
 
-saveRDS(seuset, args$rds)
+save(seuset, file = args$rds)
 
 sessionInfo()
