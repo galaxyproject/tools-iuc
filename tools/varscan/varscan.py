@@ -36,9 +36,21 @@ class VariantCallingError (RuntimeError):
 
 
 class VarScanCaller (object):
-    def __init__(self, ref_genome, bam_input_files):
+    def __init__(self, ref_genome, bam_input_files,
+                 no_BAQ=False, adjust_MQ=None, max_depth=None,
+                 min_mapqual=None, min_basequal=None,
+                 threads=1, verbose=False, quiet=True
+                 ):
         self.ref_genome = ref_genome
         self.bam_input_files = bam_input_files
+        self.no_BAQ = no_BAQ
+        self.adjust_MQ = adjust_MQ
+        self.max_depth = max_depth
+        self.min_mapqual = min_mapqual
+        self.min_basequal = min_basequal
+        self.threads = threads
+        self.verbose = verbose
+        self.quiet = quiet
 
         with pysam.FastaFile(ref_genome) as ref_fa:
             self.ref_contigs = ref_fa.references
@@ -53,15 +65,34 @@ class VarScanCaller (object):
         )
         self.tmpfiles = []
 
+    def _get_pysam_pileup_args(self):
+        param_dict = {}
+        if self.no_BAQ:
+            param_dict['compute_baq'] = False
+        if self.adjust_MQ is not None:
+            param_dict['adjust_capq_threshold'] = self.adjust_MQ
+        if self.max_depth is not None:
+            param_dict['max_depth'] = self.max_depth
+        if self.min_mapqual is not None:
+            param_dict['min_mapping_quality'] = self.min_mapqual
+        if self.min_basequal is not None:
+            param_dict['min_base_quality'] = self.min_basequal
+        param_dict['stepper'] = 'samtools'
+        return param_dict
+
     def varcall_parallel(self, normal_purity=None, tumor_purity=None,
                          min_coverage=None,
                          min_var_count=None,
                          min_var_freq=None, min_hom_freq=None,
-                         min_basequal=None,
                          p_value=None, somatic_p_value=None,
-                         no_BAQ=False, adjust_MQ=None, max_depth=None,
-                         threads=1, verbose=False, quiet=True
+                         threads=None, verbose=None, quiet=None
                          ):
+        if not threads:
+            threads = self.threads
+        if verbose is None:
+            verbose = self.verbose
+        if quiet is None:
+            quiet = self.quiet
         # mapping of method parameters to varcall engine command line options
         varcall_engine_option_mapping = [
             ('--normal-purity', normal_purity),
@@ -70,21 +101,26 @@ class VarScanCaller (object):
             ('--min-reads2', min_var_count),
             ('--min-var-freq', min_var_freq),
             ('--min-freq-for-hom', min_hom_freq),
-            ('--min-avg-qual', min_basequal),
             ('--p-value', p_value),
             ('--somatic-p-value', somatic_p_value),
+            ('--min-avg-qual', self.min_basequal)
         ]
         varcall_engine_options = []
         for option, value in varcall_engine_option_mapping:
             if value is not None:
                 varcall_engine_options += [option, str(value)]
         pileup_engine_options = []
-        if no_BAQ:
+        if self.no_BAQ:
             pileup_engine_options.append('-B')
-        if adjust_MQ is not None:
-            pileup_engine_options += ['-C', str(adjust_MQ)]
-        if max_depth is not None:
-            pileup_engine_options += ['-d', str(max_depth)]
+        if self.adjust_MQ is not None:
+            pileup_engine_options += ['-C', str(self.adjust_MQ)]
+        if self.max_depth is not None:
+            pileup_engine_options += ['-d', str(self.max_depth)]
+        if self.min_mapqual is not None:
+            pileup_engine_options += ['-q', str(self.min_mapqual)]
+        if self.min_basequal is not None:
+            pileup_engine_options += ['-Q', str(self.min_basequal)]
+
         # Create a tuple of calls to samtools mpileup and varscan for
         # each contig. The contig name is stored as the third element of
         # that tuple.
@@ -92,7 +128,6 @@ class VarScanCaller (object):
         # that they can be popped off later in the original order
         calls = [(
             self.pileup_engine + pileup_engine_options + [
-                '-q', '1',
                 '-r', contig + ':',
                 '-f', self.ref_genome
             ] + self.bam_input_files,
@@ -417,6 +452,11 @@ class VarScanCaller (object):
             else:
                 var_supp_read_mask.append(False)
         var_reads_total = var_reads_plus + var_reads_minus
+
+        if var_reads_total == 0:
+            # No stats without reads!
+            return None
+
         var_supp_only = self.pileup_masker(var_supp_read_mask)
 
         # average mapping quality of the reads supporting the
@@ -522,6 +562,7 @@ class VarScanCaller (object):
                     pysam.Samfile(fn, 'rb')) for fn in self.bam_input_files
             )
             refseq = io_stack.enter_context(pysam.FastaFile(self.ref_genome))
+            pileup_args = self._get_pysam_pileup_args()
             for record in invcf:
                 if any(len(allele) > 1 for allele in record.alleles):
                     # skip indel postprocessing for the moment
@@ -531,13 +572,15 @@ class VarScanCaller (object):
                 if record.info['SS'] == '2':
                     # a somatic variant => generate pileup from tumor data
                     pile = tumor_reads.pileup(
-                        record.chrom, record.start, record.stop
+                        record.chrom, record.start, record.stop,
+                        **pileup_args
                     )
                     sample_of_interest = 'TUMOR'
                 elif record.info['SS'] in ['1', '3']:
                     # a germline or LOH variant => pileup from normal data
                     pile = normal_reads.pileup(
-                        record.chrom, record.start, record.stop
+                        record.chrom, record.start, record.stop,
+                        **pileup_args
                     )
                     sample_of_interest = 'NORMAL'
                 else:
@@ -596,56 +639,63 @@ class VarScanCaller (object):
                             record.filter.add('RefAvgRL')
                         if ref_stats[8] < min_ref_dist3:
                             record.filter.add('RefDist3')
-                alt_count = alt_stats[2] + alt_stats[3]
-                if (
-                    alt_count < min_var_count2_lc
-                ) or (
-                    read_depth >= max_somatic_p_depth and
-                    alt_count < min_var_count2
-                ):
-                    record.filter.add('VarCount')
-                if alt_count / read_depth < min_var_freq2:
-                    record.filter.add('VarFreq')
-                if alt_stats[1] < min_var_basequal:
-                    record.filter.add('VarBaseQual')
-                if alt_count > min_strand_reads:
+                if alt_stats:
+                    alt_count = alt_stats[2] + alt_stats[3]
                     if (
-                        alt_stats[2] / alt_count < min_strandedness
+                        alt_count < min_var_count2_lc
                     ) or (
-                        alt_stats[3] / alt_count < min_strandedness
+                        read_depth >= max_somatic_p_depth and
+                        alt_count < min_var_count2
                     ):
-                        record.filter.add('Strand')
-                if alt_stats[2] + alt_stats[3] >= 2:
-                    if alt_stats[0] < min_var_mapqual:
-                        record.filter.add('VarMapQual')
-                    if alt_stats[4] < min_var_readpos:
-                        record.filter.add('VarReadPos')
-                    # alt_stats[5] (avg_num_mismatches_as_fraction
-                    # is not a filter criterion in VarScan fpfilter
-                    if alt_stats[6] < max_var_mmqs:
-                        record.filter.add('VarMMQS')
-                    if alt_stats[7] < min_var_len:
-                        # VarScan fpfilter does not apply this filter
-                        # for indels, but there is no reason
-                        # not to do it.
-                        record.filter.add('VarAvgRL')
-                    if alt_stats[8] < min_var_dist3:
-                        record.filter.add('VarDist3')
-                if ref_count >= 2 and alt_count >= 2:
-                    if (ref_stats[0] - alt_stats[0]) < max_mapqual_diff:
-                        record.filter.add('MapQualDiff')
-                    if (ref_stats[1] - alt_stats[1]) < max_basequal_diff:
-                        record.filter.add('MaxBAQdiff')
-                    mmqs_diff = alt_stats[6] - ref_stats[6]
-                    if mmqs_diff < min_mmqs_diff:
-                        record.filter.add('MinMMQSdiff')
-                    if mmqs_diff > max_mmqs_diff:
-                        record.filter.add('MMQSdiff')
-                    if (
-                        1 - alt_stats[7] / ref_stats[7]
-                    ) > max_relative_len_diff:
-                        record.filter.add('ReadLenDiff')
-
+                        record.filter.add('VarCount')
+                    if alt_count / read_depth < min_var_freq2:
+                        record.filter.add('VarFreq')
+                    if alt_stats[1] < min_var_basequal:
+                        record.filter.add('VarBaseQual')
+                    if alt_count > min_strand_reads:
+                        if (
+                            alt_stats[2] / alt_count < min_strandedness
+                        ) or (
+                            alt_stats[3] / alt_count < min_strandedness
+                        ):
+                            record.filter.add('Strand')
+                    if alt_stats[2] + alt_stats[3] >= 2:
+                        if alt_stats[0] < min_var_mapqual:
+                            record.filter.add('VarMapQual')
+                        if alt_stats[4] < min_var_readpos:
+                            record.filter.add('VarReadPos')
+                        # alt_stats[5] (avg_num_mismatches_as_fraction
+                        # is not a filter criterion in VarScan fpfilter
+                        if alt_stats[6] < max_var_mmqs:
+                            record.filter.add('VarMMQS')
+                        if alt_stats[7] < min_var_len:
+                            # VarScan fpfilter does not apply this filter
+                            # for indels, but there is no reason
+                            # not to do it.
+                            record.filter.add('VarAvgRL')
+                        if alt_stats[8] < min_var_dist3:
+                            record.filter.add('VarDist3')
+                    if ref_count >= 2 and alt_count >= 2:
+                        if (ref_stats[0] - alt_stats[0]) < max_mapqual_diff:
+                            record.filter.add('MapQualDiff')
+                        if (ref_stats[1] - alt_stats[1]) < max_basequal_diff:
+                            record.filter.add('MaxBAQdiff')
+                        mmqs_diff = alt_stats[6] - ref_stats[6]
+                        if mmqs_diff < min_mmqs_diff:
+                            record.filter.add('MinMMQSdiff')
+                        if mmqs_diff > max_mmqs_diff:
+                            record.filter.add('MMQSdiff')
+                        if (
+                            1 - alt_stats[7] / ref_stats[7]
+                        ) > max_relative_len_diff:
+                            record.filter.add('ReadLenDiff')
+                else:
+                    # No variant-supporting reads for this record!
+                    # This can happen in rare cases because of
+                    # samtools mpileup issues, but indicates a
+                    # rather unreliable variant call.
+                    record.filter.add('VarCount')
+                    record.filter.add('VarFreq')
                 yield record
 
     def _indel_flagged_records(self, vcf):
@@ -808,11 +858,14 @@ def varscan_call(ref_genome, normal, tumor, output_path, **args):
             )
     else:
         out = (output_path, None)
-    varcall_parallel_args = {
+
+    instance_args = {
         k: args.pop(k) for k in [
+            'max_depth',
             'no_BAQ',
             'adjust_MQ',
-            'max_depth',
+            'min_mapqual',
+            'min_basequal',
             'threads',
             'verbose',
             'quiet'
@@ -826,14 +879,13 @@ def varscan_call(ref_genome, normal, tumor, output_path, **args):
             'min_var_count',
             'min_var_freq',
             'min_hom_freq',
-            'min_basequal',
             'somatic_p_value',
             'p_value'
         ]
     }
 
-    v = VarScanCaller(ref_genome, [normal, tumor])
-    v.varcall_parallel(**varcall_parallel_args, **varscan_somatic_args)
+    v = VarScanCaller(ref_genome, [normal, tumor], **instance_args)
+    v.varcall_parallel(**varscan_somatic_args)
     v.merge_and_postprocess(*out, **args)
 
 
@@ -876,25 +928,6 @@ if __name__ == '__main__':
              'will be appended.'
     )
     p.add_argument(
-        '-B', '--no-BAQ',
-        action='store_true',
-        help='Disable base quality recalibration '
-             '(samtools mpileup -B/--no-BAQ option)'
-    )
-    p.add_argument(
-        '-C', '--adjust-MQ',
-        metavar='COEFF', type=int, default=0,
-        help='Coefficient for downgrading the mapping quality of reads with '
-             'excessive mismatches (samtools mpileup -C option; default: 0 '
-             '-> no downgrade)'
-    )
-    p.add_argument(
-        '--max-pileup-depth',
-        dest='max_depth', type=int, default=8000,
-        help='Maximum depth of generated pileups (samtools mpileup -d option; '
-             'default: 8000)'
-    )
-    p.add_argument(
         '-t', '--threads',
         type=int, default=1,
         help='level of parallelism'
@@ -923,6 +956,39 @@ if __name__ == '__main__':
         help='Estimated purity of the tumor sample (default: 1.0)'
     )
     call_group.add_argument(
+        '--max-pileup-depth',
+        dest='max_depth', type=int, default=8000,
+        help='Maximum depth of generated pileups (samtools mpileup -d option; '
+             'default: 8000)'
+    )
+    call_group.add_argument(
+        '-B', '--no-BAQ',
+        action='store_true',
+        help='Disable base quality recalibration '
+             '(samtools mpileup -B/--no-BAQ option)'
+    )
+    call_group.add_argument(
+        '-C', '--adjust-MQ',
+        metavar='COEFF', type=int, default=0,
+        help='Coefficient for downgrading the mapping quality of reads with '
+             'excessive mismatches (samtools mpileup -C option; default: 0 '
+             '-> no downgrade)'
+    )
+    call_group.add_argument(
+        '--min-basequal',
+        dest='min_basequal', type=int,
+        default=13,
+        help='Minimum base quality at the variant position to use a read '
+             '(default: 13)'
+    )
+    call_group.add_argument(
+        '--min-mapqual',
+        dest='min_mapqual', type=int,
+        default=0,
+        help='Minimum mapping quality required to use a read '
+             '(default: 0)'
+    )
+    call_group.add_argument(
         '--min-coverage',
         dest='min_coverage', type=int,
         default=8,
@@ -948,13 +1014,6 @@ if __name__ == '__main__':
         default=0.75,
         help='Minimum variant allele frequency for homozygous call '
              '(default: 0.75)'
-    )
-    call_group.add_argument(
-        '--min-basequal',
-        dest='min_basequal', type=int,
-        default=15,
-        help='Minimum base quality at the variant position to use a read '
-             '(default: 15)'
     )
     call_group.add_argument(
         '--p-value',
