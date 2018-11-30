@@ -51,7 +51,7 @@ PCElbowPlot(object = seuset)
 if(args$do.tsne == T){
     print("Running non-linear dimensional reduction (tSNE)")
     seuset <- RunTSNE(object = seuset, dims.use = 1:args$numPCs.tsne, do.fast = TRUE)
-    TSNEPlot(object = seuset)
+    TSNEPlot(object = seuset, group.by=args$col.tsne)
 }
 
 # Close PDF for plots
