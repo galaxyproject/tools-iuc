@@ -37,14 +37,12 @@ class VariantCallingError (RuntimeError):
 
 class VarScanCaller (object):
     def __init__(self, ref_genome, bam_input_files,
-                 no_BAQ=False, adjust_MQ=None, max_depth=None,
+                 max_depth=None,
                  min_mapqual=None, min_basequal=None,
                  threads=1, verbose=False, quiet=True
                  ):
         self.ref_genome = ref_genome
         self.bam_input_files = bam_input_files
-        self.no_BAQ = no_BAQ
-        self.adjust_MQ = adjust_MQ
         self.max_depth = max_depth
         self.min_mapqual = min_mapqual
         self.min_basequal = min_basequal
@@ -67,16 +65,13 @@ class VarScanCaller (object):
 
     def _get_pysam_pileup_args(self):
         param_dict = {}
-        if self.no_BAQ:
-            param_dict['compute_baq'] = False
-        if self.adjust_MQ is not None:
-            param_dict['adjust_capq_threshold'] = self.adjust_MQ
         if self.max_depth is not None:
             param_dict['max_depth'] = self.max_depth
         if self.min_mapqual is not None:
             param_dict['min_mapping_quality'] = self.min_mapqual
         if self.min_basequal is not None:
             param_dict['min_base_quality'] = self.min_basequal
+        param_dict['compute_baq'] = False
         param_dict['stepper'] = 'samtools'
         return param_dict
 
@@ -109,11 +104,7 @@ class VarScanCaller (object):
         for option, value in varcall_engine_option_mapping:
             if value is not None:
                 varcall_engine_options += [option, str(value)]
-        pileup_engine_options = []
-        if self.no_BAQ:
-            pileup_engine_options.append('-B')
-        if self.adjust_MQ is not None:
-            pileup_engine_options += ['-C', str(self.adjust_MQ)]
+        pileup_engine_options = ['-B']
         if self.max_depth is not None:
             pileup_engine_options += ['-d', str(self.max_depth)]
         if self.min_mapqual is not None:
@@ -865,8 +856,6 @@ def varscan_call(ref_genome, normal, tumor, output_path, **args):
     instance_args = {
         k: args.pop(k) for k in [
             'max_depth',
-            'no_BAQ',
-            'adjust_MQ',
             'min_mapqual',
             'min_basequal',
             'threads',
@@ -963,19 +952,6 @@ if __name__ == '__main__':
         dest='max_depth', type=int, default=8000,
         help='Maximum depth of generated pileups (samtools mpileup -d option; '
              'default: 8000)'
-    )
-    call_group.add_argument(
-        '-B', '--no-BAQ',
-        action='store_true',
-        help='Disable base quality recalibration '
-             '(samtools mpileup -B/--no-BAQ option)'
-    )
-    call_group.add_argument(
-        '-C', '--adjust-MQ',
-        metavar='COEFF', type=int, default=0,
-        help='Coefficient for downgrading the mapping quality of reads with '
-             'excessive mismatches (samtools mpileup -C option; default: 0 '
-             '-> no downgrade)'
     )
     call_group.add_argument(
         '--min-basequal',
