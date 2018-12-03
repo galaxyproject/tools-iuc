@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
+from __future__ import print_function
 
-# flake8: noqa
-
-import sys
-import os
+import argparse
 import io
+import os
 import subprocess
+import sys
 import tempfile
 import time
-
+from contextlib import ExitStack
 from functools import partial
 from threading import Thread
-from contextlib import ExitStack
 
 import pysam
 
@@ -528,7 +527,7 @@ class VarScanCaller (object):
             avg_distance_to_effective_3p_end
         )
 
-    def _postprocess_variant_records(self, invcf, *,
+    def _postprocess_variant_records(self, invcf,
                                      min_var_count2, min_var_count2_lc,
                                      min_var_freq2, max_somatic_p,
                                      max_somatic_p_depth,
@@ -886,8 +885,6 @@ def varscan_call(ref_genome, normal, tumor, output_path, **args):
 
 
 if __name__ == '__main__':
-    import argparse
-
     p = argparse.ArgumentParser()
     p.add_argument(
         'ref_genome',
