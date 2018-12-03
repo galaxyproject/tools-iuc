@@ -1,0 +1,787 @@
+<tool id="scanpy_cluster_reduce_dimension" name="Cluster and reduce dimension" version="@version@">
+    <description>with scanpy</description>
+    <macros>
+        <import>macros.xml</import>
+        <xml name="svd_solver">
+            <param name="svd_solver" type="select" label="SVD solver to use" help="">
+                <option value="auto">Automatically chosen depending on the size of the problem</option>
+                <option value="arpack">ARPACK wrapper in SciPy</option>
+                <option value="randomized">Randomized algorithm due to Halko (2009)</option>
+            </param>
+        </xml>
+        <xml name="pca_random_state">
+            <param name="random_state" type="integer" value="0" label="Initial states for the optimization" help=""/>
+        </xml>
+        <xml name="pca_inputs">
+            <expand macro="inputs_anndata"/>
+            <param name="n_comps" type="integer" value="50" label="Number of principal components to compute" help=""/>
+            <param name="dtype" type="text" value="float32" label="Numpy data type string to which to convert the result" help=""/>
+            <conditional name="pca">
+                <param name="chunked" type="select" label="Type of PCA?">
+                    <option value="True">Incremental PCA on segments (incremental PCA automatically zero centers and ignores settings of `random_seed` and `svd_solver`)</option>
+                    <option value="False" selected="true">Full PCA</option>
+                </param>
+                <when value="True">
+                    <param name="chunk_size" type="integer" value="" label="chunk_size" help="Number of observations to include in each chunk"/>
+                </when>
+                <when value="False">
+                    <param name="zero_center" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Compute standard PCA from covariance matrix?" help="If not, it omits zero-centering variables (uses *TruncatedSVD* from scikit-learn), which allows to handle sparse input efficiently."/>
+                    <expand macro="svd_solver"/> 
+                    <param name="random_state" type="integer" value="0" label="Initial states for the optimization" help=""/>
+                </when>
+            </conditional>
+            <expand macro="anndata_output_format"/> 
+        </xml>
+        <token name="@CMD_pca_outputs@"><![CDATA[
+np.savetxt('$X_pca', adata.obsm['X_pca'], delimiter='\t')
+np.savetxt('$PCs', adata.varm['PCs'], delimiter='\t')
+np.savetxt('$variance', adata.uns['pca']['variance'], delimiter='\t')
+np.savetxt('$variance_ratio', adata.uns['pca']['variance_ratio'], delimiter='\t')
+]]></token>
+        <token name="@CMD_pca_params@"><![CDATA[
+    data=adata,
+    n_comps=$n_comps,
+    dtype='$dtype',
+    copy=False,
+    chunked=$pca.chunked,
+#if $pca.chunked == 'True'
+    chunk_size=$pca.chunk_size
+#else
+    zero_center='$pca.zero_center',
+    svd_solver='$pca.svd_solver',
+    random_state=$pca.random_state
+#end if
+]]></token>
+        <xml name="penalty">
+            <param argument="penalty" type="select" label="Norm used in the penalization" help="">
+                <option value="l1">l1</option>
+                <option value="l2">l2</option>
+                <option value="customized">customized</option>
+            </param>
+        </xml>
+        <xml name="custom_penalty">
+            <param argument="pen" type="text" value="" label="Norm used in the penalization" help=""/>
+        </xml>
+        <xml name="fit_intercept">
+            <param argument="fit_intercept" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Should a constant (a.k.a. bias or intercept) be added to the decision function?" help=""/>
+        </xml>
+        <xml name="random_state">
+            <param argument="random_state" type="integer" value="" optional="true" label="The seed of the pseudo random number generator to use when shuffling the data" help=""/>
+        </xml>
+        <xml name="max_iter">
+            <param argument="max_iter" type="integer" value="100" label="Maximum number of iterations taken for the solvers to converge" help=""/>
+        </xml>
+        <xml name="multi_class">
+            <param argument="multi_class" type="select" label="Multi class" help="">
+                <option value="ovr">ovr: a binary problem is fit for each label</option>
+                <option value="multinomial">multinomial: the multinomial loss fit across the entire probability distribution, even when the data is binary</option>
+                <option value="auto">auto: selects ‘ovr’ if the data is binary and otherwise selects ‘multinomial’</option>
+            </param>
+        </xml>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+          python $script_file
+      ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_imports@
+@CMD_read_inputs@
+
+#if $method.method == 'tl.louvain'
+sc.tl.louvain(
+    adata=adata,
+    flavor = '$method.flavor.flavor',
+    #if $method.flavor.flavor == 'vtraag' and $method.flavor.resolution
+    resolution=$method.flavor.resolution,
+    #end if
+    random_state=$method.random_state,
+    key_added='$method.key_added',
+    copy=False)
+#elif $method.method == 'pp.pca'
+sc.pp.pca(@CMD_pca_params@)
+@CMD_pca_outputs@
+#elif $method.method == 'tl.pca'
+sc.tl.pca(@CMD_pca_params@)
+@CMD_pca_outputs@
+#elif $method.method == 'tl.diffmap'
+sc.tl.diffmap(
+    adata=adata,
+    n_comps=$method.n_comps,
+    copy =False)
+np.savetxt('$X_diffmap', adata.obsm['X_diffmap'], delimiter='\t')
+#elif $method.method == 'tl.tsne'
+sc.tl.tsne(
+    adata=adata,
+    #if $method.n_pcs
+    n_pcs=$method.n_pcs,
+    #end if
+    perplexity=$method.perplexity,
+    early_exaggeration=$method.early_exaggeration,
+    learning_rate=$method.learning_rate,
+    random_state=$method.random_state,
+    copy=False)
+np.savetxt('$X_tsne', adata.obsm['X_tsne'], delimiter='\t') 
+#elif $method.method == 'tl.umap'
+sc.tl.umap(
+    adata=adata,
+    min_dist=$method.min_dist,
+    spread=$method.spread,
+    n_components=$method.n_components,
+    #if $method.maxiter
+    maxiter=$method.maxiter,
+    #end if
+    alpha=$method.alpha,
+    gamma=$method.gamma,
+    negative_sample_rate=$method.negative_sample_rate,
+    init_pos='$method.init_pos',
+    random_state=$method.random_state,
+    copy=False)
+np.savetxt('$X_umap', adata.obsm['X_umap'], delimiter='\t')
+#elif $method.method == 'pp.neighbors'
+sc.pp.neighbors(
+    adata=adata,
+    n_neighbors=$method.n_neighbors,
+    #if $method.n_pcs
+    n_pcs=$method.n_pcs,
+    #end if
+    knn=$method.knn,
+    random_state=$method.random_state,
+    method='$method.method',
+    metric='$method.metric',
+    copy=False)
+#elif $method.method == 'tl.rank_genes_groups'
+sc.tl.rank_genes_groups(
+    adata=adata,
+    groupby='$$method.groupby',
+    use_raw=$$method.use_raw,
+    #if $$method.groups == 'rest'
+    groups='$$method.groups',
+    #end if
+    #if $$method.ref.rest == 'rest'
+    reference='$$method.ref.rest',
+    #else
+    reference='$$method.ref.reference',
+    #end if
+    n_genes=$$method.n_genes,
+    method='$$method.method.method',
+    #if $$method.method.method == 'logreg'
+    solver='$$method.method.solver.solver',
+        #if $$method.method.solver.solver == 'newton-cg'
+    penalty='l2',
+    fit_intercept=$$method.method.solver.fit_intercept,
+    max_iter=$$method.method.solver.max_iter,
+    multi_class='$$method.method.solver.multi_class',
+        #else if $$method.method.solver.solver == 'lbfgs'
+    penalty='l2',
+    fit_intercept=$$method.method.solver.fit_intercept,
+    max_iter=$$method.method.solver.max_iter,
+    multi_class='$$method.method.solver.multi_class',
+        #else if $$method.method.solver.solver == 'liblinear'
+            #if $$method.method.solver.penalty.penalty == 'l1'
+    penalty='l1',
+            #else if $$method.method.solver.penalty.penalty == 'l2'
+    penalty='l2',
+    dual=$method.solver.penalty.dual,
+            #else
+    penalty='$method.solver.penalty.pen',
+            #end if
+    fit_intercept=$method.solver.intercept_scaling.fit_intercept,
+            #if $method.solver.intercept_scaling.fit_intercept == 'True'
+    intercept_scaling=$method.solver.intercept_scaling.intercept_scaling,
+            #end if
+            #if $method.solver.random_state
+    random_state=$method.solver.random_state,
+            #end if
+        #else if $method.solver.solver == 'sag'
+    penalty='l2',
+    fit_intercept=$method.method.solver.fit_intercept,
+            #if $$method.method.solver.random_state
+    random_state=$method.method.solver.random_state,
+            #end if
+    max_iter=$method.method.solver.max_iter,
+    multi_class='$method.method.solver.multi_class',
+        #else if $method.method.solver.solver == 'saga'
+            #if $method.method.solver.penalty.penalty == 'l1'
+    penalty='l1',
+            #else if $method.method.solver.penalty.penalty == 'l2'
+    penalty='l2',
+            #else
+    penalty='$method.method.solver.penalty.pen',
+            #end if
+    fit_intercept=$method.method.solver.fit_intercept,
+    multi_class='$method.method.solver.multi_class',
+        #end if
+    tol=$method.method.tol,
+    C=$method.method.c,
+    #end if
+    only_positive=$$method.only_positive)
+adata.uns['rank_genes_groups']['names'].tofile('$names', sep = "\n")
+adata.uns['rank_genes_groups']['scores'].tofile('$scores', sep = "\n")
+#end if
+
+@CMD_anndata_write_outputs@
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="inputs_anndata"/>
+        <conditional name="method">
+            <param argument="method" type="select" label="Method used for plotting">
+                <option value="tl.louvain">Cluster cells into subgroups, using `tl.louvain`</option>
+                <option value="pp.pca">Computes PCA (principal component analysis) coordinates, loadings and variance decomposition, using `pp.pca`</option>
+                <option value="tl.pca">Computes PCA (principal component analysis) coordinates, loadings and variance decomposition, using `tl.pca`</option>
+                <option value="tl.diffmap">Diffusion Maps, using `tl.diffmap`</option>
+                <option value="tl.tsne">t-distributed stochastic neighborhood embedding (tSNE), using `tl.tsne`</option>
+                <option value="tl.umap">Embed the neighborhood graph using UMAP, using `tl.umap`</option>
+                <option value="pp.neighbors">Compute a neighborhood graph of observations, using `pp.neighbors`</option>
+                <option value="tl.rank_genes_groups">Rank genes for characterizing groups, using `tl.rank_genes_groups`</option>
+            </param>
+            <when value="tl.louvain">
+                <conditional name="flavor">
+                    <param argument="flavor" type="select" label="Flavor for the clustering" help="">
+                        <option value="vtraag">vtraag (much more powerful)</option>
+                        <option value="igraph">igraph</option>
+                    </param>
+                    <when value="vtraag">
+                        <param argument="resolution" type="float" value="" optional="true" label="Resolution" help="Higher resolution means finding more and smaller clusters, which defaults to 1.0. See “Time as a resolution parameter” in Lambiotte et al, 2009"/>
+                    </when>
+                    <when value="igraph"/>
+                </conditional>
+                <param argument="random_state" type="integer" value="0" label="Random state" help="Change the initialization of the optimization."/>
+                <param argument="key_added" type="text" value="louvain" optional="true" label="Key under which to add the cluster labels" help=""/>
+            </when>
+            <when value="pp.pca">
+                <expand macro="pca_inputs"/>
+            </when>
+            <when value="tl.pca">
+                <expand macro="pca_inputs"/>
+            </when>
+            <when value="tl.diffmap">
+                <param argument="n_comps" type="integer" value="15" optional="true" label="Number of dimensions of the representation" help=""/>
+            </when>
+            <when value="tl.tsne">
+                <param name="n_pcs" type="integer" value="" optional="true" label="Number of PCs to use" help=""/>
+                <param name="perplexity" type="float" value="30" label="Perplexity" help="The perplexity is related to the number of nearest neighbors that is used in other manifold learning algorithms. Larger datasets usually require a larger perplexity. Consider selecting a value between 5 and 50. The choice is not extremely critical since t-SNE is quite insensitive to this parameter."/>
+                <param name="early_exaggeration" type="float" value="12.0" label="Early exaggeration" help="Controls how tight natural clusters in the original space are in the embedded space and how much space will be between them. For larger values, the space between natural clusters will be larger in the embedded space. Again, the choice of this parameter is not very critical. If the cost function increases during initial optimization, the early exaggeration factor or the learning rate might be too high."/>
+                <param name="learning_rate" type="float" value="1000" label="Learning rate" help="The learning rate can be a critical parameter. It should be between 100 and 1000. If the cost function increases during initial optimization, the early exaggeration factor or the learning rate might be too high. If the cost function gets stuck in a bad local minimum increasing the learning rate helps sometimes."/>
+                <param name="random_state" type="integer" value="0" label="Random state" help="Change this to use different intial states for the optimization"/>
+            </when>
+            <when value="tl.umap">
+                <param argument="min_dist" type="float" value="0.5" label="Effective minimum distance between embedded points" help="Smaller values will result in a more clustered/clumped embedding where nearby points on the manifold are drawn closer together, while larger values will result on a more even dispersal of points. The value should be set relative to the `spread` value, which determines the scale at which embedded points will be spread out. The default of in the `umap-learn` package is 0.1."/>
+                <param argument="spread" type="float" value="1.0" label="Effective scale of embedded points" help="In combination with `min_dist` this determines how clustered/clumped the embedded points are."/>
+                <param argument="n_components" type="integer" value="2" label="Number of dimensions of the embedding" help=""/>
+                <param argument="maxiter" type="integer" value="" optional="true" label="Number of iterations (epochs) of the optimization" help="Called `n_epochs` in the original UMAP."/>
+                <param argument="alpha" type="float" value="1.0" label="Initial learning rate for the embedding optimization" help=""/>
+                <param argument="gamma" type="float" value="1.0" label="Weighting applied to negative samples in low dimensional embedding optimization" help="Values higher than one will result in greater weight being given to negative samples."/>
+                <param argument="negative_sample_rate" type="integer" value="5" label="The number of negative edge/1-simplex samples to use per positive edge/1-simplex sample in optimizing the low dimensional embedding" help=""/>
+                <param argument="init_pos" type="select" label="How to initialize the low dimensional embedding" help="Called `init` in the original UMAP">
+                    <option value="paga">Position from paga</option>
+                    <option value="spectral" selected="true">Spectral embedding of the graph</option>
+                    <option value="random">Initial embedding positions at random</option>
+                </param>
+                <param argument="random_state" type="integer" value="0" label="Random state" help="Change this to use different intial states for the optimization"/>
+            </when>
+            <when value="pp.neighbors">
+                <param argument="n_neighbors" type="integer" value="15" label="The size of local neighborhood (in terms of number of neighboring data points) used for manifold approximation" help="Larger values result in more global views of the manifold, while smaller values result in more local data being preserved. In general values should be in the range 2 to 100. If `knn` is `True`, number of nearest neighbors to be searched. If `knn` is `False`, a Gaussian kernel width is set to the distance of the `n_neighbors` neighbor."/>
+                <param argument="n_pcs" type="integer" value="" optional="true" label="Number of PCs to use" help=""/>
+                <param argument="knn" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Use a hard threshold to restrict the number of neighbors to n_neighbors?" help="If true, it considers a knn graph. Otherwise, it uses a Gaussian Kernel to assign low weights to neighbors more distant than the `n_neighbors` nearest neighbor."/>
+                <param argument="random_state" type="integer" value="0" label="Numpy random seed" help=""/>
+                <param argument="method" type="select" label="Method for computing connectivities" help="">
+                    <option value="umap">umap (McInnes et al, 2018)</option>
+                    <option value="gauss">gauss: Gauss kernel following (Coifman et al 2005) with adaptive width (Haghverdi et al 2016)</option>
+                </param>
+                <param argument="metric" type="select" label="Distance metric" help="">
+                    <expand macro="distance_metric_options"/>
+                </param>
+            </when>
+            <when value="tl.rank_genes_groups">
+                <param argument="groupby" type="text" value="" label="The key of the observations grouping to consider" help=""/>
+                <expand macro="param_use_raw"/>
+                <param argument="groups" type="text" value="" optional="true" label="Subset of groups to which comparison shall be restricted" help="e.g. ['g1', 'g2', 'g3']. If not passed, a ranking will be generated for all groups."/>
+                <conditional name="ref">
+                    <param name="rest" type="select" label="Comparison">
+                        <option value="rest">Compare each group to the union of the rest of the group</option>
+                        <option value="group_id">Compare with respect to a specific group</option>
+                    </param>
+                    <when value="rest"/>
+                    <when value="group_id">
+                        <param argument="reference" type="text" value="" label="Group identifier with respect to which compare"/>
+                    </when>
+                </conditional>
+                <param argument="n_genes" type="integer" value="100" label="The number of genes that appear in the returned tables" help=""/>
+                <conditional name="method">
+                    <param argument="method" type="select" label="Method">
+                        <option value="t-test">t-test</option>
+                        <option value="wilcoxon">Wilcoxon-Rank-Sum</option>
+                        <option value="t-test_overestim_var" selected="true">t-test with overestimate of variance of each group</option>
+                        <option value="logreg">Logistic regression</option>
+                    </param>
+                    <when value="t-test"/>
+                    <when value="wilcoxon"/>
+                    <when value="t-test_overestim_var"/>
+                    <when value="logreg">
+                        <conditional name="solver">
+                            <param argument="solver" type="select" value="Algorithm to use in the optimization problem" help="For small datasets, ‘liblinear’ is a good choice, whereas ‘sag’ and ‘saga’ are faster for large ones. For multiclass problems, only ‘newton-cg’, ‘sag’, ‘saga’ and ‘lbfgs’ handle multinomial loss; ‘liblinear’ is limited to one-versus-rest schemes. ‘newton-cg’, ‘lbfgs’ and ‘sag’ only handle L2 penalty, whereas ‘liblinear’ and ‘saga’ handle L1 penalty.">
+                                <option value="newton-cg">newton-cg</option>
+                                <option value="lbfgs">lbfgs</option>
+                                <option value="liblinear">liblinear</option>
+                                <option value="sag">sag</option>
+                                <option value="saga">saga</option>
+                            </param>
+                            <when value="newton-cg">
+                                <expand macro="fit_intercept"/>
+                                <expand macro="max_iter"/>
+                                <expand macro="multi_class"/>
+                            </when>
+                            <when value="lbfgs">
+                                <expand macro="fit_intercept"/>
+                                <expand macro="max_iter"/>
+                                <expand macro="multi_class"/>
+                            </when>
+                            <when value="liblinear">
+                                <conditional name="penalty">
+                                    <expand macro="penalty"/>
+                                    <when value="l1"/>
+                                    <when value="l2">
+                                        <param argument="dual" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Dual (not primal) formulation?" help="Prefer primal when n_samples > n_features"/>
+                                    </when>
+                                    <when value="customized">
+                                        <expand macro="custom_penalty"/>
+                                    </when>
+                                </conditional>
+                                <conditional name="intercept_scaling">
+                                    <param argument="fit_intercept" type="select" label="Should a constant (a.k.a. bias or intercept) be added to the decision function?" help="">
+                                        <option value="True">Yes</option>
+                                        <option value="False">No</option>
+                                    </param>
+                                    <when value="True">
+                                        <param argument="intercept_scaling" type="float" value="1.0" label="Intercept scaling" help="x becomes [x, self.intercept_scaling], i.e. a 'synthetic' feature with constant value equal to intercept_scaling is appended to the instance vector. The intercept becomes intercept_scaling * synthetic_feature_weight."/>
+                                    </when>
+                                    <when value="False"/>
+                                </conditional>
+                                <expand macro="random_state"/>
+                            </when>
+                            <when value="sag">
+                                <expand macro="fit_intercept"/>
+                                <expand macro="random_state"/>
+                                <expand macro="max_iter"/>
+                                <expand macro="multi_class"/>
+                            </when>
+                            <when value="saga">
+                                <conditional name="penalty">
+                                    <expand macro="penalty"/>
+                                    <when value="l1"/>
+                                    <when value="l2"/>
+                                    <when value="customized">
+                                        <expand macro="custom_penalty"/>
+                                    </when>
+                                </conditional>
+                                <expand macro="fit_intercept"/>
+                                <expand macro="multi_class"/>
+                            </when>
+                        </conditional>
+                        <param argument="tol" type="float" value="1e-4" label="Tolerance for stopping criteria" help=""/>
+                        <param argument="c" type="float" value="1.0" label="Inverse of regularization strength" help="It must be a positive float. Like in support vector machines, smaller values specify stronger regularization."/>
+                    </when>
+                </conditional>
+                <param argument="only_positive" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Only consider positive differences?" help=""/>
+            </when>
+        </conditional>
+        <expand macro="anndata_output_format"/>
+    </inputs>
+    <outputs>
+        <expand macro="anndata_outputs"/>
+        <data name="X_pca" format="tabular" label="${tool.name} on ${on_string}: PCA representation of data">
+            <filter>method['method'] == 'pp.pca' or method['method'] == 'tl.pca'</filter>
+        </data>
+        <data name="PCs" format="tabular" label="${tool.name} on ${on_string}: Principal components containing the loadings">
+            <filter>method['method'] == 'pp.pca' or method['method'] == 'tl.pca'</filter>
+        </data>
+        <data name="variance_ratio" format="tabular" label="${tool.name} on ${on_string}: Ratio of explained variance">
+            <filter>method['method'] == 'pp.pca' or method['method'] == 'tl.pca'</filter>
+        </data>
+        <data name="variance" format="tabular" label="${tool.name} on ${on_string}: Explained variance, equivalent to the eigenvalues of the covariance matrix">
+            <filter>method['method'] == 'pp.pca' or method['method'] == 'tl.pca'</filter>
+        </data>
+        <data name="X_diffmap" format="tabular" label="${tool.name} on ${on_string}: Diffusion map representation">
+            <filter>method['method'] == 'tl.diffmap'</filter>
+        </data>
+        <data name="X_tsne" format="tabular" label="${tool.name} on ${on_string}: tSNE coordinates">
+            <filter>method['method'] == 'tl.tsne'</filter>
+        </data>
+        <data name="X_umap" format="tabular" label="${tool.name} on ${on_string}: UMAP coordinates">
+            <filter>method['method'] == 'tl.umap'</filter>
+        </data>
+        <data name="names" format="txt" label="${tool.name} on ${on_string}: Gene names">
+            <filter>method['method'] == 'tl.rank_genes_groups'</filter>
+        </data>
+        <data name="scores" format="txt" label="${tool.name} on ${on_string}: Scores">
+            <filter>method['method'] == 'tl.rank_genes_groups'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="krumsiek11.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="tl.louvain"/>
+                <conditional name="flavor">
+                    <param name="flavor" value="vtraag"/>
+                    <param name="resolution" value="1.0"/>
+                </conditional>
+                <param name="random_state" value="10"/>
+                <param name="key_added" value="louvain"/>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="tl.louvain.neighbors.paul15_gauss_braycurtis.h5ad" ftype="h5" compare="sim_size"/>
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="krumsiek11.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="pp.pca"/>
+                <param name="n_comps" value="50"/>
+                <param name="dtype" value="float32"/>
+                <conditional name="pca">
+                    <param name="chunked" value="False"/>
+                    <param name="zero_center" value="True"/>
+                    <param name="svd_solver" value="auto"/>
+                    <param name="random_state" value="0"/>
+                </conditional>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="pp.pca.krumsiek11.h5ad" ftype="h5" compare="sim_size"/>
+            <output name="X_pca" file="pp.pca.X_pca.krumsiek11.tabular" />
+            <output name="PCs" file="pp.pca.PCs.krumsiek11.tabular" />
+            <output name="variance_ratio" file="pp.pca.variance_ratio.krumsiek11.tabular" />
+            <output name="variance" file="pp.pca.variance.krumsiek11.tabular" />
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="krumsiek11.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="pp.pca"/>
+                <param name="n_comps" value="50"/>
+                <param name="dtype" value="float32"/>
+                <conditional name="pca">
+                    <param name="chunked" value="True"/>
+                    <param name="chunk_size" value="50"/>
+                </conditional>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="pp.pca.krumsiek11_chunk.h5ad" ftype="h5" compare="sim_size"/>
+            <output name="X_pca" file="pp.pca.X_pca.krumsiek11_chunk.tabular" />
+            <output name="PCs" file="pp.pca.PCs.krumsiek11_chunk.tabular" />
+            <output name="variance_ratio" file="pp.pca.variance_ratio.krumsiek11_chunk.tabular" />
+            <output name="variance" file="pp.pca.variance.krumsiek11_chunk.tabular" />
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="krumsiek11.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="tl.pca"/>
+                <param name="n_comps" value="50"/>
+                <param name="dtype" value="float32"/>
+                <conditional name="pca">
+                    <param name="chunked" value="False"/>
+                    <param name="zero_center" value="True"/>
+                    <param name="svd_solver" value="auto"/>
+                    <param name="random_state" value="0"/>
+                </conditional>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="tl.pca.krumsiek11.h5ad" ftype="h5" compare="sim_size"/>
+            <output name="X_pca" file="tl.pca.X_pca.krumsiek11.tabular" />
+            <output name="PCs" file="tl.pca.PCs.krumsiek11.tabular" />
+            <output name="variance_ratio" file="tl.pca.variance_ratio.krumsiek11.tabular" />
+            <output name="variance" file="tl.pca.variance.krumsiek11.tabular" />
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="pp.neighbors.paul15_gauss_braycurtis.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="tl.diffmap"/>
+                <param name="n_comps" value="15"/>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="tl.diffmap.neighbors.paul15_gauss_braycurtis.h5ad" ftype="h5" compare="sim_size"/>
+            <output name="X_diffmap" file="tl.diffmap.neighbors.paul15_gauss_braycurtis.X_diffmap.tabular"/>
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="krumsiek11.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="tl.tsne"/>
+                <param name="n_pcs" value="10"/>
+                <param name="perplexity" value="30"/>
+                <param name="early_exaggeration" value="12.0"/>
+                <param name="learning_rate" value="1000"/>
+                <param name="random_state" value="0"/>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="tl.tsne.krumsiek11.h5ad" ftype="h5" compare="sim_size"/>
+            <output name="X_tsne" file="tl.tsne.krumsiek11_X_tsne.tabular"/>
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="pp.neighbors.paul15_gauss_braycurtis.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="tl.umap"/>
+                <param name="min_dist" value="0.5"/>
+                <param name="spread" value="1.0"/>
+                <param name="n_components" value="2"/>
+                <param name="maxiter" value="2"/>
+                <param name="alpha" value="1.0"/>
+                <param name="gamma" value="1.0"/>
+                <param name="negative_sample_rate" value="5"/>
+                <param name="init_pos" value="spectral"/>
+                <param name="random_state" value="0"/>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="tl.umap.neighbors.paul15_gauss_braycurtis.h5ad" ftype="h5" compare="sim_size"/>
+            <output name="X_umap" file="tl.umap.neighbors.paul15_gauss_braycurtis.X_umap.tabular"/>
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="paul15.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="pp.neighbors"/>
+                <param name="n_neighbors" value="15"/>
+                <param name="knn" value="True"/>
+                <param name="method" value="umap"/>
+                <param name="metric" value="euclidean"/>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="pp.neighbors.paul15_umap_euclidean.h5ad" ftype="h5" compare="sim_size"/>
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="paul15.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="pp.neighbors"/>
+                <param name="n_neighbors" value="15"/>
+                <param name="knn" value="True"/>
+                <param name="method" value="gauss"/>
+                <param name="metric" value="braycurtis"/>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="pp.neighbors.paul15_gauss_braycurtis.h5ad" ftype="h5" compare="sim_size"/>
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="krumsiek11.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="tl.rank_genes_groups"/>
+                <param name="groupby" value="cell_type"/>
+                <param name="use_raw" value="True"/>
+                <conditional name="ref">
+                    <param name="rest" value="rest"/>
+                </conditional>
+                <param name="n_genes" value="100"/>
+                <conditional name="method">
+                    <param name="method" value="t-test_overestim_var"/>
+                </conditional>
+                <param name="only_positive" value="True"/>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="tl.rank_genes_groups.krumsiek11.h5ad" ftype="h5" compare="sim_size"/>
+            <output name="names" file="tl.rank_genes_groups.gene_names.krumsiek11.txt"/>
+            <output name="scores" file="tl.rank_genes_groups.scores.krumsiek11.txt"/>
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="pbmc68k_reduced.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="tl.rank_genes_groups"/>
+                <param name="groupby" value="louvain"/>
+                <param name="use_raw" value="True"/>
+                <conditional name="ref">
+                    <param name="rest" value="rest"/>
+                </conditional>
+                <param name="n_genes" value="100"/>
+                <conditional name="method">
+                    <param name="method" value="logreg"/>
+                    <conditional name="solver">
+                        <param name="solver" value="newton-cg"/>
+                        <param name="fit_intercept" value="True"/>
+                        <param name="max_iter" value="100"/>
+                        <param name="multi_class" value="auto"/>
+                    </conditional>
+                    <param name="tol" value="1e-4"/>
+                    <param name="c" value="1.0"/>
+                </conditional>
+                <param name="only_positive" value="True"/>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="tl.rank_genes_groups.pbmc68k_reduced_logreg_newton-cg.h5ad" ftype="h5" compare="sim_size"/>
+            <output name="names" file="tl.rank_genes_groups.gene_names.pbmc68k_reduced_logreg_newton-cg.txt"/>
+            <output name="scores" file="tl.rank_genes_groups.scores.pbmc68k_reduced_logreg_newton-cg.txt"/>
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="h5ad" />
+                <param name="adata" value="pbmc68k_reduced.h5ad" />
+            </conditional>
+            <conditional name="method">
+                <param name="method" value="tl.rank_genes_groups"/>
+                <param name="groupby" value="louvain"/>
+                <param name="use_raw" value="True"/>
+                <conditional name="ref">
+                    <param name="rest" value="rest"/>
+                </conditional>
+                <param name="n_genes" value="100"/>
+                <conditional name="method">
+                    <param name="method" value="logreg"/>
+                    <conditional name="solver">
+                        <param name="solver" value="liblinear"/>
+                        <conditional name="penalty">
+                            <param name="penalty" value="l2"/>
+                            <param name="dual" value="False"/>
+                            <conditional name="intercept_scaling">
+                                <param name="fit_intercept" value="True"/>
+                                <param name="intercept_scaling" value="1.0" />
+                            </conditional>
+                            <param name="random_state" value="1"/>
+                        </conditional>
+                    </conditional>
+                    <param name="tol" value="1e-4"/>
+                    <param name="c" value="1.0"/>
+                </conditional>
+                <param name="only_positive" value="True"/>
+            </conditional>
+            <param name="anndata_output_format" value="h5ad" />
+            <output name="anndata_out_h5ad" file="tl.rank_genes_groups.pbmc68k_reduced_logreg_liblinear.h5ad" ftype="h5" compare="sim_size"/>
+            <output name="names" file="tl.rank_genes_groups.gene_names.pbmc68k_reduced_logreg_liblinear.txt"/>
+            <output name="scores" file="tl.rank_genes_groups.scores.pbmc68k_reduced_logreg_liblinear.txt"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+Cluster cells into subgroups, using `tl.louvain`
+================================================
+
+Cluster cells using the Louvain algorithm (Blondel et al, 2008) in the implementation
+of Traag et al,2017. The Louvain algorithm has been proposed for single-cell
+analysis by Levine et al, 2015.
+
+This requires to run `pp.neighbors`, first.
+
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/latest/api/scanpy.api.tl.louvain.html#scanpy.api.tl.louvain>`_
+
+Computes PCA (principal component analysis) coordinates, loadings and variance decomposition, using `pp.pca`
+============================================================================================================
+
+It uses the implementation of *scikit-learn*.
+
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/latest/api/scanpy.api.pp.pca.html#scanpy.api.pp.pca>`__
+
+Computes PCA (principal component analysis) coordinates, loadings and variance decomposition, using `tl.pca`
+============================================================================================================
+
+It uses the implementation of *scikit-learn*.
+
+Diffusion Maps
+
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/latest/api/scanpy.api.tl.pca.html#scanpy.api.tl.pca>`__
+
+Diffusion Maps, using `tl.diffmap`
+==================================
+
+Diffusion maps (Coifman et al  2005) has been proposed for visualizing single-cell
+data by Haghverdi et al (2015). The tool uses the adapted Gaussian kernel suggested
+by Haghverdi et al (2016) in the implementation of Wolf et al (2017).
+
+The width ("sigma") of the connectivity kernel is implicitly determined by
+the number of neighbors used to compute the single-cell graph in
+`pp.neighbors`. To reproduce the original implementation
+using a Gaussian kernel, use `method=='gauss'` in
+`pp.neighbors`. To use an exponential kernel, use the default
+`method=='umap'`. Differences between these options shouldn't usually be
+dramatic.
+
+It returns `X_diffmap`, diffusion map representation of data, which is the right eigen basis of the transition matrix with eigenvectors as columns.
+
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/latest/api/scanpy.api.tl.diffmap.html#scanpy.api.tl.diffmap>`__
+
+t-distributed stochastic neighborhood embedding (tSNE), using `tl.tsne`
+=======================================================================
+
+t-distributed stochastic neighborhood embedding (tSNE) (Maaten et al, 2008) has been
+proposed for visualizating single-cell data by (Amir et al, 2013). Here, by default,
+we use the implementation of *scikit-learn* (Pedregosa et al, 2011). 
+
+It returns `X_tsne`, tSNE coordinates of data.
+
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/latest/api/scanpy.api.tl.tsne.html#scanpy.api.tl.tsne>`__
+
+Embed the neighborhood graph using UMAP, using `tl.umap`
+========================================================
+
+UMAP (Uniform Manifold Approximation and Projection) is a manifold learning
+technique suitable for visualizing high-dimensional data. Besides tending to
+be faster than tSNE, it optimizes the embedding such that it best reflects
+the topology of the data, which we represent throughout Scanpy using a
+neighborhood graph. tSNE, by contrast, optimizes the distribution of
+nearest-neighbor distances in the embedding such that these best match the
+distribution of distances in the high-dimensional space.  We use the
+implementation of `umap-learn <https://github.com/lmcinnes/umap>`__
+(McInnes et al, 2018). For a few comparisons of UMAP with tSNE, see this `preprint
+<https://doi.org/10.1101/298430>`__.
+
+It returns `X_umap`, UMAP coordinates of data.
+
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/latest/api/scanpy.api.tl.umap.html#scanpy.api.tl.umap>`__
+
+Compute a neighborhood graph of observations, using `pp.neighbors`
+==================================================================
+
+The neighbor search efficiency of this heavily relies on UMAP (McInnes et al, 2018),
+which also provides a method for estimating connectivities of data points -
+the connectivity of the manifold (`method=='umap'`). If `method=='diffmap'`,
+connectivities are computed according to Coifman et al (2005), in the adaption of
+Haghverdi et al (2016).
+
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/latest/api/scanpy.api.pp.neighbors.html#scanpy.api.pp.neighbors>`__
+
+Rank genes for characterizing groups, using `tl.rank_genes_groups`
+==================================================================
+
+It returns:
+
+- `Gene names`: Gene names ordered in column by group id and in rows according to scores
+- `Scores`: Score for each gene (rows) for each group (columns), same order as for the names
+
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/latest/api/scanpy.api.tl.rank_genes_groups.html#scanpy.api.tl.rank_genes_groups>`__
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
