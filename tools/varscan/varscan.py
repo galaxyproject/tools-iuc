@@ -1,4 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
+# flake8: noqa
 
 import sys
 import os
@@ -495,7 +497,7 @@ class VarScanCaller (object):
                 if qpos is not None and rpos is not None:
                     if p.alignment.query_sequence[qpos] != ref_fetch(
                         rpos, rpos + 1
-                    ).upper(): # ref bases can be lowercase!
+                    ).upper():  # ref bases can be lowercase!
                         sum_num_mismatches += 1
                         sum_mismatch_qualities += p.alignment.query_qualities[
                             qpos
