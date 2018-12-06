@@ -85,10 +85,7 @@ print(p_threshold)
 # Calculate the scores
 input_pvalues = pd.read_csv(args.nodes, sep='\t', names=['node', 'pvalue'])
 input_pvalues.loc[:, 'score'] = input_pvalues.pvalue.apply(lambda x:
-                                                           (alpha - 1) *
-                                                           (np.log(x) -
-                                                            np.log(
-                                                                p_threshold)))
+                                                           (alpha - 1) * (np.log(x) - np.log(p_threshold)))
 # print(input_pvalues.loc[:, ['node', 'score']])
 input_pvalues.loc[:, ['node', 'score']].to_csv(args.output, sep='\t',
                                                index=False, header=False)
