@@ -7,6 +7,7 @@ suppressPackageStartupMessages({
     library(Seurat)
     library(SingleCellExperiment)
     library(dplyr)
+    library(gdata)
     library(optparse)
 })
 
@@ -22,7 +23,9 @@ option_list <- list(
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
 args = parse_args(parser)
 
-load(args$data)
+a <- load(args$data)
+#change imported object name in seuset if it's not the case
+if(!exists("seuset")) mv(a, "seuset")
 
 
 #Check if there is the PCA slot
