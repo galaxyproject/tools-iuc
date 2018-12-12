@@ -42,5 +42,7 @@ cut -f2 $OUT_PTH/summary_gene_table_v75 | grep -Fv None | grep -Fwf - $IN_PTH/ca
 
 # now use gemini load to build a test database
 echo "Building gemini test database"
-gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff ../gemini_load_result.db
+gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff ../gemini_load_result1.db
+gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff --skip-gene-tables --no-load-genotypes ../gemini_load_result2.db
+gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff -p ../gemini_amend_input.ped ../gemini_load_result3.db
 
