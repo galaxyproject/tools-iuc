@@ -40,9 +40,12 @@ rm $OUT_PTH/hprd_interaction_edges
 echo "$IN_PTH/cancer_gene_census.20140120.tsv -> $OUT_PTH/cancer_gene_census.20140120.tsv"
 cut -f2 $OUT_PTH/summary_gene_table_v75 | grep -Fv None | grep -Fwf - $IN_PTH/cancer_gene_census.20140120.tsv > $OUT_PTH/cancer_gene_census.20140120.tsv
 
-# now use gemini load to build a test database
-echo "Building gemini test database"
+# now use gemini load to build the test databases
+echo "Building gemini test databases"
 gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff ../gemini_load_result1.db
 gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff --skip-gene-tables --no-load-genotypes ../gemini_load_result2.db
 gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff -p ../gemini_amend_input.ped ../gemini_load_result3.db
+# build test database with custom annotations
+cp ../gemini_load_result1.db ../gemini_annotate_result.db
+gemini --annotation-dir $OUT_PTH annotate -f ../anno.bed.gz -c anno5 -a count ../gemini_annotate_result.db
 
