@@ -42,13 +42,23 @@ cut -f2 $OUT_PTH/summary_gene_table_v75 | grep -Fv None | grep -Fwf - $IN_PTH/ca
 
 # now use gemini load to build the test databases
 echo "Building gemini test databases"
-gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff ../gemini_load_result1.db
-gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff --skip-gene-tables --no-load-genotypes ../gemini_load_result2.db
-gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff -p ../gemini_amend_input.ped ../gemini_load_result3.db
-# build test database with custom annotations
+echo "Test databases for gemini:load"
+gemini --annotation-dir $OUT_PTH load --skip-cadd --skip-gerp-bp -v build-data/gemini_load_input.vcf -t snpEff ../gemini_load_result1.db
+gemini --annotation-dir $OUT_PTH load --skip-cadd --skip-gerp-bp -v build-data/gemini_load_input.vcf -t snpEff --skip-gene-tables --no-load-genotypes ../gemini_load_result2.db
+echo "Test database for gemini_amend"
+gemini --annotation-dir $OUT_PTH load --skip-cadd --skip-gerp-bp -v build-data/test.auto_rec.vcf -t snpEff ../gemini_amend_input.db
+echo "Test database for gemini_annotate"
+bgzip -c build-data anno.bed > build-data/anno.bed.gz
+tabix --force -p bed build-data/anno.bed.gz
 cp ../gemini_load_result1.db ../gemini_annotate_result.db
-gemini --annotation-dir $OUT_PTH annotate -f ../anno.bed.gz -c anno5 -a count ../gemini_annotate_result.db
-# build test database for gemini_set_somatic
+gemini --annotation-dir $OUT_PTH annotate -f build-data/anno.bed.gz -c anno5 -a count ../gemini_annotate_result.db
+echo "Test database for gemini_set_somatic"
 cp ../gemini_load_result1.db ../gemini_is_somatic_result.db
 gemini set_somatic --min-somatic-score 5.65 ../gemini_is_somatic_result.db
-
+echo "Test database for gemini_de_novo and gemini_mendel_errors"
+gemini --annotation-dir $OUT_PTH load --skip-cadd --skip-gerp-bp -v build-data/test.de_novo.vcf -p build-data/test.de_novo.ped -t snpEff ../gemini_de_novo_input.db
+echo "Test database for gemini_comp_hets"
+gemini --annotation-dir $OUT_PTH load --skip-cadd --skip-gerp-bp -v build-data/test.comp_het.vcf -p build-data/test.comp_het.ped -t snpEff ../gemini_comphets_input.db
+echo "Test databases for gemini_autosomal"
+gemini --annotation-dir $OUT_PTH load --skip-cadd --skip-gerp-bp -v build-data/test.auto_rec.vcf -p build-data/test.auto_rec.ped -t snpEff ../gemini_auto_rec_input.db
+gemini --annotation-dir $OUT_PTH load --skip-cadd --skip-gerp-bp -v build-data/test.auto_dom.vcf -p build-data/test.auto_dom.ped -t snpEff ../gemini_auto_dom_input.db
