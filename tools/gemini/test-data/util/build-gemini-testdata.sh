@@ -48,4 +48,7 @@ gemini --annotation-dir $OUT_PTH load -v ../gemini_load_input.vcf -t snpEff -p .
 # build test database with custom annotations
 cp ../gemini_load_result1.db ../gemini_annotate_result.db
 gemini --annotation-dir $OUT_PTH annotate -f ../anno.bed.gz -c anno5 -a count ../gemini_annotate_result.db
+# build test database for gemini_set_somatic
+cp ../gemini_load_result1.db ../gemini_is_somatic_result.db
+gemini set_somatic --min-somatic-score 5.65 ../gemini_is_somatic_result.db
 
