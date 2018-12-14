@@ -13,7 +13,8 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 * [ ] Is this tool appropriate for the IUC repo (see [CONTRIBUTING.md](https://github.com/galaxyproject/tools-iuc/blob/master/CONTRIBUTING.md))
 * [ ] Does the tool already exist in the toolshed?
     * [ ] Is this tool warranted?
-    * [ ] Does the IUC account have access to the current repo?
+    * [ ] Does the `iuc` user have write access to the current repo in both Test and Main ToolSheds? (Under "Grant authority to make changes", select `iuc` and click "Grant access")
+    * [ ] Does the IUC group have admin access to the current repo in both Test and Main ToolSheds? (Under "Repository Actions" -> "Manager repository administrators": "Intergalactic Utilities Commission" should be present in the "Groups associated with ..." box)
 * [ ] If the repository contains more than one tool, should it be separated or made a tool collection?
 * [ ] Is there a `.shed.yml` file?
 * [ ] Is there a tool `.xml` file?
@@ -24,12 +25,13 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 ### .shed.yml
 
-* [ ] Is there a correctly formatted `.shed.yml` file?
+* [ ] Is there a correctly-formatted `.shed.yml` file?
 * [ ] Are the categories appropriate?
-* [ ] Does the name match the `.xml` file or in the case of multiple tools the folder name?
+* [ ] Does the `name` match the folder name and, in the case of a single tool, the tool `.xml` file name?
+    - [ ] Alphanumeric and underscore `_` only, no `-`
 * [ ] Is the owner set to `iuc`? If not, is the owner set to a current wrapper?
 * [ ] Is there a `description`?
-* [ ] Are there `homepage_url` & `remote_repository_url` fields and do they point somewhere sensible?
+* [ ] Are there `homepage_url` and `remote_repository_url` fields? Do they point somewhere sensible?
 
 ### tool.xml
 
@@ -40,15 +42,14 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 **Order of XML Elements**
 
-* [ ] Are the xml elements in the suggested order as in [Best Practices Coding Style](http://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#coding-style)?
+* [ ] Are the XML elements in the order suggested in the [Best Practices Coding Style](http://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#coding-style)?
 
 **&lt;tool&gt; (name and id etc.)**
 
-* [ ] id and name sensible and not previously used?
-* [ ] Version follow [PEP 440](https://www.python.org/dev/peps/pep-0440/) with `+galaxyN`?
-    - [ ] Alphanumeric only and no `-`
+* [ ] Are the `id` and `name` sensible and not previously used?
+* [ ] Does the `version` follow [PEP 440](https://www.python.org/dev/peps/pep-0440/) with `+galaxyN`?
 * [ ] Is there a `@TOOL_VERSION@` macro token used? (Should there be?)
-* [ ] If there is a `profile`, is it appropriate?
+* [ ] If there is a `profile` attribute, is it appropriate?
 
 **&lt;description&gt;**
 
@@ -68,43 +69,41 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 **&lt;requirements&gt;**
 
-* [ ] Are there corresponding conda packages in best practice channels?
+* [ ] Are there corresponding conda packages in the best practice channels?
 * [ ] Are they versioned correctly with `@TOOL_VERSION@`? (or multiple packages/docker containers with correctly described versions)
-* [ ] If using R/Perl/Python/Ruby packages etc versions specified in correctly formatted `*_environment` tags?
 
 **&lt;~~code~~&gt;**
 
-* [ ] this tagset has been deprecated and should not be used.  [galaxyproject/galaxy#2712](https://github.com/galaxyproject/galaxy/issues/2712)
+* [ ] this element has been deprecated and should not be used (xref. [galaxyproject/galaxy#2712](https://github.com/galaxyproject/galaxy/issues/2712) )
 
-**&lt;stdio&gt;**
+**Error detection**
 
-* [ ] Is `<stdio>` tagset warranted (or should it use `detect_errors` in the `<command>` tag)
+* [ ] Is there a `<stdio />` element, or does `<command />` have a `detect_errors` attribute, or does the tool specify a `profile` attribute?
 
 **&lt;version_command&gt;**
 
 * [ ] Is there a version command?
-* [ ] `<![CDATA[ ... ]]>` tags?
+* [ ] Is it book-ended with `<![CDATA[ ... ]]>` tags?
 
 **&lt;command&gt;**
 
-* [ ] `<![CDATA[ ... ]]>` tags?
-* [ ] Is there `detect_errors` in the `<command ... >` tag? Or is it handled by a more comprehensive `<stdio>` tagset?
-* [ ] No `interpreter` field in `<command ... >` tag - This is deprecated.
-* [ ] Text parameters, input and output files `'single quoted'`?
+* [ ] Is it book-ended with `<![CDATA[ ... ]]>` tags?
+* [ ] No `interpreter` attribute for the `<command />` element - This is deprecated.
+* [ ] Text parameters, input and output paths `'single quoted'`?
 * [ ] Is the Cheetah indented and readable?
 * [ ] Are multiple commands joined with `&&`?
-* [ ] Are any extra temporary files (such as indices etc.) created in the CWD?
+* [ ] Are any extra temporary files (such as indices etc.) created in the current working directory?
+* [ ] Are parameters of type `text` or having `optional="true"` attribute checked with `if str($param)` before being used?
 
 **&lt;environment_variables&gt;**
-
-
 
 **&lt;configfiles&gt;**
 
 **&lt;inputs&gt; and &lt;parameters&gt;**
 
 *General*
-* [ ] Order of parameter attributes as per [Best Practices Coding Style](http://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#coding-style)
+* [ ] Do data parameters have a `format` attribute containing datatypes recognised by Galaxy?
+* [ ] Are the parameter attributes in the order suggested in the [Best Practices Coding Style](http://galaxy-iuc-standards.readthedocs.io/en/latest/best_practices/tool_xml.html#coding-style)
 * [ ] Do the `argument` attributes include the long form of the underlying tool parameters?
 
 *Boolean*
@@ -133,13 +132,13 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 **&lt;help&gt;**
 
 * [ ] Is it book-ended with `<![CDATA[ ... ]]>` tags?
-* [ ] Is it correctly formatted [restructuredText](http://docutils.sourceforge.net/docs/ref/rst/restructuredtext.html)?
-* [ ] Are any images in the `./static/images` directory?
+* [ ] Is it correctly formatted in [restructuredText](http://docutils.sourceforge.net/docs/ref/rst/restructuredtext.html)?
+* [ ] Are images in the `./static/images` directory?
 
 **&lt;citations&gt;**
 
 * [ ] Is there a citation
-    - [ ] Is it in bibtex or doi format? (doi preferred)
+    - [ ] Is it in `bibtex` or `doi` format? (`doi` preferred)
 
 ### Data Tables
 
