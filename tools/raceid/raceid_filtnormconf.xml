@@ -1,0 +1,176 @@
+<tool id="raceid_filtnormconf" name="Filtering, Normalisation, and Confounder Removal using RaceID" version="@VERSION_RACEID@.@VERSION_PACKAGE@.1" >
+    <description>generates a normalised and filtered count matrix of single-cell RNA data</description>
+    <macros>
+        <import>macros.xml</import>
+        <import>macros_cluster.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <version_command><![CDATA[
+Rscript '$__tool_directory__/scripts/cluster.R' @GET_VERSION@
+]]></version_command>
+
+    <command detect_errors="exit_code"><![CDATA[
+#set bin = 'cluster.R'
+Rscript '$__tool_directory__/scripts/$bin' '$userconf' 2> '$outlog' > /dev/null
+    ]]></command>
+  
+    <configfiles>
+        <configfile name="userconf" ><![CDATA[
+@STRING2VECTOR@
+
+@FILTNORM_CHEETAH@
+]]>
+        </configfile>
+    </configfiles>
+    <inputs>
+        <param name="intable" type="data" format="tabular" label="Count Matrix" />
+        <section name="filt" title="Filtering" expanded="true" >
+            <param name="mintotal" type="integer" min="1" value="3000" label="Min Transcripts" help="The minimum total transcripts required. Cells with less than mintotal transcripts are filtered out." />
+            <param name="minexpr" type="integer" min="1" value="5" label="Min Expression" help="The minimum required transcript counts of a gene in the minimum number of cells (below)" />
+            <param name="minnumber" type="integer" min="1" value="5" label="Min Cells" help="The minumum number of cells for gene expression to be counted"  />
+            <expand macro="use_defaults_no" >
+                <param name="knn" type="integer" min="0" value="10" label="K-nearest-neighbours" help="Number of nearest neighbors used to infer corresponding cell types in different batches" />
+                <param name="CGenes" type="text" optional="true" label="CGenes" help="Filter out genes with correlated expression for cell type inference" >
+                    <expand macro="sanitize_string_vector" />
+                </param>
+                <param name="FGenes" type="text" optional="true" label="FGenes" help="Explicitly filter out genes for cell type inference" >
+                    <expand macro="sanitize_string_vector" />
+                </param>
+                <param name="LBatch_regexes" type="text" optional="true" label="Batch Regex" help="List of regexes to capture experimental batches for batch effect correction" >
+                    <expand macro="sanitize_string_vector" />
+                </param>
+                <param name="ccor" type="float" value="0.4" label="CCor" help="Correlation coefficient used as a threshold for determining correlated genes" />
+                <param name="bmode" type="select" label="Batch Mode" help="Method to regress out batch effects" >
+                    <option value="RaceID" selected="true" >RaceID</option>
+                    <option value="scran">SCRAN</option>
+                </param>
+                <conditional name="ccc" >
+                    <param name="use" type="select" label="Perform Cell-cycle correction?" >
+                        <option value="yes" >Yes</option>
+                        <option value="no" selected="true" >No</option>
+                    </param>
+                    <when value="no" />
+                    <when value="yes" >
+                        <param name="vset" type="text" optional="true" label="List of Gene Sets" >
+                            <expand macro="sanitize_string_vector" />
+                        </param>
+                        <param name="pvalue" type="float" value="0.01" min="0" max="1" label="P-value Cutoff" help="P-value cutoff for determining enriched components" />
+                        <param name="quant" type="float" value="0.01" min="0" max="1" label="Quantification Fraction" help="Upper and lower fraction of gene loadings use for determining enriched components"  />
+                        <param name="ncomp" type="integer" min="0" optional="true" label="Number of components to use" help="If left blank, the maximum number of components are used" /><!-- 0 = NULL -->
+                        <param name="dimr" type="boolean" value="true" label="Derive Components from saturation criterion"  />
+                        <param name="mode" type="select" label="Type of Component Analysis" help="If ICA is selected, ensure that the number of components value above is sufficiently high" >
+                            <option value="pca" selected="true">PCA</option>
+                            <option value="ica">ICA</option>
+                        </param>
+                        <param name="logscale" type="boolean" value="false" label="Log-transform data prior to PCA or ICA" help="" />
+                    </when>
+                </conditional>
+                <param name="use_log" type="boolean" checked="false" label="Output Log?" />
+            </expand>
+        </section>                    
+    </inputs>
+    <outputs>
+        <data name="outpdf" format="pdf" label="${tool.name} on ${on_string}: PDF Report" />
+        <data name="outrdat" format="rdata" label="${tool.name} on ${on_string}: RDS" />
+        <data name="outlog" format="txt" label="${tool.name} on ${on_string}: Log" >
+            <filter>use_log</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <!-- This is a file with a single word 'test', which prompts the scripts to use the test intestinalData in the library -->
+            <param name="intable" value="use.intestinal" />
+            <output name="outpdf" value="intestinal.filter.pdf" compare="sim_size" delta="50" />
+        </test>
+        <test>
+            <!-- defaults, feeding in a matrix with reduced filtering -->
+            <param name="intable" value="matrix.tabular" />
+            <section name="filt" >
+                <param name="mintotal" value="1050" />
+                <param name="minexpr" value="1" />
+                <param name="minnumber" value="3" />
+            </section>
+            <output name="outrdat" value="matrix.filter.rdat" compare="sim_size" delta="300" />
+            <output name="outpdf" value="matrix.filter.pdf" compare="sim_size" delta="10" />
+        </test>
+        <test>
+            <!-- defaults, but manually specified. No opts, no CC. Generates identical to above -->
+            <param name="intable" value="use.intestinal" />
+            <section name="filt" >
+                <param name="mintotal" value="3000" />
+                <param name="minexpr" value="5" />
+                <param name="minnumber" value="5" />
+                <expand macro="test_nondef" >
+                    <param name="knn" value="10" />
+                    <param name="ccor" value="0.4" />
+                    <param name="bmode" value="RaceID" />
+                </expand>
+            </section>
+            <output name="outpdf" value="intestinal.filter.pdf" compare="sim_size" delta="50" />
+        </test>
+        <test>
+            <!-- Advanced. Opts, CC used  -->
+            <param name="intable" value="use.intestinal" />
+            <section name="filt" >
+                <param name="mintotal" value="2000" />
+                <param name="minexpr" value="3" />
+                <param name="minnumber" value="2" />
+                <expand macro="test_nondef" >
+                    <param name="knn" value="5" />
+                    <param name="ccor" value="0.5" />
+                    <param name="CGenes" value="Gga3,Ggact,Ggct" />
+                    <param name="FGenes" value="Zxdc,Zyg11a,Zyg11b,Zyx" />
+                    <param name="LBatch_regexes" value="^I5,^II5,^III5,^IV5d,^V5d" />
+                    <param name="bmode" value="scran" />
+                    <conditional name="ccc" >
+                        <param name="use" value="yes" />
+                        <param name="pvalue" value="0.05" />
+                        <param name="quant" value="0.05" />
+                        <param name="ncomp" value="3" />
+                        <param name="dimr" value="true" />
+                        <param name="mode" value="pca" />
+                        <param name="logscale" value="true" />
+                    </conditional>
+                </expand>
+            </section>
+            <output name="outpdf" value="intestinal_advanced.filter.pdf" compare="sim_size" delta="150" />
+        </test>
+    </tests>
+        <help><![CDATA[
+RaceID3
+=======
+
+RaceID is a clustering algorithm for the identification of cell types from single-cell RNA-sequencing data. It was specifically designed for the detection of rare cells which correspond to outliers in conventional clustering methods.
+
+This module performs filtering, normalisation, and batch effect removal in the same step.
+
+
+Example Usage: Inspecting the Aggregated Expression for a Group of Genes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Our cells come from 5 different batches (I5,II5,III5,IV5,V5) and are labelled to reflect this (i.e. "I5_1", "I5_2", ..., "I5_129", "II5_1", ..., "V5_236" )
+
+We wish to filter out the gene Lpca5 and Atk2 which we know in advance will saturate our analysis with unwanted expression.
+
+We will also be interested in the cluster that contains significant expression for Apoa genes (Apoa1, Apoa1bp, Apoa2, Apoa4, Apoa5).
+
+First, we must load in our count matrix in order to correct for batch effects, filter out unwanted genes, and compute our clusters and outliers.
+
+ * *Mode of Analysis* → **Cluster**
+
+   * *Count Matrix* → [input tabular]
+
+   * Filtering:
+
+     * *Use Defaults?* → **No**
+
+     * *Batch Regex* → "^I5,^II5,^III5,^IV5,^V5"
+
+     * *FGenes* → "Lpca5,Atk2"
+
+A PDF report will be generated giving metrics about the library size and number of features as histograms, and additional metrics relating to cell-cycle correction will be produced if that option has been selected.
+
+]]>
+        </help>
+        <expand macro="citations" />
+</tool>

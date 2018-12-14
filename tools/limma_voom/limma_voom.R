@@ -166,6 +166,7 @@ spec <- matrix(c(
     "totReq", "y", 0, "logical",
     "cntReq", "z", 1, "integer",
     "sampleReq", "s", 1, "integer",
+    "filtCounts", "F", 0, "logical",
     "normCounts", "x", 0, "logical",
     "rdaOpt", "r", 0, "logical",
     "lfcReq", "l", 1, "double",
@@ -216,6 +217,12 @@ if (is.null(opt$annoPath)) {
     haveAnno <- FALSE
 } else {
     haveAnno <- TRUE
+}
+
+if (is.null(opt$filtCounts)) {
+    wantFilt <- FALSE
+} else {
+    wantFilt <- TRUE
 }
 
 if (is.null(opt$normCounts)) {
@@ -364,8 +371,8 @@ for (i in 1:length(contrastData)) {
     topOut[i] <- makeOut(paste0(deMethod, "_", con, ".tsv"))
     glimmaOut[i] <- makeOut(paste0("glimma_", con, "/MD-Plot.html"))
 }
-
-normOut <- makeOut(paste0(deMethod, "_normcounts.tsv"))
+filtOut <- makeOut(paste0(deMethod, "_", "filtcounts"))
+normOut <- makeOut(paste0(deMethod, "_", "normcounts"))
 rdaOut <- makeOut(paste0(deMethod, "_analysis.RData"))
 sessionOut <- makeOut("session_info.txt")
 
@@ -439,6 +446,13 @@ if (filtCPM || filtSmpCount || filtTotCount) {
 
     data$counts <- data$counts[keep, ]
     data$genes <- data$genes[keep, , drop=FALSE]
+
+    if (wantFilt) {
+        print("Outputting filtered counts")
+        filt_counts <- data.frame(data$genes, data$counts)
+        write.table(filt_counts, file=filtOut, row.names=FALSE, sep="\t", quote=FALSE)
+        linkData <- rbind(linkData, data.frame(Label=paste0(deMethod, "_", "filtcounts.tsv"), Link=paste0(deMethod, "_", "filtcounts"), stringsAsFactors=FALSE))
+    }
 
     # Plot Density
     if ("d" %in% plots) {
@@ -709,7 +723,7 @@ if (wantTrend) {
     # Save normalised counts (log2cpm)
     if (wantNorm) {
         write.table(logCPM, file=normOut, row.names=TRUE, sep="\t", quote=FALSE)
-        linkData <- rbind(linkData, c((paste0(deMethod, "_", "normcounts.tsv")), (paste0(deMethod, "_", "normcounts.tsv"))))
+        linkData <- rbind(linkData, c((paste0(deMethod, "_", "normcounts.tsv")), (paste0(deMethod, "_", "normcounts"))))
     }
 } else {
     # limma-voom approach
@@ -760,7 +774,7 @@ if (wantTrend) {
     if (wantNorm) {
         norm_counts <- data.frame(vData$genes, vData$E)
         write.table(norm_counts, file=normOut, row.names=FALSE, sep="\t", quote=FALSE)
-        linkData <- rbind(linkData, c((paste0(deMethod, "_", "normcounts.tsv")), (paste0(deMethod, "_", "normcounts.tsv"))))
+        linkData <- rbind(linkData, c((paste0(deMethod, "_", "normcounts.tsv")), (paste0(deMethod, "_", "normcounts"))))
     }
 
     # Fit linear model and estimate dispersion with eBayes
@@ -1038,7 +1052,9 @@ for (i in 1:nrow(linkData)) {
 
 cata("<h4>Tables:</h4>\n")
 for (i in 1:nrow(linkData)) {
-    if (grepl(".tsv", linkData$Link[i])) {
+    if (grepl("counts$", linkData$Link[i])) {
+        HtmlLink(linkData$Link[i], linkData$Label[i])
+    } else if (grepl(".tsv", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
     }
 }

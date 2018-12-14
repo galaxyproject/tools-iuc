@@ -1,11 +1,16 @@
-<tool id="deseq2" name="DESeq2" version="2.11.40.2">
+<tool id="deseq2" name="DESeq2" version="2.11.40.4">
     <description>Determines differentially expressed features from count tables</description>
     <requirements>
-        <requirement type="package" version="1.18.1">bioconductor-deseq2</requirement>
-        <requirement type="package" version="1.6.0">bioconductor-tximport</requirement>
-        <requirement type="package" version="1.30.0">bioconductor-genomicfeatures</requirement>
-        <requirement type="package" version="0.6.5">r-ggrepel</requirement>
-        <requirement type="package" version="1.0.8">r-pheatmap</requirement>
+        <requirement type="package" version="1.20.0">bioconductor-deseq2</requirement>
+        <!-- Optional dependency of tximport, needed to import kallisto results https://github.com/galaxyproject/usegalaxy-playbook/issues/161 -->
+        <requirement type="package" version="2.24.0">bioconductor-rhdf5</requirement>
+        <requirement type="package" version="1.8.0">bioconductor-tximport</requirement>
+        <requirement type="package" version="1.32.3">bioconductor-genomicfeatures</requirement>
+        <requirement type="package" version="1.20.2">r-getopt</requirement>
+        <requirement type="package" version="0.8.0">r-ggrepel</requirement>
+        <requirement type="package" version="3.0.1">r-gplots</requirement>
+        <requirement type="package" version="1.0.10">r-pheatmap</requirement>
+        <requirement type="package" version="0.2.20">r-rjson</requirement>
     </requirements>
     <stdio>
         <regex match="Execution halted"
@@ -27,7 +32,7 @@ echo $(R --version | grep version | grep -v GNU)", DESeq2 version" $(R --vanilla
     <command><![CDATA[
 #if $tximport.tximport_selector == 'tximport':
     #if $tximport.mapping_format.mapping_format_selector == 'gtf':
-        ln -s '$tximport.mapping_format.gtf_file' mapping.gtf &&
+        ln -s '$tximport.mapping_format.gtf_file' mapping.gff &&
     #else:
         ln -s '$tximport.mapping_format.tabular_file' mapping.txt &&
     #end if
@@ -42,6 +47,12 @@ Rscript '${__tool_directory__}/deseq2.R'
     #end if
     #if $normCounts:
         -n '$counts_out'
+    #end if
+    #if $normRLog:
+        -r '$rlog_out'
+    #end if
+    #if $normVST:
+        -v '$vst_out'
     #end if
     #set $filename_to_element_identifiers = {}
     #set $temp_factor_names = list()
@@ -63,7 +74,13 @@ Rscript '${__tool_directory__}/deseq2.R'
 
     -f '#echo json.dumps(temp_factor_names)#'
     -l '#echo json.dumps(filename_to_element_identifiers)#'
+    #if $esf:
+        -e $esf
+    #end if
     -t $fit_type
+    #if $batch_factors:
+        --batch_factors '$batch_factors'
+    #end if
     #if $outlier_replace_off:
         -a
     #end if
@@ -80,7 +97,7 @@ Rscript '${__tool_directory__}/deseq2.R'
         -i
         -y $tximport.txtype
         #if $tximport.mapping_format.mapping_format_selector == 'gtf':
-            -x mapping.gtf
+            -x mapping.gff
         #else:
             -x mapping.txt
         #end if
@@ -105,7 +122,7 @@ Rscript '${__tool_directory__}/deseq2.R'
                 <param name="countsFile" type="data" format="tabular" multiple="true" label="Counts file(s)"/>
             </repeat>
         </repeat>
-
+        <param name="batch_factors" type="data" format="tabular" optional="true" label="(Optional) provide a tabular file with additional batch factors to include in the model." help="You can produce this file using RUVSeq or svaseq."/>
         <param name="header" type="boolean" truevalue="-H" falsevalue="" checked="true" label="Files have header?" help="If this option is set to Yes, the tool will assume that the count files have column headers in the first row. Default: Yes" />
 
         <conditional name="tximport">
@@ -121,14 +138,14 @@ Rscript '${__tool_directory__}/deseq2.R'
                 </param>
                 <conditional name="mapping_format">
                     <param name="mapping_format_selector" type="select" label="Gene mapping format">
-                        <option value="gtf" selected="True">GTF</option>
-                        <option value="tabular">Transcript-ID and Gene-ID mapping file</option>
+                        <option value="gtf" selected="True">GTF/GFF3</option>
+                        <option value="tabular">Transcript-ID to Gene-ID mapping file</option>
                     </param>
                     <when value="gtf">
-                        <param name="gtf_file" type="data" format="gtf,gff3" label="GTF/GFF3 file with Transcript - Gene mapping"/>
+                        <param name="gtf_file" type="data" format="gtf,gff3" label="GTF/GFF3 annotation file"/>
                     </when>
                     <when value="tabular">
-                        <param name="tabular_file" type="data" format="tabular" label="Tabular file with Transcript - Gene mapping"/>
+                        <param name="tabular_file" type="data" format="tabular" label="Tabular file with Transcript-ID to Gene-ID mapping"/>
                     </when>
                 </conditional>
             </when>
@@ -139,9 +156,26 @@ Rscript '${__tool_directory__}/deseq2.R'
             help="output an additional PDF files" />
         <param name="normCounts" type="boolean" truevalue="1" falsevalue="0" checked="false"
             label="Output normalized counts table" />
+        <param name="normRLog" type="boolean" truevalue="1" falsevalue="0" checked="false"
+            label="Output rLog normalized table" />
+        <param name="normVST" type="boolean" truevalue="1" falsevalue="0" checked="false"
+            label="Output VST normalized table" />
         <param name="many_contrasts" type="boolean" truevalue="1" falsevalue="0" checked="false"
             label="Output all levels vs all levels of primary factor (use when you have >2 levels for primary factor)"
             help=" DESeq2 performs independent ﬁltering by default using the mean of normalized counts as a ﬁlter statistic" />
+        <param name="esf" type="select" label="(Optional) Method for estimateSizeFactors" 
+            help="Method for estimation: either 'ratio', 'poscounts', or 'iterate'. 'ratio' uses the standard median ratio method introduced in DESeq. 
+                The size factor is the median ratio of the sample over a 'pseudosample': for each gene, the geometric mean of all samples. 
+                'poscounts' and 'iterate' offer alternative estimators, which can be used even when all genes contain a sample with a zero (a problem 
+                for the default method, as the geometric mean becomes zero, and the ratio undefined). The 'poscounts' estimator deals with a gene with 
+                some zeros, by calculating a modified geometric mean by taking the n-th root of the product of the non-zero counts. This evolved out of 
+                use cases with Paul McMurdie's phyloseq package for metagenomic samples. The 'iterate' estimator iterates between estimating the dispersion 
+                with a design of ~1, and finding a size factor vector by numerically optimizing the likelihood of the ~1 model.">
+            <option value="" selected="true">No Selection (use default)</option>
+            <option value="ratio">ratio</option>
+            <option value="poscounts">poscounts</option>
+            <option value="iterate">iterate</option>
+        </param>
         <param name="fit_type" type="select" label="Fit type">
             <option value="1" selected="true">parametric</option>
             <option value="2">local</option>
@@ -161,7 +195,7 @@ Rscript '${__tool_directory__}/deseq2.R'
             help=" DESeq2 performs independent ﬁltering by default using the mean of normalized counts as a ﬁlter statistic" />
     </inputs>
     <outputs>
-        <data format="tabular" name="deseq_out" label="DESeq2 result file on ${on_string}">
+        <data name="deseq_out" format="tabular" label="DESeq2 result file on ${on_string}">
             <filter>many_contrasts is False</filter>
             <actions>
                 <action name="column_names" type="metadata" default="GeneID,Base mean,log2(FC),StdErr,Wald-Stats,P-value,P-adj" />
@@ -171,16 +205,22 @@ Rscript '${__tool_directory__}/deseq2.R'
             <filter>many_contrasts is True</filter>
             <discover_datasets pattern="None.(?P&lt;designation&gt;.+_vs_.+)" format="tabular" directory="." visible="false"/>
         </collection>
-        <data format="pdf" name="plots" label="DESeq2 plots on ${on_string}">
+        <data name="plots" format="pdf" label="DESeq2 plots on ${on_string}">
             <filter>pdf == True</filter>
         </data>
-        <data format="tabular" name="counts_out" label="Normalized counts file on ${on_string}">
+        <data name="counts_out" format="tabular" label="Normalized counts file on ${on_string}">
             <filter>normCounts == True</filter>
+        </data>
+        <data name="rlog_out" format="tabular" label="rLog-Normalized counts file on ${on_string}">
+            <filter>normRLog == True</filter>
+        </data>
+        <data name="vst_out" format="tabular" label="VST-Normalized counts file on ${on_string}">
+            <filter>normVST == True</filter>
         </data>
     </outputs>
     <tests>
         <!--Ensure counts files with header works -->
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="4">
             <repeat name="rep_factorName">
                 <param name="factorName" value="Treatment"/>
                 <repeat name="rep_factorLevel">
@@ -194,20 +234,56 @@ Rscript '${__tool_directory__}/deseq2.R'
             </repeat>
             <param name="pdf" value="False"/>
             <param name="normCounts" value="True"/>
+            <param name="normRLog" value="True"/>
+            <param name="normVST" value="True"/>
             <output name="counts_out">
                 <assert_contents>
-                    <has_text_matching expression="untreat1\tuntreat2\tuntreat3\tuntreat4\ttreat1\ttreat2\ttreat3" />
+                    <has_text_matching expression="GSM461176_untreat_single.counts\tGSM461177_untreat_paired.counts\tGSM461178_untreat_paired.counts\tGSM461182_untreat_single.counts\tGSM461179_treat_single.counts\tGSM461180_treat_paired.counts\tGSM461181_treat_paired.counts" />
                     <has_text_matching expression="FBgn0000003\t0\t0\t0\t0\t0\t0\t0" />
+                </assert_contents>
+            </output>
+            <output name="rlog_out">
+                <assert_contents>
+                    <has_text_matching expression="GSM461176_untreat_single.counts\tGSM461177_untreat_paired.counts\tGSM461178_untreat_paired.counts\tGSM461182_untreat_single.counts\tGSM461179_treat_single.counts\tGSM461180_treat_paired.counts\tGSM461181_treat_paired.counts" />
+                    <has_text_matching expression="FBgn0000003\t0\t0\t0\t0\t0\t0\t0" />
+                </assert_contents>
+            </output>
+            <output name="vst_out">
+                <assert_contents>
+                    <has_text_matching expression="GSM461176_untreat_single.counts\tGSM461177_untreat_paired.counts\tGSM461178_untreat_paired.counts\tGSM461182_untreat_single.counts\tGSM461179_treat_single.counts\tGSM461180_treat_paired.counts\tGSM461181_treat_paired.counts" />
+                    <has_text_matching expression="FBgn0000003\t5.*\t5.*\t5.*\t5.*\t5.*\t5.*\t5.*" />
                 </assert_contents>
             </output>
             <output name="deseq_out" >
                 <assert_contents>
-                    <has_text_matching expression="FBgn0003360\t1933.9504.*\t-2.8399.*\t0.1309.*-21.6851.*2.831.*8.024" />
+                    <has_text_matching expression="FBgn0003360\t1933\.9504.*\t-2\.8399.*\t0\.1309.*\t-21\.68.*\t.*e-104\t.*e-101" />
+                </assert_contents>
+            </output>
+        </test>
+        <!--Ensure additional batch factor correction works -->
+        <test expect_num_outputs="2">
+            <repeat name="rep_factorName">
+                <param name="factorName" value="Treatment"/>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="Treated"/>
+                    <param name="countsFile" value="GSM461179_treat_single.counts,GSM461180_treat_paired.counts,GSM461181_treat_paired.counts"/>
+                </repeat>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="Untreated"/>
+                    <param name="countsFile" value="GSM461176_untreat_single.counts,GSM461177_untreat_paired.counts,GSM461178_untreat_paired.counts,GSM461182_untreat_single.counts"/>
+                </repeat>
+            </repeat>
+            <param name="batch_factors" value="batch_factors.tab"/>
+            <param name="pdf" value="False"/>
+            <param name="normCounts" value="True"/>
+            <output name="deseq_out">
+                <assert_contents>
+                    <has_text_matching expression="FBgn0003360\t1933.*\t-2.9.*\t0.1.*\t-26.*\t1.*-152\t4.*-149" />
                 </assert_contents>
             </output>
         </test>
         <!--Ensure counts files without header works -->
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="4">
             <repeat name="rep_factorName">
                 <param name="factorName" value="Treatment"/>
                 <repeat name="rep_factorLevel">
@@ -222,15 +298,29 @@ Rscript '${__tool_directory__}/deseq2.R'
             <param name="header" value="False"/>
             <param name="pdf" value="False"/>
             <param name="normCounts" value="True"/>
+            <param name="normRLog" value="True"/>
+            <param name="normVST" value="True"/>
             <output name="counts_out">
                 <assert_contents>
                     <has_text_matching expression="GSM461176_untreat_single.counts.noheader\tGSM461177_untreat_paired.counts.noheader\tGSM461178_untreat_paired.counts.noheader\tGSM461182_untreat_single.counts.noheader\tGSM461179_treat_single.counts.noheader\tGSM461180_treat_paired.counts.noheader\tGSM461181_treat_paired.counts.noheader" />
                     <has_text_matching expression="FBgn0000003\t0\t0\t0\t0\t0\t0\t0" />
                 </assert_contents>
             </output>
+            <output name="rlog_out">
+                <assert_contents>
+                    <has_text_matching expression="GSM461176_untreat_single.counts.noheader\tGSM461177_untreat_paired.counts.noheader\tGSM461178_untreat_paired.counts.noheader\tGSM461182_untreat_single.counts.noheader\tGSM461179_treat_single.counts.noheader\tGSM461180_treat_paired.counts.noheader\tGSM461181_treat_paired.counts.noheader" />
+                    <has_text_matching expression="FBgn0000003\t0\t0\t0\t0\t0\t0\t0" />
+                </assert_contents>
+            </output>
+            <output name="vst_out">
+                <assert_contents>
+                    <has_text_matching expression="GSM461176_untreat_single.counts.noheader\tGSM461177_untreat_paired.counts.noheader\tGSM461178_untreat_paired.counts.noheader\tGSM461182_untreat_single.counts.noheader\tGSM461179_treat_single.counts.noheader\tGSM461180_treat_paired.counts.noheader\tGSM461181_treat_paired.counts.noheader" />
+                    <has_text_matching expression="FBgn0000003\t5.*\t5.*\t5.*\t5.*\t5.*\t5.*\t5.*" />
+                </assert_contents>
+            </output>
             <output name="deseq_out" >
                 <assert_contents>
-                    <has_text_matching expression="FBgn0003360\t1933.9504.*\t-2.8399.*\t0.1309.*-21.6851.*2.831.*8.024" />
+                    <has_text_matching expression="FBgn0003360\t1933\.9504.*\t-2\.8399.*\t0\.1309.*\t-21\.68.*\t.*e-104\t.*e-101" />
                 </assert_contents>
             </output>
         </test>
@@ -254,7 +344,55 @@ Rscript '${__tool_directory__}/deseq2.R'
             <param name="tabular_file" value="tx2gene.tab"/>
             <output name="deseq_out" >
                 <assert_contents>
-                    <has_text_matching expression="MIR6859-2\t1.1858.*\t-1.5832.*\t1.2956.*\t-1.2219.*\t0.2217.*\t0.8868.*" />
+                    <has_text_matching expression="UGT3A2\t1.8841.*\t-0.1329.*\t0.6936.*\t-0.1917.*\t0.8479.*\t0.9999.*" />
+                </assert_contents>
+            </output>
+        </test>
+        <!--Ensure Sailfish/Salmon input with GFF3 annotation from NCBI works-->
+        <test expect_num_outputs="1">
+            <repeat name="rep_factorName">
+                <param name="factorName" value="Treatment"/>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="Treated"/>
+                    <param name="countsFile" value="sailfish/sailfish_quant.sf1.tab,sailfish/sailfish_quant.sf2.tab,sailfish/sailfish_quant.sf3.tab"/>
+                </repeat>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="Untreated"/>
+                    <param name="countsFile" value="sailfish/sailfish_quant.sf4.tab,sailfish/sailfish_quant.sf5.tab,sailfish/sailfish_quant.sf6.tab"/>
+                </repeat>
+            </repeat>
+            <param name="pdf" value="False"/>
+            <param name="tximport_selector" value="tximport"/>
+            <param name="txtype" value="sailfish"/>
+            <param name="mapping_format_selector" value="gtf"/>
+            <param name="gtf_file" value="GRCh38_latest_genomic.gff"/>
+            <output name="deseq_out" >
+                <assert_contents>
+                    <has_text_matching expression="UGT3A2\t1.8841.*\t-0.1329.*\t0.6936.*\t-0.1917.*\t0.8479.*\t0.9999.*" />
+                </assert_contents>
+            </output>
+        </test>
+        <!--Ensure Sailfish/Salmon input with GTF annotation from Ensembl works-->
+        <test expect_num_outputs="1">
+            <repeat name="rep_factorName">
+                <param name="factorName" value="Treatment"/>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="Treated"/>
+                    <param name="countsFile" value="sailfish_ensembl/sailfish_quant.sf1.tab,sailfish_ensembl/sailfish_quant.sf2.tab,sailfish_ensembl/sailfish_quant.sf3.tab"/>
+                </repeat>
+                <repeat name="rep_factorLevel">
+                    <param name="factorLevel" value="Untreated"/>
+                    <param name="countsFile" value="sailfish_ensembl/sailfish_quant.sf4.tab,sailfish_ensembl/sailfish_quant.sf5.tab,sailfish_ensembl/sailfish_quant.sf6.tab"/>
+                </repeat>
+            </repeat>
+            <param name="pdf" value="False"/>
+            <param name="tximport_selector" value="tximport"/>
+            <param name="txtype" value="sailfish"/>
+            <param name="mapping_format_selector" value="gtf"/>
+            <param name="gtf_file" value="Homo_sapiens.GRCh38.94.gtf" ftype="gtf"/>
+            <output name="deseq_out" >
+                <assert_contents>
+                    <has_text_matching expression="ENSG00000168671\t1.8841.*\t-0.1180.*\t0.7429.*\t-0.1589.*\t0.8737.*\t0.9999.*" />
                 </assert_contents>
             </output>
         </test>
