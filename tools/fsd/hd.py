@@ -729,7 +729,7 @@ def Hamming_Distance_Analysis(argv):
     # pdf_f = title_savedFile_pdf
     # csv_f = title_savedFile_csv
 
-    #for f, name_file, pdf_f, csv_f in zip(files, names, pdf_files, csv_files):
+    # for f, name_file, pdf_f, csv_f in zip(files, names, pdf_files, csv_files):
     with open(title_savedFile_csv, "w") as output_file, PdfPages(title_savedFile_pdf) as pdf:
         print("dataset: ", name1)
         integers, data_array = readFileReferenceFree(file1)
