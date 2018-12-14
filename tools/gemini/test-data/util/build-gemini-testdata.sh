@@ -1,10 +1,13 @@
 cd "$(dirname "$0")"
 
 export GEMINI_CONFIG=../test-cache
-IN_PTH="$1"
 OUT_PTH=$GEMINI_CONFIG/gemini/data
 GENOMIC_REGION=3:187000000-187500000
 
+
+if [ -n "$1" ]; then
+
+IN_PTH="$1"
 # downsample all vcf and bed annotation files to the region of interest and reindex
 for vcf in `ls $IN_PTH/*.gz | grep -v hprd_interaction_edges.gz -`
 do
@@ -40,9 +43,14 @@ rm $OUT_PTH/hprd_interaction_edges
 echo "$IN_PTH/cancer_gene_census.20140120.tsv -> $OUT_PTH/cancer_gene_census.20140120.tsv"
 cut -f2 $OUT_PTH/summary_gene_table_v75 | grep -Fv None | grep -Fwf - $IN_PTH/cancer_gene_census.20140120.tsv > $OUT_PTH/cancer_gene_census.20140120.tsv
 
+else
+    echo "no path to gemini annotation files provided - only building test databases"
+fi
+
+
 # now use gemini load to build the test databases
 echo "Building gemini test databases"
-echo "Test databases for gemini:load"
+echo "Test databases for gemini_load"
 gemini --annotation-dir $OUT_PTH load --skip-cadd --skip-gerp-bp -v build-data/gemini_load_input.vcf -t snpEff ../gemini_load_result1.db
 gemini --annotation-dir $OUT_PTH load --skip-cadd --skip-gerp-bp -v build-data/gemini_load_input.vcf -t snpEff --skip-gene-tables --no-load-genotypes ../gemini_load_result2.db
 echo "Test database for gemini_amend"
