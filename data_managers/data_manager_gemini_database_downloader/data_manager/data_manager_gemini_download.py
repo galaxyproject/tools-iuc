@@ -48,7 +48,7 @@ def main():
     # configuration file.
     with open(config_file) as fi:
         config = yaml.load(fi)
-    config.update({'annotation_dir': 'gemini/data'})
+    config['annotation_dir'] = 'gemini/data'
     write_gemini_config(config, config_file)
 
     # Finally, we prepare the metadata for the new data table record ...
