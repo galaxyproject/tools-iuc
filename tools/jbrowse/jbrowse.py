@@ -263,6 +263,9 @@ class ColorScaling(object):
 
 
 def etree_to_dict(t):
+    if t is None:
+        return {}
+
     d = {t.tag: {} if t.attrib else None}
     children = list(t)
     if children:
@@ -626,10 +629,19 @@ class JbrowseConnector(object):
             "category": trackData['category'],
             "type": "JBrowse/View/Track/HTMLFeatures",
             "storeClass": "JBrowse/Store/SeqFeature/REST",
-            "baseUrl": url,
-            "query": {
-                "organism": "tyrannosaurus"
-            }
+            "baseUrl": url
+        }
+        self._add_track_json(data)
+
+    def add_sparql(self, url, query, trackData):
+        data = {
+            "label": trackData['label'],
+            "key": trackData['key'],
+            "category": trackData['category'],
+            "type": "JBrowse/View/Track/CanvasFeatures",
+            "storeClass": "JBrowse/Store/SeqFeature/SPARQL",
+            "urlTemplate": url,
+            "queryTemplate": query
         }
         self._add_track_json(data)
 
@@ -657,7 +669,8 @@ class JbrowseConnector(object):
             '{': '__oc__',
             '}': '__cc__',
             '@': '__at__',
-            '#': '__pd__'
+            '#': '__pd__',
+            "": '__cn__'
         }
 
         for i, (dataset_path, dataset_ext, track_human_label, extra_metadata) in enumerate(track['trackfiles']):
@@ -725,7 +738,12 @@ class JbrowseConnector(object):
             elif dataset_ext == 'vcf':
                 self.add_vcf(dataset_path, outputTrackConfig)
             elif dataset_ext == 'rest':
-                self.add_rest(track['conf']['options']['url'], outputTrackConfig)
+                self.add_rest(track['conf']['options']['rest']['url'], outputTrackConfig)
+            elif dataset_ext == 'sparql':
+                sparql_query = track['conf']['options']['sparql']['query']
+                for key, value in mapped_chars.items():
+                    sparql_query = sparql_query.replace(value, key)
+                self.add_sparql(track['conf']['options']['sparql']['url'], sparql_query, outputTrackConfig)
             else:
                 log.warn('Do not know how to handle %s', dataset_ext)
 
@@ -950,14 +968,24 @@ if __name__ == '__main__':
         track_conf = {}
         track_conf['trackfiles'] = []
 
-        for x in track.findall('files/trackFile'):
-            metadata = metadata_from_node(x.find('metadata'))
+        trackfiles = track.findall('files/trackFile')
+        if trackfiles:
+            for x in track.findall('files/trackFile'):
+                metadata = metadata_from_node(x.find('metadata'))
 
+                track_conf['trackfiles'].append((
+                    os.path.realpath(x.attrib['path']),
+                    x.attrib['ext'],
+                    x.attrib['label'],
+                    metadata
+                ))
+        else:
+            # For tracks without files (rest, sparql)
             track_conf['trackfiles'].append((
-                os.path.realpath(x.attrib['path']),
-                x.attrib['ext'],
-                x.attrib['label'],
-                metadata
+                '',  # N/A, no path for rest or sparql
+                track.attrib['format'],
+                track.find('options/label').text,
+                {}
             ))
 
         track_conf['category'] = track.attrib['cat']
