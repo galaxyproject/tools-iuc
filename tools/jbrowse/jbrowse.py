@@ -902,11 +902,8 @@ if __name__ == '__main__':
             'show_menu': root.find('metadata/general/show_menu').text,
             'hideGenomeOptions': root.find('metadata/general/hideGenomeOptions').text,
         },
-        'plugins': [{
-            'location': 'https://cdn.jsdelivr.net/gh/TAMU-CPT/blastview@97572a21b7f011c2b4d9a0b5af40e292d694cbef/',
-            'name': 'BlastView'
-        }],
-        'plugins_python': ['BlastView'],
+        'plugins': [],
+        'plugins_python': [],
     }
 
     plugins = root.find('plugins').attrib
@@ -940,6 +937,13 @@ if __name__ == '__main__':
         extra_data['plugins'].append({
             'location': 'https://cdn.jsdelivr.net/gh/erasche/jbrowse-dark-theme@689eceb7e33bbc1b9b15518d45a5a79b2e5d0a26/',
             'name': 'DarkTheme'
+        })
+
+    if plugins['BlastView'] == 'True':
+        extra_data['plugins_python'].append('BlastView')
+        extra_data['plugins'].append({
+            'location': 'https://cdn.rawgit.com/TAMU-CPT/blastview/97572a21b7f011c2b4d9a0b5af40e292d694cbef/',
+            'name': 'BlastView'
         })
 
     for track in root.findall('tracks/track'):
