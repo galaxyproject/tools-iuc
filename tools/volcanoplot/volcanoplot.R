@@ -52,11 +52,11 @@ if (!is.null(opt$label_file)) {
     tolabel <- filter(results, labels %in% labelfile[, 1])
 } else if (is.null(opt$top_num)) {
     # label all significant genes
-    tolabel <- filter(results, fdr<opt$signif_thresh)
+    tolabel <- filter(results, sig != label_notsig)
 } else if (opt$top_num > 0) {
     # label only top significant genes
-    tolabel <- filter(results, fdr<opt$signif_thresh) %>% 
-    top_n(n=opt$top_num, Pvalue)
+    tolabel <- filter(results, sig != label_notsig) %>%
+    top_n(n=-opt$top_num, Pvalue)
 } else if (opt$top_num == 0) {
     # no labels
     tolabel <- NULL
