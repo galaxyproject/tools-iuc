@@ -646,11 +646,13 @@ linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsF
 invisible(dev.off())
 
 # generate Glimma interactive MDS Plot
-Glimma::glMDSPlot(y, labels=samplenames, groups=factors[, 1],
-    folder="glimma_MDS", launch=FALSE)
-linkName <- "Glimma_MDSPlot.html"
-linkAddr <- "glimma_MDS/MDS-Plot.html"
-linkData <- rbind(linkData, c(linkName, linkAddr))
+if ("i" %in% plots) {
+    Glimma::glMDSPlot(y, labels=samplenames, groups=factors[, 1],
+        folder="glimma_MDS", launch=FALSE)
+    linkName <- "Glimma_MDSPlot.html"
+    linkAddr <- "glimma_MDS/MDS-Plot.html"
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+}
 
 if ("x" %in% plots) {
     png(mdsxOutPng, width=1000, height=500)
@@ -854,7 +856,7 @@ for (i in 1:length(contrastData)) {
     invisible(dev.off())
 
     # Generate Glimma interactive Volcano, MD plot and tables, requires annotation file (assumes gene labels/symbols in 2nd column)
-    if (haveAnno) {
+    if ("i" %in% plots & haveAnno) {
         # make gene labels unique to handle NAs
         geneanno <- y$genes
         geneanno[, 2] <- make.unique(geneanno[, 2])
@@ -1089,12 +1091,14 @@ if (wantRda) {
     }
 }
 
-cata("<h4>Glimma Interactive Results:</h4>\n")
-    for (i in 1:nrow(linkData)) {
-        if (grepl("glimma", linkData$Link[i])) {
-            HtmlLink(linkData$Link[i], linkData$Label[i])
+if ("i" %in% plots) {
+    cata("<h4>Glimma Interactive Results:</h4>\n")
+        for (i in 1:nrow(linkData)) {
+            if (grepl("glimma", linkData$Link[i])) {
+                HtmlLink(linkData$Link[i], linkData$Label[i])
+            }
         }
-    }
+}
 
 cata("<p>Alt-click links to download file.</p>\n")
 cata("<p>Click floppy disc icon associated history item to download ")
