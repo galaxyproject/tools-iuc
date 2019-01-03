@@ -711,23 +711,6 @@ if (wantTrend) {
     } else {
         fit <- eBayes(fit, trend=TRUE, robust=FALSE)
     }
-    # plot fit with plotSA
-    saOutPng <- makeOut("saplot.png")
-    saOutPdf <- makeOut("saplot.pdf")
-
-    png(saOutPng, width=500, height=500)
-    plotSA(fit, main="SA Plot")
-    imgName <- "SAPlot.png"
-    imgAddr <- "saplot.png"
-    imageData <- rbind(imageData, c(imgName, imgAddr))
-    invisible(dev.off())
-
-    pdf(saOutPdf, width=14)
-    plotSA(fit, main="SA Plot")
-    linkName <- "SAPlot.pdf"
-    linkAddr <- "saplot.pdf"
-    linkData <- rbind(linkData, c(linkName, linkAddr))
-    invisible(dev.off())
 
     plotData <- logCPM
 
@@ -738,22 +721,22 @@ if (wantTrend) {
     }
 } else {
     # limma-voom approach
-    voomOutPdf <- makeOut("voomplot.pdf")
-    voomOutPng <- makeOut("voomplot.png")
 
     if (wantWeight) {
+        voomWtsOutPdf <- makeOut("voomwtsplot.pdf")
+        voomWtsOutPng <- makeOut("voomwtsplot.png")
         # Creating voom data object and plot
-        png(voomOutPng, width=1000, height=500)
+        png(voomWtsOutPng, width=1000, height=500)
         vData <- voomWithQualityWeights(y, design=design, plot=TRUE)
-        imgName <- "VoomPlot.png"
-        imgAddr <- "voomplot.png"
+        imgName <- "VoomWithQualityWeightsPlot.png"
+        imgAddr <- "voomwtsplot.png"
         imageData <- rbind(imageData, c(imgName, imgAddr))
         invisible(dev.off())
 
-        pdf(voomOutPdf, width=14)
+        pdf(voomWtsOutPdf, width=14)
         vData <- voomWithQualityWeights(y, design=design, plot=TRUE)
-        linkName <- "VoomPlot.pdf"
-        linkAddr <- "voomplot.pdf"
+        linkName <- "VoomWithQualityWeightsPlot.pdf"
+        linkAddr <- "voomwtsplot.pdf"
         linkData <- rbind(linkData, c(linkName, linkAddr))
         invisible(dev.off())
 
@@ -762,6 +745,8 @@ if (wantTrend) {
         voomFit <- lmFit(vData, design, weights=wts)
 
     } else {
+        voomOutPdf <- makeOut("voomplot.pdf")
+        voomOutPng <- makeOut("voomplot.png")
         # Creating voom data object and plot
         png(voomOutPng, width=500, height=500)
         vData <- voom(y, design=design, plot=TRUE)
@@ -797,6 +782,24 @@ if (wantTrend) {
     }
     plotData <- vData
 }
+
+# plot final model mean-variance trend with plotSA
+saOutPng <- makeOut("saplot.png")
+saOutPdf <- makeOut("saplot.pdf")
+
+png(saOutPng, width=500, height=500)
+plotSA(fit, main="Final model: Mean-variance trend (SA Plot)")
+imgName <- "SAPlot.png"
+imgAddr <- "saplot.png"
+imageData <- rbind(imageData, c(imgName, imgAddr))
+invisible(dev.off())
+
+pdf(saOutPdf)
+plotSA(fit, main="Final model: Mean-variance trend (SA Plot)")
+linkName <- "SAPlot.pdf"
+linkAddr <- "saplot.pdf"
+linkData <- rbind(linkData, c(linkName, linkAddr))
+invisible(dev.off())
 
  # Save library size info
 if (wantLibinfo) {
@@ -1013,9 +1016,7 @@ cata("<h3>Limma Analysis Output:</h3>\n")
 cata("Links to PDF copies of plots are in 'Plots' section below <br />\n")
 
 for (i in 1:nrow(imageData)) {
-    if (grepl("density|box|mds|mdvol", imageData$Link[i])) {
-        HtmlImage(imageData$Link[i], imageData$Label[i], width=1000)
-    } else if (wantWeight) {
+    if (grepl("density|box|mds|mdvol|wts", imageData$Link[i])) {
         HtmlImage(imageData$Link[i], imageData$Label[i], width=1000)
     } else {
         HtmlImage(imageData$Link[i], imageData$Label[i])
@@ -1044,7 +1045,7 @@ cata("</table>")
 cata("<h4>Plots:</h4>\n")
 #PDFs
 for (i in 1:nrow(linkData)) {
-    if (grepl("density|cpm|boxplot|mds|mdplots|voomplot|saplot", linkData$Link[i])) {
+    if (grepl("density|cpm|boxplot|mds|mdplots|voom|saplot", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
