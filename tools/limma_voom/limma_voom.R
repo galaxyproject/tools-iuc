@@ -427,7 +427,7 @@ if (filtCPM || filtSmpCount || filtTotCount) {
         keep <- rowSums(data$counts >= opt$cntReq) >= opt$sampleReq
     } else if (filtCPM) {
         myCPM <- cpm(data$counts)
-        thresh <- myCPM >= opt$cpmReq 
+        thresh <- myCPM >= opt$cpmReq
         keep <- rowSums(thresh) >= opt$sampleReq
 
         if ("c" %in% plots) {
@@ -644,6 +644,13 @@ linkName <- paste0("MDSPlot_", names(factors)[1], ".pdf")
 linkAddr <- "mdsscree.pdf"
 linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
 invisible(dev.off())
+
+# generate Glimma interactive MDS Plot
+Glimma::glMDSPlot(y, labels=samplenames, groups=factors[, 1],
+    folder="glimma_MDS", launch=FALSE)
+linkName <- "Glimma_MDSPlot.html"
+linkAddr <- "glimma_MDS/MDS-Plot.html"
+linkData <- rbind(linkData, c(linkName, linkAddr))
 
 if ("x" %in% plots) {
     png(mdsxOutPng, width=1000, height=500)
@@ -944,7 +951,7 @@ for (i in 1:length(contrastData)) {
                 stripchart(plotData[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols,
                     method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
             } else {
-                stripchart(plotData$E[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols, 
+                stripchart(plotData$E[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols,
                     method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
             }
         }
