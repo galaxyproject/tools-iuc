@@ -853,17 +853,29 @@ for (i in 1:length(contrastData)) {
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
-    # Generate Glimma interactive MD plot and table, requires annotation file (assumes gene labels/symbols in 2nd column)
+    # Generate Glimma interactive Volcano, MD plot and tables, requires annotation file (assumes gene labels/symbols in 2nd column)
     if (haveAnno) {
         # make gene labels unique to handle NAs
         geneanno <- y$genes
         geneanno[, 2] <- make.unique(geneanno[, 2])
+
+        # MD plot
         Glimma::glMDPlot(fit, coef=i, counts=y$counts, anno=geneanno, groups=factors[, 1],
              status=status[, i], sample.cols=col.group,
              main=paste("MD Plot:", unmake.names(con)), side.main=colnames(y$genes)[2],
              folder=paste0("glimma_", unmake.names(con)), launch=FALSE)
         linkName <- paste0("Glimma_MDPlot_", con, ".html")
         linkAddr <- paste0("glimma_", con, "/MD-Plot.html")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
+
+        # Volcano plot
+        Glimma::glXYPlot(x=fit$coefficients[, i], y=fit$lods[, i], counts=y$counts, anno=geneanno, groups=factors[, 1], 
+            status=status[, i], sample.cols=col.group,
+            main=paste("Volcano Plot:", unmake.names(con)), side.main=colnames(y$genes)[2],
+            xlab="logFC", ylab="logodds",
+            folder=paste0("glimma_volcano_", unmake.names(con)), launch=FALSE)
+        linkName <- paste0("Glimma_VolcanoPlot_", con, ".html")
+        linkAddr <- paste0("glimma_volcano_", con, "/XY-Plot.html")
         linkData <- rbind(linkData, c(linkName, linkAddr))
     }
 
