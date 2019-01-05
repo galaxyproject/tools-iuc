@@ -105,7 +105,9 @@ if (!is.null(args$filesPath)) {
 
     # Process factors
     if (is.null(args$factInput)) {
-            factorData <- read.table(args$factFile, header=TRUE, sep="\t")
+            factorData <- read.table(opt$factFile, header=TRUE, sep="\t", strip.white=TRUE)
+            # order samples as in counts matrix
+            factorData <- factorData[match(colnames(counts), factorData[, 1]), ]
             factors <- factorData[, -1, drop=FALSE]
     }  else {
             factors <- unlist(strsplit(args$factInput, "|", fixed=TRUE))
