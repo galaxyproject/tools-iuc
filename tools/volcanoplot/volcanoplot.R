@@ -48,20 +48,26 @@ results <- mutate(results, sig=ifelse((fdr<opt$signif_thresh & logFC>opt$lfc_thr
 results <- results[order(results$Pvalue),]
 if (!is.null(opt$label_file)) {
     labelfile <- read.delim(opt$label_file)
+    # label genes specified in file
     tolabel <- filter(results, labels %in% labelfile[, 1])
-} else if (!is.null(opt$top_num)) {
-    tolabel <- filter(results, fdr<opt$signif_thresh) %>% top_n(opt$top_num)
-} else {
-    tolabel <- filter(results, fdr<opt$signif_thresh)
+} else if (is.null(opt$top_num)) {
+    # label all significant genes
+    tolabel <- filter(results, sig != label_notsig)
+} else if (opt$top_num > 0) {
+    # label only top significant genes
+    tolabel <- filter(results, sig != label_notsig) %>%
+    top_n(n=-opt$top_num, Pvalue)
+} else if (opt$top_num == 0) {
+    # no labels
+    tolabel <- NULL
 }
 
 pdf("out.pdf")
 p <- ggplot(results, aes(logFC, -log10(Pvalue))) +
     geom_point(aes(col=sig)) +
-    geom_label_repel(data=tolabel, aes(label=labels, fill=factor(sig)), colour="white", segment.colour="black", show.legend=FALSE) +
     scale_color_manual(values=colours) +
     scale_fill_manual(values=colours) +
-    theme(panel.grid.major = element_blank(), 
+    theme(panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         panel.background = element_blank(),
         axis.line = element_line(colour = "black"),
@@ -79,6 +85,9 @@ if (!is.null(opt$legend)) {
     p <- p + labs(colour=opt$legend)
 } else {
     p <- p + labs(colour="")
+}
+if (!is.null(tolabel)) {
+    p <- p + geom_label_repel(data=tolabel, aes(label=labels, fill=factor(sig)), colour="white", segment.colour="black", show.legend=FALSE)
 }
 
 print(p)
