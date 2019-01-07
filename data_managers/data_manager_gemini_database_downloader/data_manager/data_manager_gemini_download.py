@@ -40,6 +40,19 @@ def main():
     with open(config_file, 'w') as fo:
         yaml.dump(config, fo, allow_unicode=False, default_flow_style=False)
 
+    # The name of the database should reflect whether it was built with or
+    # without the optional GERP-bp data, the CADD scores, or both.
+    # This builds up the correpsonding part of the name:
+    anno_extras = []
+    if params['param_dict']['gerp_bp']:
+        anno_extras.append('GERP')
+    if params['param_dict']['cadd']:
+        anno_extras.append('CADD')
+    if anno_extras:
+        anno_desc = ' w/ ' + ' & '.join(anno_extras)
+    else:
+        anno_desc = ''
+
     data_manager_dict = {
         'data_tables': {
             'gemini_versioned_databases': [
@@ -48,7 +61,9 @@ def main():
                     'dbkey': 'hg19',
                     'version': params['param_dict']['gemini_db_version'],
                     'name':
-                        'GEMINI annotations (%s snapshot)' % today.isoformat(),
+                        'GEMINI annotations%s (%s snapshot)' % (
+                            anno_desc, today.isoformat()
+                    ),
                     'path': './%s' % today.isoformat()
                 }
             ]
