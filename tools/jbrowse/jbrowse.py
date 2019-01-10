@@ -941,7 +941,7 @@ if __name__ == '__main__':
     if plugins['ComboTrackSelector'] == 'True':
         extra_data['plugins_python'].append('ComboTrackSelector')
         extra_data['plugins'].append({
-            'location': 'https://cdn.jsdelivr.net/gh/Arabidopsis-Information-Portal/ComboTrackSelector@52403928d5ccbe2e3a86b0fa5eb8e61c0f2e2f57',
+            'location': 'https://cdn.jsdelivr.net/gh/Arabidopsis-Information-Portal/ComboTrackSelector@52403928d5ccbe2e3a86b0fa5eb8e61c0f2e2f57/',
             'icon': 'https://galaxyproject.org/images/logos/galaxy-icon-square.png',
             'name': 'ComboTrackSelector'
         })
@@ -960,7 +960,7 @@ if __name__ == '__main__':
     if plugins['BlastView'] == 'True':
         extra_data['plugins_python'].append('BlastView')
         extra_data['plugins'].append({
-            'location': 'https://cdn.rawgit.com/TAMU-CPT/blastview/97572a21b7f011c2b4d9a0b5af40e292d694cbef/',
+            'location': 'https://cdn.jsdelivr.net/gh/TAMU-CPT/blastview@97572a21b7f011c2b4d9a0b5af40e292d694cbef/',
             'name': 'BlastView'
         })
 
