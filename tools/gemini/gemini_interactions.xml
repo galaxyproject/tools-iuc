@@ -5,60 +5,92 @@
         <token name="@BINARY@">interactions</token>
     </macros>
     <expand macro="requirements" />
-    <expand macro="stdio" />
+    <expand macro="stdio">
+        <!-- Fail loudly when the user-specified gene is unknown to gemini -->
+        <regex match="Gene name not found or gene not in interaction file"
+               source="stderr"
+               level="fatal"
+               description="The gene you specified is not defined in the interaction file" />
+    </expand>
     <expand macro="version_command" />
     <command>
 <![CDATA[
-        @PROVIDE_ANNO_DATA@
+        #if str($interactions.source) == 'preinstalled':
+            #set $annotation_databases = $interactions.annotation_databases
+            @PROVIDE_ANNO_DATA@
+        #end if
 
         gemini
-            #if $gene.gene_selector == 'lof':
-                ## lof interactions is a separate program
-                lof_interactions
+            #set $gene = str($gene).strip()
+            #if $gene:
+                interactions -g "$gene"
             #else:
-                ## use normal gemini interactions program
-                @BINARY@
-                -g "${gene.gene}"
+                ## lof interactions is a separate command line tool
+                lof_interactions
             #end if
 
-            -r "${radius}"
+            #if str($interactions.source) == 'history':
+                --edges "${interactions.data}"
+            #end if
+
+            -r $radius
             $variant_mode
-            "${ infile }"
-            > "${ outfile }"
+
+            "$infile"
+            > "$outfile"
 ]]>
     </command>
     <inputs>
         <expand macro="infile" />
-
-        <conditional name="gene">
-            <param name="gene_selector" type="select" label="Studying" help="">
-                <option value="gene">Interesting gene</option>
-                <option value="lof">All loss-of-function variants</option>
+        <conditional name="interactions">
+            <param name="source" type="select" label="Interaction data source"
+            help="This tool requires a catalogue of known protein-protein interactions. Such interaction data, obtained from the Human Protein Reference Database (HPRD), is part of GEMINI's own annotation data, but you can choose to provide your own interactions data instead.">
+                <option value="preinstalled">HPRD interaction data bundled with GEMINI</option>
+                <option value="history">History dataset with interactions</option>
             </param>
-            <when value="gene">
-                <param argument="-g" name="gene" type="text" label="Specify gene name" help="e.g. PTPN22" />
+            <when value="preinstalled">
+                <expand macro="annotation_dir" />
             </when>
-            <when value="lof" />
+            <when value="history">
+                <param name="data" type="data" format="txt"
+                label="Interactions data"
+                help="You can provide interaction data as a simple text file with one interaction of the form geneA|geneB (e.g., ZFPM2|GATA4) per line." />
+            </when>
         </conditional>
-        <expand macro="annotation_dir" />
+        <param name="gene" type="text" value=""
+        label="Report affected interaction partners of this particular gene"
+        help="By default, the tool finds all genes affected by loss-of-function variants in your input, then, for every such gene, reports its interaction partners if they are also affected by any variant. If you specify the name of a gene of interest (e.g. PTPN22) here, you get the affected interaction partners of only this particular gene reported, irrespective of whether your gene of interest itself is affected by any variant or not." />
         <param argument="-r" name="radius" type="integer" value="3" min="0"
-        label="Set filter for Breadth-first search (BFS) in the Protein-Protein Interaction network"
-        help="" />
-        <param argument="--var" name="variant_mode" type="boolean" truevalue="--var" falsevalue="" checked="False" 
-        label="Returns variant info (e.g. impact, biotype) for interacting genes"
-        help="" />
+        label="Report interaction partners up to (and including) this order"
+        help="A value of 1, for example, means: report only affected direct interaction partners. A value of 0 restricts the report to just variants in the query gene itself." />
+        <param argument="--var" name="variant_mode" type="select" display="radio"
+        label="Report format for interactions"
+        help="">
+            <option value="">Interaction partners only</option>
+            <option value="--var">Interaction partners and the variants affecting them</option>
+        </param>
     </inputs>
     <outputs>
         <data name="outfile" format="tabular" />
     </outputs>
     <tests>
         <test>
-            <param name="infile" value="gemini_load_result1.db" ftype="gemini.sqlite" />
-            <param name="gene" value="BCL6" />
+            <param name="infile" value="gemini_comphets_input.db" ftype="gemini.sqlite" />
             <param name="radius" value="5" />
             <output name="outfile">
                 <assert_contents>
-                    <has_line_matching expression="sample&#009;gene&#009;order_of_interaction&#009;interacting_gene.*" />
+                    <has_line line="sample&#009;lof_gene&#009;order_of_interaction&#009;interacting_gene" />
+                    <has_n_columns n="4" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="infile" value="gemini_comphets_input.db" ftype="gemini.sqlite" />
+            <param name="radius" value="5" />
+            <param name="variant_mode" value="--var" />
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="sample&#009;lof_gene&#009;order_of_interaction&#009;interacting_gene.+" />
                 </assert_contents>
             </output>
         </test>
