@@ -65,7 +65,6 @@ def main():
         anno_desc = ''
 
     # Finally, we prepare the metadata for the new data table record ...
-
     data_manager_dict = {
         'data_tables': {
             'gemini_versioned_databases': [
