@@ -384,6 +384,17 @@ class JbrowseConnector(object):
         log.debug('cd %s && %s', self.outdir, ' '.join(command))
         subprocess.check_call(command, cwd=self.outdir)
 
+    def subprocess_popen(self, command):
+        log.debug('cd %s && %s', self.outdir, command)
+        p = subprocess.Popen(command, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output, err = p.communicate()
+        retcode = p.returncode
+        if retcode != 0:
+            log.error('cd %s && %s', self.outdir, command)
+            log.error(output)
+            log.error(err)
+            raise RuntimeError("Command failed with exit code %s" % (retcode))
+
     def _jbrowse_bin(self, command):
         return os.path.realpath(os.path.join(self.jbrowse, 'bin', command))
 
@@ -571,53 +582,45 @@ class JbrowseConnector(object):
         self._add_track_json(trackData)
 
     def add_features(self, data, format, trackData, gffOpts, **kwargs):
-        cmd = [
-            'perl', self._jbrowse_bin('flatfile-to-json.pl'),
-            self.TN_TABLE.get(format, 'gff'),
-            data,
-            '--trackLabel', trackData['label'],
-            '--key', trackData['key']
-        ]
 
-        # className in --clientConfig is ignored, it needs to be set with --className
-        if 'className' in trackData['style']:
-            cmd += ['--className', trackData['style']['className']]
+        dest = os.path.join(self.outdir, 'data', 'raw', trackData['label'] + '.gff')
 
-        config = copy.copy(trackData)
-        clientConfig = trackData['style']
-        del config['style']
+        if not os.path.exists(dest):
+            # Only index if not already done
+            cmd = "grep ^\"#\" '%s' > '%s'" % (data, dest)
+            self.subprocess_popen(cmd)
+
+            cmd = "grep -v ^\"#\" '%s' | grep -v \"^$\" | grep \"\t\" | sort -k1,1 -k4,4n >> '%s'" % (data, dest)
+            self.subprocess_popen(cmd)
+
+            cmd = ['bgzip', '-f', dest]
+            self.subprocess_popen(' '.join(cmd))
+            cmd = ['tabix', '-f', '-p', 'gff', dest + '.gz']
+            self.subprocess_popen(' '.join(cmd))
+
+        url = os.path.join('raw', trackData['label'] + '.gff.gz')
+        trackData.update({
+            "urlTemplate": url,
+            "storeClass": "JBrowse/Store/SeqFeature/GFF3Tabix",
+        })
 
         if 'match' in gffOpts:
-            config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
-            if bool(gffOpts['match']):
-                # Can be empty for CanvasFeatures = will take all by default
-                cmd += ['--type', gffOpts['match']]
-
-        cmd += ['--clientConfig', json.dumps(clientConfig),
-                ]
+            trackData['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
 
         trackType = 'JBrowse/View/Track/CanvasFeatures'
         if 'trackType' in gffOpts:
             trackType = gffOpts['trackType']
+        trackData['glyph'] = trackType
 
         if trackType == 'JBrowse/View/Track/CanvasFeatures':
             if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
-                config['transcriptType'] = gffOpts['transcriptType']
+                trackData['transcriptType'] = gffOpts['transcriptType']
             if 'subParts' in gffOpts and gffOpts['subParts']:
-                config['subParts'] = gffOpts['subParts']
+                trackData['subParts'] = gffOpts['subParts']
             if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
-                config['impliedUTRs'] = gffOpts['impliedUTRs']
-        elif trackType == 'JBrowse/View/Track/HTMLFeatures':
-            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
-                cmd += ['--type', gffOpts['transcriptType']]
+                trackData['impliedUTRs'] = gffOpts['impliedUTRs']
 
-        cmd += [
-            '--trackType', gffOpts['trackType']
-        ]
-
-        cmd.extend(['--config', json.dumps(config)])
-
-        self.subprocess_check_call(cmd)
+        self._add_track_json(trackData)
 
         if gffOpts.get('index', 'false') == 'true':
             self.tracksToIndex.append("%s" % trackData['label'])
