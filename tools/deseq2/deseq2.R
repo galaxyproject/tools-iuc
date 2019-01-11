@@ -46,8 +46,8 @@ args <- commandArgs(trailingOnly = TRUE)
 spec <- matrix(c(
   "quiet", "q", 0, "logical",
   "help", "h", 0, "logical",
-  "cores", "", 1, "integer",
-  "batch_factors", "", 1, "character",
+  "cores", "s", 0, "integer",
+  "batch_factors", "w", 1, "character",
   "outfile", "o", 1, "character",
   "countsfile", "n", 1, "character",
   "rlogfile", "r", 1, "character",
