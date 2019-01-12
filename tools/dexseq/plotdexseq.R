@@ -18,7 +18,8 @@ spec = matrix(c(
     'primaryfactor', 'p', 1, "character",
     'geneid', 'g', 1, "character",
     'fdr', 'c', 1, "double",
-    'transcripts', 't', 1, "logical"
+    'transcripts', 't', 1, "logical",
+    'names', 'a', 1, "logical"
 ), byrow=TRUE, ncol=4);
 opt = getopt(spec);  
 
@@ -27,7 +28,7 @@ res <- readRDS(opt$rdata)
 pdf("plot.pdf")
 plotDEXSeq(res, opt$geneid, FDR=opt$fdr, fitExpToVar=opt$primaryfactor,
     norCounts=FALSE, expression=TRUE, splicing=FALSE,
-    displayTranscripts=opt$transcripts, names=FALSE, legend=TRUE,
+    displayTranscripts=opt$transcripts, names=opt$names, legend=TRUE,
     color=NULL, color.samples=NULL, transcriptDb=NULL)
 dev.off()
 
