@@ -24,7 +24,7 @@ spec = matrix(c(
     'normcounts', 'n', 1, "logical",
     'splicing', 's', 1, "logical"
 ), byrow=TRUE, ncol=4);
-opt = getopt(spec);  
+opt = getopt(spec);
 
 res <- readRDS(opt$rdata)
 
