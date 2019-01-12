@@ -20,7 +20,8 @@ spec = matrix(c(
     'fdr', 'c', 1, "double",
     'transcripts', 't', 1, "logical",
     'names', 'a', 1, "logical",
-    'normcounts', 'n', 1, "logical"
+    'normcounts', 'n', 1, "logical",
+    'splicing', 's', 1, "logical"
 ), byrow=TRUE, ncol=4);
 opt = getopt(spec);  
 
@@ -28,7 +29,7 @@ res <- readRDS(opt$rdata)
 
 pdf("plot.pdf")
 plotDEXSeq(res, opt$geneid, FDR=opt$fdr, fitExpToVar=opt$primaryfactor,
-    norCounts=opt$normcounts, expression=TRUE, splicing=FALSE,
+    norCounts=opt$normcounts, expression=TRUE, splicing=opt$splicing,
     displayTranscripts=opt$transcripts, names=opt$names, legend=TRUE,
     color=NULL, color.samples=NULL, transcriptDb=NULL)
 dev.off()
