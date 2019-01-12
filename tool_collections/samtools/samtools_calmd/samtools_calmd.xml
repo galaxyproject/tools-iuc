@@ -1,4 +1,4 @@
-<tool id="samtools_calmd" name="CalMD" version="2.0.1">
+<tool id="samtools_calmd" name="CalMD" version="2.0.2">
     <description>recalculate MD/NM tags</description>
     <macros>
         <import>macros.xml</import>
@@ -16,8 +16,9 @@
         #end if
 
         samtools calmd
+            $baq_settings.use_baq $baq_settings.modify_quality $baq_settings.extended_baq
             #if str($option_set.option_sets) == 'advanced':
-                $option_set.change_identical $option_set.modify_quality $option_set.compute_cap $option_set.extended_baq
+                $option_set.change_identical -C $option_set.adjust_mq
             #end if
             -b
             '$input_bam'
@@ -43,17 +44,36 @@
                 <param name="ref_fasta" type="data" format="fasta" label="Using reference file" />
             </when>
         </conditional>
+        <conditional name="baq_settings">
+            <param name="use_baq" argument="-r" type="select"
+            label="Do you also want BAQ (Base Alignment Quality) scores to be calculated?">
+                <option value="">No</option>
+                <option value="-r">Yes, run BAQ calculation</option>
+            </param>
+            <when value="">
+                <param name="modify_quality" type="hidden" value="" />
+                <param name="extended_baq" type="hidden" value="" />
+            </when>
+            <when value="-r">
+                <param name="modify_quality" argument="-A" type="boolean" truevalue="-A" falsevalue="" checked="false"
+                label="Use BAQ to cap read base qualities"
+                help="By default, BAQ scores are stored in a separate BQ tag, and the read base quality string is left untouched. When you enable this option, the BAQ scores will be used directly to modify the quality string instead." />
+                <param name="extended_baq" argument="-E" type="boolean" truevalue="-E" falsevalue="" checked="false" label="Extended BAQ for better sensitivity" />
+            </when>
+        </conditional>
         <conditional name="option_set">
-            <param name="option_sets" type="select" label="Options">
+            <param name="option_sets" type="select" label="Additional options">
                 <option value="default">Use defaults</option>
                 <option value="advanced">Advanced options</option>
             </param>
             <when value="default" />
             <when value="advanced">
-                <param name="change_identical" argument="-e" type="boolean" truevalue="-e" falsevalue="" checked="False" label="Change identical bases to '='" />
-                <param name="modify_quality" argument="-A" type="boolean" truevalue="-A" falsevalue="" checked="False" label="Modify the quality string" />
-                <param name="compute_cap" argument="-r" type="boolean" truevalue="-r" falsevalue="" checked="False" label="Compute BQ or cap baseQ by BAQ" />
-                <param name="extended_baq" argument="-E" type="boolean" truevalue="-E" falsevalue="" checked="False" label="Extended BAQ for better sensitivity" />
+                <param name="change_identical" argument="-e" type="boolean" truevalue="-e" falsevalue="" checked="False"
+                label="Change identical bases to '='"
+                help="Replace bases in read sequences that match the reference base at that position with an equal sign" />
+                <param name="adjust_mq" argument="-C" type="integer" min="0" max="255" value="0"
+                label="Coefficient to cap mapping quality of poorly mapped reads"
+                help="Higher values for this setting mean a stronger downgrade of the mapping quality of reads with excessive mismatches (50: recommended setting for reads aligned with BWA, 0: do not downgrade mapping qualities)" />
             </when>
         </conditional>
     </inputs>
@@ -62,6 +82,7 @@
     </outputs>
     <tests>
         <test>
+            <param name="use_baq" value="" />
             <param name="option_sets" value="default" />
             <param name="input_bam" value="phiX.bam"/>
             <param name="reference_source_selector" value="history" />
@@ -69,9 +90,11 @@
             <output name="calmd_output" file="samtools_calmd_out_1.bam" ftype="bam" />
         </test>
         <test>
+            <param name="use_baq" value="-r" />
+            <param name="extended_baq" value="true" />
             <param name="option_sets" value="advanced" />
             <param name="change_identical" value="true" />
-            <param name="extended_baq" value="true" />
+            <param name="adjust_mq" value="50" />
             <param name="input_bam" value="phiX.bam"/>
             <param name="reference_source_selector" value="history" />
             <param name="ref_fasta" value="phiX.fasta" />
@@ -81,16 +104,27 @@
     <help><![CDATA[
 **What it does**
 
-Generates the MD tag using the ``samtools calmd`` command. If the MD tag (see SAM format reference below for explanation of SAM/BAM tags) is already present, this command will give a warning if the MD tag generated is different from the existing tag. Outputs a BAM file.
+Generates the MD tag using the ``samtools calmd`` command. If the MD tag (see
+SAM format reference below for explanation of SAM/BAM tags) is already present,
+this command will give a warning if the MD tag generated is different from the
+existing tag.
+
+Optionally, also generates the BQ tag to encode base alignment qualities,
+caps the mapping quality of poorly mapping reads, and modifies read sequences
+replacing bases matching the reference with ``=``.
+
+Outputs a BAM file.
 
 -----
 
-**NM and MD tags**
+**SAM/BAM tags written by this tool**
 
-From the SAM format specification::
+From the SAM format tag specification::
 
   MD (string)  String for mismatching positions. Regex : [0-9]+(([A-Z]|\^[A-Z]+)[0-9]+)*7
-  NM (indeger) Edit distance to the reference, including ambiguous bases but excluding clipping
+  NM (integer) Edit distance to the reference, including ambiguous bases but excluding clipping
+  BQ (string)  String of offsets to base alignment quality (BAQ), of the same length as the read sequence. 
+               At the i-th read base, BAQ i = Q i − (BQ i − 64) where Q i is the i-th base quality.
 
 See references for more information about SAM format tags.
     ]]></help>

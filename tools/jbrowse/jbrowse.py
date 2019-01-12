@@ -31,7 +31,7 @@ class ColorScaling(object):
     }}
     """
 
-    COLOR_FUNCTION_TEMPLATE_QUAL = """
+    COLOR_FUNCTION_TEMPLATE_QUAL = r"""
     function(feature, variableName, glyphObject, track) {{
         var search_up = function self(sf, attr){{
             if(sf.get(attr) !== undefined){{
@@ -572,7 +572,9 @@ class JbrowseConnector(object):
 
         if 'match' in gffOpts:
             config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
-            cmd += ['--type', gffOpts['match']]
+            if bool(gffOpts['match']):
+                # Can be empty for CanvasFeatures = will take all by default
+                cmd += ['--type', gffOpts['match']]
 
         cmd += ['--clientConfig', json.dumps(clientConfig),
                 ]
@@ -945,3 +947,4 @@ if __name__ == '__main__':
             extra_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
 
     jc.add_final_data(extra_data)
+    jc.generate_names()

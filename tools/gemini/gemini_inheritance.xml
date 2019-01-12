@@ -1,0 +1,486 @@
+<tool id="gemini_inheritance" name="GEMINI inheritance pattern" version="@VERSION@">
+    <description>based identification of candidate genes</description>
+    <macros>
+        <import>gemini_macros.xml</import>
+        <xml name="name_X">
+            <param name="X" type="text" value=""
+            label="Alias to use for X chromosome"
+            help="The tool expects the X chromosome to be named 'X' or 'chrX'. If the reference genome used for variant calling had a different name for it, you will have to specify it here." />
+        </xml>
+    </macros>
+    <expand macro="requirements" />
+    <expand macro="stdio" />
+    <expand macro="version_command" />
+    <command>
+<![CDATA[
+        gemini ${inheritance.pattern_type}
+
+            #for $cond in $inheritance.constraint:
+                #set $filter = str($cond.filter).strip()
+                #if str($filter):
+                    #if str($inheritance.pattern_type) == "comp_hets" and $cond.overwrite_default_filter:
+                        --gene-where '$filter'
+                    #else:
+                        --filter '$filter'
+                    #end if
+                #end if
+            #end for
+
+            #if str($inheritance.pattern_type) in ("comp_hets", "mendel_errors"):
+                ${inheritance.by_pattern_only}
+            #end if
+            
+            ${inheritance.lenient}
+            ${inheritance.allow_unaffected}
+            
+            #if str($inheritance.pattern_type).startswith('x_linked_') and str($inheritance.X).strip():
+                -X "${inheritance.X}"
+            #end if
+
+            #if int($family_wise.min_kindreds) > 0:
+                --min-kindreds ${family_wise.min_kindreds}
+            #end if
+
+            #if str($family_wise.families).strip():
+                #set $families = ','.join([f.strip() for f in $family_wise.families.split(',')])
+                --families "$families"
+            #end if            
+
+            #if int($family_wise.per_variant_selection.min_dp) > 0:
+                -d ${family_wise.per_variant_selection.min_dp}
+            #end if
+
+            #if int($family_wise.per_variant_selection.min_gq) > 0:
+                --min-gq ${family_wise.per_variant_selection.min_gq}
+            #end if
+
+            #if int($family_wise.per_variant_selection.max_pl) > -1:
+                --gt-pl-max ${family_wise.per_variant_selection.max_pl}
+            #end if
+            
+            #set $report = $oformat.report
+            @COLUMN_SELECT@
+
+            "${ infile }"
+            > "${ outfile }"
+]]>
+    </command>
+    <inputs>
+        <expand macro="infile" />
+        <conditional name="inheritance">
+            <param name="pattern_type" type="select"
+            label="Your assumption about the inheritance pattern of the phenotype of interest">
+                <option value="autosomal_recessive">Autosomal recessive</option>
+                <option value="autosomal_dominant">Autosomal dominant</option>
+                <option value="x_linked_recessive">X-linked recessive</option>
+                <option value="x_linked_dominant">X-linked dominant</option>
+                <option value="de_novo">Autosomal de-novo</option>
+                <option value="x_linked_de_novo">X-linked de-novo</option>
+                <option value="comp_hets">Compound heterozygous</option>
+                <option value="mendel_errors">Violation of mendelian laws (LOH, plausible and implausible de-novo, uniparental disomy)</option>
+            </param>
+            <when value="comp_hets">
+                <expand macro="insert_constraint">
+                    <expand macro="overwritable_where_default" default_where="exonic and high-impact variants (SQL clause: is_exonic = 1 or impact_severity != 'LOW')" />
+                </expand>
+                <param argument="--pattern-only" name="by_pattern_only" type="boolean" truevalue="--pattern-only" falsevalue="" checked="false"
+                label="Ignore sample phenotypes during variant identification"
+                help="When turned on, the identification of compound heterozygous variant pairs gets based on the family tree only, i.e., the tool looks for heterozygous allele pairs in any kid that weren't occuring together in the parents (see the tool help below for the exact criteria used to detect compound heterozygosity)." />
+                <expand macro="lenient" argument="--max-priority" truevalue="--max-priority 3"
+                help="When turned on, runs the tool with --max-priority 3 instead of the default value 1. This leads to inclusion of more ambiguous cases of compound heterozygosity." />
+                <expand macro="unaffected" />
+            </when>
+            <when value="mendel_errors">
+                <expand macro="insert_constraint" />
+                <param argument="--only-affected" name="by_pattern_only" type="boolean" truevalue="" falsevalue="--only-affected" checked="false"
+                label="Ignore sample phenotypes during variant identification"
+                help="When turned on, the identification of candidate variants gets based on the observed inheritance pattern only. The default is to report candidates only if there is evidence for them being phenotypically relevant, i.e., if they are observed in an affected sample." />
+                <expand macro="lenient" />
+                <param name="allow_unaffected" type="hidden" value="" />
+            </when>
+            <when value="autosomal_recessive">
+                <expand macro="insert_constraint" />
+                <expand macro="lenient" />
+                <expand macro="unaffected" />
+            </when>
+            <when value="autosomal_dominant">
+                <expand macro="insert_constraint" />
+                <expand macro="lenient" />
+                <expand macro="unaffected" />
+            </when>
+            <when value="x_linked_recessive">
+                <expand macro="insert_constraint" />
+                <param name="lenient" type="hidden" value="" />
+                <expand macro="unaffected" />
+                <expand macro="name_X" />
+            </when>
+            <when value="x_linked_dominant">
+                <expand macro="insert_constraint" />
+                <param name="lenient" type="hidden" value="" />
+                <expand macro="unaffected" />
+                <expand macro="name_X" />
+            </when>
+            <when value="de_novo">
+                <expand macro="insert_constraint" />
+                <expand macro="lenient" />
+                <expand macro="unaffected" />
+            </when>
+            <when value="x_linked_de_novo">
+                <expand macro="insert_constraint" />
+                <param name="lenient" type="hidden" value="" />
+                <expand macro="unaffected" />
+                <expand macro="name_X" />
+            </when>
+        </conditional>
+        <section name="family_wise" title="Family-wise criteria for variant selection" expanded="true">
+            <expand macro="min_kindreds" />
+            <param argument="--families" name="families" type="text" value=""
+            label="List of families to restrict the analysis to (comma-separated)"
+            help="Leave empty for an analysis including all families"/>
+            <conditional name="per_variant_selection">
+                <param name="enabled" type="select"
+                label="Specify additional criteria to exclude families on a per-variant basis">
+                    <option value="no">No, analyze all variants from all included families</option>
+                    <option value="yes">Yes, filter variants within families</option>
+                </param>
+                <when value="no">
+                    <param name="min_dp" type="hidden" value="0" />
+                    <param name="min_gq" type="hidden" value="0" />
+                    <param name="max_pl" type="hidden" value="-1" />
+                </when>
+                <when value="yes">
+                    <param argument="-d" name="min_dp" type="integer" value="0" min="0"
+                    label="Per-variant DP threshold for including a family"
+                    help="All samples from a family must have a sequencing depth of at least this value at a given variant site in order for the family to be included in the analysis of this particular variant. default: 0 (do not apply this filter)" />
+                    <param argument="--min-gq" name="min_gq" type="integer" value="0" min="0"
+                    label="per-variant GQ threshold for including a family"
+                    help="The genotypes of all samples from a family must be called with at least this quality at a given variant site in order for the family to be included in the analysis of this particular variant. default: 0 (do not apply this filter)">
+                    </param>
+                    <param argument="--gt-pl-max" name="max_pl" type="integer" value="-1" min="-1"
+                    label="per-variant PL threshold for including a family"
+                    help="The genotypes at a given variant site of all samples from a family must not have a higher (phred-scaled) likelihood to be wrong than this value in order for the family to be included in the analysis of this particular variant. default: -1 (do not apply this filter); if used the GEMINI documentation suggests 10 as a reasonable value" />
+                </when>
+            </conditional>
+        </section>
+        <section name="oformat" title="Output - included information" expanded="true">
+            <expand macro="column_filter" help="The tool reports key information about the inheritance pattern detection for each candidate variant found. It can precede each such row with additional columns, listing information about the variant taken from the variants table of the GEMINI database. Here, you can control which subset of the variants table columns should be added to the output."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="outfile" format="tabular"
+        label="GEMINI ${inheritance.pattern_type} pattern on ${on_string}" />
+    </outputs>
+    <tests>
+        <test>
+            <param name="infile" value="gemini_auto_dom_input.db" ftype="gemini.sqlite" />
+            <conditional name="inheritance">
+                <param name="pattern_type" value="autosomal_dominant" />
+                <param name="lenient" value="true" />
+            </conditional>
+            <conditional name="report">
+                <param name="report_selector" value="minimal" />
+            </conditional>
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="variant_id&#009;gene&#009;.*" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="infile" value="gemini_auto_dom_input.db" ftype="gemini.sqlite" />
+            <conditional name="inheritance">
+                <param name="pattern_type" value="autosomal_dominant" />
+                <param name="lenient" value="true" />
+            </conditional>
+            <section name="oformat">
+                <conditional name="report">
+                    <param name="report_selector" value="custom" />
+                    <param name="columns" value="gene,chrom,impact" />
+                </conditional>
+            </section>
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="gene&#009;chrom&#009;impact.*" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="infile" value="gemini_auto_dom_input.db" ftype="gemini.sqlite" />
+            <conditional name="inheritance">
+                <param name="pattern_type" value="autosomal_dominant" />
+                <param name="lenient" value="true" />
+            </conditional>
+            <section name="oformat">
+                <conditional name="report">
+                    <param name="report_selector" value="custom" />
+                    <!-- test with empty multiselect list and columns specified
+                    via text field instead -->
+                    <param name="extra_cols" value="gene,chrom,impact" />
+                </conditional>
+            </section>
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="gene&#009;chrom&#009;impact.*" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="infile" value="gemini_auto_rec_input.db" ftype="gemini.sqlite" />
+            <conditional name="inheritance">
+                <param name="pattern_type" value="autosomal_recessive" />
+                <param name="lenient" value="true" />
+            </conditional>
+            <section name="oformat">
+                <conditional name="report">
+                    <param name="report_selector" value="custom" />
+                    <param name="columns" value="gene,chrom,impact" />
+                </conditional>
+            </section>
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="gene&#009;chrom&#009;impact.*" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="infile" value="gemini_de_novo_input.db" ftype="gemini.sqlite" />
+            <conditional name="inheritance">
+                <param name="pattern_type" value="de_novo" />
+            </conditional>
+            <section name="oformat">
+                <conditional name="report">
+                    <param name="report_selector" value="custom" />
+                    <param name="columns" value="gene,ref,alt,impact" />
+                </conditional>
+            </section>
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="gene&#009;ref&#009;alt&#009;impact.*" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="infile" value="gemini_comphets_input.db" ftype="gemini.sqlite" />
+            <conditional name="inheritance">
+                <param name="pattern_type" value="comp_hets" />
+                <param name="lenient" value="true" />
+                <param name="allow_unaffected" value="true" />
+            </conditional>
+            <section name="oformat">
+                <conditional name="report">
+                    <param name="report_selector" value="custom" />
+                    <param name="columns" value="chrom,start,end,ref,alt,gene,impact" />
+                </conditional>
+            </section>
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="chrom&#009;start&#009;end&#009;.*gene.*" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="infile" value="gemini_de_novo_input.db" ftype="gemini.sqlite" />
+            <conditional name="inheritance">
+                <param name="pattern_type" value="mendel_errors" />
+            </conditional>
+            <section name="oformat">
+                <conditional name="report">
+                    <param name="report_selector" value="custom" />
+                    <param name="columns" value="gene,ref,alt,impact" />
+                </conditional>
+            </section>
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="gene&#009;ref&#009;alt&#009;impact&#009;.*violation.*" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+<![CDATA[
+
+**What it does**
+
+Assuming you have defined the familial relationships between samples when
+loading your VCF into GEMINI, you can use this tool to identify candidate genes
+and variants that explain the inheritance pattern of a phenotype of interest.
+
+**Inheritance pattern detection rules**
+
+*Autosomal recessive*
+
+Criteria:
+
+- all affected must be hom_alt
+- [affected] no unaffected can be hom_alt (can be unknown)
+- [default] if parents exist they must be unaffected and het for all affected kids
+- [default] if there are no affecteds that have a parent, a warning is issued.
+
+If ``--lenient`` is specified, the 2 criteria prefixed with “[default]” are not
+applied.
+
+If ``--allow-unaffected`` is specified, the criterion prefixed with
+“[affected]” is not enforced.
+
+----
+
+*Autosomal dominant*
+
+Criteria:
+
+- All affecteds must be het
+- [affected] No unaffected can be het or homalt (can be unknown)
+- de_novo mutations are not auto_dom (at least not in the first generation)
+- At least 1 affected must have 1 affected parent (or have no parents).
+- If no affected has a parent, a warning is issued.
+- [default] All affecteds must have parents with known phenotype.
+- [default] All affected kids must have at least 1 affected parent
+
+If ``--lenient`` is specified, the criteria prefixed with “[default]” are not
+enforced.
+
+If ``--allow-unaffected`` is specified, the criterion prefixed with
+“[affected]” is not enforced.
+
+Note that, for autosomal dominant, ``--lenient`` allows singleton affecteds to
+be used to meet the ``--min-kindreds`` requirement if they are HET.
+
+If there is incomplete penetrance in the kindred (unaffected obligate carriers),
+these individuals currently must be coded as having unknown phenotype or as
+being affected.
+
+----
+
+*X-linked recessive*
+
+Criteria:
+
+- Affected females must be HOM_ALT
+- Unaffected females are HET or HOM_REF
+- Affected males are not HOM_REF
+- Unaffected males are HOM_REF
+
+Note: Pseudo-autosomal regions are not accounted for by the tool.
+
+----
+
+*X-linked dominant*
+
+Criteria:
+
+- Affected males are HET or HOM_ALT
+- Affected females must be HET
+- Unaffecteds must be HOM_REF
+- girls of affected dad must be affected
+- boys of affected dad must be unaffected
+- mothers of affected males must be het (and affected)
+- at least 1 parent of affected females must be het (and affected).
+
+Note: Pseudo-autosomal regions are not accounted for by the tool.
+
+----
+
+*De-novo mutations*
+
+Criteria:
+
+- all affected must be het
+- [affected] all unaffected must be homref or homalt
+- at least 1 affected kid must have unaffected parents
+- [default] if an affected has affected parents, it’s not de_novo
+- [default] all affected kids must have unaffected (or no) parents
+- [default] warning if none of the affected samples have parents.
+
+The last 3 items, prefixed with [default] can be turned off with ``--lenient``.
+
+If ``--allow-unaffected`` is specified, then the criterion prefixed [affected]
+is not enforced.
+
+----
+
+*X-linked de-novo mutations*
+
+Criteria:
+
+- affected female child must be het
+- affected male child must be hom_alt (or het)
+- parents should be unaffected and hom_ref
+
+Note: Pseudo-autosomal regions are not accounted for by the tool.
+
+----
+
+*Compound heterozygosity*
+
+Unlike canonical recessive sites where the same recessive allele is inherited
+from both parents at the *same* site in the gene, compound heterozygosity
+occurs when the individual’s phenotype is caused by two heterozygous recessive
+alleles at *different* sites in a particular gene.
+
+To detect compound heterozygosity, the tool looks for two heterozygous variants
+impacting the same gene at different loci. The complicating factor is that this
+is a case of *recessive* inheritance and as such, we must also require that the
+consequential alleles at each heterozygous site were inherited on different
+chromosomes (one from each parent). Hence, where possible, the tool will phase
+by transmission.
+
+Criteria (default):
+
+- All affected individuals must be heterozygous at both sites.
+- No unaffected can be homozygous alterate at either site.
+- Neither parent of an affected sample can be homozygous reference at both
+  sites.
+- If any unphased-unaffected is het at both sites, the site will be given lower
+  priority.
+- No phased-unaffected can be heterozygous at both sites.
+
+  a. ``--allow-unaffected`` keeps sites where a phased unaffected shares the
+     het-pair
+  b. unphased, unaffected that share the het pair are counted and reported for
+     each candidate pair.
+- Candidates where an affected from the same family does NOT share the same het
+  pair are removed.
+- Sites are automatically phased by transmission when parents are present in
+  order to remove false positive candidates.
+  
+  If data from one or both parents are unavailable and the child’s data was not
+  phased prior to loading into GEMINI, all comp_het variant pairs will
+  automatically be given at most priority == 2. If there’s only a single parent
+  and both the parent and the affected are HET at both sites, the candidate
+  will have priority 3.
+  
+Criteria (``--pattern-only``):
+
+- Kid must be HET at both sites.
+- Kid must have alts on different chromosomes.
+- Neither parent can be HOM_ALT at either site.
+- If either parent is phased at both sites and matches the kid, it’s excluded.
+- When the above criteria are met, and both parents and kid are phased or
+  parents are HET at different sites, the priority is 1.
+- If either parent is HET at both sites, priority is reduced.
+- If both parents are not phased, the priority is 2.
+- For every parent that’s a het at both sites, the priority is incremented by 1.
+- The priority in a family is the minimum found among all kids.
+
+----
+
+*Violation of Mendelian laws*
+
+The tool can be used to detect the following kinds of non-Mendelian patterns:
+
+- loss of heterozygosity (LOH) events
+- de-novo mutations
+- implausible de-novo mutations
+- potential cases of uniparental disomy
+
+Criteria:
+
+- LOH: child and one parent are opposite homozygotes; other parent is HET
+- plausible de novo: kid is het. parents are same homozygotes
+- implausible de novo: kid is homozygote. parents are same homozygotes and opposite to kid.
+- uniparental disomy: parents are opposite homozygotes; kid is homozygote
+
+]]>
+    </help>
+    <expand macro="citations"/>
+</tool>
