@@ -175,6 +175,115 @@ library(Rsamtools)
             #end if
         #end if
     #end if
+#else if str($method_select.method) == "findMaxima"
+    @GRANGES_METHOD@
+    range <- as.numeric("$method_select.range")
+    metric <- scan("$method_select.metric", what=numeric())
+    #if str($method_select.ignore_strand) == 'true'
+        ignore_strand <- TRUE
+    #else
+        ignore_strand <- FALSE
+    #end if
+    result <- findMaxima(regions, range, metric, ignore.strand=ignore_strand)
+    write.table(result, file = "$findMaxima_output", quote = FALSE, col.names = FALSE, row.names=FALSE)
+#else if str($method_select.method) == "getBestTest"
+    ids <- scan("$method_select.ids", what = integer())
+    tab <- read.table("$method_select.tab", header=TRUE)
+
+    #if str($method_select.by_pval) == "true"
+        by_pval <- TRUE
+    #else
+        by_pval <- FALSE
+    #end if
+
+    #if str($method_select.weight_select.weight_selector) == "yes"
+        weight <- scan("$method_select.weight_select.weight", what = numeric())
+    #else
+        weight <- NULL
+    #end if
+
+    #if str($method_select.pval_col) != ''
+        pval_col <- as.numeric(gsub("([0-9]+).*$", "\\1", "$method_select.pval_col"))
+        if (is.na(pval_col)){
+            pval_col <- "$method_select.pval_col"
+        }
+    #else
+        pval_col <- NULL
+    #end if
+    #if str($method_select.cpm_col) != ''
+        cpm_col <- as.numeric(gsub("([0-9]+).*$", "\\1", "$method_select.cpm_col"))
+        if (is.na(cpm_col)){
+            cpm_col <- "$method_select.cpm_col"
+        }
+    #else
+        cpm_col <- NA
+    #end if
+
+    best <- getBestTest(ids, tab, by.pval=by_pval, weight=weight, pval.col=pval_col, cpm.col=cpm_col)
+    write.table(best, "$getBestTest_output", quote = FALSE, col.names = TRUE, row.names=FALSE)
+#else if str($method_select.method) == "getPESizes"
+    bamFile <- "$method_select.bam_file"
+    indexBam(bamFile)
+
+    #if str($method_select.readParam_select.readParam_selector) == 'yes'
+      pe <- "$method_select.readParam_select.pe"
+      max_frag <- as.numeric("$method_select.readParam_select.max_frag")
+
+      #if str($method_select.readParam_select.dedup) == ''
+        ded_up <- F
+      #else
+        ded_up <- T
+      #end if
+
+      #if str($method_select.readParam_select.minq) != ''
+        min_q <- as.numeric("$method_select.readParam_select.minq")
+      #else
+        min_q <- NA
+      #end if
+
+      #if str($method_select.readParam_select.forward) == 'NA'
+        forward <- NA
+      #else if str($method_select.readParam_select.forward) == 'forward'
+        forward <- TRUE
+      #else if str($method_select.readParam_select.forward) == 'reverse'
+        forward <- FALSE
+      #end if
+
+      restrict <- as.character(unlist(strsplit(gsub(" ", "", "$method_select.readParam_select.restrict", ","), ",")))
+
+      #if str($method_select.readParam_select.discard_select.discard) == 'yes'
+        #if str($method_select.readParam_select.discard_select.named) == "true"
+          data <- read.table("$method_select.readParam_select.discard_select.GRanges", header=T)
+        #else
+          data <- read.table("$method_select.readParam_select.discard_select.GRanges", header=F)
+        #end if
+        gRange <- data[[1]]
+        start <- data[[2]]
+        end <- data[[3]]
+        discard <- GRanges(gRange, IRanges(start, end))
+      #else
+        discard <- GRanges()
+      #end if
+      p <- readParam(pe=pe, max.frag=max_frag, dedup=ded_up, minq=min_q, forward=forward, discard=discard, BPPARAM=SerialParam())
+    #else
+      p <- readParam(pe="both")
+    #end if  
+
+    result <- getPESizes(bamFile, param=p)
+
+    write.table(result[[1]], "$getPESizes_sizes_output", quote = FALSE, col.names = FALSE, row.names=FALSE)
+    write.table(result[[2]], "$getPESizes_diagnostics_output", quote = FALSE, col.names = FALSE, row.names=TRUE)
+#else if str($method_select.method) == "getWidths"
+    #if str($method_select.data_select.data_selector) == "windowCounts"
+      @WINDOWCOUNTS_SELECT_METHOD@
+      data <- window_counts
+    #else
+      @REGIONCOUNTS_SELECT_METHOD@
+      data <- region_counts
+    #end if
+
+    result <- getWidths(data)
+    write.table(result, "$getWidths_output", quote = FALSE, col.names = FALSE, row.names = FALSE)
 #else
 
 #end if
@@ -332,10 +441,93 @@ library(Rsamtools)
                     </when>
                 </conditional>
             </when>
-            <when value="findMaxima"> </when>
-            <when value="getBestTest"> </when>
-            <when value="getPESizes"> </when>
-            <when value="getWidths"> </when>
+            <when value="findMaxima">
+                <expand macro="gRanges" />
+                <param name="range" type="integer" value="" label="Specify the range of surrounding regions to consider as local" />
+                <param name="metric" type="data" format="tabular" label="Values for which the local maxima is found" help="A dataframe with a column of values" />
+                <param name="ignore_strand" type="boolean" truevalue="true" falsevalue="" checked="true" label="Consider the strandedness of regions?" help="If no is selected, then the entries in regions are split into their separate strands." />
+            </when>
+            <when value="getBestTest">
+                <param name="ids" type="data" format="tabular" label="Cluster IDs for each test" />
+                <param name="tab" type="data" format="tabular" label="A dataframe of results with a PValue field for each test" />
+                <param name="by_pval" type="boolean" truevalue="true" falsevalue="" checked="true" label="Perform selection on corrected p-values" />
+                <conditional name="weight_select">
+                  <param name="weight_selector" type="select" label="Specify weights for each window?">
+                    <option value="yes">Yes</option>
+                    <option value="no" selected="true">No</option>
+                  </param>
+                  <when value="yes">
+                    <param name="weight" type="data" format="tabular" label="Weights for each window" help="A dataframe with a column of weights" />
+                  </when>
+                  <when value="no"> </when>
+                </conditional>
+                  <param name="pval_col" type="text" optional="true" label="Specify the column of tab containing the p-values" help="Enter a string or integer" >
+                    <sanitizer>
+                      <valid>
+                        <add value="." />
+                      </valid>
+                    </sanitizer>
+                  </param>
+                  <param name="cpm_col" type="text" optional="true" label="Specify the column of tab containing the log-CPM" help="Enter a string or integer" >
+                    <sanitizer>
+                      <valid>
+                        <add value="." />
+                      </valid>
+                    </sanitizer>
+                  </param>
+            </when>
+            <when value="getPESizes">
+                <param name="bam_file" type="data" format="bam" label="BAM file" />
+                <conditional name="readParam_select">
+                  <param name="readParam_selector" type="select" label="Specify read loading parameters?" >
+                    <option value="yes">Yes</option>
+                    <option value="no" selected="true">No</option>
+                  </param>
+                  <when value="yes">
+                    <param name="pe" type="select" label="Is paired-end data present in the BAM file(s)?" help="Reads are assumed to be single-end when None is selected">
+                      <option value="none">None</option>
+                      <option value="both" selected="true">Both Files</option>
+                      <option value="first">First File</option>
+                      <option value="second">Second File</option>
+                    </param>
+                    <param name="max_frag" type="integer" value="500" label="Maximum fragment length corresponding to a read pair" />
+                    <param name="dedup" type="boolean" truevalue="true" falsevalue="" checked="false" label="Ignore marked duplicate reads?" help="Marked duplicate reads will be removed with if yes is selected. This may be necessary when many rounds of PCR have been performed. However, it is not recommended for routine counting as it will interfere with the downstream statistical methods. Note that the duplicate field must be set beforehand in the BAM file for this argument to have any effect" />
+                    <param name="minq" type="integer" value="" optional="true" label="Minimum mapping quality score for an aligned read" help="Reads will be filtered by their mapping quality scores. This is generally recommended to remove low-confidence alignments. The exact threshold for minq will depend on the range of scores provided by the aligner. No filtering on the score will be performed if no value specified." />
+                    <param name="forward" type="select" label="How should the reads be extracted?">
+                      <option value="NA">Extract from all strands</option>
+                      <option value="forward">Extract only from forward strands</option>
+                      <option value="reverse">Extract only from reverse strands</option>
+                    </param>
+                    <param name="restrict" type="text" optional="true" label="Names of allowable chromosomes from which readswill be extracted" help="Reads will only be extracted for the specified chromosomes. This is useful to restrict the analysis to interesting chromosomes, e.g., no contigs/scaffolds or mitochondria."/>
+                    <conditional name="discard_select">
+                      <param name="discard" type="select" label="Discard any alignments?" help="A read will be removed if the corresponding alignment is wholly contained within the supplied ranges. This is useful for removing reads in repeat regions.">
+                        <option value="yes">Yes</option>
+                        <option value="no" selected="true">No</option>
+                      </param>
+                      <when value="yes">
+                        <expand macro="gRanges" />
+                      </when>
+                      <when value="no"> </when>
+                    </conditional>
+                      <!--BiocParallelParam object-->
+                  </when>
+                  <when value="no"> </when>
+                </conditional>
+            </when>
+            <when value="getWidths">
+                <conditional name="data_select">
+                  <param name="data_selector" type="select" label="Create a RangedSummarizedExperiment object by windowCounts or regionCounts?">
+                    <option value="windowCounts">windowCounts</option>
+                    <option value="regionCounts">regionCounts</option>
+                  </param>
+                  <when value="windowCounts">
+                    <expand macro="windowCounts" />
+                  </when>
+                  <when value="regionCounts">
+                    <expand macro="regionCounts" />
+                  </when>
+                </conditional>
+            </when>
             <when value="overlapStats"> </when>
             <when value="scaledAverage"> </when>
             <when value="strandedCounts"> </when>
@@ -353,16 +545,32 @@ library(Rsamtools)
              <filter>method_select['method'] == 'combineTests'</filter>
         </data>
         <data name="filterW_abundances_output" format="txt" label="filterWindows on ${on_string}: abundances output" >
-            <filter>method_select['method'] == 'filterWindows' and method_select['method']['filter_method_select']['filter_method_selector'] == 'filterWindows'</filter>
+            <filter>method_select['method'] == 'filterWindows' and method_select['filter_method_select']['filter_method_selector'] == 'filterWindows'</filter>
         </data>
         <data name="filterW_back_abundances_output" format="txt" label="filterWindows on ${on_string}: back abundances output" >
-            <filter>method_select['method'] == 'filterWindows' and method_select['filter_method_select']['filter_method_selector']['background_select']['background_selector'] == "yes"</filter>
+            <filter>method_select['method'] == 'filterWindows' and method_select['filter_method_select']['background_select']['background_selector'] == 'yes'</filter>
         </data>
         <data name="filterW_filter_output" format="txt" label="filterWindows on ${on_string}: filter output" >
-            <filter>method_select['method'] == 'filterWindows' and method_select['method']['filter_method_select']['filter_method_selector'] == 'filterWindows'</filter>
+            <filter>method_select['method'] == 'filterWindows' and method_select['filter_method_select']['filter_method_selector'] == 'filterWindows'</filter>
         </data>
+        <!--filter not working-->
         <data name="filterW_keepsum_output" format="txt" label="filterWindows on ${on_string}: filtered count sum output" >
-            <filter>method_select['method'] == 'filterWindows' and method_select['method']['filter_method_select']['filter_method_selector']['keep_select']['keep_selector'] == 'yes' and method_select['method']['filter_method_select']['filter_method_selector']['keep_select']['keep_selector']['keep_sum'] == 'true'</filter>
+            <filter>method_select['filter_method_select']['keep_select']['keep_sum'] == 'true' </filter>
+        </data>
+        <data name="findMaxima_output" format="txt" label="findMaxima on ${on_string}: output">
+             <filter>method_select['method'] == 'findMaxima'</filter>
+        </data>
+        <data name="getBestTest_output" format="txt" label="getBestTest on ${on_string}: output">
+             <filter>method_select['method'] == 'getBestTest'</filter>
+        </data>
+        <data name="getPESizes_sizes_output" format="txt" label="getPESizes on ${on_string}: sizes output">
+             <filter>method_select['method'] == 'getPESizes'</filter>
+        </data>
+        <data name="getPESizes_diagnostics_output" format="txt" label="getPESizes on ${on_string}: diagnostics output">
+             <filter>method_select['method'] == 'getPESizes'</filter>
+        </data>
+        <data name="getWidths_output" format="txt" label="getWidths on ${on_string}: output">
+             <filter>method_select['method'] == 'getWidths'</filter>
         </data>
     </outputs>
 
@@ -707,6 +915,509 @@ library(Rsamtools)
             <output name="filterW_filter_output" value="filterWindows_filter_output1.txt" />
             <output name="filterW_keepsum_output" value="filterWindows_filtered_count_sum_output.txt" />
         </test>
+        <test expect_num_outputs="3">
+            <conditional name="method_select">
+                <param name="method" value="filterWindows" />
+                <conditional name="filter_method_select">
+                    <param name="filter_method_selector" value="filterWindows" />
+                    <section name="data">
+                        <repeat name="bam_input">
+                            <param name="bam_file" value="rep1.bam" ftype="bam" />
+                        </repeat>
+                        <repeat name="bam_input">
+                            <param name="bam_file" value="rep2.bam" ftype="bam" />
+                        </repeat>
+                        <param name="spacing" value="50" />
+                        <param name="width" value="" />
+                        <conditional name="ext_selector">
+                            <param name="ext_select" value="integer" />
+                            <param name="ext" value="100" />
+                        </conditional>
+                        <param name="shift" value="0" />
+                        <param name="filter" value="1" />
+                        <param name="bin" value="false" />
+                        <conditional name="readParam_select">
+                            <param name="readParam_selector" value="no" />
+                        </conditional>
+                    </section>
+                    <conditional name="background_select">
+                        <param name="background_selector" value="yes" />
+                        <section name="background">
+                            <conditional name="data_select">
+                                <param name="data_selector" value="windowCounts" />
+                                <repeat name="bam_input">
+                                <param name="bam_file" value="rep1.bam" ftype="bam" />
+                                </repeat>
+                                <repeat name="bam_input">
+                                    <param name="bam_file" value="rep2.bam" ftype="bam" />
+                                </repeat>
+                                <param name="spacing" value="50" />
+                                <param name="width" value="300" />
+                                <conditional name="ext_selector">
+                                    <param name="ext_select" value="integer" />
+                                    <param name="ext" value="100" />
+                                </conditional>
+                                <param name="shift" value="0" />
+                                <param name="filter" value="1" />
+                                <param name="bin" value="true" />
+                                <conditional name="readParam_select">
+                                    <param name="readParam_selector" value="no" />
+                                </conditional>
+                            </conditional>
+                        </section>
+                    </conditional>
+                    <param name="type" value="global" />
+                    <param name="assay_data" value="counts" />
+                    <param name="assay_back" value="counts" />
+                    <param name="prior_count" value="2" />
+                    <conditional name="keep_select">
+                        <param name="keep_selector" value="no" />
+                    </conditional>
+                    <conditional name="scale_info_select">
+                        <param name="scale_info_selector" value="no" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="filterW_abundances_output" value="filterWindows_abundances_output2.txt" />
+            <output name="filterW_back_abundances_output" value="filterWindows_back_abundances_output.txt" />
+            <output name="filterW_filter_output" value="filterWindows_filter_output2.txt" />
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="filterWindows" />
+                <conditional name="filter_method_select">
+                    <param name="filter_method_selector" value="filterWindows" />
+                    <section name="data">
+                        <repeat name="bam_input">
+                            <param name="bam_file" value="rep1.bam" ftype="bam" />
+                        </repeat>
+                        <repeat name="bam_input">
+                            <param name="bam_file" value="rep2.bam" ftype="bam" />
+                        </repeat>
+                        <param name="spacing" value="50" />
+                        <param name="width" value="" />
+                        <conditional name="ext_selector">
+                            <param name="ext_select" value="integer" />
+                            <param name="ext" value="100" />
+                        </conditional>
+                        <param name="shift" value="0" />
+                        <param name="filter" value="1" />
+                        <param name="bin" value="false" />
+                        <conditional name="readParam_select">
+                            <param name="readParam_selector" value="no" />
+                        </conditional>
+                    </section>
+                    <conditional name="background_select">
+                        <param name="background_selector" value="no" />
+                    </conditional>
+                    <param name="type" value="global" />
+                    <param name="assay_data" value="counts" />
+                    <param name="assay_back" value="counts" />
+                    <param name="prior_count" value="2" />
+                    <conditional name="scale_info_select">
+                        <param name="scale_info_selector" value="yes" />
+                        <section name="data">
+                            <repeat name="bam_input">
+                                <param name="bam_file" value="rep1.bam" ftype="bam" />
+                            </repeat>
+                            <repeat name="bam_input">
+                                <param name="bam_file" value="rep2.bam" ftype="bam" />
+                            </repeat>
+                            <param name="spacing" value="50" />
+                            <param name="width" value="" />
+                            <conditional name="ext_selector">
+                                <param name="ext_select" value="integer" />
+                                <param name="ext" value="100" />
+                            </conditional>
+                            <param name="shift" value="0" />
+                            <param name="filter" value="1" />
+                            <param name="bin" value="false" />
+                            <conditional name="readParam_select">
+                                <param name="readParam_selector" value="no" />
+                            </conditional>
+                        </section>
+                        <section name="background">
+                            <conditional name="data_select">
+                                <param name="data_selector" value="windowCounts" />
+                                <repeat name="bam_input">
+                                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                                </repeat>
+                                <repeat name="bam_input">
+                                    <param name="bam_file" value="rep2.bam" ftype="bam" />
+                                </repeat>
+                                <param name="spacing" value="50" />
+                                <param name="width" value="" />
+                                <conditional name="ext_selector">
+                                    <param name="ext_select" value="integer" />
+                                    <param name="ext" value="100" />
+                                </conditional>
+                                <param name="shift" value="0" />
+                                <param name="filter" value="1" />
+                                <param name="bin" value="false" />
+                                <conditional name="readParam_select">
+                                    <param name="readParam_selector" value="no" />
+                                </conditional>
+                            </conditional>
+                        </section>
+                    </conditional>
+                    <conditional name="keep_select">
+                        <param name="keep_selector" value="no" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="filterW_abundances_output" value="filterWindows_abundances_output3.txt" />
+            <output name="filterW_filter_output" value="filterWindows_filter_output3.txt" />
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="method_select">
+                <param name="method" value="filterWindows" />
+                <conditional name="filter_method_select">
+                    <param name="filter_method_selector" value="filterWindows" />
+                    <section name="data">
+                        <repeat name="bam_input">
+                            <param name="bam_file" value="rep1.bam" ftype="bam" />
+                        </repeat>
+                        <repeat name="bam_input">
+                            <param name="bam_file" value="rep2.bam" ftype="bam" />
+                        </repeat>
+                        <param name="spacing" value="50" />
+                        <param name="width" value="" />
+                        <conditional name="ext_selector">
+                            <param name="ext_select" value="integer" />
+                            <param name="ext" value="100" />
+                        </conditional>
+                        <param name="shift" value="0" />
+                        <param name="filter" value="1" />
+                        <param name="bin" value="false" />
+                        <conditional name="readParam_select">
+                            <param name="readParam_selector" value="no" />
+                        </conditional>
+                    </section>
+                    <conditional name="background_select">
+                        <param name="background_selector" value="yes" />
+                        <section name="background">
+                            <conditional name="data_select">
+                                <param name="data_selector" value="regionCounts" />
+                                <repeat name="bam_input">
+                                <param name="bam_file" value="rep1.bam" ftype="bam" />
+                                </repeat>
+                                <repeat name="bam_input">
+                                    <param name="bam_file" value="rep2.bam" ftype="bam" />
+                                </repeat>
+                                <param name="GRanges" value="filterWindows_regions.tabular" />
+                                <param name="named" value="true" />
+                                <conditional name="ext_selector">
+                                    <param name="ext_select" value="integer" />
+                                    <param name="ext" value="100" />
+                                </conditional>
+                                <conditional name="readParam_select">
+                                    <param name="readParam_selector" value="no" />
+                                </conditional>
+                            </conditional>
+                        </section>
+                    </conditional>
+                    <param name="type" value="local" />
+                    <param name="assay_data" value="counts" />
+                    <param name="assay_back" value="counts" />
+                    <param name="prior_count" value="2" />
+                    <conditional name="keep_select">
+                        <param name="keep_selector" value="no" />
+                    </conditional>
+                    <conditional name="scale_info_select">
+                        <param name="scale_info_selector" value="no" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="filterW_abundances_output" value="filterWindows_abundances_output4.txt" />
+            <output name="filterW_back_abundances_output" value="filterWindows_back_abundances_output2.txt" />
+            <output name="filterW_filter_output" value="filterWindows_filter_output4.txt" />
+        </test>
+
+        <!--<test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="findMaxima" />
+                <param name="GRanges" value="findMax_regions.tabular" />
+                <param name="range" value="10" />
+                <param name="named" value="true" />
+                <param name="metric" value="findMax_metric.tabular" />
+                <param name="ignore_strand" value="true" />
+            </conditional>
+            <output name="findMaxima_output" value="findMaxima_output.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="getBestTest" />
+                <param name="ids" value="getBestTest_ids.tabular" />
+                <param name="tab" value="getBestTest_tab.tabular" />
+                <param name="by_pval" value="true" />
+                <conditional name="weight_select">
+                    <param name="weight_selector" value="no"/>
+                </conditional>
+                <param name="pval_col" value="3" />
+                <param name="cpm_col" value="2" />
+            </conditional>
+            <output name="getBestTest_output" value="getBestTest_output1.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="getBestTest" />
+                <param name="ids" value="getBestTest_ids.tabular" />
+                <param name="tab" value="getBestTest_tab.tabular" />
+                <param name="by_pval" value="true" />
+                <conditional name="weight_select">
+                    <param name="weight_selector" value="yes" />
+                    <param name="weight" value="getBestTest_w.tabular" />
+                </conditional>
+                <param name="pval_col" value="3" />
+                <param name="cpm_col" value="2" />
+            </conditional>
+            <output name="getBestTest_output" value="getBestTest_output2.txt" />
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="getPESizes" />
+                <param name="bam_file" value="pet.bam" ftype="bam" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="no" />
+                </conditional>
+            </conditional>
+          <output name="getPESizes_sizes_output" value="getPESizes_sizes_output1.txt" />
+          <output name="getPESizes_getPESizesdiagnostics_output" value="getPESizes__diagnostics_output1.txt" />
+        </test>
+
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="getPESizes" />
+                <param name="bam_file" value="pet.bam" ftype="bam" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="yes" />
+                    <param name="pe" value="both" />
+                    <param name="max_frag" value="100" />
+                    <param name="dedup" value="false" />
+                    <param name="minq" value="20" />
+                    <param name="forward" value="NA" />
+                    <param name="restrict" value="chrA" />
+                    <conditional name="discard_select">
+                      <param name="discard" value="no" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="getPESizes_sizes_output" value="getPESizes_sizes_output2.txt" />
+            <output name="getPESizes_diagnostics_output" value="getPESizes__diagnostics_output2.txt" />
+        </test>
+
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="getPESizes" />
+                <param name="bam_file" value="pet.bam" ftype="bam" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="yes" />
+                    <param name="pe" value="both" />
+                    <param name="max_frag" value="100" />
+                    <param name="dedup" value="false" />
+                    <param name="minq" value="20" />
+                    <param name="forward" value="NA" />
+                    <param name="restrict" value="chrA" />
+                    <conditional name="discard_select">
+                      <param name="discard" value="yes" />
+                      <param name="GRanges" value="gRange_discard.tabular" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="getPESizes_sizes_output" value="getPESizes_sizes_output3.txt" />
+            <output name="getPESizes_diagnostics_output" value="getPESizes__diagnostics_output3.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="getWidths" />
+                <conditional name="data_select">
+                    <param name="data_selector" value="windowCounts" />
+                    <repeat name="bam_input">
+                      <param name="bam_file" value="rep1.bam" ftype="bam" />
+                    </repeat>
+                    <repeat name="bam_input">
+                        <param name="bam_file" value="rep2.bam" ftype="bam" />
+                    </repeat>
+                    <param name="spacing" value="50" />
+                    <param name="width" value="" />
+                    <conditional name="ext_selector">
+                      <param name="ext_select" value="list" />
+                      <param name="ext_list1" value="50, 100" />
+                      <param name="ext_list2" value="80" />
+                    </conditional>
+                    <param name="shift" value="0" />
+                    <param name="filter" value="1" />
+                    <param name="bin" value="false" />
+                    <conditional name="readParam_select">
+                      <param name="readParam_selector" value="no" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="getWidths_output" value="getWidths_output1.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="getWidths" />
+                <conditional name="data_select">
+                    <param name="data_selector" value="windowCounts" />
+                    <repeat name="bam_input">
+                      <param name="bam_file" value="rep1.bam" ftype="bam" />
+                    </repeat>
+                    <repeat name="bam_input">
+                        <param name="bam_file" value="rep2.bam" ftype="bam" />
+                    </repeat>
+                    <param name="spacing" value="50" />
+                    <param name="width" value="" />
+                    <conditional name="ext_selector">
+                        <param name="ext_select" value="integer" />
+                        <param name="ext" value="100" />
+                    </conditional>
+                    <param name="shift" value="0" />
+                    <param name="filter" value="1" />
+                    <param name="bin" value="false" />
+                    <conditional name="readParam_select">
+                      <param name="readParam_selector" value="yes" />
+                      <param name="pe" value="none" />
+                      <param name="max_frag" value="500" />
+                      <param name="dedup" value="false" />
+                      <param name="minq" value="" />
+                      <param name="forward" value="NA" />
+                      <param name="restrict" value="chrA" />
+                      <conditional name="discard_select">
+                        <param name="discard" value="no" />
+                      </conditional>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="getWidths_output" value="getWidths_output2.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="getWidths" />
+                <conditional name="data_select">
+                    <param name="data_selector" value="windowCounts" />
+                    <repeat name="bam_input">
+                      <param name="bam_file" value="rep1.bam" ftype="bam" />
+                    </repeat>
+                    <repeat name="bam_input">
+                        <param name="bam_file" value="rep2.bam" ftype="bam" />
+                    </repeat>
+                    <param name="spacing" value="50" />
+                    <param name="width" value="" />
+                    <conditional name="ext_selector">
+                        <param name="ext_select" value="integer" />
+                        <param name="ext" value="100" />
+                    </conditional>
+                    <param name="shift" value="0" />
+                    <param name="filter" value="1" />
+                    <param name="bin" value="false" />
+                    <conditional name="readParam_select">
+                      <param name="readParam_selector" value="yes" />
+                      <param name="pe" value="none" />
+                      <param name="max_frag" value="500" />
+                      <param name="dedup" value="false" />
+                      <param name="minq" value="" />
+                      <param name="forward" value="NA" />
+                      <param name="restrict" value="chrA" />
+                      <conditional name="discard_select">
+                        <param name="discard" value="yes" />
+                        <param name="GRanges" value="gRange_discard.tabular" />
+                      </conditional>
+                    </conditional>
+                </conditional>
+                <output name="getWidths_output" value="getWidths_output3.txt" />
+            </test>
+            <test expect_num_outputs="1">
+              <conditional name="data_select">
+                <param name="data_selector" value="regionCounts" />
+                <repeat name="bam_input">
+                  <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep2.bam" ftype="bam" />
+                </repeat>
+                <param name="GRanges" value="gRange_regionsCount.tabular" />
+                <param name="named" value="true" />
+                <conditional name="ext_selector">
+                  <param name="ext_select" value="integer" />
+                  <param name="ext" value="100" />
+                </conditional>
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="no" />
+                </conditional>
+              </conditional>
+          <output name="getWidths_output" value="getWidths_output4.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="getWidths" />
+                <conditional name="data_select">
+                    <param name="data_selector" value="regionCounts" />
+                    <repeat name="bam_input">
+                      <param name="bam_file" value="rep1.bam" ftype="bam" />
+                    </repeat>
+                    <repeat name="bam_input">
+                        <param name="bam_file" value="rep2.bam" ftype="bam" />
+                    </repeat>
+                    <param name="GRanges" value="gRange_regionsCount.tabular" />
+                    <param name="named" value="true" />
+                    <conditional name="ext_selector">
+                      <param name="ext_select" value="list" />
+                      <param name="ext_list1" value="50, 100" />
+                      <param name="ext_list2" value="80" />
+                    </conditional>
+                    <conditional name="readParam_select">
+                      <param name="readParam_selector" value="yes" />
+                      <param name="pe" value="none" />
+                      <param name="max_frag" value="500" />
+                      <param name="dedup" value="false" />
+                      <param name="minq" value="" />
+                      <param name="forward" value="NA" />
+                      <param name="restrict" value="chrB" />
+                      <conditional name="discard_select">
+                        <param name="discard" value="no" />
+                      </conditional>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="getWidths_output" value="getWidths_output5.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="getWidths" />
+                <conditional name="data_select">
+                    <param name="data_selector" value="regionCounts" />
+                    <repeat name="bam_input">
+                      <param name="bam_file" value="rep1.bam" ftype="bam" />
+                    </repeat>
+                    <repeat name="bam_input">
+                        <param name="bam_file" value="rep2.bam" ftype="bam" />
+                    </repeat>
+                    <param name="GRanges" value="gRange_regionsCount.tabular" />
+                    <param name="named" value="true" />
+                    <conditional name="ext_selector">
+                      <param name="ext_select" value="list" />
+                      <param name="ext_list1" value="50, 100" />
+                      <param name="ext_list2" value="80" />
+                    </conditional>
+                    <conditional name="readParam_select">
+                      <param name="readParam_selector" value="yes" />
+                      <param name="pe" value="none" />
+                      <param name="max_frag" value="500" />
+                      <param name="dedup" value="false" />
+                      <param name="minq" value="" />
+                      <param name="forward" value="NA" />
+                      <param name="restrict" value="chrB" />
+                      <conditional name="discard_select">
+                        <param name="discard" value="yes" />
+                        <param name="GRanges" value="gRange_discard.tabular" />
+                      </conditional>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="getWidths_output" value="getWidths_output6.txt" />
+        </test>-->
+
     </tests>
     <help><![CDATA[
 Calculate counts-per-million (CPM) values for each feature
@@ -785,11 +1496,59 @@ In addition if the percentage to filter out in count data is specified, it retur
 Find the local maxima for a given set of genomic regions
 ========================================================
 
+For each region, this method will examine all regions within range on either side. It will then determine if the current region has the maximum value of metric across this range. A typical metric to maximize might be the sum of counts or the average abundance across all libraries. 
+
+Preferably, regions should contain regularly sized and spaced windows or bins, e.g., from windowCounts. In particular, the algorithm will not support nested regions and will fail correspondingly if any are detected. 
+
+The method is run separately on the entries for each strand, and the results are collated into a single output. This may be useful for strand-specific applications.
+
+It returns:
+
+- `local maxima`: a column indicating whether each region (row) in regions is a local maxima
+
+
 Find the test with the strongest evidence for rejection of the null in each cluster
 ===================================================================================
 
+Clusters are identified as those tests with the same value of ids (any NA values are ignored). By perfroming selection on corrected p-values, the tool identifies the test with the lowest p-value as that with the strongest evidence against the null in each cluster. The p-value of the chosen test is adjusted using the Bonferroni correction, based on the total number of tests in the parent cluster. This is necessary to obtain strong control of the family-wise error rate such that the best test can be taken from each cluster for further consideration.
+
+The importance of each window in each cluster can be adjusted by supplying different relative weight values. Each weight is interpreted as a different threshold for each test in the cluster. Larger weights correspond to lower thresholds, i.e., less evidence is needed to reject the null for tests deemed to be more important. This may be useful for upweighting particular tests, e.g., windows containing a motif for the TF of interest.
+
+Note the difference between this function and combineTests. The latter presents evidence for any rejections within a cluster. This function specifies the exact location of the rejection in the cluster, which may be more useful in some cases but at the cost of conservativeness. In both cases, clustering procedures such as mergeWindows can be used to identify the cluster.
+
+If perfrom selection on corrected p-values is not selected, the best test is defined as that with the highest log-CPM value. This should be independent of the p-value so no adjustment is necessary. Weights are not applied here. This mode may be useful when abundance is correlated to rejection under the alternative hypothesis, e.g., picking high-abundance regions that are more likely to contain peaks.
+
+It returns:
+
+A DataFrame with one row per cluster.
+
+- `best`: the index for the best test in the cluster
+- `PValue`: the (possibly adjusted) p-value for that test
+- `FDR`:  the q-value corresponding to the adjusted p-value
+- `logFC`: logFC values
+- `logCPM`: logCPM values
+
+
 Compute the length of the sequenced fragment for each read pair in paired-end tag (PE) data
 ===========================================================================================
+
+This method computes a number of diagnostics for paired-end data in a supplied BAM file. The aims is to provide an indication of the quality of library preparation and sequencing.
+
+Any read pair with exactly one unmapped read is discarded, and the number of read pairs lost in this manner is recorded. Obviously, read pairs with both reads unmapped will be ignored completely, as will any unpaired reads in the BAM file. 
+
+Of the mapped pairs, the valid (i.e., proper) read pairs are identified. This involves several criteria:
+
+- Read pairs must be intrachromosomal. If the reads are on different chromosomes, the read pair will be recorded as being interchromosomal.
+- The two reads in the pair must lie on opposite strands. Otherwise, the read pair will be considered as being improperly orientated.
+- The 5’ end of the forward read must not map to a higher genomic coordinate than the 5’ end of the reverse read. Otherwise, the read pair will be considered as being improperly orientated. 
+
+Note that the 3’ end of one read is allowed to overrun the 5’ end of the other. This avoids being too stringent in the presence of sequencing errors, untrimmed adaptors, etc. at the start or ends of reads. Each valid read pair corresponds to a DNA fragment where both ends are sequenced. The size of the fragment can be determined by calculating the distance between the 5’ ends of the mapped reads. The distribution of sizes is useful for assessing the quality of the library preparation, along with all of the recorded diagnostics. Note that any max.frag specification in param will be ignored; sizes for all valid pairs will be returned.
+
+It returns:
+
+- `sizes`: a column of fragment lengths for all valid read pairs in the library
+- `diagnostics`: a column containing the total number of reads, the number of mapped reads, number of mapped singleton reads, pairs with exactly one unmapped read, number of improperly orientated read pairs and interchromosomal pairs
+
 
 Get the widths of the read counting interval for each region
 ============================================================
