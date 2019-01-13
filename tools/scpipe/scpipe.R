@@ -42,6 +42,7 @@ option_list <- list(
     make_option(c("-gene_fl","--gene_fl"), type="logical", help="Remove low abundant genes"),
     make_option(c("-max_reads","--max_reads"), type="integer", help="Maximum reads processed"),
     make_option(c("-min_count","--min_count"), type="integer", help="Minimum count to keep"),
+    make_option(c("-keep_outliers","--keep_outliers"), type="logical", help="Keep outlier cells"),
     make_option(c("-report","--report"), type="logical", help="HTML report of plots"),
     make_option(c("-rdata","--rdata"), type="logical", help="Output RData file"),
     make_option(c("-nthreads","--nthreads"), type="integer", help="Number of threads")
@@ -142,6 +143,13 @@ print(p)
 p = plot_QC_pairs(sce)
 print(p)
 dev.off()
+
+print("Removing outliers")
+if (is.null(args$keep_outliers)) {
+  sce = remove_outliers(sce)
+  gene_counts <- counts(sce)
+  write.table(data.frame("gene_id"=rownames(gene_counts), gene_counts), file="gene_count.tsv", sep="\t", quote=FALSE, row.names=FALSE)
+}
 
 if (!is.null(args$report) & (!is.null(fa_fn))) {
   print("Creating report")
