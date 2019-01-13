@@ -127,8 +127,21 @@ sc_demultiplex(mapped_bam, out_dir, barcode_anno, has_UMI=has_umi)
 print("Counting genes")
 sc_gene_counting(out_dir, barcode_anno, UMI_cor=args$UMI_cor, gene_fl=args$gene_fl)
 
-print("Creating SingleCellExperiment object")
+print("Performing QC")
 sce <- create_sce_by_dir(out_dir)
+pdf("plots.pdf")
+plot_demultiplex(sce)
+if (has_umi) {
+  p = plot_UMI_dup(sce)
+  print(p)
+}
+sce = calculate_QC_metrics(sce)
+sce = detect_outlier(sce)
+p = plot_mapping(sce, percentage=TRUE, dataname=args$samplename)
+print(p)
+p = plot_QC_pairs(sce)
+print(p)
+dev.off()
 
 if (!is.null(args$report) & (!is.null(fa_fn))) {
   print("Creating report")
