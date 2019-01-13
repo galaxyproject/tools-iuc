@@ -18,6 +18,7 @@ suppressPackageStartupMessages({
 })
 
 option_list <- list(
+    make_option(c("-bam","--bam"), type="character", help="BAM file"),
     make_option(c("-fasta","--fasta"), type="character", help="Genome fasta file"),
     make_option(c("-exons","--exons"), type="character", help="Exon annotation gff3 file"),
     make_option(c("-organism","--organism"), type="character", help="Organism e.g. hsapiens_gene_ensembl"),
@@ -49,6 +50,7 @@ option_list <- list(
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
 args = parse_args(parser)
 
+bam = args$bam
 fa_fn = args$fasta
 anno_fn = args$exons
 fq_R1 = args$read1
@@ -72,42 +74,48 @@ filter_settings=list(rmlow=args$rmlow, rmN=args$rmN, minq=args$minq, numbq=args$
 
 # Outputs
 out_dir = "."
-fasta_index = file.path(out_dir, paste0(fa_fn, ".fasta_index"))
-combined_fastq = file.path(out_dir, "combined.fastq")
-aligned_bam = file.path(out_dir, "aligned.bam")
 mapped_bam = file.path(out_dir, "aligned.mapped.bam")
 
+# if input is fastqs
+if (!is.null(fa_fn)) {
+  fasta_index = file.path(out_dir, paste0(fa_fn, ".fasta_index"))
+  combined_fastq = file.path(out_dir, "combined.fastq")
+  aligned_bam = file.path(out_dir, "aligned.bam")
 
-print("Trimming barcodes")
-sc_trim_barcode(combined_fastq,
-                fq_R1,
-                fq_R2,
-                read_structure=read_structure,
-                filter_settings=filter_settings)
+  print("Trimming barcodes")
+  sc_trim_barcode(combined_fastq,
+                  fq_R1,
+                  fq_R2,
+                  read_structure=read_structure,
+                  filter_settings=filter_settings)
 
-print("Building genome index")
-Rsubread::buildindex(basename=fasta_index, reference=fa_fn)
+  print("Building genome index")
+  Rsubread::buildindex(basename=fasta_index, reference=fa_fn)
 
-print("Aligning reads to genome")
-Rsubread::align(index=fasta_index,
-    readfile1=combined_fastq,
-    output_file=aligned_bam,
-    nthreads=args$nthreads)
+  print("Aligning reads to genome")
+  Rsubread::align(index=fasta_index,
+      readfile1=combined_fastq,
+      output_file=aligned_bam,
+      nthreads=args$nthreads)
 
-if (!is.null(args$barcodes)) {
-  barcode_anno=args$barcodes
+  if (!is.null(args$barcodes)) {
+    barcode_anno=args$barcodes
+  } else {
+    print("Detecting barcodes")
+    # detect 10X barcodes and generate sample_index.csv file
+    barcode_anno = "sample_index.csv"
+    sc_detect_bc(
+        infq=combined_fastq,
+        outcsv=barcode_anno,
+        bc_len=read_structure$bl2,
+        max_reads=args$max_reads,
+        min_count=args$min_count,
+        max_mismatch=args$max_mis
+    )
+  }
 } else {
-  print("Detecting barcodes")
-  # detect 10X barcodes and generate sample_index.csv file
-  barcode_anno = "sample_index.csv"
-  sc_detect_bc(
-      infq=combined_fastq,
-      outcsv=barcode_anno,
-      bc_len=read_structure$bl2,
-      max_reads=args$max_reads,
-      min_count=args$min_count,
-      max_mismatch=args$max_mis
-  )
+   aligned_bam = file.path(out_dir, bam)
+   barcode_anno=args$barcodes
 }
 
 print("Assigning reads to exons")
@@ -122,31 +130,31 @@ sc_gene_counting(out_dir, barcode_anno, UMI_cor=args$UMI_cor, gene_fl=args$gene_
 print("Creating SingleCellExperiment object")
 sce <- create_sce_by_dir(out_dir)
 
-if (!is.null(args$report)) {
-print("Creating report")
-create_report(sample_name=args$samplename,
-   outdir=out_dir,
-   r1=fq_R1,
-   r2=fq_R2,
-   outfq=combined_fastq,
-   read_structure=read_structure,
-   filter_settings=filter_settings,
-   align_bam=aligned_bam,
-   genome_index=fasta_index,
-   map_bam=mapped_bam,
-   exon_anno=anno_fn,
-   stnd=args$stnd,
-   fix_chr=FALSE,
-   barcode_anno=barcode_anno,
-   max_mis=args$max_mis,
-   UMI_cor=args$UMI_cor,
-   gene_fl=args$gene_fl,
-   organism=args$organism,
-   gene_id_type="ensembl_gene_id")
+if (!is.null(args$report) & (!is.null(fa_fn))) {
+  print("Creating report")
+  create_report(sample_name=args$samplename,
+     outdir=out_dir,
+     r1=fq_R1,
+     r2=fq_R2,
+     outfq=combined_fastq,
+     read_structure=read_structure,
+     filter_settings=filter_settings,
+     align_bam=aligned_bam,
+     genome_index=fasta_index,
+     map_bam=mapped_bam,
+     exon_anno=anno_fn,
+     stnd=args$stnd,
+     fix_chr=FALSE,
+     barcode_anno=barcode_anno,
+     max_mis=args$max_mis,
+     UMI_cor=args$UMI_cor,
+     gene_fl=args$gene_fl,
+     organism=args$organism,
+     gene_id_type="ensembl_gene_id")
 }
 
 if (!is.null(args$rdata) ) {
-    save(sce, file = file.path(out_dir,"scPipe_analysis.RData"))
+  save(sce, file = file.path(out_dir,"scPipe_analysis.RData"))
 }
 
 sessionInfo()
