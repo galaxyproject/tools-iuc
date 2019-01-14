@@ -610,7 +610,7 @@ class JbrowseConnector(object):
         trackType = 'JBrowse/View/Track/CanvasFeatures'
         if 'trackType' in gffOpts:
             trackType = gffOpts['trackType']
-        trackData['glyph'] = trackType
+        trackData['trackType'] = trackType
 
         if trackType == 'JBrowse/View/Track/CanvasFeatures':
             if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
