@@ -542,6 +542,7 @@ class JbrowseConnector(object):
             "urlTemplate": url,
             "type": "JBrowse/View/Track/Alignments2",
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
+            "chunkSizeLimit": bamOpts.get('chunkSizeLimit', '5000000')
         })
 
         # Apollo will only switch to the (prettier) 'bam-read' className if it's not set explicitly in the track config
@@ -557,6 +558,7 @@ class JbrowseConnector(object):
                 "type": "JBrowse/View/Track/SNPCoverage",
                 "key": trackData['key'] + " - SNPs/Coverage",
                 "label": trackData['label'] + "_autosnp",
+                "chunkSizeLimit": bamOpts.get('chunkSizeLimit', '5000000')
             })
             self._add_track_json(trackData2)
 
