@@ -481,27 +481,24 @@ class JbrowseConnector(object):
             shutil.copy(gff3_rebased.name, gff3)
             os.unlink(gff3_rebased.name)
 
-        config = {
-            'glyph': 'JBrowse/View/FeatureGlyph/Segments',
-            "category": trackData['category'],
-        }
+        dest = os.path.join(self.outdir, 'data', 'raw', trackData['label'] + '.gff')
 
-        clientConfig = trackData['style']
+        self._sort_gff(gff3, dest)
 
-        cmd = ['perl', self._jbrowse_bin('flatfile-to-json.pl'),
-               '--gff', gff3,
-               '--trackLabel', trackData['label'],
-               '--key', trackData['key'],
-               '--clientConfig', json.dumps(clientConfig),
-               '--config', json.dumps(config),
-               '--trackType', 'BlastView/View/Track/CanvasFeatures'
-               ]
+        url = os.path.join('raw', trackData['label'] + '.gff.gz')
+        trackData.update({
+            "urlTemplate": url,
+            "storeClass": "JBrowse/Store/SeqFeature/GFF3Tabix",
+        })
 
-        # className in --clientConfig is ignored, it needs to be set with --className
-        if 'className' in trackData['style']:
-            cmd += ['--className', trackData['style']['className']]
+        trackData['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
 
-        self.subprocess_check_call(cmd)
+        # Disable BlastView plugin until https://github.com/GMOD/jbrowse/issues/1288 is fixed
+        # trackData['trackType'] = 'BlastView/View/Track/CanvasFeatures'
+        trackData['trackType'] = 'JBrowse/View/Track/CanvasFeatures'
+
+        self._add_track_json(trackData)
+
         os.unlink(gff3)
 
         if blastOpts.get('index', 'false') == 'true':
@@ -581,9 +578,7 @@ class JbrowseConnector(object):
         })
         self._add_track_json(trackData)
 
-    def add_features(self, data, format, trackData, gffOpts, **kwargs):
-
-        dest = os.path.join(self.outdir, 'data', 'raw', trackData['label'] + '.gff')
+    def _sort_gff(self, data, dest):
 
         if not os.path.exists(dest):
             # Only index if not already done
@@ -597,6 +592,12 @@ class JbrowseConnector(object):
             self.subprocess_popen(' '.join(cmd))
             cmd = ['tabix', '-f', '-p', 'gff', dest + '.gz']
             self.subprocess_popen(' '.join(cmd))
+
+    def add_features(self, data, format, trackData, gffOpts, **kwargs):
+
+        dest = os.path.join(self.outdir, 'data', 'raw', trackData['label'] + '.gff')
+
+        self._sort_gff(data, dest)
 
         url = os.path.join('raw', trackData['label'] + '.gff.gz')
         trackData.update({
