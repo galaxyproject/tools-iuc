@@ -1,0 +1,748 @@
+<tool id="csaw_diagnostics" name="diagnostics" version="@VERSION@.0">
+    <description>diagnosis of data</description>
+     <macros>
+       <import>csaw_macros.xml</import>
+    </macros>
+     <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        Rscript '$script'
+    ]]></command>
+    <configfiles>
+        <configfile name="script"><![CDATA[
+## Setup R error handling to go to stderr
+options(show.error.messages=F, error=function(){cat(geterrmessage(),file=stderr());q("no",1,F)})
+loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
+
+## Import library
+library(csaw)
+library(Rsamtools)
+
+#if str($method_select.method) == "checkBimodality"
+    bamFiles <- c()
+    #for $i in $method_select.bam_input
+        bamFiles <- c(bamFiles, '$i.bam_file')
+    #end for
+    indexBam(bamFiles)
+
+    @GRANGES_METHOD@
+
+    w <- as.numeric("$method_select.width")
+
+    @READPARAM_METHOD@
+
+    prior_count <- as.numeric("$method_select.prior_count")
+    #if str($method_select.invert) == ''
+        inver <- F
+    #else
+        inver <- T
+    #end if
+            
+    scores <- checkBimodality(bamFiles, regions, width=w, param=p, prior.count=prior_count, invert=inver)
+    scores <- list(scores)
+    write.table(scores, file="$checkBimodality_output", quote = FALSE, row.names = FALSE, col.names = FALSE)
+#else if str($method_select.method) == "correlateReads"
+    bamFiles <- c()
+    #for $i in $method_select.bam_input
+        bamFiles <- c(bamFiles, '${i.bam_file}')
+    #end for
+    indexBam(bamFiles)
+
+    max_dist <- as.numeric("$method_select.max_dist")
+    #if str($method_select.cross) == "true"
+        cross <- TRUE
+    #else
+        cross <- FALSE
+    #end if
+
+    @READPARAM_METHOD@
+
+    result1 <- correlateReads(bamFiles, max.dist=max_dist, cross=cross, param=p)
+
+    write.table(result1, file = "$correlateReads_output", quote = FALSE, col.names = FALSE, row.names=FALSE)
+
+    #if str($method_select.maximizeCcf_select.maximizeCcf_selector) == "yes"
+        ignore <- as.numeric("$method_select.maximizeCcf_select.ignore")
+        result2 <- maximizeCcf(result1, ignore=ignore)
+
+        write.table(result2, file = "$maximizeCcf_output", quote = FALSE, col.names = FALSE, row.names=FALSE)
+    #end if
+#else if str($method_select.method) == "getPESizes"
+    bamFile <- "$method_select.bam_file"
+    indexBam(bamFile)
+
+    #if str($method_select.readParam_select.readParam_selector) == 'yes'
+      pe <- "$method_select.readParam_select.pe"
+      max_frag <- as.numeric("$method_select.readParam_select.max_frag")
+
+      #if str($method_select.readParam_select.dedup) == ''
+        ded_up <- F
+      #else
+        ded_up <- T
+      #end if
+
+      #if str($method_select.readParam_select.minq) != ''
+        min_q <- as.numeric("$method_select.readParam_select.minq")
+      #else
+        min_q <- NA
+      #end if
+
+      #if str($method_select.readParam_select.forward) == 'NA'
+        forward <- NA
+      #else if str($method_select.readParam_select.forward) == 'forward'
+        forward <- TRUE
+      #else if str($method_select.readParam_select.forward) == 'reverse'
+        forward <- FALSE
+      #end if
+
+      restrict <- as.character(unlist(strsplit(gsub(" ", "", "$method_select.readParam_select.restrict", ","), ",")))
+
+      #if str($method_select.readParam_select.discard_select.discard) == 'yes'
+        #if str($method_select.readParam_select.discard_select.named) == "true"
+          data <- read.table("$method_select.readParam_select.discard_select.GRanges", header=T)
+        #else
+          data <- read.table("$method_select.readParam_select.discard_select.GRanges", header=F)
+        #end if
+        gRange <- data[[1]]
+        start <- data[[2]]
+        end <- data[[3]]
+        discard <- GRanges(gRange, IRanges(start, end))
+      #else
+        discard <- GRanges()
+      #end if
+      p <- readParam(pe=pe, max.frag=max_frag, dedup=ded_up, minq=min_q, forward=forward, discard=discard, BPPARAM=SerialParam())
+    #else
+      p <- readParam(pe="both")
+    #end if  
+
+    result <- getPESizes(bamFile, param=p)
+
+    write.table(result[[1]], "$getPESizes_sizes_output", quote = FALSE, col.names = FALSE, row.names=FALSE)
+    write.table(result[[2]], "$getPESizes_diagnostics_output", quote = FALSE, col.names = FALSE, row.names=TRUE)
+#else if str($method_select.method) == "profileSites"
+    bamFiles <- c()
+    #for $i in $method_select.bam_input
+      bamFiles <- c(bamFiles, '${i.bam_file}')
+    #end for
+    indexBam(bamFiles)
+
+    @GRANGES_METHOD@
+    @READPARAM_METHOD@
+
+    range = as.numeric("$method_select.range")
+
+    #if str($method_select.ext_select.ext_selector) == "integer"
+      ext <- as.numeric("$method_select.ext_select.ext")
+    #else
+      ext <- scan("$method_select.ext_select.ext", what=integer())
+      ext <- list(ext)
+    #end if
+
+    #if str($method_select.average) == 'true'
+      avg <- TRUE
+    #else
+      avg <- FALSE
+    #end if
+
+    normalize <- as.character("$method_select.normalize")
+    strand <- as.character("$method_select.strand")
+
+    result <- profileSites(bamFiles, regions, param=p, range=range, ext=ext, average=avg, normalize=normalize, strand=strand)
+
+    write.table(result, "$profileSites_output", quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+    #if str($method_select.wwhm_select.wwhm_selector) == "yes"
+      proportion <- as.numeric("$method_select.wwhm_select.proportion")
+
+      #if str($method_select.wwhm_select.ext_select.ext_selector) == "yes"
+        ext <- NA
+        #if str($method_select.wwhm_select.ext_select.rlen_select.rlen_selector) == "numeric"
+          rlen <- as.numeric("$method_select.wwhm_select.ext_select.rlen_select.rlen")
+        #else
+          rlen <- scan("wwhm_select.ext_select.rlen_select.rlen", what=numeric())
+        #end if
+      #else
+        rlen <- NULL
+      #end if
+
+      result2 <- wwhm(result, regions, ext=ext, proportion=proportion, rlen=rlen)
+      write.table(result2, "$wwhm_output", quote = FALSE, col.names = FALSE, row.names = FALSE)
+    #end if
+#end if
+]]>
+        </configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="method_select">
+            <param name="method" type="select" label="Method" >
+                <option value="checkBimodality">Compute the maximum bimodality score across all base pairs in each region</option>
+                <option value="correlateReads">Computes the auto or cross-correlation coefficients between read positions across a set of delay intervals</option>
+                <option value="getPESizes">Compute the length of the sequenced fragment for each read pair in paired-end tag (PE) data</option>
+                <option value="profileSites">Get the coverage profile around potential binding sites</option>
+            </param>
+            <when value="checkBimodality">
+                <repeat name="bam_input" title="Upload indexed BAM files in sorted order" >
+                    <param name="bam_file" type="data" format="bam" label="BAM file" />
+                </repeat>
+                <expand macro="gRanges" />
+                <param name="width" type="integer" value="100" label="Span with which to compute bimodality" />
+                <expand macro="readParam_select" />
+                <param name="prior_count" type="integer" value="2" label="Prior count to compute bimodality scores" />
+                <param name="invert" type="boolean" truevalue="true" falsevalue="" checked="false" label="Invert bimodality score?" />
+            </when>
+            <when value="correlateReads">
+                <repeat name="bam_input" title="Upload indexed BAM files in sorted order" >
+                    <param name="bam_file" type="data" format="bam" label="BAM file" />
+                </repeat>
+                <param name="max_dist" type="integer" value="1000" label="Specify the maximum delay distance over which correlation coefficients will be calculated" />
+                <param name="cross" type="boolean" truevalue="true" falsevalue="" checked="true" label="Compute cross-correlations?" help="If yes is selected, then reads are separated into those mapping on the forward and reverse strands. If no is selected, then auto-correlation coefficients are computed without use of strand information." />
+                <expand macro="readParam_select" />
+                <conditional name="maximizeCcf_select">
+                    <param name="maximizeCcf_selector" type="select" label="Estimate the average fragment length by maximizing the cross-correlations?" >
+                        <option value="yes">Yes</option>
+                        <option value="no" selected="true">No</option>
+                    </param>
+                    <when value="yes">
+                        <param name="ignore" type="integer" value="100" label="Specify the distances to ignore" />
+                    </when>
+                    <when value="no"> </when>
+                </conditional>
+            </when>
+            <when value="getPESizes">
+                <param name="bam_file" type="data" format="bam" label="BAM file" />
+                <conditional name="readParam_select">
+                  <param name="readParam_selector" type="select" label="Specify read loading parameters?" >
+                    <option value="yes">Yes</option>
+                    <option value="no" selected="true">No</option>
+                  </param>
+                  <when value="yes">
+                    <param name="pe" type="select" label="Is paired-end data present in the BAM file(s)?" help="Reads are assumed to be single-end when None is selected">
+                      <option value="none">None</option>
+                      <option value="both" selected="true">Both Files</option>
+                      <option value="first">First File</option>
+                      <option value="second">Second File</option>
+                    </param>
+                    <param name="max_frag" type="integer" value="500" label="Maximum fragment length corresponding to a read pair" />
+                    <param name="dedup" type="boolean" truevalue="true" falsevalue="" checked="false" label="Ignore marked duplicate reads?" help="Marked duplicate reads will be removed with if yes is selected. This may be necessary when many rounds of PCR have been performed. However, it is not recommended for routine counting as it will interfere with the downstream statistical methods. Note that the duplicate field must be set beforehand in the BAM file for this argument to have any effect" />
+                    <param name="minq" type="integer" value="" optional="true" label="Minimum mapping quality score for an aligned read" help="Reads will be filtered by their mapping quality scores. This is generally recommended to remove low-confidence alignments. The exact threshold for minq will depend on the range of scores provided by the aligner. No filtering on the score will be performed if no value specified." />
+                    <param name="forward" type="select" label="How should the reads be extracted?">
+                      <option value="NA">Extract from all strands</option>
+                      <option value="forward">Extract only from forward strands</option>
+                      <option value="reverse">Extract only from reverse strands</option>
+                    </param>
+                    <param name="restrict" type="text" optional="true" label="Names of allowable chromosomes from which readswill be extracted" help="Reads will only be extracted for the specified chromosomes. This is useful to restrict the analysis to interesting chromosomes, e.g., no contigs/scaffolds or mitochondria."/>
+                    <conditional name="discard_select">
+                      <param name="discard" type="select" label="Discard any alignments?" help="A read will be removed if the corresponding alignment is wholly contained within the supplied ranges. This is useful for removing reads in repeat regions.">
+                        <option value="yes">Yes</option>
+                        <option value="no" selected="true">No</option>
+                      </param>
+                      <when value="yes">
+                        <expand macro="gRanges" />
+                      </when>
+                      <when value="no"> </when>
+                    </conditional>
+                      <!--BiocParallelParam object-->
+                  </when>
+                  <when value="no"> </when>
+                </conditional>
+            </when>
+            <when value="profileSites">
+                <repeat name="bam_input" title="Upload indexed BAM files in sorted order" >
+                  <param name="bam_file" type="data" format="bam" label="BAM file" />
+                </repeat>
+                <param name="GRanges" type="data" format="tabular" label="Specify which profiles are to be aggregated" help="Upload as a dataframe where the first column is the sequence names, the second column is the start position of the range, and the third column is the end position of the range." />
+                <param name="named" type="boolean" truevalue="true" falsevalue="" checked="false" label="Are the columns of the dataframe named?" />
+                <expand macro="readParam_select" />
+                <param name="range" type="integer" value="5000" label="Specify the range over which the profile will be collected" />
+                <conditional name="ext_select">
+                  <param name="ext_selector" type="select" label="Enter an integer or upload a dataframe specifying the average fragment length for single-end data" >
+                    <option value="integer" selected="true">Integer</option>
+                    <option value="dataframe">Dataframe</option>
+                  </param>
+                  <when value="integer">
+                    <param name="ext" type="integer" value="100" label="Specify the average fragment length for single-end data" />
+                  </when> 
+                  <when value="dataframe">
+                    <param name="ext" type="data" format="tabular" label="Upload a dataframe with one column specifying the average fragment length for single-end data" />
+                  </when> 
+                </conditional>
+                <param name="average" type="boolean" truevalue="true" falsevalue="" checked="true" label="Average the profiles across regions?" help="If no is selected, a separate profile will be returned for each region instead. This may be useful, e.g., for constructing heatmaps of enrichment across many regions." /> 
+                <param name="normalize" type="select" label="Specify how normalization of each region’s profile should be performed prior to averaging" help="none means that no normalization is performed, i.e., counts per base are directly averaged across all regions. total means the profile for each region is divided by the sum of coverages across all bases in the interval. This effectively normalizes for the total number of reads in each region. max means the profile for each region is divided by its maximum value. This ensures that the maximum height of each region is the same." >
+                  <option value="none" selected="true">none</option>
+                  <option value="total">total</option>
+                  <option value="max">max</option>
+                </param>
+                <param name="strand" type="select" label="Indicate how stranded regions should be handled" >
+                  <option value="ignore">ignore</option>
+                  <option value="use">use</option>
+                  <option value="match">match</option>
+                </param>
+                <conditional name="wwhm_select">
+                  <param name="wwhm_selector" type="select" label="Get the width of the window from the half-maximum of the coverage profile?" >
+                    <option value="yes">Yes</option>
+                    <option value="no" selected="true">No</option>
+                  </param>
+                  <when value="yes">
+                    <conditional name="ext_select">
+                      <param name="ext_selector" type="select" label="Are fragments unextended reads?" >
+                        <option value="yes">Yes</option>
+                        <option value="no" selected="true">No</option>
+                      </param>
+                      <when value="yes">
+                        <conditional name="rlen_select">
+                          <param name="rlen_selector" type="select" label="Enter a numeric value or upload a dataframe containing read lengths?">
+                            <option value="numeric">Numeric Value</option>
+                            <option value="dataframe">Dataframe</option>
+                          </param>
+                          <when value="numeric">
+                            <param name="rlen" type="float" value="" label="Read length" />
+                          </when>
+                          <when value="dataframe">
+                            <param name="rlen" type="data" format="tabular" label="Read lengths" help="A dataframe containing a column of read lengths" />
+                          </when>
+                        </conditional>
+                      </when>
+                      <when value="no"> </when>
+                    </conditional>
+                    <param name="proportion" type="float" value="0.5" label="Specify the proportion of the maximum coverage at which to compute the window width" />
+                  </when>
+                  <when value="no"> </when>
+                </conditional>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="checkBimodality_output" format="txt" label="checkBimodality on ${on_string}: output">
+             <filter>method_select['method'] == 'checkBimodality'</filter>
+        </data>
+        <data name="correlateReads_output" format="txt" label="correlateReads on ${on_string}: output" >
+            <filter>method_select['method'] == 'correlateReads'</filter>
+        </data>
+        <data name="maximizeCcf_output" format="txt" label="maximizeCcf on ${on_string}: output" >
+            <filter>method_select['method'] == 'correlateReads' and method_select['maximizeCcf_select']['maximizeCcf_selector'] == 'yes'</filter>
+        </data>
+        <data name="getPESizes_sizes_output" format="txt" label="getPESizes on ${on_string}: sizes output">
+             <filter>method_select['method'] == 'getPESizes'</filter>
+        </data>
+        <data name="getPESizes_diagnostics_output" format="txt" label="getPESizes on ${on_string}: diagnostics output">
+             <filter>method_select['method'] == 'getPESizes'</filter>
+        </data>
+        <data name="profileSites_output" format="txt" label="profileSites on ${on_string}: output" >
+            <filter>method_select['method'] == 'profileSites'</filter>
+        </data>
+        <data name="wwhm_output" format="txt" label="wwhm on ${on_string}: output" >
+            <filter>method_select['method'] == 'profileSites' and method_select['wwhm_select']['wwhm_selector'] == 'yes'</filter>
+        </data>
+    </outputs>
+
+    <tests>
+        <!--<test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="checkBimodality" />
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep2.bam" ftype="bam" />
+                </repeat>
+                <param name="GRanges" value="gRange_regions.tabular" />
+                <param name="named" value="false" />
+                <param name="width" value="200" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="no" />
+                </conditional>
+                <param name="prior_count" value="5" />
+                <param name="invert" value="false" />
+            </conditional>
+            <output name="checkBimodality_output" file="checkBiomodality_output1.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="checkBimodality" />
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep2.bam" ftype="bam" />
+                </repeat>
+                <param name="GRanges" value="gRange_regions.tabular" />
+                <param name="named" value="false" />
+                <param name="width" value="200" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="yes" />
+                    <param name="pe" value="both" />
+                    <param name="max_frag" value="100" />
+                    <param name="dedup" value="false" />
+                    <param name="minq" value="20" />
+                    <param name="forward" value="NA" />
+                    <param name="restrict" value="" />
+                    <conditional name="discard_select">
+                        <param name="discard" value="no" />
+                    </conditional>
+                </conditional>
+                <param name="prior_count" value="5" />
+                <param name="invert" value="False" />
+            </conditional>
+            <output name="checkBimodality_output" file="checkBiomodality_output2.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="checkBimodality" />
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep2.bam" ftype="bam" />
+                </repeat>
+                <param name="GRanges" value="gRange_regions.tabular" />
+                <param name="named" value="false" />
+                <param name="width" value="200" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="yes" />
+                    <param name="pe" value="both" />
+                    <param name="max_frag" value="100" />
+                    <param name="dedup" value="false" />
+                    <param name="minq" value="20" />
+                    <param name="forward" value="NA" />
+                    <param name="restrict" value="chrA" />
+                    <conditional name="discard_select">
+                        <param name="discard" value="yes" />
+                        <param name="GRanges" value="gRange_discard.tabular" />
+                        <param name="named" value="false" />
+                    </conditional>
+                </conditional>
+                <param name="prior_count" value="5" />
+                <param name="invert" value="False" />
+            </conditional>
+            <output name="checkBimodality_output" file="checkBiomodality_output3.txt" />
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="correlateReads" />
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <param name="max_dist" value="1000" />
+                <param name="cross" value="true" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="no" />
+                </conditional>
+                <conditional name="maximizeCcf_select">
+                    <param name="maximizeCcf_selector" value="yes" />
+                    <param name="ignore" value="100" />
+                </conditional>
+            </conditional>
+            <output name="correlateReads_output" value="correlateReads_output1.txt" />
+            <output name="maximizeCcf_output" value="maximizeCcf__output.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="correlateReads" />
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <param name="max_dist" value="1000" />
+                <param name="cross" value="true" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="yes" />
+                    <param name="pe" value="both" />
+                    <param name="max_frag" value="100" />
+                    <param name="dedup" value="false" />
+                    <param name="minq" value="20" />
+                    <param name="forward" value="NA" />
+                    <param name="restrict" value="chrA" />
+                    <conditional name="discard_select">
+                        <param name="discard" value="no" />
+                    </conditional>
+                </conditional>
+                <conditional name="maximizeCcf_select">
+                    <param name="maximizeCcf_selector" value="no" />
+                </conditional>
+            </conditional>
+            <output name="correlateReads_output" value="correlateReads_output2.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="correlateReads" />
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <param name="max_dist" value="1000" />
+                <param name="cross" value="true" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="yes" />
+                    <param name="pe" value="both" />
+                    <param name="max_frag" value="100" />
+                    <param name="dedup" value="false" />
+                    <param name="minq" value="20" />
+                    <param name="forward" value="NA" />
+                    <param name="restrict" value="" />
+                    <conditional name="discard_select">
+                        <param name="discard" value="yes" />
+                        <param name="GRanges" value="gRange_discard.tabular" />
+                    </conditional>
+                </conditional>
+                <conditional name="maximizeCcf_select">
+                    <param name="maximizeCcf_selector" value="no" />
+                </conditional>
+            </conditional>
+            <output name="correlateReads_output" value="correlateReads_output3.txt" />
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="getPESizes" />
+                <param name="bam_file" value="pet.bam" ftype="bam" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="no" />
+                </conditional>
+            </conditional>
+          <output name="getPESizes_sizes_output" value="getPESizes_sizes_output1.txt" />
+          <output name="getPESizes_diagnostics_output" value="getPESizes__diagnostics_output1.txt" />
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="getPESizes" />
+                <param name="bam_file" value="pet.bam" ftype="bam" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="yes" />
+                    <param name="pe" value="both" />
+                    <param name="max_frag" value="100" />
+                    <param name="dedup" value="false" />
+                    <param name="minq" value="20" />
+                    <param name="forward" value="NA" />
+                    <param name="restrict" value="chrA" />
+                    <conditional name="discard_select">
+                      <param name="discard" value="no" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="getPESizes_sizes_output" value="getPESizes_sizes_output2.txt" />
+            <output name="getPESizes_diagnostics_output" value="getPESizes__diagnostics_output2.txt" />
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="getPESizes" />
+                <param name="bam_file" value="pet.bam" ftype="bam" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="yes" />
+                    <param name="pe" value="both" />
+                    <param name="max_frag" value="100" />
+                    <param name="dedup" value="false" />
+                    <param name="minq" value="20" />
+                    <param name="forward" value="NA" />
+                    <param name="restrict" value="chrA" />
+                    <conditional name="discard_select">
+                      <param name="discard" value="yes" />
+                      <param name="GRanges" value="gRange_discard.tabular" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="getPESizes_sizes_output" value="getPESizes_sizes_output3.txt" />
+            <output name="getPESizes_diagnostics_output" value="getPESizes__diagnostics_output3.txt" />
+        </test>-->
+
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="profileSites" />
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <param name="GRanges" value="profileSites_gRange.tabular" />
+                <param name="named" value="true" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="no"/>
+                </conditional>
+                <param name="range" value="200" />
+                <conditional name="ext_select">
+                    <param name="ext_selector" value="integer" />
+                    <param name="ext" value="100" />
+                </conditional>
+                <param name="average" value="true" />
+                <param name="normalize" value="none" />
+                <param name="strand" value="ignore" />
+                <conditional name="wwhm_select">
+                    <param name="wwhm_selector" value="no" />
+                </conditional>
+            </conditional>
+            <output name="profileSites_output" value="profileSites_output1.txt" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="method_select">
+                <param name="method" value="profileSites" />
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <param name="GRanges" value="profileSites_gRange.tabular" />
+                <param name="named" value="true" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="yes" />
+                    <param name="pe" value="both" />
+                    <param name="max_frag" value="100" />
+                    <param name="dedup" value="false" />
+                    <param name="minq" value="20" />
+                    <param name="forward" value="NA" />
+                    <param name="restrict" value="chrA" />
+                    <conditional name="discard_select">
+                      <param name="discard" value="no" />
+                    </conditional>
+                </conditional>
+                <param name="range" value="200" />
+                <conditional name="ext_select">
+                    <param name="ext_selector" value="integer" />
+                    <param name="ext" value="100" />
+                </conditional>
+                <param name="average" value="true" />
+                <param name="normalize" value="none" />
+                <param name="strand" value="ignore" />
+                <conditional name="wwhm_select">
+                    <param name="wwhm_selector" value="no" />
+                </conditional>
+            </conditional>
+            <output name="profileSites_output" value="profileSites_output2.txt" />
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="profileSites" />
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <param name="GRanges" value="profileSites_gRange.tabular" />
+                <param name="named" value="true" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="no"/>
+                </conditional>
+                <param name="range" value="5000" />
+                <conditional name="ext_select">
+                    <param name="ext_selector" value="integer" />
+                    <param name="ext" value="100" />
+                </conditional>
+                <param name="average" value="true" />
+                <param name="normalize" value="none" />
+                <param name="strand" value="ignore" />
+                <conditional name="wwhm_select">
+                    <param name="wwhm_selector" value="yes" />
+                <conditional name="ext_select">
+                  <param name="ext_selector" value="no" />
+                </conditional>
+                    <param name="proportion" value="0.5" />
+                </conditional>
+            </conditional>
+            <output name="profileSites_output" value="profileSites_output3.txt" />
+            <output name="wwhm_output" value="wwhm_output1.txt" />
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="profileSites" />
+                <repeat name="bam_input">
+                    <param name="bam_file" value="rep1.bam" ftype="bam" />
+                </repeat>
+                <param name="GRanges" value="profileSites_gRange.tabular" />
+                <param name="named" value="true" />
+                <conditional name="readParam_select">
+                    <param name="readParam_selector" value="no"/>
+                </conditional>
+                <param name="range" value="5000" />
+                <conditional name="ext_select">
+                    <param name="ext_selector" value="integer" />
+                    <param name="ext" value="100" />
+                </conditional>
+                <param name="average" value="true" />
+                <param name="normalize" value="none" />
+                <param name="strand" value="ignore" />
+                <conditional name="wwhm_select">
+                    <param name="wwhm_selector" value="yes" />
+                <conditional name="ext_select">
+                    <param name="ext_selector" value="yes" />
+                    <conditional name="rlen_select">
+                        <param name="rlen_selector" value="numeric" />
+                        <param name="rlen" value="10" />
+                    </conditional>
+                </conditional>
+                <param name="proportion" value="0.5" />
+                </conditional>
+            </conditional>
+            <output name="profileSites_output" value="profileSites_output3.txt" />
+            <output name="wwhm_output" value="wwhm_output2.txt" />
+        </test>
+    </tests>
+
+    <help><![CDATA[
+Compute the maximum bimodality score across all base pairs in each region
+=========================================================================
+
+Consider a base position x. This function counts the number of forward- and reverse-strand reads within the interval [x-width+1, x]. It then calculates the forward:reverse ratio after adding prior.count to both counts. This is repeated for the interval [x, x+width-1], and the reverse:forward ratio is then computed. The smaller of these two ratios is used as the bimodality score. Sites with high bimodality scores will be enriched for forward- and reverse-strand enrichment on the left and right of the site, respectively. Given a genomic region, this function will treat each base position as a site. The largest bimodality score across all positions will be reported for each region. The idea is to assist with the identification of transcription factor binding sites, which exhibit strong strand bimodality. The function will be less useful for broad targets like histone marks. If multiple bam.files are specified, they are effectively pooled so that counting uses all reads in all files. A separate value of width can be specified for each library, to account for differences in fragmentation – see the ext argument for windowCounts for more details. In practice, this is usually unnecessary. Setting width to the average fragment length yields satisfactory results in most cases. If invert is set, the bimodality score will be flipped around, i.e., it will be maximized when reversestrand coverage dominates on the left, and forward-strand coverage dominates on the right. This is designed for use in CAGE analyses where this inverted bimodality is symptomatic of enhancer RNAs.
+
+It returns:
+
+- `Scores`: A column containing the maximum bimodality score (row) across all bases in each region (column)
+
+
+Computes the auto- or cross-correlation coefficients between read positions across a set of delay intervals
+===========================================================================================================
+
+If multiple BAM files are specified, the reads from all libraries are pooled prior to calculation of the correlation coefficients. This is convenient for determining the average correlation profile across an entire dataset.
+
+It returns:
+
+- `correlation`: a column of length max.dist+1 containing the correlation coefficients for each delay interval from 0 to max.dist.
+
+Estimate the average fragment length by maximizing the cross-correlations
+=========================================================================
+
+If selected, the delay distance at which the cross-correlations are maximized will be identified. This distance can then be used as an estimate of the average fragment length, for use in directional extension during read counting. In some datasets, identification of the maxima is confounded by a phantom peak at the read length. This can be overcome by ignoring the first ignore delay distances, such that the distance corresponding to the true peak is used. Obviously, this only works in TF experiments with moderate to strong enrichment, where a strong peak in the CCF profile is present. The function may not perform sensibly in the presence of noisy profiles containing multiple local maxima.
+
+It returns:
+
+- `average fragment length`: a number
+
+
+Compute the length of the sequenced fragment for each read pair in paired-end tag (PE) data
+===========================================================================================
+
+This method computes a number of diagnostics for paired-end data in a supplied BAM file. The aims is to provide an indication of the quality of library preparation and sequencing.
+
+Any read pair with exactly one unmapped read is discarded, and the number of read pairs lost in this manner is recorded. Obviously, read pairs with both reads unmapped will be ignored completely, as will any unpaired reads in the BAM file. 
+
+Of the mapped pairs, the valid (i.e., proper) read pairs are identified. This involves several criteria:
+
+- Read pairs must be intrachromosomal. If the reads are on different chromosomes, the read pair will be recorded as being interchromosomal.
+- The two reads in the pair must lie on opposite strands. Otherwise, the read pair will be considered as being improperly orientated.
+- The 5’ end of the forward read must not map to a higher genomic coordinate than the 5’ end of the reverse read. Otherwise, the read pair will be considered as being improperly orientated. 
+
+Note that the 3’ end of one read is allowed to overrun the 5’ end of the other. This avoids being too stringent in the presence of sequencing errors, untrimmed adaptors, etc. at the start or ends of reads. Each valid read pair corresponds to a DNA fragment where both ends are sequenced. The size of the fragment can be determined by calculating the distance between the 5’ ends of the mapped reads. The distribution of sizes is useful for assessing the quality of the library preparation, along with all of the recorded diagnostics. Note that any max.frag specification in param will be ignored; sizes for all valid pairs will be returned.
+
+It returns:
+
+- `sizes`: a column of fragment lengths for all valid read pairs in the library
+- `diagnostics`: a column containing the total number of reads, the number of mapped reads, number of mapped singleton reads, pairs with exactly one unmapped read, number of improperly orientated read pairs and interchromosomal pairs
+
+
+Get the coverage profile around potential binding sites
+=======================================================
+
+This tool computes the average coverage profile around the specified regions. Specifically, the profile is constructed by counting the number of fragments overlapping each base in the interval flanking each entry of regions. The interval for each entry is centred at its start location (base zero) and spans the flanking range on either side.
+
+Single-end reads are directionally extended to ext to impute the fragment. For paired-end reads, the interval between each pair is used as the fragment. If multiple bam.files are specified, reads are pooled across files for counting into each profile. By default, an average of the coverage profiles across all regions is returned. Thus, the shape of the average profile is largely determined by high-abundance regions.
+
+The profile can be used to examine average coverage around known features of interest, like genes or transcription start sites. Its shape can guide the choice of the window size in windowCounts, or to determine if larger regions should be used in regionCounts. For the former, restricting the regions to locally maximal windows with findMaxima is recommended to capture the profile of binding events.
+
+It returns:
+
+If average the profiles across regions is selected, it returns:
+
+- `average coverages`: a numeric column of average coverages for each base position within range, where the average is taken over all regions. The column is named according to the relative position of each base to the start of the region. The interpretation of the coverages will depend on the value of normalize.
+
+If average the profiles across regions is not selected, it returns:
+
+- `coverage values`: an integer matrix of coverage values. Each row of the matrix corresponds to an entry in regions, while each column corresponds to a base position with range. Column names are set to the relative position of each base to the start of each region.
+
+
+Get the width of the window from the half-maximum of the coverage profile
+=========================================================================
+
+This method computes the ideal window size, based on the width of the peak in the coverage profile at the specified proportion of the maximum. Obviously, the values of regions and ext should be the same as those used in profileSites (set ext to the median fragment length for paired-end data). The regions should contain windows of a constant size. Some subtleties are involved in obtaining the window width. First, twice the average fragment length must be subtracted from the peak width, as the profile is constructed from (inferred) fragments.
+The size of the viewpoints in regions must also be subtracted, to account for the inflated peak width when spatial resolution is lost after aggregation across many windows.
+
+- `width`: an integer specifying the ideal window width
+    ]]></help>
+    <expand macro="citations" />
+</tool>

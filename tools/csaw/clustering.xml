@@ -1,5 +1,5 @@
-<tool id="csaw_consolidate" name="consolidate" version="@VERSION@.0">
-    <description>consolidate data</description>
+<tool id="csaw_clustering" name="clustering" version="@VERSION@.0">
+    <description>clusters data</description>
     <macros>
        <import>csaw_macros.xml</import>
     </macros>
@@ -17,7 +17,51 @@ loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 library(csaw)
 library(Rsamtools)
 
-#if str($method_select.method) == "consolidateClusters"
+#if str($method_select.method) == "clusterWindows"
+    @GRANGES_METHOD@
+
+    tab <- read.table("$method_select.tab")
+    clust_target <- as.numeric("$method_select.target")
+
+    @COLNAMES_METHOD@
+    tol <- as.numeric("$method_select.tol")
+    grid_length <- as.numeric("$method_select.grid_length")
+    iterations <- as.numeric("$method_select.iterations")
+
+    #if str($method_select.weight_select.weight_selector) == "yes"
+        weight <- scan("$method_select.weight_select.weight", what=numeric())
+    #else
+        weight <- NULL
+    #end if
+
+    #if str($method_select.mergeWindows_select.mergeWindows_selector) == "yes"
+        #if str($method_select.mergeWindows_select.sign_select.sign_selector) == "yes"
+            sign <- scan("$method_select.mergeWindows_select.sign_select.sign", what=logical())
+        #else 
+            sign <- NULL
+        #end if
+
+        #if str($method_select.mergeWindows_select.max_width) != ""
+            max_width <- as.numeric("$method_select.mergeWindows_select.max_width")
+        #else
+            max_width <- NULL
+        #end if
+
+        #if str($method_select.mergeWindows_select.ignore_strand) == "yes"
+            ignore_strand <- TRUE
+        #else
+            ignore_strand <- FALSE
+        #end if
+
+        result <- clusterWindows(regions, tab, clust_target, pval.col=pval_col, fc.col=fc_col, tol, max.width=max_width, ignore.strand=ignore_strand, weight=weight, grid.length=grid_length, iterations=iterations)
+    #else
+        result <- clusterWindows(regions, tab, clust_target, pval.col=pval_col, fc.col=fc_col, tol, weight=weight, grid.length=grid_length, iterations=iterations)
+    #end if
+        
+    write.table(result[[1]], file="$clusterW_id_output", quote=FALSE, row.names=FALSE, col.names=FALSE)
+    write.table(result[[2]], file="$clusterW_region_output", quote=FALSE, row.names=FALSE, col.names=FALSE)
+    write.table(result[[3]], file="$clusterW_fdr_output", quote=FALSE, row.names=FALSE, col.names=FALSE)
+#else if str($method_select.method) == "consolidateClusters"
     ## DATALIST
     gRangeList <- list()
     #for $i in $method_select.gRange_obj
@@ -104,7 +148,7 @@ library(Rsamtools)
     write.table(region, file="$consolidateC_region_output", quote = FALSE, row.names = FALSE, col.names = TRUE)
     f <- list(result[[3]])
     write.table(do.call(rbind, f), file="$consolidateC_fdr_output", quote = FALSE, row.names = c("FDR "), col.names = FALSE)
-#else
+#else str($method_select.method) == "consolidateWindows"
     @WINDOWSCOUNTS_REPEAT@
 
     ## parameters for consolidateWindows
@@ -230,6 +274,27 @@ library(Rsamtools)
 
         write.table(conTestResult, file = "$conTest_output", quote = FALSE, col.names = TRUE, row.names=FALSE)
     #end if
+#else
+    @GRANGES_METHOD@
+    tol <- as.numeric("$method_select.tol")
+
+    #if str($method_select.max_width) != ''
+        maxWidth <- as.numeric("$method_select.max_width")
+    #else
+        maxWidth <- NULL
+    #end if
+
+    #if str($method_select.ignore_strand) == 'true'
+        ignore_strand <- T
+    #else
+        ignore_strand <- F
+    #end if
+        
+    result <- mergeWindows(regions, tol, sign=NULL, max.width=maxWidth, ignore.strand=ignore_strand)
+    ids = result[[1]]
+    write.table(ids, file="$mergeWindows_id_output", row.names=FALSE, col.names=FALSE)
+    region <- result[[2]]
+    write.table(region, file="$mergeWindows_region_output", quote = FALSE, row.names = FALSE)
 #end if
 ]]>
         </configfile>
@@ -237,9 +302,31 @@ library(Rsamtools)
     <inputs>
         <conditional name="method_select">
             <param name="method" type="select" label="Method" >
+                <option value="clusterWindows">Clusters significant windows into clusters while controlling the cluster-level FDR</option>
                 <option value="consolidateClusters">Consolidate DB results from multiple analyses with cluster-level FDR control</option>
                 <option value="consolidateWindows">Combines p-values across clustered tests using Simes’ method to control the cluster FDR</option>
+                <option value="mergeWindows">Uses a simple single-linkage approach to merge adjacent or overlapping windows into clusters</option>
             </param>
+            <when value="clusterWindows">
+                <expand macro="gRanges" />
+                <param name="tab" type="data" format="tabular" label="Dataframe of results with a PValue field for each window" />
+                <param name="target" type="float" value="" label="Desired cluster-level FDR" />
+                <expand macro="col_names" />
+                <param name="tol" type="float" value="" optional="true" label="Maximum distance between adjacent windows"/>
+                <conditional name="weight_select">
+                    <param name="weight_selector" type="select" label="Specify frequency weights?" help="The specification is assumed to contain frequency weights of significant tests/windows. For example, a weight of 2 for a test would be equivalent to repeating that test (i.e., repeating the same window so it shows up twice in your analysis). These weights should be the same as those used during weighted FDR control to compute adjusted p-values. In general, you should not set this argument unless you know what you’re doing.">
+                        <option value="yes">Yes</option>
+                        <option value="no" selected="true">No</option>
+                    </param>
+                    <when value="yes">
+                        <param name="weight" type="data" format="tabular" label="Frequency weights" help="A dataframe of a column of weights" />
+                    </when>
+                    <when value="no"> </when>
+                </conditional>
+                <expand macro="mergeWindows_select" />
+                <param name="grid_length" type="integer" value="21" label="Specify the number of points to use in the grid search" />
+                <param name="iterations" type="integer" value="4" label="Specify the number of iterations of the grid search" />
+            </when>
             <when value="consolidateClusters">
                 <repeat name="gRange_obj" title="Enter GRanges objects">
                   <expand macro="gRanges" />
@@ -352,11 +439,36 @@ library(Rsamtools)
                         <when value="no"> </when>
                     </conditional>
                 </section>
+            </when>
+            <when value="mergeWindows">
+                <expand macro="gRanges" />
+                <param name="tol" type="float" value="" optional="true" label="Maximum distance between adjacent windows" help="A value of zero means that the windows must be contiguous whereas negative values specify minimum overlaps" />
+                <conditional name="sign_select">
+                    <param name="sign_selector" type="select" label="Specify a positive log-FC for each window?" >
+                      <option value="yes">Yes</option>
+                      <option value="no" selected="true">No</option>
+                    </param>
+                    <when value="yes">
+                      <param name="sign" type="data" format="tabular" label="Positive log-FC for each window" help="Upload as datafame with a column of logical values" />
                     </when>
+                    <when value="no"> </when>
                 </conditional>
+                <param name="max_width" type="float" value="" optional="true" label="Maximum size of merged intervals" help="Specification prevents the formation of excessively large clusters when many adjacent regions are present. Any cluster that is wider than the max width is split into multiple subclusters of (roughly) equal size. Specifically, the cluster interval is partitioned into the smallest number of equally-sized subintervals where each subinterval is smaller than max width. Windows are then assigned to each subinterval based on the location of the window midpoints. Suggested values range from 2000 to 10000 bp, but no limits are placed on the maximum size if no value entered." />
+                <param name="ignore_strand" type="boolean" truevalue="true" falsevalue="" checked="true" label="Ignore the strandedness of regions?" help="If no is selected, the entries in regions are split into their separate strands." />
+            </when>
+        </conditional>
     </inputs>
 
     <outputs>
+        <data name="clusterW_id_output" format="txt" label="clusterWindows on ${on_string}: id output" >
+            <filter>method_select['method'] == 'clusterWindows'</filter>
+        </data>
+        <data name="clusterW_region_output" format="txt" label="clusterWindows on ${on_string}: region output" >
+            <filter>method_select['method'] == 'clusterWindows'</filter>
+        </data>
+        <data name="clusterW_fdr_output" format="txt" label="clusterWindows on ${on_string}: FDR output" >
+            <filter>method_select['method'] == 'clusterWindows'</filter>
+        </data>
         <data name="consolidateC_id_output" format="txt" label="consolidateClusters on ${on_string}: id output">
              <filter>method_select['method'] == 'consolidateClusters'</filter>
         </data>
@@ -381,9 +493,117 @@ library(Rsamtools)
         <data name="conTest_output" format="txt" label="consolidateTests on ${on_string}: output">
             <filter>method_select['method'] == 'consolidateWindows' and method_select['consolidateTests']['conTest_select']['conTest_selector'] == 'yes'</filter>
         </data>
+        <data name="mergeWindows_id_output" format="txt" label="mergeWindows on ${on_string}: id output" >
+            <filter>method_select['method'] == 'mergeWindows'</filter>
+        </data>
+        <data name="mergeWindows_region_output" format="txt" label="mergeWindows on ${on_string}: region output" >
+            <filter>method_select['method'] == 'mergeWindows'</filter>
+        </data>
     </outputs>
 
     <tests>
+        <test expect_num_outputs="3">
+            <conditional name="method_select">
+                <param name="method" value="clusterWindows" />
+                <param name="GRanges" value="gRange_region3.tabular" />
+                <param name="named" value="false" />
+                <param name="tab" value="tab.tabular" />
+                <param name="target" value="0.05" />
+                <param name="pval_col" value="PValue" />
+                <param name="fc_col" value="logFC" />
+                <param name="tol" value="10" />
+                <conditional name="weight_select">
+                    <param name="weight_selector" value="yes" />
+                    <param name="weight" value="emFDR_w.tabular" />
+                </conditional>
+                <conditional name="mergeWindows_select" >
+                    <param name="mergeWindows_selector" value="no" />
+                </conditional>
+                <param name="grid_length" value="21" />
+                <param name="iterations" value="4" />
+            </conditional>
+            <output name="clusterW_id_output" file="clusterWindows_id_output0.txt"/>
+            <output name="clusterW_region_output" file="clusterWindows_region_output0.txt"/>
+            <output name="clusterW_fdr_output" file="clusterWindows_FDR_output0.txt"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="method_select">
+                <param name="method" value="clusterWindows" />
+                <param name="GRanges" value="gRange_region3.tabular" />
+                <param name="named" value="false" />
+                <param name="tab" value="tab.tabular" />
+                <param name="target" value="0.05" />
+                <param name="pval_col" value="PValue" />
+                <param name="fc_col" value="logFC" />
+                <param name="tol" value="10" />
+                <conditional name="weight_select">
+                    <param name="weight_selector" value="no" />
+                </conditional>
+                <conditional name="mergeWindows_select" >
+                    <param name="mergeWindows_selector" value="no" />
+                </conditional>
+                <param name="grid_length" value="21" />
+                <param name="iterations" value="4" />
+            </conditional>
+            <output name="clusterW_id_output" file="clusterWindows_id_output1.txt"/>
+            <output name="clusterW_region_output" file="clusterWindows_region_output1.txt"/>
+            <output name="clusterW_fdr_output" file="clusterWindows_FDR_output1.txt"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="method_select">
+                <param name="method" value="clusterWindows" />
+                <param name="GRanges" value="gRange_region3.tabular" />
+                <param name="tab" value="tab.tabular" />
+                <param name="target" value="0.05" />
+                <param name="pval_col" value="PValue" />
+                <param name="fc_col" value="logFC" />
+                <param name="tol" value="10" />
+                <conditional name="weight_select">
+                    <param name="weight_selector" value="no" />
+                </conditional>
+                <conditional name="mergeWindows_select" >
+                    <param name="mergeWindows_selector" value="yes" />
+                    <conditional name="sign_select">
+                        <param name="sign_selector" value="no" />
+                    </conditional>
+                    <param name="max_width" value="10" />
+                    <param name="ignore_strand" value="true" />
+                </conditional>
+                <param name="grid_length" value="21" />
+                <param name="iterations" value="4" />
+            </conditional>
+            <output name="clusterW_id_output" file="clusterWindows_id_output2.txt"/>
+            <output name="clusterW_region_output" file="clusterWindows_region_output2.txt"/>
+            <output name="clusterW_fdr_output" file="clusterWindows_FDR_output2.txt"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="method_select">
+                <param name="method" value="clusterWindows" />
+                <param name="GRanges" value="gRange_region3.tabular" />
+                <param name="tab" value="tab.tabular" />
+                <param name="target" value="0.05" />
+                <param name="pval_col" value="PValue" />
+                <param name="fc_col" value="logFC" />
+                <param name="tol" value="10" />
+                <conditional name="weight_select">
+                    <param name="weight_selector" value="no" />
+                </conditional>
+                <conditional name="mergeWindows_select" >
+                    <param name="mergeWindows_selector" value="yes" />
+                    <conditional name="sign_select">
+                        <param name="sign_selector" value="yes" />
+                        <param name="sign" value="mergeW_sign.tabular" />
+                    </conditional>
+                    <param name="max_width" value="10" />
+                    <param name="ignore_strand" value="true" />
+                </conditional>
+                <param name="grid_length" value="21" />
+                <param name="iterations" value="4" />
+            </conditional>
+            <output name="clusterW_id_output" file="clusterWindows_id_output3.txt"/>
+            <output name="clusterW_region_output" file="clusterWindows_region_output3.txt"/>
+            <output name="clusterW_fdr_output" file="clusterWindows_FDR_output3.txt"/>
+        </test>
         <test expect_num_outputs="3">
             <conditional name="method_select">
                 <param name="method" value="consolidateClusters" />
@@ -1171,9 +1391,54 @@ library(Rsamtools)
             </conditional>
             <output name="conTest_output" value="consolidateTests_output4.txt" />
         </test>
+
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="mergeWindows" />
+                <param name="GRanges" value="gRange_mergeWindows.tabular" />
+                <param name="named" value="true" />
+                <param name="tol" value="100.0" />
+                <conditional name="sign_select">
+                    <param name="sign_selector" value="no" />
+                </conditional>
+                <param name="max_width" value="" />
+                <param name="ignore_strand" value="true" />
+            </conditional>
+            <output name="mergeWindows_id_output" value="mergeWindows_id_output.txt" />
+            <output name="mergeWindows_region_output" value="mergeWindows_region_output.txt" />
+        </test>
+        <test expect_num_outputs="2">
+            <conditional name="method_select">
+                <param name="method" value="mergeWindows" />
+                <param name="GRanges" value="gRange_mergeWindows.tabular" />
+                <param name="named" value="true" />
+                <param name="tol" value="100.0" />
+                <conditional name="sign_select">
+                    <param name="sign_selector" value="yes" />
+                    <param name="sign" value="sign.tabular" />
+                </conditional>
+                <param name="max_width" value="" />
+                <param name="ignore_strand" value="true" />
+            </conditional>
+            <output name="mergeWindows_id_output" value="mergeWindows_id_output2.txt" />
+            <output name="mergeWindows_region_output" value="mergeWindows_region_output2.txt" />
+        </test>
     </tests>
 
     <help><![CDATA[
+Clusters significant windows into clusters while controlling the cluster-level FDR
+===================================================================================
+
+Windows are identified as DB based on the adjusted p-values in tab. Only these DB windows are then used directly for clustering via mergeWindows. This identifies DB regions consisting solely of DB windows. 
+
+DB-based clustering is obviously not blind to the DB status, so standard methods for FDR control are not valid. Instead, post-hoc control of the cluster-level FDR is applied by using controlClusterFDR. This aims to control the cluster-level FDR at target. The aim is to provide some interpretable results when DB-blind clustering is not appropriate, e.g., for diffuse marks involving long stretches of the genome. Reporting each marked stretch in its entirety would be cumbersome, so this method allows the DB subintervals to be identified directly.
+
+It returns:
+
+- `ids`: A list of ids. Non-significant windows are marked with NA.
+- `regions`: Region coordinates of each cluster
+- `FDR`: the estimate of the cluster-level FDR for the returned regions
+
 
 Consolidate DB results from multiple analyses with cluster-level FDR control
 ============================================================================
@@ -1216,6 +1481,16 @@ This will yield a single combined p-value for each cluster or region. Users can 
 It returns:
 
 - A DataFrame of results computed by FUN, see combineTests and getBestTest for examples. Each row corresponds to a cluster for consolidateTests or to a pre-defined region for consolidateOverlaps
+
+Uses a simple single-linkage approach to merge adjacent or overlapping windows into clusters
+============================================================================================
+
+Windows in regions are merged if the gap between the end of one window and the start of the next is no greater than tol. Adjacent windows can then be chained together to build a cluster of windows across the linear genome.
+
+It returns:
+
+- `id`: an integer column containing the cluster ID for each window
+- `region`: a GRanges object containing the start/stop coordinates for each cluster of windows
     ]]></help>
     <expand macro="citations" />
 </tool>
