@@ -49,13 +49,16 @@ spec <- matrix(c(
   "batch_factors", "", 1, "character",
   "outfile", "o", 1, "character",
   "countsfile", "n", 1, "character",
+  "rlogfile", "r", 1, "character",
+  "vstfile", "v", 1, "character",
   "header", "H", 0, "logical",
   "factors", "f", 1, "character",
   "files_to_labels", "l", 1, "character",
   "plots" , "p", 1, "character",
   "tximport", "i", 0, "logical",
   "txtype", "y", 1, "character",
-  "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF file (auto detect .gtf/.GTF)
+  "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF/GFF3 file
+  "esf", "e", 1, "character",
   "fit_type", "t", 1, "integer",
   "many_contrasts", "m", 0, "logical",
   "outlier_replace_off" , "a", 0, "logical",
@@ -188,7 +191,10 @@ if (verbose) {
 }
 
 dds <- get_deseq_dataset(sampleTable, header=opt$header, designFormula=designFormula, tximport=opt$tximport, txtype=opt$txtype, tx2gene=opt$tx2gene)
-
+# estimate size factors for the chosen method
+if(!is.null(opt$esf)){
+    dds <- estimateSizeFactors(dds, type=opt$esf)
+}
 apply_batch_factors <- function (dds, batch_factors) {
   rownames(batch_factors) <- batch_factors$identifier
   batch_factors <- subset(batch_factors, select = -c(identifier, condition))
@@ -283,6 +289,19 @@ if (!is.null(opt$countsfile)) {
     normalizedCounts<-counts(dds,normalized=TRUE)
     write.table(normalizedCounts, file=opt$countsfile, sep="\t", col.names=NA, quote=FALSE)
 }
+
+if (!is.null(opt$rlogfile)) {
+    rLogNormalized <-rlogTransformation(dds)
+    rLogNormalizedMat <- assay(rLogNormalized)
+    write.table(rLogNormalizedMat, file=opt$rlogfile, sep="\t", col.names=NA, quote=FALSE)
+}
+
+if (!is.null(opt$vstfile)) {
+    vstNormalized<-varianceStabilizingTransformation(dds)
+    vstNormalizedMat <- assay(vstNormalized)
+    write.table(vstNormalizedMat, file=opt$vstfile, sep="\t", col.names=NA, quote=FALSE)
+}
+
 
 if (is.null(opt$many_contrasts)) {
   # only contrast the first and second level of the primary factor

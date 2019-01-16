@@ -305,6 +305,8 @@ if (!is.null(opt$filesPath)) {
     # Process factors
     if (is.null(opt$factInput)) {
             factorData <- read.table(opt$factFile, header=TRUE, sep="\t", strip.white=TRUE)
+            # order samples as in counts matrix
+            factorData <- factorData[match(colnames(counts), factorData[, 1]), ]
             factors <- factorData[, -1, drop=FALSE]
     }  else {
             factors <- unlist(strsplit(opt$factInput, "|", fixed=TRUE))
@@ -425,7 +427,7 @@ if (filtCPM || filtSmpCount || filtTotCount) {
         keep <- rowSums(data$counts >= opt$cntReq) >= opt$sampleReq
     } else if (filtCPM) {
         myCPM <- cpm(data$counts)
-        thresh <- myCPM >= opt$cpmReq 
+        thresh <- myCPM >= opt$cpmReq
         keep <- rowSums(thresh) >= opt$sampleReq
 
         if ("c" %in% plots) {
@@ -643,6 +645,15 @@ linkAddr <- "mdsscree.pdf"
 linkData <- rbind(linkData, data.frame(Label=linkName, Link=linkAddr, stringsAsFactors=FALSE))
 invisible(dev.off())
 
+# generate Glimma interactive MDS Plot
+if ("i" %in% plots) {
+    Glimma::glMDSPlot(y, labels=samplenames, groups=factors[, 1],
+        folder="glimma_MDS", launch=FALSE)
+    linkName <- "Glimma_MDSPlot.html"
+    linkAddr <- "glimma_MDS/MDS-Plot.html"
+    linkData <- rbind(linkData, c(linkName, linkAddr))
+}
+
 if ("x" %in% plots) {
     png(mdsxOutPng, width=1000, height=500)
     par(mfrow=c(1, 2))
@@ -700,23 +711,6 @@ if (wantTrend) {
     } else {
         fit <- eBayes(fit, trend=TRUE, robust=FALSE)
     }
-    # plot fit with plotSA
-    saOutPng <- makeOut("saplot.png")
-    saOutPdf <- makeOut("saplot.pdf")
-
-    png(saOutPng, width=500, height=500)
-    plotSA(fit, main="SA Plot")
-    imgName <- "SAPlot.png"
-    imgAddr <- "saplot.png"
-    imageData <- rbind(imageData, c(imgName, imgAddr))
-    invisible(dev.off())
-
-    pdf(saOutPdf, width=14)
-    plotSA(fit, main="SA Plot")
-    linkName <- "SAPlot.pdf"
-    linkAddr <- "saplot.pdf"
-    linkData <- rbind(linkData, c(linkName, linkAddr))
-    invisible(dev.off())
 
     plotData <- logCPM
 
@@ -727,22 +721,22 @@ if (wantTrend) {
     }
 } else {
     # limma-voom approach
-    voomOutPdf <- makeOut("voomplot.pdf")
-    voomOutPng <- makeOut("voomplot.png")
 
     if (wantWeight) {
+        voomWtsOutPdf <- makeOut("voomwtsplot.pdf")
+        voomWtsOutPng <- makeOut("voomwtsplot.png")
         # Creating voom data object and plot
-        png(voomOutPng, width=1000, height=500)
+        png(voomWtsOutPng, width=1000, height=500)
         vData <- voomWithQualityWeights(y, design=design, plot=TRUE)
-        imgName <- "VoomPlot.png"
-        imgAddr <- "voomplot.png"
+        imgName <- "VoomWithQualityWeightsPlot.png"
+        imgAddr <- "voomwtsplot.png"
         imageData <- rbind(imageData, c(imgName, imgAddr))
         invisible(dev.off())
 
-        pdf(voomOutPdf, width=14)
+        pdf(voomWtsOutPdf, width=14)
         vData <- voomWithQualityWeights(y, design=design, plot=TRUE)
-        linkName <- "VoomPlot.pdf"
-        linkAddr <- "voomplot.pdf"
+        linkName <- "VoomWithQualityWeightsPlot.pdf"
+        linkAddr <- "voomwtsplot.pdf"
         linkData <- rbind(linkData, c(linkName, linkAddr))
         invisible(dev.off())
 
@@ -751,6 +745,8 @@ if (wantTrend) {
         voomFit <- lmFit(vData, design, weights=wts)
 
     } else {
+        voomOutPdf <- makeOut("voomplot.pdf")
+        voomOutPng <- makeOut("voomplot.png")
         # Creating voom data object and plot
         png(voomOutPng, width=500, height=500)
         vData <- voom(y, design=design, plot=TRUE)
@@ -786,6 +782,24 @@ if (wantTrend) {
     }
     plotData <- vData
 }
+
+# plot final model mean-variance trend with plotSA
+saOutPng <- makeOut("saplot.png")
+saOutPdf <- makeOut("saplot.pdf")
+
+png(saOutPng, width=500, height=500)
+plotSA(fit, main="Final model: Mean-variance trend (SA Plot)")
+imgName <- "SAPlot.png"
+imgAddr <- "saplot.png"
+imageData <- rbind(imageData, c(imgName, imgAddr))
+invisible(dev.off())
+
+pdf(saOutPdf)
+plotSA(fit, main="Final model: Mean-variance trend (SA Plot)")
+linkName <- "SAPlot.pdf"
+linkAddr <- "saplot.pdf"
+linkData <- rbind(linkData, c(linkName, linkAddr))
+invisible(dev.off())
 
  # Save library size info
 if (wantLibinfo) {
@@ -844,17 +858,29 @@ for (i in 1:length(contrastData)) {
     linkData <- rbind(linkData, c(linkName, linkAddr))
     invisible(dev.off())
 
-    # Generate Glimma interactive MD plot and table, requires annotation file (assumes gene labels/symbols in 2nd column)
-    if (haveAnno) {
+    # Generate Glimma interactive Volcano, MD plot and tables, requires annotation file (assumes gene labels/symbols in 2nd column)
+    if ("i" %in% plots & haveAnno) {
         # make gene labels unique to handle NAs
         geneanno <- y$genes
         geneanno[, 2] <- make.unique(geneanno[, 2])
+
+        # MD plot
         Glimma::glMDPlot(fit, coef=i, counts=y$counts, anno=geneanno, groups=factors[, 1],
              status=status[, i], sample.cols=col.group,
              main=paste("MD Plot:", unmake.names(con)), side.main=colnames(y$genes)[2],
              folder=paste0("glimma_", unmake.names(con)), launch=FALSE)
         linkName <- paste0("Glimma_MDPlot_", con, ".html")
         linkAddr <- paste0("glimma_", con, "/MD-Plot.html")
+        linkData <- rbind(linkData, c(linkName, linkAddr))
+
+        # Volcano plot
+        Glimma::glXYPlot(x=fit$coefficients[, i], y=fit$lods[, i], counts=y$counts, anno=geneanno, groups=factors[, 1], 
+            status=status[, i], sample.cols=col.group,
+            main=paste("Volcano Plot:", unmake.names(con)), side.main=colnames(y$genes)[2],
+            xlab="logFC", ylab="logodds",
+            folder=paste0("glimma_volcano_", unmake.names(con)), launch=FALSE)
+        linkName <- paste0("Glimma_VolcanoPlot_", con, ".html")
+        linkAddr <- paste0("glimma_volcano_", con, "/XY-Plot.html")
         linkData <- rbind(linkData, c(linkName, linkAddr))
     }
 
@@ -942,7 +968,7 @@ for (i in 1:length(contrastData)) {
                 stripchart(plotData[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols,
                     method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
             } else {
-                stripchart(plotData$E[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols, 
+                stripchart(plotData$E[topgenes[j], ] ~ factors[, 1], vertical=TRUE, las=2, pch=16, cex=0.8, cex.lab=0.8, col=cols,
                     method="jitter", ylab="Normalised log2 expression", main=paste0(labels[j], "\nlogFC=", lfc, ", adj.P.Val=", pval))
             }
         }
@@ -990,9 +1016,7 @@ cata("<h3>Limma Analysis Output:</h3>\n")
 cata("Links to PDF copies of plots are in 'Plots' section below <br />\n")
 
 for (i in 1:nrow(imageData)) {
-    if (grepl("density|box|mds|mdvol", imageData$Link[i])) {
-        HtmlImage(imageData$Link[i], imageData$Label[i], width=1000)
-    } else if (wantWeight) {
+    if (grepl("density|box|mds|mdvol|wts", imageData$Link[i])) {
         HtmlImage(imageData$Link[i], imageData$Label[i], width=1000)
     } else {
         HtmlImage(imageData$Link[i], imageData$Label[i])
@@ -1021,7 +1045,7 @@ cata("</table>")
 cata("<h4>Plots:</h4>\n")
 #PDFs
 for (i in 1:nrow(linkData)) {
-    if (grepl("density|cpm|boxplot|mds|mdplots|voomplot|saplot", linkData$Link[i])) {
+    if (grepl("density|cpm|boxplot|mds|mdplots|voom|saplot", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
@@ -1068,12 +1092,14 @@ if (wantRda) {
     }
 }
 
-cata("<h4>Glimma Interactive Results:</h4>\n")
-    for (i in 1:nrow(linkData)) {
-        if (grepl("glimma", linkData$Link[i])) {
-            HtmlLink(linkData$Link[i], linkData$Label[i])
+if ("i" %in% plots) {
+    cata("<h4>Glimma Interactive Results:</h4>\n")
+        for (i in 1:nrow(linkData)) {
+            if (grepl("glimma", linkData$Link[i])) {
+                HtmlLink(linkData$Link[i], linkData$Label[i])
+            }
         }
-    }
+}
 
 cata("<p>Alt-click links to download file.</p>\n")
 cata("<p>Click floppy disc icon associated history item to download ")

@@ -68,7 +68,7 @@ RANK_INT_TO_CODE[ RANK_NAMES.index( 'superkingdom' ) ] = 'd'
 PRIMARY_RANK_NAMES.append( 'superkingdom' )
 
 NAME_STUB = "%s__%s"
-NAME_RE = re.compile( "(\t| |\||\.;)" )
+NAME_RE = re.compile(r"(\t| |\||\.;)")
 NAME_REPL = "_"
 
 
@@ -218,7 +218,7 @@ def __main__():
     parser.add_option( '', '--taxonomy', dest='taxonomy', action='store_true', default=False, help='Output taxonomy in last column' )
     parser.add_option( '', '--cluster', dest='cluster', action='store', type="string", default=None, help='Cluster counts to specified rank' )
     parser.add_option( '', '--summation', dest='summation', action='store_true', default=False, help='Add summation of child counts to each taxa' )
-    parser.add_option( '', '--sanitize-names', dest='sanitize_names', action='store_true', default=False, help='Replace special chars (\t| |\||\.;) with underscore (_)' )
+    parser.add_option('', '--sanitize-names', dest='sanitize_names', action='store_true', default=False, help=r'Replace special chars (\t| |\||\.;) with underscore (_)')
     parser.add_option( '', '--show-rank', dest='show_rank', action='store_true', default=False, help='Output column with Rank name' )
     parser.add_option( '', '--db', dest='db', action='store', type="string", default=None, help='Name of Kraken database' )
     parser.add_option( '', '--output', dest='output', action='store', type="string", default=None, help='Name of output file' )

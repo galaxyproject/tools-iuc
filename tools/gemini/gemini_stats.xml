@@ -1,4 +1,4 @@
-<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@.1">
+<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@">
     <description>Compute useful variant statistics</description>
     <macros>
         <import>gemini_macros.xml</import>
@@ -10,115 +10,183 @@
     <command>
 <![CDATA[
         gemini @BINARY@
-            $stats_type
+            #if str($stats.type) == "gts-stats":
+                #set $multiline_sql_expr = $stats.variants.gt_filter
+                #set $cmdln_param = "--gt-filter"
+                @MULTILN_SQL_EXPR_TO_CMDLN@
 
-            #set $multiline_sql_expr = $gt_filter
-            #set $cmdln_param = "--gt-filter"
-            @MULTILN_SQL_EXPR_TO_CMDLN@
-
-            #set $multiline_sql_expr = $summarize
-            #set $cmdln_param = "--summarize"
-            @MULTILN_SQL_EXPR_TO_CMDLN@
-
-            "${ infile }"
-            > "${ outfile }"
+                #if str($stats.variants.constraint).strip():
+                    #set $multiline_sql_expr = "select * from variants WHERE " + str($stats.variants.constraint)
+                #else:
+                    #set $multiline_sql_expr = "select * from variants"
+                #end if
+                #set $cmdln_param = "--summarize"
+                @MULTILN_SQL_EXPR_TO_CMDLN@
+            #else:
+                ${stats.stats_option}
+            #end if
+            '$infile'
+            > '$outfile'
 ]]>
     </command>
     <inputs>
         <expand macro="infile" />
 
-        <param name="stats_type" type="select" label="Studying ..." help="">
-            <option value="--tstv">Compute the transition and transversion ratios for the snps (--tstv)</option>
-            <option value="--tstv-coding">Compute the transition/transversion ratios for the snps in the coding regions (--tstv-coding)</option>
-            <option value="--tstv-noncoding">Compute the transition/transversion ratios for the snps in the non-coding regions (--tstv-noncoding)</option>
-            <option value="--snp-counts">Compute the type and count of the snps (--snp-counts)</option>
-            <option value="--sfs">Calculate the site frequency spectrum of the variants (--sfs)</option>
-            <option value="--mds">Compute the pair-wise genetic distance between each sample (--mds)</option>
-            <option value="--vars-by-sample">Return the total variants per sample, sum of homozygous and heterozygous variants (--vars-by-sample)</option>
-            <option value="--gts-by-sample">Return the count of each genotype class observed per sample (--gts-by-sample)</option>
-        </param>
-
-        <param name="gt_filter" type="text" area="True" size="5x50" label="Restrictions to apply to genotype values" help="(--gt-filer)">
-            <expand macro="sanitize_query" />
-        </param>
-
-        <param name="summarize" type="text" area="True" size="5x50" label="The query to be issued to the database to summarize" help="(--summarize)">
-            <expand macro="sanitize_query" />
-        </param>
-
+        <conditional name="stats">
+            <param name="type" type="select"
+            label="Select the type of statistics you are interested in" help="">
+                <option value="gts-stats">Genotype counts tabulated by sample (--summarize)</option>
+                <option value="snp-counts">Counts of SNPs by nucleotide change (--snp-counts)</option>
+                <option value="tstv-stats">Transition / transversion statistics for the SNPs in the dataset</option>
+                <option value="aaf">Alternate allele frequency spectrum of all variants (--sfs)</option>
+                <option value="sample-distance">Pair-wise genetic distances between for all samples (--mds)</option>
+            </param>
+            <when value="snp-counts">
+                <param name="stats_option" type="hidden" value="--snp-counts" />
+            </when>
+            <when value="aaf">
+                <param name="stats_option" type="hidden" value="--sfs" />
+            </when>
+            <when value="sample-distance">
+                <param name="stats_option" type="hidden" value="--mds" />
+            </when>
+            <when value="tstv-stats">
+                <param name="stats_option" type="select"
+                label="Calculate Ts/Tv statistics based on"
+                help="Restricting the calculation to coding/noncoding regions will only produce meaningful results with preannotated variants. If you haven't annotated your variants with SnpEff or VEP before loading them into GEMINI, select All SNPs.">
+                    <option value="--tstv">All SNPs (--tstv)</option>
+                    <option value="--tstv-coding">SNPs in coding regions (--tstv-coding)</option>
+                    <option value="--tstv-noncoding">SNPs in non-coding regions (--tstv-noncoding)</option>
+                </param>
+            </when>
+            <when value="gts-stats">
+                <param name="stats_option" type="hidden" value="" />
+                <conditional name="variants">
+                    <param name="keep" type="select"
+                    label="Compute the genotype counts table based on"
+                    help="If you select All variants the genotype counts will be produced using --summarize with the wildcard query &quot;select * from variants&quot;.">
+                        <option value="all">All variants</option>
+                        <option value="custom">Custom filtered variants</option>
+                    </param>
+                    <when value="all">
+                        <param name="gt_filter" type="hidden" value="" />
+                        <param name="constraint" type="hidden" value="" />
+                    </when>
+                    <when value="custom">
+                        <param argument="--gt-filter" name="gt_filter" type="text" area="True" size="5x50"
+                        label="Restrictions to apply to genotype values"
+                        help="">
+                            <expand macro="sanitize_query" />
+                        </param>
+                        <param name="constraint" type="text" area="True" size="5x50"
+                        label="Additional constraints on the variants"
+                        help="Enter valid constraints for the WHERE clause of a GEMINI query here. You could use, for example: chrom = 'chr1' or impact_severity = 'HIGH', to include only high-impact variants on chromosome 1 in the counts table.">
+                            <expand macro="sanitize_query" />
+                        </param>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
     </inputs>
     <outputs>
         <data name="outfile" format="tabular" />
     </outputs>
     <tests>
         <test>
-            <param name="infile" value="gemini_burden_input.db" ftype="gemini.sqlite" />
-            <param name="stats_type" value="--vars-by-sample" />
-            <output name="outfile" file="gemini_stats_result.tabular" />
+            <!-- test vars-by-sample report -->
+            <param name="infile" value="gemini_load_result1.db" ftype="gemini.sqlite" />
+            <conditional name="stats">
+                <param name="type" value="tstv-stats" />
+                <param name="stats_option" value="--tstv-coding" />
+            </conditional>
+            <output name="outfile">
+                <assert_contents>
+                    <!-- since the input file is not annotated
+                    no variants will be considered to be in coding regions -->
+                    <has_line line="ts&#009;tv&#009;ts/tv" />
+                    <has_line line="0&#009;0&#009;0" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <!-- test gts-by-sample report -->
+            <param name="infile" value="gemini_de_novo_input.db" ftype="gemini.sqlite" />
+            <conditional name="stats">
+                <param name="type" value="gts-stats" />
+                <conditional name="variants">
+                    <param name="keep" value="all" />
+                </conditional>
+            </conditional>
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="sample&#009;total&#009;num_het&#009;num_hom_alt&#009;num_hom_ref" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
 **What it does**
 
-The stats tool computes some useful variant statistics for a GEMINI database.
-Like computing the transition and transversion ratios for the snps.
+The stats tool computes one of the following useful variant statistics for a GEMINI database:
 
-**Settings and examples**
+**Genotype counts tabulated by sample**:
 
---tstv-coding:
- Compute the transition/transversion ratios for the snps in the coding regions.
+This mode uses the ``gemini stats --summarize`` option to produce a table with
+one row per sample, which tabulates the numbers of sites, for which a given
+sample shows a:
 
---tstv-noncoding:
- Compute the transition/transversion ratios for the snps in the non-coding regions.
+- non-reference genotype (*total* column; the sum of the *num_het* and *num_hom_alt* columns next to it)
+- heterozygous genotype (*num_het* column)
+- homozygous variant genotype (*num_hom_alt* column)
+- homozygous reference genotype (*num_hom_ref* column)
 
-EXAMPLE Compute the type and count of the snps; --snp-counts::
+You can choose to calculate the table based on all variants in your database,
+or to filter the variants before the calculation using GEMINI genotype filter
+expressions and/or WHERE clauses of GEMINI queries.
+
+**Counts of SNPs by nucleotide change**:
+
+This runs ``gemini stats`` with the ``--snp-count`` option. The result is a
+simple table listing the number of occurences of each observed REF->ALT change
+in your database, e.g.::
 
  type    count
  A->G    2
  C->T    1
  G->A    1
 
-EXAMPLE Calculate the site frequency spectrum of the variants; --sfs::
+**Transition / transversion statistics**
+
+This mode uses ``gemini stats`` with the ``--tstv``, ``--tstv-coding``, or
+``--tstv-noncoding`` option to compute the transition/transversion ratios for
+all SNPs, for SNPs in coding, or SNPs in non-coding regions, respectively.
+
+The result is presented in a 1x3 table listing the number of
+transitions (*ts* column), transversions (*tv* column) and the ratio of the two
+(*ts/tv* column), e.g.::
+
+ ts    tv    ts/tv
+ 126   39    3.2307
+
+**Alternate allele frequency spectrum**
+
+Runs ``gemini stats --sfs`` to produce binned alternate allele frequency counts
+in a table like::
 
  aaf     count
  0.125   2
  0.375   1
 
-EXAMPLE Compute the pair-wise genetic distance between each sample; --mds::
+**Pairwise genetic distances**
+
+Runs ``gemini stats --mds`` and tabulates all pairwise genetic distance for the
+samples in your database. An example could look like this::
 
  sample1  sample2  distance
  M10500   M10500   0.0
  M10475   M10478   1.25
  M10500   M10475   2.0
  M10500   M10478   0.5714
-
-EXAMPLE Return a count of the types of genotypes per sample; --gts-by-sample::
-
- sample   num_hom_ref   num_het   num_hom_alt   num_unknown   total
- M10475   4             1         3             1             9
- M10478   2             2         4             1             9
-
-
-
-EXAMPLE Return the total variants per sample (sum of homozygous and heterozygous variants); --vars-by-sample::
-
- sample  total
- M10475  4
- M10478  6
-
-**Final solution**
-
---summarize:
- If none of these tools are exactly what you want, you can summarize the variants per sample of an arbitrary query using the –summarize flag. 
-
-EXAMPLE If you wanted to know, for each sample, how many variants are on chromosome 1 that are also in dbSNP;--summarize "select * from variants where in_dbsnp=1 and chrom='chr1'":: 
-
- sample   total  num_het  num_hom_alt
- M10475   1      1        0
- M128215  1      1        0
- M10478   2      2        0
- M10500   2      1        1
-
 
     ]]></help>
     <expand macro="citations"/>

@@ -1,5 +1,5 @@
-<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@.1">
-    <description>Custom genotype filtering by gene</description>
+<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@">
+    <description>Discover per-gene variant patterns across families</description>
     <macros>
         <import>gemini_macros.xml</import>
         <token name="@BINARY@">gene_wise</token>
@@ -11,34 +11,62 @@
 <![CDATA[
         gemini @BINARY@
 
-            
             #if int($min_filters) > 0:
-                --min_filters $min_filters
+                --min-filters $min_filters
             #end if
 
-            #if $gt_filter.strip():
-                --gt-filter "${gt_filter}"
-            #end if
+            #for $filter in $filter_by_genotype:
+                #set $multiline_sql_expr = str($filter.gt_filter)
+                #if $filter.is_required:
+                    #set $cmdln_param = "--gt-filter-required"
+                #else:
+                    #set $cmdln_param = "--gt-filter"
+                #end if
+                @MULTILN_SQL_EXPR_TO_CMDLN@
+            #end for
 
+            #set $report = $oformat.report
             @COLUMN_SELECT@
 
-            @CMDLN_SQL_FILTER_FILTER_OPTION@
+            #set $where_clause_elements = []
+            #set $filter_cmdln_param = '--filter'
+            #for $cond in $constraint:
+                #if str($cond.filter).strip():
+                    #silent $where_clause_elements.append(str($cond.filter).strip())
+                    #if $cond.overwrite_default_filter:
+                        #set $filter_cmdln_param = '--where'
+                    #end if
+                #end if
+            #end for
 
-            "${ infile }"
-            > "${ outfile }"
+            @PARSE_REGION_ELEMENTS@
+            #if $region_elements:
+                #silent $where_clause_elements.append(" OR ".join($region_elements))
+            #end if
+            #set $filter = " AND ".join($where_clause_elements)
+            #if str($filter):
+                $filter_cmdln_param '$filter'
+            #end if
+
+            '$infile'
+            > '$outfile'
 ]]>
     </command>
     <inputs>
         <expand macro="infile" />
-
-        <param name="gt_filter" type="text" area="True" size="5x50" label="Restrictions to apply to genotype values" help="(--gt-filter)">
-            <expand macro="sanitize_query" />
-        </param>
-        <param name="min_filters" type="integer" value="0" min="0" label="Minimum number of filters" help="(--min-filters)" />
-        <expand macro="column_filter" />
-        <expand macro="filter" />
-
-
+        <expand macro="gt_filter" default_repeat="1" min_repeat="1" max_repeat="999">
+            <param name="is_required" type="boolean" checked="False"
+            label="Make this an obligate filter that a variant has to pass to be considered"
+            help="By default, a variant has to pass a minimum number of genotype filters (set below) to get reported. By making a filter required, you ensure that variants that fail this one filter are always excluded. Required filters that a variant passes do not count towards its number of passed (regular) filters" />
+        </expand>
+        <param name="min_filters" type="integer" value="1" min="1" label="Minimum number of filters" help="(--min-filters)" />
+        <expand macro="region_filter" />
+        <expand macro="insert_constraint">
+            <expand macro="overwritable_where_default" default_where="exonic, high impact variants (SQL clause: is_exonic = 1 and impact_severity != 'LOW')" />
+        </expand>
+        <section name="oformat" title="Output - included information" expanded="true">
+            <expand macro="column_filter" />
+        </section>
     </inputs>
     <outputs>
         <data name="outfile" format="tabular" />
@@ -46,15 +74,95 @@
     <tests>
         <test>
             <param name="infile" value="gemini_amend_input.db" ftype="gemini.sqlite" />
-            <param name="gt_filter" value="((gt_depths).(*).(>=1).(all))" />
-            <output name="outfile" file="gemini_gene_wise_result.tabular" />
+            <repeat name="filter_by_genotype">
+                <param name="gt_filter" value="((gt_depths).(*).(>=1).(all))" />
+            </repeat>
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="variant_id&#009;gene.*" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help>
 <![CDATA[
 **What it does**
 
-The gemini query tool allows querying by variant and the inheritance tools described above enable querying by gene for fixed inheritance patterns. The gene_wise tool allows querying by gene with custom genotype filters to bridge the gap between these tools.
+This tool extends the *GEMINI inheritance pattern* tool in that it lets you
+search for custom gene-wise inheritance patterns of variants, instead of fixed
+ones.
+
+See also: the `command line tool documentation
+<https://gemini.readthedocs.io/en/latest/content/tools.html#gene-wise-custom-genotype-filtering-by-gene>`__
+
+-----
+
+*Genotype filters*
+
+The syntax for specifying a genotype filter (``--gt-filter`` command line
+option) is the same as for the *GEMINI query* tool and is described `here
+<https://gemini.readthedocs.io/en/latest/content/querying.html#gt-filter-filtering-on-genotypes>`__.
+
+The difference with the *gene_wise* tool is that it lets you specify multiple
+such filters and, if you do, every filter can be met by a **different variant**
+as long as all of them are in the **same gene**.
+
+This is useful if your analysis includes several families that you suspect
+(based on a shared phenotype) to have the same gene affected, but not
+necessarily through the same variant. In this case, you can formulate one filter
+per family like, for example::
+
+  gt_types.fam1_kid == HET and gt_types.fam1_mom == HOM_REF and gt_types.fam1_dad == HOM_REF
+
+  gt_types.fam2_kid == HET
+
+  gt_types.fam3_kid == HET
+
+, which would allow you to find a causal gene that's affected by different
+(dominant) variants in children from three different families. Note that the
+first filter combines three conditions applied to family 1, which, thus, must
+be met by the same variant site.
+
+*Regular and required filters* (``--gt-filter`` *vs* ``--gt-filter-required``)
+and the *Minimum number of filters*
+
+For every single genotype filter you define you can specify whether it should
+be applied as a regular or as a required filter. The difference is that, if a
+variant doesn't pass a required filter it is excluded from further analysis.
+Of the regular filters, a gene and its variants only have to pass a threshold
+number defined by *Minimum number of filters* (``--min-filters``). Imagine,
+with the above filters you had specified ``--min-filters`` as ``2``, then a
+gene for which the child in family 3 carries one copy of a variant allele and
+the child in family 3 carries a copy of a different allele would be reported
+no matter if any other allele in that gene passes the first filter, *etc.*.
+
+-----
+
+*Region filters*
+
+They let you restrict your analysis to parts of the genome, which can be useful
+if you have prior knowledge of the approximate location of the causative gene.
+
+If you specify more then one region filter, they get combined with a logical
+*OR*, meaning variants and genes falling in *any* of the regions are reported.
+
+-----
+
+*Additional constraints on variants*
+
+These get translated directly into the WHERE clause of an SQL query and, thus,
+have to be expressed in valid SQL syntax. Of particular interest, here, is the
+fact that, by default, the *gene-wise* tool applies the WHERE clause:
+``is_exonic = 1 and impact_severity != 'LOW'``, which means the tool only
+considers variants in exons that are not of *LOW* impact severity (*i.e.*, not
+silent mutations). While this can be a good and biologically justifiable
+setting, you can overwrite it if you need.
+
+Note that in SQL syntax tests for equality use a single ``=``, while genotype
+filters (discussed above) are following Python syntax and use ``==`` for the
+same purpose. Also note that non-numerical values need to be enclosed in
+single-quotes, *e.g.* ``'LOW'``, but numerical values must *NOT* be.
+
 ]]>
     </help>
     <expand macro="citations"/>

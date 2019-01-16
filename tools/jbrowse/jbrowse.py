@@ -31,7 +31,7 @@ class ColorScaling(object):
     }}
     """
 
-    COLOR_FUNCTION_TEMPLATE_QUAL = """
+    COLOR_FUNCTION_TEMPLATE_QUAL = r"""
     function(feature, variableName, glyphObject, track) {{
         var search_up = function self(sf, attr){{
             if(sf.get(attr) !== undefined){{
@@ -872,7 +872,7 @@ if __name__ == '__main__':
             'hideGenomeOptions': root.find('metadata/general/hideGenomeOptions').text,
         },
         'plugins': [{
-            'location': 'https://cdn.rawgit.com/TAMU-CPT/blastview/97572a21b7f011c2b4d9a0b5af40e292d694cbef/',
+            'location': 'https://cdn.jsdelivr.net/gh/TAMU-CPT/blastview@97572a21b7f011c2b4d9a0b5af40e292d694cbef/',
             'name': 'BlastView'
         }],
         'plugins_python': ['BlastView'],
@@ -882,32 +882,32 @@ if __name__ == '__main__':
     if plugins['GCContent'] == 'True':
         extra_data['plugins_python'].append('GCContent')
         extra_data['plugins'].append({
-            'location': 'https://cdn.rawgit.com/elsiklab/gccontent/5c8b0582ecebf9edf684c76af8075fb3d30ec3fa/',
+            'location': 'https://cdn.jsdelivr.net/gh/elsiklab/gccontent@5c8b0582ecebf9edf684c76af8075fb3d30ec3fa/',
             'name': 'GCContent'
         })
 
     if plugins['Bookmarks'] == 'True':
         extra_data['plugins'].append({
-            'location': 'https://cdn.rawgit.com/TAMU-CPT/bookmarks-jbrowse/5242694120274c86e1ccd5cb0e5e943e78f82393/',
+            'location': 'https://cdn.jsdelivr.net/gh/TAMU-CPT/bookmarks-jbrowse@5242694120274c86e1ccd5cb0e5e943e78f82393/',
             'name': 'Bookmarks'
         })
 
     if plugins['ComboTrackSelector'] == 'True':
         extra_data['plugins_python'].append('ComboTrackSelector')
         extra_data['plugins'].append({
-            'location': 'https://cdn.rawgit.com/Arabidopsis-Information-Portal/ComboTrackSelector/52403928d5ccbe2e3a86b0fa5eb8e61c0f2e2f57',
+            'location': 'https://cdn.jsdelivr.net/gh/Arabidopsis-Information-Portal/ComboTrackSelector@52403928d5ccbe2e3a86b0fa5eb8e61c0f2e2f57',
             'icon': 'https://galaxyproject.org/images/logos/galaxy-icon-square.png',
             'name': 'ComboTrackSelector'
         })
 
     if plugins['theme'] == 'Minimalist':
         extra_data['plugins'].append({
-            'location': 'https://cdn.rawgit.com/erasche/jbrowse-minimalist-theme/d698718442da306cf87f033c72ddb745f3077775/',
+            'location': 'https://cdn.jsdelivr.net/gh/erasche/jbrowse-minimalist-theme@d698718442da306cf87f033c72ddb745f3077775/',
             'name': 'MinimalistTheme'
         })
     elif plugins['theme'] == 'Dark':
         extra_data['plugins'].append({
-            'location': 'https://cdn.rawgit.com/erasche/jbrowse-dark-theme/689eceb7e33bbc1b9b15518d45a5a79b2e5d0a26/',
+            'location': 'https://cdn.jsdelivr.net/gh/erasche/jbrowse-dark-theme@689eceb7e33bbc1b9b15518d45a5a79b2e5d0a26/',
             'name': 'DarkTheme'
         })
 
