@@ -1,54 +1,63 @@
-<tool id="rna_star_index_builder_data_manager" name="rnastar index2" tool_type="manage_data" version="0.0.4" profile="17.01">
+<tool id="rna_star_index_builder_data_manager" name="rnastar index2" tool_type="manage_data" version="0.0.5" profile="17.01">
     <description>builder</description>
-    
+
     <macros>
         <import>macros.xml</import>
     </macros>
-    
+
     <expand macro="requirements" />
-    
+
     <command><![CDATA[
-        #import json, os
-        #set params = json.loads( open( str($out_file) ).read() )
-        #set target_directory = $params[ 'output_data' ][0]['extra_files_path'].encode('ascii', 'replace')
-        #set subdir = os.path.basename(target_directory)
+if [ -z "\$GALAXY_MEMORY_MB" ] ; then
+    GALAXY_MEMORY_BYTES=31000000000 ;
+else
+    GALAXY_MEMORY_BYTES=\$((GALAXY_MEMORY_MB * 1000000)) ;
+fi ;
 
-        mkdir -p '${target_directory}/${subdir}' &&
+#import json, os
+#set params = json.loads(open(str($out_file)).read())
+#set target_directory = $params['output_data'][0]['extra_files_path'].encode('ascii', 'replace')
+#set subdir = os.path.basename(target_directory)
 
-        STAR
-            --runMode genomeGenerate
-            --genomeFastaFiles '${all_fasta_source.fields.path}'
-            --genomeDir '${target_directory}/${subdir}'
-            #if str($GTFconditional.GTFselect) == "withGTF":
-                --sjdbGTFfile '${GTFconditional.sjdbGTFfile}'
-                --sjdbOverhang '${GTFconditional.sjdbOverhang}'
-            #end if
-            --runThreadN \${GALAXY_SLOTS:-2} &&
+mkdir -p '${target_directory}/${subdir}' &&
 
-        python ${__tool_directory__}/rna_star_index_builder.py
-            --config-file '${out_file}'
-            --value '${all_fasta_source.fields.value}'
-            --dbkey '${all_fasta_source.fields.dbkey}'
-            #if $name:
-                --name '$name'
-            #else
-                --name '${all_fasta_source.fields.name}'
-            #end if
-            #if str($GTFconditional.GTFselect) == "withGTF":
-                --withGTF 1
-            #end if
-            --data-table 'rnastar_index2'
-            --subdir '${subdir}'
+STAR
+--runMode genomeGenerate
+--genomeFastaFiles '${all_fasta_source.fields.path}'
+--genomeDir '${target_directory}/${subdir}'
+--limitGenomeGenerateRAM \${GALAXY_MEMORY_BYTES}
+#if $GTFconditional.GTFselect == "withGTF":
+    --sjdbGTFfile '${GTFconditional.sjdbGTFfile}'
+    --sjdbOverhang ${GTFconditional.sjdbOverhang}
+#end if
+#if $advanced_options.advanced_options_selector == "advanced":
+    --genomeSAindexNbases ${advanced_options.genomeSAindexNbases}
+    --genomeChrBinNbits ${advanced_options.genomeChrBinNbits}
+    --genomeSAsparseD ${advanced_options.genomeSAsparseD}
+#end if
+--runThreadN \${GALAXY_SLOTS:-2} &&
+
+python '${__tool_directory__}/rna_star_index_builder.py'
+--config-file '${out_file}'
+--value '${all_fasta_source.fields.value}'
+--dbkey '${all_fasta_source.fields.dbkey}'
+#if $name:
+    --name '$name'
+#else
+    --name '${all_fasta_source.fields.name}'
+#end if
+#if str($GTFconditional.GTFselect) == "withGTF":
+    --withGTF 1
+#end if
+--data-table rnastar_index2
+--subdir '${subdir}'
     ]]></command>
     <inputs>
         <param name="all_fasta_source" type="select" label="Source FASTA Sequence">
             <options from_data_table="all_fasta"/>
         </param>
-        <param name="name"
-               type="text"
-               value=""
-               label="Informative name for sequence index"
-               help="By using different settings, you may have several indices per reference genome. Give an appropriate description to the index to distinguish between indices"/>
+        <param name="name" type="text" value="" label="Informative name for sequence index"
+            help="By using different settings, you may have several indices per reference genome. Give an appropriate description to the index to distinguish between indices"/>
         <conditional name="GTFconditional">
             <param name="GTFselect" type="select" label="Reference genome with or without an annotation" help="Must the index have been created WITH a GTF file (if not you can specify one afterward).">
                 <option value="withoutGTF">use genome reference without builtin gene-model</option>
@@ -59,6 +68,30 @@
                 <param argument="--sjdbOverhang" type="integer" min="1" value="100" label="Length of the genomic sequence around annotated junctions" help="Used in constructing the splice junctions database. Ideal value is ReadLength-1"/>
             </when>
             <when value="withoutGTF" />
+        </conditional>
+        <conditional name="advanced_options">
+            <param name="advanced_options_selector" type="select" label="Advanced options">
+                <option value="default" selected="true">Use default options</option>
+                <option value="advanced">Set advanced options</option>
+            </param>
+            <when value="default" />
+            <when value="advanced">
+                <param argument="--genomeSAindexNbases" type="integer" min="1" value="14"
+                    label="Length (bases) of the SA pre-indexing string"
+                    help="Typically between 10 and 15. Longer strings will use much more memory, but allow
+                        faster searches. For small genomes, the parameter –genomeSAindexNbases must be scaled
+                        down to min(14, log2(GenomeLength)/2 - 1). For example, for 1 megaBase genome, this is
+                        equal to 9, for 100 kiloBase genome, this is equal to 7."/>
+                <param argument="--genomeChrBinNbits" type="integer" min="1" value="18"
+                    label="Log2(chrBin), where chrBin is the size of the bins for genome storage"
+                    help="Each chromosome will occupy an integer number of bins. For a genome with large number
+                        of contigs, it is recommended to scale this parameter as min(18,
+                        log2[max(GenomeLength/NumberOfReferences,ReadLength)]). For example, for 3 gigaBase
+                        genome with 100,000 chromosomes/scaffolds, this is equal to 15."/>
+                <param argument="--genomeSAsparseD" type="integer" min="1" value="1" label="Suffix array sparsity"
+                    help="The distance between indices: use bigger numbers to decrease needed RAM at the cost of
+                        mapping speed reduction"/>
+            </when>
         </conditional>
     </inputs>
 
@@ -79,11 +112,9 @@
     </tests>
     -->
 
-    <help>
-
+    <help><![CDATA[
 .. class:: infomark
 
-<![CDATA[
 *What it does*
 
 This is a Galaxy datamanager for the rna STAR gap-aware RNA aligner.
@@ -95,7 +126,7 @@ Please read the fine manual - that and the google group are the places to learn 
 To run efficiently, RNA-STAR requires enough free memory to
 hold the SA-indexed reference genome in RAM. For Human Genome hg19 this
 index is about 27GB and running RNA-STAR requires approximately ~30GB of RAM.
-For custom genomes, the rule of thub is to multiply the size of the
+For custom genomes, the rule of thumb is to multiply the size of the
 reference FASTA file by 9 to estimated required amount of RAM.
 
 *Note on sjdbOverhang*
@@ -126,8 +157,7 @@ From https://groups.google.com/forum/#!msg/rna-star/3Y_aaTuzBrE/lUylTB8h5vMJ::
     Cheers
     Alex
 
-**Notice:** If you leave name, description, or id blank, it will be generated automatically. 
-]]>
-    </help>
+**Notice:** If you leave name, description, or id blank, it will be generated automatically.
+    ]]></help>
     <expand macro="citations" />
 </tool>

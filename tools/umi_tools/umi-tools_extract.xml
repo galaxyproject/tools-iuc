@@ -1,31 +1,38 @@
-<tool id="umi_tools_extract" name="UMI-tools extract" version="@VERSION@.0">
+<tool id="umi_tools_extract" name="UMI-tools extract" version="@VERSION@.2">
     <description>Extract UMI from fastq files</description>
     <macros>
         <import>macros.xml</import>
+        <macro name="out_conditional">
+            <actions>
+                <conditional name="input_type.type">
+                    <when value="paired_collection" >
+                        <action type="format">
+                            <option type="from_param" name="input_type.input_readpair" param_attribute="forward.ext" />
+                        </action>
+                    </when>
+                    <when value="paired" >
+                        <action type="format">
+                            <option type="from_param" name="input_type.input_read1"  param_attribute="ext" />
+                        </action>
+                    </when>
+                </conditional>
+            </actions>
+        </macro>
     </macros>
     <expand macro="requirements" />
     <command detect_errors="exit_code"><![CDATA[
-        #set $gz = False
-        #if $input_type.type == 'single':
-            #if $input_type.input_single.is_of_type("fastq.gz", "fastqsanger.gz"):
-                ln -s '$input_type.input_single' input_single.gz &&
-                #set $gz = True
-            #end if
-        #else
-            #if $input_type.input_read1.is_of_type("fastq.gz", "fastqsanger.gz"):
-                ln -s '$input_type.input_read1' input_read1.gz &&
-                ln -s '$input_type.input_read2' input_read2.gz &&
-                #set $gz = True
-            #end if
-        #end if
-        umi_tools extract
+    @COMMAND_LINK@
+
+    umi_tools extract
+            --extract-method='$extract_method.value'
             --bc-pattern='$bc_pattern'
+
             #if $input_type.type == 'single':
                 #if $gz:
                     --stdin=input_single.gz
                     --stdout out.gz
                 #else
-                    --stdin='$input_type.input_single'
+                    --stdin=input_single.txt
                     --stdout '$out'
                 #end if
             #else:
@@ -35,16 +42,23 @@
                     --stdout out1.gz
                     --read2-out=out2.gz
                 #else:
-                    --stdin='$input_type.input_read1'
-                    --read2-in='$input_type.input_read2'
+                    --stdin=input_read1.txt
+                    --read2-in=input_read2.txt
                     --stdout '$out1'
                     --read2-out='$out2'
                 #end if
-                #if $input_type.barcode.split == "1":
+                #if $input_type.barcode.barcode_select == "both_reads":
                     --split-barcode
                     --bc-pattern2='$input_type.barcode.bc_pattern2'
                 #end if
             #end if
+
+            #if $barcodes.use_barcodes.value == 'yes':
+                --filter-cell-barcode
+                --whitelist='$barcodes.filter_barcode_file'
+                '$barcodes.filter_correct.value'
+            #end if
+
             #if not $prime3:
                 --3prime
             #end if
@@ -67,39 +81,50 @@
         #end if
     ]]></command>
     <inputs>
-        <conditional name="input_type">
-            <param name="type" type="select" label="Library type">
-                <option value="single">Single-end</option>
-                <option value="paired">Paired-end</option>
+        <expand macro="input_types" />
+
+        <conditional name="barcodes" >
+            <param name="use_barcodes" argument="--filter-cell-barcode" type="select" label="Use Known Barcodes?" >
+                <option value="yes">Yes</option>
+                <option value="no" selected="true" >No</option>
             </param>
-            <when value="single">
-                <param name="input_single" type="data" format="fastq,fastq.gz" label="Reads in FASTQ format" />
-            </when>
-            <when value="paired">
-                <param name="input_read1" type="data" format="fastq,fastq.gz" label="Reads in FASTQ format" />
-                <param name="input_read2" type="data" format="fastq,fastq.gz" label="Reads in FASTQ format" />
-                <conditional name="barcode">
-                    <param name="split" argument="--split-barcode" type="select" label="Barcode on both reads?">
-                        <option value="0">Barcode on first read only</option>
-                        <option value="1">Barcode on both reads</option>
-                    </param>
-                    <when value="0">
-                    </when>
-                    <when value="1">
-                        <param name="bc_pattern2" argument="--bc-pattern2" type="text" value="" label="Barcode pattern for second read"
-                            help="Use this option to specify the format of the UMI/barcode for
-                                  the second read pair if required.">
-                        </param>
-                    </when>
-                </conditional>
+            <when value="no" />
+            <when value="yes" >
+                <param name="filter_barcode_file" type="data" format="tabular,tsv" label="Barcode File" />
+                <param name="filter_correct" argument="--error-correct-cell" type="boolean" truevalue="--error-correct-cell" falsevalue="" checked="false" label="Apply correction to cell barcodes?" help="This only applies if your barcode file has two columns output from the umi_tools whitelist command." />
             </when>
         </conditional>
+
+        <param name="extract_method" type="select" label="Method to extract barcodes" >
+            <option value="regex">Regular Expressions</option>
+            <option value="string" selected="true">String</option>
+        </param>
+            
         <param name="bc_pattern" argument="--bc-pattern" type="text" label="Barcode pattern for first read"
             help="Use this option to specify the format of the UMI/barcode. Use Ns to
                     represent the random positions and Xs to indicate the bc positions.
                     Bases with Ns will be extracted and added to the read name. Remaining
                     bases, marked with an X will be reattached to the read.">
+            <sanitizer invalid_char="">
+                <valid initial="string.letters,string.digits">
+                    <add value="!="/>
+                    <add value="-"/>
+                    <add value="_"/>
+                    <add value="."/>
+                    <add value="?"/>
+                    <add value="&lt;"/><!-- left triangle bracket -->
+                    <add value="&gt;"/><!-- right triangle bracket -->
+                    <add value="&#91;"/> <!-- left square bracket -->
+                    <add value="&#93;"/> <!-- right square bracket -->
+                    <add value="&#94;"/> <!-- caret -->
+                    <add value="&#123;"/> <!-- left curly -->
+                    <add value="&#125;"/> <!-- right curly -->
+                    <add value="&#40;"/> <!-- left parenthesis -->
+                    <add value="&#41;"/> <!-- right parenthesis -->
+                </valid>
+            </sanitizer>
         </param>
+
         <param name="prime3" argument="--3prime" type="boolean" label="Is the barcode at the 5' end?"
             truevalue="1" falsevalue="0" checked="true"
             help="By default the barcode is assumed to be on the 5' end of the read, but
@@ -128,15 +153,18 @@
         </conditional>
     </inputs>
     <outputs>
-        <data name="out" format_source="input_single">
+        <data name="out" format_source="input_single" label="Reads: ${tool.name} on ${on_string}" >
             <filter>input_type['type'] == "single"</filter>
         </data>
-        <data name="out1" format_source="input_read1">
-            <filter>input_type['type'] == "paired"</filter>
+        <data name="out1" format_source="input_read1" label="Reads1: ${tool.name} on ${on_string}" >
+            <filter>input_type['type'] != "single"</filter>
+            <expand macro="out_conditional" />
         </data>
-        <data name="out2" format_source="input_read2">
-            <filter>input_type['type'] == "paired"</filter>
+        <data name="out2" format_source="input_read2" label="Reads2: ${tool.name} on ${on_string}" >
+            <filter>input_type['type'] != "single"</filter>
+            <expand macro="out_conditional" />
         </data>
+        
         <data name="out_log" format="txt">
             <filter>print_log == True</filter>
         </data>
@@ -150,17 +178,76 @@
             <param name="quality_selector" value="true" />
             <param name="quality_filter_threshold" value="10" />
             <param name="quality_encoding" value="phred33" />
-            <output name="out" file="out_SE.fastq" />
-            <output name="out_log" file="out_single.log" lines_diff="22"/>
+            <output name="out" file="out_SE.fastq" ftype="fastq" />
+            <output name="out_log" >
+                <assert_contents>
+                    <has_text text="Input Reads: 100" />
+                    <has_text text="umi quality: 28" />
+                    <has_text text="Reads output: 72" />
+                </assert_contents>
+            </output>
         </test>
         <test>
             <param name="type" value="paired" />
             <param name="input_read1" value="t_R1.fastq.gz" ftype="fastq.gz" />
             <param name="input_read2" value="t_R2.fastq.gz" ftype="fastq.gz" />
             <param name="bc_pattern" value="NNNXXX" />
-            <output name="out1" file="out_R1.fastq.gz" decompress="true" lines_diff="2" />
-            <output name="out2" file="out_R2.fastq.gz" decompress="true" lines_diff="2" />
-            <output name="out_log" file="out_paired.log" lines_diff="16"/>
+            <output name="out1" file="out_R1.fastq.gz" decompress="true" lines_diff="2" ftype="fastq.gz" />
+            <output name="out2" file="out_R2.fastq.gz" decompress="true" lines_diff="2" ftype="fastq.gz" />
+            <output name="out_log" >
+                <assert_contents>
+                    <has_text text="Input Reads: 100" />
+                    <has_text text="Reads output: 100" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="type" value="paired_collection" /> <!-- same as before, but uncompressed -->
+            <param name="paired_type" value="no" />
+            <param name="input_readpair" >
+                <collection type="paired" >
+                    <element name="forward" ftype="fastq" value="t_R1.fastq" />
+                    <element name="reverse" ftype="fastq" value="t_R2.fastq" />
+                </collection>
+            </param>
+            <param name="bc_pattern" value="NNNXXX" />
+            <output name="out1" file="out_R1.fastq" ftype="fastq" />
+            <output name="out2" file="out_R2.fastq" ftype="fastq" />
+            <output name="out_log" >
+                <assert_contents>
+                    <has_text text="Input Reads: 100" />
+                    <has_text text="Reads output: 100" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="type" value="paired" />
+            <param name="input_read1" value="scrb_seq_fastq.1.gz" ftype="fastq.gz" />
+            <param name="input_read2" value="scrb_seq_fastq.2.gz" ftype="fastq.gz" />
+            <param name="extract_method" value="string" />
+            <param name="bc_pattern" value="CCCCCCNNNNNNNNNN" />
+            <param name="use_barcodes" value="yes" />
+            <param name="filter_barcode_file" value="scrb_seq_barcodes" />
+            <output name="out2" file="scrb_extract.fastq.gz" decompress="true"  ftype="fastq.gz" />
+        </test>
+        <test><!-- same as above but with regex barcode-->
+            <param name="type" value="paired" />
+            <param name="input_read1" value="scrb_seq_fastq.1.gz" ftype="fastq.gz" />
+            <param name="input_read2" value="scrb_seq_fastq.2.gz" ftype="fastq.gz" />
+            <param name="extract_method" value="regex" />
+            <param name="bc_pattern" value="^(?P&lt;cell_1&gt;.{6})(?P&lt;umi_1&gt;.{10})" />
+            <param name="use_barcodes" value="yes" />
+            <param name="filter_barcode_file" value="scrb_seq_barcodes" />
+            <output name="out2" file="scrb_extract.fastq.gz" decompress="true" ftype="fastq.gz" />
+        </test>
+        <test><!-- CelSeq2 example -->
+            <param name="type" value="paired" />
+            <param name="input_read1" value="read_R1.200.gz" ftype="fastq.gz" />
+            <param name="input_read2" value="read_R2.200.gz" ftype="fastq.gz" />
+            <param name="extract_method" value="string" />
+            <param name="bc_pattern" value="NNNNNNCCCCCC" />
+            <output name="out1" file="read_R1.200_extracted.fastq.gz" ftype="fastq.gz" decompress="true" lines_diff="1" />
+            <output name="out2" file="read_R2.200_extracted.fastq.gz" ftype="fastq.gz" decompress="true" lines_diff="1" />
         </test>
     </tests>
     <help><![CDATA[

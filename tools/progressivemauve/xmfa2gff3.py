@@ -136,6 +136,10 @@ def convert_xmfa_to_gff3(xmfa_file, relative_to='1', sequences=None, window_size
                 # Ignore 0% identity sequences
                 if pid == 0:
                     continue
+
+                # Support for Biopython 1.68 and above, which removed sub_features
+                if not hasattr(other['feature'], "sub_features"):
+                    other['feature'].sub_features = []
                 other['feature'].sub_features.append(
                     SeqFeature(
                         FeatureLocation(real_start, real_end),

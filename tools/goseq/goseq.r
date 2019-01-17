@@ -6,6 +6,8 @@ loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 suppressPackageStartupMessages({
     library("goseq")
     library("optparse")
+    library("dplyr")
+    library("ggplot2")
 })
 
 option_list <- list(
@@ -25,7 +27,8 @@ option_list <- list(
                 help="A large number of gene may have no GO term annotated. If this option is set to FALSE, genes without category will be ignored in the calculation of p-values(default behaviour). If TRUE these genes will count towards the total number of genes outside the tested category (default behaviour prior to version 1.15.2)."),
     make_option(c("-plots", "--make_plots"), default=FALSE, type="logical", help="produce diagnostic plots?"),
     make_option(c("-fc", "--fetch_cats"), default=NULL, type="character", help="Categories to get can include one or more of GO:CC, GO:BP, GO:MF, KEGG"),
-    make_option(c("-rd", "--rdata"), default=NULL, type="character", help="Path to RData output file.")
+    make_option(c("-rd", "--rdata"), default=NULL, type="character", help="Path to RData output file."),
+    make_option(c("-tp", "--top_plot"), default=NULL, type="logical", help="Output PDF with top10 over-rep GO terms?")
     )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
@@ -50,6 +53,8 @@ rdata = args$rdata
 
 if (!is.null(args$fetch_cats)) {
   fetch_cats = unlist(strsplit(args$fetch_cats, ","))
+} else {
+  fetch_cats = "Custom"
 }
 
 # format DE genes into named vector suitable for goseq
@@ -84,7 +89,9 @@ if (make_plots != 'false') {
   pdf(length_bias_plot)
 }
 pwf=nullp(genes, genome = genome, id = gene_id, bias.data = gene_lengths, plot.fit=make_plots)
-graphics.off()
+if (make_plots != 'false') {
+  dev.off()
+}
 
 # Fetch GO annotations if category_file hasn't been supplied:
 if (category_file == "FALSE") {
@@ -99,20 +106,24 @@ if (category_file == "FALSE") {
     }
 }
 
+results <- list()
+
 # wallenius approximation of p-values
-if (wallenius_tab != "" && wallenius_tab!="None") {
+if (wallenius_tab != FALSE) {
   GO.wall=goseq(pwf, genome = genome, id = gene_id, use_genes_without_cat = use_genes_without_cat, gene2cat=go_map)
   GO.wall$p.adjust.over_represented = p.adjust(GO.wall$over_represented_pvalue, method=p_adj_method)
   GO.wall$p.adjust.under_represented = p.adjust(GO.wall$under_represented_pvalue, method=p_adj_method)
-  write.table(GO.wall, wallenius_tab, sep="\t", row.names = FALSE, quote = FALSE)
+  write.table(GO.wall, args$wallenius_tab, sep="\t", row.names = FALSE, quote = FALSE)
+  results[['Wallenius']] <- GO.wall
 }
 
 # hypergeometric (no length bias correction)
-if (nobias_tab != "" && nobias_tab != "None") {
+if (nobias_tab != FALSE) {
   GO.nobias=goseq(pwf, genome = genome, id = gene_id, method="Hypergeometric", use_genes_without_cat = use_genes_without_cat, gene2cat=go_map)
   GO.nobias$p.adjust.over_represented = p.adjust(GO.nobias$over_represented_pvalue, method=p_adj_method)
   GO.nobias$p.adjust.under_represented = p.adjust(GO.nobias$under_represented_pvalue, method=p_adj_method)
-  write.table(GO.nobias, nobias_tab, sep="\t", row.names = FALSE, quote = FALSE)
+  write.table(GO.nobias, args$nobias_tab, sep="\t", row.names = FALSE, quote = FALSE)
+  results[['Hypergeometric']] <- GO.nobias
 }
 
 # Sampling distribution
@@ -134,8 +145,30 @@ if (repcnt > 0) {
      xlab="log10(Wallenius p-values)",ylab="log10(Sampling p-values)",
      xlim=c(-3,0))
      abline(0,1,col=3,lty=2)
-  graphics.off()
+  dev.off()
   }
+  results[['Sampling']] <- GO.samp
+}
+
+if (!is.null(args$top_plot)) {
+  cats_title <- gsub("GO:","", args$fetch_cats)
+  # modified from https://bioinformatics-core-shared-training.github.io/cruk-summer-school-2018/RNASeq2018/html/06_Gene_set_testing.nb.html
+  pdf("top10.pdf")
+  for (m in names(results)) {
+    p <- results[[m]] %>%
+      top_n(10, wt=-p.adjust.over_represented)  %>%
+      mutate(hitsPerc=numDEInCat*100/numInCat) %>%
+      ggplot(aes(x=hitsPerc,
+                   y=substr(term, 1, 40), # only use 1st 40 chars of terms otherwise squashes plot
+                   colour=p.adjust.over_represented,
+                   size=numDEInCat)) +
+      geom_point() +
+      expand_limits(x=0) +
+      labs(x="% DE in category", y="Category", colour="adj. P value", size="Count", title=paste("Top over-represented categories in", cats_title), subtitle=paste(m, " method")) +
+      theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+    print(p)
+  }
+  dev.off()
 }
 
 # Output RData file
