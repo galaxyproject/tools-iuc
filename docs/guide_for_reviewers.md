@@ -90,7 +90,7 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 * [ ] Is it book-ended with `<![CDATA[ ... ]]>` tags?
 * [ ] No `interpreter` attribute for the `<command />` element - This is deprecated.
 * [ ] Text parameters, input and output paths `'single quoted'`?
-* [ ] Is the Cheetah indented and readable?
+* [ ] Is the Cheetah left-aligned, indented and readable?
 * [ ] Are multiple commands joined with `&&`?
 * [ ] Are any extra temporary files (such as indices etc.) created in the current working directory?
 * [ ] Are parameters of type `text` or having `optional="true"` attribute checked with `if str($param)` before being used?
