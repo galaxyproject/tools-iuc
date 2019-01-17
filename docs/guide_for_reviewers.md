@@ -123,7 +123,7 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 
 * [ ] Is most of the functionality of the tool tested?
 * [ ] Are the test datasets included in the `test-data` directory?
-* [ ] Is the test data of suitable size? (i.e. small..)
+* [ ] Is the test data of suitable size? (i.e. small, ideally <1MB per file)
 * [ ] Do the tests pass?
 * [ ] Is the output filtering tested using the `expect_num_outputs` attribute?
 * [ ] Are there unused files in `test-data/`
