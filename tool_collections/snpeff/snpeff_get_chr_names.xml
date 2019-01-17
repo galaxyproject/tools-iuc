@@ -1,0 +1,118 @@
+<tool id="snpEff_get_chr_names" name="SnpEff chromosome-info:" version="@WRAPPER_VERSION@.galaxy1">
+    <description>list chromosome names/lengths</description>
+    <macros>
+        <import>snpEff_macros.xml</import>
+    </macros>
+    <requirements>
+        <expand macro="requirement" />
+    </requirements>
+    <expand macro="stdio" />
+    <expand macro="version_command" />
+    <command><![CDATA[
+      snpEff dump
+      #if $snpDb.genomeSrc == 'cached':
+        -dataDir ${snpDb.genomeVersion.fields.path}
+        $snpDb.genomeVersion
+      #elif $snpDb.genomeSrc == 'history':
+        -dataDir '${snpDb.snpeff_db.extra_files_path}'
+        '${snpDb.snpeff_db.metadata.genome_version}'
+      #elif $snpDb.genomeSrc == 'custom':
+          -dataDir '${snpDb.snpeff_db.extra_files_path}'
+          -configOption '${snpDb.snpeff_db.metadata.genome_version}'.genome='${snpDb.snpeff_db.metadata.genome_version}'
+          '${snpDb.snpeff_db.metadata.genome_version}'
+      #else
+        -download
+        '$snpDb.genome_version'
+      #end if
+      | awk '/# Chromosomes/{y=1;next}y' | grep "#" | grep -E "[0-9]" | awk 'BEGIN {err=1;} {c=$0;sub(/^[^a-zA-Z0-9_]+/, "", c) && err=0; sub(/[^a-zA-Z0-9_]+/, "\t", c) && err=0; sub(/[^0-9]*$/, "", c) && err=0; print c } END {exit err}' > '$chr_names'
+    ]]></command>
+    <inputs>
+        <conditional name="snpDb">
+            <param name="genomeSrc" type="select" label="Genome source">
+                <!-- These options are referenced in the help section of SnpEff download tool. If you change them, change help of SnpEff download as well -->
+                <option value="cached">Locally installed snpEff database</option>
+                <option value="history">Downloaded snpEff database in your history</option>
+                <option value="named">Download on demand</option>
+                <option value="custom">Custom snpEff database in your history</option>
+            </param>
+            <when value="cached">
+                <param name="genomeVersion" type="select" label="Genome">
+                    <help>This can only be used on built-in databases manually configured by your galaxy admin.</help>
+                    <options from_data_table="snpeffv_genomedb">
+                            <filter type="static_value" name="SNPEFF_VERSION" value="@SNPEFF_VERSION@" column="1"/>
+                            <filter type="unique_value" column="2" />
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="snpeff_db" type="data" format="snpeffdb" label="@SNPEFF_VERSION@ Genome Data">
+                    <help>This can only be used on databases in your history that were downloaded using the snpEff download tool.</help>
+                    <options options_filter_attribute="metadata.SNPEFF_VERSION" >
+                        <filter type="add_value" value="@SNPEFF_VERSION@" />
+                    </options>
+                    <validator type="expression" message="This version of SnpEff will only work with @SNPEFF_VERSION@ genome databases">value is not None and value.metadata.SNPEFF_VERSION == "@SNPEFF_VERSION@"</validator>
+                </param>
+            </when>
+            <when value="named">
+                <param name="genome_version" type="text" value="" label="Snpff Genome Version Name (e.g. GRCh38.76)">
+                    <help>The list of available databases can be obtained with 'SnpEff databases' tool. If the database name is not found, locate a database here and download it in your history.</help>
+                    <validator type="regex" message="A genome version name is required">\S+</validator>
+                </param>
+            </when>
+            <when value="custom">
+                <param name="snpeff_db" type="data" format="snpeffdb" label="@SNPEFF_VERSION@ Genome Data">
+                    <help>This can only be used on databases in your history that were created using the snpEff build tool.</help>
+                    <options options_filter_attribute="metadata.SNPEFF_VERSION" >
+                        <filter type="add_value" value="@SNPEFF_VERSION@" />
+                    </options>
+                    <validator type="expression" message="This version of SnpEff will only work with @SNPEFF_VERSION@ genome databases">value is not None and value.metadata.SNPEFF_VERSION == "@SNPEFF_VERSION@"</validator>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data format="tabular" name="chr_names" label="Chromosome names and sizes"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="genomeSrc" value="named"/>
+            <param name="genome_version" value="Bacillus_subtilis_subsp_subtilis_str_168"/>
+            <output name="chr_names">
+                <assert_contents>
+                    <has_text text="Chromosome" />
+                    <has_text text="4215606" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_failure="True">
+            <param name="genomeSrc" value="named"/>
+            <param name="genome_version" value="should_not_match"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+**What it does**
+
+This tool outputs a tab-delimited file of chromosome names and their lengths, as they are in the selected genome/SnpEff database.  The output can be used to validate and rename chromosomes in VCF files in order to annotate its records.
+
+Note, make sure that the genome you select from the snpEff database precisely matches the one used in your analysis.  As a cursory check, you can use the chromosome lengths in this output to match those in your reference, however the lengths can match, but the version may still differ.
+
+Known issue: this strategy will not work if more than 1 chromosome in the same genome has the same length.
+
+-------
+
+.. class:: infomark
+
+**The usage scenario**
+
+Suppose you want to use snpEff to annotate a VCF file that was generated using an mouse reference with a different chromosome naming convention than in the snpEff database. To do this you can:
+
+    #. Use `SnpEff databases` to find the precise genome name for mouse data (e.g. "mm10") as it appears in the snpEff database.
+    #. List the chromosome names using this tool.  Either select a built-in genome, one in your history, or select "Download on demand" and enter the genome version obtained in the previous step (which only actually downloads if snpEff doesn't already have it).
+    #. Check that the chromosomes in the SnpEff database are the same as the reference you used (e.g. as a cursory check, ensure the chromosome lengths reported from the SnpEff database match those of your reference).
+    #. Edit your vcf file to replace the chromosome names with the ones the SnpEff database uses.
+    #. Use **SnpEff eff** and supply the edited VCF file.
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>

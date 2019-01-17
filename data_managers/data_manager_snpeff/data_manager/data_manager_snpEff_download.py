@@ -63,7 +63,7 @@ def getSnpeffVersion():
     stderr_fh.close()
     fh = open(stderr_path, 'r')
     for line in fh:
-        m = re.match('^[Ss]npEff version (SnpEff)\s*(\d+\.\d+).*$', line)
+        m = re.match(r'^[Ss]npEff version (SnpEff)\s*(\d+\.\d+).*$', line)
         if m:
             snpeff_version = m.groups()[0] + m.groups()[1]
             break

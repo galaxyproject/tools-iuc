@@ -1,104 +1,515 @@
-<?xml version="1.0"?>
-<tool id="samtools_fastx" name="Samtools extract" version="@TOOL_VERSION@">
-    <description>FASTA or FASTQ from a SAM file</description>
+<tool id="samtools_fastx" name="Samtools fastx" version="@TOOL_VERSION@+galaxy1">
+    <description>extract FASTA or FASTQ from alignment files</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements" />
+    <expand macro="stdio"/>
     <expand macro="version_command" />
-    <command detect_errors="exit_code">
-    <![CDATA[
-        samtools $output.output_format
-            #if $output.output_format == 'fastq':
-                -v $output.default_quality $output.output_quality
-            #end if
-            #if $reference:
-                --reference '$reference'
-            #end if
-            $copy_flags $omit_read_number
-            -0 '$nonspecific'
-            -1 '$forward'
-            -2 '$reverse'
-            #if str($inclusive_filter) != 'None':
-                #set $filter = $inclusive_filter
-                @FLAGS@
-                -f $flags
-            #end if
-            #if str($exclusive_filter) != 'None':
-                #set $filter = $exclusive_filter
-                @FLAGS@
-                -F $flags
-            #end if
-            '$input'
+    <command><![CDATA[
+@ADDTHREADS@ 
+## name sort input file if neccessary
+#if not $input.is_of_type('qname_sorted.bam', 'qname_input_sorted.bam'):
+    samtools sort -@ \$addthreads -n '$input' > input &&
+#else:
+    ln -s '$input' input &&
+#end if
+
+#set command=str($output_fmt_cond.output_fmt_select)[:5]
+
+samtools $command
+#if str($output_fmt_cond.output_fmt_select).startswith('fastq'):
+    #if str($output_fmt_cond.default_quality) != '':
+        -v $output_fmt_cond.default_quality
+    #end if
+    $output_fmt_cond.output_quality
+    $output_fmt_cond.ilumina_casava
+#end if
+$copy_tags
+#if str($copy_arb_tags) != '':
+    -T '$copy_arb_tags'
+#end if
+$read_numbering
+#if 'r0' in str($outputs):
+    -0 nonspecific.$output_fmt_cond.output_fmt_select
+#end if
+#if 'r1' in str($outputs):
+    -1 forward.$output_fmt_cond.output_fmt_select
+#end if
+#if 'r2' in str($outputs):
+    -2 reverse.$output_fmt_cond.output_fmt_select
+#end if
+#if str($inclusive_filter) != 'None':
+    #set $filter = $inclusive_filter
+    @FLAGS@
+    -f $flags
+#end if
+#if str($exclusive_filter) != 'None':
+    #set $filter = $exclusive_filter
+    @FLAGS@
+    -F $flags
+#end if
+#if str($exclusive_filter) != 'None':
+    #set $filter = $exclusive_filter_all
+    @FLAGS@
+    -G $flags
+#end if
+#if 's' in str($outputs):
+    -s singletons.$output_fmt_cond.output_fmt_select
+#end if
+#if str($idxout_cond.idxout_select) == 'yes':
+    #if str($idxout_cond.write1st) == 'yes':
+        --i1 i1.$output_fmt_cond.output_fmt_select
+    #end if
+    #if str($idxout_cond.write2nd) == 'yes':
+        --i2 i2.$output_fmt_cond.output_fmt_select
+    #end if
+    #if str($idxout_cond.index_format) != '':
+        --index-format $idxout_cond.index_format
+    #end if
+    #if str($idxout_cond.barcode_tag) != '':
+        --barcode-tag $idxout_cond.barcode_tag
+    #end if
+    #if str($idxout_cond.quality_tag) != '':
+        --quality-tag $idxout_cond.quality_tag
+    #end if
+#end if
+
+input 
+
+#if str($outputs)=='None' or 'other' in str($outputs):
+    ## since currently stdout in not zipped (samtools doesn't know about the extension)
+    #if str($output_fmt_cond.output_fmt_select).endswith('.gz'):
+        | gzip - 
+    #end if
+    > output.$output_fmt_cond.output_fmt_select
+    && ln -s output.$output_fmt_cond.output_fmt_select output
+#else
+    ## otherwise the remaining sequences would show up in the datasets info box
+    > /dev/null
+#end if
+#if 'r0' in str($outputs):
+    && ln -s nonspecific.$output_fmt_cond.output_fmt_select nonspecific
+#end if
+#if 'r1' in str($outputs):
+    && ln -s forward.$output_fmt_cond.output_fmt_select forward
+#end if
+#if 'r2' in str($outputs):
+    && ln -s reverse.$output_fmt_cond.output_fmt_select reverse
+#end if
+#if 's' in str($outputs):
+    && ln -s singletons.$output_fmt_cond.output_fmt_select singletons
+#end if
+#if str($idxout_cond.idxout_select) == 'yes':
+    #if str($idxout_cond.write1st) == 'yes':
+        && ln -s i1.$output_fmt_cond.output_fmt_select i1
+    #end if
+    #if str($idxout_cond.write2nd) == 'yes':
+        && ln -s i2.$output_fmt_cond.output_fmt_select i2
+    #end if
+#end if
     ]]>
     </command>
     <inputs>
-        <param name="input" type="data" format="bam,sam" label="BAM or SAM file to convert" />
-        <param argument="--reference" type="data" format="fasta" optional="True" label="Reference FASTA" />
-        <param name="copy_flags" argument="-t" type="boolean" truevalue="-t" falsevalue="" label="Copy RG/BC/QT flags to output header" />
-        <param name="omit_read_number" argument="-n" type="boolean" truevalue="-n" falsevalue="" label="Do not append /1 and /2 to read names" />
-        <param name="inclusive_filter" argument="-f" type="select" multiple="True" label="Require that these flags be set">
-            <expand macro="filter_options" />
-        </param>
-        <param name="exclusive_filter" argument="-F" type="select" multiple="True" label="Exclude reads with the following flags set">
-            <expand macro="filter_options" />
-        </param>
-        <conditional name="output">
-            <param name="output_format" type="select" label="Output format">
-                <option value="fasta">FASTA</option>
-                <option value="fastq">FASTQ</option>
+        <param name="input" type="data" format="sam,bam,cram" label="BAM or SAM file to convert" />
+        <conditional name="output_fmt_cond">
+            <param name="output_fmt_select" type="select" label="Output format">
+                <option value="fasta" selected="True">FASTA</option>
+                <option value="fastqsanger">FASTQ</option>
+                <option value="fasta.gz">compressed FASTA</option>
+                <option value="fastqsanger.gz">compressed FASTQ</option>
             </param>
-            <when value="fastq">
-                <param name="default_quality" argument="-v" type="integer" value="1" label="Default quality if none is given" />
-                <param name="output_quality" argument="-O" type="boolean" truevalue="-O" falsevalue="" label="Output quality in the OQ tag if available" />
+            <when value="fastqsanger">
+                <param name="default_quality" argument="-v" type="integer" optional="True" label="Default quality if none is given" />
+                <param name="output_quality" argument="-O" type="boolean" truevalue="-O" falsevalue="" checked="false" label="Output quality in the OQ tag if available" />
+                <param name="ilumina_casava" argument="-i" type="boolean" truevalue="-i" falsevalue="" checked="false" label="add Illumina Casava 1.8 format entry to header (eg 1:N:0:ATCACG)" />
             </when>
             <when value="fasta" />
+            <when value="fastqsanger.gz">
+                <param name="default_quality" argument="-v" type="integer" optional="True" label="Default quality if none is given" />
+                <param name="output_quality" argument="-O" type="boolean" truevalue="-O" falsevalue="" checked="false" label="Output quality in the OQ tag if available" />
+                <param name="ilumina_casava" argument="-i" type="boolean" truevalue="-i" falsevalue="" checked="false" label="add Illumina Casava 1.8 format entry to header (eg 1:N:0:ATCACG)" />
+            </when>
+            <when value="fasta.gz" />
+        </conditional>
+        <param name="outputs" type="select" multiple="true" label="outputs">
+            <option value="other" selected="true">others</option>
+            <option value="r1">READ1</option>
+            <option value="r2">READ2</option>
+            <option value="s">singletons</option>
+            <option value="r0">unspecific</option>
+            <help>disjoint subsets of the reads can be redirected to separate data sets. "READ[12]" are reads for which the READ[12] flag is set and the READ[21] flag is not set. "unspecific" reads are those for which both ore neither of these flags are set. "singletons" are the singleto reads. Note that if selected READ1 and READ2 contain only the paired reads. "other" are the remaining reads. If onlz 'others' or nothing is selected all reads go to a single data set. </help>
+        </param>
+        <param name="copy_tags" argument="-t" type="boolean" truevalue="-t" falsevalue="" label="Copy RG/BC/QT tags to output header" />
+        <param name="copy_arb_tags" argument="-T" type="text" optional="true" label="copy arbitrary tags to the FASTA header line" />
+        <param name="read_numbering" type="select" label="Omit or append read numbers">
+            <option value="" selected="True">no</option>
+            <option value="-n">Do not append /1 and /2 to read names</option>
+            <option value="-N">always append /1 and /2 to read name</option>
+        </param>
+        <param name="inclusive_filter" argument="-f" type="select" multiple="True" label="Require that these flags are set">
+            <expand macro="flag_options" />
+        </param>
+        <param name="exclusive_filter" argument="-F" type="select" multiple="True" label="Exclude reads with any of the following flags set">
+            <expand macro="flag_options" />
+        </param>
+        <param name="exclusive_filter_all" argument="-G" type="select" multiple="True" label="Exclude reads with all of the following flags set">
+            <expand macro="flag_options" />
+        </param>
+
+        <conditional name="idxout_cond">
+            <param name="idxout_select" type="select" label="Write index read files">
+                <option value="no" selected="True">No</option>
+                <option value="yes">Yes (beta: feedback welcome)</option>
+            </param>
+            <when value="no" />
+	    <when value="yes">
+                <param name="write1st" argument="--i1" type="boolean" truevalue="yes" falsevalue="no" checked="true" label="write first index reads to extra data set" />
+                <param name="write2nd" argument="--i2" type="boolean" truevalue="yes" falsevalue="no" checked='true' label="write second index reads to extra data set" />
+                <param name="index_format" argument="--index-format" type="text" label="Index format: How to parse barcode and quality tags">
+                    <help>
+The index-format string describes how to parse the barcode and quality tags, for example:
+   i14i8       the first 14 characters are index 1, the next 8 characters are index 2
+   n8i14       ignore the first 8 characters, and use the next 14 characters for index 1
+   If the tag contains a separator, then the numeric part can be replaced with '*' to mean
+   'read until the separator or end of tag', for example:
+   n*i*        ignore the left part of the tag until the separator, then use the second part
+               of the tag as index 1
+                    </help>
+                </param>
+                <param name="barcode_tag" argument="--barcode-tag" type="text" optional="True" label="Barcode tag [default: BC]"/>
+                <param name="quality_tag" argument="--quality-tag" type="text" optional="True" label="Quality tag [default: QT]"/>
+            </when>
         </conditional>
     </inputs>
     <outputs>
-        <data name="nonspecific" format="fasta" label="${on_string} converted to ${output.output_format} (Neither or both)">
-            <change_format>
-                <when input="output_format" value="fastq" format="fastq" />
-            </change_format>
+        <data name="nonspecific" format="fasta" from_work_dir="nonspecific" label="${on_string} converted to ${output_fmt_cond.output_fmt_select} (nonspecific)">
+            <filter>'r0' in str(outputs)</filter>
+            <actions>
+                <action type="format">
+                    <option type="from_param" name="output_fmt_cond" param_attribute="output_fmt_select" />
+                </action>
+            </actions>
         </data>
-        <data name="forward" format="fasta" label="${on_string} converted to ${output.output_format} (READ1)">
-            <change_format>
-                <when input="output_format" value="fastq" format="fastq" />
-            </change_format>
+        <data name="forward" format="fasta" from_work_dir="forward" label="${on_string} converted to ${output_fmt_cond.output_fmt_select} (READ1)">
+            <filter>'r1' in str(outputs)</filter>
+            <actions>
+                <action type="format">
+                    <option type="from_param" name="output_fmt_cond" param_attribute="output_fmt_select" />
+                </action>
+            </actions>
         </data>
-        <data name="reverse" format="fasta" label="${on_string} converted to ${output.output_format} (READ2)">
-            <change_format>
-                <when input="output_format" value="fastq" format="fastq" />
-            </change_format>
+        <data name="reverse" format="fasta" from_work_dir="reverse" label="${on_string} converted to ${output_fmt_cond.output_fmt_select} (READ2)">
+            <filter>'r2' in str(outputs)</filter>
+            <actions>
+                <action type="format">
+                    <option type="from_param" name="output_fmt_cond" param_attribute="output_fmt_select" />
+                </action>
+            </actions>
+        </data>
+        <data name="singletons" format="fasta" from_work_dir="singletons" label="${on_string} converted to ${output_fmt_cond.output_fmt_select} (singletons)">
+            <filter>'s' in str(outputs)</filter>
+            <actions>
+                <action type="format">
+                    <option type="from_param" name="output_fmt_cond" param_attribute="output_fmt_select" />
+                </action>
+            </actions>
+        </data>
+        <data name="output" format="fasta" from_work_dir="output" label="${on_string} converted to ${output_fmt_cond.output_fmt_select}">
+            <filter>str(outputs)=='None' or 'other' in str(outputs)</filter>
+            <actions>
+                <action type="format">
+                    <option type="from_param" name="output_fmt_cond" param_attribute="output_fmt_select" />
+                </action>
+            </actions>
+        </data>
+        <data name="i1" format="fasta" from_work_dir="i1" label="${on_string} converted to ${output_fmt_cond.output_fmt_select} (1st index)">
+            <filter>idxout_cond['idxout_select']=='yes' and idxout_cond['write1st']</filter>
+            <actions>
+                <action type="format">
+                    <option type="from_param" name="output_fmt_cond" param_attribute="output_fmt_select" />
+                </action>
+            </actions>
+        </data>
+        <data name="i2" format="fasta" from_work_dir="i2" label="${on_string} converted to ${output_fmt_cond.output_fmt_select} (2nd index)">
+            <filter>idxout_cond['idxout_select']=='yes' and idxout_cond['write2nd']</filter>
+            <actions>
+                <action type="format">
+                    <option type="from_param" name="output_fmt_cond" param_attribute="output_fmt_select" />
+                </action>
+            </actions>
         </data>
     </outputs>
     <tests>
+        <!-- tests from original Galaxy tool -->
         <test>
             <param name="input" value="samtools_fastx-in1.bam" ftype="bam" />
-            <param name="output_format" value="fasta" />
-            <output name="nonspecific" file="samtools_fastx-out1-1.fasta" />
-            <output name="forward" file="samtools_fastx-out1-2.fasta" />
-            <output name="reverse" file="samtools_fastx-out1-3.fasta" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fasta" />
+            </conditional>
+            <param name="outputs" value="other" />
+            <output name="output" file="samtools_fastx-out1.fasta" ftype="fasta" />
         </test>
         <test>
             <param name="input" value="samtools_fastx-in2.bam" ftype="bam" />
-            <param name="output_format" value="fastq" />
-            <output name="nonspecific" file="samtools_fastx-out2-1.fastq" />
-            <output name="forward" file="samtools_fastx-out2-2.fastq" />
-            <output name="reverse" file="samtools_fastx-out2-3.fastq" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+            </conditional>
+            <param name="outputs" value="r0,r1,r2" />
+            <output name="nonspecific" file="samtools_fastx-out2-1.fastq" ftype="fastqsanger" />
+            <output name="forward" file="samtools_fastx-out2-2.fastq" ftype="fastqsanger" />
+            <output name="reverse" file="samtools_fastx-out2-3.fastq" ftype="fastqsanger" />
         </test>
         <test>
             <param name="input" value="samtools_fastx-in3.sam" ftype="sam" />
-            <param name="output_format" value="fasta" />
-            <output name="nonspecific" file="samtools_fastx-out3-1.fasta" />
-            <output name="forward" file="samtools_fastx-out3-2.fasta" />
-            <output name="reverse" file="samtools_fastx-out3-3.fasta" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fasta" />
+            </conditional>
+            <param name="outputs" value="r0,r1,r2" />
+            <output name="nonspecific" file="samtools_fastx-out3-1.fasta" ftype="fasta" />
+            <output name="forward" file="samtools_fastx-out3-2.fasta" ftype="fasta" />
+            <output name="reverse" file="samtools_fastx-out3-3.fasta" ftype="fasta" />
+        </test>
+        <!-- tests from original Galaxy tool with gz output. for some reason gzip (which is used 
+             for compressing stdout does not give exactly the same file contents .. the other 
+             compressed files seem to)-->
+        <test>
+            <param name="input" value="samtools_fastx-in1.bam" ftype="bam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fasta.gz" />
+            </conditional>
+            <param name="outputs" value="other" />
+            <output name="output" file="samtools_fastx-out1.fasta.gz" ftype="fasta.gz"  compare="sim_size" />
+        </test>
+        <test>
+            <param name="input" value="samtools_fastx-in2.bam" ftype="bam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger.gz" />
+            </conditional>
+            <param name="outputs" value="r0,r1,r2" />
+            <output name="nonspecific" file="samtools_fastx-out2-1.fastq.gz" ftype="fastqsanger.gz" />
+            <output name="forward" file="samtools_fastx-out2-2.fastq.gz" ftype="fastqsanger.gz" />
+            <output name="reverse" file="samtools_fastx-out2-3.fastq.gz" ftype="fastqsanger.gz" />
+        </test>
+        <test>
+            <param name="input" value="samtools_fastx-in3.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fasta.gz" />
+            </conditional>
+            <param name="outputs" value="r0,r1,r2" />
+            <output name="nonspecific" file="samtools_fastx-out3-1.fasta.gz" ftype="fasta.gz" />
+            <output name="forward" file="samtools_fastx-out3-2.fasta.gz" ftype="fasta.gz" />
+            <output name="reverse" file="samtools_fastx-out3-3.fasta.gz" ftype="fasta.gz" />
+        </test>
+        <!-- tests from: https://github.com/samtools/samtools/blob/6d79411685d8f0fbb34e123f52d72b63271f4dcb/test/test.pl#L2313-->
+        <!--# basic 2 output test without singleton tracking-->
+        <!--test_cmd($opts, out=>'bam2fq/1.stdout.expected', out_map=>{'1.fq' => 'bam2fq/1.1.fq.expected', '2.fq' => 'bam2fq/1.2.fq.expected'},cmd=>"$$opts{bin}/samtools fastq @$threads -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.001.sam");-->
+        <test>
+            <param name="input" value="bam2fq.001.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+            </conditional>
+            <param name="outputs" value="r1,r2,other" />
+            <output name="forward" file="1.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="1.2.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="1.stdout.expected" ftype="fastqsanger" />
+        </test>
+        <!--# basic 2 output test with singleton tracking but no singleton-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/2.1.fq.expected', '2.fq' => 'bam2fq/2.2.fq.expected', 's.fq' => 'bam2fq/2.s.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.001.sam");-->
+        <test>
+            <param name="input" value="bam2fq.001.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <output name="forward" file="2.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="2.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="2.s.fq.expected" ftype="fastqsanger" />
+            <output name="output" file="2.stdout.expected" ftype="fastqsanger" />
+        </test>
+        <!--# basic 2 output test with singleton tracking with a singleton in the middle-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/3.1.fq.expected', '2.fq' => 'bam2fq/3.2.fq.expected', 's.fq' => 'bam2fq/3.s.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.002.sam");-->
+        <test>
+            <param name="input" value="bam2fq.002.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <output name="forward" file="3.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="3.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="3.s.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="3.stdout.expected" ftype="fastqsanger" />
+        </test>
+        <!--# basic 2 output test with singleton tracking with a singleton as last read-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/4.1.fq.expected', '2.fq' => 'bam2fq/4.2.fq.expected', 's.fq' => 'bam2fq/4.s.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.003.sam");-->
+        <test>
+            <param name="input" value="bam2fq.003.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <output name="forward" file="4.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="4.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="4.s.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="4.stdout.expected" ftype="fastqsanger" />
+        </test>
+        <!--# tag output test with singleton tracking with a singleton as last read-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/4.1.fq.expected', '2.fq' => 'bam2fq/4.2.fq.expected', 's.fq' => 'bam2fq/4.s.fq.expected', 'bc.fq' => 'bam2fq/bc.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads \-\-barcode-tag BC \-\-index-format 'n2i2' \-\-i1 $$opts{path}/bc.fq -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.004.sam");-->
+        <test>
+            <param name="input" value="bam2fq.004.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <conditional name="idxout_cond">
+                <param name="idxout_select" value="yes"/>
+                <param name="write1st" value="yes"/>
+                <param name="barcode_tag" value="BC"/>
+                <param name="index_format" value="n2i2"/>
+            </conditional>
+            <output name="forward" file="4.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="4.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="4.s.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="4.stdout.expected" ftype="fastqsanger" />
+            <output name="i1"  file="bc.fq.expected" ftype="fastqsanger" />
+        </test>
+        <!--# test -O flag with no OQ tags-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/4.1.fq.expected', '2.fq' => 'bam2fq/4.2.fq.expected', 's.fq' => 'bam2fq/4.s.fq.expected', 'bc.fq' => 'bam2fq/bc.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads \-\-barcode-tag BC -O \-\-index-format 'n2i2' \-\-i1 $$opts{path}/bc.fq -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.004.sam");-->
+        <test>
+            <param name="input" value="bam2fq.010.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+                <param name="output_quality" value="-O" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <conditional name="idxout_cond">
+                <param name="idxout_select" value="yes"/>
+                <param name="write1st" value="yes"/>
+                <param name="barcode_tag" value="BC"/>
+                <param name="index_format" value="n2i2"/>
+            </conditional>
+            <output name="forward" file="10.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="10.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="10.s.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="2.stdout.expected" ftype="fastqsanger" />
+            <output name="i1"  file="bc10.fq.expected" ftype="fastqsanger" />
+        </test>
+        <!--# test -O flag with OQ tags-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/10.1.fq.expected', '2.fq' => 'bam2fq/10.2.fq.expected', 's.fq' => 'bam2fq/10.s.fq.expected', 'bc.fq' => 'bam2fq/bc10.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads \-\-barcode-tag BC -O \-\-index-format 'n2i2' \-\-i1 $$opts{path}/bc.fq -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.010.sam");-->
+        <test>
+            <param name="input" value="bam2fq.010.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+                <param name="output_quality" value="-O" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <conditional name="idxout_cond">
+                <param name="idxout_select" value="yes"/>
+                <param name="write1st" value="yes"/>
+                <param name="barcode_tag" value="BC"/>
+                <param name="index_format" value="n2i2"/>
+            </conditional>
+            <output name="forward" file="10.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="10.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="10.s.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="2.stdout.expected" ftype="fastqsanger" />
+            <output name="i1"  file="bc10.fq.expected" ftype="fastqsanger" />
+        </test>
+        <!--# tag output test with separators and -N flag-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/5.1.fq.expected', '2.fq' => 'bam2fq/5.2.fq.expected', 's.fq' => 'bam2fq/5.s.fq.expected', 'bc_split.fq' => 'bam2fq/bc_split.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads \-\-barcode-tag BC -N \-\-index-format 'n*i*' \-\-i1 $$opts{path}/bc_split.fq -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.005.sam");-->
+        <test>
+            <param name="input" value="bam2fq.005.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <param name="read_numbering" value="-N"/>
+            <conditional name="idxout_cond">
+                <param name="idxout_select" value="yes"/>
+                <param name="write1st" value="yes"/>
+                <param name="barcode_tag" value="BC"/>
+                <param name="index_format" value="n*i*"/>
+            </conditional>
+            <output name="forward" file="5.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="5.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="5.s.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="2.stdout.expected" ftype="fastqsanger" />
+            <output name="i1"  file="bc_split.fq.expected" ftype="fastqsanger" />
+        </test>
+        <!--# -t flag-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/6.1.fq.expected', '2.fq' => 'bam2fq/6.2.fq.expected', 's.fq' => 'bam2fq/6.s.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads -N -t -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.005.sam");-->
+        <test>
+            <param name="input" value="bam2fq.005.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <param name="copy_tags" value="-t" />
+            <param name="read_numbering" value="-N"/>
+            <output name="forward" file="6.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="6.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="6.s.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="2.stdout.expected" ftype="fastqsanger" />
+        </test>
+        <!--# -T flag-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/7.1.fq.expected', '2.fq' => 'bam2fq/7.2.fq.expected', 's.fq' => 'bam2fq/7.s.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads -N -t -T MD,ia -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.005.sam");-->
+        <test>
+            <param name="input" value="bam2fq.005.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <param name="copy_tags" value="-t" />
+            <param name="copy_arb_tags" value="MD,ia" />
+            <param name="read_numbering" value="-N"/>
+            <output name="forward" file="7.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="7.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="7.s.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="2.stdout.expected" ftype="fastqsanger" />
+        </test>
+        <!--# -i flag with no index-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/7.1.fq.expected', '2.fq' => 'bam2fq/7.2.fq.expected', 's.fq' => 'bam2fq/7.s.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads -N -t -i -T MD,ia -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.005.sam");-->
+        <test>
+            <param name="input" value="bam2fq.005.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+                <param name="ilumina_casava" value="-i" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <param name="copy_tags" value="-t" />
+            <param name="copy_arb_tags" value="MD,ia" />
+            <param name="read_numbering" value="-N"/>
+            <output name="forward" file="7.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="7.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="7.s.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="2.stdout.expected" ftype="fastqsanger" />
+        </test>
+        <!--# -i flag with index-->
+        <!--test_cmd($opts, out=>'bam2fq/2.stdout.expected', out_map=>{'1.fq' => 'bam2fq/8.1.fq.expected', '2.fq' => 'bam2fq/8.2.fq.expected', 's.fq' => 'bam2fq/8.s.fq.expected', 'i.fq' => 'bam2fq/8.i.fq.expected'}, cmd=>"$$opts{bin}/samtools fastq @$threads \-\-barcode-tag BC -i \-\-index-format 'n2i2' \-\-i1 $$opts{path}/i.fq -s $$opts{path}/s.fq -1 $$opts{path}/1.fq -2 $$opts{path}/2.fq $$opts{path}/dat/bam2fq.004.sam");-->
+        <test>
+            <param name="input" value="bam2fq.004.sam" ftype="sam" />
+            <conditional name="output_fmt_cond">
+                <param name="output_fmt_select" value="fastqsanger" />
+                <param name="ilumina_casava" value="-i" />
+            </conditional>
+            <param name="outputs" value="r1,r2,s,other" />
+            <conditional name="idxout_cond">
+                <param name="idxout_select" value="yes"/>
+                <param name="write1st" value="yes"/>
+                <param name="barcode_tag" value="BC"/>
+                <param name="index_format" value="n2i2"/>
+            </conditional>
+            <output name="forward" file="8.1.fq.expected" ftype="fastqsanger" />
+            <output name="reverse" file="8.2.fq.expected" ftype="fastqsanger" />
+            <output name="singletons" file="8.s.fq.expected" ftype="fastqsanger" />
+            <output name="output"  file="2.stdout.expected" ftype="fastqsanger" />
+            <output name="i1"  file="8.i.fq.expected" ftype="fastqsanger" />
         </test>
     </tests>
-    <help>
-        <![CDATA[
-        This tool uses `Samtools <http://www.htslib.org/>`_ to extract sequences from a SAM or BAM file in FASTA or FASTQ format.
-        ]]>
+    <help><![CDATA[
+This tool uses `Samtools <http://www.htslib.org/>`_ to extract sequences from a
+SAM or BAM file in FASTA or FASTQ format.
+    ]]>
     </help>
     <expand macro="citations" />
 </tool>

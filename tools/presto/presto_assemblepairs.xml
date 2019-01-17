@@ -1,0 +1,186 @@
+<tool id="presto_assemblepairs" name="pRESTO AssemblePairs" version="@PRESTO_VERSION@">
+    <description>Assembles paired-end reads into a single sequence.</description>
+    
+    <macros>
+        <import>presto_macros.xml</import>
+        <xml name="align-params">
+            <param argument="--alpha" type="float" value="1e-05" label="Alpha" help="Significance threshold for de-novo assembly."/>
+            <param argument="--maxerror" type="float" value="0.3" label="Max Error" help="Maximum error rate for de novo assembly."/>
+            <param argument="--minlen" type="integer" value="8" label="Minimum Length" help="Minimum sequence length to scan for overlap."/>
+            <param argument="--maxlen" type="integer" value="1000" label="Maximum Length" help="Maximum sequence length to scan for overlap."/>
+            <param argument="--scanrev" type="boolean" value="false" truevalue="--scanrev" falsevalue="" label="Scan past the end of the tail sequence in de novo assembly to allow the head sequence to overhang the end of the tail sequence."/>
+        </xml>
+
+        <xml name="reference-params">
+            <param argument="-r" type="data" format="fasta" label="Reference sequence FASTA file."/>
+            <param argument="--minident" type="float" value="0.5" label="Minimum Identity" help="Minimum identical fraction between assembled sequence and reference."/>
+            <param argument="--evalue" type="float" value="1e-05" label="E-Value" help="Minimum E-value for reference alignment for both the read sequences."/>
+            <param argument="--maxhits" type="integer" value="100" label="Max Hits" help="Maximum number of hits in the reference sequence to examine per assembled sequence."/>
+            <param argument="--fill" type="boolean" value="false" truevalue="--fill" falsevalue="" label="Fill With Reference" help="For read pairs with a gap between them, fill with reference sequence instead of Ns."/>
+            <param argument="--aligner" type="select" value="blastn" label="Aligner" help="Aligner to use to align reads to reference.">
+                <option value="blastn">Blast</option>
+                <option value="usearch">USearch</option>
+            </param>
+        </xml>
+    </macros>
+    
+    <expand macro="requirements"/>
+    
+    <version_command>AssemblePairs.py --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        ln -s '$r1_in' r1.fastq &&
+        ln -s '$r2_in' r2.fastq && 
+        #if $varExists('cc.r')
+          ln -s '$cc.r' reference.fasta &&
+        #end if
+        AssemblePairs.py $cc.command
+          --nproc "\${GALAXY_SLOTS:-1}"
+          -1 r1.fastq
+          -2 r2.fastq
+          --coord $coord
+          #if $rc
+            --rc '$rc'
+          #end if
+          #if $r1_annotations
+            --1f $r1_annotations
+          #end if
+          #if $r2_annotations
+            --2f $r2_annotations
+          #end if
+          
+          #if $cc.command == "join"
+            --gap '$cc.gap'
+          #end if
+          
+          #if $cc.command == "align" or $cc.command == "sequential"
+            --alpha '$cc.alpha'
+            --maxerror '$cc.maxerror'
+            --minlen '$cc.minlen'
+            --maxlen '$cc.maxlen'
+            $cc.scanrev
+          #end if
+
+          #if $cc.command == "reference" or $cc.command == "sequential"
+            -r reference.fasta
+            --minident '$cc.minident'
+            --evalue '$cc.evalue'
+            --maxhits '$cc.maxhits'
+            --aligner '$cc.aligner'
+            $cc.fill
+          #end if
+
+          --outdir=.
+          --outname=tmp 
+          #if $capture_log
+            --log '$log_out'
+          #end if
+    ]]></command>
+    <inputs>
+        <param argument="-1" name="r1_in" type="data" format="fastq" label="Read 1 FASTQ file"/>
+        <param argument="-2" name="r2_in" type="data" format="fastq" label="Read 2 FASTQ file"/>
+        <param argument="--rc" type="select" label="Reverse Complement" value="" help="Reverse complement neither, R1, R2 or both reads before assembly.">
+            <option value="">Neither</option>
+            <option value="head">Read 1 Only</option>
+            <option value="tail">Read 2 Only</option>
+            <option value="both">R1 and R2</option>
+        </param>
+        <param argument="--1f" name="r1_annotations" type="text" optional="true" label="R1 Fields To Copy" help="Annotation fields to copy from R1 into the output.">
+            <expand macro="text-regex-validator"/>
+        </param>
+        <param argument="--2f" name="r2_annotations" type="text" optional="true" label="R2 Fields To Copy" help="Annotation fields to copy from R2 into the output.">
+            <expand macro="text-regex-validator"/>
+        </param>
+
+        <conditional name="cc">
+            <param name="command"  type="select" label="Command" value="sequential">
+                <option value="align">Assemble pairs by aligning ends (align)</option>
+                <option value="join">Assemble pairs by concatenating ends (join)</option>
+                <option value="reference">Assemble pairs by aligning reads against a reference (reference)</option>
+                <option value="sequential">Attempt assembly via alignment, then reference guided assembly (sequential)</option>
+            </param>
+            <when value="align">
+                <expand macro="align-params"/>
+            </when>
+            <when value="join">
+                <param argument="--gap" type="integer" value="0" label="Gap Size" help="Number of N characters to place between joined Ns."/>
+            </when>
+            <when value="reference">
+                <expand macro="reference-params"/>
+            </when>
+            <when value="sequential">
+                <expand macro="align-params"/>
+                <expand macro="reference-params"/>
+            </when>
+        </conditional>
+
+        <expand macro="presto-coord-param"/>
+        <expand macro="presto-log-param"/>
+    </inputs>
+    
+    <outputs>
+        <data name="fastq_out" format="fastq" from_work_dir="tmp_assemble-pass.fastq"/>
+        <expand macro="presto-log-output"/>
+    </outputs>
+    
+    <tests>
+        <test>
+            <param  name="command" value="join"/>
+            <param  name="r1_in" value="presto_assemblepairs_test_r1_in.fastq"/>
+            <param  name="r2_in" value="presto_assemblepairs_test_r2_in.fastq"/>
+            <param  name="coord" value="presto"/>
+            <param  name="rc" value="tail"/>
+            <param  name="r1_annotations" value="CONSCOUNT"/>
+            <param  name="r2_annotations" value="PRCONS CONSCOUNT"/>
+            <param  name="gap" value="10"/>
+            <output name="fastq_out" file="presto_assemblepairs_test_join_out.fastq" sort="true"/>
+        </test>
+        
+        <test>
+            <param  name="command" value="align"/>
+            <param  name="r1_in" value="presto_assemblepairs_test_r1_in.fastq"/>
+            <param  name="r2_in" value="presto_assemblepairs_test_r2_in.fastq"/>
+            <param  name="coord" value="presto"/>
+            <param  name="rc" value="tail"/>
+            <param  name="r1_annotations" value="CONSCOUNT"/>
+            <param  name="r2_annotations" value="PRCONS CONSCOUNT"/>
+            <param  name="scanrev" value="true"/>
+            <output name="fastq_out" file="presto_assemblepairs_test_align_out.fastq" sort="true"/>
+        </test>
+        
+        <test>
+            <param  name="command" value="reference"/>
+            <param  name="r1_in" value="presto_assemblepairs_test_r1_in.fastq"/>
+            <param  name="r2_in" value="presto_assemblepairs_test_r2_in.fastq"/>
+            <param  name="coord" value="presto"/>
+            <param  name="rc" value="tail"/>
+            <param  name="r1_annotations" value="CONSCOUNT"/>
+            <param  name="r2_annotations" value="PRCONS CONSCOUNT"/>
+            <param  name="r" value="reference_repertoire.fasta"/>
+            <param  name="aligner" value="blastn"/>
+            <output name="fastq_out" file="presto_assemblepairs_test_reference_out.fastq" sort="true"/>
+        </test>
+        
+        <test>
+            <param  name="command" value="sequential"/>
+            <param  name="r1_in" value="presto_assemblepairs_test_r1_in.fastq"/>
+            <param  name="r2_in" value="presto_assemblepairs_test_r2_in.fastq"/>
+            <param  name="coord" value="presto"/>
+            <param  name="rc" value="tail"/>
+            <param  name="r1_annotations" value="CONSCOUNT"/>
+            <param  name="r2_annotations" value="PRCONS CONSCOUNT"/>
+            <param  name="scanrev" value="true"/>
+            <param  name="r" value="reference_repertoire.fasta"/>
+            <param  name="aligner" value="blastn"/>
+            <output name="fastq_out" file="presto_assemblepairs_test_sequential_out.fastq" sort="true"/>
+        </test>
+    </tests>
+    
+    <help><![CDATA[
+Assembles paired-end reads into a single sequence.
+
+See the `pRESTO online help <@PRESTO_URL_BASE@/AssemblePairs.html>`_ for more information.
+
+@HELP_NOTE@
+    ]]></help>
+    <expand macro="citations" />
+</tool>

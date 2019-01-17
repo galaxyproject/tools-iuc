@@ -1,4 +1,4 @@
-<tool id="gffcompare" name="GffCompare" version="0.9.8">
+<tool id="gffcompare" name="GffCompare" version="0.9.8+galaxy1">
     <description>compare assembled transcripts to a reference annotation</description>
     <requirements>
         <requirement type="package" version="0.9.8">gffcompare</requirement>
@@ -10,35 +10,47 @@
         <regex match="Exception" />
     </stdio>
     <version_command>gffcompare -v | awk '{print $2}'</version_command>
-    <command>
-        <![CDATA[
-            #set $input_gtf = "' '".join(str($inputs).split(','))
-            #if $seq_data.use_seq_data == "Yes":
-                #if $seq_data.seq_source.index_source == "history":
-                    ln -s '$seq_data.seq_source.ref_file' ref_seq.fa &&
-                #else:
-                    ln -s '${seq_data.seq_source.index.fields.path}' ref_seq.fa &&
-                #end if
-            #end if
-            gffcompare
-            ## Use annotation reference?
-            #if $annotation.use_ref_annotation == "Yes":
-                -r '$annotation.reference_annotation' $annotation.ignore_nonoverlapping_reference $annotation.ignore_nonoverlapping_transfrags
-            #end if
+    <command><![CDATA[
+#import re
+#set escaped_element_identifiers = [re.sub('[^\w\-]', '_', str(_.element_identifier)) for _ in $gffinputs]
+#for $input, $escaped_element_identifier in zip($gffinputs, $escaped_element_identifiers):
+    ln -s '$input' '$escaped_element_identifier' &&
+#end for
+#if $seq_data.use_seq_data == "Yes":
+    #if $seq_data.seq_source.index_source == "history":
+        ln -s '$seq_data.seq_source.ref_file' ref_seq.fa &&
+    #else:
+        ln -s '${seq_data.seq_source.index.fields.path}' ref_seq.fa &&
+    #end if
+#end if
 
-            ## Use sequence data?
+gffcompare
+## Use annotation reference?
+#if $annotation.use_ref_annotation == "Yes":
+    -r '$annotation.reference_annotation'
+    $annotation.ignore_nonoverlapping_reference
+    $annotation.ignore_nonoverlapping_transfrags
+    #if not $annotation.refmap_tmap:
+        -T
+    #end if
+#end if
 
-            #if $seq_data.use_seq_data == "Yes":
-                -s ref_seq.fa
-            #end if
+## Use sequence data?
+#if $seq_data.use_seq_data == "Yes":
+    -s ref_seq.fa
+#end if
 
-            $discard_single_exon -e $max_dist_exon -d $max_dist_group $discard_intron_redundant_transfrags
+$discard_single_exon
+-e $max_dist_exon
+-d $max_dist_group
+$discard_intron_redundant_transfrags
 
-            '$input_gtf'
-        ]]>
-    </command>
+#for $escaped_element_identifier in $escaped_element_identifiers:
+    '$escaped_element_identifier'
+#end for
+    ]]></command>
     <inputs>
-        <param format="gtf" name="inputs" type="data" label="GTF inputs for comparison" help="" multiple="true" />
+        <param format="gtf" name="gffinputs" type="data" label="GTF inputs for comparison" help="" multiple="true" />
         <conditional name="annotation">
             <param label="Use Reference Annotation" name="use_ref_annotation" type="select">
                 <option value="No">No</option>
@@ -48,6 +60,10 @@
                 <param argument="-r" format="gff3,gtf" help="Requires an annotation file in GFF3 or GTF format." label="Reference Annotation" name="reference_annotation" type="data" />
                 <param argument="-R" falsevalue="" help="consider only the reference transcripts that overlap any of the input transfrags (Sn correction)" label="Ignore reference transcripts that are not overlapped by any input transfrags" name="ignore_nonoverlapping_reference" truevalue="-R" type="boolean" />
                 <param argument="-Q" falsevalue="" help="consider only the input transcripts that overlap any of the reference transcripts (Sp correction). Warning: this will discard all 'novel' loci!" label="Ignore input transcripts that are not overlapped by any reference transcripts" name="ignore_nonoverlapping_transfrags" truevalue="-Q" type="boolean" />
+                <param argument="-T" name="refmap_tmap" label="Generate tmap and refmap files for each input file" type="select" multiple="True">
+                    <option value="refmap" selected="True">refmap</option>
+                    <option value="tmap" selected="True">tmap</option>
+                </param>
             </when>
             <when value="No">
             </when>
@@ -57,7 +73,7 @@
                 <option value="Yes">Yes</option>
                 <option value="No">No</option>
             </param>
-            <when value="No" />
+            <when value="No"/>
             <when value="Yes">
                 <conditional name="seq_source">
                     <param label="Choose the source for the reference list" name="index_source" type="select">
@@ -67,7 +83,7 @@
                     <when value="cached">
                         <param argument="-s" label="Using reference genome" name="index" type="select">
                             <options from_data_table="fasta_indexes">
-                                <filter column="1" key="dbkey" ref="inputs" type="data_meta" />
+                                <filter column="1" key="dbkey" ref="gffinputs" type="data_meta" />
                                 <validator message="No reference genome is available for the build associated with the selected input dataset" type="no_options" />
                             </options>
                         </param>
@@ -90,44 +106,65 @@
     <outputs>
         <data format="txt" from_work_dir="gffcmp.stats" label="${tool.name} on ${on_string}: transcript accuracy" name="transcripts_stats" />
         <data format="tabular" from_work_dir="gffcmp.loci" label="${tool.name} on ${on_string}: loci" name="transcripts_loci" />
-        <data format="tabular" from_work_dir="gffcmp.tracking" label="${tool.name} on ${on_string}: data ${inputs[0].hid} tracking file" name="transcripts_tracking" />
+        <data format="tabular" from_work_dir="gffcmp.tracking" label="${tool.name} on ${on_string}: data ${gffinputs[0].hid} tracking file" name="transcripts_tracking" />
         <data format="gtf" from_work_dir="gffcmp.combined.gtf" label="${tool.name} on ${on_string}: combined transcripts" name="transcripts_combined">
-            <filter>(use_seq_data == 'No')</filter>
+            <filter>isinstance(gffinputs, list)</filter>
         </data>
         <data format="gtf" from_work_dir="gffcmp.annotated.gtf" label="${tool.name} on ${on_string}: annotated transcripts" name="transcripts_annotated">
-            <filter>(use_seq_data == 'Yes')</filter>
+            <filter>not isinstance(gffinputs, list)</filter>
         </data>
+        <collection name="refmap_output" type="list" label="${tool.name} on ${on_string}: refmap">
+            <discover_datasets pattern="gffcmp\.(?P&lt;designation&gt;.+)\.refmap" ext="tabular" />
+            <filter>annotation['use_ref_annotation'] == 'Yes' and annotation['refmap_tmap'] != None and 'refmap' in annotation['refmap_tmap']</filter>
+        </collection>
+        <collection name="tmap_output" type="list" label="${tool.name} on ${on_string}: tmap">
+            <discover_datasets pattern="gffcmp\.(?P&lt;designation&gt;.+)\.tmap" ext="tabular" />
+            <filter>annotation['use_ref_annotation'] == 'Yes' and annotation['refmap_tmap'] != None and 'tmap' in annotation['refmap_tmap']</filter>
+        </collection>
     </outputs>
     <tests>
-        <test>
-            <param ftype="gtf" name="inputs" value="gffcompare_in1.gtf,gffcompare_in2.gtf" />
+        <test expect_num_outputs="6">
+            <param ftype="gtf" name="gffinputs" value="gffcompare_in1.gtf,gffcompare_in2.gtf" />
             <param name="use_ref_annotation" value="Yes" />
-            <param ftype="gtf" name="reference_annotation" value="gffcompare_in3.gtf" />
-            <param name="ignore_nonoverlapping_reference" value="Yes" />
-            <param name="ignore_nonoverlapping_transfrags" value="No" />
+            <conditional name="annotation">
+                <param ftype="gtf" name="reference_annotation" value="gffcompare_in3.gtf" />
+                <param name="ignore_nonoverlapping_reference" value="Yes" />
+                <param name="ignore_nonoverlapping_transfrags" value="No" />
+            </conditional>
             <param name="use_seq_data" value="No" />
             <param name="discard_single_exon" value="" />
             <param name="max_dist_exon" value="100" />
             <param name="max_dist_group" value="100" />
             <param name="discard_intron_redundant_transfrags" value="No" />
             <output file="gffcompare_out1.stats" name="transcripts_stats" lines_diff="6" />
-            <output file="gffcompare_out1.loci" name="transcripts_loci" />
+            <output file="gffcompare_out1.loci" name="transcripts_loci" lines_diff="2" />
             <output file="gffcompare_out1.tracking" name="transcripts_tracking" />
             <output file="gffcompare_out1.gtf" name="transcripts_combined" />
+            <output_collection name="refmap_output" type="list" count="2">
+                <element name="gffcompare_in1_gtf" file="gffcompare_out1-1.refmap" ftype="tabular" />
+                <element name="gffcompare_in2_gtf" file="gffcompare_out1-2.refmap" ftype="tabular" />
+            </output_collection>
+            <output_collection name="tmap_output" type="list" count="2">
+                <element name="gffcompare_in1_gtf" file="gffcompare_out1-1.tmap" ftype="tabular" />
+                <element name="gffcompare_in2_gtf" file="gffcompare_out1-2.tmap" ftype="tabular" />
+            </output_collection>
         </test>
-        <test>
-            <param ftype="gtf" name="inputs" value="gffcompare_in4.gtf" />
+        <test expect_num_outputs="4">
+            <param ftype="gtf" name="gffinputs" value="gffcompare_in4.gtf" />
             <param name="use_ref_annotation" value="Yes" />
-            <param ftype="gtf" name="reference_annotation" value="gffcompare_in5.gtf" />
-            <param name="ignore_nonoverlapping_reference" value="Yes" />
-            <param name="ignore_nonoverlapping_transfrags" value="No" />
+            <conditional name="annotation">
+                <param ftype="gtf" name="reference_annotation" value="gffcompare_in5.gtf" />
+                <param name="ignore_nonoverlapping_reference" value="Yes" />
+                <param name="ignore_nonoverlapping_transfrags" value="No" />
+                <param name="refmap_tmap" value="" />
+            </conditional>
             <param name="use_seq_data" value="No" />
             <param name="discard_single_exon" value="" />
             <param name="max_dist_exon" value="100" />
             <param name="max_dist_group" value="100" />
             <param name="discard_intron_redundant_transfrags" value="No" />
             <output file="gffcompare_out2.stats" name="transcripts_stats" lines_diff="6" />
-            <output file="gffcompare_out2.loci" name="transcripts_loci" lines_diff="2" />
+            <output file="gffcompare_out2.loci" name="transcripts_loci" />
             <output file="gffcompare_out2.tracking" name="transcripts_tracking" />
             <output file="gffcompare_out2.gtf" name="transcripts_annotated" />
         </test>

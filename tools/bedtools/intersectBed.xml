@@ -1,60 +1,84 @@
-<tool id="bedtools_intersectbed" name="Intersect intervals" version="@WRAPPER_VERSION@.1">
+<tool id="bedtools_intersectbed" name="bedtools Intersect intervals" version="@WRAPPER_VERSION@">
     <description>find overlapping intervals in various ways</description>
     <macros>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements" />
+    <expand macro="requirements">
+        <requirement type="package" version="@SAMTOOLS_VERSION@">samtools</requirement>
+    </expand>
     <expand macro="stdio" />
-    <command>
-<![CDATA[
+    <command><![CDATA[
+        #import re
         #set modes = ' '.join( str($overlap_mode).split(',') )
 
-        bedtools intersect
-            #if $inputA.is_of_type('bam'):
-                -abam '${inputA}'
-            #else:
-                -a '${inputA}'
-            #end if
+        #if $modes == "None":
+            #set modes = ''
+        #end if
 
-            #if str($reduce_or_iterate.reduce_or_iterate_selector) == 'iterate':
-                -b '$reduce_or_iterate.inputB'
-            #else:
-                #set inputBs = "' '".join([str($file) for $file in $reduce_or_iterate.inputB])
-                -b '$inputBs'
+        bedtools intersect
+        #if $inputA.is_of_type('bam'):
+            -abam '${inputA}'
+        #else:
+            -a '${inputA}'
+        #end if
+
+        #if str($reduce_or_iterate.reduce_or_iterate_selector) == 'iterate':
+            -b '$reduce_or_iterate.inputB'
+        #else:
+            #set inputBs = "' '".join([str($file) for $file in $reduce_or_iterate.inputB])
+            -b '$inputBs'
+            #if $reduce_or_iterate.names:
+                #set namesB = "' '".join([re.sub('[^\s\w\-]', '_', str($file.element_identifier)) for $file in $reduce_or_iterate.inputB])
+                -names '$namesB'
             #end if
-            $split
-            $strand
-            #if str($fraction) != "None" and str($fraction):
-              -f '${fraction}'
+        #end if
+        $split
+        $strand
+        #if $fraction_cond.fraction_select == "specify":
+            -f '${fraction_cond.overlap}'
+            $fraction_cond.reciprocal_cond.reciprocal 
+            #if str($fraction_cond.reciprocal_cond.reciprocal) == '':
+                -F '${fraction_cond.reciprocal_cond.overlapB}'
+                $fraction_cond.reciprocal_cond.disjoint
             #end if
-            $reciprocal
-            $invert
-            $once
-            $header
-            $modes
-            $count
-            > '${output}'
+        #end if
+        $invert
+        $once
+        $header
+        $modes
+        $sorted
+        #if str($sorted) != '':
+            #if str($reduce_or_iterate.reduce_or_iterate_selector) == 'iterate' and $reduce_or_iterate.inputB.is_of_type('bam'):
+                -g <(samtools view -H $reduce_or_iterate.inputB | tr ':' '\t' | grep SN | cut -f 3,5)
+            #else if str($reduce_or_iterate.reduce_or_iterate_selector) == 'reduce' and str($reduce_or_iterate.inputB) != 'None' and $reduce_or_iterate.inputB[0].is_of_type('bam'):
+                -g <(samtools view -H $reduce_or_iterate.inputB[0] | tr ':' '\t' | grep SN | cut -f 3,5)
+            #end if
+        #end if
+        $bed
+        $count
+        > '${output}'
 ]]>
     </command>
     <inputs>
-        <param format="bed,bam,vcf,gff,gff3" name="inputA" type="data" label="File A to intersect with B" help="BAM/BED/GFF/VCF format" />
+        <param format="bam,@STD_BEDTOOLS_INPUTS@" name="inputA" type="data" label="File A to intersect with B" help="BAM/@STD_BEDTOOLS_INPUT_LABEL@ format" />
         <conditional name="reduce_or_iterate">
             <param name='reduce_or_iterate_selector' type='select' label='Combined or separate output files'>
                 <option value='iterate' selected='true'>One output file per 'input B' file</option>
                 <option value='reduce'>Single output containing intersections of any 'input B' lines with A </option>
             </param>
             <when value='iterate'>
-                <param format="bam,bed,gff,gff3,vcf" name="inputB" type="data"
-                       label="File(s) B to intersect with A" help="BAM/BED/GFF/VCF format"/>
+                <param format="bam,@STD_BEDTOOLS_INPUTS@" name="inputB" type="data"
+                       label="File(s) B to intersect with A" help="BAM/@STD_BEDTOOLS_INPUT_LABEL@ format"/>
             </when>
             <when value='reduce'>
-                <param format="bam,bed,gff,gff3,vcf" name="inputB" type="data" multiple="true"
-                       label="File(s) B to intersect with A" help="BAM/BED/GFF/VCF format"/>
+                <param format="bam,@STD_BEDTOOLS_INPUTS@" name="inputB" type="data" multiple="true"
+                       label="File(s) B to intersect with A" help="BAM/@STD_BEDTOOLS_INPUT_LABEL@ format"/>
+                <param argument="names" type="boolean" truevalue="yes" falsevalue="no" label="add data set names instead of indices" help=""/>
             </when>
         </conditional>
         <expand macro="strand2" />
         <param name="overlap_mode" type="select" multiple="True" label="What should be written to the output file?">
-            <option value="-wa" selected="True">Write the original entry in A for each overlap (-wa)</option>
+            <option value="-wa">Write the original entry in A for each overlap (-wa)</option>
             <option value="-wb">Write the original entry in B for each overlap. Useful for knowing what A overlaps. Restricted by the fraction- and reciprocal option (-wb)</option>
             <option value="-wo">Write the original A and B entries plus the number of base pairs of overlap between the two features. Only A features with overlap are reported. Restricted by the fraction- and reciprocal option (-wo)</option>
             <option value="-wao">Write the original A and B entries plus the number of base pairs of overlap between the two features. However, A features w/o overlap are also reported with a NULL B feature and overlap = 0. Restricted by the fraction- and reciprocal option (-wao)</option>
@@ -62,12 +86,25 @@
         </param>
 
         <expand macro="split" />
-        <!-- -f -->
-        <param name="fraction" type="text"
-            label="Minimum overlap required as a fraction of the BAM alignment"
-            help="Alignments are only retained if the overlap with the an interval in the BED file comprises at least this fraction of the BAM alignment's length.  For example, to require that the overlap affects 50% of the BAM alignment, use 0.50. (-f)"/>
-        <!-- -r -->
-        <expand macro="reciprocal" />
+        <conditional name="fraction_cond">
+            <param name='fraction_select' type='select' label='Required overlap'>
+                <option value='default' selected='true'>Default: 1bp</option>
+                <option value='specify'>Specify minimum overlap(s)</option>
+            </param>
+            <when value="default"/>
+            <when value='specify'>
+                <expand macro="overlap" />
+                <conditional name="reciprocal_cond">
+                    <expand macro="reciprocal" />
+                <when value="-r"/>
+                <when value="">
+                    <expand macro="overlapB" />
+                    <param name="disjoint" argument="-e" type="boolean" checked="false" truevalue="-e"  falsevalue=""
+                        label="Require that the fraction of overlap is fulfilled for A OR B." help="If enabled, then for -f 0.90 and -F 0.10 this requires that either 90% of A is covered OR 10% of B is covered, otherwise, both fractions would have to be satisfied."/>
+                </when>
+            </conditional>
+            </when>
+        </conditional>
         <!-- -v -->
         <param name="invert" type="boolean" checked="false" truevalue="-v" falsevalue=""
             label="Report only those alignments that **do not** overlap with file(s) B"
@@ -80,12 +117,229 @@
         <param name="count" type="boolean" checked="false" truevalue="-c" falsevalue=""
             label="For each entry in A, report the number of overlaps with B."
             help="Reports 0 for A entries that have no overlap with B. (-c)" />
+        <!-- -bed -->
+        <param argument="-bed" type="boolean" checked="false" truevalue="-bed" falsevalue=""
+            label="When using BAM input (-abam), write output as BED instead of BAM." />
+        <!-- -sorted -g  -->
+        <param argument="-sorted" type="boolean" checked="false" truevalue="-sorted" falsevalue=""
+            label="For coordinate sorted input file the more efficient sweeping algorithm is enabled." />
         <expand macro="print_header" />
     </inputs>
     <outputs>
-        <data format_source="inputA" name="output" metadata_source="inputA"/>
+        <data format_source="inputA" name="output" metadata_source="inputA">
+            <change_format>
+                <when input="bed" value="-bed" format="bed" />
+            </change_format>
+        </data>
     </outputs>
     <tests>
+        <!-- test adapted from the tutorial https://bedtools.readthedocs.io/en/latest/content/tools/intersect.html -->
+        <test>
+            <param name="inputA" value="intersect-A.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B.bed" ftype="bed" />
+            </conditional>
+            <output name="output" file="intersect-default.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-query.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="reduce" />
+                <param name="inputB" value="intersect-d1.bed,intersect-d2.bed,intersect-d3.bed" ftype="bed" />
+            </conditional>
+            <output name="output" file="intersect-multiple.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-query.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="reduce" />
+                <param name="inputB" value="intersect-d1.bed,intersect-d2.bed,intersect-d3.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wa,-wb" />
+            <param name="sorted" value="-sorted" />
+            <output name="output" file="intersect-multiple-wa-wb.bed" ftype="bed" />
+        </test>
+        <test>
+                <param name="inputB" value="intersect-d1.bed,intersect-d2.bed,intersect-d3.bed" ftype="bed" />
+            <param name="inputA" value="intersect-query.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="reduce" />
+                <param name="inputB" value="intersect-d1.bed,intersect-d2.bed,intersect-d3.bed" ftype="bed" />
+                <param name="names" value="yes" />
+            </conditional>
+            <param name="overlap_mode" value="-wa,-wb" />
+            <param name="sorted" value="-sorted" />
+            <output name="output" file="intersect-multiple-wa-wb-wnames.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-query.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="reduce" />
+                <param name="inputB" value="intersect-d1.bed,intersect-d2.bed,intersect-d3.bed" ftype="bed" />
+            </conditional>
+            <param name="invert" value="-v" />
+            <param name="sorted" value="-sorted" />
+            <output name="output" file="intersect-multiple-invert.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-query.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="reduce" />
+                <param name="inputB" value="intersect-d1.bed,intersect-d2.bed,intersect-d3.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wa,-wb" />
+            <conditional name="fraction_cond">
+                <param name='fraction_select' value='specify'/>
+                <param name="overlap" value="1.0" />
+            </conditional>
+            <param name="sorted" value="-sorted" />
+            <output name="output" file="intersect-multiple-fracA.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wa" />
+            <output name="output" file="intersect-wa.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wb" />
+            <output name="output" file="intersect-wb.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wa,-wb" />
+            <output name="output" file="intersect-wa-wb.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-loj" />
+            <output name="output" file="intersect-loj.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wo" />
+            <output name="output" file="intersect-wo.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wao" />
+            <output name="output" file="intersect-wao.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B.bed" ftype="bed" />
+            </conditional>
+            <param name="once" value="-u" />
+            <output name="output" file="intersect-unique.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B.bed" ftype="bed" />
+            </conditional>
+            <param name="count" value="-c"/>
+            <output name="output" file="intersect-count.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B.bed" ftype="bed" />
+            </conditional>
+            <param name="invert" value="-v"/>
+            <output name="output" file="intersect-invert.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A2.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B2.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wa,-wb" />
+            <conditional name="fraction_cond">
+                <param name='fraction_select' value='specify'/>
+                <param name="overlap" value="0.5" />
+            </conditional>
+            <output name="output" file="intersect-fracA.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A2.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B2.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wa,-wb" />
+            <conditional name="fraction_cond">
+                <param name='fraction_select' value='specify'/>
+                <param name="overlap" value="0.5" />
+                <conditional name="reciprocal_cond">
+                    <param name="reciprocal" value="-r" />
+                </conditional>
+            </conditional>
+            <output name="output" file="intersect-fracA-rec.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A2.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B2.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wa,-wb" />
+            <conditional name="fraction_cond">
+                <param name='fraction_select' value='specify'/>
+                <param name="overlap" value="0.5" />
+                <conditional name="reciprocal_cond">
+                    <param name="overlapB" value="0.5" />
+                </conditional>
+            </conditional>
+            <output name="output" file="intersect-fracA-rec.bed" ftype="bed" />
+        </test>
+        <test>
+            <param name="inputA" value="intersect-A2.bed" ftype="bed" />
+            <conditional name="reduce_or_iterate">
+                <param name='reduce_or_iterate_selector' value="iterate" />
+                <param name="inputB" value="intersect-B2.bed" ftype="bed" />
+            </conditional>
+            <param name="overlap_mode" value="-wa,-wb" />
+            <conditional name="fraction_cond">
+                <param name='fraction_select' value='specify'/>
+                <param name="overlap" value="0.5" />
+                <conditional name="reciprocal_cond">
+                    <param name="overlapB" value="0.5" />
+                    <param name="disjoint" value="-e" />
+                </conditional>
+            </conditional>
+            <output name="output" file="intersect-fracA.bed" ftype="bed" />
+        </test>
+        <!-- old tests -->
         <test>
             <param name="inputA" value="intersectBed1.bed" ftype="bed" />
             <param name="inputB" value="intersectBed2.bed" ftype="bed" />
@@ -112,7 +366,7 @@
 <![CDATA[
 **What it does**
 
-By far, the most common question asked of two sets of genomic features is whether or not any of the features in the two sets “overlap” with one another. This is known as feature intersection. bedtools intersect allows one to screen for overlaps between two sets of genomic features. Moreover, it allows one to have fine control as to how the intersections are reported. bedtools intersect works with both BED/GFF/VCF and BAM files as input.
+By far, the most common question asked of two sets of genomic features is whether or not any of the features in the two sets “overlap” with one another. This is known as feature intersection. bedtools intersect allows one to screen for overlaps between two sets of genomic features. Moreover, it allows one to have fine control as to how the intersections are reported. bedtools intersect works with both @STD_BEDTOOLS_INPUT_LABEL@ and BAM files as input.
 
 .. image:: $PATH_TO_IMAGES/intersect-glyph.png
 

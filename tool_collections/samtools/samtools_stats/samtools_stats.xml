@@ -1,164 +1,104 @@
-<tool id="samtools_stats" name="Stats" version="2.0.1">
+<tool id="samtools_stats" name="Samtools stats" version="2.0.2+galaxy1">
     <description>generate statistics for BAM dataset</description>
     <macros>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements"/>
+    <expand macro="requirements">
+        <requirement type="package" version="5.2.3">gnuplot</requirement>
+        <requirement type="package" version="5.26">perl</requirement>
+    </expand>
     <expand macro="stdio"/>
     <expand macro="version_command"/>
     <command><![CDATA[
-        #if $use_reference.use_ref_selector == "yes":
-            #if $use_reference.reference_source.reference_source_selector == "history":
-               ln -s '${use_reference.reference_source.ref_file}' &&
-               samtools faidx `basename '${use_reference.reference_source.ref_file}'` &&
-            #end if
-        #end if
-
+        @PREPARE_IDX@
+        @PREPARE_FASTA_IDX@
         samtools stats
-            '${input_file}'
-            --coverage ${coverage_min},${coverage_max},${coverage_step}
+            #if $coverage_cond.coverage_select == 'yes':
+                --coverage ${coverage_cond.coverage_min},${coverage_cond.coverage_max},${coverage_cond.coverage_step}
+            #end if
             ${remove_dups}
-
             #if str( $filter_by_flags.filter_flags ) == "filter":
                 #if $filter_by_flags.require_flags:
-                    --required-flag ${sum([int(flag) for flag in str($filter_by_flags.require_flags).split(',')])}
+                    #set $filter = $filter_by_flags.require_flags
+                    @FLAGS@
+                    --required-flag $flags
                 #end if
                 #if $filter_by_flags.exclude_flags:
-                    --filtering-flag ${sum([int(flag) for flag in str($filter_by_flags.exclude_flags).split(',')])}
+                    #set $filter = $filter_by_flags.exclude_flags
+                    @FLAGS@
+                    --filtering-flag $flags
                 #end if
             #end if
-
-            --GC-depth ${gc_depth}
-            --insert-size ${insert_size}
-
-            ## The code below is commented out because using -I/--id options causes the following exception
+            #if str($gc_depth):
+                --GC-depth ${gc_depth}
+            #end if
+            #if str($insert_size):
+                --insert-size ${insert_size}
+            #end if
+            ## The code below is commented out because using -I/--id options causes 
+            ## in samtools up to 1.9 the following exception
             ## Samtools-htslib: init_group_id() header parsing not yet implemented
             ##if str($read_group) != "":
             ##    -I "${read_group}"
             ##end if
-
             #if str($read_length):
                 --read-length ${read_length}
             #end if
-
-            --most-inserts ${most_inserts}
-            --trim-quality ${trim_quality}
-
-            #if $use_reference.use_ref_selector == "yes":
-                #if $use_reference.reference_source.reference_source_selector != "history":
-                    --ref-seq '${use_reference.reference_source.ref_file.fields.path}'
-                #else:
-                    --ref-seq '${use_reference.reference_source.ref_file}'
-                #end if
+            #if str($most_inserts):
+                --most-inserts ${most_inserts}
             #end if
-            > '${output}'
-
-        #if $split_output.split_output_selector == "yes":
-            #set outputs_to_split = str($split_output.generate_tables).split(',')
-            && mkdir split &&
-            echo ${split_output.generate_tables}
-
-            #if 'sn' in $outputs_to_split:
-                && echo "# Summary Numbers" > 'split/Summary numbers.tab' &&
-                echo "" >> 'split/Summary numbers.tab' &&
-                if grep -q ^SN '${output}'; then
-                    grep ^SN '${output}' | cut -f 2- >> 'split/Summary numbers.tab';
-                fi
+            #if str($trim_quality):
+                --trim-quality ${trim_quality}
             #end if
 
-            #if 'ffq' in $outputs_to_split:
-                && echo "# Columns correspond to qualities and rows to cycles. First column is the cycle number\n" > 'split/First Fragment Qualities.tab' &&
-                if grep -q ^FFQ '${output}'; then
-                    grep ^FFQ '${output}' | cut -f 2- >> 'split/First Fragment Qualities.tab';
-                fi
+            #if $reffa != None:
+                --ref-seq '$reffa'
+            #end if
+            ## TODO currently not implemented in Galaxy
+            ## generates STR_VALUE.bamstat where STR is given by -P and VALUE is a value of the TAG given by -S
+            ## needs some discover data sets action...
+            ## -P, --split-prefix STR
+            ## -S, --split TAG
+            $sparse
+            @REGIONS_FILE@
+            $remove_overlaps
+            #if str($cov_threshold):
+                -g $cov_threshold
+            #end if
+            infile
+            @REGIONS_MANUAL@
+            > '$output'
+
+            #if $cond_plot.select_plot=='yes':
+                && plot-bamstats '$output' $cond_plot.log -p '${html_file.files_path}'/
+                && mv '${html_file.files_path}'/index.html '${html_file}'
             #end if
 
-            #if 'lfq' in $outputs_to_split:
-                && echo "# Columns correspond to qualities and rows to cycles. First column is the cycle number" > 'split/Last Fragment Qualities.tab' &&
-                if grep -q ^LFQ '${output}'; then
-                    grep ^LFQ '${output}' | cut -f 2- >> 'split/Last Fragment Qualities.tab';
-                fi
+            #if $split_output_cond.split_output_selector == "yes":
+                #set outputs_to_split = str($split_output_cond.generate_tables).split(',')
+                && mkdir split
+                #for s in str($split_output_cond.generate_tables).split(','):
+                    && name=`cat '$output' | grep '\^$s' | cut -d'.' -f 1 | sed 's/^# //'`
+                    && awk '/\^/{out=0} /\^$s/{out=1} {if(out==1){print $0}}' '$output' | sed 's/Use `grep .*` to extract this part.//' | sed 's/$s\t//' > "split/\$name.tab"
+                #end for
             #end if
-
-            #if 'mpc' in $outputs_to_split:
-                && echo "# Columns correspond to qualities, rows to cycles. First column is the cycle number, second is the number of N's and the rest is the number of mismatches" > 'split/Mismatches per cycle.tab' &&
-                if grep -q ^MPC '${output}'; then
-                    grep ^MPC '${output}' | cut -f 2- >> 'split/Mismatches per cycle.tab';
-                fi
-            #end if
-
-            #if 'gcf' in $outputs_to_split:
-                && echo "# GC Content of first fragments" > 'split/GC Content of first fragments.tab' &&
-                if grep -q ^GCF '${output}'; then
-                    grep ^GCF '${output}' | cut -f 2- >> 'split/GC Content of first fragments.tab';
-                fi
-            #end if
-
-            #if 'gcl' in $outputs_to_split:
-                && echo "# GC Content of last fragments" > 'split/GC Content of last fragments.tab' &&
-                if grep -q ^GCL '${output}'; then
-                    grep ^GCL '${output}' | cut -f 2- >> 'split/GC Content of last fragments.tab';
-                fi
-            #end if
-
-            #if 'gcc' in $outputs_to_split:
-                && echo "# ACGT content per cycle. The columns are: cycle, and A,C,G,T counts (percent)" > 'split/ACGT content per cycle.tab' &&
-                if grep -q ^GCC '${output}'; then
-                    grep ^GCC '${output}' | cut -f 2- >> 'split/ACGT content per cycle.tab';
-                fi
-            #end if
-
-            #if 'is' in $outputs_to_split:
-                && echo "# Insert sizes. The columns are: insert size, pairs total, inward oriented pairs, outward oriented pairs, other pairs" > 'split/Insert sizes.tab' &&
-                if grep -q ^IS '${output}'; then
-                    grep ^IS '${output}' | cut -f 2- >> 'split/Insert sizes.tab';
-                fi
-            #end if
-
-            #if 'rl' in $outputs_to_split:
-                && echo "# Read lengths. The columns are: read length, count" > 'split/Read lengths.tab' &&
-                if grep -q ^RL '${output}'; then
-                    grep ^RL '${output}' | cut -f 2- >> 'split/Read lengths.tab';
-                fi
-            #end if
-
-            #if 'id' in $outputs_to_split:
-                && echo "# Indel distribution. The columns are: length, number of insertions, number of deletions" > 'split/Indel distribution.tab' &&
-                if grep -q ^ID '${output}'; then
-                    grep ^ID '${output}' | cut -f 2- >> 'split/Indel distribution.tab';
-                fi
-            #end if
-
-            #if 'ic' in $outputs_to_split:
-                && echo "# Indels per cycle. The columns are: cycle, number of insertions (fwd), .. (rev) , number of deletions (fwd), .. (rev)" > 'split/Indels per cycle.tab' &&
-                if grep -q ^IC '${output}'; then
-                    grep ^IC '${output}' | cut -f 2- >> 'split/Indels per cycle.tab';
-                fi
-            #end if
-
-            #if 'cov' in $outputs_to_split:
-                && echo "# Coverage distribution" > 'split/Coverage distribution.tab' &&
-                if grep -q ^COV '${output}'; then
-                    grep ^COV '${output}' | cut -f 2- >> 'split/Coverage distribution.tab';
-                fi
-            #end if
-
-            #if 'gcd' in $outputs_to_split:
-                && echo "# GC-depth. The columns are: GC%, unique sequence percentiles, 10th, 25th, 50th, 75th and 90th depth percentile" > 'split/GC depth.tab' &&
-                if grep -q ^GCD '${output}'; then
-                    grep ^GCD '${output}' | cut -f 2- >> 'split/GC depth.tab';
-                fi
-            #end if
-        #end if
-        ]]></command>
+    ]]></command>
     <inputs>
-        <param name="input_file" type="data" format="sam,bam" label="BAM file" />
-        <param name="coverage_min" type="integer" value="1" label="Minimum coverage" help="Minimum coverage" />
-        <param name="coverage_max" type="integer" value="1000" label="Maximum coverage" help="Maximum coverage" />
-        <param name="coverage_step" type="integer" value="1" label="Coverage step" help="Step value for coverage" />
-        <param name="remove_dups" argument="--remove-dups" type="boolean" truevalue="--remove-dups" falsevalue="" checked="False"
-               label="Exclude reads marked as duplicates" />
-        <conditional name="split_output">
+        <param name="input" type="data" format="sam,bam,cram" label="BAM file" />
+        <conditional name="coverage_cond">
+            <param name="coverage_select" type="select" label="Set coverage distribution">
+                <option value="no" selected="True">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="coverage_min" type="integer" value="1" label="Minimum coverage" help="Minimum coverage" />
+                <param name="coverage_max" type="integer" value="1000" label="Maximum coverage" help="Maximum coverage" />
+                <param name="coverage_step" type="integer" value="1" label="Coverage step" help="Step value for coverage" />
+            </when>
+        </conditional>
+        <param name="remove_dups" argument="--remove-dups" type="boolean" truevalue="--remove-dups" falsevalue="" checked="False" label="Exclude reads marked as duplicates" />
+        <conditional name="split_output_cond">
             <param name="split_output_selector" type="select" label="Output" help="Select between one single output or separate outputs for each statistics">
                 <option value="no" selected="True">One single summary file</option>
                 <option value="yes">Separate datasets for each statistic</option>
@@ -166,19 +106,23 @@
             <when value="no" />
             <when value="yes">
                 <param name="generate_tables" type="select" display="checkboxes" multiple="True" label="Desired output files">
-                    <option value="sn">Summary numbers</option>
-                    <option value="ffq">First Fragment Qualities</option>
-                    <option value="lfq">Last Fragment Qualities</option>
-                    <option value="mpc">Mismatches per cycle</option>
-                    <option value="gcf">GC Content of first fragments</option>
-                    <option value="gcl">GC Content of last fragments</option>
-                    <option value="gcc">ACGT content per cycle</option>
-                    <option value="is">Insert sizes</option>
-                    <option value="rl">Read lengths</option>
-                    <option value="id">Indel distribution</option>
-                    <option value="ic">Indels per cycle</option>
-                    <option value="cov">Coverage distribution</option>
-                    <option value="gcd">GC depth</option>
+                    <option value="SN">Summary numbers</option>
+                    <option value="FFQ">First Fragment Qualities</option>
+                    <option value="LFQ">Last Fragment Qualities</option>
+                    <option value="MPC">Mismatches per cycle</option>
+                    <option value="GCF">GC Content of first fragments</option>
+                    <option value="GCL">GC Content of last fragments</option>
+                    <option value="GCC">ACGT content per cycle</option>
+                    <option value="FBC">ACGT content per cycle for first fragments</option>
+                    <option value="LBC">ACGT content per cycle for last fragments</option>
+                    <option value="IS">Insert sizes</option>
+                    <option value="RL">Read lengths</option>
+                    <option value="FRL">Read lengths for first fragments</option>
+                    <option value="LRL">Read lengths for last fragments</option>
+                    <option value="ID">Indel distribution</option>
+                    <option value="IC">Indels per cycle</option>
+                    <option value="COV">Coverage distribution</option>
+                    <option value="GCD">GC depth</option>
                 </param>
             </when>
         </conditional>
@@ -189,111 +133,251 @@
             </param>
             <when value="filter">
                 <param name="require_flags" argument="-f" type="select" display="checkboxes" multiple="True" label="Require">
-                    <option value="1">Read is paired</option>
-                    <option value="2">Read is mapped in a proper pair</option>
-                    <option value="4">The read is unmapped</option>
-                    <option value="8">The mate is unmapped</option>
-                    <option value="16">Read strand</option>
-                    <option value="32">Mate strand</option>
-                    <option value="64">Read is the first in a pair</option>
-                    <option value="128">Read is the second in a pair</option>
-                    <option value="256">The alignment or this read is not primary</option>
-                    <option value="512">The read fails platform/vendor quality checks</option>
-                    <option value="1024">The read is a PCR or optical duplicate</option>
+                    <expand macro="flag_options" />
                 </param>
                 <param name="exclude_flags" argument="-F" type="select" display="checkboxes" multiple="True" label="Exclude">
-                    <option value="1">Read is paired</option>
-                    <option value="2">Read is mapped in a proper pair</option>
-                    <option value="4">The read is unmapped</option>
-                    <option value="8">The mate is unmapped</option>
-                    <option value="16">Read strand</option>
-                    <option value="32">Mate strand</option>
-                    <option value="64">Read is the first in a pair</option>
-                    <option value="128">Read is the second in a pair</option>
-                    <option value="256">The alignment or this read is not primary</option>
-                    <option value="512">The read fails platform/vendor quality checks</option>
-                    <option value="1024">The read is a PCR or optical duplicate</option>
+                    <expand macro="flag_options" />
                 </param>
             </when>
             <when value="nofilter" />
 
         </conditional>
-        <param name="gc_depth" argument="--GC-depth" type="float" value="20000" label="Size of GC-depth bins" help="Decreasing bin size increases memory requirement" />
-        <param name="insert_size" argument="--insert-size" type="integer" value="8000" label="Maximum insert size" />
+        <!-- TODO I would like to set the default values of float and int parameters as on the samtools stats help page, but then the tests don't work. Hence I leave the optional and give the defaults in the help -->
+        <param name="gc_depth" argument="--GC-depth" type="float" optional="True" label="Size of GC-depth bins" help="Decreasing bin size increases memory requirement. default=2e4" />
+        <param name="insert_size" argument="--insert-size" type="integer" optional="True" label="Maximum insert size" help="default=8000" />
         <!--
-
-            The -I option of samtools stats returns the following message in version 1.2:
-
+            The -I option of samtools stats returns the following message up to version 1.9:
             Samtools-htslib: init_group_id() header parsing not yet implemented
-            Abort trap: 6
-
             Because of this the section below is commented out until this stats bug is fixed
-
             <param name="read_group" type="select" optional="true" label="Limit to a specific read group name" >
                 <options>
-                    <filter type="data_meta" ref="input_file" key="read_groups" />
+                    <filter type="data_meta" ref="input" key="read_groups" />
                 </options>
             </param>
-
         -->
+        <param name="read_length" argument="--read-length" type="integer" optional="true" label="Minimum read length to generate statistics for" help="No cutoff if left empty" />
+        <param name="most_inserts" argument="--most-inserts" type="float" optional="true" label="Report only the main part of inserts" help="default=0.99" />
+        <param name="trim_quality" argument="--trim-quality" type="integer" optional="true" label="BWA trim parameter" help="default=0" />
 
-        <param name="read_length" argument="--read-length" type="integer" value="" optional="true" label="Minimum read length to generate statistics for" help="No cutoff if left empty"/>
-        <param name="most_inserts" argument="--most-inserts" type="float" value="0.99" label="Report only the main part of inserts" />
-        <param name="trim_quality" argument="--trim-quality" type="integer" value="0" label="BWA trim parameter" />
-
-        <conditional name="use_reference">
-            <param name="use_ref_selector" argument="--ref-seq" type="select" label="Use reference sequence" help="Required for GC-depth and mismatches-per-cycle calculation">
-                <option value="yes">Use reference</option>
-                <option selected="True" value="no">Do not use reference</option>
+        <conditional name="addref_cond">
+            <param name="addref_select" type="select" label="Use a reference sequence" help="Required for GC-depth and mismatches-per-cycle calculation">
+                <option value="no">No</option>
+                <option value="cached">Locally cached</option>
+                <option value="history">History</option>
             </param>
-            <when value="yes">
-                <conditional name="reference_source">
-                    <param name="reference_source_selector" type="select" label="Choose a reference sequence for GC depth">
-                        <option value="cached">Locally cached</option>
-                        <option value="history">History</option>
-                    </param>
-                    <when value="cached">
-                        <param name="ref_file" type="select" label="Using genome">
-                            <options from_data_table="fasta_indexes">
-                                <filter type="data_meta" ref="input_file" key="dbkey" column="1" />
-                            </options>
-                        </param>
-                    </when>
-                    <when value="history">
-                        <param name="ref_file" type="data" format="fasta" label="Using file" />
-                    </when>
-                </conditional>
+            <when value="no"/>
+            <when value="cached">
+                <param name="ref" type="select" label="Using genome">
+                    <options from_data_table="fasta_indexes">
+                        <filter type="data_meta" ref="input" key="dbkey" column="1" />
+                    </options>
+                </param>
             </when>
-            <when value="no" />
+            <when value="history">
+                <param name="ref" type="data" format="fasta" label="Using file" />
+            </when>
         </conditional>
+        <!-- unfortunately -t takes tabular and not bed like view (otherwise a macro might have simplified this) -->
+        
+        <expand macro="regions_macro"/>
 
+        <param name="sparse" argument="-x/--sparse" type="boolean" truevalue="-x" falsevalue="" checked="False" label="Suppress absence of insertions" help="Suppress outputting IS rows where there are no insertions."/>
+        <param name="remove_overlaps" argument="-p/--remove-overlaps" type="boolean" truevalue="-p" falsevalue="" checked="False" label="Remove overlaps of paired-end reads from coverage and base count computations" />
+        <param name="cov_threshold" argument="-g/--cov-threshold"  optional="true" type="integer" label="Only bases with coverage above this value will be included in the target percentage computation" />
+        <conditional name="cond_plot">
+            <param name="select_plot" type="select" label="Generate plots with plot-bamstats">
+                <option value="no" selected="True">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="log" argument="-l/--log-y" type="boolean" truevalue="-l" falsevalue="" checked="False" label="log scale insert size plot" help="Set the Y axis scale of the Insert Size plot to log 10"/>
+            </when>
+        </conditional>
     </inputs>
 
     <outputs>
         <data name="output" format="tabular" label="${tool.name} on ${on_string}">
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.tab" ext="tabular" visible="true" directory="split" />
+            <discover_datasets directory="split" pattern="(?P&lt;designation&gt;.+)\.tab" format="tabular" visible="true" assign_primary_output="true"/>
+            <filter>split_output_cond['split_output_selector'] == 'no'</filter>
+        </data>
+        <collection name="output_collection" type="list" label="${tool.name} on ${on_string}">
+            <discover_datasets directory="split" pattern="(?P&lt;designation&gt;.+)\.tab" format="tabular" visible="false"/>
+            <filter>split_output_cond['split_output_selector'] == 'yes'</filter>
+        </collection>
+        <data format="html" name="html_file" label="${tool.name} on ${on_string}: plot-bamstats">
+            <filter>cond_plot['select_plot']=='yes'</filter>
         </data>
     </outputs>
     <tests>
+        <!-- https://github.com/samtools/samtools/blob/9ce8c64493f7ea3fa69bc5c1ac980b1a8e3dcf1f/test/test.pl#L2402 -->
         <test>
-            <param name="input_file" value="samtools_stats_input.bam" ftype="bam" />
-            <param name="use_ref_selector" value="yes" />
-            <param name="reference_source_selector" value="history" />
-            <param name="ref_file" value="samtools_stats_ref.fa" ftype="fasta" />
-            <output name="output" file="samtools_stats_out1.tab" ftype="tabular" lines_diff="4" />
+            <param name="input" value="1_map_cigar.sam" ftype="sam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" ftype="fasta" />
+            </conditional>
+            <output name="output" file="1.stats.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/1.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/1_map_cigar.sam | tail -n+4", exp_fix=>$efix);-->
+        <test>
+            <param name="input" value="2_equal_cigar_full_seq.sam" ftype="sam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" ftype="fasta" />
+            </conditional>
+            <output name="output" file="2.stats.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/2.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/2_equal_cigar_full_seq.sam | tail -n+4", exp_fix=>$efix);-->
+        <!-- test_cmd($opts,out=>'stat/3.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/3_map_cigar_equal_seq.sam | tail -n+4", exp_fix=>$efix);-->
+        <!-- test_cmd($opts,out=>'stat/4.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/4_X_cigar_full_seq.sam | tail -n+4", exp_fix=>$efix);-->
+        <!-- test_cmd($opts,out=>'stat/5.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/5_insert_cigar.sam | tail -n+4", exp_fix=>$efix); -->
+        <test>
+            <param name="input" value="5_insert_cigar.sam" ftype="sam" />
+            <param name="insert_size" value="0" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="test.fa" ftype="fasta" />
+            </conditional>
+            <output name="output" file="6.stats.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/6.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa -i 0 $$opts{path}/stat/5_insert_cigar.sam | tail -n+4", exp_fix=>$efix); -->
+        <!-- test_cmd($opts,out=>'stat/7.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/7_supp.sam | tail -n+4", exp_fix=>$efix); -->
+        <!-- test_cmd($opts,out=>'stat/8.stats.expected',cmd=>"$$opts{bin}/samtools stats -r $$opts{path}/stat/test.fa $$opts{path}/stat/8_secondary.sam | tail -n+4", exp_fix=>$efix);-->
+        <!-- test_cmd($opts,out=>'stat/9.stats.expected',cmd=>"$$opts{bin}/samtools stats -S RG -r $$opts{path}/stat/test.fa $$opts{path}/stat/1_map_cigar.sam | tail -n+4", exp_fix=>$efix,out_map=>{"stat/1_map_cigar.sam_s1_a_1.bamstat"=>"stat/1_map_cigar.sam_s1_a_1.expected.bamstat"},hskip=>3);-->
+        <!-- test_cmd($opts,out=>'stat/10.stats.expected',cmd=>"$$opts{bin}/samtools stats -S RG -r $$opts{path}/stat/test.fa $$opts{path}/stat/10_map_cigar.sam | tail -n+4", exp_fix=>$efix,out_map=>{"stat/10_map_cigar.sam_s1_a_1.bamstat"=>"stat/10_map_cigar.sam_s1_a_1.expected.bamstat", "stat/10_map_cigar.sam_s1_b_1.bamstat"=>"stat/10_map_cigar.sam_s1_b_1.expected.bamstat"},hskip=>3);-->
+        <test>
+            <param name="input" value="11_target.sam" ftype="sam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="11.stats.targets" ftype="tabular" />
+            </conditional>
+            <output name="output" file="11.stats.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/11.stats.expected',cmd=>"$$opts{bin}/samtools stats -t $$opts{path}/stat/11.stats.targets $$opts{path}/stat/11_target.sam | tail -n+4", exp_fix=>$efix); -->
+
+        <test>
+            <param name="input" value="11_target.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="text"/>
+                <param name="regions_repeat_0|region" value="ref1:10-24"/>
+                <param name="regions_repeat_1|region" value="ref1:30-46"/>
+                <param name="regions_repeat_2|region" value="ref1:39-56"/>
+            </conditional>
+            <output name="output" file="11.stats.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/11.stats.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/11_target.bam ref1:10-24 ref1:30-46 ref1:39-56 | tail -n+4", exp_fix=>$efix);
+-->
+        <test>
+            <param name="input" value="11_target.sam" ftype="sam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="11.stats.targets" ftype="tabular" />
+            </conditional>
+            <param name="cov_threshold" value="4" />
+            <output name="output" file="11.stats.g4.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/11.stats.g4.expected',cmd=>"$$opts{bin}/samtools stats -g 4 -t $$opts{path}/stat/11.stats.targets $$opts{path}/stat/11_target.sam | tail -n+4", exp_fix=>$efix);-->
+        <test>
+            <param name="input" value="11_target.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="text"/>
+                <param name="regions_repeat_0|region" value="ref1:10-24"/>
+                <param name="regions_repeat_1|region" value="ref1:30-46"/>
+                <param name="regions_repeat_2|region" value="ref1:39-56"/>
+            </conditional>
+            <param name="cov_threshold" value="4" />
+            <output name="output" file="11.stats.g4.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/11.stats.g4.expected',cmd=>"$$opts{bin}/samtools stats -g 4 $$opts{path}/stat/11_target.bam ref1:10-24 ref1:30-46 ref1:39-56 | tail -n+4", exp_fix=>$efix); -->
+        <test>
+            <param name="input" value="12_overlaps.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="12_3reads.bed" ftype="tabular" />
+            </conditional>
+            <output name="output" file="12.3reads.overlap.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/12.3reads.overlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -t $$opts{path}/stat/12_3reads.bed | tail -n+4", exp_fix=>$efix);-->
+        <test>
+            <param name="input" value="12_overlaps.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="12_3reads.bed" ftype="tabular" />
+            </conditional>
+            <param name="remove_overlaps" value="-p"/>
+            <output name="output" file="12.3reads.nooverlap.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/12.3reads.nooverlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -p -t $$opts{path}/stat/12_3reads.bed | tail -n+4", exp_fix=>$efix);-->
+        <test>
+            <param name="input" value="12_overlaps.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="12_2reads.bed" ftype="tabular" />
+            </conditional>
+            <output name="output" file="12.2reads.overlap.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/12.2reads.overlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -t $$opts{path}/stat/12_2reads.bed | tail -n+4", exp_fix=>$efix);-->
+        <test>
+            <param name="input" value="12_overlaps.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="no" />
+            </conditional>
+            <conditional name="cond_region">
+                <param name="select_region" value="tab"/>
+                <param name="targetregions" value="12_2reads.bed" ftype="tabular" />
+            </conditional>
+            <param name="remove_overlaps" value="-p"/>
+            <output name="output" file="12.2reads.nooverlap.expected" ftype="tabular" lines_diff="3" />
+        </test>
+        <!-- test_cmd($opts,out=>'stat/12.2reads.nooverlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -p -t $$opts{path}/stat/12_2reads.bed | tail -n+4", exp_fix=>$efix);-->
+        <test>
+            <param name="input" value="samtools_stats_input.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="samtools_stats_ref.fa" ftype="fasta" />
+            </conditional>
+            <conditional name="cond_plot">
+                <param name="select_plot" value="yes"/>
+            </conditional>
+            <output name="output" file="samtools_stats_out1.tab" ftype="tabular" lines_diff="2" />
         </test>
         <test>
-            <param name="input_file" value="samtools_stats_input.bam" ftype="bam" />
-            <param name="use_ref_selector" value="yes" />
-            <param name="reference_source_selector" value="history" />
-            <param name="ref_file" value="samtools_stats_ref.fa" ftype="fasta" />
-            <param name="split_output_selector" value="yes" />
-            <param name="generate_tables" value="sn,mpc,gcc" />
-            <output name="output" file="samtools_stats_out2.tab" lines_diff="4">
-                <discovered_dataset designation="Summary numbers" ftype="tabular" file="samtools_stats_out2__sn.tab" />
-                <discovered_dataset designation="ACGT content per cycle" ftype="tabular" file="samtools_stats_out2__gcc.tab" />
-                <discovered_dataset designation="Mismatches per cycle" ftype="tabular" file="samtools_stats_out2__mpc.tab" />
-            </output>
+            <param name="input" value="samtools_stats_input.bam" ftype="bam" />
+            <conditional name="addref_cond">
+                <param name="addref_select" value="history" />
+                <param name="ref" value="samtools_stats_ref.fa" ftype="fasta" />
+            </conditional>
+            <conditional name="split_output_cond">
+                <param name="split_output_selector" value="yes" />
+                <param name="generate_tables" value="SN,MPC,GCC" />
+            </conditional>
+            <output_collection name="output_collection" type="list">
+                <element name="ACGT content per cycle" ftype="tabular" file="samtools_stats_out1__gcc.tab"/>
+                <element name="Mismatches per cycle and quality" ftype="tabular" file="samtools_stats_out1__mpc.tab" />
+                <element name="Summary Numbers" ftype="tabular" file="samtools_stats_out1__sn.tab" />
+            </output_collection>
         </test>
     </tests>
     <help><![CDATA[
