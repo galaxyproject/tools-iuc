@@ -787,12 +787,32 @@ class JbrowseConnector(object):
 
         if 'GCContent' in data['plugins_python']:
             self._add_track_json({
-                "storeClass": "JBrowse/Store/SeqFeature/SequenceChunks",
+                "storeClass": "JBrowse/Store/SeqFeature/IndexedFasta",
                 "type": "GCContent/View/Track/GCContentXY",
-                "label": "GCContentXY",
+                "label": "GC Content",
                 "key": "GCContentXY",
-                "urlTemplate": "seq/{refseq_dirpath}/{refseq}-",
+                "urlTemplate": "seq/genome.fasta",
                 "bicolor_pivot": 0.5,
+                "metadata": {
+                    "tool_tool": '<a target="_blank" href="https://github.com/elsiklab/gccontent/commit/030180e75a19fad79478d43a67c566ec6">elsiklab/gccontent</a>',
+                    "tool_tool_version": "5c8b0582ecebf9edf684c76af8075fb3d30ec3fa",
+                    "dataset_edam_format": "",
+                    "dataset_size": "",
+                    "history_display_name": "",
+                    "history_user_email": "",
+                    "metadata_dbkey": "",
+                }
+                # TODO: Expose params for everyone.
+            })
+            self._add_track_json({
+                "storeClass": "JBrowse/Store/SeqFeature/IndexedFasta",
+                "type": "GCContent/View/Track/GCContentXY",
+                "label": "GC skew",
+                "key": "GCSkew",
+                "urlTemplate": "seq/genome.fasta",
+                "gcMode": "skew",
+                "min_score": -1,
+                "bicolor_pivot": 0,
                 "metadata": {
                     "tool_tool": '<a target="_blank" href="https://github.com/elsiklab/gccontent/commit/030180e75a19fad79478d43a67c566ec6">elsiklab/gccontent</a>',
                     "tool_tool_version": "5c8b0582ecebf9edf684c76af8075fb3d30ec3fa",
