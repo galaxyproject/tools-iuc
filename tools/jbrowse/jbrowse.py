@@ -938,11 +938,12 @@ if __name__ == '__main__':
             'name': 'GCContent'
         })
 
-    if plugins['Bookmarks'] == 'True':
-        extra_data['plugins'].append({
-            'location': 'https://cdn.jsdelivr.net/gh/TAMU-CPT/bookmarks-jbrowse@5242694120274c86e1ccd5cb0e5e943e78f82393/',
-            'name': 'Bookmarks'
-        })
+    # Not needed in 1.16.1: it's build in the conda package now, and this plugin doesn't need to be enabled anywhere
+    #if plugins['Bookmarks'] == 'True':
+    #    extra_data['plugins'].append({
+    #        'location': 'https://cdn.jsdelivr.net/gh/TAMU-CPT/bookmarks-jbrowse@5242694120274c86e1ccd5cb0e5e943e78f82393/',
+    #        'name': 'Bookmarks'
+    #    })
 
     if plugins['ComboTrackSelector'] == 'True':
         extra_data['plugins_python'].append('ComboTrackSelector')
