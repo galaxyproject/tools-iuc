@@ -493,9 +493,7 @@ class JbrowseConnector(object):
 
         trackData['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
 
-        # Disable BlastView plugin until https://github.com/GMOD/jbrowse/issues/1288 is fixed
-        # trackData['trackType'] = 'BlastView/View/Track/CanvasFeatures'
-        trackData['trackType'] = 'JBrowse/View/Track/CanvasFeatures'
+        trackData['trackType'] = 'BlastView/View/Track/CanvasFeatures'
 
         self._add_track_json(trackData)
 
