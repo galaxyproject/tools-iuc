@@ -465,7 +465,7 @@ class VarScanCaller (object):
         # genotype field starting with the sample with the largest value.
         new_gt_fields = {'AD': [], 'ADF': [], 'ADR': []}
         # store the current genotype field contents for each sample
-        per_sample_gts = list(record.samples.values())
+        per_sample_gts = record.samples.values()
         # calculate and store the new genotype field values
         for gt_field in per_sample_gts:
             # generate a standard AD field by combining VarScan's
