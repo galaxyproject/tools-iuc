@@ -443,36 +443,60 @@ class VarScanCaller (object):
         # VarScan
         with pysam.VariantFile(varcall_template, 'r') as original_data:
             varscan_header = original_data.header
+        # don't propagate non-standard and redundant FORMAT keys written
+        # by VarScan
+        varscan_header.formats.remove_header('AD')
+        varscan_header.formats.remove_header('FREQ')
+        varscan_header.formats.remove_header('RD')
+        varscan_header.formats.remove_header('DP4')
         for sample in varscan_header.samples:
             common_header.samples.add(sample)
         common_header.merge(varscan_header)
-        # don't propagate non-standard and redundant FORMAT keys written
-        # by VarScan
-        common_header.formats.remove_header('FREQ')
-        common_header.formats.remove_header('RD')
-        common_header.formats.remove_header('DP4')
         return common_header
 
-    def _fix_read_gt_fields(self, read):
+    def _fix_record_gt_fields(self, record):
         """Migrate non-standard genotype fields to standard ones."""
 
-        for gt_field in read.samples.values():
+        # The key issue to consider here is that we need to modify
+        # genotype field values on a per-sample basis, but htslib
+        # reserves memory for the values of all samples upon the first
+        # modification of the field in the variant record.
+        # => We need to calculate all values first, then fill each
+        # genotype field starting with the sample with the largest value.
+        new_gt_fields = {'AD': [], 'ADF': [], 'ADR': []}
+        # store the current genotype field contents for each sample
+        per_sample_gts = record.samples.values()
+        # calculate and store the new genotype field values
+        for gt_field in per_sample_gts:
             # generate a standard AD field by combining VarScan's
             # RD and non-standard AD fields
-            gt_field['AD'] = (gt_field['RD'], gt_field['AD'][0])
+            new_gt_fields['AD'].append((gt_field['RD'], gt_field['AD'][0]))
             # split VarScan's DP4 field into the standard fields
             # ADF and ADR
-            gt_field['ADF'] = (
-                int(gt_field['DP4'][0]), int(gt_field['DP4'][2])
+            new_gt_fields['ADF'].append(
+                (int(gt_field['DP4'][0]), int(gt_field['DP4'][2]))
             )
-            gt_field['ADR'] = (
-                int(gt_field['DP4'][1]), int(gt_field['DP4'][3])
+            new_gt_fields['ADR'].append(
+                (int(gt_field['DP4'][1]), int(gt_field['DP4'][3]))
             )
+        # Modify the record's genotype fields.
+        # For each field, modify the sample containing the largest
+        # value for the field first.
+        # Without this precaution we could trigger:
+        # "bcf_update_format: Assertion `!fmt->p_free' failed."
+        # in vcf.c of htslib resulting in a core dump.
+        for field in sorted(new_gt_fields):
+            for new_field, sample_fields in sorted(
+                zip(new_gt_fields[field], per_sample_gts),
+                key=lambda x: max(x[0]),
+                reverse=True
+            ):
+                sample_fields[field] = new_field
         # remove redundant fields
         # FREQ is easy to calculate from AD
-        del read.format['FREQ']
-        del read.format['RD']
-        del read.format['DP4']
+        del record.format['FREQ']
+        del record.format['RD']
+        del record.format['DP4']
 
     def pileup_masker(self, mask):
         def apply_mask_on_pileup(piled_items):
@@ -845,7 +869,7 @@ class VarScanCaller (object):
                                 ),
                                 **filter_args
                             ):
-                                self._fix_read_gt_fields(record)
+                                self._fix_record_gt_fields(record)
                                 o.write(str(record))
                     try:
                         os.remove(snp_f)
@@ -871,7 +895,7 @@ class VarScanCaller (object):
                         for record in apply_filters(
                             invcf, **filter_args
                         ):
-                            self._fix_read_gt_fields(record)
+                            self._fix_record_gt_fields(record)
                             o.write(str(record))
                     try:
                         os.remove(f)
@@ -892,7 +916,7 @@ class VarScanCaller (object):
                         for record in apply_filters(
                             self._indel_flagged_records(invcf), **filter_args
                         ):
-                            self._fix_read_gt_fields(record)
+                            self._fix_record_gt_fields(record)
                             o.write(str(record))
                     try:
                         os.remove(f)
