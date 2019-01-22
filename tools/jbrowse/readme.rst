@@ -25,13 +25,18 @@ likely to change at any time! Beware. ;)
 History
 =======
 
-- 0.8
+- 0.8 aka 1.16.1+galaxy0
 
-    - ADDED
+    - UPDATED to JBrowse 1.16.1
+    - ADDED support for MultiBigWig plugin
+    - ADDED support for tabix indexing of fasta and gff
+    - ADDED support for REST and SPARQL endpoints
+    - ADDED option to change chunk size for BAM tracks
     - FIXED loading of VCF files. They were gzipped and the URLs were incorrect
     - FIXED metadata on tracks types other than GFF+HTML
     - FIXED infrastructure URL parsing (and embedding in links) for some tracks
     - REMOVED support for selecting multiple genomes as input due to tracking of track metadata
+    - REMOVED support for themes as JBrowse no longer allow runtime loading of plugins
 
 - 0.7 Support for plugins (currently GC Content, Bookmarks, ComboTrackSelector),
   track metadata
