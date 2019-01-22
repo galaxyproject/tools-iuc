@@ -791,6 +791,7 @@ class JbrowseConnector(object):
                 "key": "GCContentXY",
                 "urlTemplate": "seq/genome.fasta",
                 "bicolor_pivot": 0.5,
+                "category": "GC Content",
                 "metadata": {
                     "tool_tool": '<a target="_blank" href="https://github.com/elsiklab/gccontent/commit/030180e75a19fad79478d43a67c566ec6">elsiklab/gccontent</a>',
                     "tool_tool_version": "5c8b0582ecebf9edf684c76af8075fb3d30ec3fa",
@@ -811,6 +812,7 @@ class JbrowseConnector(object):
                 "gcMode": "skew",
                 "min_score": -1,
                 "bicolor_pivot": 0,
+                "category": "GC Content",
                 "metadata": {
                     "tool_tool": '<a target="_blank" href="https://github.com/elsiklab/gccontent/commit/030180e75a19fad79478d43a67c566ec6">elsiklab/gccontent</a>',
                     "tool_tool_version": "5c8b0582ecebf9edf684c76af8075fb3d30ec3fa",
