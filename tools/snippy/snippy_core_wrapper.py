@@ -32,15 +32,15 @@ def main():
         sys.stderr.write(indir + '\n')
         copyfile(indir, base_name)
         sys.stderr.write('\n'.join([indir, base_name]) + '\n')
-        subprocess.run(['tar', '-xf', base_name])
+        subprocess.Popen(['tar', '-xf', base_name])
 
-    extracted_dirs = [f.path for f in os.scandir() if f.is_dir() ]
+    extracted_dirs = [f.path for f in os.listdir() if f.is_dir() ]
 
     for extracted_dir in extracted_dirs:
         snippy_core_command_line.append(extracted_dir)
 
     print(snippy_core_command_line)
-    subprocess.run(snippy_core_command_line)
+    subprocess.Popen(snippy_core_command_line)
 
 if __name__ == '__main__':
     main()
