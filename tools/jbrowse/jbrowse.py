@@ -458,7 +458,7 @@ class JbrowseConnector(object):
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
         cmd = ['python', os.path.join(INSTALLED_TO, 'blastxml_to_gapped_gff3.py'),
-               '--trim', '--trim_end', '--min_gap', str(min_gap), xml]
+               '--trim', '--trim_end', '--include_seq', '--min_gap', str(min_gap), xml]
         log.debug('cd %s && %s > %s', self.outdir, ' '.join(cmd), gff3_unrebased.name)
         subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_unrebased)
         gff3_unrebased.close()
@@ -494,6 +494,7 @@ class JbrowseConnector(object):
         trackData['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
 
         trackData['trackType'] = 'BlastView/View/Track/CanvasFeatures'
+        trackData['type'] = 'BlastView/View/Track/CanvasFeatures'
 
         self._add_track_json(trackData)
 
