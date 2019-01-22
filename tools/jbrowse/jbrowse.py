@@ -528,6 +528,37 @@ class JbrowseConnector(object):
 
         self._add_track_json(trackData)
 
+    def add_bigwig_multiple(self, data, trackData, wiggleOpts, **kwargs):
+
+        urls = []
+        for idx, bw in enumerate(data):
+            dest = os.path.join('data', 'raw', trackData['label'] + '_' + str(idx) + '.bw')
+            cmd = ['ln', '-s', bw[1], dest]
+            self.subprocess_check_call(cmd)
+
+            urls.append({"url": os.path.join('raw', trackData['label'] + '_' + str(idx) + '.bw'), "name": str(idx + 1) + ' - ' + bw[0]})
+
+        trackData.update({
+            "urlTemplates": urls,
+            "showTooltips": "true",
+            "storeClass": "MultiBigWig/Store/SeqFeature/MultiBigWig",
+            "type": "MultiBigWig/View/Track/MultiWiggle/MultiDensity",
+        })
+        if 'XYPlot' in wiggleOpts['type']:
+            trackData['type'] = "MultiBigWig/View/Track/MultiWiggle/MultiXYPlot"
+
+        trackData['variance_band'] = True if wiggleOpts['variance_band'] == 'true' else False
+
+        if 'min' in wiggleOpts and 'max' in wiggleOpts:
+            trackData['min_score'] = wiggleOpts['min']
+            trackData['max_score'] = wiggleOpts['max']
+        else:
+            trackData['autoscale'] = wiggleOpts.get('autoscale', 'local')
+
+        trackData['scale'] = wiggleOpts['scale']
+
+        self._add_track_json(trackData)
+
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bam')
         cmd = ['ln', '-s', os.path.realpath(data), dest]
@@ -695,7 +726,7 @@ class JbrowseConnector(object):
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
             # much simpler.
-            hashData = [dataset_path, track_human_label, track['category'], rest_url]
+            hashData = [str(dataset_path), track_human_label, track['category'], rest_url]
             hashData = '|'.join(hashData).encode('utf-8')
             outputTrackConfig['label'] = hashlib.md5(hashData).hexdigest() + '_%s' % i
             outputTrackConfig['metadata'] = extra_metadata
@@ -723,6 +754,9 @@ class JbrowseConnector(object):
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
                                 track['conf']['options']['wiggle'])
+            elif dataset_ext == 'bigwig_multiple':
+                self.add_bigwig_multiple(dataset_path, outputTrackConfig,
+                                         track['conf']['options']['wiggle'])
             elif dataset_ext == 'bam':
                 real_indexes = track['conf']['options']['pileup']['bam_indices']['bam_index']
                 if not isinstance(real_indexes, list):
@@ -999,17 +1033,29 @@ if __name__ == '__main__':
         track_conf = {}
         track_conf['trackfiles'] = []
 
+        is_multi_bigwig = False
+        try:
+            if track.find('options/wiggle/multibigwig') and (track.find('options/wiggle/multibigwig').text == 'True'):
+                is_multi_bigwig = True
+                multi_bigwig_paths = []
+        except KeyError:
+            pass
+
         trackfiles = track.findall('files/trackFile')
         if trackfiles:
             for x in track.findall('files/trackFile'):
-                metadata = metadata_from_node(x.find('metadata'))
+                if is_multi_bigwig:
+                    multi_bigwig_paths.append((x.attrib['label'], os.path.realpath(x.attrib['path'])))
+                else:
+                    if trackfiles:
+                        metadata = metadata_from_node(x.find('metadata'))
 
-                track_conf['trackfiles'].append((
-                    os.path.realpath(x.attrib['path']),
-                    x.attrib['ext'],
-                    x.attrib['label'],
-                    metadata
-                ))
+                        track_conf['trackfiles'].append((
+                            os.path.realpath(x.attrib['path']),
+                            x.attrib['ext'],
+                            x.attrib['label'],
+                            metadata
+                        ))
         else:
             # For tracks without files (rest, sparql)
             track_conf['trackfiles'].append((
@@ -1019,12 +1065,22 @@ if __name__ == '__main__':
                 {}
             ))
 
+        if is_multi_bigwig:
+            metadata = metadata_from_node(x.find('metadata'))
+
+            track_conf['trackfiles'].append((
+                multi_bigwig_paths,  # Passing an array of paths to represent as one track
+                'bigwig_multiple',
+                'MultiBigWig',  # Giving an hardcoded name for now
+                {}  # No metadata for multiple bigwig
+            ))
+
         track_conf['category'] = track.attrib['cat']
         track_conf['format'] = track.attrib['format']
         try:
             # Only pertains to gff3 + blastxml. TODO?
             track_conf['style'] = {t.tag: t.text for t in track.find('options/style')}
-        except TypeError as te:
+        except TypeError:
             track_conf['style'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
