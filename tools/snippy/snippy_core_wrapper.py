@@ -32,7 +32,7 @@ def main():
         copyfile(indir, base_name)
         subprocess.Popen(['tar', '-xf', base_name])
 
-    extracted_dirs = [f.path for f in os.listdir('.') if f.is_dir() ]
+    extracted_dirs = [f.path for f in os.listdir('.') if os.path.isdir(f) ]
 
     for extracted_dir in extracted_dirs:
         snippy_core_command_line.append(extracted_dir)
