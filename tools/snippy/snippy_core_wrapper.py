@@ -31,7 +31,7 @@ def main():
     for input_dataset in args.indirs.split(','):
         base_name = os.path.basename(input_dataset)
         copyfile(input_dataset, base_name)
-        subprocess.Popen(['tar', '-xf', base_name])
+        subprocess.Popen(['tar', '-xf', base_name]).wait()
 
     extracted_dirs = [f for f in os.listdir('.') if os.path.isdir(f) ]
     for extracted_dir in extracted_dirs:
