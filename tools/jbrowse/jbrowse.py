@@ -965,13 +965,14 @@ if __name__ == '__main__':
     #    })
 
     # Not needed in 1.16.1: it's built in the conda package now, and this plugin doesn't need to be enabled anywhere
-    # if plugins['ComboTrackSelector'] == 'True':
-    #    extra_data['plugins_python'].append('ComboTrackSelector')
-    #    extra_data['plugins'].append({
-    #        'location': 'https://cdn.jsdelivr.net/gh/Arabidopsis-Information-Portal/ComboTrackSelector@52403928d5ccbe2e3a86b0fa5eb8e61c0f2e2f57/',
-    #        'icon': 'https://galaxyproject.org/images/logos/galaxy-icon-square.png',
-    #        'name': 'ComboTrackSelector'
-    #    })
+    if plugins['ComboTrackSelector'] == 'True':
+        extra_data['plugins_python'].append('ComboTrackSelector')
+        # Not needed in 1.16.1: it's built in the conda package now, and this plugin doesn't need to be enabled anywhere
+        # extra_data['plugins'].append({
+        #    'location': 'https://cdn.jsdelivr.net/gh/Arabidopsis-Information-Portal/ComboTrackSelector@52403928d5ccbe2e3a86b0fa5eb8e61c0f2e2f57/',
+        #    'icon': 'https://galaxyproject.org/images/logos/galaxy-icon-square.png',
+        #    'name': 'ComboTrackSelector'
+        # })
 
     if plugins['theme'] == 'Minimalist':
         extra_data['plugins'].append({
