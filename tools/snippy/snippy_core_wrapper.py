@@ -18,8 +18,8 @@ import os
 import subprocess
 from shutil import copyfile
 
-def main():
 
+def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-r', '--ref', help='Reference fasta', required=True)
