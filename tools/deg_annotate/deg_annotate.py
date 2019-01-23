@@ -64,7 +64,7 @@ def gff_to_dict(f_gff, feat_type, idattr, txattr, attributes, input_type):
                     pass
 
     bed_entries = []
-    # create BED lines only for deseq output
+    # create BED lines only for dexeq output
     if input_type == "dexseq":
         for txid in exon_pos.keys():
             starts = sorted(exon_pos[txid])
@@ -87,8 +87,8 @@ def main():
     parser.add_argument('-in', '--input', required=True,
                         help='DESeq2/DEXSeq output. It is allowed to have extra information, '
                              'but make sure that the original output columns are not altered')
-    parser.add_argument('-m', '--mode', required=True, choices=["deseq2", "dexseq"], default='deseq2',
-                        help='Input file type')
+    parser.add_argument('-m', '--mode', required=True, choices=["degseq", "dexseq"],
+                        default='degseq', help='Input file type')
     parser.add_argument('-g', '--gff', required=True, help='The same annotation GFF/GTF file used for couting')
     parser.add_argument('-t', '--type', default='exon', required=False,
                         help='feature type (3rd column in GFF file) to be used (default: exon)')
@@ -146,19 +146,10 @@ def main():
     with open(args.input) as fh_input, open(args.output, 'w') as fh_output:
         for line in fh_input:
             annot = []
-            # Append the extra information from GFF to DESeq2 output
-            if args.mode == "deseq2":
-                geneid = line.split('\t')[0]
-                annot = [str(annotation[geneid]['chr']),
-                         str(annotation[geneid]['start']),
-                         str(annotation[geneid]['end']),
-                         str(annotation[geneid]['strand'])]
-                for a in attr:
-                    annot.append(annotation[geneid][a])
             # DEXSeq exonic bins might originate from aggrigating multiple genes. They are are separated by '+'
             # Append the attributes from the GFF but keep the order of the aggregated genes and use '+'
             # Aappend the transcript id and exon number from the annotation that correspond to the DEXseq counting bins
-            elif args.mode == "dexseq":
+            if args.mode == "dexseq":
                 geneids = line.split('\t')[1].split('+')
                 for a in attr:
                     tmp = []
@@ -171,6 +162,15 @@ def main():
                         annot.append(','.join(sorted(set(d_binexon[binid]))))
                     except KeyError:
                         annot.append('NA')
+            # Append the extra information from GFF to DESeq2/edgeR/limma output
+            else:
+                geneid = line.split('\t')[0]
+                annot = [str(annotation[geneid]['chr']),
+                         str(annotation[geneid]['start']),
+                         str(annotation[geneid]['end']),
+                         str(annotation[geneid]['strand'])]
+                for a in attr:
+                    annot.append(annotation[geneid][a])
             fh_output.write(line.rstrip('\n') + '\t' + '\t'.join(annot) + '\n')
 
 
