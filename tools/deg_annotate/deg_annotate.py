@@ -88,7 +88,7 @@ def main():
                         help='DESeq2/DEXSeq output. It is allowed to have extra information, '
                              'but make sure that the original output columns are not altered')
     parser.add_argument('-m', '--mode', required=True, choices=["degseq", "dexseq"],
-                        default='degseq',help='Input file type')
+                        default='degseq', help='Input file type')
     parser.add_argument('-g', '--gff', required=True, help='The same annotation GFF/GTF file used for couting')
     parser.add_argument('-t', '--type', default='exon', required=False,
                         help='feature type (3rd column in GFF file) to be used (default: exon)')
