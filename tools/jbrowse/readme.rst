@@ -25,7 +25,7 @@ likely to change at any time! Beware. ;)
 History
 =======
 
-- 0.8 aka 1.16.1+galaxy0
+- 1.16.1+galaxy0
 
     - UPDATED to JBrowse 1.16.1
     - ADDED support for MultiBigWig plugin
