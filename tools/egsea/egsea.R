@@ -98,7 +98,7 @@ if (!is.null(args$filesPath)) {
 
 } else {
  # Process the single count matrix
-    counts <- read.table(args$matrixPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    counts <- read.table(args$matrixPath, header=TRUE, sep="\t", stringsAsFactors=FALSE, check.names=FALSE)
     row.names(counts) <- counts[, 1]
     counts <- counts[ , -1]
     countsRows <- nrow(counts)
@@ -106,6 +106,9 @@ if (!is.null(args$filesPath)) {
     # Process factors
     if (is.null(args$factInput)) {
             factorData <- read.table(args$factFile, header=TRUE, sep="\t", strip.white=TRUE)
+            # check samples names match
+            if(!any(factorData[, 1] %in% colnames(counts)))
+                stop("Sample IDs in factors file and count matrix don't match")
             # order samples as in counts matrix
             factorData <- factorData[match(colnames(counts), factorData[, 1]), ]
             factors <- factorData[, -1, drop=FALSE]
