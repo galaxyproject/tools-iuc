@@ -1,82 +1,247 @@
-<tool id="quast" name="Quast" version="5.0.2" >
+<tool id="quast" name="Quast" version="@TOOL_VERSION@+galaxy0" >
     <description>Genome assembly Quality</description>
+    <macros>
+        <token name="@TOOL_VERSION@">5.0.1</token>
+        <xml name="gene_thresholds">
+            <param name="gene_thresholds" argument="--gene-thresholds" type="text" value="0,300,1500,3000" label="Comma-separated list of thresholds (in bp) for gene lengths to find with a finding tool"/>
+        </xml>
+    </macros>
     <requirements>
-        <requirement type="package" version="5.0.2">quast</requirement>
+        <requirement type="package" version="@TOOL_VERSION@">quast</requirement>
     </requirements>
     <command detect_errors="exit_code">
     <![CDATA[
 #import re
-quast
---threads \${GALAXY_SLOTS:-4}
--o outputdir
-#if $gene_selection == "eukaryote":
-    --eukaryote
-#else if $gene_selection == "metagenes":
-    --meta
-#end if
-$large
-#if $input_ref:
-    -R '$input_ref'
-    #if $input_operon:
-        -O '$input_operon'
-    #end if
-    #if $annot:
-        -g '$annot'
-    #end if
-#end if
-#if $input_size:
-    --est-ref-size $input_size
-#end if
---min-contig $min_contig
--l
-#set names = ','.join( [re.sub('[^\w\-_]', '_', str($x.element_identifier)) for $x in $input ])
+#import tempfile
 
-'$names'
---contig-thresholds $threshold_contig
-#for $k in $input:
-    $k 
+#set $labels = []
+#for $x in $inputs
+    #if $x.labels != ''
+        #silent $labels.append(str($x.labels))
+    #else 
+        #silent $labels.append($re.sub('[^\w\-_]', '_', str($x.input.element_identifier)))
+    #end if
 #end for
-&& mkdir '$report_html.files_path'
-&& cp outputdir/*.html '$report_html.files_path'
-#if str($input_ref):
+#set $labels = ','.join($labels)
+
+#if $assembly.type == 'metagenomic' and $assembly.ref.origin == 'list'
+    #set $temp_dir = os.path.abspath(tempfile.mkdtemp())
+    #set $temp_ref_list_f = tempfile.NamedTemporaryFile( dir=$temp_dir )
+    #set $temp_ref_list_fp = $temp_ref_list_f.name
+    #silent $temp_ref_list_f.write('\n'.join([x.strip() for x in $assembly.ref.references_list.split(',')]))
+#end if
+
+#if $assembly.type == 'single'
+quast
+#else
+metaquast
+#end if
+    -o outputdir
+
+#if $assembly.type == 'single'
+    #if $assembly.ref.use_ref == 'True'
+    -r '$assembly.ref.r'
+        #if $assembly.ref.features
+    --features '$assembly.ref.features'
+        #end if
+        #if $assembly.ref.operons
+    --operons '$assembly.ref.operons'
+        #end if
+    #else
+        #if $assembly.ref.est_ref_size
+    --est-ref-size $assembly.ref.est_ref_size
+        #end if
+    #end if
+#else
+    #if $assembly.ref.origin == 'history'
+    -r '$assembly.ref.r'
+    #elsif $assembly.ref.origin == 'list'
+    --references-list '$temp_ref_list_fp'
+    #elsif $assembly.ref.origin == 'silva'
+    --test-no-ref
+    --max-ref-num '$assembly.ref.max_ref_num'
+    #end if
+#end if
+    --min-contig '$min_contig'
+    --threads \${GALAXY_SLOTS:-4}
+    $split_scaffolds
+    --labels $labels
+#if $orga_type != "default"
+    $orga_type
+#end if
+    $large
+    $k_mer.k_mer_stats
+#if str($k_mer.k_mer_stats) != ''
+    --k-mer-size '$k_mer.k_mer_size'
+#end if
+    $circos
+#if $genes.gene_finding.gene_finding == 'True'
+    $genes.gene_finding.params.tool
+    #if $genes.gene_finding.params.tool == '--gene_finding' or $genes.gene_finding.params.tool == '--glimmer'
+        #set $gene_threshold = ','.join([x.strip() for x in $genes.gene_finding.params.gene_thresholds.split(',')])
+        --gene-thresholds '$gene_threshold'
+    #end if
+#end if
+    $genes.rna_finding
+    $genes.conserved_genes_finding
+    $al.use_all_alignments
+    --min-alignment '$al.min_alignment'
+    --min-identity '$al.min_identity'
+    --ambiguity-usage '$al.ambiguity_usage'
+    $al.fragmented
+    
+    #set $contig_thresholds = ','.join([x.strip() for x in $contig_thresholds.split(',')])
+    --contig-thresholds '$contig_thresholds'
+    $strict_NA
+    --extensive-mis-size '$extensive_mis_size'
+    --scaffold-gap-max-size '$scaffold_gap_max_size'
+    --unaligned-part-size '$unaligned_part_size'
+    $skip_unaligned_mis_contigs
+    
+#for $k in $inputs
+    '$k.input'
+#end for
+
+&& mkdir -p '$report_html.files_path'
+&& cp -r outputdir/*.html '$report_html.files_path'
+#if ($assembly.type == 'single' and $assembly.ref.use_ref) or ($assembly.type == 'metagenomic' and $assembly.ref.origin != 'none')
     && cp -R outputdir/icarus_viewers '$report_html.files_path'
+#end if
+
+#if $assembly.type == 'metagenomic' and $assembly.ref.origin == 'list'
+    #silent $temp_ref_list_f.close()
 #end if
     ]]>
     </command>
     <inputs>
-        <param type="data" format="fasta" name="input" label="Contigs/scaffolds output file" multiple="True"/>
-        <param name="type_file" type="select" label="Type of data">
-            <option value="contig">Contig</option>
-            <option value="scaffold">Scaffold</option>
+        <repeat name="inputs" title="Contigs/scaffolds" min="1">
+            <param name="input" type="data" format="fasta" label="Contigs/scaffolds file"/>
+            <param argument="--labels" type="text" value="" label="Assembly name" help="This name will be used in reports, plots and logs"/>
+        </repeat>
+        <conditional name="assembly">
+            <param name="type" type="select" label="Type of assembly">
+                <option value="single">Single-genome</option>
+                <option value="metagenomic">Metagenomic</option>
+            </param>
+            <when value="single">
+                <conditional name="ref">
+                    <param name="use_ref" type="select" label="Use a reference genome?" help="Many metrics can't be evaluated without a reference. If this is omitted, QUAST will only report the metrics that can be evaluated without a reference.">
+                        <option value="True">Yes</option>
+                        <option value="False" selected="true">No</option>
+                    </param>
+                    <when value="True">
+                        <param argument="-r" type="data" format="fasta" multiple="true" label="Reference genome" />
+                        <param argument="--features" type="data" format="gff, gff3, bed" optional="true" label="Genomic feature positions in the reference genome" help="Gene coordinates for the reference genome"/>
+                        <param argument="--operons" type="data" format="gff, gff3, bed" optional="true" label="Operon positions in the reference genome" help="Operon coordinates for the reference genome"/>
+                    </when>
+                    <when value="False">
+                        <param name="est_ref_size" argument="--est-ref-size" type="integer" optional="true" label="Estimated reference genome size (in bp) for computing NGx statistics" help=""/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="metagenomic">
+                <conditional name="ref">
+                    <param name="origin" type="select" label="Reference genome" help="Many metrics can't be evaluated without a reference. If this is omitted, QUAST will only report the metrics that can be evaluated without a reference.">
+                        <option value="history">From history</option>
+                        <option value="list">From list</option>
+                        <option value="silva">From SILVA database</option>
+                        <option value="none" selected="true">None</option>
+                    </param>
+                    <when value="history">
+                        <param argument="-r" type="data" format="fasta" multiple="true" label="Reference genome" />
+                    </when>
+                    <when value="list">
+                        <param name="references_list" argument="--references-list" type="text" value="" label="Comma-separated list of reference genomes" help="MetaQUAST will search for these references in the NCBI database and will download the found ones"/>
+                    </when>
+                    <when value="silva">
+                        <param name="max_ref_num" argument="-max-ref-num" type="integer" value="50" label="Maximum number of reference genomes (per each assembly) to download after searching in the SILVA databa" />
+                    </when>
+                    <when value="none"/>
+                </conditional>
+            </when>
+        </conditional>
+        <param name="min_contig" argument="--min-contig" type="integer" value="500" label="Lower threshold for a contig length (in bp)" help="Shorter contigs won't be taken into account"/>
+        <param name="split_scaffolds" argument="--split-scaffolds" type="boolean" truevalue="--split-scaffolds" falsevalue="" checked="false" label="Are assemblies scaffolds rather than contigs?" help="QUAST will add split versions of assemblies to the comparison. Assemblies are split by continuous fragments of N's of length >= 10. If broken version is equal to the original assembly (i.e. nothing was split) it is not included in the comparison."/>
+        <param name="orga_type" type="select" label="Type of organism">
+            <option value="default">Prokaryotes: use of GeneMarkS for gene finding</option>
+            <option value="--eukaryote">Eukaryote (--eukaryote): use of GeneMark-ES for gene finding, Barrnap for ribosomal RNA genes prediction, BUSCO for conserved orthologs finding</option>
+            <option value="--fungus">Fungus (--fungus): use of GeneMark-ES for gene finding, Barrnap for ribosomal RNA genes prediction, BUSCO for conserved orthologs finding</option>
         </param>
-        <param name="input_size" type="integer" label="Size of reference genome" optional="True"  argument="--est-ref-size"
-            help="Estimated reference genome size (in bp) for computing NGx statistics, if known. This value will be used only if a reference genome file is not specified "/>
-        <param argument="--large" type="boolean" truevalue="--large" falsevalue="" label="Run quast in --large mode for large genomes" help="Uses minimap2 aligner, improves transposable element handling and alignment thresholds"/>
-        <param name="input_ref" type="data" format="fasta" label="Reference genome" optional="True"  argument="-R"
-            help="Many metrics can't be evaluated without a reference. If this is omitted, QUAST will only report the metrics that can be evaluated without a reference."/>
-        <param name="annot" type="data" format="gff, gff3, bed" label="Gene Annotations" optional="True" argument="-G"
-            help="Gene coordinates for the reference genome (only relevant if the reference genome is used). "/>
-        <param name="input_operon" type="data" format="gff, gff3, bed" label="Operon Annotations"  optional="True" argument="-O" help="Operon coordinates for the reference genome (only relevant if the reference genome is used)."/>
-        <param name="gene_selection" type="select" label="Type of organism">
-            <option value="prokaryotes">Prokaryotes</option>
-            <option value="eukaryote">Eukaryote</option>
-        </param>
-        <param name="min_contig" type="integer" value="500" label="Lower Threshold"  argument="--min-contig"
-            help="Set the lower threshold for a contig length. Shorter contigs won't be taken into account [default is 500]"/>
-        <param name="threshold_contig" type="text" value="0,1000" label="Thresholds" argument="--contig-thresholds"
-            help="Set the thresholds for contig length. Comma-separated list of contig length thresholds.[default is 0,1000]"/>
+        <param argument="--large" type="boolean" truevalue="--large" falsevalue="" checked="false" label="Is genome large (> 100 Mbp)?" help="Use optimal parameters for evaluation of large genomes. Affects speed and accuracy. In particular, imposes --eukaryote --min-contig 3000 --min-alignment 500 --extensive-mis-size 7000 (can be overridden manually with the corresponding options). In addition, this mode tries to identify misassemblies caused by transposable elements and exclude them from the number of misassemblies."/>
+        <conditional name="k_mer">
+            <param name="k_mer_stats" argument="--k-mer-stats" type="select" label="Compute k-mer-based quality metrics?" help="It is recommended for large genomes. This may significantly increase memory and time consumption on large genomes">
+                <option value="--k-mer-stats">Yes</option>
+                <option value="" selected="true">No</option>
+            </param>
+            <when value="--k-mer-stats">
+                <param name="k_mer_size" argument="--k-mer-size" type="integer" value="101" label="Size of k" />
+            </when>
+            <when value=""/>
+        </conditional>
+        <param argument="--circos" type="boolean" truevalue="--circos" falsevalue="" checked="false" label="Draw Circos plot?" help=""/>
+        <section name="genes" title="Genes">
+            <conditional name="gene_finding">
+                <param name="gene_finding" type="select" label="Predict genes?" help="">
+                    <option value="True">Yes</option>
+                    <option value="False">No</option>
+                </param>
+                <when value="True">
+                    <conditional name="params">
+                        <param name="tool" type="select" label="Tool for gene prediction" help="">
+                            <option value="--gene-finding">GeneMarkS if prokaryotes or GeneMark-ES if eukaryotes or fungi</option>
+                            <option value="--mgm">MetaGeneMark, specially for metagenomic assembly</option>
+                            <option value="--glimmer">MetaGeneMark</option>
+                        </param>
+                        <when value="--gene-finding">
+                            <expand macro="gene_thresholds"/>
+                        </when>
+                        <when value="--mgm"/>
+                        <when value="--glimmer">
+                            <expand macro="gene_thresholds"/>
+                        </when>
+                    </conditional>
+                </when>
+                <when value="False"/>
+            </conditional>
+            <param name="rna_finding" argument="--rna-finding" type="boolean" truevalue="--rna-finding" falsevalue="" checked="false" label="Enables ribosomal RNA gene finding?" help="By default, we assume that the genome is prokaryotic, and Barrnap uses the bacterial database for rRNA prediction. If the genome is eukaryotic (fungal), use --eukaryote (--fungus) option to force Barrnap to work with the eukaryotic (fungal) database. "/>
+            <param name="conserved_genes_finding" argument="--conserved-genes-finding" type="boolean" truevalue="--conserved-genes-finding" falsevalue="" checked="false" label="Enables search for Universal Single-Copy Orthologs using BUSCO?" help="By default, we assume that the genome is prokaryotic, and BUSCO uses the bacterial database of orthologs. If the genome is eukaryotic (fungal), use --eukaryote (--fungus) option to force BUSCO to work with the eukaryotic (fungal) database. "/>
+        </section>
+        <section name="al" title="Alignments">
+            <param name="use_all_alignments" argument="--use-all-alignments" type="boolean" truevalue="--use-all-alignments" falsevalue="" checked="false" label="Use all alignments as in QUAST v.1.*. to compute genome fraction, # genomic features, # operons metrics?" help="By default, QUAST v.2.0 and higher filters out ambiguous and redundant alignments, keeping only one alignment per contig (or one set of non-overlapping or slightly overlapping alignments)"/>
+            <param name="min_alignment" argument="--min-alignment" type="integer" value="65" label="Minimum length of alignment" help="Alignments shorter than this value will be filtered. Note that all alignments shorter than 65 bp will be filtered regardless of this threshold."/>
+            <param name="min_identity" argument="--min-identity" type="float" value="95.0" label="Minimum IDY% considered as proper alignment" help="Alignments with IDY% worse than this value will be filtered. ote that all alignments with IDY% less than 80.0% will be filtered regardless of this threshold. "/>
+            <param name="ambiguity_usage" argument="--ambiguity-usage" type="select" label="How processing equally good alignments of a contig (probably repeats)?" help="">
+                <option value="none">Skip all such alignments</option>
+                <option value="one" selected="true">Take only one (the very best one)</option>
+                <option value="all">Use all alignments. It can cause a significant increase of # mismatches (repeats are almost always inexact due to accumulated SNPs, indels, etc.). It is useful for metagenomic assemblies where ambiguous alignments might represent homologous sequences of different strains</option>
+            </param>
+            <param name="ambiguity_score" argument="--ambiguity-score" type="float" value="0.99" min="0.8" max="1.0" label="Score S for defining equally good alignments of a single contig" help="All alignments are sorted by decreasing LEN × IDY% value. All alignments with LEN × IDY% less than S × best(LEN × IDY%) are discarded. "/>
+            <param argument="--fragmented" type="boolean" truevalue="--fragmented" falsevalue="" checked="false" label="Use all alignments as in QUAST v.1.*. to compute genome fraction, # genomic features, # operons metrics?" help="By default, QUAST v.2.0 and higher filters out ambiguous and redundant alignments, keeping only one alignment per contig (or one set of non-overlapping or slightly overlapping alignments)"/>
+            <param name="fragmented_max_indent" argument="--fragmented-max-indent" type="integer" value="50" label="Mark translocation as fake if both alignments are located no further than N bases from the ends of the reference fragments" help="The value should be less than extensive misassembly size"/>
+            <param name="upper_bound_assembly" argument="--upper-bound-assembly" type="boolean" truevalue="--upper-bound-assembly" falsevalue="" checked="false" label="Simulate upper bound assembly based on the reference genome and a given set reads?" help="Mate-pairs or long reads, such as Pacbio SMRT/Oxford Nanopore, are REQUIRED. This assembly is added to the comparison and could be useful for estimating the upper bounds of completeness and contiguity that theoretically can be reached by assembly software from this particular set of reads. The concept is based on the fact that the reference genome cannot be completely reconstructed from raw reads due to long genomic repeats and low covered regions. See Mikheenko et al., 2018 for more details. "/>
+            <param name="upper_bound_min_con" argument="--upper-bound-min-con" type="integer" value="2" label="Minimal number of 'connecting reads' needed for joining upper bound contigs into a scaffold" help="This is important for a realistic estimation of genome assembly fragmentation due to long repeats. The default values is 2 for mate-pairs and 1 for long reads (PacBio or Nanopore libraries)."/>
+        </section>
+        <param name="contig_thresholds" argument="--contig-thresholds" type="text" value="0,1000" label="Comma-separated list of contig length thresholds (in bp)" help="Used in # contigs ≥ x and total length (≥ x) metrics"/>
+        <param name="strict_NA" argument="--strict-NA" type="boolean" truevalue="--strict-NA" falsevalue="" checked="false" label="Break contigs at every misassembly event (including local ones) to compute NAx and NGAx statistics?" help="By default, QUAST breaks contigs only at extensive misassemblies (not local ones)."/>
+        <param name="extensive_mis_size" argument="--extensive-mis-size" type="integer" value="1000" min="85" label="Lower threshold for the relocation size (gap or overlap size between left and right flanking sequence)" help="Shorter relocations are considered as local misassemblies. It does not affect other types of extensive misassemblies (inversions and translocations). The default value is 1000 bp. Note that the threshold should be greater than maximum indel length which is 85 bp."/>
+        <param name="scaffold_gap_max_size" argument="--scaffold-gap-max-size" type="integer" value="1000" label="Max allowed scaffold gap length difference for detecting corresponding type of misassemblies" help="Longer inconsistencies are considered as relocations and thus, counted as extensive misassemblies. The default value is 10000 bp. Note that the threshold make sense only if it is greater than extensive misassembly size"/>
+        <param name="unaligned_part_size" argument="--unaligned-part-size" type="integer" value="500" label="Lower threshold for detecting partially unaligned contigs" help=""/>
+        <param name="skip_unaligned_mis_contigs" argument="--skip-unaligned-mis-contigs" type="boolean" truevalue="" falsevalue="--skip-unaligned-mis-contigs" checked="true" label="Distinguish contigs with more than 50% unaligned bases as a separate group of contigs?" help="By default, QUAST breaks contigs only at extensive misassemblies (not local ones)."/>
     </inputs>
     <outputs>
-        <data format="txt" name="log_txt" label="Quast: Log" from_work_dir="outputdir/quast.log"/>
-        <data format="tabular" name="mis_ass_tsv" label="Quast: Misassemblies" from_work_dir="outputdir/contigs_reports/misassemblies_report.txt">
-            <filter>input_ref is not None</filter>
+        <data name="quast_tabular" format="tabular" label="${tool.name} on ${on_string}: tabular report" from_work_dir="outputdir/report.tsv"/>
+        <data name="report_html" format="html" label="${tool.name} on ${on_string}:  HTML report" from_work_dir="outputdir/report.html"/>
+        <data name="report_pdf" format="pdf" label="${tool.name} on ${on_string}:  PDF report" from_work_dir="outputdir/report.pdf"/>
+        <data name="log" format="txt" label="${tool.name} on ${on_string}: Log" from_work_dir="outputdir/quast.log"/>
+        <data name="mis_ass" format="tabular" label="${tool.name} on ${on_string}: Misassemblies" from_work_dir="outputdir/contigs_reports/misassemblies_report.txt">
+            <filter>(assembly['type'] == 'single' and assembly['ref']['use_ref'] == 'True') or (assembly['type'] == 'metagenomic' and assembly['ref']['origin'] != 'none')</filter>
         </data>
-        <data format="tabular" name="unalign_tsv" label="Quast: Unaligned contigs" from_work_dir="outputdir/contigs_reports/unaligned_report.tsv">
-            <filter>input_ref is not None</filter>
+        <data name="unalign" format="tabular" label="${tool.name} on ${on_string}: Unaligned contigs" from_work_dir="outputdir/contigs_reports/unaligned_report.tsv">
+            <filter>(assembly['type'] == 'single' and assembly['ref']['use_ref'] == 'True') or (assembly['type'] == 'metagenomic' and assembly['ref']['origin'] != 'none')</filter>
         </data>
-        <data format="tabular" name="quast_tsv" label="Quast: Report (tabulal)" from_work_dir="outputdir/report.tsv"/>
-        <data format="html" name="report_html" label="Quast: Report (HTML)" from_work_dir="outputdir/report.html"/>
-        <data format="pdf" name="report_pdf" label="Quast: Report (PDF)" from_work_dir="outputdir/report.pdf"/>
+        <data name="kmers" format="tabular" label="${tool.name} on ${on_string}: K-mer-based metrics" from_work_dir="outputdir/k_mer_stats/kmers_report.txt">
+            <filter>k_mer['k_mer_stats'] != ''</filter>
+        </data>
     </outputs>
     <tests>
         <test>
