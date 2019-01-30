@@ -261,7 +261,7 @@ if (!is.null(opt$filesPath)) {
     
 } else {
     # Process the single count matrix
-    counts <- read.table(opt$matrixPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    counts <- read.table(opt$matrixPath, header=TRUE, sep="\t", strip.white=TRUE, stringsAsFactors=FALSE)
     row.names(counts) <- counts[, 1]
     counts <- counts[ , -1]
     countsRows <- nrow(counts)
@@ -293,7 +293,7 @@ if (!is.null(opt$filesPath)) {
 
  # if annotation file provided
 if (haveAnno) {
-    geneanno <- read.table(opt$annoPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    geneanno <- read.table(opt$annoPath, header=TRUE, sep="\t", quote= "", strip.white=TRUE, stringsAsFactors=FALSE)
 }
 
 #Create output directory
