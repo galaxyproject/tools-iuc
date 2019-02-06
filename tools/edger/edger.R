@@ -261,7 +261,7 @@ if (!is.null(opt$filesPath)) {
     
 } else {
     # Process the single count matrix
-    counts <- read.table(opt$matrixPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    counts <- read.table(opt$matrixPath, header=TRUE, sep="\t", strip.white=TRUE, stringsAsFactors=FALSE)
     row.names(counts) <- counts[, 1]
     counts <- counts[ , -1]
     countsRows <- nrow(counts)
@@ -269,6 +269,9 @@ if (!is.null(opt$filesPath)) {
     # Process factors
     if (is.null(opt$factInput)) {
             factorData <- read.table(opt$factFile, header=TRUE, sep="\t", strip.white=TRUE)
+            # check samples names match
+            if(!any(factorData[, 1] %in% colnames(counts)))
+                stop("Sample IDs in factors file and count matrix don't match")
             # order samples as in counts matrix
             factorData <- factorData[match(colnames(counts), factorData[, 1]), ]
             factors <- factorData[, -1, drop=FALSE]
@@ -293,7 +296,7 @@ if (!is.null(opt$filesPath)) {
 
  # if annotation file provided
 if (haveAnno) {
-    geneanno <- read.table(opt$annoPath, header=TRUE, sep="\t", stringsAsFactors=FALSE)
+    geneanno <- read.table(opt$annoPath, header=TRUE, sep="\t", quote= "", strip.white=TRUE, stringsAsFactors=FALSE)
 }
 
 #Create output directory
