@@ -4,6 +4,7 @@ Scanpy
 ## Classification of methods into steps
 
 Steps:
+
 1. Filtering
 
     Methods | Description
