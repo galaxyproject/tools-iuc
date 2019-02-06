@@ -263,6 +263,9 @@ class ColorScaling(object):
 
 
 def etree_to_dict(t):
+    if t is None:
+        return {}
+
     d = {t.tag: {} if t.attrib else None}
     children = list(t)
     if children:
@@ -381,15 +384,40 @@ class JbrowseConnector(object):
         log.debug('cd %s && %s', self.outdir, ' '.join(command))
         subprocess.check_call(command, cwd=self.outdir)
 
+    def subprocess_popen(self, command):
+        log.debug('cd %s && %s', self.outdir, command)
+        p = subprocess.Popen(command, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output, err = p.communicate()
+        retcode = p.returncode
+        if retcode != 0:
+            log.error('cd %s && %s', self.outdir, command)
+            log.error(output)
+            log.error(err)
+            raise RuntimeError("Command failed with exit code %s" % (retcode))
+
     def _jbrowse_bin(self, command):
         return os.path.realpath(os.path.join(self.jbrowse, 'bin', command))
 
     def process_genomes(self):
         for genome_node in self.genome_paths:
-            # TODO: Waiting on https://github.com/GMOD/jbrowse/pull/884
+            # We only expect one input genome per run. This for loop is just
+            # easier to write than the alternative / catches any possible
+            # issues.
+
+            # Copy the file in workdir, prepare-refseqs.pl will copy it to jbrowse's data dir
+            local_genome = os.path.realpath('./genome.fasta')
+            shutil.copy(genome_node['path'], local_genome)
+
+            cmd = ['samtools', 'faidx', local_genome]
+            self.subprocess_check_call(cmd)
+
             self.subprocess_check_call([
                 'perl', self._jbrowse_bin('prepare-refseqs.pl'),
-                '--fasta', genome_node['path']])
+                '--trackConfig', json.dumps({'metadata': genome_node['meta']}),
+                '--indexed_fasta', os.path.realpath(local_genome)])
+
+            os.unlink(local_genome)
+            os.unlink(local_genome + '.fai')
 
     def generate_names(self):
         # Generate names
@@ -420,7 +448,7 @@ class JbrowseConnector(object):
             return
 
         tmp = tempfile.NamedTemporaryFile(delete=False)
-        tmp.write(json.dumps(json_data))
+        json.dump(json_data, tmp)
         tmp.close()
         cmd = ['perl', self._jbrowse_bin('add-track-json.pl'), tmp.name,
                os.path.join('data', 'trackList.json')]
@@ -430,7 +458,7 @@ class JbrowseConnector(object):
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
         cmd = ['python', os.path.join(INSTALLED_TO, 'blastxml_to_gapped_gff3.py'),
-               '--trim', '--trim_end', '--min_gap', str(min_gap), xml]
+               '--trim', '--trim_end', '--include_seq', '--min_gap', str(min_gap), xml]
         log.debug('cd %s && %s > %s', self.outdir, ' '.join(cmd), gff3_unrebased.name)
         subprocess.check_call(cmd, cwd=self.outdir, stdout=gff3_unrebased)
         gff3_unrebased.close()
@@ -453,27 +481,23 @@ class JbrowseConnector(object):
             shutil.copy(gff3_rebased.name, gff3)
             os.unlink(gff3_rebased.name)
 
-        config = {
-            'glyph': 'JBrowse/View/FeatureGlyph/Segments',
-            "category": trackData['category'],
-        }
+        dest = os.path.join(self.outdir, 'data', 'raw', trackData['label'] + '.gff')
 
-        clientConfig = trackData['style']
+        self._sort_gff(gff3, dest)
 
-        cmd = ['perl', self._jbrowse_bin('flatfile-to-json.pl'),
-               '--gff', gff3,
-               '--trackLabel', trackData['label'],
-               '--key', trackData['key'],
-               '--clientConfig', json.dumps(clientConfig),
-               '--config', json.dumps(config),
-               '--trackType', 'BlastView/View/Track/CanvasFeatures'
-               ]
+        url = os.path.join('raw', trackData['label'] + '.gff.gz')
+        trackData.update({
+            "urlTemplate": url,
+            "storeClass": "JBrowse/Store/SeqFeature/GFF3Tabix",
+        })
 
-        # className in --clientConfig is ignored, it needs to be set with --className
-        if 'className' in trackData['style']:
-            cmd += ['--className', trackData['style']['className']]
+        trackData['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
 
-        self.subprocess_check_call(cmd)
+        trackData['trackType'] = 'BlastView/View/Track/CanvasFeatures'
+        trackData['type'] = 'BlastView/View/Track/CanvasFeatures'
+
+        self._add_track_json(trackData)
+
         os.unlink(gff3)
 
         if blastOpts.get('index', 'false') == 'true':
@@ -504,6 +528,37 @@ class JbrowseConnector(object):
 
         self._add_track_json(trackData)
 
+    def add_bigwig_multiple(self, data, trackData, wiggleOpts, **kwargs):
+
+        urls = []
+        for idx, bw in enumerate(data):
+            dest = os.path.join('data', 'raw', trackData['label'] + '_' + str(idx) + '.bw')
+            cmd = ['ln', '-s', bw[1], dest]
+            self.subprocess_check_call(cmd)
+
+            urls.append({"url": os.path.join('raw', trackData['label'] + '_' + str(idx) + '.bw'), "name": str(idx + 1) + ' - ' + bw[0]})
+
+        trackData.update({
+            "urlTemplates": urls,
+            "showTooltips": "true",
+            "storeClass": "MultiBigWig/Store/SeqFeature/MultiBigWig",
+            "type": "MultiBigWig/View/Track/MultiWiggle/MultiDensity",
+        })
+        if 'XYPlot' in wiggleOpts['type']:
+            trackData['type'] = "MultiBigWig/View/Track/MultiWiggle/MultiXYPlot"
+
+        trackData['variance_band'] = True if wiggleOpts['variance_band'] == 'true' else False
+
+        if 'min' in wiggleOpts and 'max' in wiggleOpts:
+            trackData['min_score'] = wiggleOpts['min']
+            trackData['max_score'] = wiggleOpts['max']
+        else:
+            trackData['autoscale'] = wiggleOpts.get('autoscale', 'local')
+
+        trackData['scale'] = wiggleOpts['scale']
+
+        self._add_track_json(trackData)
+
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bam')
         cmd = ['ln', '-s', os.path.realpath(data), dest]
@@ -517,6 +572,7 @@ class JbrowseConnector(object):
             "urlTemplate": url,
             "type": "JBrowse/View/Track/Alignments2",
             "storeClass": "JBrowse/Store/SeqFeature/BAM",
+            "chunkSizeLimit": bamOpts.get('chunkSizeLimit', '5000000')
         })
 
         # Apollo will only switch to the (prettier) 'bam-read' className if it's not set explicitly in the track config
@@ -532,6 +588,7 @@ class JbrowseConnector(object):
                 "type": "JBrowse/View/Track/SNPCoverage",
                 "key": trackData['key'] + " - SNPs/Coverage",
                 "label": trackData['label'] + "_autosnp",
+                "chunkSizeLimit": bamOpts.get('chunkSizeLimit', '5000000')
             })
             self._add_track_json(trackData2)
 
@@ -545,7 +602,7 @@ class JbrowseConnector(object):
         cmd = ['tabix', '-p', 'vcf', dest + '.gz']
         self.subprocess_check_call(cmd)
 
-        url = os.path.join('raw', trackData['label'] + '.vcf')
+        url = os.path.join('raw', trackData['label'] + '.vcf.gz')
         trackData.update({
             "urlTemplate": url,
             "type": "JBrowse/View/Track/HTMLVariants",
@@ -553,56 +610,50 @@ class JbrowseConnector(object):
         })
         self._add_track_json(trackData)
 
-    def add_features(self, data, format, trackData, gffOpts, metadata=None, **kwargs):
-        cmd = [
-            'perl', self._jbrowse_bin('flatfile-to-json.pl'),
-            self.TN_TABLE.get(format, 'gff'),
-            data,
-            '--trackLabel', trackData['label'],
-            '--key', trackData['key']
-        ]
+    def _sort_gff(self, data, dest):
 
-        # className in --clientConfig is ignored, it needs to be set with --className
-        if 'className' in trackData['style']:
-            cmd += ['--className', trackData['style']['className']]
+        if not os.path.exists(dest):
+            # Only index if not already done
+            cmd = "grep ^\"#\" '%s' > '%s'" % (data, dest)
+            self.subprocess_popen(cmd)
 
-        config = copy.copy(trackData)
-        clientConfig = trackData['style']
-        del config['style']
+            cmd = "grep -v ^\"#\" '%s' | grep -v \"^$\" | grep \"\t\" | sort -k1,1 -k4,4n >> '%s'" % (data, dest)
+            self.subprocess_popen(cmd)
+
+            cmd = ['bgzip', '-f', dest]
+            self.subprocess_popen(' '.join(cmd))
+            cmd = ['tabix', '-f', '-p', 'gff', dest + '.gz']
+            self.subprocess_popen(' '.join(cmd))
+
+    def add_features(self, data, format, trackData, gffOpts, **kwargs):
+
+        dest = os.path.join(self.outdir, 'data', 'raw', trackData['label'] + '.gff')
+
+        self._sort_gff(data, dest)
+
+        url = os.path.join('raw', trackData['label'] + '.gff.gz')
+        trackData.update({
+            "urlTemplate": url,
+            "storeClass": "JBrowse/Store/SeqFeature/GFF3Tabix",
+        })
 
         if 'match' in gffOpts:
-            config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
-            if bool(gffOpts['match']):
-                # Can be empty for CanvasFeatures = will take all by default
-                cmd += ['--type', gffOpts['match']]
-
-        cmd += ['--clientConfig', json.dumps(clientConfig),
-                ]
+            trackData['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
 
         trackType = 'JBrowse/View/Track/CanvasFeatures'
         if 'trackType' in gffOpts:
             trackType = gffOpts['trackType']
+        trackData['trackType'] = trackType
 
         if trackType == 'JBrowse/View/Track/CanvasFeatures':
             if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
-                config['transcriptType'] = gffOpts['transcriptType']
+                trackData['transcriptType'] = gffOpts['transcriptType']
             if 'subParts' in gffOpts and gffOpts['subParts']:
-                config['subParts'] = gffOpts['subParts']
+                trackData['subParts'] = gffOpts['subParts']
             if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
-                config['impliedUTRs'] = gffOpts['impliedUTRs']
-        elif trackType == 'JBrowse/View/Track/HTMLFeatures':
-            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
-                cmd += ['--type', gffOpts['transcriptType']]
+                trackData['impliedUTRs'] = gffOpts['impliedUTRs']
 
-        cmd += [
-            '--trackType', gffOpts['trackType']
-        ]
-
-        if metadata:
-            config.update({'metadata': metadata})
-        cmd.extend(['--config', json.dumps(config)])
-
-        self.subprocess_check_call(cmd)
+        self._add_track_json(trackData)
 
         if gffOpts.get('index', 'false') == 'true':
             self.tracksToIndex.append("%s" % trackData['label'])
@@ -614,10 +665,19 @@ class JbrowseConnector(object):
             "category": trackData['category'],
             "type": "JBrowse/View/Track/HTMLFeatures",
             "storeClass": "JBrowse/Store/SeqFeature/REST",
-            "baseUrl": url,
-            "query": {
-                "organism": "tyrannosaurus"
-            }
+            "baseUrl": url
+        }
+        self._add_track_json(data)
+
+    def add_sparql(self, url, query, trackData):
+        data = {
+            "label": trackData['label'],
+            "key": trackData['key'],
+            "category": trackData['category'],
+            "type": "JBrowse/View/Track/CanvasFeatures",
+            "storeClass": "JBrowse/Store/SeqFeature/SPARQL",
+            "urlTemplate": url,
+            "queryTemplate": query
         }
         self._add_track_json(data)
 
@@ -645,7 +705,8 @@ class JbrowseConnector(object):
             '{': '__oc__',
             '}': '__cc__',
             '@': '__at__',
-            '#': '__pd__'
+            '#': '__pd__',
+            "": '__cn__'
         }
 
         for i, (dataset_path, dataset_ext, track_human_label, extra_metadata) in enumerate(track['trackfiles']):
@@ -656,18 +717,19 @@ class JbrowseConnector(object):
             log.info('Processing %s / %s', category, track_human_label)
             outputTrackConfig['key'] = track_human_label
             # We add extra data to hash for the case of REST + SPARQL.
-            try:
+            if 'conf' in track and 'options' in track['conf'] and 'url' in track['conf']['options']:
                 rest_url = track['conf']['options']['url']
-            except KeyError:
+            else:
                 rest_url = ''
 
             # I chose to use track['category'] instead of 'category' here. This
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
             # much simpler.
-            hashData = [dataset_path, track_human_label, track['category'], rest_url]
+            hashData = [str(dataset_path), track_human_label, track['category'], rest_url]
             hashData = '|'.join(hashData).encode('utf-8')
             outputTrackConfig['label'] = hashlib.md5(hashData).hexdigest() + '_%s' % i
+            outputTrackConfig['metadata'] = extra_metadata
 
             # Colour parsing is complex due to different track types having
             # different colour options.
@@ -688,10 +750,13 @@ class JbrowseConnector(object):
             # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3', 'bed'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
-                                  track['conf']['options']['gff'], metadata=extra_metadata)
+                                  track['conf']['options']['gff'])
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
-                                track['conf']['options']['wiggle'], metadata=extra_metadata)
+                                track['conf']['options']['wiggle'])
+            elif dataset_ext == 'bigwig_multiple':
+                self.add_bigwig_multiple(dataset_path, outputTrackConfig,
+                                         track['conf']['options']['wiggle'])
             elif dataset_ext == 'bam':
                 real_indexes = track['conf']['options']['pileup']['bam_indices']['bam_index']
                 if not isinstance(real_indexes, list):
@@ -706,13 +771,18 @@ class JbrowseConnector(object):
 
                 self.add_bam(dataset_path, outputTrackConfig,
                              track['conf']['options']['pileup'],
-                             bam_index=real_indexes[i], metadata=extra_metadata)
+                             bam_index=real_indexes[i])
             elif dataset_ext == 'blastxml':
-                self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'], metadata=extra_metadata)
+                self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'])
             elif dataset_ext == 'vcf':
-                self.add_vcf(dataset_path, outputTrackConfig, metadata=extra_metadata)
+                self.add_vcf(dataset_path, outputTrackConfig)
             elif dataset_ext == 'rest':
-                self.add_rest(track['conf']['options']['url'], outputTrackConfig, metadata=extra_metadata)
+                self.add_rest(track['conf']['options']['rest']['url'], outputTrackConfig)
+            elif dataset_ext == 'sparql':
+                sparql_query = track['conf']['options']['sparql']['query']
+                for key, value in mapped_chars.items():
+                    sparql_query = sparql_query.replace(value, key)
+                self.add_sparql(track['conf']['options']['sparql']['url'], sparql_query, outputTrackConfig)
             else:
                 log.warn('Do not know how to handle %s', dataset_ext)
 
@@ -750,11 +820,43 @@ class JbrowseConnector(object):
 
         if 'GCContent' in data['plugins_python']:
             self._add_track_json({
-                "storeClass": "JBrowse/Store/SeqFeature/SequenceChunks",
+                "storeClass": "JBrowse/Store/SeqFeature/IndexedFasta",
                 "type": "GCContent/View/Track/GCContentXY",
-                "label": "GCContentXY",
-                "urlTemplate": "seq/{refseq_dirpath}/{refseq}-",
-                "bicolor_pivot": 0.5
+                "label": "GC Content",
+                "key": "GCContentXY",
+                "urlTemplate": "seq/genome.fasta",
+                "bicolor_pivot": 0.5,
+                "category": "GC Content",
+                "metadata": {
+                    "tool_tool": '<a target="_blank" href="https://github.com/elsiklab/gccontent/commit/030180e75a19fad79478d43a67c566ec6">elsiklab/gccontent</a>',
+                    "tool_tool_version": "5c8b0582ecebf9edf684c76af8075fb3d30ec3fa",
+                    "dataset_edam_format": "",
+                    "dataset_size": "",
+                    "history_display_name": "",
+                    "history_user_email": "",
+                    "metadata_dbkey": "",
+                }
+                # TODO: Expose params for everyone.
+            })
+            self._add_track_json({
+                "storeClass": "JBrowse/Store/SeqFeature/IndexedFasta",
+                "type": "GCContent/View/Track/GCContentXY",
+                "label": "GC skew",
+                "key": "GCSkew",
+                "urlTemplate": "seq/genome.fasta",
+                "gcMode": "skew",
+                "min_score": -1,
+                "bicolor_pivot": 0,
+                "category": "GC Content",
+                "metadata": {
+                    "tool_tool": '<a target="_blank" href="https://github.com/elsiklab/gccontent/commit/030180e75a19fad79478d43a67c566ec6">elsiklab/gccontent</a>',
+                    "tool_tool_version": "5c8b0582ecebf9edf684c76af8075fb3d30ec3fa",
+                    "dataset_edam_format": "",
+                    "dataset_size": "",
+                    "history_display_name": "",
+                    "history_user_email": "",
+                    "metadata_dbkey": "",
+                }
                 # TODO: Expose params for everyone.
             })
 
@@ -785,6 +887,7 @@ class JbrowseConnector(object):
                         ],
                         "type": "Faceted",
                         "title": ["Galaxy Metadata"],
+                        "icon": "https://galaxyproject.org/images/logos/galaxy-icon-square.png",
                         "escapeHTMLInData": False
                     },
                     "trackMetadata": {
@@ -833,11 +936,19 @@ if __name__ == '__main__':
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
     parser.add_argument('--standalone', help='Standalone mode includes a copy of JBrowse', action='store_true')
-    parser.add_argument('--version', '-V', action='version', version="%(prog)s 0.7.0")
+    parser.add_argument('--version', '-V', action='version', version="%(prog)s 0.8.0")
     args = parser.parse_args()
 
     tree = ET.parse(args.xml.name)
     root = tree.getroot()
+
+    # This should be done ASAP
+    GALAXY_INFRASTRUCTURE_URL = root.find('metadata/galaxyUrl').text
+    # Sometimes this comes as `localhost` without a protocol
+    if not GALAXY_INFRASTRUCTURE_URL.startswith('http'):
+        # so we'll prepend `http://` and hope for the best. Requests *should*
+        # be GET and not POST so it should redirect OK
+        GALAXY_INFRASTRUCTURE_URL = 'http://' + GALAXY_INFRASTRUCTURE_URL
 
     jc = JbrowseConnector(
         jbrowse=args.jbrowse,
@@ -871,11 +982,8 @@ if __name__ == '__main__':
             'show_menu': root.find('metadata/general/show_menu').text,
             'hideGenomeOptions': root.find('metadata/general/hideGenomeOptions').text,
         },
-        'plugins': [{
-            'location': 'https://cdn.jsdelivr.net/gh/TAMU-CPT/blastview@97572a21b7f011c2b4d9a0b5af40e292d694cbef/',
-            'name': 'BlastView'
-        }],
-        'plugins_python': ['BlastView'],
+        'plugins': [],
+        'plugins_python': [],
     }
 
     plugins = root.find('plugins').attrib
@@ -886,19 +994,22 @@ if __name__ == '__main__':
             'name': 'GCContent'
         })
 
-    if plugins['Bookmarks'] == 'True':
-        extra_data['plugins'].append({
-            'location': 'https://cdn.jsdelivr.net/gh/TAMU-CPT/bookmarks-jbrowse@5242694120274c86e1ccd5cb0e5e943e78f82393/',
-            'name': 'Bookmarks'
-        })
+    # Not needed in 1.16.1: it's built in the conda package now, and this plugin doesn't need to be enabled anywhere
+    # if plugins['Bookmarks'] == 'True':
+    #    extra_data['plugins'].append({
+    #        'location': 'https://cdn.jsdelivr.net/gh/TAMU-CPT/bookmarks-jbrowse@5242694120274c86e1ccd5cb0e5e943e78f82393/',
+    #        'name': 'Bookmarks'
+    #    })
 
+    # Not needed in 1.16.1: it's built in the conda package now, and this plugin doesn't need to be enabled anywhere
     if plugins['ComboTrackSelector'] == 'True':
         extra_data['plugins_python'].append('ComboTrackSelector')
-        extra_data['plugins'].append({
-            'location': 'https://cdn.jsdelivr.net/gh/Arabidopsis-Information-Portal/ComboTrackSelector@52403928d5ccbe2e3a86b0fa5eb8e61c0f2e2f57',
-            'icon': 'https://galaxyproject.org/images/logos/galaxy-icon-square.png',
-            'name': 'ComboTrackSelector'
-        })
+        # Not needed in 1.16.1: it's built in the conda package now, and this plugin doesn't need to be enabled anywhere
+        # extra_data['plugins'].append({
+        #    'location': 'https://cdn.jsdelivr.net/gh/Arabidopsis-Information-Portal/ComboTrackSelector@52403928d5ccbe2e3a86b0fa5eb8e61c0f2e2f57/',
+        #    'icon': 'https://galaxyproject.org/images/logos/galaxy-icon-square.png',
+        #    'name': 'ComboTrackSelector'
+        # })
 
     if plugins['theme'] == 'Minimalist':
         extra_data['plugins'].append({
@@ -911,25 +1022,57 @@ if __name__ == '__main__':
             'name': 'DarkTheme'
         })
 
-    GALAXY_INFRASTRUCTURE_URL = root.find('metadata/galaxyUrl').text
-    # Sometimes this comes as `localhost` without a protocol
-    if not GALAXY_INFRASTRUCTURE_URL.startswith('http'):
-        # so we'll prepend `http://` and hope for the best. Requests *should*
-        # be GET and not POST so it should redirect OK
-        GALAXY_INFRASTRUCTURE_URL = 'http://' + GALAXY_INFRASTRUCTURE_URL
+    if plugins['BlastView'] == 'True':
+        extra_data['plugins_python'].append('BlastView')
+        extra_data['plugins'].append({
+            'location': 'https://cdn.jsdelivr.net/gh/TAMU-CPT/blastview@97572a21b7f011c2b4d9a0b5af40e292d694cbef/',
+            'name': 'BlastView'
+        })
 
     for track in root.findall('tracks/track'):
         track_conf = {}
         track_conf['trackfiles'] = []
 
-        for x in track.findall('files/trackFile'):
+        is_multi_bigwig = False
+        try:
+            if track.find('options/wiggle/multibigwig') and (track.find('options/wiggle/multibigwig').text == 'True'):
+                is_multi_bigwig = True
+                multi_bigwig_paths = []
+        except KeyError:
+            pass
+
+        trackfiles = track.findall('files/trackFile')
+        if trackfiles:
+            for x in track.findall('files/trackFile'):
+                if is_multi_bigwig:
+                    multi_bigwig_paths.append((x.attrib['label'], os.path.realpath(x.attrib['path'])))
+                else:
+                    if trackfiles:
+                        metadata = metadata_from_node(x.find('metadata'))
+
+                        track_conf['trackfiles'].append((
+                            os.path.realpath(x.attrib['path']),
+                            x.attrib['ext'],
+                            x.attrib['label'],
+                            metadata
+                        ))
+        else:
+            # For tracks without files (rest, sparql)
+            track_conf['trackfiles'].append((
+                '',  # N/A, no path for rest or sparql
+                track.attrib['format'],
+                track.find('options/label').text,
+                {}
+            ))
+
+        if is_multi_bigwig:
             metadata = metadata_from_node(x.find('metadata'))
 
             track_conf['trackfiles'].append((
-                os.path.realpath(x.attrib['path']),
-                x.attrib['ext'],
-                x.attrib['label'],
-                metadata
+                multi_bigwig_paths,  # Passing an array of paths to represent as one track
+                'bigwig_multiple',
+                'MultiBigWig',  # Giving an hardcoded name for now
+                {}  # No metadata for multiple bigwig
             ))
 
         track_conf['category'] = track.attrib['cat']
@@ -937,7 +1080,7 @@ if __name__ == '__main__':
         try:
             # Only pertains to gff3 + blastxml. TODO?
             track_conf['style'] = {t.tag: t.text for t in track.find('options/style')}
-        except TypeError as te:
+        except TypeError:
             track_conf['style'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))

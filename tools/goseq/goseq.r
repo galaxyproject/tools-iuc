@@ -134,7 +134,7 @@ if (repcnt > 0) {
   sink(zz)
   GO.samp=goseq(pwf, genome = genome, id = gene_id, method="Sampling", repcnt=repcnt, use_genes_without_cat = use_genes_without_cat, gene2cat=go_map)
   sink()
-  
+
   GO.samp$p.adjust.over_represented = p.adjust(GO.samp$over_represented_pvalue, method=p_adj_method)
   GO.samp$p.adjust.under_represented = p.adjust(GO.samp$under_represented_pvalue, method=p_adj_method)
   write.table(GO.samp, sampling_tab, sep="\t", row.names = FALSE, quote = FALSE)
@@ -156,15 +156,15 @@ if (!is.null(args$top_plot)) {
   pdf("top10.pdf")
   for (m in names(results)) {
     p <- results[[m]] %>%
-      top_n(10, wt=-p.adjust.over_represented)  %>%
+      top_n(10, wt=-over_represented_pvalue)  %>%
       mutate(hitsPerc=numDEInCat*100/numInCat) %>%
       ggplot(aes(x=hitsPerc,
                    y=substr(term, 1, 40), # only use 1st 40 chars of terms otherwise squashes plot
-                   colour=p.adjust.over_represented,
+                   colour=over_represented_pvalue,
                    size=numDEInCat)) +
       geom_point() +
       expand_limits(x=0) +
-      labs(x="% DE in category", y="Category", colour="adj. P value", size="Count", title=paste("Top over-represented categories in", cats_title), subtitle=paste(m, " method")) +
+      labs(x="% DE in category", y="Category", colour="P value", size="Count", title=paste("Top over-represented categories in", cats_title), subtitle=paste(m, " method")) +
       theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
     print(p)
   }
