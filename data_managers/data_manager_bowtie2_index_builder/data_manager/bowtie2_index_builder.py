@@ -31,6 +31,9 @@ def build_bowtie2_index( data_manager_dict, fasta_filename, params, target_direc
     sym_linked_fasta_filename = os.path.join( target_directory, fasta_base_name )
     os.symlink( fasta_filename, sym_linked_fasta_filename )
     args = [ 'bowtie2-build', sym_linked_fasta_filename, sequence_id ]
+    threads = os.environ.get('GALAXY_SLOTS')
+    if threads:
+        args.extend(['--threads', threads])
     proc = subprocess.Popen( args=args, shell=False, cwd=target_directory )
     return_code = proc.wait()
     if return_code:
