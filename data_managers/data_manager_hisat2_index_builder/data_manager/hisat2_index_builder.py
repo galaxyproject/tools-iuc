@@ -37,6 +37,9 @@ def build_hisat_index( data_manager_dict, options, params, sequence_id, sequence
     args = [ 'hisat2-build' ]
     args.extend( shlex.split( options.indexer_options ) )
     args.extend( [ sym_linked_fasta_filename, sequence_id ] )
+    threads = os.environ.get('GALAXY_SLOTS')
+    if threads:
+        args.extend(['-p', threads])
     proc = subprocess.Popen( args=args, shell=False, cwd=target_directory )
     return_code = proc.wait()
     if return_code:
