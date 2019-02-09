@@ -526,7 +526,7 @@ for (i in 1:length(contrastData)) {
     flatCount[i] <- sumStatus["NotSig", ]
                                              
     # Write top expressions table
-    top <- topTags(res, n=Inf, sort.by="PValue")
+    top <- topTags(res, adjust.method=opt$pAdjOpt, n=Inf, sort.by="PValue")
     write.table(top, file=topOut[i], row.names=FALSE, sep="\t", quote=FALSE)
     
     linkName <- paste0("edgeR_", contrastData[i], ".tsv")
