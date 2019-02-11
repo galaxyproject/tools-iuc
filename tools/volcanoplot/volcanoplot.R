@@ -27,6 +27,8 @@ spec <- matrix(c(
     "title", "T", 1, "character",
     "xlab", "X", 1, "character",
     "ylab", "Y", 1, "character",
+    "xmin", "m", 1, "double",
+    "xmax", "M", 1, "double",
     "legend", "L", 1, "character",
     "llabs", "z", 1, "character",
     "boxes", "b", 0, "logical"),
@@ -81,6 +83,9 @@ if (!is.null(opt$xlab)) {
 }
 if (!is.null(opt$ylab)) {
     p <- p + ylab(opt$ylab)
+}
+if (!is.null(opt$xmin) & !is.null(opt$xmax)) {
+    p <- p + xlim(opt$xmin, opt$xmax)
 }
 if (!is.null(opt$legend)) {
     p <- p + labs(colour=opt$legend)
