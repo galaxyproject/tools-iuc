@@ -837,9 +837,9 @@ for (i in 1:length(contrastData)) {
 
     # Write top expressions table
     if (wantTreat) {
-        top <- topTreat(fit, coef=i, number=Inf, sort.by="P")
+        top <- topTreat(fit, coef=i, adjust.method=opt$pAdjOpt, number=Inf, sort.by="P")
     } else{
-        top <- topTable(fit, coef=i, number=Inf, sort.by="P")
+        top <- topTable(fit, coef=i, adjust.method=opt$pAdjOpt, number=Inf, sort.by="P")
     }
     write.table(top, file=topOut[i], row.names=FALSE, sep="\t", quote=FALSE)
     linkName <- paste0(deMethod, "_", con, ".tsv")
