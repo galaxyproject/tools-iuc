@@ -323,11 +323,13 @@ if (!is.null(opt$filesPath)) {
             factorData <- factorData[, -1]
             factorData <- sapply(factorData, sanitiseGroups)
             factorData <- sapply(factorData, strsplit, split=",")
-            factorData <- sapply(factorData, make.names)
             # Transform factor data into data frame of R factor objects
             factors <- data.frame(factorData)
     }
 }
+# make groups valid R names, required for makeContrasts
+factors <- sapply(factors, make.names)
+factors <- data.frame(factors)
 
  # if annotation file provided
 if (haveAnno) {
@@ -341,6 +343,14 @@ dir.create(opt$outPath, showWarnings=FALSE)
 contrastData <- unlist(strsplit(opt$contrastData, split=","))
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
+# in case input groups start with numbers this will make the names valid R names, required for makeContrasts
+cons <- NULL
+for (i in contrastData) {
+    i <- strsplit(i, split="-")
+    i <- lapply(i, make.names)
+    i <- lapply(i, paste, collapse="-")
+    cons <- append(cons, unlist(i))
+}
 
 plots <- character()
 if (!is.null(opt$plots)) {
@@ -364,8 +374,8 @@ stripOutPdf <- character()
 mdvolOutPng <- character()
 topOut <- character()
 glimmaOut <- character()
-for (i in 1:length(contrastData)) {
-    con <- contrastData[i]
+for (i in 1:length(cons)) {
+    con <- cons[i]
     con <- gsub("\\(|\\)", "", con)
     mdOutPdf[i] <- makeOut(paste0("mdplot_", con, ".pdf"))
     volOutPdf[i] <- makeOut(paste0("volplot_", con, ".pdf"))
@@ -542,7 +552,7 @@ y <- calcNormFactors(y, method=opt$normOpt)
 
 # Generate contrasts information
 print("Generating Contrasts")
-contrasts <- makeContrasts(contrasts=contrastData, levels=design)
+contrasts <- makeContrasts(contrasts=cons, levels=design)
 
 ################################################################################
 ### Data Output
@@ -829,8 +839,8 @@ status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
                        lfc=opt$lfcReq)
 sumStatus <- summary(status)
 
-for (i in 1:length(contrastData)) {
-    con <- contrastData[i]
+for (i in 1:length(cons)) {
+    con <- cons[i]
     con <- gsub("\\(|\\)", "", con)
     # Collect counts for differential expression
     upCount[i] <- sumStatus["Up", i]
@@ -981,7 +991,7 @@ for (i in 1:length(contrastData)) {
     }
 }
 sigDiff <- data.frame(Up=upCount, Flat=flatCount, Down=downCount)
-row.names(sigDiff) <- contrastData
+row.names(sigDiff) <- cons
 
 # Save relevant items as rda object
 if (wantRda) {
