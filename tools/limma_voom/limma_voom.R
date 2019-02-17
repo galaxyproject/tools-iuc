@@ -425,6 +425,7 @@ if (haveAnno) {
 # Creating naming data
 samplenames <- colnames(data$counts)
 sampleanno <- data.frame("sampleID"=samplenames, factors)
+row.names(factors) <- samplenames # for "Summary of experimental data" table
 
 # Creating colours for the groups
 cols <- as.numeric(factors[, 1])
