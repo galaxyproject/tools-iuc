@@ -467,7 +467,7 @@ if (filtCPM || filtSmpCount || filtTotCount) {
 
     if (wantFilt) {
         print("Outputting filtered counts")
-        filt_counts <- data.frame(data$genes, data$counts)
+        filt_counts <- data.frame(data$genes, data$counts, check.names=FALSE)
         write.table(filt_counts, file=filtOut, row.names=FALSE, sep="\t", quote=FALSE)
         linkData <- rbind(linkData, data.frame(Label=paste0(deMethod, "_", "filtcounts.tsv"), Link=paste0(deMethod, "_", "filtcounts"), stringsAsFactors=FALSE))
     }
@@ -782,7 +782,7 @@ if (wantTrend) {
 
      # Save normalised counts (log2cpm)
     if (wantNorm) {
-        norm_counts <- data.frame(vData$genes, vData$E)
+        norm_counts <- data.frame(vData$genes, vData$E, check.names=FALSE)
         write.table(norm_counts, file=normOut, row.names=FALSE, sep="\t", quote=FALSE)
         linkData <- rbind(linkData, c((paste0(deMethod, "_", "normcounts.tsv")), (paste0(deMethod, "_", "normcounts"))))
     }
