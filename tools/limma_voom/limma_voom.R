@@ -327,6 +327,10 @@ if (!is.null(opt$filesPath)) {
             factors <- data.frame(factorData)
     }
 }
+# check there are the same number of samples in counts and factors
+if(nrow(factors) != ncol(counts)) {
+    stop("There are a different number of samples in the counts files and factors")
+}
 # make groups valid R names, required for makeContrasts
 factors <- sapply(factors, make.names)
 factors <- data.frame(factors)
@@ -532,8 +536,6 @@ row.names(data$samples) <- colnames(data$counts)
 y <- new("DGEList", data)
 
 print("Generating Design")
-# Name rows of factors according to their sample
-row.names(factors) <- names(data$counts)
 factorList <- sapply(names(factors), pasteListName)
 formula <- "~0"
 for (i in 1:length(factorList)) {
