@@ -304,27 +304,27 @@ if (!is.null(opt$filesPath)) {
 
     # Process factors
     if (is.null(opt$factInput)) {
-            factorData <- read.table(opt$factFile, header=TRUE, sep="\t", strip.white=TRUE)
-            if(!setequal(factorData[, 1], colnames(counts)))
-                stop("Sample IDs in counts and factors files don't match")
-            # order samples as in counts matrix
-            factorData <- factorData[match(colnames(counts), factorData[, 1]), ]
-            factors <- factorData[, -1, drop=FALSE]
+        factorData <- read.table(opt$factFile, header=TRUE, sep="\t", strip.white=TRUE)
+        if(!setequal(factorData[, 1], colnames(counts)))
+            stop("Sample IDs in counts and factors files don't match")
+        # order samples as in counts matrix
+        factorData <- factorData[match(colnames(counts), factorData[, 1]), ]
+        factors <- factorData[, -1, drop=FALSE]
     }  else {
-            factors <- unlist(strsplit(opt$factInput, "|", fixed=TRUE))
-            factorData <- list()
-            for (fact in factors) {
-                newFact <- unlist(strsplit(fact, split="::"))
-                factorData <- rbind(factorData, newFact)
-            } # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,... The first factor is the Primary Factor.
+        factors <- unlist(strsplit(opt$factInput, "|", fixed=TRUE))
+        factorData <- list()
+        for (fact in factors) {
+            newFact <- unlist(strsplit(fact, split="::"))
+            factorData <- rbind(factorData, newFact)
+        } # Factors have the form: FACT_NAME::LEVEL,LEVEL,LEVEL,LEVEL,... The first factor is the Primary Factor.
 
-            # Set the row names to be the name of the factor and delete first row
-            row.names(factorData) <- factorData[, 1]
-            factorData <- factorData[, -1]
-            factorData <- sapply(factorData, sanitiseGroups)
-            factorData <- sapply(factorData, strsplit, split=",")
-            # Transform factor data into data frame of R factor objects
-            factors <- data.frame(factorData)
+        # Set the row names to be the name of the factor and delete first row
+        row.names(factorData) <- factorData[, 1]
+        factorData <- factorData[, -1]
+        factorData <- sapply(factorData, sanitiseGroups)
+        factorData <- sapply(factorData, strsplit, split=",")
+        # Transform factor data into data frame of R factor objects
+        factors <- data.frame(factorData)
     }
 }
 # check there are the same number of samples in counts and factors
