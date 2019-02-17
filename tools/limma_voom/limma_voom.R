@@ -305,6 +305,8 @@ if (!is.null(opt$filesPath)) {
     # Process factors
     if (is.null(opt$factInput)) {
             factorData <- read.table(opt$factFile, header=TRUE, sep="\t", strip.white=TRUE)
+            if(!setequal(factorData[, 1], colnames(counts)))
+                stop("Sample IDs in counts and factors files don't match")
             # order samples as in counts matrix
             factorData <- factorData[match(colnames(counts), factorData[, 1]), ]
             factors <- factorData[, -1, drop=FALSE]
