@@ -107,7 +107,7 @@ def convert_xmfa_to_gff3(xmfa_file, relative_to='1', sequences=None, window_size
         others = [seq for seq in lcb if seq['id'] != relative_to]
 
         for other in others:
-            targetlist = [label_convert.get(other['id'], other['id']), other['start'], other['end']]
+            targetlist = [label_convert.get(other['id'], other['id']), str(other['start']), str(other['end'])]
             if other['strand'] != '.': targetlist.append(other['strand'])
             other['feature'] = SeqFeature(
                 FeatureLocation(parent['start'], parent['end'] + 1),
