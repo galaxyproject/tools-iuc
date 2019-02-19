@@ -112,7 +112,7 @@ def convert_xmfa_to_gff3(xmfa_file, relative_to='1', sequences=None, window_size
                 type="match", strand=parent['strand'],
                 qualifiers={
                     "source": "progressiveMauve",
-                    "target": label_convert.get(other['id'], other['id']),
+                    "Target": " ".join(label_convert.get(other['id'], other['id']), other['start'], other['end'], (other['strand'] != '.')?other['strand']:''),
                     "ID": label_convert.get(other['id'], 'xmfa_' + other['rid'])
                 }
             )
