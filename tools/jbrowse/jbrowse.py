@@ -824,7 +824,7 @@ class JbrowseConnector(object):
 
         if 'GCContent' in data['plugins_python']:
             self._add_track_json({
-                "storeClass": "JBrowse/Store/SeqFeature/IndexedFasta",
+                "storeClass": "JBrowse/Store/Sequence/IndexedFasta",
                 "type": "GCContent/View/Track/GCContentXY",
                 "label": "GC Content",
                 "key": "GCContentXY",
@@ -843,7 +843,7 @@ class JbrowseConnector(object):
                 # TODO: Expose params for everyone.
             })
             self._add_track_json({
-                "storeClass": "JBrowse/Store/SeqFeature/IndexedFasta",
+                "storeClass": "JBrowse/Store/Sequence/IndexedFasta",
                 "type": "GCContent/View/Track/GCContentXY",
                 "label": "GC skew",
                 "key": "GCSkew",
