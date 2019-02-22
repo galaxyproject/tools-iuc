@@ -614,7 +614,7 @@ class JbrowseConnector(object):
 
         if not os.path.exists(dest):
             # Only index if not already done
-            cmd = "gff3sort.pl --precise '%s' > '%s'" % (data, dest)
+            cmd = "gff3sort.pl --precise '%s' | grep -v \"^$\" > '%s'" % (data, dest)
             self.subprocess_popen(cmd)
 
             cmd = ['bgzip', '-f', dest]
