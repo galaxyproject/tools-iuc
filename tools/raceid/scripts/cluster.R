@@ -24,9 +24,9 @@ do.filter <- function(sc){
 
     ## Get histogram metrics for library size and number of features
     raw.lib <- log10(colSums(as.matrix(sc@expdata)))
-    raw.feat <- log10(rowSums(as.matrix(sc@expdata)>0))
+    raw.feat <- log10(colSums(as.matrix(sc@expdata)>0))
     filt.lib <- log10(colSums(getfdata(sc)))
-    filt.feat <- log10(rowSums(getfdata(sc)>0))
+    filt.feat <- log10(colSums(getfdata(sc)>0))
 
     br <- 50
     ## Determine limits on plots based on the unfiltered data
@@ -47,17 +47,17 @@ do.filter <- function(sc){
     ## feat.x_lim <- c(0,betterrange(max(tmp.feat$breaks)))
 
     par(mfrow=c(2,2))
-    print(hist(raw.lib, breaks=br, main="RawData Log10(LibSize)")) # , xlim=lib.x_lim, ylim=lib.y_lim)
-    print(hist(raw.feat, breaks=br, main="RawData Log10(NumFeat)")) #, xlim=feat.x_lim, ylim=feat.y_lim)
-    print(hist(filt.lib, breaks=br, main="FiltData Log10(LibSize)")) # , xlim=lib.x_lim, ylim=lib.y_lim)
-    tmp <- hist(filt.feat, breaks=br, main="FiltData Log10(NumFeat)") # , xlim=feat.x_lim, ylim=feat.y_lim)
-    print(tmp) # required, for extracting midpoint
+    print(hist(raw.lib, breaks=br, main="RawData Log10 LibSize")) # , xlim=lib.x_lim, ylim=lib.y_lim)
+    print(hist(raw.feat, breaks=br, main="RawData Log10 NumFeat")) #, xlim=feat.x_lim, ylim=feat.y_lim)
+    print(hist(filt.lib, breaks=br, main="FiltData Log10 LibSize")) # , xlim=lib.x_lim, ylim=lib.y_lim)
+    tmp <- hist(filt.feat, breaks=br, main="FiltData Log10 NumFeat") # , xlim=feat.x_lim, ylim=feat.y_lim)
+    print(tmp)
+    ## required, for extracting midpoint
     unq <- unique(filt.feat)
     if (length(unq) == 1){
-        text(tmp$mids, table(filt.feat)[[1]] - 100, pos=1, paste(format(10^unq, scientific=T, digits=3),
-                                                           " Features in all Cells", sep=""), cex=0.8)
+        abline(v=unq, col="red", lw=2)
+        text(tmp$mids, table(filt.feat)[[1]] - 100, pos=1, paste(10^unq, "\nFeatures\nin remaining\nCells", sep=""), cex=0.8)
     }
-
 
     if (filt.use.ccorrect){
         par(mfrow=c(2,2))
