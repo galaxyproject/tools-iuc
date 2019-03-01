@@ -143,10 +143,10 @@ pdf(out.pdf)
 if (use.filtnormconf){
     sc <- do.filter(sc)
     message(paste(" - Source:: genes:",nrow(sc@expdata),", cells:",ncol(sc@expdata)))
-    message(paste(" - Filter:: genes:",nrow(sc@ndata),", cells:",ncol(sc@ndata)))
+    message(paste(" - Filter:: genes:",nrow(getfdata(sc)),", cells:",ncol(getfdata(sc))))
     message(paste("         :: ",
-                  sprintf("%.1f", 100 * nrow(sc@ndata)/nrow(sc@expdata)), "% of genes remain,",
-                  sprintf("%.1f", 100 * ncol(sc@ndata)/ncol(sc@expdata)), "% of cells remain"))
+                  sprintf("%.1f", 100 * nrow(getfdata(sc))/nrow(sc@expdata)), "% of genes remain,",
+                  sprintf("%.1f", 100 * ncol(getfdata(sc))/ncol(sc@expdata)), "% of cells remain"))
 }
 
 if (use.cluster){
