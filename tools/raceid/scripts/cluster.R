@@ -1,5 +1,5 @@
 #!/usr/bin/env R
-VERSION = "0.3"
+VERSION = "0.4"
 
 args = commandArgs(trailingOnly = T)
 
@@ -27,6 +27,10 @@ do.filter <- function(sc){
     raw.feat <- log10(colSums(as.matrix(sc@expdata)>0))
     filt.lib <- log10(colSums(getfdata(sc)))
     filt.feat <- log10(colSums(getfdata(sc)>0))
+
+    if (filt.geqone){
+        filt.feat <- log10(colSums(getfdata(sc)>=1))
+    }
 
     br <- 50
     ## Determine limits on plots based on the unfiltered data
