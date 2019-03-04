@@ -12,34 +12,37 @@
     <command detect_errors="exit_code">
     <![CDATA[
 #import re
-#import tempfile
 
-#set $labels = []
-#for $x in $inputs
-    #if $x.labels != ''
-        #silent $labels.append(str($x.labels))
-    #else 
-        #silent $labels.append($re.sub('[^\w\-_]', '_', str($x.input.element_identifier)))
-    #end if
-#end for
-#set $labels = ','.join($labels)
-
-#if $assembly.type == 'metagenomic' and $assembly.ref.origin == 'list'
-    #set $temp_dir = os.path.abspath(tempfile.mkdtemp())
-    #set $temp_ref_list_f = tempfile.NamedTemporaryFile( dir=$temp_dir )
-    #set $temp_ref_list_fp = $temp_ref_list_f.name
-    #silent $temp_ref_list_f.write('\n'.join([x.strip() for x in $assembly.ref.references_list.split(',')]))
+#if str($in.custom) == 'false'
+    #set $labels = ','.join( [re.sub('[^\w\-_]', '_', str($x.element_identifier)) for $x in $in.inputs ])
+#else
+    #set $labels = []
+    #for $x in $in.inputs
+        #if str($x.labels) != ''
+            #silent $labels.append(re.sub('[^\w\-_]', '_', str($x.labels)))
+        #else
+            #silent $labels.append(re.sub('[^\w\-_]', '_', str($x.input.element_identifier)))
+        #end if
+    #end for
+    #set $labels = ','.join($labels)
 #end if
 
-#if $assembly.type == 'single'
+#if $assembly.type == 'metagenome' and $assembly.ref.origin == 'list'
+    #set $temp_ref_list_fp = 'temp_ref_list_fp'
+    #set $temp_ref_list_f = open($temp_ref_list_fp, 'w')
+    #silent $temp_ref_list_f.write('\n'.join([x.strip() for x in $assembly.ref.references_list.split(',')]))
+    #silent $temp_ref_list_f.close()
+#end if
+
+#if $assembly.type == 'genome'
 quast
 #else
 metaquast
 #end if
     -o outputdir
 
-#if $assembly.type == 'single'
-    #if $assembly.ref.use_ref == 'True'
+#if $assembly.type == 'genome'
+    #if $assembly.ref.use_ref == 'true'
     -r '$assembly.ref.r'
         #if $assembly.ref.features
     --features '$assembly.ref.features'
@@ -47,119 +50,128 @@ metaquast
         #if $assembly.ref.operons
     --operons '$assembly.ref.operons'
         #end if
-    #else
-        #if $assembly.ref.est_ref_size
+    #else if $assembly.ref.est_ref_size
     --est-ref-size $assembly.ref.est_ref_size
-        #end if
     #end if
-    #if $assembly.orga_type != "default"
     $assembly.orga_type
-    #end if
 #else
     #if $assembly.ref.origin == 'history'
     -r '$assembly.ref.r'
-    #elsif $assembly.ref.origin == 'list'
+    #else if $assembly.ref.origin == 'list'
     --references-list '$temp_ref_list_fp'
-    #elsif $assembly.ref.origin == 'silva'
+    #else if $assembly.ref.origin == 'silva'
     --test-no-ref
     --max-ref-num '$assembly.ref.max_ref_num'
     #end if
 #end if
-    --min-contig '$min_contig'
+    --min-contig $min_contig
     --threads \${GALAXY_SLOTS:-4}
     $split_scaffolds
     --labels $labels
     $large
     $k_mer.k_mer_stats
 #if str($k_mer.k_mer_stats) != ''
-    --k-mer-size '$k_mer.k_mer_size'
+    --k-mer-size $k_mer.k_mer_size
 #end if
     $circos
-#if $genes.gene_finding.gene_finding == 'True'
-    $genes.gene_finding.params.tool
-    #if $genes.gene_finding.params.tool == '--gene_finding' or $genes.gene_finding.params.tool == '--glimmer'
-        #set $gene_threshold = ','.join([x.strip() for x in $genes.gene_finding.params.gene_thresholds.split(',')])
+#if str($genes.gene_finding.tool) != 'none'
+    $genes.gene_finding.tool
+    #if $genes.gene_finding.tool == '--gene_finding' or $genes.gene_finding.tool == '--glimmer'
+        #set $gene_threshold = ','.join([x.strip() for x in str($genes.gene_finding.gene_thresholds).split(',')])
         --gene-thresholds '$gene_threshold'
     #end if
 #end if
     $genes.rna_finding
     $genes.conserved_genes_finding
     $al.use_all_alignments
-    --min-alignment '$al.min_alignment'
-    --min-identity '$al.min_identity'
+    --min-alignment $al.min_alignment
+    --min-identity $al.min_identity
     --ambiguity-usage '$al.ambiguity_usage'
     $al.fragmented
-    #set $contig_thresholds = ','.join([x.strip() for x in $contig_thresholds.split(',')])
+    #set $contig_thresholds = ','.join([x.strip() for x in str($contig_thresholds).split(',')])
     --contig-thresholds '$contig_thresholds'
     $strict_NA
-    --extensive-mis-size '$extensive_mis_size'
-    --scaffold-gap-max-size '$scaffold_gap_max_size'
-    --unaligned-part-size '$unaligned_part_size'
+    --extensive-mis-size $extensive_mis_size
+    --scaffold-gap-max-size $scaffold_gap_max_size
+    --unaligned-part-size $unaligned_part_size
     $skip_unaligned_mis_contigs
-    
-#for $k in $inputs
-    '$k.input'
-#end for
 
-&& mkdir -p '$report_html.files_path'
-&& cp -r outputdir/*.html '$report_html.files_path'
-#if ($assembly.type == 'single' and $assembly.ref.use_ref) or ($assembly.type == 'metagenomic' and $assembly.ref.origin != 'none')
-    && cp -R outputdir/icarus_viewers '$report_html.files_path'
+#if str($in.custom) == 'false'
+    #for $k in $in.inputs
+    '$k'
+    #end for
+#else
+    #for $k in $in.inputs
+    '$k.input'
+    #end for
 #end if
 
-#if $assembly.type == 'metagenomic' and $assembly.ref.origin == 'list'
-    #silent $temp_ref_list_f.close()
+&& mkdir -p '$report_html.files_path'
+&& cp outputdir/*.html '$report_html.files_path'
+#if ($assembly.type == 'genome' and $assembly.ref.use_ref) or ($assembly.type == 'metagenome' and $assembly.ref.origin != 'none')
+    && cp -R outputdir/icarus_viewers '$report_html.files_path'
 #end if
     ]]>
     </command>
     <inputs>
-        <repeat name="inputs" title="Contigs/scaffolds" min="1">
-            <param name="input" type="data" format="fasta" label="Contigs/scaffolds file"/>
-            <param argument="--labels" type="text" value="" label="Assembly name" help="This name will be used in reports, plots and logs"/>
-        </repeat>
+        <conditional name="in">
+            <param name="custom" type="select" label="Use customized names for the input files?">
+                <option value="true">Yes</option>
+                <option value="false" selected="true">No</option>
+            </param>
+            <when value="true">
+                <repeat name="inputs" title="Contigs/scaffolds" min="1">
+                    <param name="input" type="data" format="fasta" label="Contigs/scaffolds file"/>
+                    <param argument="--labels" type="text" value="" label="Assembly name" help="This name will be used in reports, plots and logs"/>
+                </repeat>
+            </when>
+            <when value="false">
+                <param name="inputs" type="data" format="fasta" multiple="true" label="Contigs/scaffolds file" help="The names in the history will be used in reports, plots and logs"/>
+            </when>
+        </conditional>
         <conditional name="assembly">
             <param name="type" type="select" label="Type of assembly">
-                <option value="single">Single-genome</option>
-                <option value="metagenomic">Metagenomic</option>
+                <option value="genome">Genome</option>
+                <option value="metagenome">Metagenome</option>
             </param>
-            <when value="single">
+            <when value="genome">
                 <conditional name="ref">
                     <param name="use_ref" type="select" label="Use a reference genome?" help="Many metrics can't be evaluated without a reference. If this is omitted, QUAST will only report the metrics that can be evaluated without a reference.">
-                        <option value="True">Yes</option>
-                        <option value="False" selected="true">No</option>
+                        <option value="true">Yes</option>
+                        <option value="false" selected="true">No</option>
                     </param>
-                    <when value="True">
+                    <when value="true">
                         <param argument="-r" type="data" format="fasta" multiple="true" label="Reference genome" />
                         <param argument="--features" type="data" format="gff, gff3, bed" optional="true" label="Genomic feature positions in the reference genome" help="Gene coordinates for the reference genome"/>
                         <param argument="--operons" type="data" format="gff, gff3, bed" optional="true" label="Operon positions in the reference genome" help="Operon coordinates for the reference genome"/>
                     </when>
-                    <when value="False">
+                    <when value="false">
                         <param name="est_ref_size" argument="--est-ref-size" type="integer" optional="true" label="Estimated reference genome size (in bp) for computing NGx statistics" help=""/>
                     </when>
                 </conditional>
                 <param name="orga_type" type="select" label="Type of organism">
-                    <option value="default">Prokaryotes: use of GeneMarkS for gene finding</option>
+                    <option value="">Prokaryotes: use of GeneMarkS for gene finding</option>
                     <option value="--eukaryote">Eukaryote (--eukaryote): use of GeneMark-ES for gene finding, Barrnap for ribosomal RNA genes prediction, BUSCO for conserved orthologs finding</option>
                     <option value="--fungus">Fungus (--fungus): use of GeneMark-ES for gene finding, Barrnap for ribosomal RNA genes prediction, BUSCO for conserved orthologs finding</option>
                 </param>
             </when>
-            <when value="metagenomic">
+            <when value="metagenome">
                 <conditional name="ref">
                     <param name="origin" type="select" label="Reference genome" help="Many metrics can't be evaluated without a reference. If this is omitted, QUAST will only report the metrics that can be evaluated without a reference.">
                         <option value="history">From history</option>
-                        <option value="list">From list</option>
-                        <option value="silva">From SILVA database</option>
+                        <!--<option value="list">From list</option>
+                        <option value="silva">From SILVA database</option>-->
                         <option value="none" selected="true">None</option>
                     </param>
                     <when value="history">
                         <param argument="-r" type="data" format="fasta" multiple="true" label="Reference genome" />
                     </when>
-                    <when value="list">
-                        <param name="references_list" argument="--references-list" type="text" value="" label="Comma-separated list of reference genomes" help="MetaQUAST will search for these references in the NCBI database and will download the found ones"/>
+                    <!--<when value="list">
+                        <param name="references_list" argument="references-list" type="text" value="" label="Comma-separated list of reference genomes" help="MetaQUAST will search for these references in the NCBI database and will download the found ones"/>
                     </when>
                     <when value="silva">
                         <param name="max_ref_num" argument="-max-ref-num" type="integer" value="50" label="Maximum number of reference genomes (per each assembly) to download after searching in the SILVA databa" />
-                    </when>
+                    </when>-->
                     <when value="none"/>
                 </conditional>
             </when>
@@ -180,27 +192,20 @@ metaquast
         <param argument="--circos" type="boolean" truevalue="--circos" falsevalue="" checked="false" label="Draw Circos plot?" help=""/>
         <section name="genes" title="Genes">
             <conditional name="gene_finding">
-                <param name="gene_finding" type="select" label="Predict genes?" help="">
-                    <option value="True">Yes</option>
-                    <option value="False">No</option>
+                <param name="tool" type="select" label="Tool for gene prediction" help="">
+                    <option value="none">Don't predict genes</option>
+                    <option value="--gene-finding">GeneMarkS if prokaryotes or GeneMark-ES if eukaryotes or fungi</option>
+                    <option value="--mgm">MetaGeneMark, specially for metagenomic assembly</option>
+                    <option value="--glimmer">Glimmer</option>
                 </param>
-                <when value="True">
-                    <conditional name="params">
-                        <param name="tool" type="select" label="Tool for gene prediction" help="">
-                            <option value="--gene-finding">GeneMarkS if prokaryotes or GeneMark-ES if eukaryotes or fungi</option>
-                            <option value="--mgm">MetaGeneMark, specially for metagenomic assembly</option>
-                            <option value="--glimmer">Glimmer</option>
-                        </param>
-                        <when value="--gene-finding">
-                            <expand macro="gene_thresholds"/>
-                        </when>
-                        <when value="--mgm"/>
-                        <when value="--glimmer">
-                            <expand macro="gene_thresholds"/>
-                        </when>
-                    </conditional>
+                <when value="none"/>
+                <when value="--gene-finding">
+                    <expand macro="gene_thresholds"/>
                 </when>
-                <when value="False"/>
+                <when value="--mgm"/>
+                <when value="--glimmer">
+                    <expand macro="gene_thresholds"/>
+                </when>
             </conditional>
             <param name="rna_finding" argument="--rna-finding" type="boolean" truevalue="--rna-finding" falsevalue="" checked="false" label="Enables ribosomal RNA gene finding?" help="By default, we assume that the genome is prokaryotic, and Barrnap uses the bacterial database for rRNA prediction. If the genome is eukaryotic (fungal), use --eukaryote (--fungus) option to force Barrnap to work with the eukaryotic (fungal) database. "/>
             <param name="conserved_genes_finding" argument="--conserved-genes-finding" type="boolean" truevalue="--conserved-genes-finding" falsevalue="" checked="false" label="Enables search for Universal Single-Copy Orthologs using BUSCO?" help="By default, we assume that the genome is prokaryotic, and BUSCO uses the bacterial database of orthologs. If the genome is eukaryotic (fungal), use --eukaryote (--fungus) option to force BUSCO to work with the eukaryotic (fungal) database. "/>
@@ -233,10 +238,10 @@ metaquast
         <data name="report_pdf" format="pdf" label="${tool.name} on ${on_string}:  PDF report" from_work_dir="outputdir/report.pdf"/>
         <data name="log" format="txt" label="${tool.name} on ${on_string}: Log" from_work_dir="outputdir/quast.log"/>
         <data name="mis_ass" format="tabular" label="${tool.name} on ${on_string}: Misassemblies" from_work_dir="outputdir/contigs_reports/misassemblies_report.txt">
-            <filter>(assembly['type'] == 'single' and assembly['ref']['use_ref'] == 'True') or (assembly['type'] == 'metagenomic' and assembly['ref']['origin'] != 'none')</filter>
+            <filter>(assembly['type'] == 'genome' and assembly['ref']['use_ref'] == 'true') or (assembly['type'] == 'metagenome' and assembly['ref']['origin'] != 'none')</filter>
         </data>
         <data name="unalign" format="tabular" label="${tool.name} on ${on_string}: Unaligned contigs" from_work_dir="outputdir/contigs_reports/unaligned_report.tsv">
-            <filter>(assembly['type'] == 'single' and assembly['ref']['use_ref'] == 'True') or (assembly['type'] == 'metagenomic' and assembly['ref']['origin'] != 'none')</filter>
+            <filter>(assembly['type'] == 'genome' and assembly['ref']['use_ref'] == 'true') or (assembly['type'] == 'metagenome' and assembly['ref']['origin'] != 'none')</filter>
         </data>
         <data name="kmers" format="tabular" label="${tool.name} on ${on_string}: K-mer-based metrics" from_work_dir="outputdir/k_mer_stats/kmers_report.txt">
             <filter>k_mer['k_mer_stats'] != ''</filter>
@@ -245,59 +250,59 @@ metaquast
     <tests>
         <test>
             <!-- Test with reference and genes annotations -->
-            <repeat name="inputs">
-                <param name="input" value="contigs1.fna"/>
-                <param name="labels" value="contig1"/>
-            </repeat>
-            <repeat name="inputs">
-                <param name="input" value="contigs2.fna"/>
-                <param name="labels" value=""/>
-            </repeat>
+            <conditional name="in">
+                <param name="custom" value="true"/>
+                <repeat name="inputs">
+                    <param name="input" value="contigs1.fna"/>
+                    <param name="labels" value="contig1"/>
+                </repeat>
+                <repeat name="inputs">
+                    <param name="input" value="contigs2.fna"/>
+                    <param name="labels" value=""/>
+                </repeat>
+            </conditional>
             <conditional name="assembly">
-                <param name="type" value="single"/>
+                <param name="type" value="genome"/>
                 <conditional name="ref">
-                    <param name="use_ref" value="True"/>
+                    <param name="use_ref" value="true"/>
                     <param name="r" value="reference.fna"/>
                     <param name="features" value="genes.gff"/>
                 </conditional>
-                <param name="orga_type" value="default"/>
+                <param name="orga_type" value=""/>
             </conditional>
             <param name="min_contig" value="500"/>
-            <param name="split_scaffolds" value=""/>
-            <param name="large" value="--large"/>
+            <param name="split_scaffolds" value="false"/>
+            <param name="large" value="true"/>
             <conditional name="k_mer">
                 <param name="k_mer_stats" value="--k-mer-stats"/>
                 <param name="k_mer_size" value="101" />
             </conditional>
-            <param name="circos" value="--circos"/>
+            <param name="circos" value="true"/>
             <section name="genes">
                 <conditional name="gene_finding">
-                    <param name="gene-finding" value="True"/>
-                    <conditional name="params">
-                        <param name="tool" value="--gene_finding"/>
-                        <param name="gene_thresholds" value="0,300,1500,3000"/>
-                    </conditional>
+                    <param name="tool" value="--gene_finding"/>
+                    <param name="gene_thresholds" value="0,300,1500,3000"/>
                 </conditional>
-                <param name="rna_finding" value="--rna-finding"/>
-                <param name="conserved_genes_finding" value="--conserved-genes-finding"/>
+                <param name="rna_finding" value="true"/>
+                <param name="conserved_genes_finding" value="true"/>
             </section>
             <section name="al">
-                <param name="use_all_alignments" value="--use-all-alignments"/>
+                <param name="use_all_alignments" value="true"/>
                 <param name="min_alignment" value="65"/>
                 <param name="min_identity" value="95.0"/>
                 <param name="ambiguity_usage" value="one"/>
                 <param name="ambiguity_score" value="0.99"/>
-                <param name="fragmented" value="--fragmented"/>
+                <param name="fragmented" value="true"/>
                 <param name="fragmented_max_indent" value="50"/>
-                <param name="upper_bound_assembly" value="--upper-bound-assembly"/>
+                <param name="upper_bound_assembly" value="true"/>
                 <param name="upper_bound_min_con" value="2"/>
             </section>
             <param name="contig_thresholds" value="0,1000"/>
-            <param name="strict_NA" value="--strict-NA"/>
+            <param name="strict_NA" value="true"/>
             <param name="extensive_mis_size" value="1000"/>
             <param name="scaffold_gap_max_size" value="1000"/>
             <param name="unaligned_part_size" value="500"/>
-            <param name="skip_unaligned_mis_contigs" value="--skip-unaligned-mis-contigs"/>
+            <param name="skip_unaligned_mis_contigs" value="true"/>
             <output name="quast_tabular" file="test1.tabular" lines_diff="2"/>
             <output name="mis_ass" file="test1_mis_ass.tabular"/>
             <output name="unalign" file="test1_unalign.tabular"/>
@@ -305,48 +310,44 @@ metaquast
         </test>
         <test>
             <!-- Test without reference -->
-            <repeat name="inputs">
-                <param name="input" value="contigs1.fna"/>
-                <param name="labels" value="contig1"/>
-            </repeat>
-            <repeat name="inputs">
-                <param name="input" value="contigs2.fna"/>
-                <param name="labels" value=""/>
-            </repeat>
+            <conditional name="in">
+                <param name="custom" value="false"/>
+                <param name="inputs" value="contigs1.fna,contigs2.fna"/>
+            </conditional>
             <conditional name="assembly">
-                <param name="type" value="single"/>
+                <param name="type" value="genome"/>
                 <conditional name="ref">
-                    <param name="use_ref" value="False"/>
+                    <param name="use_ref" value="false"/>
                 </conditional>
                 <param name="orga_type" value="--eukaryote"/>
             </conditional>
             <param name="min_contig" value="500"/>
-            <param name="split_scaffolds" value=""/>
-            <param name="large" value=""/>
+            <param name="split_scaffolds" value="false"/>
+            <param name="large" value="false"/>
             <conditional name="k_mer">
                 <param name="k_mer_stats" value=""/>
             </conditional>
-            <param name="circos" value=""/>
+            <param name="circos" value="false"/>
             <section name="genes">
                 <conditional name="gene_finding">
-                    <param name="gene-finding" value="False"/>
+                    <param name="tool" value="none"/>
                 </conditional>
-                <param name="rna_finding" value=""/>
-                <param name="conserved_genes_finding" value=""/>
+                <param name="rna_finding" value="false"/>
+                <param name="conserved_genes_finding" value="false"/>
             </section>
             <section name="al">
-                <param name="use_all_alignments" value=""/>
+                <param name="use_all_alignments" value="false"/>
                 <param name="min_alignment" value="65"/>
                 <param name="min_identity" value="95.0"/>
                 <param name="ambiguity_usage" value="one"/>
                 <param name="ambiguity_score" value="0.99"/>
-                <param name="fragmented" value=""/>
+                <param name="fragmented" value="false"/>
                 <param name="fragmented_max_indent" value="50"/>
-                <param name="upper_bound_assembly" value=""/>
+                <param name="upper_bound_assembly" value="false"/>
                 <param name="upper_bound_min_con" value="2"/>
             </section>
             <param name="contig_thresholds" value="0,1000, 500"/>
-            <param name="strict_NA" value=""/>
+            <param name="strict_NA" value="false"/>
             <param name="extensive_mis_size" value="1000"/>
             <param name="scaffold_gap_max_size" value="1000"/>
             <param name="unaligned_part_size" value="500"/>
@@ -357,45 +358,43 @@ metaquast
         </test>
         <test>
             <!-- Test with metagenomics -->
-            <repeat name="inputs">
-                <param name="input" value="contigs3.fasta"/>
-                <param name="labels" value=""/>
-            </repeat>
+            <conditional name="in">
+                <param name="custom" value="false"/>
+                <param name="inputs" value="contigs3.fasta"/>
+            </conditional>
             <conditional name="assembly">
-                <param name="type" value="metagenomic"/>
+                <param name="type" value="metagenome"/>
                 <conditional name="ref">
-                    <param name="origin" value="silva"/>
-                    <param name="max_ref_num" value="50"/>
+                    <param name="origin" value="none"/>
                 </conditional>
             </conditional>
             <param name="min_contig" value="500"/>
-            <param name="split_scaffolds" value=""/>
-            <param name="large" value=""/>
+            <param name="split_scaffolds" value="false"/>
+            <param name="large" value="false"/>
             <conditional name="k_mer">
                 <param name="k_mer_stats" value=""/>
             </conditional>
-            <param name="circos" value=""/>
+            <param name="circos" value="false"/>
             <section name="genes">
                 <conditional name="gene_finding">
-                    <param name="gene-finding" value="True"/>
                     <param name="tool" value="--mgm"/>
                 </conditional>
-                <param name="rna_finding" value=""/>
-                <param name="conserved_genes_finding" value=""/>
+                <param name="rna_finding" value="false"/>
+                <param name="conserved_genes_finding" value="false"/>
             </section>
             <section name="al">
-                <param name="use_all_alignments" value=""/>
+                <param name="use_all_alignments" value="false"/>
                 <param name="min_alignment" value="65"/>
                 <param name="min_identity" value="95.0"/>
                 <param name="ambiguity_usage" value="one"/>
                 <param name="ambiguity_score" value="0.99"/>
-                <param name="fragmented" value=""/>
+                <param name="fragmented" value="false"/>
                 <param name="fragmented_max_indent" value="50"/>
-                <param name="upper_bound_assembly" value=""/>
+                <param name="upper_bound_assembly" value="false"/>
                 <param name="upper_bound_min_con" value="2"/>
             </section>
             <param name="contig_thresholds" value="0,1000, 500"/>
-            <param name="strict_NA" value=""/>
+            <param name="strict_NA" value="false"/>
             <param name="extensive_mis_size" value="1000"/>
             <param name="scaffold_gap_max_size" value="1000"/>
             <param name="unaligned_part_size" value="500"/>
