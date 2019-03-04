@@ -128,11 +128,12 @@ mkgenelist <- function(sc){
 
         goi <- head(rownames(dg.goi.table), genelist.plotlim)
         print(plotmarkergenes(sc, goi))
-        print(do.call(mtext, c(paste("                               Cluster ",n), test)))  ## spacing is a hack
+        buffer <- paste(rep("", 36), collapse=" ")
+        print(do.call(mtext, c(paste(buffer, "Cluster ",n), test)))  ## spacing is a hack
         test$line=-1
-        print(do.call(mtext, c(paste("                               Sig. Genes"), test)))  ## spacing is a hack
+        print(do.call(mtext, c(paste(buffer, "Sig. Genes"), test)))  ## spacing is a hack
         test$line=-2
-        print(do.call(mtext, c(paste("                               (fc > ", genelist.foldchange,")"), test)))  ## spacing is a hack
+        print(do.call(mtext, c(paste(buffer, "(fc > ", genelist.foldchange,")"), test)))  ## spacing is a hack
 
     })
     write.table(df, file=out.genelist, sep="\t", quote=F)
