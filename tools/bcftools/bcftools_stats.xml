@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@VERSION@">
+<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@TOOL_VERSION@">
     <description>Parses VCF or BCF and produces stats which can be plotted using plot-vcfstats</description>
     <macros>
         <token name="@EXECUTABLE@">stats</token>
@@ -7,11 +7,16 @@
     </macros>
     <expand macro="requirements">
         <expand macro="samtools_requirement"/>
-        <requirement type="package" version="2.0.0">matplotlib</requirement>
+        <requirement type="package" version="3.0.2">matplotlib</requirement>
+        <requirement type="package" version="0.1.11">tectonic</requirement>
     </expand>
     <expand macro="version_command" />
     <command detect_errors="aggressive"><![CDATA[
 @PREPARE_ENV@
+#set $input_files = [$input_file]
+#if $inputB_file:
+    #silent $input_files.append($inputB_file)
+#end if
 @PREPARE_INPUT_FILES@
 #set $section = $sec_restrict
 @PREPARE_TARGETS_FILE@
@@ -29,21 +34,21 @@ bcftools @EXECUTABLE@
 @EXONS_FILE@
 ${section.first_allele_only}
 #if $section.depth.set_depth == 'yes':
-  --depth "${section.depth.depth_min},${section.depth.depth_max},${section.depth.depth_bin_size}"
+    --depth ${section.depth.depth_min},${section.depth.depth_max},${section.depth.depth_bin_size}
 #end if
 #if $section.user_tstv:
-  --user-tstv "${section.user_tstv}"
+    --user-tstv '${section.user_tstv}'
 #end if
 #if $section.afbins.afbins_select == 'af_bins_list':
-  --af-bins $section.afbins.af_bins_list
+    --af-bins '$section.afbins.af_bins_list'
 #elif $section.afbins.afbins_select == 'af_bins_file':
-  --af-bins $section.afbins.af_bins_file
+    --af-bins '$section.afbins.af_bins_file'
 #end if
 #if $section.af_tag:
-  --af-tag "${section.af_tag}"
+    --af-tag '${section.af_tag}'
 #end if
 #if len($input_vcfs) == 1:
-${section.split_by_ID}
+    ${section.split_by_ID}
 #end if
 ${section.verbose}
 
@@ -59,15 +64,19 @@ ${section.verbose}
 
 ## Primary Input/Outputs
 @INPUT_FILES@
-> $output_file
-## requires: matplotlib and pdflatex
+> '$output_file'
 #if $plot_title:
-&& plot-vcfstats -p 'plot_tmp/' -T $plot_title -s $output_file
+    && plot-vcfstats
+    -p 'plot_tmp/'
+    -T '$plot_title'
+    -s
+    '$output_file'
+    || (printf "The content of plot_tmp/plot-vcfstats.log is:\n" >&2 && cat plot_tmp/plot-vcfstats.log >&2 && exit 1)
 #end if
-]]>
-    </command>
+    ]]></command>
     <inputs>
-        <expand macro="macro_inputs" />
+        <expand macro="macro_input" />
+        <param name="inputB_file" type="data" format="vcf,vcf_bgzip,bcf" optional="true" label="Optional VCF/BCF Data to compare against" help="When this second dataset is also specified, separate stats for intersection and the complements are generated" />
         <section name="sec_restrict" expanded="false" title="Restrict to">
             <expand macro="macro_samples" />
             <expand macro="macro_apply_filters" />
@@ -128,13 +137,14 @@ ${section.verbose}
     </inputs>
     <outputs>
         <data name="output_file" format="txt"/>
-        <data name="output_pdf" format="pdf">
+        <data name="output_pdf" format="pdf" from_work_dir="plot_tmp/summary.pdf">
             <filter>plot_title</filter>
         </data>
     </outputs>
     <tests>
         <test>
-            <param name="input_files" ftype="vcf" value="stats.b.vcf,stats.a.vcf" />
+            <param name="input_file" ftype="vcf" value="stats.b.vcf" />
+            <param name="inputB_file" ftype="vcf" value="stats.a.vcf" />
             <output name="output_file">
                 <assert_contents>
                     <has_text_matching expression="SN\t0\tnumber of samples:\t3"/>
@@ -143,7 +153,8 @@ ${section.verbose}
             </output>
         </test>
         <test>
-            <param name="input_files" ftype="vcf" value="mpileup.vcf" />
+            <param name="input_file" ftype="vcf" value="mpileup.vcf" />
+            <param name="plot_title" value="Plot for mpileup.vcf" />
             <output name="output_file">
                 <assert_contents>
                     <has_text_matching expression="SN\t0\tnumber of samples:\t3"/>
@@ -151,6 +162,7 @@ ${section.verbose}
                     <has_text_matching expression="ST\t0\tA>C\t16"/>
                 </assert_contents>
             </output>
+            <output name="output_pdf" file="summary.pdf" compare="sim_size" delta="20000" />
         </test>
     </tests>
     <help><![CDATA[
@@ -162,6 +174,8 @@ Parses VCF or BCF and produces stats which can be plotted using plot-vcfstats.
 
 When two files are given, the program generates separate stats for intersection and the complements. 
 By default only sites are compared, -s/-S must given to include also sample columns.
+
+When one VCF file is specified, then stats by non-reference allele frequency, depth distribution, stats by quality and per-sample counts, singleton stats, etc. are printed. When two VCF files are given, then stats such as concordance (Genotype concordance by non-reference allele frequency, Genotype concordance by sample, Non-Reference Discordance) and correlation are also printed. Per-site discordance (PSD) is also printed in --verbose mode.
 
 @COLLAPSE_HELP@
 @REGIONS_HELP@

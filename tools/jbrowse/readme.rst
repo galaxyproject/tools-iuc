@@ -25,6 +25,11 @@ likely to change at any time! Beware. ;)
 History
 =======
 
+- 1.16.2+galaxy0
+
+    - UPDATED to JBrowse 1.16.2
+    - ADDED support for NeatHTMLFeatures and NeatCanvasFeatures track types
+
 - 1.16.1+galaxy0
 
     - UPDATED to JBrowse 1.16.1

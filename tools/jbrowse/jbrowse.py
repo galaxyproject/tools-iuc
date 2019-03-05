@@ -614,10 +614,7 @@ class JbrowseConnector(object):
 
         if not os.path.exists(dest):
             # Only index if not already done
-            cmd = "grep ^\"#\" '%s' > '%s'" % (data, dest)
-            self.subprocess_popen(cmd)
-
-            cmd = "grep -v ^\"#\" '%s' | grep -v \"^$\" | grep \"\t\" | sort -k1,1 -k4,4n >> '%s'" % (data, dest)
+            cmd = "gff3sort.pl --precise '%s' | grep -v \"^$\" > '%s'" % (data, dest)
             self.subprocess_popen(cmd)
 
             cmd = ['bgzip', '-f', dest]
@@ -643,15 +640,19 @@ class JbrowseConnector(object):
         trackType = 'JBrowse/View/Track/CanvasFeatures'
         if 'trackType' in gffOpts:
             trackType = gffOpts['trackType']
-        trackData['trackType'] = trackType
+        trackData['type'] = trackType
+        trackData['trackType'] = trackType  # Probably only used by old jbrowse versions
 
-        if trackType == 'JBrowse/View/Track/CanvasFeatures':
+        if trackType in ['JBrowse/View/Track/CanvasFeatures', 'NeatCanvasFeatures/View/Track/NeatFeatures']:
             if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
                 trackData['transcriptType'] = gffOpts['transcriptType']
             if 'subParts' in gffOpts and gffOpts['subParts']:
                 trackData['subParts'] = gffOpts['subParts']
             if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
                 trackData['impliedUTRs'] = gffOpts['impliedUTRs']
+        elif trackType in ['JBrowse/View/Track/HTMLFeatures', 'NeatHTMLFeatures/View/Track/NeatFeatures']:
+            if 'topLevelFeatures' in gffOpts and gffOpts['topLevelFeatures']:
+                trackData['topLevelFeatures'] = gffOpts['topLevelFeatures']
 
         self._add_track_json(trackData)
 
@@ -820,7 +821,7 @@ class JbrowseConnector(object):
 
         if 'GCContent' in data['plugins_python']:
             self._add_track_json({
-                "storeClass": "JBrowse/Store/SeqFeature/IndexedFasta",
+                "storeClass": "JBrowse/Store/Sequence/IndexedFasta",
                 "type": "GCContent/View/Track/GCContentXY",
                 "label": "GC Content",
                 "key": "GCContentXY",
@@ -839,7 +840,7 @@ class JbrowseConnector(object):
                 # TODO: Expose params for everyone.
             })
             self._add_track_json({
-                "storeClass": "JBrowse/Store/SeqFeature/IndexedFasta",
+                "storeClass": "JBrowse/Store/Sequence/IndexedFasta",
                 "type": "GCContent/View/Track/GCContentXY",
                 "label": "GC skew",
                 "key": "GCSkew",
