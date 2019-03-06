@@ -34,9 +34,9 @@ def main(expterm, fasta, gff3):
             output = subprocess.check_output(cmd)
             #   TERM 1         4342 - 4366     + F    93 -11.5 -3.22878 | opp_overlap 4342, overlap 4340 4357
             ttre = re.compile(
-                '^  (?P<name>.*) (?P<start>\d+) - (?P<end>\d+)\s+'
-                '(?P<strand>[-+])\s+(?P<loc>[GFRTHNgfr]+)\s+'
-                '(?P<conf>\d+)\s+(?P<hp>[0-9.-]+)\s+(?P<tail>[0-9.-]+)'
+                r'^  (?P<name>.*) (?P<start>\d+) - (?P<end>\d+)\s+'
+                r'(?P<strand>[-+])\s+(?P<loc>[GFRTHNgfr]+)\s+'
+                r'(?P<conf>\d+)\s+(?P<hp>[0-9.-]+)\s+(?P<tail>[0-9.-]+)'
             )
 
             rec.features = []

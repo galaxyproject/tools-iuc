@@ -1,9 +1,9 @@
 <tool id="unicycler" name="Create assemblies with Unicycler" version="@VERSION@.0">
     <macros>
-        <token name="@VERSION@">0.4.4</token>
+        <token name="@VERSION@">0.4.7</token>
     </macros>
     <requirements>
-         <requirement type="package" version="@VERSION@">unicycler</requirement>
+        <requirement type="package" version="@VERSION@">unicycler</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
 ## Preparing files
@@ -58,10 +58,13 @@ unicycler -t "\${GALAXY_SLOTS:-4}"
 -o ./
 --verbosity 3
 --pilon_path \$pilon
-#if str( $paired_unpaired.fastq_input_selector ) != "single"
+#if str( $paired_unpaired.fastq_input_selector ) == "paired"
     -1 '$fq1'
     -2 '$fq2'
-#else
+#elif str( $paired_unpaired.fastq_input_selector ) == "paired_collection"
+    -1 '$fq1'
+    -2 '$fq2'
+#elif str( $paired_unpaired.fastq_input_selector ) == "single"
     -s '$fq'
 #end if
 #if $long
@@ -72,11 +75,17 @@ unicycler -t "\${GALAXY_SLOTS:-4}"
 --mode '$mode'
 --min_fasta_length '$min_fasta_length'
 --linear_seqs '$linear_seqs'
+#if str($min_anchor_seg_len) != ''
+--min_anchor_seg_len '$min_anchor_seg_len'
+#end if
 ## Spades Options section
 ## ----------------------------------------------------------
 $spades.no_correct
 --min_kmer_frac '$spades.min_kmer_frac'
 --max_kmer_frac '$spades.max_kmer_frac'
+#if str($spades.kmers) != ''
+--kmers '$spades.kmers'
+#end if
 --kmer_count '$spades.kmer_count'
 --depth_filter '$spades.depth_filter'
 ## Rotation Options section
@@ -106,8 +115,6 @@ $pilon.no_pilon
 #if str($lr_align.low_score) != ''
     --low_score '$lr_align.low_score'
 #end if
-## Miniasm requires racon, which is not available for python 3.x
---no_miniasm
     ]]></command>
     <inputs>
         <conditional name="paired_unpaired">
@@ -115,16 +122,22 @@ $pilon.no_pilon
                 <option selected="True" value="paired">Paired</option>
                 <option value="paired_collection">Paired Collection</option>
                 <option value="single">Single</option>
+                <option value="none">None</option>
             </param>
             <when value="paired">
-                <param name="fastq_input1" argument="-1" type="data" format="fastqsanger,fastqsanger.gz" label="Select first set of reads" help="Specify dataset with forward reads"/>
-                <param name="fastq_input2" argument="-2" type="data" format="fastqsanger,fastqsanger.gz" label="Select second set of reads" help="Specify dataset with reverse reads"/>
+                <param name="fastq_input1" argument="-1" type="data" format="fastqsanger,fastqsanger.gz"
+                    label="Select first set of reads" help="Specify dataset with forward reads"/>
+                <param name="fastq_input2" argument="-2" type="data" format="fastqsanger,fastqsanger.gz"
+                    label="Select second set of reads" help="Specify dataset with reverse reads"/>
             </when>
             <when value="paired_collection">
                 <param name="fastq_input1" format="fastqsanger,fastqsanger.gz" type="data_collection" collection_type="paired" label="Select a paired collection" />
             </when>
             <when value="single">
-                <param name="fastq_input1" argument="-s" type="data" format="fastqsanger,fastqsanger.gz" label="Select unpaired reads" help="Specify dataset with unpaired reads"/>
+                <param name="fastq_input1" argument="-s" type="data" format="fastqsanger,fastqsanger.gz"
+                    label="Select unpaired reads" help="Specify dataset with unpaired reads"/>
+            </when>
+            <when value="none">
             </when>
         </conditional>
         <param argument="--long" optional="true" type="data" format="fastqsanger,fastqsanger.gz,fasta" label="Select long reads. If there are no long reads, leave this empty"/>
@@ -135,35 +148,52 @@ $pilon.no_pilon
         </param>
         <param argument="--min_fasta_length" type="integer" value="100" label="Exclude contigs from the FASTA file which are shorter than this length (bp)"/>
         <param argument="--linear_seqs" type="integer" value="0" label="The expected number of linear (i.e. non-circular) sequences in the assembly"/>
-        <section name="spades" expanded="False" title="SPAdes options" help="Unicycler uses SPAdes to construct assembly graphs. You can modify some of the SPAdes settings here. Use this ONLY if you know what you are doing!">
-            <param argument="--no_correct" type="boolean" checked="false" truevalue="--no_correct" falsevalue="" label="Skip SPAdes error correction step" help="This option turns off SPAdes error correction. Generally it is highly recommended to use correction."/>
-            <param argument="--min_kmer_frac" type="float" min="0" max="1" value="0.2" label="Lowest k-mer size for SPAdes assembly, expressed as a fraction of the read length"/>
-            <param argument="--max_kmer_frac" type="float" min="0" max="1" value="0.95" label="Highest k-mer size for SPAdes assembly, expressed as a fraction of the read length"/>
+        <param argument="--min_anchor_seg_len" type="integer" min="0" optional="true" label="Unicycler will not use segments shorter than this as scaffolding anchors"/>
+        <section name="spades" expanded="False" title="SPAdes options"
+            help="Unicycler uses SPAdes to construct assembly graphs. You can modify some of the SPAdes settings here. Use this ONLY if you know what you are doing!">
+            <param argument="--no_correct" type="boolean" checked="false" truevalue="--no_correct" falsevalue=""
+                label="Skip SPAdes error correction step" help="This option turns off SPAdes error correction. Generally it is highly recommended to use correction."/>
+            <param argument="--min_kmer_frac" type="float" min="0" max="1" value="0.2"
+                label="Lowest k-mer size for SPAdes assembly, expressed as a fraction of the read length"/>
+            <param argument="--max_kmer_frac" type="float" min="0" max="1" value="0.95"
+                label="Highest k-mer size for SPAdes assembly, expressed as a fraction of the read length"/>
+            <param argument="--kmers" type="text" value="" optional="true" label="Exact k-mers to use for SPAdes assembly, comma-separated">
+                <validator type="regex" message="Kmers must be comma-separated odd integers (no repitition) without space in the range of 11 to 127 (inclusive)">^(\d*[13579],)*(\d*[13579])$</validator>
+            </param>
             <param argument="--kmer_count" type="integer" min="0" value="10" label="Number of k-mer steps to use in SPAdes assembly"/>
-            <param argument="--depth_filter" type="float" min="0" max="1" value="0.25" label="Filter out contigs lower than this fraction of the chromosomal depth" help="It is done if does not result in graph dead ends"/>
+            <param argument="--depth_filter" type="float" min="0" max="1" value="0.25"
+                label="Filter out contigs lower than this fraction of the chromosomal depth" help="It is done if does not result in graph dead ends"/>
         </section>
-        <section name="rotation" expanded="false" title="Rotation options" help="These options control the rotation of completed circular sequence near the end of the Unicycler pipeline. Use this ONLY if you know what you are doing!">
-            <param argument="--no_rotate" type="boolean" checked="false" truevalue="--no_rotate" falsevalue="" label="Do not rotate completed replicons to start at a standard gene." help="Unicycler uses TBLASTN to search for dnaA or repA alleles in each completed replicon. If one is found, the sequence is rotated and/or flipped so that it begins with that gene encoded on the forward strand. This provides consistently oriented assemblies and reduces the risk that a gene will be split across the start and end of the sequence."/>
+        <section name="rotation" expanded="false" title="Rotation options"
+            help="These options control the rotation of completed circular sequence near the end of the Unicycler pipeline. Use this ONLY if you know what you are doing!">
+            <param argument="--no_rotate" type="boolean" checked="false" truevalue="--no_rotate" falsevalue=""
+                label="Do not rotate completed replicons to start at a standard gene." help="Unicycler uses TBLASTN to search for dnaA or repA alleles in each completed replicon. If one is found, the sequence is rotated and/or flipped so that it begins with that gene encoded on the forward strand. This provides consistently oriented assemblies and reduces the risk that a gene will be split across the start and end of the sequence."/>
             <param argument="--start_genes" optional="true" type="data" format="fasta" label="FASTA file of genes for start point of rotated replicons" />
             <param argument="--start_gene_id" type="float" min="0" max="100" value="90" label="The minimum required BLAST percent identity for a start gene search"/>
             <param argument="--start_gene_cov" type="float" min="0" max="100" value="95" label="The minimum required BLAST percent coverage for a start gene search"/>
         </section>
         <section name="pilon" title="Pilon options" expanded="false">
-            <param argument="--no_pilon" type="boolean" checked="false" truevalue="--no_pilon" falsevalue="" label="Do not use Pilon to polish the final assembly." help="Unicycler uses Pilon tool for polishing final assembly."/>
+            <param argument="--no_pilon" type="boolean" checked="false" truevalue="--no_pilon" falsevalue=""
+                label="Do not use Pilon to polish the final assembly." help="Unicycler uses Pilon tool for polishing final assembly."/>
             <param argument="--min_polish_size" type="integer" min="0" value="1000" label="Contigs shorter than this value (bp) will not be polished using Pilon"/>
         </section>
-        <section name="graph_clean" expanded="false" title="Graph cleaning options" help="These options control the removal of small leftover sequences after bridging is complete.">
-            <param argument="--min_component_size" type="integer" min="0" value="1000" label="Unbridged graph components smaller than this size will be removed from the final graph" />
-            <param argument="--min_dead_end_size" type="integer" min="0" value="1000" label="Graph dead ends smaller than this size will be removed from the final graph"/>
+        <section name="graph_clean" expanded="false" title="Graph cleaning options"
+            help="These options control the removal of small leftover sequences after bridging is complete.">
+            <param argument="--min_component_size" type="integer" min="0" value="1000"
+                label="Unbridged graph components smaller than this size will be removed from the final graph" />
+            <param argument="--min_dead_end_size" type="integer" min="0" value="1000"
+                label="Graph dead ends smaller than this size will be removed from the final graph"/>
         </section>
         <section name="lr_align" expanded="false" title="Long read alignment parameters" help="These options control the alignment of long reads to the assembly graph.">
-            <param argument="--contamination" optional="true" type="data" format="fasta" label="FASTA file of known contamination in long reads, e.g. lambda, phiXm or puc18 spike-ins." />
+            <param argument="--contamination" optional="true" type="data" format="fasta"
+                label="FASTA file of known contamination in long reads, e.g. lambda, phiXm or puc18 spike-ins." />
             <param argument="--scores" type="text" value="3,-6,-5,-2" label="Comma-delimited string of alignment scores: match, mismatch, gap open, gap extend"/>
-            <param argument="--low_score" optional="true" type="integer" value="" label="Score threshold - alignments below this are considered poor" help="default = set automatically"/>
+            <param argument="--low_score" optional="true" type="integer" value=""
+                label="Score threshold - alignments below this are considered poor" help="default = set automatically"/>
         </section>
     </inputs>
     <outputs>
-        <data name="assembly_graph" format="txt" from_work_dir="assembly.gfa" label="${tool.name} on ${on_string}: Final Assembly Graph" />
+        <data name="assembly_graph" format="tabular" from_work_dir="assembly.gfa" label="${tool.name} on ${on_string}: Final Assembly Graph" />
         <data name="assembly" format="fasta" from_work_dir="assembly.fasta" label="${tool.name} on ${on_string}: Final Assembly"/>
     </outputs>
     <tests>
@@ -199,7 +229,7 @@ $pilon.no_pilon
             <section name="lr_align">
                 <param name="scores" value="3,-6,-5,-2"/>
             </section>
-            <output name="assembly_graph" ftype="txt">
+            <output name="assembly_graph" ftype="tabular">
                 <assert_contents>
                     <has_text text="TACGGGGAAGGACGTC"/>
                 </assert_contents>
@@ -254,7 +284,7 @@ $pilon.no_pilon
             <section name="lr_align">
                 <param name="scores" value="3,-6,-5,-2"/>
             </section>
-            <output name="assembly_graph" ftype="txt">
+            <output name="assembly_graph" ftype="tabular">
                 <assert_contents>
                     <has_text text="TACGGGGAAGGACGTC" />
                 </assert_contents>
@@ -301,7 +331,7 @@ $pilon.no_pilon
             <section name="lr_align">
                 <param name="scores" value="3,-6,-5,-2"/>
             </section>
-            <output name="assembly_graph" ftype="txt">
+            <output name="assembly_graph" ftype="tabular">
                 <assert_contents>
                     <has_text text="TACGGGGAAGGACGTC" />
                 </assert_contents>
@@ -309,6 +339,26 @@ $pilon.no_pilon
             <output name="assembly" ftype="fasta">
                 <assert_contents>
                     <has_text text="length=5386" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <conditional name="paired_unpaired">
+                <param name="fastq_input_selector" value="none"/>
+            </conditional>
+            <param name="min_anchor_seg_len" value="10"/>
+            <section name="spades">
+                <param name="kmers" value="21,23"/>
+            </section>
+            <param name="long" value="only_long.fasta" ftype="fasta" />
+            <output name="assembly_graph" ftype="tabular">
+                <assert_contents>
+                    <has_text text="S" />
+                </assert_contents>
+            </output>
+            <output name="assembly" ftype="fasta">
+                <assert_contents>
+                    <has_text text=">1" />
                 </assert_contents>
             </output>
         </test>
@@ -434,8 +484,8 @@ This section provides control of SPAdes options::
         Number of k-mer steps to use in
         SPAdes assembly (default: 10)
     --depth_filter DEPTH_FILTER
-        Filter out contigs lower than this fraction 
-        of the chromosomal depth, if doing so does 
+        Filter out contigs lower than this fraction
+        of the chromosomal depth, if doing so does
         not result in graph dead ends (default: 0.25)
 
 ----

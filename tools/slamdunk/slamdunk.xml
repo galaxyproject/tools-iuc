@@ -1,0 +1,225 @@
+<tool id="slamdunk" name="Slamdunk" version="@TOOL_VERSION@+galaxy2">
+    <description>- streamlining SLAM-seq analysis with ultra-high sensitivity</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <version_command>slamdunk --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+
+#if $reference_source.reference_source_selector == 'history':
+    ln -f -s '$reference_source.ref_file' reference.fa &&
+#else:
+    ln -f -s '$reference_source.ref_file.fields.path' reference.fa &&
+#end if
+
+mkdir ./fastq &&
+#for $fastq in $reads:
+    #set $fastq_name = re.sub('[^\w\-\.]', '_', str($fastq.element_identifier))
+    ln -s '$fastq' './fastq/${fastq_name}' &&
+#end for
+
+    slamdunk all -r reference.fa -b '$Reference' -o ./out
+       -t \${GALAXY_SLOTS:-1}
+       -n $multimapper.multimappers
+       $multimapper.multimap
+       #if $multimapper.filterbed.bedtofilter:
+        -fb $multimapper.filterbed.bedtofilter
+       #end if
+       -5 $quantseq.trim5
+       -a $quantseq.maxpolyA
+       $advanced.endtoend
+       -mq $advanced.minMQ
+       -mi $advanced.minID
+       -nm=$advanced.maxNM
+       -mc $advanced.minCov
+       -mv $advanced.minVar
+       -mbq $advanced.minBaseQual
+    -rl $readLength
+    -c $covThresh
+    ./fastq/*
+    ]]></command>
+    <inputs>
+        <expand macro="reference_files" />
+        <param name="reads" type="data" format="fastqsanger,fastqsanger.gz" multiple="True" label="FASTQ files"/>
+        <section name="multimapper" title="Multimapper recovery"
+            expanded="false">
+            <section name="filterbed"
+                title="Use separate 3' UTR bed to filter multimappers." expanded="false">
+                <param name="bedtofilter" type="data" format="bed" optional="true"
+                    label="Bed to filter" />
+            </section>
+            <param name="multimappers" type="integer" min="1" value="1"
+                label="Maximum number of alignments to report per read"
+                help="The maximum number of alignments is used to track multimapping read alignments. The more are allowed, the more sensitive the multimapper filtering will be, but also the longer the runtime will be. 100 was used in previous publications." />
+            <param name="multimap" type="boolean" truevalue="--multimap" falsevalue=""
+                label="Use reference bed file to resolve multimappers."
+                help="Enable multimapper recovery, requires -n to be set to a value > 1 to have impact." />
+        </section>
+        <section name="quantseq" title="Quantseq" expanded="false">
+            <param name="trim5" type="integer" min="0" value="12"
+                label="Number of bp to remove from the 5' end of all reads"
+                help="For Lexogen's Quantseq kit and previous SLAM-seq papers a clipping of 12 bp from the 5' end is recommended." />
+            <param name="maxpolyA" type="integer" min="0" value="4"
+                label="Maximum number of As at the 3' end of a read"
+                help="The maximum number of allowed As at the 3' end of a read. All A-stretches that exceed this threshold are clipped because they are likely part of the poly-A tail." />
+        </section>
+        <section name="advanced" title="Advanced settings." expanded="false">
+            <param name="endtoend" type="boolean" truevalue="--endtoend" falsevalue=""
+                label="Enable end-to-end alignments for mapping."
+                help="Enable end-to-end alignments for mapping in slamdunk with --endtoend" />
+            <param name="minMQ" type="integer" min="0" value="2"
+                label="Minimum mapping quality"
+                help="Minimum mapping quality to consider alignments (default: 2)." />
+            <param name="minID" type="float" min="0" value="0.95"
+                label="Minimum alignment identity"
+                help="Minimum alignment-identity to consider alignments (default: 0.95)." />
+            <param name="maxNM" type="integer" value="-1"
+                label="Maximum number of mismatches"
+                help="Maximum number of mismatches to consider alignments. Negative numbers deactivate filter (default: -1)." />
+            <param name="minCov" type="integer" min="0" value="10"
+                label="Minimum coverage to call variant"
+                help="Minimum coverage to call variant (default: 10)." />
+            <param name="minVar" type="float" min="0" value="0.8"
+                label="Minimum variant fraction to call variant"
+                help="Minimum variant fraction to call variant (default: 0.8)." />
+            <param name="minBaseQual" type="integer" min="0" value="27"
+                label="Minimum base quality"
+                help="Minimum base quality for T>C conversions (default: 27)." />
+        </section>
+        <param name="covThresh" type="integer" min="1" value="1"
+            label="T>C conversion threshold"
+            help="Number of T>C conversions required to count a read as a T>C read (default: 1)." />
+        <param name="readLength" type="integer" min="50" value="50"
+            label="Read length"
+            help="Maximum read length (before trimming)." />
+    </inputs>
+    <outputs>
+        <collection name="outputBam" type="list" label="${tool.name} on ${on_string}: BAM">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.bam$" format="bam" directory="./out/filter" visible="false" />
+        </collection>
+        <collection name="outputTsv" type="list" label="${tool.name} on ${on_string}: Count TSV">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)_tcount.tsv$" format="tabular" directory="./out/count" visible="false" />
+        </collection>
+        <collection name="outputVcf" type="list" label="${tool.name} on ${on_string}: VCF">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)_snp.vcf$" format="vcf" directory="./out/snp" visible="false" />
+        </collection>
+    </outputs>
+    <tests>
+        <test>
+            <!--Ensure default outputs work -->
+            <param name="reference_source_selector" value="history" />
+            <param name="ref_file" value="ref.fa" />
+            <param name="Reference" value="actb.bed" />
+            <param name="reads" value="reads.fq" />
+            <param name="readLength" value="100" />
+            <section name="quantseq">
+                <param name="trim5" value="0" />
+            </section>
+            <section name="advanced">
+                <param name="minBaseQual" value="27" />
+            </section>
+            <output_collection name="outputBam">
+                <element name="reads_slamdunk_mapped_filtered" ftype="bam" file="reads1.bam" compare="sim_size" />
+            </output_collection>
+            <output_collection name="outputTsv">
+                <element name="reads_slamdunk_mapped_filtered" ftype="tabular" file="reads_slamdunk_mapped_filtered_tcount.tsv"
+                lines_diff="2"  />
+            </output_collection>
+            <output_collection name="outputVcf">
+                <element name="reads_slamdunk_mapped_filtered" ftype="vcf" file="reads1_snp.vcf" compare="sim_size" />
+            </output_collection>
+        </test>
+        <test>
+            <!--Ensure built-in fasta works -->
+            <param name="reference_source_selector" value="cached" />
+            <param name="Reference" value="actb.bed" />
+            <param name="reads" ftype="fastqsanger" dbkey="hg38" value="reads.fq" />
+            <param name="readLength" value="100" />
+            <section name="quantseq">
+                <param name="trim5" value="0" />
+            </section>
+            <section name="advanced">
+                <param name="minBaseQual" value="27" />
+            </section>
+            <output_collection name="outputBam">
+                <element name="reads_slamdunk_mapped_filtered" ftype="bam" file="reads1.bam" compare="sim_size" />
+            </output_collection>
+            <output_collection name="outputTsv">
+                <element name="reads_slamdunk_mapped_filtered" ftype="tabular" file="reads_slamdunk_mapped_filtered_tcount.tsv"
+                lines_diff="2"  />
+            </output_collection>
+            <output_collection name="outputVcf">
+                <element name="reads_slamdunk_mapped_filtered" ftype="vcf" file="reads1_snp.vcf" compare="sim_size" />
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+SLAM-seq
+========
+
+SLAM-seq is a novel sequencing protocol that directly uncovers 4-thiouridine incorporation events in RNA by high-throughput sequencing. When combined with metabolic labeling protocols, SLAM-seq allows to study the intracellular RNA dynamics, from transcription, RNA processing to RNA stability.
+
+Original publication: `Herzog et al., Nature Methods, 2017; doi:10.1038/nmeth.4435 <https://www.nature.com/nmeth/journal/vaop/ncurrent/full/nmeth.4435.html>`_
+
+Slamdunk
+========
+
+To analyze a given SLAM-seq dataset with *slamdunk* without recovering multimappers, you only need to provide the following files and keep everything else to the default parameters.
+
+===============  ==========================================================================================================================================================
+Parameter        Description
+===============  ==========================================================================================================================================================
+**Genome**       The reference fasta file (Genome assembly).
+**Reference**    BED-file containing coordinates for 3' UTRs.
+**Reads**        Sample FASTQ(gz) files.
+**Read length**  Maximum length of reads (usually 50, 100, 150).
+===============  ==========================================================================================================================================================
+
+This will run the entire *slamdunk* analysis (`slamdunk all`) with the most relevant output files being:
+
+* Tab-separated *tcount* file (Count TSV) containing the SLAM-seq statistics per UTR
+* BAM-file with the final filtered mapped reads
+* VCF file of variants called on the final filtered alignments
+
+These files can be input to the **Alleyoop** tool for visualization and further processing. See the `Slamdunk documentation`_ for more information.
+
+------------------------------------------------------
+
+Multimapper recovery
+--------------------
+
+To utilize multimapper recovery, modify the following parameters. You must either choose a separate 3' UTR file or activate filtering
+on the supplied reference file. Will only yield different results than a unique-mapping run by specifying a number > 1 as maximum number of multimapper aligments to consider.
+
+===================================================  =========================================================
+Parameter  Description
+===================================================  =========================================================
+**Maximum number of alignments to report per read**  The maximum number of multimapper alignments to consider.
+**Use separate 3' UTR bed to filter multimappers.**  3' UTR bed file to filter.
+**Use reference bed file to resolve multimappers.**  Use reference as 3' UTR bed file to filter.
+===================================================  =========================================================
+
+------------------------------------------------------
+
+T>C conversions
+---------------
+
+Depending on the use case, more stringent or more lenient measures of T>C conversion and T>C reads are required such as 2 T>C by `Muhar et al., Science, 2018; http://doi.org/10.1126/science.aao2793 <http://science.sciencemag.org/content/early/2018/04/04/science.aao2793>`_
+
+This can be controlled by the following parameter:
+
+============================  ================================================================================
+Parameter  Description
+============================  ================================================================================
+**T>C conversion threshold**  Minimum number of T>C conversions to consider a read as T>C read.
+============================  ================================================================================
+
+.. _`Slamdunk documentation`: http://t-neumann.github.io/slamdunk/docs.html
+
+    ]]></help>
+    <citations>
+        <expand macro="citations" />
+    </citations>
+</tool>

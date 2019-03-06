@@ -46,15 +46,20 @@ args <- commandArgs(trailingOnly = TRUE)
 spec <- matrix(c(
   "quiet", "q", 0, "logical",
   "help", "h", 0, "logical",
+  "cores", "s", 0, "integer",
+  "batch_factors", "w", 1, "character",
   "outfile", "o", 1, "character",
   "countsfile", "n", 1, "character",
+  "rlogfile", "r", 1, "character",
+  "vstfile", "v", 1, "character",
   "header", "H", 0, "logical",
   "factors", "f", 1, "character",
   "files_to_labels", "l", 1, "character",
   "plots" , "p", 1, "character",
   "tximport", "i", 0, "logical",
   "txtype", "y", 1, "character",
-  "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF file (auto detect .gtf/.GTF)
+  "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF/GFF3 file
+  "esf", "e", 1, "character",
   "fit_type", "t", 1, "integer",
   "many_contrasts", "m", 0, "logical",
   "outlier_replace_off" , "a", 0, "logical",
@@ -87,30 +92,27 @@ verbose <- if (is.null(opt$quiet)) {
   FALSE
 }
 
-if (!is.null(opt$header)) {
-  hasHeader <- TRUE
-} else {
-  hasHeader <- FALSE
+source_local <- function(fname){
+    argv <- commandArgs(trailingOnly = FALSE)
+    base_dir <- dirname(substring(argv[grep("--file=", argv)], 8))
+    source(paste(base_dir, fname, sep="/"))
 }
 
-if (!is.null(opt$tximport)) {
-  if (is.null(opt$tx2gene)) stop("A transcript-to-gene map or a GTF file is required for tximport")
-  if (tolower(file_ext(opt$tx2gene)) == "gtf") {
-    gtfFile <- opt$tx2gene
-  } else {
-    gtfFile <- NULL
-    tx2gene <- read.table(opt$tx2gene, header=FALSE)
-  }
-  useTXI <- TRUE
-} else {
-  useTXI <- FALSE
-}
+source_local('get_deseq_dataset.R')
 
 suppressPackageStartupMessages({
   library("DESeq2")
   library("RColorBrewer")
   library("gplots")
 })
+
+if (opt$cores > 1) {
+  library("BiocParallel")
+  register(MulticoreParam(opt$cores))
+  parallel = TRUE
+} else {
+  parallel = FALSE
+}
 
 # build or read sample table
 
@@ -197,53 +199,37 @@ if (verbose) {
   cat("\n---------------------\n")
 }
 
-# For JSON input from Galaxy, path is absolute
-dir <- ""
+dds <- get_deseq_dataset(sampleTable, header=opt$header, designFormula=designFormula, tximport=opt$tximport, txtype=opt$txtype, tx2gene=opt$tx2gene)
+# estimate size factors for the chosen method
+if(!is.null(opt$esf)){
+    dds <- estimateSizeFactors(dds, type=opt$esf)
+}
+apply_batch_factors <- function (dds, batch_factors) {
+  rownames(batch_factors) <- batch_factors$identifier
+  batch_factors <- subset(batch_factors, select = -c(identifier, condition))
+  dds_samples <- colnames(dds)
+  batch_samples <- rownames(batch_factors)
+  if (!setequal(batch_samples, dds_samples)) {
+    stop("Batch factor names don't correspond to input sample names, check input files")
+  }
+  dds_data <- colData(dds)
+  # Merge dds_data with batch_factors using indexes, which are sample names
+  # Set sort to False, which maintains the order in dds_data
+  reordered_batch <- merge(dds_data, batch_factors, by.x = 0, by.y = 0, sort=F)
+  batch_factors <- reordered_batch[, ncol(dds_data):ncol(reordered_batch)]
+  for (factor in colnames(batch_factors)) {
+    dds[[factor]] <- batch_factors[[factor]]
+  }
+  colnames(dds) <- reordered_batch[,1]
+  return(dds)
+}
 
-if (!useTXI & hasHeader) {
-    countfiles <- lapply(as.character(sampleTable$filename), function(x){read.delim(x, row.names=1)})
-    tbl <- do.call("cbind", countfiles)
-    rownames(sampleTable) <- colnames(tbl) # take sample ids from header
-
-    # check for htseq report lines (from DESeqDataSetFromHTSeqCount function)
-    oldSpecialNames <- c("no_feature", "ambiguous", "too_low_aQual",
-        "not_aligned", "alignment_not_unique")
-    specialRows <- (substr(rownames(tbl), 1, 1) == "_") | rownames(tbl) %in% oldSpecialNames
-    tbl <- tbl[!specialRows, , drop = FALSE]
-
-    dds <- DESeqDataSetFromMatrix(countData = tbl,
-                                  colData = sampleTable[,-c(1:2), drop=FALSE],
-                                  design = designFormula)
-} else if (!useTXI & !hasHeader) {
-
-  # construct the object from HTSeq files
-  dds <- DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
-                                    directory = dir,
-                                    design =  designFormula)
-  labs <- unname(unlist(filenames_to_labels[colnames(dds)]))
-  colnames(dds) <- labs
-
-} else {
-    # construct the object using tximport
-    # first need to make the tx2gene table
-    # this takes ~2-3 minutes using Bioconductor functions
-    if (!is.null(gtfFile)) {
-      suppressPackageStartupMessages({
-        library("GenomicFeatures")
-      })
-      txdb <- makeTxDbFromGFF(gtfFile, format="gtf")
-      k <- keys(txdb, keytype = "GENEID")
-      df <- select(txdb, keys = k, keytype = "GENEID", columns = "TXNAME")
-      tx2gene <- df[, 2:1]  # tx ID, then gene ID
-    }
-    library("tximport")
-    txiFiles <- as.character(sampleTable[,2])
-    labs <- unname(unlist(filenames_to_labels[sampleTable[,1]]))
-    names(txiFiles) <- labs
-    txi <- tximport(txiFiles, type=opt$txtype, tx2gene=tx2gene)
-    dds <- DESeqDataSetFromTximport(txi,
-                                    sampleTable[,3:ncol(sampleTable),drop=FALSE],
-                                    designFormula)
+if (!is.null(opt$batch_factors)) {
+  batch_factors <- read.table(opt$batch_factors, sep="\t", header=T)
+  dds <- apply_batch_factors(dds = dds, batch_factors = batch_factors)
+  batch_design <- colnames(batch_factors)[-c(1,2)]
+  designFormula <- as.formula(paste("~", paste(c(batch_design, rev(factors)), collapse=" + ")))
+  design(dds) <- designFormula
 }
 
 if (verbose) {
@@ -296,7 +282,7 @@ if (is.null(opt$fit_type)) {
 if (verbose) cat(paste("using disperion fit type:",fitType,"\n"))
 
 # run the analysis
-dds <- DESeq(dds, fitType=fitType, betaPrior=betaPrior, minReplicatesForReplace=minRep)
+dds <- DESeq(dds, fitType=fitType, betaPrior=betaPrior, minReplicatesForReplace=minRep, parallel=parallel)
 
 # create the generic plots and leave the device open
 if (!is.null(opt$plots)) {
@@ -312,6 +298,19 @@ if (!is.null(opt$countsfile)) {
     normalizedCounts<-counts(dds,normalized=TRUE)
     write.table(normalizedCounts, file=opt$countsfile, sep="\t", col.names=NA, quote=FALSE)
 }
+
+if (!is.null(opt$rlogfile)) {
+    rLogNormalized <-rlogTransformation(dds)
+    rLogNormalizedMat <- assay(rLogNormalized)
+    write.table(rLogNormalizedMat, file=opt$rlogfile, sep="\t", col.names=NA, quote=FALSE)
+}
+
+if (!is.null(opt$vstfile)) {
+    vstNormalized<-varianceStabilizingTransformation(dds)
+    vstNormalizedMat <- assay(vstNormalized)
+    write.table(vstNormalizedMat, file=opt$vstfile, sep="\t", col.names=NA, quote=FALSE)
+}
+
 
 if (is.null(opt$many_contrasts)) {
   # only contrast the first and second level of the primary factor
