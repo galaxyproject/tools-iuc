@@ -1,4 +1,4 @@
-<tool id="barcode_splitter" name="Barcode Splitter" version="0.1.0">
+<tool id="barcode_splitter" name="Barcode Splitter" version="0.18.4.0">
 
     <description>Split sequence files using multiple sets of barcodes</description>
 
@@ -12,114 +12,372 @@
         <![CDATA[
             mkdir split &&
             barcode_splitter
-            
-            ##There must be an index file, so supply the extension of the first one
-            #for $indf in $indexfiles
-                --format '${indf.input2.extension}'
-                #break
-            #end for
-            
-            --bcfile '$bcfile' --mismatches '$mismatches' --galaxy $barcodes_at_end $split_all --prefix 'split/' --suffix '.${indf.input2.extension}'
 
-            ##Add the sequence files with indexes (which must come first)
-            #set $num_files = 0
-            #set $num_index_files = 1
-            #if $indexfiles:
-                #for $indf in $indexfiles
-                    '${indf.input2}'
-                    #set $num_index_files += 1
-                    #set $num_files += 1
-                #end for
-            #end if
+            --bcfile '$bcfile' --mismatches '$mismatches' --galaxy $barcodes_at_end --prefix 'split/'
 
-            ##Add the sequence files without indexes
-            #if $seqfiles:
-                #for $sf in $seqfiles
+            #set $auto_split_all = $split_all
+            #set $format = ""
+            #set $paired_match = "0"
+            #set $num_index_files = 0
+
+            #if str($runinterface.run_type) == "flexible":
+
+                ## Determine the format based on the first input file's extension
+                ## #for $indf in $runinterface.seqfiles
+                ##     #set $format = $indf.input.extension
+                ##     #break
+                ## #end for
+                #set $format = $runinterface.seqfiles[0].input.extension
+
+                ## Add the sequence files, count the number of forward, reverse, and other non-index read names, and auto-set split_all
+                #set $numforwards = 0
+                #set $numreverses = 0
+                #for $sf in $runinterface.seqfiles
+                    #if str($sf.nameinterface.readtype) == "forward" or str($sf.nameinterface.readtype) == "forwardindex":
+                        #set $numforwards += 1
+                    #elif str($sf.nameinterface.readtype) == "reverse" or str($sf.nameinterface.readtype) == "reverseindex":
+                        #set $numreverses += 1
+                    #end if
+                    #if str($sf.nameinterface.readtype) == "singleindex" or str($sf.nameinterface.readtype) == "forwardindex" or str($sf.nameinterface.readtype) == "reverseindex":
+                        #set $auto_split_all = "--split_all"
+                    #end if
                     '${sf.input}'
-                    #set $num_files += 1
                 #end for
-            #end if
 
-            ##Add the relative file argument positions of the index files in the list included above
-            --idxread
-            #for $n in range( 1, $num_index_files )
-                '${n}'
-            #end for
+                ## Determine whether valid paired-end data exists
+                #if $numforwards == 1 and $numreverses == 1:
+                    #set $paired_match = "1"
+                #end if
+
+                ##Add the relative file argument positions of the index files in the list included above
+                --idxread
+                #set $n = 0
+                #for $sf in $runinterface.seqfiles
+                    #set $n += 1
+                    #if str($sf.nameinterface.readtype) == 'index' or str($sf.nameinterface.readtype) == "singleindex" or str($sf.nameinterface.readtype) == "forwardindex" or str($sf.nameinterface.readtype) == "reverseindex":
+                        #set $num_index_files += 1
+                        '${n}'
+                    #end if
+                #end for
+
+            #elif str($runinterface.run_type) == "single":
+
+                #set $format = $runinterface.snglinput.extension
+
+                ## Add the sequence files
+                '${runinterface.snglinput}'
+                #for $sf in $runinterface.idxfiles
+                    '${sf.idxinput}'
+                #end for
+
+                ##Add the relative file argument positions of the index files
+                --idxread
+                #set $n = 1
+                #for $sf in $runinterface.idxfiles
+                    #set $num_index_files += 1
+                    #set $n += 1
+                    '${n}'
+                #end for
+
+            #elif str($runinterface.run_type) == "paired":
+
+                #set $format = $runinterface.fwdinput.extension
+                #set $paired_match = "1"
+
+                ## Add the sequence files
+                '${runinterface.fwdinput}' '${runinterface.revinput}'
+                #for $sf in $runinterface.idxfiles
+                    '${sf.idxinput}'
+                #end for
+
+                ##Add the relative file argument positions of the index files
+                --idxread
+                #set $n = 2
+                #for $sf in $runinterface.idxfiles
+                    #set $num_index_files += 1
+                    #set $n += 1
+                    '${n}'
+                #end for
+
+            #end if
             
+            --format '${format}' --suffix '.${format}' $auto_split_all
+
             > '$summary';
 
+            ## Determine validity of repeat params
+            #if $num_index_files == 0:
+                echo "ERROR: At least 1 read file must have 'Has index' turned on (or 'Read Type' selected as 'Index')."
+            #end if
+
+            ## Give the output split file names the name specified by the user (to be turned into collection identifiers)
             rc=0;
-            ##Give the output split file names the name specified by the user (to be turned into collection identifiers)
             #set $n = 0
-            #if $indexfiles:
-                #for $repeat in $indexfiles
+
+            #if str($runinterface.run_type) == "flexible":
+
+                #for $repeat in $runinterface.seqfiles
+
                     #set $n += 1
-                    #if (not $seqfiles) or str($split_all) == "--split_all":
-                        #if str($repeat.indexname) != "":
-                            for f in split/*-read-'${n}'.'${indf.input2.extension}';
-                            do
-                                mv "\$f" "\${f/-read-${n}/-XxX-${repeat.indexname}}" || rc=\$?;
-                            done;
-                        #else:
-                            for f in split/*-read-'${n}'.'${indf.input2.extension}';
-                            do
-                                mv "\$f" "\${f/-read-/-XxX-read-}" || rc=\$?;
-                            done;
+
+                    #set $readname = "read-" + str($n)
+                    #set $readtype = "index"
+                    #if str($repeat.nameinterface.readtype) == "forward" or str($repeat.nameinterface.readtype) == "forwardindex":
+                        #set $readname = "forward"
+                        #set $readtype = "forward"
+                    #elif str($repeat.nameinterface.readtype) == "reverse" or str($repeat.nameinterface.readtype) == "reverseindex":
+                        #set $readname = "reverse"
+                        #set $readtype = "reverse"
+                    #else:
+                        #if (str($repeat.nameinterface.readtype) == "single" or str($repeat.nameinterface.readtype) == "singleindex" or str($repeat.nameinterface.readtype) == "index") and str($repeat.nameinterface.readname) != "":
+                            #set $readname = $repeat.nameinterface.readname
+                        #end if
+                        #if str($repeat.nameinterface.readtype) == "single" or str($repeat.nameinterface.readtype) == "singleindex":
+                            #set $readtype = "single"
                         #end if
                     #end if
+
+                    for f in split/*-read-'${n}'.'${format}';
+                    do
+                        if [ -e "\$f" ]; then
+                            ## Space-delimited file name structure: "SAMPLE READNAME READTYPE MATCHEDPAIR.EXT"
+                            mv "\$f" "\${f/-read-${n}/ ${readname} ${readtype} ${paired_match}}" || rc=\$?;
+                        fi;
+                    done;
                 #end for
-            #end if
-            #if $seqfiles:
-                #for $repeat in $seqfiles
+
+            #elif str($runinterface.run_type) == "single":
+
+                #set $n = 1
+
+                ## Rename the single-end split read files
+                #set $readname = "read-" + str($n)
+                #set $readtype = 'single'
+                for f in split/*-read-'${n}'.'${format}';
+                do
+                    mv "\$f" "\${f/-read-${n}/ ${readname} ${readtype} ${paired_match}}" || rc=\$?;
+                done;
+
+                ## Rename the index read files
+                #set $readtype = "index"
+                #for $repeat in $runinterface.idxfiles
                     #set $n += 1
-                    #if str($repeat.readname) != "":
-                        for f in split/*-read-'${n}'.'${indf.input2.extension}';
-                        do
-                            mv "\$f" "\${f/-read-${n}/-XxX-${repeat.readname}}" || rc=\$?;
-                        done;
-                    #else:
-                        for f in split/*-read-'${n}'.'${indf.input2.extension}';
-                        do
-                            mv "\$f" "\${f/-read-/-XxX-read-}" || rc=\$?;
-                        done;
+
+                    #set $readname = "read-" + str($n)
+                    #if str($repeat.idxreadname) != "":
+                        #set $readname = $repeat.idxreadname
                     #end if
+
+                    for f in split/*-read-'${n}'.'${format}';
+                    do
+                        if [ -e "\$f" ]; then
+                            ## Space-delimited file name structure: "SAMPLE READNAME READTYPE MATCHEDPAIR.EXT"
+                            mv "\$f" "\${f/-read-${n}/ ${readname} ${readtype} ${paired_match}}" || rc=\$?;
+                        fi;
+                    done;
                 #end for
+
+            #elif str($runinterface.run_type) == "paired":
+
+                #set $n = 1
+
+                ## Rename the forward split read files
+                #set $readname = "forward"
+                #set $readtype = "forward"
+                for f in split/*-read-'${n}'.'${format}';
+                do
+                    mv "\$f" "\${f/-read-${n}/ ${readname} ${readtype} ${paired_match}}" || rc=\$?;
+                done;
+
+                #set $n += 1
+
+                ## Rename the reverse split read files
+                #set $readname = "reverse"
+                #set $readtype = "reverse"
+                for f in split/*-read-'${n}'.'${format}';
+                do
+                    mv "\$f" "\${f/-read-${n}/ ${readname} ${readtype} ${paired_match}}" || rc=\$?;
+                done;
+
+                ## Rename the index read files
+                #set $readtype = "index"
+                #for $repeat in $runinterface.idxfiles
+                    #set $n += 1
+
+                    #set $readname = "read-" + str($n)
+                    #if str($repeat.idxreadname) != "":
+                        #set $readname = $repeat.idxreadname
+                    #end if
+
+                    for f in split/*-read-'${n}'.'${format}';
+                    do
+                        if [ -e "\$f" ]; then
+                            ## Space-delimited file name structure: "SAMPLE READNAME READTYPE MATCHEDPAIR.EXT"
+                            mv "\$f" "\${f/-read-${n}/ ${readname} ${readtype} ${paired_match}}" || rc=\$?;
+                        fi;
+                    done;
+                #end for
+
             #end if
+            
+            ## Debug
+            ## #if str($runinterface.run_type) == "paired" or (str($runinterface.run_type) == "flexible" and len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('forward'), $runinterface.seqfiles))) == 1 and len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('reverse'), $runinterface.seqfiles))) == 1):
+            ##     echo "There's a pair";
+            ## #else:
+            ##     echo "There's not a pair";
+            ## #end if
+            ## #if str($runinterface.run_type) == "single" or (str($runinterface.run_type) == "flexible" and len(list(filter(lambda x: str(x['nameinterface']['readtype']) != "index", $runinterface.seqfiles))) == 1):
+            ##     echo "There are single-end reads";
+            ## #else:
+            ##     echo "There are not single-end reads";
+            ## #end if
+            ## #if str($runinterface.run_type) == "flexible" and len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('single'), $runinterface.seqfiles))) > 0 and len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('forward'), $runinterface.seqfiles))) == 1 and len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('reverse'), $runinterface.seqfiles))) == 1:
+            ##     echo "There are non-pair reads";
+            ## #else:
+            ##     echo "There are not non-pair reads";
+            ## #end if
+            ## #if str($runinterface.run_type) == "flexible" and (len($runinterface.seqfiles) - len(list(filter(lambda x: str(x['nameinterface']['readtype']) == "index", $runinterface.seqfiles)))) != 1 and (len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('forward'), $runinterface.seqfiles))) != 1 or len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('reverse'), $runinterface.seqfiles))) != 1):
+            ##     echo "There are multi-end reads";
+            ## #else:
+            ##     echo "There are not multi-end reads";
+            ## #end if
+            ## #if $split_all and ((str($runinterface['run_type']) != "flexible" and len($runinterface['idxfiles']) == 1) or (str($runinterface['run_type']) == "flexible" and len(list(filter(lambda x: str(x['nameinterface']['readtype']) == "index", $runinterface['seqfiles']))) == 1)):
+            ##     echo "There are index-only reads";
+            ## #else:
+            ##     echo "There are not index-only reads";
+            ## #end if
+            ## #if $split_all and ((str($runinterface.run_type) != "flexible" and len($runinterface['idxfiles']) > 1) or (str($runinterface.run_type) == "flexible" and len(list(filter(lambda x: str(x['nameinterface']['readtype']) == "index", $runinterface.seqfiles))) > 1)):
+            ##     echo "There are multiple index-only reads";
+            ## #else:
+            ##     echo "There are not multiple index-only reads";
+            ## #end if
+            ## ls split;
+            ## echo "paired_match: ${paired_match}";
+
+            ## Exit non-zero if rc is not 0
             [ \$rc == 0 ];
         ]]>
     </command>
 
     <inputs>
-        <param format="txt" name="bcfile" type="data" label="Barcode File" help="Tab-delimited text file where the first column is a sample ID and subsequent columns are barcodes." />
+        <param name="bcfile" type="data" format="tabular" label="Barcode File" help="Tab-delimited text file where the first column is a sample ID and subsequent columns are barcodes.  Note, files with indexes/barcode sequences must be supplied in the same order as the barcode columns in this file and their 'Has Index' must be true (if the barcode is embedded in a longer read of interest) or 'Read Type' must be 'Index." />
 
-        <repeat name="seqfiles" title="Reads to split" min="0" default="1">
-            <param format="fasta,fastq,fastqsanger,fastqsolexa,fastqillumina" name="input" type="data" label="Read File, typically 'Read 1'" help="If your reads file has barcodes embedded in it, do not enter it here - use the 'Index Files' field below." />
-            <param name="readname" type="text" label="Optional Read Type Name" help="E.g. forward, reverse, 1, etc.  Letters and numbers only.  No spaces.  Default is an arbitrary number.">
-                <sanitizer>
-                    <valid initial="string.ascii_letters,string.digits" />
-                </sanitizer>
+        <conditional name="runinterface">
+            <param label="Run Type" name="run_type" type="select">
+                <option value="single" selected="true">Single-End</option>
+                <option value="paired">Paired-End</option>
+                <option value="flexible">Flexible</option>
             </param>
-        </repeat>
-        <repeat name="indexfiles" title="Index Reads" min="1" default="1">
-            <param format="fasta,fastq,fastqsanger,fastqsolexa,fastqillumina" name="input2" type="data" label="Index Read File, typically 'Read 2 (Index Read)'" help="If there are multiple barcode columns in the barcode file, index sequence files must be supplied in the same number and order as the barcode columns.  If your reads have barcodes embedded in them, that file must be submitted here as an index file  and 'Split all files' below, must be true." />
-            <param name="indexname" type="text" label="Optional Index Name" help="E.g. index1, index2, etc.  Letters and numbers only.  No spaces.  Default is an arbitrary number.">
-                <sanitizer>
-                    <valid initial="string.ascii_letters,string.digits" />
-                </sanitizer>
-            </param>
-        </repeat>
 
-        <param name="mismatches" type="integer" value="0" max="2" min="0" label="Number of allowed mismatches" help="An integer between 0 and 2 (inclusive).  Warning: Make sure your barcodes all differ from one another by at least this many nucleotides plus 1, otherwise sequences that match both barcodes equally well will be thrown out as 'multimatched' reads." />
+            <when value="flexible">
+                <repeat name="seqfiles" title="Read Files" min="1" default="1">
+                    <param name="input" type="data" format="fasta,fastq,fastqsanger,fastqsolexa,fastqillumina" label="Read File" help="Forward or single-end read files are typically named 'Read 1'.  Index files are typically named 'Read 2 Index' or 'Read 4 Index'.  Reverse read files are typically named 'Read 3'." />
+                    <conditional name="nameinterface">
+                        <param name="readtype" type="select" label="Read Type" help="E.g. If one file is 'Forward' and one is 'Reverse', split reads from those files will appear in an output paired collection.  Note, 'Index' collections will not be generated unless 'Split index files too' is turned on below.  If your file reads with barcodes embedded in them, select their 'with index' variant, e.g. 'Forward with Index' means this file has forward reads with barcode sequences at either the beginning or end of the read.">
+                            <option value="single" selected="true">Single-End</option>
+                            <option value="forward">Forward</option>
+                            <option value="reverse">Reverse</option>
+                            <option value="index">Index</option>
+                            <option value="singleindex">Single-End with Index</option>
+                            <option value="forwardindex">Forward with Index</option>
+                            <option value="reverseindex">Reverse with Index</option>
+                        </param>
+                        <when value="single">
+                            <param name="readname" type="text" label="Read Name" help="E.g. index1, index2, etc..  Ignored for paired-collections.  Letters and numbers only.  No spaces.  Default is 'read-x' where 'x' is a number corresponding to the order in which the file was supplied.">
+                                <sanitizer>
+                                    <valid initial="string.ascii_letters,string.digits" />
+                                </sanitizer>
+                            </param>
+                        </when>
+                        <when value="singleindex">
+                            <param name="readname" type="text" label="Read Name" help="E.g. index1, index2, etc..  Ignored for paired-collections.  Letters and numbers only.  No spaces.  Default is 'read-x' where 'x' is a number corresponding to the order in which the file was supplied.">
+                                <sanitizer>
+                                    <valid initial="string.ascii_letters,string.digits" />
+                                </sanitizer>
+                            </param>
+                        </when>
+                        <when value="index">
+                            <param name="readname" type="text" label="Read Name" help="E.g. index1, index2, etc..  Ignored for paired-collections.  Letters and numbers only.  No spaces.  Default is 'read-x' where 'x' is a number corresponding to the order in which the file was supplied.">
+                                <sanitizer>
+                                    <valid initial="string.ascii_letters,string.digits" />
+                                </sanitizer>
+                            </param>
+                        </when>
+                    </conditional>
+                </repeat>
+            </when>
 
-        <param argument="--barcodes_at_end" type="boolean" truevalue="--barcodes_at_end" falsevalue="" checked="false" label="Barcodes are at the end of all sequences" help="Default is the beginning of all sequences" />
+            <when value="paired">
+                <!-- No embedded index allowed in the forward/reverse reads for simplicity.  Can still use "Flexible" for that. -->
+                <param name="fwdinput" type="data" format="fasta,fastq,fastqsanger,fastqsolexa,fastqillumina" label="Forward Read File" help="Typically, 'Read 1'." />
+                <param name="revinput" type="data" format="fasta,fastq,fastqsanger,fastqsolexa,fastqillumina" label="Reverse Read File" help="Typically, 'Read 3'." />
 
-        <param argument="--split_all" type="boolean" truevalue="--split_all" falsevalue="" checked="false" label="Split all files" help="Use this if your desired output sequences have barcode sequences in them." />
+                <repeat name="idxfiles" title="Index Files" min="0" default="1">
+                    <param name="idxinput" type="data" format="fasta,fastq,fastqsanger,fastqsolexa,fastqillumina" label="Index File" help="Typically, 'Read 2 Index' or 'Read 4 Index'." />
+                    <param name="idxreadname" type="text" label="Index Name" help="E.g. index1, index2, etc..  Letters and numbers only.  No spaces.  Default is 'read-x' where 'x' is a number corresponding to the order in which the file was supplied (including the forward and reverse files).">
+                        <sanitizer>
+                            <valid initial="string.ascii_letters,string.digits" />
+                        </sanitizer>
+                    </param>
+                </repeat>
+            </when>
+
+            <when value="single">
+                <!-- Simplified interface for common use-case.  Can still use "Flexible" for alternative single-end options. -->
+                <param name="snglinput" type="data" format="fasta,fastq,fastqsanger,fastqsolexa,fastqillumina" label="Read File" help="Typically, 'Read 1'." />
+                <repeat name="idxfiles" title="Index File(s)" min="1" default="1">
+                    <param name="idxinput" type="data" format="fasta,fastq,fastqsanger,fastqsolexa,fastqillumina" label="Index File" help="Typically, 'Read 2 Index'." />
+                    <param name="idxreadname" type="text" label="Index Name" help="E.g. index1, index2, etc..  Letters and numbers only.  No spaces.  Default is 'read-x' where 'x' is a number corresponding to the order in which the file was supplied (including the read file above).">
+                        <sanitizer>
+                            <valid initial="string.ascii_letters,string.digits" />
+                        </sanitizer>
+                    </param>
+                </repeat>
+            </when>
+        </conditional>
+
+        <param name="mismatches" type="integer" value="0" max="2" min="0" label="Number of allowed mismatches" help="An integer between 0 and 2 (inclusive).  Warning: Make sure all your barcodes differ by at least double this value plus 1, otherwise sequences that match both barcodes equally well will be discarded as 'multimatched' reads." />
+
+        <param argument="--barcodes_at_end" type="boolean" truevalue="--barcodes_at_end" falsevalue="" checked="false" label="Barcodes are at the end of all index sequences" help="Default is the beginning of all sequences" />
+
+        <param argument="--split_all" type="boolean" truevalue="--split_all" falsevalue="" checked="false" label="Split index files too" help="This creates an output collection for split files whose selected 'Read Type' is 'Index'.  (The command line flag will automatically be supplied if 'Read Type' is not 'Index' and 'Has Index' is true, but no index collection will be created unless this option is manually turned on.)" />
     </inputs>
 
     <outputs>
         <data format="tabular" name="summary" label="${tool.name} on ${on_string}: Summary" />
-        <collection name="split_output" type="list:list" format_source="input" label="${tool.name} on ${on_string}">
-          <discover_datasets pattern="(?P&lt;identifier_1&gt;.*?)-XxX-(?P&lt;identifier_0&gt;\S+)\.(?P&lt;ext&gt;.*)" directory="split" visible="false" />
+
+        <!-- Collection for single-end split reads, regardless of run_type -->
+        <collection name="split_output_single" type="list" format_source="input" label="${tool.name} on ${on_string}: single-end">
+            <!-- run_type is single OR flexible and there's only 1 output read type -->
+            <filter>str(runinterface['run_type']) == "single" or (str(runinterface['run_type']) == "flexible" and len(list(filter(lambda x: str(x['nameinterface']['readtype']) != "index", runinterface['seqfiles']))) == 1)</filter>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;\S+)\ \S+\ (single|forward|reverse) 0\.(?P&lt;ext&gt;.*)" directory="split" visible="false" />
+        </collection>
+
+        <!-- Collection for paired-end split reads, regardless of run_type -->
+        <collection name="split_output_paired" type="list:paired" format_source="input" label="${tool.name} on ${on_string}: paired-end">
+            <!-- run_type is paired OR flexible and there's 1 forward and 1 reverse readtype -->
+            <filter>str(runinterface['run_type']) == "paired" or (str(runinterface['run_type']) == "flexible" and len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('forward'), runinterface['seqfiles']))) == 1 and len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('reverse'), runinterface['seqfiles']))) == 1)</filter>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;\S+)\ \S+\ (?P&lt;identifier_1&gt;forward|reverse) 1\.(?P&lt;ext&gt;.*)" directory="split" visible="false" />
+        </collection>
+        <!-- Collection for single-end split reads that sit alongside a paired-end collection -->
+        <collection name="split_output_paired_other" type="list" format_source="input" label="${tool.name} on ${on_string}: other-end">
+            <!-- run_type is flexible, there are single-end reads, and there's a single valid read pair -->
+            <filter>str(runinterface['run_type']) == "flexible" and len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('single'), runinterface['seqfiles']))) > 0 and len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('forward'), runinterface['seqfiles']))) == 1 and len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('reverse'), runinterface['seqfiles']))) == 1</filter>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;\S+\ \S+)\ single 1\.(?P&lt;ext&gt;.*)" directory="split" visible="false" />
+        </collection>
+
+        <!-- Collection for multi-end split reads -->
+        <collection name="split_output_multi" type="list" format_source="input" label="${tool.name} on ${on_string}: multi-end">
+            <!-- run_type is flexible, there are multiple output split readtypes, and there's not a single valid read pair -->
+            <filter>str(runinterface['run_type']) == "flexible" and (len(runinterface['seqfiles']) - len(list(filter(lambda x: str(x['nameinterface']['readtype']) == "index", runinterface['seqfiles'])))) > 1 and (len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('forward'), runinterface['seqfiles']))) != 1 or len(list(filter(lambda x: str(x['nameinterface']['readtype']).startswith('reverse'), runinterface['seqfiles']))) != 1)</filter>
+            <discover_datasets pattern="(?P&lt;identifier_1&gt;\S+) (?P&lt;identifier_0&gt;\S+) (single 1|(single|forward|reverse) 0)\.(?P&lt;ext&gt;.*)" directory="split" visible="false" />
+        </collection>
+
+        <!-- Collection for split_all index-only reads -->
+        <collection name="index_only" type="list" format_source="input" label="${tool.name} on ${on_string}: indexes">
+            <!-- split_all is true and ((run_type is not flexible and there are index only files) or (run_type is flexible and there are index only files)) -->
+            <filter>split_all and ((str(runinterface['run_type']) != "flexible" and len(runinterface['idxfiles']) > 0) or (str(runinterface['run_type']) == "flexible" and len(list(filter(lambda x: str(x['nameinterface']['readtype']) == "index", runinterface['seqfiles']))) > 0))</filter>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?) index (0|1)\.(?P&lt;ext&gt;.*)" directory="split" visible="false" />
         </collection>
     </outputs>
 
