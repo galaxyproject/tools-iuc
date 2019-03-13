@@ -11,37 +11,38 @@
     <command detect_errors="exit_code"><![CDATA[
 
         #if $ref.is_of_type("fasta")
-            cp '$ref' 'foo.fna' &&
+            cp '$ref' 'ref.fna' &&
         #end if
         #if $ref.is_of_type("genbank")
-            cp '$ref' 'foo.gbk' &&
+            cp '$ref' 'ref.gbk' &&
         #end if
         snippy
             --outdir 'out'
             --cpus "\${GALAXY_SLOTS:-1}"
             #if $ref.is_of_type("fasta")
-                --ref 'foo.fna'
+                --ref 'ref.fna'
             #end if
             #if $ref.is_of_type("genbank")
-                --ref 'foo.gbk'
+                --ref 'ref.gbk'
             #end if
             --mapqual $adv.mapqual
             --mincov $adv.mincov
             --minfrac $adv.minfrac
+            --minqual $adv.minqual
             #if $adv.rgid
-                --rgid '$advanced.rgid'
+                --rgid '$adv.rgid'
             #end if
             #if $adv.bwaopt
                 --bwaopt '$advanced.bwaopt'
             #end if
 
             #if str( $fastq_input.fastq_input_selector ) == "paired"
-                --pe1 '$fastq_input.fastq_input1'
-                --pe2 '$fastq_input.fastq_input2'
+                --R1 '$fastq_input.fastq_input1'
+                --R2 '$fastq_input.fastq_input2'
             #end if
             #if str( $fastq_input.fastq_input_selector ) == "paired_collection"
-                --pe1 '$fastq_input.fastq_input.forward'
-                --pe2 '$fastq_input.fastq_input.reverse'
+                --R1 '$fastq_input.fastq_input.forward'
+                --R2 '$fastq_input.fastq_input.reverse'
             #end if
             #if str( $fastq_input.fastq_input_selector ) == "single"
                 --se '$fastq_input.fastq_input'
@@ -52,19 +53,20 @@
 
         &&
 
-        gunzip out/snps.depth.gz
-
-        &&
-
         #import re
         #if str( $fastq_input.fastq_input_selector ) == "paired"
             #set $dir_name = re.sub('[^\w_]', '_', $fastq_input.fastq_input1.element_identifier)
+        #elif str( $fastq_input.fastq_input_selector ) == "paired_collection"
+            #set $dir_name = re.sub('[^\w_]', '_', $fastq_input.fastq_input.name)
         #else
             #set $dir_name = re.sub('[^\w_]', '_', $fastq_input.fastq_input.element_identifier)
         #end if
 
-        mkdir -p ${dir_name} && cp -r out/reference out/snps.tab out/snps.aligned.fa ${dir_name}/ &&
+        mkdir -p ${dir_name} && cp -r out/reference out/snps.tab out/snps.aligned.fa out/snps.vcf ${dir_name}/ &&
         tar -czf out.tgz ${dir_name}
+        #if "outcon" in str($outputs) and $adv.rename_cons
+          && sed -i 's/>.*/>${dir_name}/' out/snps.consensus.fa
+        #end if
 
 
     ]]></command>
@@ -99,8 +101,10 @@
             <param name="mapqual" type="integer" value="60" label="Minimum mapping quality" help="Minimum mapping quality to allow" />
             <param name="mincov" type="integer" value="10" label="Minimum coverage" help="Minimum coverage to call a snp" />
             <param name="minfrac" type="float" value="0.9" label="Minumum proportion for variant evidence" help="Minumum proportion for variant evidence" />
+	    <param name="minqual" type="float" value="100.0" label="Minumum QUALITY in VCF column 6" help="Minumum QUALITY in VCF column 6" />
             <param name="rgid" type="text" value="" label="Bam header @RG ID" help="Use this @RG ID: in the BAM header" />
             <param name="bwaopt" type="text" value="" label="Extra BWA MEM options" help="Extra BWA MEM options, eg. -x pacbio" />
+	    <param name="rename_cons" type="boolean" truevalue="rename_cons" falsevalue="" help="When producing an output of the reference genome with variants instantiated, edit the header so that it is named after the input VCF" />
         </section>
 
         <param name="outputs" type="select" multiple="true" display="checkboxes" label="Output selection">
@@ -155,71 +159,44 @@
 
     <tests>
 
-        <test> <!-- test 1 - fasta ref default -->
-            <param name="ref" value="wildtype.fna" ftype="fasta" />
+        <test> <!-- test 0 - fasta ref no snps -->
+            <param name="ref" value="reference.fasta" ftype="fasta" />
             <param name="fastq_input_selector" value="paired" />
-            <param name="fastq_input1" ftype="fastqsanger" value="mutant_R1.fastq" />
-            <param name="fastq_input2" ftype="fastqsanger" value="mutant_R2.fastq" />
+            <param name="fastq_input1" ftype="fastqsanger" value="a_1.fastq" />
+            <param name="fastq_input2" ftype="fastqsanger" value="a_2.fastq" />
+            <param name="mincov" value="2" />
+            <param name="minqual" value="60" />
             <param name="outputs" value="outgff,outsum" />
-            <output name="snpsum" ftype="tabular" file="fna_ref/snps.txt" lines_diff="6" />
-            <output name="snpgff" ftype="gff3" file="fna_ref/snps.gff" />
+            <output name="snpsum" ftype="tabular" file="fna_ref_a/snps.txt" lines_diff="6" />
+            <output name="snpgff" ftype="gff3" file="fna_ref_a/snps.gff" />
         </test>
 
-        <test> <!-- test 2 - gbk ref default -->
-            <param name="ref" value="wildtype.gbk" ftype="genbank" />
+        <test> <!-- test 1 - fasta ref one snp -->
+            <param name="ref" value="reference.fasta" ftype="fasta" />
             <param name="fastq_input_selector" value="paired" />
-            <param name="fastq_input1" ftype="fastqsanger" value="mutant_R1.fastq" />
-            <param name="fastq_input2" ftype="fastqsanger" value="mutant_R2.fastq" />
+            <param name="fastq_input1" ftype="fastqsanger" value="b_1.fastq" />
+            <param name="fastq_input2" ftype="fastqsanger" value="b_2.fastq" />
+            <param name="mincov" value="2" />
+            <param name="minqual" value="60" />
             <param name="outputs" value="outgff,outsum" />
-            <output name="snpsum" ftype="tabular" file="gbk_ref/snps.txt" lines_diff="6" />
-            <output name="snpgff" ftype="gff3" file="gbk_ref/snps.gff" />
+            <output name="snpsum" ftype="tabular" file="fna_ref_b/snps.txt" lines_diff="6" />
+            <output name="snpgff" ftype="gff3" file="fna_ref_b/snps.gff" />
         </test>
 
-        <test> <!-- test 3 - gbk mapqual=40 -->
-            <param name="ref" value="wildtype.gbk" ftype="genbank" />
-            <param name="fastq_input_selector" value="paired" />
-            <param name="fastq_input1" ftype="fastqsanger" value="mutant_R1.fastq" />
-            <param name="fastq_input2" ftype="fastqsanger" value="mutant_R2.fastq" />
-            <param name="outputs" value="outgff,outsum" />
-            <param name="mapqual" value="40" />
-            <output name="snpsum" ftype="tabular" file="map_qual/snps.txt" lines_diff="6" />
-            <output name="snpgff" ftype="gff3" file="map_qual/snps.gff" />
-        </test>
-
-        <test> <!-- test 4 - gbk mincov=15 -->
-            <param name="ref" value="wildtype.gbk" ftype="genbank" />
-            <param name="fastq_input_selector" value="paired" />
-            <param name="fastq_input1" ftype="fastqsanger" value="mutant_R1.fastq" />
-            <param name="fastq_input2" ftype="fastqsanger" value="mutant_R2.fastq" />
-            <param name="mincov" value="15" />
-            <param name="outputs" value="outgff,outsum" />
-            <output name="snpsum" ftype="tabular" file="min_cov/snps.txt" lines_diff="6" />
-            <output name="snpgff" ftype="gff3" file="min_cov/snps.gff" />
-        </test>
-
-        <test> <!-- test 5 - gbk minfrac=0.7 -->
-            <param name="ref" value="wildtype.gbk" ftype="genbank" />
-            <param name="fastq_input_selector" value="paired" />
-            <param name="fastq_input1" ftype="fastqsanger" value="mutant_R1.fastq" />
-            <param name="fastq_input2" ftype="fastqsanger" value="mutant_R2.fastq" />
-            <param name="minfrac" value="0.7" />
-            <param name="outputs" value="outgff,outsum" />
-            <output name="snpsum" ftype="tabular" file="min_frac/snps.txt" lines_diff="6" />
-            <output name="snpgff" ftype="gff3" file="min_frac/snps.gff" />
-        </test>
-
-        <test> <!-- test 6 - fasta ref default paired_collection -->
-	    <param name="ref" value="wildtype.fna" ftype="fasta" />
+        <test> <!-- test 2 - fasta ref one snp paired_collection -->
+            <param name="ref" value="reference.fasta" ftype="fasta" />
             <param name="fastq_input_selector" value="paired_collection" />
             <param name="fastq_input">
                 <collection type="paired">
-                    <element name="forward" ftype="fastqsanger" value="mutant_R1.fastq" />
-                    <element name="reverse" ftype="fastqsanger" value="mutant_R2.fastq" />
+                    <element name="forward" ftype="fastqsanger" value="b_1.fastq" />
+                    <element name="reverse" ftype="fastqsanger" value="b_2.fastq" />
                 </collection>
             </param>
+            <param name="mincov" value="2" />
+            <param name="minqual" value="60" />
             <param name="outputs" value="outgff,outsum" />
-            <output name="snpsum" ftype="tabular" file="fna_ref/snps.txt" lines_diff="6" />
-            <output name="snpgff" ftype="gff3" file="fna_ref/snps.gff" />
+            <output name="snpsum" ftype="tabular" file="fna_ref_b/snps.txt" lines_diff="6" />
+            <output name="snpgff" ftype="gff3" file="fna_ref_b/snps.gff" />
         </test>
 
     </tests>
@@ -249,6 +226,8 @@ If the reference file is supplied in genbank format, snpeff will be called to de
     - minimum coverage - Integer - Minimum coverage of variant site (default '10')
 
     - minimum fraction - Float - Minumum proportion for variant evidence (default '0.9')
+
+    - minimum quality - Float - Minumum QUALITY in VCF column 6 (default '100.0')
 
     - rgid - String -         Use this @RG ID: in the BAM header (default '')
 

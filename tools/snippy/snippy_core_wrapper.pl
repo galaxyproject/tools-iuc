@@ -18,7 +18,7 @@ use strict;
 use File::Copy;
 use File::Basename;
 
-my(@Options, $indirs, $noref);
+my(@Options, $indirs, $ref);
 setOptions();
 
 my @list_of_dirs = split /\s+/, $indirs;
@@ -44,7 +44,7 @@ print STDERR "$test_list\n";
 
 my $commandline = "snippy-core ";
 
-$commandline .= "--noref " if $noref;
+$commandline .= " --ref $ref " if $ref;
 $commandline .= join(" ", @snippy_outs);
 print STDERR "snippy-core commandline: $commandline\n";
 
@@ -58,7 +58,7 @@ sub setOptions {
 
   @Options = (
     {OPT=>"help",    VAR=>\&usage,             DESC=>"This help"},
-    {OPT=>"noref!", VAR=>\$noref, DEFAULT=>0, DESC=>"Don't include the reference in the alignment."},
+    {OPT=>"ref=s", VAR=>\$ref, DEFAULT=>"", DESC=>"Reference genome."},
     {OPT=>"indirs=s", VAR=>\$indirs, DEFAULT=>"", DESC=>"A whitespace delimited list of the snippy output zipped dirs."},
   );
 
