@@ -160,11 +160,11 @@ if (!is.null(args$top_plot)) {
       mutate(hitsPerc=numDEInCat*100/numInCat) %>%
       ggplot(aes(x=hitsPerc,
                    y=substr(term, 1, 40), # only use 1st 40 chars of terms otherwise squashes plot
-                   colour=over_represented_pvalue,
+                   colour=p.adjust.over_represented,
                    size=numDEInCat)) +
       geom_point() +
       expand_limits(x=0) +
-      labs(x="% DE in category", y="Category", colour="P value", size="Count", title=paste("Top over-represented categories in", cats_title), subtitle=paste(m, " method")) +
+      labs(x="% DE in category", y="Category", colour="Adj P value", size="Count", title=paste("Top over-represented categories in", cats_title), subtitle=paste(m, " method")) +
       theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
     print(p)
   }
