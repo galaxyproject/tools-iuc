@@ -159,7 +159,7 @@ if (!is.null(args$top_plot)) {
       top_n(10, wt=-over_represented_pvalue)  %>%
       mutate(hitsPerc=numDEInCat*100/numInCat) %>%
       ggplot(aes(x=hitsPerc,
-                   y=substr(term, 1, 40), # only use 1st 40 chars of terms otherwise squashes plot
+                   y=reorder(substr(term, 1, 40), -over_represented_pvalue), # only use 1st 40 chars of terms otherwise squashes plot
                    colour=p.adjust.over_represented,
                    size=numDEInCat)) +
       geom_point() +
