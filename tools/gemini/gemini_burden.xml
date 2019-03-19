@@ -1,8 +1,9 @@
-<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@.0">
+<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@">
     <description>perform sample-wise gene-level burden calculations</description>
     <macros>
         <import>gemini_macros.xml</import>
         <token name="@BINARY@">burden</token>
+        <token name="@GEMINI_BUG_WARNING@">Caveat: due to a bug in this version of GEMINI, filtering on alternate allele frequency will get disabled when you select 'All non-synonymous variants' as the types of variants to be used for the burden calculations above.</token>
     </macros>
     <expand macro="requirements" />
     <expand macro="stdio" />
@@ -10,61 +11,139 @@
     <command>
 <![CDATA[
         gemini @BINARY@
-          --cases $cases
-          --controls $controls
-            $save_tscores
             $nonsynonymous
-            $calpha
-            --permutations $permutations
-            #if float( str($min_aaf) ) >= 0.0:
-                --min-aaf $min_aaf
+            #if str($analysis.mode) == "c-alpha":
+                --calpha
+                #if str($analysis.casecontrol.source) == "custom":
+                    --cases
+                    #echo (" ".join("'" + token + "'" for token in $analysis.casecontrol.cases.strip().split()))#
+                    --controls
+                    #echo (" ".join("'" + token + "'" for token in $analysis.casecontrol.controls.strip().split()))#
+                #end if
+                --min-aaf ${analysis.min_aaf}
+                --max-aaf ${analysis.max_aaf}
+                --permutations ${analysis.permutations}
+                ${analysis.save_tscores}
             #end if
-            #if float( str($max_aaf) ) >= 0.0:
-                --max-aaf $max_aaf
-            #end if
-            "${ infile }"
-            > "${ outfile }"
+            '$infile'
+            > '$outfile'
+        #if str($analysis.mode) == "c-alpha" and $analysis.save_tscores:
+            && touch permutated_t_scores.txt
+            && mv permutated_t_scores.txt $t_scores
+        #end if
 ]]>
 
     </command>
     <inputs>
         <expand macro="infile" />
-
-        <param name="cases" type="text" value="" label="Space separated list of cases for association testing" help="(--cases)"/>
-        <param name="controls" type="text" value="" label="Space separated list of controls for association testing" help="(--controls)"/>
-
-        <param name="save_tscores" type="boolean" truevalue="--save_tscores" falsevalue="" checked="False"
-            label="Save the permuted T-scores in the output file" help="(--save_tscores)"/>
-
-        <param name="nonsynonymous" type="boolean" truevalue="--nonsynonymous" falsevalue="" checked="False"
-            label="Count all nonsynonymous variants as contributing burden" help="(--nonsynonymous)"/>
-        <param name="calpha" type="boolean" truevalue="--calpha" falsevalue="" checked="False"
-            label="Run the C-alpha association test" help="(--calpha)"/>
-        <param name="min_aaf" type="float" value="-1" label="The min. alt. allele frequency for a variant to be included"
-            help="(--min-aaf)">
-            <!--validator type="in_range" min="0.0"/-->
+        <param argument="--non-synonymous" name="nonsynonymous" type="select"
+        label="Use the following types of variants for the burden calculation">
+            <option value="">High impact variants only</option>
+            <option value="--nonsynonymous">All non-synonymous variants</option>
         </param>
-        <param name="max_aaf" type="float" value="-1" label="The max. alt. allele frequency for a variant to be included"
-            help="(--max-aaf)">
-            <!--validator type="in_range" min="0.0"/-->
-        </param>
-
-        <param name="permutations" type="integer" value="1000" label="Number of permutations to run for the C-alpha test"
-            help="(--permutations)">
-            <validator type="in_range" min="0"/>
-        </param>
-
+        <conditional name="analysis">
+            <param argument="--calpha" name="mode" type="select"
+            label="Which type of burden calculation should be performed?">
+                <option value="counts">Count of variants per gene and sample</option>
+                <option value="c-alpha">C-alpha association test per gene</option>
+            </param>
+            <when value="counts" />
+            <when value="c-alpha">
+                <conditional name="casecontrol">
+                    <param name="source" type="select"
+                    label="Selection of case and control samples"
+                    help="Specify how case and control samples for the C-alpha association test should be selected">
+                        <option value="ped">Use PED file information</option>
+                        <option value="custom">Custom selection</option>
+                    </param>
+                    <when value="ped" />
+                    <when value="custom">
+                        <param argument="--cases" name="cases" type="text" value=""
+                        label="Space separated list of cases for association testing"/>
+                        <param argument="--controls" name="controls" type="text" value=""
+                        label="Space separated list of controls for association testing" help="(--controls)"/>
+                    </when>
+                </conditional>
+                <param argument="--min-aaf" name="min_aaf" type="float" min="0" max="1" value="0"
+                label="The min. alt. allele frequency for a variant to be included"
+                help="@GEMINI_BUG_WARNING@" />
+                <param argument="--max-aaf" name="max_aaf" type="float" min="0" max="1" value="1"
+                label="The max. alt. allele frequency for a variant to be included"
+                help="@GEMINI_BUG_WARNING@" />
+                <param argument="--permutations" name="permutations" type="integer" min="1" value="100" label="Number of permutations to run for the C-alpha test" />
+                <param argument="--save_tscores" name="save_tscores" type="boolean" truevalue="--save_tscores" falsevalue="" checked="False"
+                    label="Save the list of individual T-scores from all permutations as an extra dataset" />
+            </when>
+        </conditional>
     </inputs>
     <outputs>
-        <data name="outfile" format="tabular" />
+        <data name="outfile" format="tabular"
+        label="GEMINI burden ${analysis.mode} on ${on_string}" />
+        <data name="t_scores" format="tabular"
+        label="GEMINI burden permuted T scores on ${on_string}">
+            <filter>analysis['mode'] == 'c-alpha' and analysis['save_tscores']</filter>
+        </data>
     </outputs>
     <tests>
-        <test>
-            <param name="infile" value="gemini_burden_input.db" ftype="gemini.sqlite" />
-            <param name="controls" value="M10475 M10478" />
-            <param name="cases" value="M10500 M128215" />
-            <param name="calpha" value="True" />
-            <output name="outfile" file="gemini_burden_result.tabular" />
+        <test expect_num_outputs="1">
+            <!-- test counts mode with defaults -->
+            <param name="infile" value="gemini_de_novo_input.db" ftype="gemini.sqlite" />
+            <conditional name="analysis">
+                <param name="mode" value="counts" />
+            </conditional>
+            <output name="outfile" file="gemini_burden_count_highimpact_result.tabular" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test nonsynonymous parameter -->
+            <param name="infile" value="gemini_de_novo_input.db" ftype="gemini.sqlite" />
+            <param name="nonsynonymous" value="--nonsynonymous" />
+            <conditional name="analysis">
+                <param name="mode" value="counts" />
+            </conditional>
+            <output name="outfile" file="gemini_burden_count_nonsynonymous_result.tabular" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test c-alpha mode with defaults -->
+            <param name="infile" value="gemini_de_novo_input.db" ftype="gemini.sqlite" />
+            <conditional name="analysis">
+                <param name="mode" value="c-alpha" />
+                <conditional name="casecontrol">
+                    <param name="source" value="ped" />
+                </conditional>
+            </conditional>
+            <output name="outfile" file="gemini_burden_calpha_template.tabular" compare="re_match" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test c-alpha mode with user-supplied case/control samples -->
+            <param name="infile" value="gemini_de_novo_input.db" ftype="gemini.sqlite" />
+            <conditional name="analysis">
+                <param name="mode" value="c-alpha" />
+                <conditional name="casecontrol">
+                    <param name="source" value="custom" />
+                    <param name="controls" value="1_kid 3_kid" />
+                    <param name="cases" value="1_dad 1_mom 3_dad 3_mom" />
+                </conditional>
+            </conditional>
+            <output name="outfile" file="gemini_burden_calpha_template.tabular" compare="re_match" />
+        </test>
+        <test expect_num_outputs="2">
+            <!-- test additional T scores output generation -->
+            <param name="infile" value="gemini_de_novo_input.db" ftype="gemini.sqlite" />
+            <conditional name="analysis">
+                <param name="mode" value="c-alpha" />
+                <conditional name="casecontrol">
+                    <param name="source" value="custom" />
+                    <param name="controls" value="1_kid 3_kid" />
+                    <param name="cases" value="1_dad 1_mom 3_dad 3_mom" />
+                </conditional>
+                <param name="permutations" value="2" />
+                <param name="save_tscores" value="True" />
+            </conditional>
+            <output name="t_scores">
+                <assert_contents>
+                    <has_line_matching expression="WDR37&#009;.+&#009;.+" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[

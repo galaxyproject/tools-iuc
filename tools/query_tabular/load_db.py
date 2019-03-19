@@ -142,13 +142,13 @@ def get_valid_column_name(name):
         return None
     elif name.upper() in SQLITE_KEYWORDS:
         valid_name = '"%s"' % name
-    elif re.match('^[a-zA-Z]\w*$', name):
+    elif re.match(r'^[a-zA-Z]\w*$', name):
         pass
-    elif re.match('^"[^"]+"$', name):
+    elif re.match(r'^"[^"]+"$', name):
         pass
-    elif re.match('^\[[^\[\]]*\]$', name):
+    elif re.match(r'^\[[^\[\]]*\]$', name):
         pass
-    elif re.match("^`[^`]+`$", name):
+    elif re.match(r"^`[^`]+`$", name):
         pass
     elif name.find('"') < 0:
         valid_name = '"%s"' % name

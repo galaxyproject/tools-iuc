@@ -31,7 +31,7 @@ class SnpEffDb( Text ):
             fh = gzip.open(path, 'rb')
             buf = fh.read(100)
             lines = buf.splitlines()
-            m = re.match('^(SnpEff)\s+(\d+\.\d+).*$', lines[0].strip())
+            m = re.match(r'^(SnpEff)\s+(\d+\.\d+).*$', lines[0].strip())
             if m:
                 snpeff_version = m.groups()[0] + m.groups()[1]
             fh.close()

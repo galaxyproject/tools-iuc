@@ -1,7 +1,9 @@
-<tool id="featurecounts" name="featureCounts" version="1.6.0.6" profile="16.04">
+<tool id="featurecounts" name="featureCounts" version="1.6.3+galaxy2" profile="16.04">
     <description>Measure gene expression in RNA-Seq experiments from SAM or BAM files.</description>
     <requirements>
-        <requirement type="package" version="1.6.0">subread</requirement>
+        <requirement type="package" version="1.6.3">subread</requirement>
+        <requirement type="package" version="1.9">samtools</requirement>
+        <requirement type="package" version="8.30">coreutils</requirement>
     </requirements>
 
     <version_command>featureCounts -v 2&gt;&amp;1 | grep .</version_command>
@@ -58,7 +60,9 @@
                 $extended_parameters.read_reduction
                 $extended_parameters.primary
                 $extended_parameters.ignore_dup
-
+                #if $extended_parameters.R:
+                    $extended_parameters.R
+                #end if
                 #if str($extended_parameters.read_extension_5p) != "0":
                     --readExtension5 $extended_parameters.read_extension_5p
                 #end if
@@ -108,6 +112,9 @@
             && sed -e 's|${alignment}|${alignment.element_identifier}|g' 'output.jcounts' > '${output_jcounts}'
         #end if
 
+        #if $extended_parameters.R:
+            && samtools sort -o '$output_bam' -@ \${GALAXY_SLOTS:-2} *.featureCounts.bam
+        #end if
         && sed -e 's|${alignment}|${alignment.element_identifier}|g' 'output.summary' > '${output_summary}'
     ]]></command>
     <inputs>
@@ -389,6 +396,13 @@
                    label="Ignore reads marked as duplicate"
                    help="If specified, reads that were marked as duplicates will be ignored. Bit Ox400 in the FLAG field of a SAM/BAM file is used for identifying duplicate reads. In paired end data, the entire read pair will be ignored if at least one end is found to be a duplicate read." />
 
+            <param type="boolean"
+                   truevalue="-R BAM"
+                   falsevalue=""
+                   argument="-R"
+                   label="Annotates the alignment file with 'XS:Z:'-tags to described per read or read-pair the corresponding assigned feature(s)."
+                   help="" />
+
             <param name="count_split_alignments_only"
                    type="boolean"
                    truevalue=" --countSplitAlignmentsOnly"
@@ -401,16 +415,22 @@
     <outputs>
         <data format="tabular"
               name="output_medium"
-              label="${tool.name} on ${on_string}">
+              label="${tool.name} on ${on_string}: Counts (with length)">
             <filter>format == "tabdel_medium"</filter>
             <actions>
                 <action name="column_names" type="metadata" default="Geneid,${alignment.element_identifier},Length" />
             </actions>
         </data>
 
+        <data format="bam"
+              name="output_bam"
+              label="${tool.name} on ${on_string}: Alignment file">
+            <filter>extended_parameters['R']</filter>
+        </data>
+
         <data format="tabular"
               name="output_short"
-              label="${tool.name} on ${on_string}">
+              label="${tool.name} on ${on_string}: Counts">
             <filter>format == "tabdel_short"</filter>
             <actions>
                 <action name="column_names" type="metadata" default="Geneid,${alignment.element_identifier}" />
@@ -419,7 +439,7 @@
 
         <data format="tabular"
               name="output_full"
-              label="${tool.name} on ${on_string}: count table">
+              label="${tool.name} on ${on_string}: Counts (with location)">
             <filter>format == "tabdel_full"</filter>
             <actions>
                 <action name="column_names" type="metadata" default="Geneid,Chr,Start,End,Strand,Length,${alignment.element_identifier}" />
@@ -428,7 +448,7 @@
 
         <data format="tabular"
               name="output_summary"
-              label="${tool.name} on ${on_string}: summary">
+              label="${tool.name} on ${on_string}: Summary">
             <actions>
                 <action name="column_names" type="metadata" default="Status,${alignment.element_identifier}" />
             </actions>
@@ -436,7 +456,7 @@
 
         <data format="tabular"
               name="output_feature_lengths"
-              label="${tool.name} on ${on_string}: feature lengths">
+              label="${tool.name} on ${on_string}: Feature lengths">
             <filter>include_feature_length_file</filter>
             <actions>
                 <action name="column_names" type="metadata" default="Feature,Length" />
@@ -444,7 +464,7 @@
         </data>
 
         <data name="output_jcounts" format="tabular"
-              label="${tool.name} on ${on_string}: junction counts">
+              label="${tool.name} on ${on_string}: Junction counts">
             <filter>extended_parameters['exon_exon_junction_read_counting_enabled']['count_exon_exon_junction_reads']</filter>
             <actions>
                 <action name="column_names" type="metadata"
@@ -500,14 +520,18 @@
             </output>
         </test>
         <!-- Ensure featureCounts built-in annotation works -->
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <param name="alignment" value="pairend_strandspecific_51mer_hg19_chr1_1-100000.bam" ftype="bam" dbkey="hg19" />
             <param name="anno_select" value="builtin"/>
             <param name="format" value="tabdel_short" />
+            <section name="extended_parameters">
+                <param name="R" value="true" />
+            </section>
             <output name="output_short" file="output_builtin_hg19.tab">
                 <metadata name="column_names" value="Geneid,pairend_strandspecific_51mer_hg19_chr1_1-100000.bam"/>
             </output>
             <output name="output_summary" file="output_summary_builtin_hg19.tab"/>
+            <output name="output_bam" file="output.bam" ftype="bam"/>
         </test>
         <!-- Ensure cached GTFs work -->
         <test expect_num_outputs="3">
@@ -521,6 +545,16 @@
             <output name="output_summary" file="output_1_summary.tab">
                 <metadata name="column_names" value="Status,featureCounts_input1.bam"/>
             </output>
+        </test>
+        <!-- Ensure BAM output works -->
+        <test>
+            <param name="alignment" value="subset.sorted.bam" ftype="bam" />
+            <param name="anno_select" value="history" />
+            <param name="reference_gene_sets" value="small.gtf" ftype="gtf" />
+            <section name="extended_parameters" >
+                <param name="R" value="true" />
+            </section>
+            <output name="output_bam" value="subset.sorted.featurecounts.bam" compare="sim_size"/>
         </test>
     </tests>
 
@@ -556,7 +590,7 @@ Example - **Built-in annotation format**:
   497097  chr1  3660633  3661579  -
   ======  ====  =======  =======  ======
 
-These annotation files can be found in the `Subread package`_. You can see the version of Subread used by this wrapper in the tool form above under `Options > Requirements`. To create the files, the annotations were downloaded from NCBI RefSeq database and then adapted by merging overlapping exons from the same gene to form a set of disjoint exons for each gene. Genes with the same Entrez gene identifiers were also merged into one gene. See the `Subread User's Guide`_ for more information.
+These annotation files can be found in the `Subread package`_. You can see the version of Subread used by this wrapper in the tool form above under `Options > Requirements`. To create the files, the annotations were downloaded from NCBI RefSeq database and then adapted by merging overlapping exons from the same gene to form a set of disjoint exons for each gene. Genes with the same Entrez gene identifiers were also merged into one gene. See the `Subread User's Guide`_ for more information. Gene names can be obtained for these Entrez identifiers with the Galaxy **annotateMyIDs** tool.
 
 Output format
 -------------
