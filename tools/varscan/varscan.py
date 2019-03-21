@@ -498,53 +498,11 @@ class VarScanCaller (object):
         del record.format['RD']
         del record.format['DP4']
 
-    def pileup_masker(self, mask):
-        def apply_mask_on_pileup(piled_items):
-            for item, status in zip(piled_items, mask):
-                if status:
-                    yield item
-        return apply_mask_on_pileup
-
     def get_allele_specific_pileup_column_stats(
         self, allele, pile_column, ref_fetch
     ):
-        # number of reads supporting the given allele on
-        # forward and reverse strand, and in total
         var_reads_plus = var_reads_minus = 0
-        var_supp_read_mask = []
-        for base in pile_column.get_query_sequences():
-            if base == allele:
-                # allele supporting read on + strand
-                var_reads_plus += 1
-                var_supp_read_mask.append(True)
-            elif base.upper() == allele:
-                # allele supporting read on - strand
-                var_reads_minus += 1
-                var_supp_read_mask.append(True)
-            else:
-                var_supp_read_mask.append(False)
-        var_reads_total = var_reads_plus + var_reads_minus
-
-        if var_reads_total == 0:
-            # No stats without reads!
-            return None
-
-        var_supp_only = self.pileup_masker(var_supp_read_mask)
-
-        # average mapping quality of the reads supporting the
-        # given allele
-        avg_mapping_quality = sum(
-            mq for mq in var_supp_only(
-                pile_column.get_mapping_qualities()
-            )
-        ) / var_reads_total
-
-        # for the remaining stats we need access to complete
-        # read information
-        piled_reads = [
-            p for p in var_supp_only(pile_column.pileups)
-        ]
-        assert len(piled_reads) == var_reads_total
+        sum_mapping_qualities = 0
         sum_avg_base_qualities = 0
         sum_dist_from_center = 0
         sum_dist_from_3prime = 0
@@ -553,7 +511,18 @@ class VarScanCaller (object):
         sum_num_mismatches_as_fraction = 0
         sum_mismatch_qualities = 0
 
-        for p in piled_reads:
+        for p in pile_column.pileups:
+            # skip reads that don't support the allele we're looking for
+            if p.query_position is None:
+                continue
+            if p.alignment.query_sequence[p.query_position] != allele:
+                continue
+
+            if p.alignment.is_reverse:
+                var_reads_minus += 1
+            else:
+                var_reads_plus += 1
+            sum_mapping_qualities += p.alignment.mapping_quality
             sum_avg_base_qualities += sum(
                 p.alignment.query_qualities
             ) / p.alignment.infer_query_length()
@@ -582,6 +551,12 @@ class VarScanCaller (object):
             sum_num_mismatches_as_fraction += (
                 sum_num_mismatches / p.alignment.query_alignment_length
             )
+
+        var_reads_total = var_reads_plus + var_reads_minus
+        if var_reads_total == 0:
+            # No stats without reads!
+            return None
+        avg_mapping_quality = sum_mapping_qualities / var_reads_total
         avg_basequality = sum_avg_base_qualities / var_reads_total
         avg_pos_as_fraction = sum_dist_from_center / var_reads_total
         avg_num_mismatches_as_fraction = (
