@@ -503,7 +503,7 @@ class VarScanCaller (object):
     ):
         var_reads_plus = var_reads_minus = 0
         sum_mapping_qualities = 0
-        sum_avg_base_qualities = 0
+        sum_base_qualities = 0
         sum_dist_from_center = 0
         sum_dist_from_3prime = 0
         sum_clipped_length = 0
@@ -523,9 +523,7 @@ class VarScanCaller (object):
             else:
                 var_reads_plus += 1
             sum_mapping_qualities += p.alignment.mapping_quality
-            sum_avg_base_qualities += sum(
-                p.alignment.query_qualities
-            ) / p.alignment.infer_query_length()
+            sum_base_qualities += p.alignment.query_qualities[p.query_position]
             sum_clipped_length += p.alignment.query_alignment_length
             unclipped_length = p.alignment.infer_read_length()
             sum_unclipped_length += unclipped_length
@@ -557,7 +555,7 @@ class VarScanCaller (object):
             # No stats without reads!
             return None
         avg_mapping_quality = sum_mapping_qualities / var_reads_total
-        avg_basequality = sum_avg_base_qualities / var_reads_total
+        avg_basequality = sum_base_qualities / var_reads_total
         avg_pos_as_fraction = sum_dist_from_center / var_reads_total
         avg_num_mismatches_as_fraction = (
             sum_num_mismatches_as_fraction / var_reads_total
