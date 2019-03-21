@@ -1,0 +1,209 @@
+<tool id="anndata_import" name="Import AnnData" version="@galaxy_version@">
+    <description>from different format</description>
+    <macros>
+        <import>macros.xml</import>
+        <xml name="params_10x">
+            <param name="barcodes" type="data" format="tabular" label="Barcodes"/>
+            <param name="var_names" type="select" label="Variables index">
+                <option value="gene_symbols">gene_symbols</option>
+                <option value="gene_ids">gene_ids</option>
+            </param>
+            <param name="make_unique" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Make the variable index unique by appending '-1', '-2'?"/>
+            <param name="gex_only" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Keep only 'Gene Expression' data and ignore other feature types?"/>
+        </xml>
+    </macros>
+    <expand macro="requirements">
+
+    </expand>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+#if $input.format == 'mtx' and $input.10x.use == 'no'
+&&
+mkdir mtx
+    #if $input.10x.use == 'legacy_10x'
+&&
+cp '$input.matrix' mtx/matrix.mtx
+&&
+cp '$input.10x.genes' mtx/genes.tsv
+&&
+cp '$input.10x.barcodes' mtx/barcodes.tsv
+    #else
+&&
+cp '$input.matrix' mtx/matrix.mtx.gz
+&&
+cp '$input.10x.features' mtx/features.tsv.gz
+&&
+cp '$input.10x.barcodes' mtx/barcodes.tsv.gz
+    #end if
+#else if $input.format == 'umi_tools'
+&&
+gunzip '$input.input' 
+#end if
+
+@CMD@
+      ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_imports@
+#if $input.format == 'loom'
+adata = ad.read_loom(
+    '$input.input',
+    sparse=$input.sparse,
+    cleanup=$input.cleanup,
+    X_name='$input.x_name',
+    obs_names='$input.obs_names',
+    var_names='$input.var_names')
+
+#else if $input.format == 'tabular'
+    #if $input.input.format == 'tsv' or $input.input.format == 'tabular'
+        #set delimiter='\t'
+    #else
+        #set delimiter=','
+    #end if
+adata = ad.read_csv(
+    '$input.input',
+    delimiter='$delimiter',
+    first_column_names=$input.first_column_names)
+
+#else if $input.format == 'mtx'
+    #if $input.10x.use == 'no'
+adata = ad.read_mtx(filename='$input.matrix')
+    #else
+import scanpy as sc
+adata = sc.read_10x_mtx(
+    'mtx',
+    var_names='$input.10x.gene_symbols',
+    make_unique=$input.10x.make_unique,
+    cache=False,
+    gex_only=$input.10x.gex_only)
+    #end if
+
+#else if $input.format == 'umi_tools'
+adata = ad.read_mtx('${input.input}.gz')
+#end if
+
+adata.write('anndata.h5ad')
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="input">
+            <param name="format" type="select" label="Format for the annotated data matrix">
+                <option value="loom">Loom</option>
+                <option value="tabular">Tabular, CSV, TSV</option>
+                <option value="mtx">Matrix Market (mtx), from Cell ranger or not</option>
+                <option value="umi_tools">UMI tools</option>
+            </param>
+            <when value="loom">
+                <param name="input" type="data" format="loom" label="Annotated data matrix"/>
+                <param name="sparse" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Is the data matrix to read sparse?"/>
+                <param name="cleanup" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Cleanup?"/>
+                <param name="x_name" type="text" value="spliced" label="X_name"/>
+                <param name="obs_names" type="text" value="CellID" label="obs_names"/>
+                <param name="var_names" type="text" value="Gene" label="var_names"/>
+            </when>
+            <when value="tabular">
+                <param name="input" type="data" format="tabular,csv,tsv" label="Annotated data matrix"/>
+                <param name="first_column_names" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Does the first column store the row names?"/>
+            </when>
+            <when value="mtx">
+                <param name="matrix" type="data" format="tabular,mtx" label="Matrix"/>
+                <conditional name="10x">
+                    <param name="use" type="select" label="Use 10x Genomics formatted mtx">
+                        <option value="no">No</option>
+                        <option value="legacy_10x">Output from Cell Ranger v2 or earlier versions</option>
+                        <option value="v3_10x">Output from Cell Ranger v3 or later versions</option>
+                    </param>
+                    <when value="no"/>
+                    <when value="legacy_10x">
+                        <param name="genes" type="data" format="tabular" label="Genes"/>
+                        <expand macro="params_10x"/>
+                    </when>
+                    <when value="v3_10x">
+                        <param name="features" type="data" format="tabular" label="Features"/>
+                        <expand macro="params_10x"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="umi_tools">
+                <param name="input" type="data" format="tabular" label="condensed count matrix from UMI tools"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="anndata" format="anndata" from_work_dir="anndata.h5ad" label="${tool.name} on ${on_string}"/>
+    </outputs>
+    <tests>
+        <test>
+            <conditional name="input">
+                <param name="format" value="loom"/>
+                <param name="adata" value="krumsiek11.loom" />
+                <param name="sparse" value="True"/>
+                <param name="cleanup" value="False"/>
+                <param name="x_name"  value="spliced"/>
+                <param name="obs_names" value="CellID" />
+                <param name="var_names" value="Gene"/>
+            </conditional>
+            <output name="anndata" value="">
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="tabular"/>
+                <param name="input" value=""/>
+                <param name="first_column_names" value="true"/>
+            </conditional>
+            <output name="anndata" value="">
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="mtx"/>
+                <param name="matrix" value=""/>
+                <conditional name="10x">
+                    <param name="use" value="no"/>
+                </conditional>
+                </conditional>
+            <output name="anndata" value="">
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="mtx"/>
+                <param name="matrix" value=""/>
+                <conditional name="10x">
+                    <param name="use" value="legacy_10x"/>
+                    <param name="genes" value=""/>
+                    <param name="barcodes" value=""/>
+                    <param name="var_names" value="gene_symbols"/>
+                    <param name="make_unique" value="true"/>
+                    <param name="gex_only" value="true"/>
+                </conditional>
+            </conditional>
+            <output name="anndata" value="">
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="mtx"/>
+                <param name="matrix" value=""/>
+                <conditional name="10x">
+                    <param name="use" value="v3_10x"/>
+                    <param name="features" value=""/>
+                    <param name="barcodes" value=""/>
+                    <param name="var_names" value="gene_symbols"/>
+                    <param name="make_unique" value="true"/>
+                    <param name="gex_only" value="true"/>
+                    </when>
+                </conditional>
+            </conditional>
+            <output name="anndata" value="">
+        </test>
+        <test>
+            <conditional name="input">
+                <param name="format" value="umi_tools"/>
+                <param name="input" type="data" format="tabular" label="condensed count matrix from UMI tools"/>
+            </conditional>
+            <output name="anndata" value="">
+        </test>
+    </tests>
+    <help><![CDATA[
+@HELP@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
