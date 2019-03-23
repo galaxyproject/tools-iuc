@@ -533,23 +533,48 @@ class VarScanCaller (object):
             sum_mapping_qualities += p.alignment.mapping_quality
             sum_base_qualities += p.alignment.query_qualities[p.query_position]
             sum_clipped_length += p.alignment.query_alignment_length
-            unclipped_length = p.alignment.infer_read_length()
+            unclipped_length = p.alignment.query_length
             sum_unclipped_length += unclipped_length
-            read_center = p.alignment.query_alignment_length / 2
-            sum_dist_from_center += 1 - abs(
-                p.query_position - read_center
-            ) / read_center
+            # The following calculations are all in 1-based coordinates
+            # with respect to the physical 5'-end of the read sequence.
             if p.alignment.is_reverse:
-                sum_dist_from_3prime += p.query_position / unclipped_length
+                read_base_pos = unclipped_length - p.query_position
+                read_first_aln_pos = (
+                    unclipped_length - p.alignment.query_alignment_end + 1
+                )
+                read_last_aln_pos = (
+                    unclipped_length - p.alignment.query_alignment_start
+                )
             else:
-                sum_dist_from_3prime += 1 - p.query_position / unclipped_length
+                read_base_pos = p.query_position + 1
+                read_first_aln_pos = p.alignment.query_alignment_start + 1
+                read_last_aln_pos = p.alignment.query_alignment_end
+            # Note: the original bam-readcount algorithm uses the less accurate
+            # p.alignment.query_alignment_length / 2 as the read center
+            read_center = (read_first_aln_pos + read_last_aln_pos) / 2
+            sum_dist_from_center += 1 - abs(
+                read_base_pos - read_center
+            ) / (read_center - 1)
+            # Note: the original bam-readcount algorithm uses a more
+            # complicated definition of the 3'-end of a read sequence, which
+            # clips off runs of bases with a quality scores of exactly 2.
+            sum_dist_from_3prime += (
+                read_last_aln_pos - read_base_pos
+            ) / (unclipped_length - 1)
 
             sum_num_mismatches = 0
             for qpos, rpos in p.alignment.get_aligned_pairs():
                 if qpos is not None and rpos is not None:
-                    if p.alignment.query_sequence[qpos] != ref_fetch(
-                        rpos, rpos + 1
-                    ).upper():  # ref bases can be lowercase!
+                    # see if we have a mismatch to the reference at this
+                    # position, but note that:
+                    # - ref bases can be lowercase
+                    # - there cannot be a mismatch with an N in the reference
+                    ref_base = ref_fetch(rpos, rpos + 1).upper()
+                    if (
+                        ref_base != 'N'
+                    ) and (
+                        ref_base != p.alignment.query_sequence[qpos]
+                    ):
                         sum_num_mismatches += 1
                         sum_mismatch_qualities += p.alignment.query_qualities[
                             qpos
