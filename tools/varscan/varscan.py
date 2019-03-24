@@ -507,7 +507,7 @@ class VarScanCaller (object):
         del record.format['DP4']
 
     def get_allele_specific_pileup_column_stats(
-        self, allele, pile_column, ref_fetch
+        self, allele, pile_column, ref_fetch, use_md=True
     ):
         var_reads_plus = var_reads_minus = 0
         sum_mapping_qualities = 0
@@ -563,8 +563,27 @@ class VarScanCaller (object):
             ) / (unclipped_length - 1)
 
             sum_num_mismatches = 0
-            for qpos, rpos in p.alignment.get_aligned_pairs():
-                if qpos is not None and rpos is not None:
+            if use_md:
+                try:
+                    aligned_pairs = p.alignment.get_aligned_pairs(
+                        matches_only=True, with_seq=True
+                    )
+                except ValueError:
+                    use_md = False
+            if use_md:
+                for qpos, rpos, ref_base in aligned_pairs:
+                    if (
+                        ref_base == 'a' or ref_base == 't' or
+                        ref_base == 'g' or ref_base == 'c'
+                    ):
+                        sum_num_mismatches += 1
+                        sum_mismatch_qualities += p.alignment.query_qualities[
+                            qpos
+                        ]
+            else:
+                for qpos, rpos in p.alignment.get_aligned_pairs(
+                    matches_only=True
+                ):
                     # see if we have a mismatch to the reference at this
                     # position, but note that:
                     # - ref bases can be lowercase
