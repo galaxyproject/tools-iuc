@@ -565,13 +565,17 @@ class VarScanCaller (object):
             sum_num_mismatches = 0
             if use_md:
                 try:
+                    # see if the read has an MD tag, in which case pysam can
+                    # calculate the reference sequence for us
                     aligned_pairs = p.alignment.get_aligned_pairs(
                         matches_only=True, with_seq=True
                     )
                 except ValueError:
                     use_md = False
             if use_md:
+                # The ref sequence got calculated from alignment and MD tag.
                 for qpos, rpos, ref_base in aligned_pairs:
+                    # pysam uses lowercase ref bases to indicate mismatches
                     if (
                         ref_base == 'a' or ref_base == 't' or
                         ref_base == 'g' or ref_base == 'c'
@@ -581,18 +585,32 @@ class VarScanCaller (object):
                             qpos
                         ]
             else:
+                # We need to obtain the aligned portion of the reference
+                # sequence.
+                aligned_pairs = p.alignment.get_aligned_pairs(
+                    matches_only=True
+                )
+                # note that ref bases can be lowercase
+                ref_seq = ref_fetch(
+                    aligned_pairs[0][1], aligned_pairs[-1][1] + 1
+                ).upper()
+                ref_offset = aligned_pairs[0][1]
+
                 for qpos, rpos in p.alignment.get_aligned_pairs(
                     matches_only=True
                 ):
                     # see if we have a mismatch to the reference at this
-                    # position, but note that:
-                    # - ref bases can be lowercase
+                    # position, but note that
+                    # - the query base may be lowercase (SAM/BAM spec)
+                    # - an '=', if present in the query seq, indicates a match
+                    #   to the reference (SAM/BAM spec)
                     # - there cannot be a mismatch with an N in the reference
-                    ref_base = ref_fetch(rpos, rpos + 1).upper()
+                    ref_base = ref_seq[rpos - ref_offset]
+                    read_base = p.alignment.query_sequence[qpos].upper()
                     if (
-                        ref_base != 'N'
+                        read_base != '=' and ref_base != 'N'
                     ) and (
-                        ref_base != p.alignment.query_sequence[qpos]
+                        ref_base != read_base
                     ):
                         sum_num_mismatches += 1
                         sum_mismatch_qualities += p.alignment.query_qualities[
