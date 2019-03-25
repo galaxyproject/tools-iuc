@@ -336,7 +336,7 @@ class ExcludeRef(object):
     def filter(self, bam, read):
         if not read.is_unmapped:
             if bam.getrname(read.tid) == self.ref:
-                    return False
+                return False
         return True
 
     def __repr__(self):
@@ -353,7 +353,7 @@ class IncludeRef(object):
     def filter(self, bam, read):
         if not read.is_unmapped:
             if bam.getrname(read.tid) == self.ref:
-                    return True
+                return True
         return False
 
     def __repr__(self):

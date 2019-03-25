@@ -27,8 +27,12 @@ spec <- matrix(c(
     "title", "T", 1, "character",
     "xlab", "X", 1, "character",
     "ylab", "Y", 1, "character",
+    "xmin", "m", 1, "double",
+    "xmax", "M", 1, "double",
+    "ymax", "W", 1, "double",
     "legend", "L", 1, "character",
-    "llabs", "z", 1, "character"),
+    "llabs", "z", 1, "character",
+    "boxes", "b", 0, "logical"),
     byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -38,7 +42,7 @@ results <- read.delim(opt$input)
 results$fdr <- results[, opt$fdr_col]
 results$Pvalue <- results[, opt$pval_col]
 results$logFC <- results[, opt$lfc_col]
-results$labels <- results[, opt$label_col]
+results$labels <- as.character(results[, opt$label_col])
 label_down <- unlist(strsplit(opt$llabs, split=","))[1]
 label_notsig <- unlist(strsplit(opt$llabs, split=","))[2]
 label_up <- unlist(strsplit(opt$llabs, split=","))[3]
@@ -47,19 +51,19 @@ colours <- setNames(c("cornflowerblue","grey","firebrick"),c(label_down,label_no
 results <- mutate(results, sig=ifelse((fdr<opt$signif_thresh & logFC>opt$lfc_thresh), label_up, ifelse((fdr<opt$signif_thresh & logFC < -opt$lfc_thresh),label_down, label_notsig)))
 results <- results[order(results$Pvalue),]
 if (!is.null(opt$label_file)) {
-    labelfile <- read.delim(opt$label_file)
+    labelfile <- read.delim(opt$label_file, stringsAsFactors=FALSE)
     # label genes specified in file
-    tolabel <- filter(results, labels %in% labelfile[, 1])
+    results <- mutate(results, labels=ifelse(labels %in% labelfile[, 1], labels, ""))
 } else if (is.null(opt$top_num)) {
     # label all significant genes
-    tolabel <- filter(results, sig != label_notsig)
+    results <- mutate(results, labels=ifelse(sig != label_notsig, labels, ""))
 } else if (opt$top_num > 0) {
     # label only top significant genes
-    tolabel <- filter(results, sig != label_notsig) %>%
-    top_n(n=-opt$top_num, Pvalue)
+    top <- filter(results, sig != label_notsig) %>% top_n(n=-opt$top_num, Pvalue)
+    results <- mutate(results, labels=ifelse(labels %in% top$labels, labels, ""))
 } else if (opt$top_num == 0) {
     # no labels
-    tolabel <- NULL
+    results$labels <- NULL
 }
 
 pdf("out.pdf")
@@ -81,13 +85,23 @@ if (!is.null(opt$xlab)) {
 if (!is.null(opt$ylab)) {
     p <- p + ylab(opt$ylab)
 }
+if (!is.null(opt$xmin) & !is.null(opt$xmax)) {
+    p <- p + xlim(opt$xmin, opt$xmax)
+}
+if (!is.null(opt$ymax)) {
+    p <- p + ylim(0, opt$ymax)
+}
 if (!is.null(opt$legend)) {
     p <- p + labs(colour=opt$legend)
 } else {
     p <- p + labs(colour="")
 }
-if (!is.null(tolabel)) {
-    p <- p + geom_label_repel(data=tolabel, aes(label=labels, fill=factor(sig)), colour="white", segment.colour="black", show.legend=FALSE)
+if (!is.null(results$labels)) {
+    if (!is.null(opt$boxes)) {
+        p <- p + geom_label_repel(aes(label=labels, fill=sig), segment.colour="black", colour="white", min.segment.length=0, show.legend=FALSE)
+    } else {
+        p <- p + geom_text_repel(aes(label=labels, col=sig), min.segment.length=0, box.padding=0.3, point.padding=0.3, show.legend=FALSE)
+    }
 }
 
 print(p)
