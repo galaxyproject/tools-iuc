@@ -7,12 +7,12 @@ import datetime
 import errno
 import json
 import os
-import string
 import subprocess
 import sys
 
 
 DATA_TABLE_NAME = "kraken2_databases"
+
 
 def run(args, cwd):
     proc = subprocess.Popen(args=args, shell=False, cwd=cwd)
@@ -22,9 +22,9 @@ def run(args, cwd):
         sys.exit( return_code )
 
 def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_directory, data_table_name=DATA_TABLE_NAME):
-    
+
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
-    
+
     database_value = "_".join([
         now,
         "minikraken2",
@@ -40,7 +40,7 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
     ])
 
     database_path = database_value
-    
+
     args = [
         'https://ccb.jhu.edu/software/kraken2/dl/minikraken2_' + minikraken2_version + '_8GB.tgz'
     ]
@@ -53,7 +53,7 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
     ]
 
     run(['mkdir'] + args, target_directory)
-    
+
     args = [
         '-xvzf',
         'minikraken2_' + minikraken2_version + '_8GB.tgz',
@@ -68,7 +68,7 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
         "name": database_name,
         "path": database_path,
     }
-    
+
     _add_data_table_entry(data_manager_dict, data_table_entry)
 
 
@@ -86,7 +86,7 @@ def main():
     parser.add_argument( '-t', '--threads', dest='threads', default=1, help='threads' )
 
     args = parser.parse_args()
-    
+
     data_manager_input = json.loads(open(args.data_manager_json).read())
 
     target_directory = data_manager_input['output_data'][0]['extra_files_path']
@@ -100,7 +100,7 @@ def main():
             raise
 
     data_manager_output = {}
-    
+
     kraken2_build_minikraken(
         data_manager_output,
         args.minikraken2_version,

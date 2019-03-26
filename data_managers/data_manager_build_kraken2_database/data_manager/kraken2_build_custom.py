@@ -7,13 +7,12 @@ import datetime
 import errno
 import json
 import os
-import string
 import subprocess
 import sys
 
-from pprint import pprint
 
 DATA_TABLE_NAME = "kraken2_databases"
+
 
 def run(args, cwd):
     proc = subprocess.Popen(args=args, shell=False, cwd=cwd)
@@ -25,21 +24,21 @@ def run(args, cwd):
 
 def kraken2_build(data_manager_dict, kraken2_args, database_name, params, target_directory, data_table_name=DATA_TABLE_NAME):
     today = datetime.date.today().isoformat()
-    
+
     args = [
         '--threads', str(kraken2_args["threads"]),
         '--download-taxonomy',
         '--db', database_name
     ]
-    
+
     run(['kraken2-build'] + args, target_directory)
-    
+
     args = [
         '--threads', str(kraken2_args["threads"]),
         '--add-to-library', kraken2_args["fasta"],
         '--db', database_name
     ]
-    
+
     run(['kraken2-build'] + args, target_directory)
 
     args = [
@@ -50,9 +49,9 @@ def kraken2_build(data_manager_dict, kraken2_args, database_name, params, target
         '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
         '--db', database_name
     ]
-    
+
     run(['kraken2-build'] + args, target_directory)
-    
+
     args = [
         '--threads', str(kraken2_args["threads"]),
         '--clean',
@@ -60,13 +59,13 @@ def kraken2_build(data_manager_dict, kraken2_args, database_name, params, target
     ]
 
     run(['kraken2-build'] + args, target_directory)
-    
+
     data_table_entry = {
         "value": database_name,
         "name": database_name,
         "path": database_name
     }
-    
+
     _add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
 
 
@@ -95,7 +94,7 @@ def main():
         "fasta": args.fasta,
         "threads": args.threads,
     }
-    
+
     params = json.loads(open(args.params).read())
     pprint(params)
     target_directory = params['output_data'][0]['extra_files_path']

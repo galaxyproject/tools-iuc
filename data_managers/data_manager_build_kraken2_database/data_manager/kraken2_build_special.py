@@ -7,12 +7,12 @@ import datetime
 import errno
 import json
 import os
-import string
 import subprocess
 import sys
 
 
 DATA_TABLE_NAME = "kraken2_databases"
+
 
 def run(args, cwd):
     proc = subprocess.Popen(args=args, shell=False, cwd=cwd)
@@ -22,7 +22,7 @@ def run(args, cwd):
         sys.exit( return_code )
 
 def kraken2_build_standard(data_manager_dict, kraken2_args, target_directory, data_table_name=DATA_TABLE_NAME):
-    
+
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
 
     special_database_names = {
@@ -30,7 +30,7 @@ def kraken2_build_standard(data_manager_dict, kraken2_args, target_directory, da
         "greengenes": "Greengenes",
         "silva": "Silva",
     }
-    
+
     database_value = "_".join([
         now,
         kraken2_args["special"],
@@ -49,7 +49,7 @@ def kraken2_build_standard(data_manager_dict, kraken2_args, target_directory, da
     ])
 
     database_path = database_value
-    
+
     args = [
         '--threads', str(kraken2_args["threads"]),
         '--special', kraken2_args["special"],
@@ -74,7 +74,7 @@ def kraken2_build_standard(data_manager_dict, kraken2_args, target_directory, da
         "name": database_name,
         "path": database_path,
     }
-    
+
     _add_data_table_entry(data_manager_dict, data_table_entry)
 
 
@@ -102,7 +102,7 @@ def main():
         "minimizer_spaces": args.minimizer_spaces,
         "threads": args.threads,
     }
-    
+
     data_manager_input = json.loads(open(args.data_manager_json).read())
 
     target_directory = data_manager_input['output_data'][0]['extra_files_path']
@@ -116,7 +116,7 @@ def main():
             raise
 
     data_manager_output = {}
-    
+
     kraken2_build_standard(
         data_manager_output,
         kraken2_args,
