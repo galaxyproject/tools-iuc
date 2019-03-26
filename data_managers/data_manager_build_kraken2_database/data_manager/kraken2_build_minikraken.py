@@ -21,6 +21,7 @@ def run(args, cwd):
         print("Error building database.", file=sys.stderr)
         sys.exit( return_code )
 
+
 def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_directory, data_table_name=DATA_TABLE_NAME):
 
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")

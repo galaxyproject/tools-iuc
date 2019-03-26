@@ -21,6 +21,7 @@ def run(args, cwd):
         print("Error building database.", file=sys.stderr)
         sys.exit( return_code )
 
+
 def kraken2_build_standard(data_manager_dict, kraken2_args, target_directory, data_table_name=DATA_TABLE_NAME):
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
 

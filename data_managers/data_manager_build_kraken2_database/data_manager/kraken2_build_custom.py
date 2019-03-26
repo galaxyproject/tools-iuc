@@ -23,7 +23,6 @@ def run(args, cwd):
 
 
 def kraken2_build(data_manager_dict, kraken2_args, database_name, params, target_directory, data_table_name=DATA_TABLE_NAME):
-    today = datetime.date.today().isoformat()
 
     args = [
         '--threads', str(kraken2_args["threads"]),
@@ -96,7 +95,6 @@ def main():
     }
 
     params = json.loads(open(args.params).read())
-    pprint(params)
     target_directory = params['output_data'][0]['extra_files_path']
 
     try:
