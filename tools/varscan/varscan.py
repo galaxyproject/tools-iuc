@@ -686,6 +686,10 @@ class VarScanCaller (object):
                     # skip indel postprocessing for the moment
                     yield record
                     continue
+                if record.alleles[0] == 'N':
+                    # It makes no sense to call SNPs against an unknown
+                    # reference base
+                    continue
                 # get pileup for genomic region affected by this variant
                 if record.info['SS'] == '2':
                     # a somatic variant => generate pileup from tumor data
@@ -868,12 +872,15 @@ class VarScanCaller (object):
             except Exception:
                 pass
 
-        def noop_gen(data, **kwargs):
-            for d in data:
-                yield d
+        def filter_minimal(data, **kwargs):
+            for record in data:
+                if record.alleles[0] != 'N' or len(record.alleles[1]) > 1:
+                    # Yield everything except SNPs called against an unknown
+                    # reference base
+                    yield record
 
         if no_filters:
-            apply_filters = noop_gen
+            apply_filters = filter_minimal
         else:
             apply_filters = self._postprocess_variant_records
 
