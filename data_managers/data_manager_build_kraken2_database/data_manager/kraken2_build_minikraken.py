@@ -40,12 +40,7 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
 
     subprocess.check_call(['wget'] + args, cwd=target_directory)
 
-    args = [
-        '-p',
-        database_path,
-    ]
-
-    subprocess.check_call(['mkdir'] + args, cwd=target_directory)
+    os.mkdir(database_path)
 
     args = [
         '-xvzf',
