@@ -14,14 +14,6 @@ import sys
 DATA_TABLE_NAME = "kraken2_databases"
 
 
-def run(args, cwd):
-    proc = subprocess.Popen(args=args, shell=False, cwd=cwd)
-    return_code = proc.wait()
-    if return_code:
-        print("Error building database.", file=sys.stderr)
-        sys.exit( return_code )
-
-
 def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_directory, data_table_name=DATA_TABLE_NAME):
 
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
@@ -46,14 +38,14 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
         'https://ccb.jhu.edu/software/kraken2/dl/minikraken2_' + minikraken2_version + '_8GB.tgz'
     ]
 
-    run(['wget'] + args, target_directory)
+    subprocess.check_call(['wget'] + args, cwd=target_directory)
 
     args = [
         '-p',
         database_path,
     ]
 
-    run(['mkdir'] + args, target_directory)
+    subprocess.check_call(['mkdir'] + args, cwd=target_directory)
 
     args = [
         '-xvzf',
@@ -62,7 +54,7 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
         database_path,
     ]
 
-    run(['tar'] + args, target_directory)
+    subprocess.check_call(['tar'] + args, cwd=target_directory)
 
     data_table_entry = {
         "value": database_value,

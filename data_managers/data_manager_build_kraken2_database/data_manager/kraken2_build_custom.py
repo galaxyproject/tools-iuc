@@ -13,14 +13,6 @@ import sys
 DATA_TABLE_NAME = "kraken2_databases"
 
 
-def run(args, cwd):
-    proc = subprocess.Popen(args=args, shell=False, cwd=cwd)
-    return_code = proc.wait()
-    if return_code:
-        print("Error building database.", file=sys.stderr)
-        sys.exit( return_code )
-
-
 def kraken2_build(data_manager_dict, kraken2_args, database_name, params, target_directory, data_table_name=DATA_TABLE_NAME):
 
     args = [
@@ -29,7 +21,7 @@ def kraken2_build(data_manager_dict, kraken2_args, database_name, params, target
         '--db', database_name
     ]
 
-    run(['kraken2-build'] + args, target_directory)
+    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     args = [
         '--threads', str(kraken2_args["threads"]),
@@ -37,7 +29,7 @@ def kraken2_build(data_manager_dict, kraken2_args, database_name, params, target
         '--db', database_name
     ]
 
-    run(['kraken2-build'] + args, target_directory)
+    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     args = [
         '--threads', str(kraken2_args["threads"]),
@@ -48,7 +40,7 @@ def kraken2_build(data_manager_dict, kraken2_args, database_name, params, target
         '--db', database_name
     ]
 
-    run(['kraken2-build'] + args, target_directory)
+    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     args = [
         '--threads', str(kraken2_args["threads"]),
@@ -56,7 +48,7 @@ def kraken2_build(data_manager_dict, kraken2_args, database_name, params, target
         '--db', database_name
     ]
 
-    run(['kraken2-build'] + args, target_directory)
+    subprocess.check_call(['kraken2-build'] + args, target_directory)
 
     data_table_entry = {
         "value": database_name,
