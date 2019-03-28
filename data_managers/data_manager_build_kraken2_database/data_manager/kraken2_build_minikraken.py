@@ -37,7 +37,7 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
         'https://ccb.jhu.edu/software/kraken2/dl/minikraken2_' + minikraken2_version + '_8GB.tgz'
     ]
 
-    subprocess.check_call(['wget'] + args, cwd=target_directory)
+    subprocess.check_call(['wget'] + args)
 
     os.mkdir(database_path)
 
@@ -48,7 +48,7 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
         database_path,
     ]
 
-    subprocess.check_call(['tar'] + args, cwd=target_directory)
+    subprocess.check_call(['tar'] + args)
 
     data_table_entry = {
         "value": database_value,
