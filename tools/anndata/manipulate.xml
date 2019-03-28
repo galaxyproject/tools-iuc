@@ -2,6 +2,9 @@
     <description>object</description>
     <macros>
         <import>macros.xml</import>
+        <xml name="param_join">
+            <param name="join" type="text" value="-" label="The connecting string between name and integer"/>
+        </xml>
     </macros>
     <expand macro="requirements"/>
     <expand macro="version_command"/>
@@ -14,54 +17,155 @@
 
 adata = ad.read('$input')
 
-#if $manipulate.function == 'chunk_X'
-    #if $manipulate.chunk.info == 'random'
-        #set $select = int($manipulate.chunk.size)
+#if $manipulate.function == 'concatenate'
+    #for i, filepath in enumerate($manipulate.other_adatas)
+adata_$i = ad.read('$filepath')
+    #end for
+adata.concatenate(
+    #for i, filepath in enumerate($manipulate.other_adatas)
+    adata_$i,
+    #end for
+    join='$manipulate.join',
+    #if str($manipulate.index_unique) != ''
+    index_unique='$manipulate.index_unique',
     #else
-        #set $select = ([int(x.strip()) for x in str(($manipulate.chunk.list).split(',')])
+    index_unique=None,
     #end if
-adata.chunk_X(select=$select, replace=True)
+    batch_key='$manipulate.batch_key')
 
+#else if $manipulate.function == 'var_names_make_unique'
+adata.var_names_make_unique(join='$manipulate.join')
+
+#else if $manipulate.function == 'obs_names_make_unique'
+adata.obs_names_make_unique(join='$manipulate.join')
+
+#else if $manipulate.function == 'rename_categories'
+    #set $categories = [x.strip() for x in str($manipulate.categories).split(',')]
+adata.rename_categories(
+    key='$manipulate.key',
+    categories=$categories)
+
+#else if $manipulate.function == 'transpose'
+adata.transpose()
+
+#else if $manipulate.function == 'strings_to_categoricals'
+adata.strings_to_categoricals()
 #end if
-
 
 adata.write('anndata.h5ad')
 ]]></configfile>
     </configfiles>
     <inputs>
-        <param name="input" type="data" format="anndata" label="Annotated data matrix"/>
+        <param name="input" type="data" format="h5ad" label="Annotated data matrix"/>
         <conditional name="manipulate">
             <param name="function" type="select" label="Function of manipulate the object">
-                <option value="chunk_X">Replace by a chunk of the data matrix with random or specified indices</option>
-                <option value="concatenate">Concatenate along the observations axis.</option>
+                <option value="concatenate">Concatenate along the observations axis</option>
+                <option value="obs_names_make_unique">Makes the obs index unique by appending ‘1’, ‘2’, etc</option>
+                <option value="var_names_make_unique">Makes the var index unique by appending ‘1’, ‘2’, etc</option>
+                <option value="rename_categories">Rename categories of annotation</option>
+                <option value="strings_to_categoricals">Transform string annotations to categoricals</option>
+                <option value="transpose">Transpose the data matrix, leaving observations and variables interchanged</option>
             </param>
-            <when value="chunk_X">
-                <expand macro="params_chunk_X"/>
-            </when>
             <when value="concatenate">
-                <param name="other_adatas" type="data" format="anndata" multiple="true" label="Annotated data matrix to add"/>
+                <param name="other_adatas" type="data" format="h5ad" multiple="true" label="Annotated data matrix to add"/>
                 <param name="join" type="select" label="Join method">
                     <option value="inner">Intersection of variables</option>
                     <option value="outer">Union of variables</option>
                 </param>
                 <param name="batch_key" type="text" value="batch" label="Key to add the batch annotation to obs"/>
+                <param name="index_unique" type="text" value="-" label="Separator to join the existing index names with the batch category" help="Leave it empty to keep existing indices"/>
             </when>
+            <when value="obs_names_make_unique">
+                <expand macro="param_join"/>
+            </when>
+            <when value="var_names_make_unique">
+                <expand macro="param_join"/>
+            </when>
+            <when value="rename_categories">
+                <param name="key" type="text" value="" label="Key for observations or variables annotation" help="Annotation key in obs or var"/>
+                <param name="categories" type="text" value="" label="Comma-separated list of new categories" help="It should be the same number as the old categories"/>
+            </when>
+            <when value="strings_to_categoricals"/>
+            <when value="transpose"/>
         </conditional>
     </inputs>
     <outputs>
-        <data name="anndata" format="anndata" from_work_dir="anndata.h5ad" label="${tool.name} on ${on_string}"/>
+        <data name="anndata" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} on ${on_string}"/>
     </outputs>
     <tests>
         <test>
-            <param name="input" value=""/>
+            <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
-                <param name="function" value="chunk_X"/>
-                <conditional name="chunk">
-                    <param name="info" value="random"/>
-                    <param name="size" value="10"/>
-                </conditional>
+                <param name="function" value="concatenate"/>
+                <param name="other_adatas" value="import.csv.h5ad"/>
+                <param name="join" value="inner"/>
+                <param name="batch_key" value="batch"/>
+                <param name="index_unique" value="-"/>
             </conditional>
-            <output name="anndata" value="">
+            <assert_stdout>
+                <has_text_matching expression="adata_0"/>
+                <has_text_matching expression="adata.concatenate"/>
+                <has_text_matching expression="join='inner'"/>
+                <has_text_matching expression="index_unique='-'"/>
+                <has_text_matching expression="batch_key='batch'"/>
+            </assert_stdout>
+            <output name="anndata" value="manipulate.concatenate.h5ad" format="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="obs_names_make_unique"/>
+                <param name="join" value="-"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.obs_names_make_unique\(join='-'\)"/>
+            </assert_stdout>
+            <output name="anndata" value="manipulate.obs_names_make_unique.h5ad" format="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="var_names_make_unique"/>
+                <param name="join" value="-"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.var_names_make_unique\(join='-'\)"/>
+            </assert_stdout>
+            <output name="anndata" value="manipulate.var_names_make_unique.h5ad" format="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="rename_categories"/>
+                <param name="key" value="cell_type"/>
+                <param name="categories" value="Er,Ml,Mt, Ne, pr"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.rename_categories"/>
+                <has_text_matching expression="key='cell_type'"/>
+                <has_text_matching expression="categories=\['Er', 'Ml', 'Mt', 'Ne', 'pr'\]"/>
+            </assert_stdout>
+            <output name="anndata" value="manipulate.rename_categories.h5ad" format="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="strings_to_categoricals"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.strings_to_categoricals"/>
+            </assert_stdout>
+            <output name="anndata" value="manipulate.strings_to_categoricals.h5ad" format="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="transpose"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="adata.transpose"/>
+            </assert_stdout>
+            <output name="anndata" value="manipulate.transpose.h5ad" format="h5ad" compare="sim_size"/>
         </test>
     </tests>
     <help><![CDATA[
