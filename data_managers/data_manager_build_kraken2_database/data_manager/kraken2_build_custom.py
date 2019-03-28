@@ -13,7 +13,7 @@ import sys
 DATA_TABLE_NAME = "kraken2_databases"
 
 
-def kraken2_build(data_manager_dict, kraken2_args, database_name, params, target_directory, data_table_name=DATA_TABLE_NAME):
+def kraken2_build(data_manager_dict, kraken2_args, database_name, target_directory, data_table_name=DATA_TABLE_NAME):
 
     args = [
         '--threads', str(kraken2_args["threads"]),
@@ -102,7 +102,7 @@ def main():
     kraken2_build(
         data_manager_dict,
         kraken2_args,
-        params,
+        args.database_name,
         target_directory
     )
 
