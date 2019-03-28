@@ -116,7 +116,7 @@ def main():
         target_directory,
     )
 
-    open(args.data_manager_json, 'wb').write(json.dumps(data_manager_output))
+    open(args.data_manager_json, 'w').write(json.dumps(data_manager_output))
 
 
 if __name__ == "__main__":

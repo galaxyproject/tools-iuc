@@ -107,7 +107,7 @@ def main():
     )
 
     # save info to json file
-    open(args.params, 'wb').write(json.dumps(data_manager_dict))
+    open(args.params, 'w').write(json.dumps(data_manager_dict))
 
 
 if __name__ == "__main__":
