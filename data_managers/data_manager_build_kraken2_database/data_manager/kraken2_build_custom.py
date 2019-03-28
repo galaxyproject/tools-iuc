@@ -7,7 +7,6 @@ import errno
 import json
 import os
 import subprocess
-import sys
 
 
 DATA_TABLE_NAME = "kraken2_databases"
