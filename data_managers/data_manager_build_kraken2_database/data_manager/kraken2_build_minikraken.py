@@ -7,7 +7,14 @@ import datetime
 import errno
 import json
 import os
-import subprocess
+import shutil
+import tarfile
+
+try:
+    # Python3
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import urlopen
 
 
 DATA_TABLE_NAME = "kraken2_databases"
@@ -31,29 +38,21 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
         now + ")"
     ])
 
-    database_path = database_value
-
-    args = [
-        'https://ccb.jhu.edu/software/kraken2/dl/minikraken2_' + minikraken2_version + '_8GB.tgz'
-    ]
-
-    subprocess.check_call(['wget'] + args)
-
-    os.mkdir(database_path)
-
-    args = [
-        '-xvzf',
-        'minikraken2_' + minikraken2_version + '_8GB.tgz',
-        '-C',
-        database_path,
-    ]
-
-    subprocess.check_call(['tar'] + args)
+    # download the minikraken2 data
+    src = urlopen(
+        'https://ccb.jhu.edu/software/kraken2/dl/minikraken2_%s_8GB.tgz'
+        % minikraken2_version
+    )
+    with open('tmp_data.tar.gz', 'wb') as dst:
+        shutil.copyfileobj(src, dst)
+    # unpack the downloaded archive to the target directory
+    with tarfile.open('tmp_data.tar.gz', 'r:gz') as fh:
+        fh.extractall(target_directory)
 
     data_table_entry = {
         "value": database_value,
         "name": database_name,
-        "path": database_path,
+        "path": database_value,
     }
 
     _add_data_table_entry(data_manager_dict, data_table_entry)
