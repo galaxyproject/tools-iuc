@@ -1,7 +1,8 @@
 #!/usr/bin/env python
-import sys
-import os
 import csv
+import os
+import sys
+
 
 def get_description(line, parent):
     cols = line.split('\t')
@@ -22,29 +23,33 @@ def convert_to_prot_table(fname, output_name):
     lines = gff_file.readlines()
     gff_file.close()
     for i, line in enumerate(lines):
-        lie = line.strip()
-        if line.startswith('#'): continue
+        line = line.strip()
+        if line.startswith('#'):
+            continue
         cols = line.split('\t')
         if (len(cols) < 9):
             print("Ignoring invalid row with entries: {0}".format(cols))
-        elif (cols[2]) == "region": continue
-        elif (cols[2]) == "CDS": continue
+        elif (cols[2]) == "region":
+            continue
+        elif (cols[2]) == "CDS":
+            continue
         elif (cols[2]) == "gene":
             start = int(cols[3])
             end = int(cols[4])
             strand = cols[6].strip()
             labels = {}
-            diff = int(abs(end - start)/3) ## What is this called?
+            diff = int(abs(end - start) / 3)  # What is this called?
             for pair in cols[8].split(";"):
                 k, v = pair.split('=')
                 labels[k.strip()] = v.strip()
 
-            Rv = labels["locus_tag"].strip() # error out if not found
+            Rv = labels["locus_tag"].strip()  # error out if not found
             gene = labels.get('Name', '')
             desc = get_description(lines[i + 1], labels.get("ID", "")) if (i + 1) < len(lines) else '-'
             vals = [desc, start, end, strand, diff, '-', '-', gene, Rv, '-']
             writer.writerow(vals)
     output_file.close()
+
 
 if __name__ == "__main__":
     usage_string = "Usage: python gff-prot-converter.py <gff filename> <output filename>"
