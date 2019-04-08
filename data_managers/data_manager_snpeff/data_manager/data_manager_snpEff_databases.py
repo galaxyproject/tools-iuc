@@ -8,7 +8,7 @@ import sys
 
 def fetch_databases(data_manager_dict, target_directory):
     if not os.path.exists(target_directory):
-        os.makedirs(target_directory)
+        os.makedirs(target_directory, mode=0o755)
     databases_path = os.path.join( target_directory, 'databases.out' )
     databases_output = open(databases_path, 'w')
     args = ['snpEff', 'databases']
@@ -43,7 +43,7 @@ def main():
 
     params = json.loads( open( filename ).read() )
     target_directory = params[ 'output_data' ][0]['extra_files_path']
-    os.mkdir( target_directory )
+    os.mkdir( target_directory, mode=0o755 )
     data_manager_dict = {}
 
     # Create Defuse Reference Data

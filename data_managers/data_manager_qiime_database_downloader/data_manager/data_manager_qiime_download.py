@@ -350,11 +350,11 @@ if __name__ == "__main__":
 
     # Make the target directory
     print("Making %s" % target_dir)
-    os.mkdir(target_dir)
-    os.mkdir(os.path.join(target_dir, "rep_set"))
-    os.mkdir(os.path.join(target_dir, "rep_set_aligned"))
-    os.mkdir(os.path.join(target_dir, "taxonomy"))
-    os.mkdir(os.path.join(target_dir, "trees"))
+    os.mkdir(target_dir, mode=0o755)
+    os.mkdir(os.path.join(target_dir, "rep_set"), mode=0o755)
+    os.mkdir(os.path.join(target_dir, "rep_set_aligned"), mode=0o755)
+    os.mkdir(os.path.join(target_dir, "taxonomy"), mode=0o755)
+    os.mkdir(os.path.join(target_dir, "trees"), mode=0o755)
 
     # Set up data tables dictionary
     data_tables = create_data_tables_dict()

@@ -77,7 +77,7 @@ def get_refseq_division(division_name, mol_types, output_directory, debug=False,
     for mol_type in mol_types:
         assert mol_type in ending_mappings, "Unknown molecule type ({})".format(mol_type)
     if not os.path.exists(output_directory):
-        os.mkdir(output_directory)
+        os.mkdir(output_directory, mode=0o755)
     release_num_file = base_url + 'RELEASE_NUMBER'
     r = requests.get(release_num_file)
     release_num = r.text.strip()

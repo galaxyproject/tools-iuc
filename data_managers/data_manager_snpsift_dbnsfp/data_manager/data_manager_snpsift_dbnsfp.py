@@ -159,7 +159,7 @@ def main():
     params = json.loads(open(filename).read())
     target_directory = params['output_data'][0]['extra_files_path']
     if not os.path.exists(target_directory):
-        os.mkdir(target_directory)
+        os.mkdir(target_directory, mode=0o755)
     data_manager_dict = {}
     genome_version = options.dbkey if options.dbkey else 'unknown'
     dbnsfp_tsv = None

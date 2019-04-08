@@ -270,14 +270,14 @@ def unpack_zip_archive(filen, wd=None):
             # Make directory
             print "Creating dir %s" % target
             try:
-                os.makedirs(target)
+                os.makedirs(target, mode=0o755)
             except OSError:
                 pass
         else:
             # Extract file
             print "Extracting %s" % name
             try:
-                os.makedirs(os.path.dirname(target))
+                os.makedirs(os.path.dirname(target), mode=0o755)
             except OSError:
                 pass
             open(target, 'wb').write(z.read(name))
@@ -533,7 +533,7 @@ if __name__ == "__main__":
 
     # Make the target directory
     print "Making %s" % target_dir
-    os.mkdir(target_dir)
+    os.mkdir(target_dir, mode=0o755)
 
     # Set up data tables dictionary
     data_tables = create_data_tables_dict()

@@ -16,7 +16,8 @@ except ImportError:
 def url_download(url, workdir):
     file_path = os.path.join(workdir, 'download.dat')
     if not os.path.exists(workdir):
-        os.makedirs(workdir)
+        os.makedirs(workdir, mode=0o755)
+)
     src = None
     dst = None
     try:
@@ -52,7 +53,7 @@ def main(args):
     data_manager_json = dict(data_tables=dict(ncbi_taxonomy=data_manager_entry))
     params = json.loads(open(args.output).read())
     target_directory = params['output_data'][0]['extra_files_path']
-    os.mkdir(target_directory)
+    os.mkdir(target_directory, mode=0o755)
     output_path = os.path.abspath(os.path.join(os.getcwd(), 'taxonomy'))
     for filename in os.listdir(workdir):
         shutil.move(os.path.join(output_path, filename), target_directory)

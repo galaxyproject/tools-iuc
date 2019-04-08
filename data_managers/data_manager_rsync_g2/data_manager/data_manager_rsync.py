@@ -210,7 +210,7 @@ def load_data_tables_from_url( url=None, site='main', data_table_class=None  ):
 
         tmp_dir = tempfile.mkdtemp( prefix='rsync_g2_' )
         tmp_loc_dir = os.path.join( tmp_dir, 'location' )
-        os.mkdir( tmp_loc_dir )
+        os.mkdir( tmp_loc_dir, mode=0o755 )
         rsync_sync_to_dir( rsync_urljoin( RSYNC_SERVER, LOCATION_DIR ), os.path.abspath( tmp_loc_dir ) )
 
         new_data_table_text = data_table_text.replace( TOOL_DATA_TABLE_CONF_XML_REPLACE_SOURCE, TOOL_DATA_TABLE_CONF_XML_REPLACE_TARGET % ( tmp_loc_dir ) )
@@ -218,7 +218,7 @@ def load_data_tables_from_url( url=None, site='main', data_table_class=None  ):
         data_table_fh.write( new_data_table_text )
         data_table_fh.flush()
         tmp_data_dir = os.path.join( tmp_dir, 'tool-data' )
-        os.mkdir( tmp_data_dir )
+        os.mkdir( tmp_data_dir, mode=0o755 )
         data_tables = data_table_class( tmp_data_dir, config_filename=data_table_fh.name )
         for name, data_table in list(data_tables.data_tables.items()):
             if name in EXCLUDE_DATA_TABLES or not data_table_has_path_column( data_table ):
@@ -334,7 +334,7 @@ def get_data_for_path( path, data_root_dir ):
     for p in split_path[:-1]:
         target_path = os.path.join( target_path, p )
         if not os.path.exists( target_path ):
-            os.mkdir( target_path )
+            os.mkdir( target_path, mode=0o755 )
     rsync_sync_to_dir( rsync_source, target_path )
     return path
 
@@ -395,7 +395,7 @@ def main():
 
     params = loads( open( filename ).read() )
     target_directory = params[ 'output_data' ][0]['extra_files_path']
-    os.mkdir( target_directory )
+    os.mkdir( target_directory, mode=0o755 )
     data_manager_dict = {}
 
     data_table_entries = get_data_table_entries( params['param_dict'] )

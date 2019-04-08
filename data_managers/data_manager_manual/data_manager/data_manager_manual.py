@@ -125,7 +125,7 @@ def get_file_content( params, target_directory ):
     for content in directory_content:
         target_path = os.path.join( target_directory, content.get( 'subdir', '' ) )
         try:
-            os.makedirs( target_path )
+            os.makedirs( target_path, mode=0o755 )
         except OSError:
             pass
         if content.get( 'file_source', {}).get( 'file_source_selector', None ) == 'URL':

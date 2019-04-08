@@ -12,7 +12,7 @@ def main(args):
     data_manager_json = dict(data_tables=dict(kraken_databases=data_manager_entry))
     params = json.loads(open(args.output).read())
     target_directory = params['output_data'][0]['extra_files_path']
-    os.mkdir(target_directory)
+    os.mkdir(target_directory, mode=0o755)
     output_path = os.path.join(os.getcwd(), 'kraken-database')
     for filename in os.listdir(output_path):
         shutil.move(os.path.join(output_path, filename), target_directory)

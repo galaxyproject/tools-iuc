@@ -23,7 +23,7 @@ def add_data_table_entry(data_manager_dict, data_table_name, data_table_entry):
 
 def make_directory(dir):
     if not os.path.exists(dir):
-        os.makedirs(dir)
+        os.makedirs(dir, mode=0o755)
 
 
 def remove_directory(dir):

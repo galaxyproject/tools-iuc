@@ -150,7 +150,7 @@ if __name__ == "__main__":
 
     # Make the target directory
     print("Making %s" % target_dir)
-    os.mkdir(target_dir)
+    os.mkdir(target_dir, mode=0o755)
 
     # Set up data tables dictionary
     data_tables = create_data_tables_dict()

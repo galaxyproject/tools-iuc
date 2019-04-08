@@ -14,7 +14,7 @@ def build_bwameth_index(data_manager_dict, params, args):
     data_table_name = args.data_table_name
     target_directory = params[ 'output_data' ][0]['extra_files_path']
     if not os.path.exists( target_directory ):
-        os.mkdir( target_directory )
+        os.mkdir( target_directory, mode=0o755 )
     fasta_base_name = os.path.basename(args.fasta_filename)
     sym_linked_fasta_filename = os.path.join(target_directory, fasta_base_name)
     os.symlink(os.path.abspath(args.fasta_filename), sym_linked_fasta_filename)

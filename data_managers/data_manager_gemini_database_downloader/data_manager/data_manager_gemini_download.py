@@ -18,7 +18,7 @@ def main():
     today = datetime.date.today()
     params = json.loads( open( sys.argv[1] ).read() )
     target_directory = params[ 'output_data' ][0]['extra_files_path']
-    os.mkdir( target_directory )
+    os.mkdir( target_directory, mode=0o755 )
 
     # Generate a minimal configuration file for GEMINI update
     # to instruct the tool to download the annotation data into a

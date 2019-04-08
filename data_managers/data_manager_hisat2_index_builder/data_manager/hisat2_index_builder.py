@@ -30,7 +30,7 @@ def build_hisat_index( data_manager_dict, options, params, sequence_id, sequence
     data_table_name = options.data_table_name or DEFAULT_DATA_TABLE_NAME
     target_directory = params[ 'output_data' ][0]['extra_files_path']
     if not os.path.exists( target_directory ):
-        os.mkdir( target_directory )
+        os.mkdir( target_directory, mode=0o755 )
     fasta_base_name = os.path.split( options.fasta_filename )[-1]
     sym_linked_fasta_filename = os.path.join( target_directory, fasta_base_name )
     os.symlink( options.fasta_filename, sym_linked_fasta_filename )

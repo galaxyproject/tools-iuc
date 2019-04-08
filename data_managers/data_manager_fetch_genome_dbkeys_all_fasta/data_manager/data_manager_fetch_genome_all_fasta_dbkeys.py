@@ -470,7 +470,7 @@ def main():
 
     params = loads(open(filename).read())
     target_directory = params['output_data'][0]['extra_files_path']
-    os.mkdir(target_directory)
+    os.mkdir(target_directory, mode=0o755)
     data_manager_dict = {}
 
     dbkey, dbkey_name, sequence_id, sequence_name = get_dbkey_dbname_id_name(params, dbkey_description=options.dbkey_description)
