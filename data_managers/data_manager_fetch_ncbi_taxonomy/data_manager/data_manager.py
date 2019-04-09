@@ -17,7 +17,6 @@ def url_download(url, workdir):
     file_path = os.path.join(workdir, 'download.dat')
     if not os.path.exists(workdir):
         os.makedirs(workdir, mode=0o755)
-)
     src = None
     dst = None
     try:
