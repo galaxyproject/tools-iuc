@@ -1,0 +1,186 @@
+<tool id="tb_profiler_profile" name="TB-Profiler Profile" version="2.1.0">
+    <description>Infer strain types and drug resistance markers from sequences</description>	
+    <requirements>
+        <requirement type="package" version="2.1.0">tb-profiler</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        #if str($fastq_or_bam.input_select.value) in ("paired_fastq", "paired_collection_fastq", "single_fastq")
+            #if str($fastq_or_bam.input_select.value) == "paired_fastq"
+                #set r1_ext = $fastq_or_bam.read1.extension
+                #set r2_ext = $fastq_or_bam.read2.extension
+                ln -s '$fastq_or_bam.read1' fastq_r1.'$r1_ext' &&
+                ln -s '$fastq_or_bam.read2' fastq_r2.'$r2_ext' &&
+            #else if str($fastq_or_bam.input_select.value) == "single_fastq"
+                #set r1_ext = $fastq_or_bam.fastq.extension
+                ln -s '$fastq_or_bam.fastq' fastq_r1.'$r1_ext' &&
+            #else if str($fastq_or_bam.input_select.value) == "paired_collection_fastq"
+                #set r1_ext = $fastq_or_bam.fastq_collection.forward.extension
+                #set r2_ext = $fastq_or_bam.fastq_collection.reverse.extension
+                ln -s '$fastq_or_bam.fastq_collection.forward' fastq_r1.'$r1_ext' &&
+                ln -s '$fastq_or_bam.fastq_collection.reverse' fastq_r2.'$r2_ext' &&
+            #end if
+        #else if str($fastq_or_bam.input_select.value) == "bam"
+            ln -s '$fastq_or_bam.bam_input' input.bam &&
+        #end if
+
+        tb-profiler profile
+            
+            --platform '${platform.value}'
+
+        #if str($fastq_or_bam.input_select.value) in ("paired_fastq", "paired_collection_fastq", "single_fastq")
+            -1 fastq_r1.'$r1_ext'
+        #end if
+        #if str($fastq_or_bam.input_select.value) in ("paired_fastq", "paired_collection_fastq")
+            -2 fastq_r2.'$r1_ext'
+        #else if str($fastq_or_bam.input_select.value) == "bam"
+            --bam input.bam
+        #end if
+
+            --threads "\${GALAXY_SLOTS:-1}"
+        #if $advanced.options == 'yes'
+            --call_method '${advanced.call_method}'
+            --min_gene_frac '${advanced.min_gene_frac}'
+            --mapper '${advanced.mapper}'
+            --min_depth '${advanced.min_depth}'
+        #end if
+
+        #if $output_format == "pdf"
+            --pdf
+        #else if $output_format == "txt"
+            --txt
+        #end if
+        && mv results/tbprofiler.results.json $results_json
+        #if str($fastq_or_bam.input_select) != "bam"
+            && mv bam/tbprofiler.bam '${output_bam}'
+        #end if
+        && bcftools view -Ov -o'${output_vcf}' vcf/tbprofiler.targets.csq.bcf
+        #if $output_format == "pdf"
+            && mv results/tbprofiler.results.pdf '${output_pdf}'
+        #else if $output_format == "txt"
+            && mv results/tbprofiler.results.txt '${output_txt}'
+        #end if 
+
+    ]]></command>
+    <inputs>
+        <param name="platform" type="select" label="Platform">
+            <option value="Illumina" selected="true">Illumina</option>
+            <option value="minION">MinION</option>
+        </param>
+        <conditional name="fastq_or_bam">
+            <param name="input_select" type="select" label="Input File Type">
+                <option value="paired_fastq">Paired Fastq</option>
+                <option value="paired_collection_fastq">Paired Collection Fastq</option>
+                <option value="single_fastq">Single Fastq</option>
+                <option value="bam">BAM</option>
+            </param>
+            <when value="paired_fastq">
+                <param name="read1" type="data" format="fastq" label="Read1" help="First read file (default: None)"/>
+                <param name="read2" type="data" format="fastq" optional="true" label="Read2" help="Second read file (default: None)"/>
+            </when>
+            <when value="paired_collection_fastq">
+                <param label="Reads (collection)" name="fastq_collection" type="data_collection" collection_type="paired" format="fastq,fastq.gz,fastqsanger,fastqsanger.gz" />
+            </when>
+            <when value="single_fastq">
+                <param label="Reads" name="fastq" type="data" format="fastq,fastq.gz,fastqsanger,fastqsanger.gz" />
+            </when>            
+            <when value="bam">
+                <param name="bam_input" type="data" format="bam" label="Bam" help="Warning!!!: The BAM files must have been created using the ensembl version of the genome."/>
+            </when>
+        </conditional>
+        <param name="output_format" label="Output format" type="select">
+            <option value="txt">Text</option>
+            <option value="pdf">PDF</option>
+        </param>
+        <conditional name="advanced">
+            <param label="Select advanced options" type="select" name="options">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No</option>
+            </param>
+            <when value="no">
+            </when>
+            <when value="yes">
+                <param label="Quality required for calls to be accepted" type="select" argument="--call_method">
+                    <option value="low" selected="true">Low</option>
+                    <option value="high">High</option>
+                    <option value="optimise">Optimise</option>
+                </param>
+                <param label="Minimum coverage fraction to infer deletion" type="float"
+                        help="Used to infer a deletion if the fraction of a gene covered falls below this value."
+                        argument="--min_gene_frac" value="0.9" />
+
+                <param name="min_depth" label="Min Depth" type="integer" value="10" help="Minimum depth required to call variant. Bases with depth below this cutoff will be marked as missing (default: 10)"/>
+                <param name="mapper" label="Mapper" type="select" help="Mapping tools to use (default: bwa)">
+                    <option value="bwa" selected="true">bwa</option>
+                    <option value="minimap2">minimap2</option>
+                    <option value="bowtie2">bowtie2</option>
+                </param>
+                <param name="min_gene_frac" label="Minimum Gene Fraction" type="float" value="0.9" help="Used to infer a deletion if the fraction of a gene covered falls below this value. Also used to see if sample is high quality to continue by checking the fraction for rpoB (where deletion should not occur). (default: 0.9)" />
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="results_json" format="json" from_work_dir="results/tbprofiler.results.json" label="${tool.name} on ${on_string}: Results.json"/>
+        <data format="vcf" name="output_vcf" label="${tool.name} VCF on ${on_string}" />
+        <data format="bam" name="output_bam" label="${tool.name} BAM on ${on_string}">
+            <filter>fastq_or_bam['input_select'] != 'bam'</filter>
+        </data>
+        <data format="pdf" name="output_pdf" label="${tool.name} PDF report on ${on_string}">
+            <filter>output_format == 'pdf'</filter>
+        </data>
+        <data format="txt" name="output_txt" label="${tool.name} report on ${on_string}">
+            <filter>output_format == 'txt'</filter>
+        </data>
+
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_select" value="single_fastq"/>
+            <param name="fastq" ftype="fastq.gz" value="rif_resistant.fastq.gz" />
+            <param name="output_format" value="txt" />
+            <param name="platform" value="Illumina" />
+            <param name="options" value="no" />
+            <output name="output_txt">
+                <assert_contents>
+                    <has_line line="Drug-resistance: Drug-resistant" />
+		    <has_line line="lineage2.2.2&#009;1.000&#009;East-Asian (Beijing)&#009;Beijing-RD105/RD207&#009;RD105;RD207" />
+                    <has_line line="rifampicin&#009;R&#009;rpoB p.Asp435Val (1.00)" />
+                    <has_line line="763031&#009;Rv0667&#009;c.3225T>C&#009;1.000" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_select" value="bam"/>
+            <param name="bam_input" ftype="bam" value="rif_resistant.bam" />
+            <param name="output_format" value="txt" />
+            <param name="platform" value="Illumina" />
+            <param name="options" value="no" />
+            <output name="output_txt">
+                <assert_contents>
+                    <has_line line="Drug-resistance: Drug-resistant" />
+		    <has_line line="lineage2.2.2&#009;1.000&#009;East-Asian (Beijing)&#009;Beijing-RD105/RD207&#009;RD105;RD207" />
+                    <has_line line="rifampicin&#009;R&#009;rpoB p.Asp435Val (1.00)" />
+                    <has_line line="763031&#009;Rv0667&#009;c.3225T>C&#009;1.000" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[    
+Summary
+=======
+
+The pipeline aligns reads to the H37Rv reference using bowtie2, BWA or minimap2 and then calls variants using SAMtools. These variants are then compared to a drug-resistance database. We also predict the number of reads supporting drug resistance variants as an insight into hetero-resistance (not applicable for minION data).
+
+Produces a JSON output file by default.
+
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+@UNPUBLISHED{Phelan2016,
+    author = {Phelan, Jody},
+    title = {TBProfiler},
+    year = {2016},
+    url = {https://github.com/jodyphelan/TBProfiler},
+}
+        </citation>
+    </citations>
+</tool>
