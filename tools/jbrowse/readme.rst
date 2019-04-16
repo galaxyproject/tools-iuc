@@ -25,6 +25,12 @@ likely to change at any time! Beware. ;)
 History
 =======
 
+- 1.16.4+galaxy0
+
+    - UPDATED to JBrowse 1.16.4
+    - ADDED filter too big metadata
+    - CHANGED default value for topLevelFeatures (gene subfeatures are now inferred) and style.className (feature style was fixed)
+
 - 1.16.2+galaxy0
 
     - UPDATED to JBrowse 1.16.2

@@ -10,11 +10,11 @@ get_deseq_dataset <- function(sampleTable, header, designFormula, tximport, txty
 
   if (!is.null(tximport)) {
     if (is.null(tx2gene)) stop("A transcript-to-gene map or a GTF/GFF3 file is required for tximport")
-    if (tolower(file_ext(opt$tx2gene)) == "gff") {
+    if (tolower(file_ext(tx2gene)) == "gff") {
       gffFile <-tx2gene
     } else {
       gffFile <- NULL
-      tx2gene <- read.table(tx2gene, header=FALSE)
+      tx2gene <- read.table(tx2gene, header=hasHeader)
     }
     useTXI <- TRUE
   } else {
