@@ -40,7 +40,7 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
 
     # download the minikraken2 data
     src = urlopen(
-        'https://ccb.jhu.edu/software/kraken2/dl/minikraken2_%s_8GB.tgz'
+        'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/minikraken2_%s_8GB_201904_UPDATE.tgz'
         % minikraken2_version
     )
     with open('tmp_data.tar.gz', 'wb') as dst:
