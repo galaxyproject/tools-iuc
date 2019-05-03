@@ -33,6 +33,15 @@ class KrakenDatabaseTypes(Enum):
         return self.value
 
 
+class SpecialDatabaseTypes(Enum):
+    rdp = 'rdp'
+    greengenes = 'greengenes'
+    silva = 'silva'
+
+    def __str__(self):
+        return self.value
+
+
 class Minikraken2Versions(Enum):
     v1 = 'v1'
     v2 = 'v2'
@@ -129,6 +138,63 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
     _add_data_table_entry(data_manager_dict, data_table_entry)
 
 
+def kraken2_build_special(data_manager_dict, kraken2_args, target_directory, data_table_name=DATA_TABLE_NAME):
+
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+
+    special_database_names = {
+        "rdp": "RDP",
+        "greengenes": "Greengenes",
+        "silva": "Silva",
+    }
+
+    database_value = "_".join([
+        now,
+        kraken2_args["special_database_type"],
+        "kmer-len", str(kraken2_args["kmer_len"]),
+        "minimizer-len", str(kraken2_args["minimizer_len"]),
+        "minimizer-spaces", str(kraken2_args["minimizer_spaces"]),
+    ])
+
+    database_name = " ".join([
+        special_database_names[kraken2_args["special_database_type"]],
+        "(Created:",
+        now + ",",
+        "kmer-len=" + str(kraken2_args["kmer_len"]) + ",",
+        "minimizer-len=" + str(kraken2_args["minimizer_len"]) + ",",
+        "minimizer-spaces=" + str(kraken2_args["minimizer_spaces"]) + ")",
+    ])
+
+    database_path = database_value
+
+    args = [
+        '--threads', str(kraken2_args["threads"]),
+        '--special', kraken2_args["special_database_type"],
+        '--kmer-len', str(kraken2_args["kmer_len"]),
+        '--minimizer-len', str(kraken2_args["minimizer_len"]),
+        '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
+        '--db', database_path
+    ]
+
+    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+
+    args = [
+        '--threads', str(kraken2_args["threads"]),
+        '--clean',
+        '--db', database_path
+    ]
+
+    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+
+    data_table_entry = {
+        "value": database_value,
+        "name": database_name,
+        "path": database_path,
+    }
+
+    _add_data_table_entry(data_manager_dict, data_table_entry)
+
+
 def _add_data_table_entry(data_manager_dict, data_table_entry, data_table_name=DATA_TABLE_NAME):
     data_manager_dict['data_tables'] = data_manager_dict.get( 'data_tables', {} )
     data_manager_dict['data_tables'][data_table_name] = data_manager_dict['data_tables'].get( data_table_name, [] )
@@ -145,6 +211,7 @@ def main():
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
     parser.add_argument( '--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version' )
+    parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
     args = parser.parse_args()
 
     data_manager_input = json.loads(open(args.data_manager_json).read())
@@ -179,6 +246,19 @@ def main():
             data_manager_output,
             str(args.minikraken2_version),
             target_directory
+        )
+    elif str(args.database_type) == 'special':
+        kraken2_args = {
+            "special_database_type": str(args.special_database_type),
+            "kmer_len": args.kmer_len,
+            "minimizer_len": args.minimizer_len,
+            "minimizer_spaces": args.minimizer_spaces,
+            "threads": args.threads,
+        }
+        kraken2_build_special(
+            data_manager_output,
+            kraken2_args,
+            target_directory,
         )
     else:
         sys.exit("Invalid database type")
