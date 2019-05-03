@@ -10,7 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
-
+import tarfile
 from enum import Enum
 
 try:
@@ -22,6 +22,7 @@ except ImportError:
 
 DATA_TABLE_NAME = "kraken2_databases"
 
+
 class KrakenDatabaseTypes(Enum):
     standard = 'standard'
     minikraken = 'minikraken'
@@ -31,12 +32,14 @@ class KrakenDatabaseTypes(Enum):
     def __str__(self):
         return self.value
 
+
 class Minikraken2Versions(Enum):
     v1 = 'v1'
     v2 = 'v2'
 
     def __str__(self):
         return self.value
+
 
 def kraken2_build_standard(data_manager_dict, kraken2_args, target_directory, data_table_name=DATA_TABLE_NAME):
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
@@ -125,6 +128,7 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
 
     _add_data_table_entry(data_manager_dict, data_table_entry)
 
+
 def _add_data_table_entry(data_manager_dict, data_table_entry, data_table_name=DATA_TABLE_NAME):
     data_manager_dict['data_tables'] = data_manager_dict.get( 'data_tables', {} )
     data_manager_dict['data_tables'][data_table_name] = data_manager_dict['data_tables'].get( data_table_name, [] )
@@ -142,7 +146,6 @@ def main():
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
     parser.add_argument( '--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version' )
     args = parser.parse_args()
-
 
     data_manager_input = json.loads(open(args.data_manager_json).read())
 
