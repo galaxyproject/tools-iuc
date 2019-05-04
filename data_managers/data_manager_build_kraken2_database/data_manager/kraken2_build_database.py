@@ -195,6 +195,52 @@ def kraken2_build_special(data_manager_dict, kraken2_args, target_directory, dat
     _add_data_table_entry(data_manager_dict, data_table_entry)
 
 
+def kraken2_build_custom(data_manager_dict, kraken2_args, custom_database_name, target_directory, data_table_name=DATA_TABLE_NAME):
+
+    args = [
+        '--threads', str(kraken2_args["threads"]),
+        '--download-taxonomy',
+        '--db', custom_database_name
+    ]
+
+    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+
+    args = [
+        '--threads', str(kraken2_args["threads"]),
+        '--add-to-library', kraken2_args["custom_fasta"],
+        '--db', custom_database_name
+    ]
+
+    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+
+    args = [
+        '--threads', str(kraken2_args["threads"]),
+        '--build',
+        '--kmer-len', str(kraken2_args["kmer_len"]),
+        '--minimizer-len', str(kraken2_args["minimizer_len"]),
+        '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
+        '--db', custom_database_name
+    ]
+
+    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+
+    args = [
+        '--threads', str(kraken2_args["threads"]),
+        '--clean',
+        '--db', custom_database_name
+    ]
+
+    subprocess.check_call(['kraken2-build'] + args, target_directory)
+
+    data_table_entry = {
+        "value": custom_database_name,
+        "name": custom_database_name,
+        "path": custom_database_name
+    }
+
+    _add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
+
+
 def _add_data_table_entry(data_manager_dict, data_table_entry, data_table_name=DATA_TABLE_NAME):
     data_manager_dict['data_tables'] = data_manager_dict.get( 'data_tables', {} )
     data_manager_dict['data_tables'][data_table_name] = data_manager_dict['data_tables'].get( data_table_name, [] )
@@ -210,8 +256,10 @@ def main():
     parser.add_argument('--minimizer-spaces', dest='minimizer_spaces', default=6, help='minimizer spaces')
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
-    parser.add_argument( '--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version' )
+    parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to --database-type minikraken)')
     parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
+    parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
+    parser.add_argument( '--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)' )
     args = parser.parse_args()
 
     data_manager_input = json.loads(open(args.data_manager_json).read())
@@ -258,6 +306,20 @@ def main():
         kraken2_build_special(
             data_manager_output,
             kraken2_args,
+            target_directory,
+        )
+    elif str(args.database_type) == 'custom':
+        kraken2_args = {
+            "custom_fasta": args.custom_fasta,
+            "kmer_len": args.kmer_len,
+            "minimizer_len": args.minimizer_len,
+            "minimizer_spaces": args.minimizer_spaces,
+            "threads": args.threads,
+        }
+        kraken2_build_custom(
+            data_manager_output,
+            kraken2_args,
+            args.custom_database_name,
             target_directory,
         )
     else:
