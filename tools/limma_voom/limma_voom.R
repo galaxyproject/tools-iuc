@@ -879,8 +879,15 @@ for (i in 1:length(cons)) {
         geneanno <- y$genes
         geneanno[, 2] <- make.unique(geneanno[, 2])
 
+        # use the logCPMS for the counts
+        if (wantTrend) {
+            cnts <- logCPM
+        } else{
+            cnts <- vData$E
+        }
+
         # MD plot
-        Glimma::glMDPlot(fit, coef=i, counts=y$counts, anno=geneanno, groups=factors[, 1],
+        Glimma::glMDPlot(fit, coef=i, counts=cnts, anno=geneanno, groups=factors[, 1],
              status=status[, i], sample.cols=col.group,
              main=paste("MD Plot:", unmake.names(con)), side.main=colnames(y$genes)[2],
              folder=paste0("glimma_", unmake.names(con)), launch=FALSE)
@@ -889,10 +896,10 @@ for (i in 1:length(cons)) {
         linkData <- rbind(linkData, c(linkName, linkAddr))
 
         # Volcano plot
-        Glimma::glXYPlot(x=fit$coefficients[, i], y=fit$lods[, i], counts=y$counts, anno=geneanno, groups=factors[, 1], 
+        Glimma::glXYPlot(x=fit$coefficients[, i], y=-log10(fit$p.value[, i]), counts=cnts, anno=geneanno, groups=factors[, 1],
             status=status[, i], sample.cols=col.group,
             main=paste("Volcano Plot:", unmake.names(con)), side.main=colnames(y$genes)[2],
-            xlab="logFC", ylab="logodds",
+            xlab="logFC", ylab="-log10(P-value)",
             folder=paste0("glimma_volcano_", unmake.names(con)), launch=FALSE)
         linkName <- paste0("Glimma_VolcanoPlot_", con, ".html")
         linkAddr <- paste0("glimma_volcano_", con, "/XY-Plot.html")
