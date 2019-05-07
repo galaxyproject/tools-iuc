@@ -2,6 +2,7 @@
 
 import argparse
 import os
+
 import loompy
 import numpy as np
 
