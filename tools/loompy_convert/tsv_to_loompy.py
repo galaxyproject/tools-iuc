@@ -1,8 +1,8 @@
 """This module converts a tsv file into a binary loom file"""
-import os
 import argparse
-import numpy as np
+import os
 import loompy
+import numpy as np
 PARSER = argparse.ArgumentParser(description="Import tsv files")
 PARSER.add_argument('-f', '--FILES', help="Tsv file to import")
 PARSER.add_argument('-r', '--ROWNAMES', action='store_true', help="tsv file contains row names")
@@ -29,26 +29,28 @@ if os.path.isfile(OUTFILE):
 ROWS = []
 MATRIX = []
 with open(DATA) as D:
-    #Generate column names from first row
+#Generate column names from first row
     if COLNAMES:
         COLS = D.readline()
         COLS = COLS.strip().split()
     i = 0
-    for LINE in D: #Start ading rows to matrix
+#Start ading rows to matrix
+    for LINE in D:
         LINE = list(LINE.strip().split())
         LINELEN = len(LINE)
-        #First element in rows becomes row name
+#First element in rows becomes row name
         if ROWNAMES:
             ROWS.append(LINE[0])
             for x in LINE[1:]:
                 MATRIX.append(float(x))
         else:
-            for x in LINE: #No row name specified, row names omitted
+#No row name specified, row names omitted
+            for x in LINE:
                 MATRIX.append(float(x))
             i += 1
-            #Generates row names as numerical sequence from 0 - number of rows - 1
+#Generates row names as numerical sequence from 0 - number of rows - 1
             ROWS = range(0, i)
-    #Generates row names as numerical sequence from 0 - number of columns - 1
+#Generates row names as numerical sequence from 0 - number of columns - 1
     if not COLNAMES:
         COLS = list(range(0, int(len(MATRIX)/len(ROWS))))
     if COLNAMES and ROWNAMES:
