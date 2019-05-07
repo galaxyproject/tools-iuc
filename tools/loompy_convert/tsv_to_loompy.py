@@ -1,11 +1,8 @@
 """This module converts a tsv file into a binary loom file"""
 
 import argparse
-
 import os
-
 import loompy
-
 import numpy as np
 
 PARSER = argparse.ArgumentParser(description="Import tsv files")
@@ -33,8 +30,7 @@ if os.path.isfile(OUTFILE):
     os.remove(OUTFILE)
 ROWS = []
 MATRIX = []
-with open(DATA) as D:
-# Generate column names from first row
+with open(DATA) as D:  # Generate column names from first row
     if COLNAMES:
         COLS = D.readline()
         COLS = COLS.strip().split()
@@ -52,7 +48,7 @@ with open(DATA) as D:
             i += 1
             ROWS = range(0, i)  # Generates row names as numerical sequence from 0 - number of rows minus 1
     if not COLNAMES:
-        COLS = list(range(0, int(len(MATRIX)/len(ROWS))))
+        COLS = list(range(0, int(len(MATRIX) / len(ROWS))))
     if COLNAMES and ROWNAMES:
         if len(COLS) == LINELEN:
             raise Exception("Number of column labels incorrect for number of columns. Number of column labels must be one fewer than the total number of columns, as row names are the first column.")
