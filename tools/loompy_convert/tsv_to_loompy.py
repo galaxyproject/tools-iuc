@@ -13,7 +13,7 @@ PARSER.add_argument('-c', '--COLNAMES', action='store_true', help="tsv file cont
 PARSER.add_argument('-o', '--OUTPUT', help="Output file path")
 PARSER.add_argument('--ROW_ATTR', help="Specifies the title of the row attributes for loompy")
 PARSER.add_argument('--COL_ATTR', help="Specifies the title of the column attributes for loompy")
-PARSER.add_argument('-v', '--VERSION', action='version', version='%(prog)s 0.1.0', help="Displays tool version")
+PARSER.add_argument('--VERSION', action='version', version='%(prog)s 0.1.0', help="Displays tool version")
 ARGS = PARSER.parse_args()
 COLNAMES = bool(ARGS.COLNAMES)
 ROWNAMES = bool(ARGS.ROWNAMES)
