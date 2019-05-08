@@ -267,7 +267,7 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--extra-files-path', dest='extra_files_path', help='')
+    parser.add_argument('data_manager_json')
     parser.add_argument('--kmer-len', dest='kmer_len', type=int, default=35, help='kmer length')
     parser.add_argument('--minimizer-len', dest='minimizer_len', type=int, default=31, help='minimizer length')
     parser.add_argument('--minimizer-spaces', dest='minimizer_spaces', default=6, help='minimizer spaces')
@@ -281,7 +281,7 @@ def main():
 
     data_manager_input = json.loads(open(args.data_manager_json).read())
 
-    target_directory = args.extra_files_path
+    target_directory = data_manager_input['output_data'][0]['extra_files_path']
 
     try:
         os.mkdir( target_directory )
