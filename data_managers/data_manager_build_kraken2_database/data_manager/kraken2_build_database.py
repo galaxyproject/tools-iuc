@@ -50,7 +50,7 @@ class Minikraken2Versions(Enum):
         return self.value
 
 
-def kraken2_build_standard(data_manager_dict, kraken2_args, target_directory, data_table_name=DATA_TABLE_NAME):
+def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_TABLE_NAME):
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
 
     database_value = "_".join([
@@ -92,15 +92,21 @@ def kraken2_build_standard(data_manager_dict, kraken2_args, target_directory, da
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
-        "value": database_value,
-        "name": database_name,
-        "path": database_path,
+        'data_tables': {
+            data_table_name: [
+                {
+                    "value": database_value,
+                    "name": database_name,
+                    "path": database_path,
+                }
+            ]
+        }
     }
 
-    _add_data_table_entry(data_manager_dict, data_table_entry)
+    return data_table_entry
 
 
-def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_directory, data_table_name=DATA_TABLE_NAME):
+def kraken2_build_minikraken(minikraken2_version, target_directory, data_table_name=DATA_TABLE_NAME):
 
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
 
@@ -130,15 +136,21 @@ def kraken2_build_minikraken(data_manager_dict, minikraken2_version, target_dire
         fh.extractall(target_directory)
 
     data_table_entry = {
-        "value": database_value,
-        "name": database_name,
-        "path": database_value,
+        'data_tables': {
+            data_table_name: [
+                {
+                    "value": database_value,
+                    "name": database_name,
+                    "path": database_value,
+                }
+            ]
+        }
     }
 
-    _add_data_table_entry(data_manager_dict, data_table_entry)
+    return data_table_entry
 
 
-def kraken2_build_special(data_manager_dict, kraken2_args, target_directory, data_table_name=DATA_TABLE_NAME):
+def kraken2_build_special(kraken2_args, target_directory, data_table_name=DATA_TABLE_NAME):
 
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
 
@@ -187,15 +199,21 @@ def kraken2_build_special(data_manager_dict, kraken2_args, target_directory, dat
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
-        "value": database_value,
-        "name": database_name,
-        "path": database_path,
+        'data_tables': {
+            data_table_name: [
+                {
+                    "value": database_value,
+                    "name": database_name,
+                    "path": database_path,
+                }
+            ]
+        }
     }
 
-    _add_data_table_entry(data_manager_dict, data_table_entry)
+    return data_table_entry
 
 
-def kraken2_build_custom(data_manager_dict, kraken2_args, custom_database_name, target_directory, data_table_name=DATA_TABLE_NAME):
+def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, data_table_name=DATA_TABLE_NAME):
 
     args = [
         '--threads', str(kraken2_args["threads"]),
@@ -233,24 +251,23 @@ def kraken2_build_custom(data_manager_dict, kraken2_args, custom_database_name, 
     subprocess.check_call(['kraken2-build'] + args, target_directory)
 
     data_table_entry = {
-        "value": custom_database_name,
-        "name": custom_database_name,
-        "path": custom_database_name
+        'data_tables': {
+            data_table_name: [
+                {
+                    "value": custom_database_name,
+                    "name": custom_database_name,
+                    "path": custom_database_name
+                }
+            ]
+        }
     }
 
-    _add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
-
-
-def _add_data_table_entry(data_manager_dict, data_table_entry, data_table_name=DATA_TABLE_NAME):
-    data_manager_dict['data_tables'] = data_manager_dict.get( 'data_tables', {} )
-    data_manager_dict['data_tables'][data_table_name] = data_manager_dict['data_tables'].get( data_table_name, [] )
-    data_manager_dict['data_tables'][data_table_name].append( data_table_entry )
-    return data_manager_dict
+    return data_table_entry
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('data_manager_json')
+    parser.add_argument('--extra-files-path', dest='extra_files_path', help='')
     parser.add_argument('--kmer-len', dest='kmer_len', type=int, default=35, help='kmer length')
     parser.add_argument('--minimizer-len', dest='minimizer_len', type=int, default=31, help='minimizer length')
     parser.add_argument('--minimizer-spaces', dest='minimizer_spaces', default=6, help='minimizer spaces')
@@ -259,12 +276,12 @@ def main():
     parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to --database-type minikraken)')
     parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
-    parser.add_argument( '--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)' )
+    parser.add_argument('--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)')
     args = parser.parse_args()
 
     data_manager_input = json.loads(open(args.data_manager_json).read())
 
-    target_directory = data_manager_input['output_data'][0]['extra_files_path']
+    target_directory = args.extra_files_path
 
     try:
         os.mkdir( target_directory )
@@ -276,7 +293,6 @@ def main():
 
     data_manager_output = {}
 
-    print(args.database_type)
     if str(args.database_type) == 'standard':
         kraken2_args = {
             "kmer_len": args.kmer_len,
@@ -284,14 +300,12 @@ def main():
             "minimizer_spaces": args.minimizer_spaces,
             "threads": args.threads,
         }
-        kraken2_build_standard(
-            data_manager_output,
+        data_manager_output = kraken2_build_standard(
             kraken2_args,
             target_directory,
         )
     elif str(args.database_type) == 'minikraken':
-        kraken2_build_minikraken(
-            data_manager_output,
+        data_manager_output = kraken2_build_minikraken(
             str(args.minikraken2_version),
             target_directory
         )
@@ -303,8 +317,7 @@ def main():
             "minimizer_spaces": args.minimizer_spaces,
             "threads": args.threads,
         }
-        kraken2_build_special(
-            data_manager_output,
+        data_manager_output = kraken2_build_special(
             kraken2_args,
             target_directory,
         )
@@ -316,8 +329,7 @@ def main():
             "minimizer_spaces": args.minimizer_spaces,
             "threads": args.threads,
         }
-        kraken2_build_custom(
-            data_manager_output,
+        data_manager_output = kraken2_build_custom(
             kraken2_args,
             args.custom_database_name,
             target_directory,
