@@ -77,7 +77,8 @@ def main():
     build_bowtie2_index( data_manager_dict, options.fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name, data_table_names=options.data_table_name or DEFAULT_DATA_TABLE_NAMES )
 
     # save info to json file
-    open( filename, 'wb' ).write( dumps( data_manager_dict ) )
+    with open(filename, 'w') as json_out:
+        json_out.write( dumps( data_manager_dict, sort_keys=True ) )
 
 
 if __name__ == "__main__":
