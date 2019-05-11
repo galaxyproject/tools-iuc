@@ -124,6 +124,8 @@ def kraken2_build_minikraken(minikraken2_version, target_directory, data_table_n
         now + ")"
     ])
 
+    database_path = database_value
+
     # download the minikraken2 data
     src = urlopen(
         'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/minikraken2_%s_8GB_201904_UPDATE.tgz'
@@ -133,7 +135,11 @@ def kraken2_build_minikraken(minikraken2_version, target_directory, data_table_n
         shutil.copyfileobj(src, dst)
     # unpack the downloaded archive to the target directory
     with tarfile.open('tmp_data.tar.gz', 'r:gz') as fh:
-        fh.extractall(target_directory)
+        for member in fh.getmembers():
+            if member.isreg():
+                member.name = os.path.basename(member.name)
+                fh.extract(member, os.path.join(target_directory, database_path))
+
 
     data_table_entry = {
         'data_tables': {
@@ -141,7 +147,7 @@ def kraken2_build_minikraken(minikraken2_version, target_directory, data_table_n
                 {
                     "value": database_value,
                     "name": database_name,
-                    "path": database_value,
+                    "path": database_path,
                 }
             ]
         }
