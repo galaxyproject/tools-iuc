@@ -140,7 +140,6 @@ def kraken2_build_minikraken(minikraken2_version, target_directory, data_table_n
                 member.name = os.path.basename(member.name)
                 fh.extract(member, os.path.join(target_directory, database_path))
 
-
     data_table_entry = {
         'data_tables': {
             data_table_name: [
