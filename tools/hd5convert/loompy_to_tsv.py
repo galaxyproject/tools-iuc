@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """Converts a loompy file to tsv file(s). Each layer becomes a new file."""
 
 import argparse
