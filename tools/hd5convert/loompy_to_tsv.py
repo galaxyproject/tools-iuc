@@ -44,7 +44,8 @@ with open("attributes/col_attr.tsv", "w") as COLOUT:
         ATTRIBUTESTRING = ""
         for COL in ALLCOLS:
             ATTRIBUTESTRING = ATTRIBUTESTRING + COL[LENGTH] + "\t"
-        ATTRIBUTESTRING = ATTRIBUTESTRING[:-1]
+        while ATTRIBUTESTRING[-1] == "\t":
+            ATTRIBUTESTRING = ATTRIBUTESTRING[:-1]
         COLOUT.write(ATTRIBUTESTRING)
         COLOUT.write("\n")
 # Create row attribute output
@@ -54,8 +55,9 @@ with open("attributes/row_attr.tsv", "w") as ROWOUT:
     for LENGTH in range(0, len(C_ROW)):
         ATTRIBUTESTRING = ""
         for ROW in ALLROWS:
-            ATTRIBUTESTRING = ATTRIBUTESTRING + ROW[LENGTH] + "\1"
-        ATTRIBUTESTRING = ATTRIBUTESTRING[:-1]
+            ATTRIBUTESTRING = ATTRIBUTESTRING + ROW[LENGTH] + "\t"
+        while ATTRIBUTESTRING[-1] == "\t":
+            ATTRIBUTESTRING = ATTRIBUTESTRING[:-1]
         ROWOUT.write(ATTRIBUTESTRING)
         ROWOUT.write("\n")
 
@@ -74,4 +76,5 @@ for X in range(0, len(LAYERS)):
         for LINE in MATRICES[X]:
             LINE = "\t".join(LINE)
             LINE += "\n"
+            LINE = LINE
             OUTPUTMATRIX.write(LINE)
