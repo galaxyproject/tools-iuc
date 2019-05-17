@@ -1,0 +1,282 @@
+<tool id="hd5_import" name="Import hd5" version="@VERSION@+@GALAXY_VERSION@">
+    <description>from different format</description>
+    <macros>
+        <import>macros.xml</import>
+        <xml name="params_10x">
+            <param name="barcodes" type="data" format="tabular,txt" label="Barcodes"/>
+            <param name="var_names" type="select" label="Variables index">
+                <option value="gene_symbols">gene_symbols</option>
+                <option value="gene_ids">gene_ids</option>
+            </param>
+            <param name="make_unique" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Make the variable index unique by appending '-1', '-2'?"/>
+            <param name="gex_only" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Keep only 'Gene Expression' data and ignore other feature types?"/>
+        </xml>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+#if $hd5_format.filetype == 'anndata'
+    #if $hd5_format.in.adata_format == 'mtx'
+        mkdir mtx
+        #if $hd5_format.in.tenx.use == 'legacy_10x'
+            && cp '$hd5_format.in.matrix' 'mtx/matrix.mtx'
+            && cp '$hd5_format.in.tenx.genes' 'mtx/genes.tsv'
+            && cp '$hd5_format.in.tenx.barcodes' 'mtx/barcodes.tsv'
+        #else if $hd5_format.in.tenx.use == 'v3_10x'
+            && cp '$hd5_format.in.matrix' 'mtx/matrix.mtx'
+            && gzip 'mtx/matrix.mtx'
+            && cp '$hd5_format.in.tenx.features' 'mtx/features.tsv'
+            && gzip 'mtx/features.tsv'
+            && cp '$hd5_format.in.tenx.barcodes' 'mtx/barcodes.tsv'
+            && gzip 'mtx/barcodes.tsv'
+        #end if
+        &&
+    #else if $hd5_format.in.adata_format == 'umi_tools'
+        gzip '$hd5_format.in.input'
+        &&
+    #end if
+
+    @CMD@
+
+    #if $hd5_format.in.adata_format == 'mtx'
+        && rm -rf mtx
+    #end if
+
+#else:
+        python '$__tool_directory__/tsv_to_loompy.py'
+        -c '${hd5_format.coldata}'
+        -r '${hd5_format.rowdata}'
+        -f '${hd5_format.mainmatrix}'
+        #if $hd5_format.other_files:
+            '${hd5_format.other_files}'
+        #end if
+#end if
+      ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+@CMD_imports@
+#if $hd5_format.filetype == 'anndata'
+#if $hd5_format.in.adata_format == 'loom'
+adata = ad.read_loom(
+    '$hd5_format.in.input',
+    sparse=$hd5_format.in.sparse,
+    cleanup=$hd5_format.in.cleanup,
+    X_name='$hd5_format.in.x_name',
+    obs_names='$hd5_format.in.obs_names',
+    var_names='$hd5_format.in.var_names')
+
+#else if $hd5_format.in.adata_format == 'tabular'
+    #set delimiter=$hd5_format.in.input.metadata.delimiter
+    #if $delimiter != ','
+        #set delimiter='\\t'
+    #end if
+adata = ad.read_csv(
+    '$hd5_format.in.input',
+    delimiter='$delimiter',
+    first_column_names=$hd5_format.in.first_column_names)
+
+#else if $hd5_format.in.adata_format == 'mtx'
+    #if $hd5_format.in.tenx.use == 'no'
+adata = ad.read_mtx(filename='$hd5_format.in.matrix')
+    #else
+import scanpy as sc
+adata = sc.read_10x_mtx(
+    'mtx',
+    var_names='$hd5_format.in.tenx.var_names',
+    make_unique=$hd5_format.in.tenx.make_unique,
+    cache=False,
+    gex_only=$hd5_format.in.tenx.gex_only)
+    #end if
+
+#else if $hd5_format.in.adata_format == 'umi_tools'
+adata = ad.read_umi_tools('${hd5_format.in.input}.gz')
+
+#end if
+adata.write('anndata.h5ad')
+#end if
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="hd5_format">
+            <param name="filetype" type="select" label="hd5 format">
+                <option value="anndata" selected="true">Anndata file</option>
+                <option value="loom">Loom file</option>
+            </param>
+            <when value="anndata">
+                <conditional name="in">
+                    <param name="adata_format" type="select" label="Format for the annotated data matrix">
+                        <option value="loom">Loom</option>
+                        <option value="tabular">Tabular, CSV, TSV</option>
+                        <option value="mtx">Matrix Market (mtx), from Cell ranger or not</option>
+                        <option value="umi_tools">UMI tools</option>
+                    </param>
+                    <when value="loom">
+                        <param name="input" type="data" format="loom" label="Annotated data matrix"/>
+                        <param name="sparse" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Is the data matrix to read sparse?"/>
+                        <param name="cleanup" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Cleanup?"/>
+                        <param name="x_name" type="text" value="spliced" label="X_name"/>
+                        <param name="obs_names" type="text" value="CellID" label="obs_names"/>
+                        <param name="var_names" type="text" value="Gene" label="var_names"/>
+                    </when>
+                    <when value="tabular">
+                        <param name="input" type="data" format="tabular,csv,tsv" label="Annotated data matrix"/>
+                        <param name="first_column_names" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Does the first column store the row names?"/>
+                    </when>
+                    <when value="mtx">
+                        <param name="matrix" type="data" format="mtx" label="Matrix"/>
+                        <conditional name="tenx">
+                            <param name="use" type="select" label="Use 10x Genomics formatted mtx">
+                                <option value="no">No</option>
+                                <option value="legacy_10x">Output from Cell Ranger v2 or earlier versions</option>
+                                <option value="v3_10x">Output from Cell Ranger v3 or later versions</option>
+                            </param>
+                            <when value="no"/>
+                            <when value="legacy_10x">
+                                <param name="genes" type="data" format="tabular" label="Genes"/>
+                                <expand macro="params_10x"/>
+                            </when>
+                            <when value="v3_10x">
+                                <param name="features" type="data" format="tabular" label="Features"/>
+                                <expand macro="params_10x"/>
+                            </when>
+                        </conditional>
+                    </when>
+                    <when value="umi_tools">
+                        <param name="input" type="data" format="tabular" label="condensed count matrix from UMI tools"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="loom">
+                <param name="mainmatrix" type="data" format="tabular" label="File for main layer of loom file." help="All subsequent tsv must be the same dimensions as this file. When converted back to tsv using hd5 export, this will be labeled as 'mainmatrix.tsv'"/>
+                <param name="other_files" type="data" format="tabular" multiple="true" optional="true" label="Add layers" help="Adds layers of same dimension to the loom file. When converted to tsv using hd5 export, these layers will retain their names."/>
+                <param name="coldata" type="data" format="tabular" label="Tsv of column data." help="First row is column attributes, subsequent are values."/>
+                <param name="rowdata" type="data" format="tabular" label="Tsv of row data." help="First row is row attributes, subsequent are values."/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="anndata" format="h5ad" from_work_dir="anndata.h5ad" label="Anndata import on ${on_string}">
+            <filter>hd5_format['filetype'] == 'anndata'</filter>
+        </data>
+        <data name="loomdata" format="loom" from_work_dir="converted.loom" label="Loom import on ${on_string}">
+            <filter>hd5_format['filetype'] == 'loom'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <conditional name="in">
+                <param name="adata_format" value="loom"/>
+                <param name="input" value="krumsiek11.loom" />
+                <param name="sparse" value="True"/>
+                <param name="cleanup" value="False"/>
+                <param name="x_name"  value="spliced"/>
+                <param name="obs_names" value="CellID" />
+                <param name="var_names" value="Gene"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="ad.read_loom"/>
+                <has_text_matching expression="sparse=True"/>
+                <has_text_matching expression="cleanup=False"/>
+                <has_text_matching expression="X_name='spliced'"/>
+                <has_text_matching expression="obs_names='CellID'"/>
+                <has_text_matching expression="var_names='Gene'"/>
+            </assert_stdout>
+            <output name="anndata" value="import.loom.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="in">
+                <param name="adata_format" value="tabular"/>
+                <param name="input" value="adata.csv"/>
+                <param name="first_column_names" value="true"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="ad.read_csv"/>
+                <has_text_matching expression="delimiter=','"/>
+                <has_text_matching expression="first_column_names=True"/>
+            </assert_stdout>
+            <output name="anndata" value="import.csv.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="in">
+                <param name="adata_format" value="tabular"/>
+                <param name="input" value="adata.tsv"/>
+                <param name="first_column_names" value="true"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="ad.read_csv"/>
+                <has_text_matching expression="delimiter='\\t'"/>
+                <has_text_matching expression="first_column_names=True"/>
+            </assert_stdout>
+            <output name="anndata" value="import.tsv.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <!--<test expect_num_outputs="1">
+            <conditional name="in">
+                <param name="adata_format" value="mtx"/>
+                <param name="matrix" value="matrix_10x_v1.2.0.mtx"/>
+                <conditional name="tenx">
+                    <param name="use" value="no"/>
+                </conditional>
+                </conditional>
+            <output name="anndata" value="import.mtx.no_10x.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <conditional name="in">
+                <param name="adata_format" value="mtx"/>
+                <param name="matrix" value="matrix_10x_v1.2.0.mtx"/>
+                <conditional name="tenx">
+                    <param name="use" value="legacy_10x"/>
+                    <param name="genes" value="genes_10x_v1.2.0.tsv"/>
+                    <param name="barcodes" value="barcodes_10x_v1.2.0.tsv"/>
+                    <param name="var_names" value="gene_symbols"/>
+                    <param name="make_unique" value="true"/>
+                    <param name="gex_only" value="true"/>
+                </conditional>
+            </conditional>
+            <output name="anndata" value="import.mtx.legacy_10x.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <conditional name="in">
+                <param name="adata_format" value="mtx"/>
+                <param name="matrix" value="matrix_10x_v3.0.0.mtx"/>
+                <conditional name="tenx">
+                    <param name="use" value="v3_10x"/>
+                    <param name="features" value="features_10x_v3.0.0.tsv"/>
+                    <param name="barcodes" value="barcodes_10x_v3.0.0.tsv"/>
+                    <param name="var_names" value="gene_symbols"/>
+                    <param name="make_unique" value="true"/>
+                    <param name="gex_only" value="true"/>
+                </conditional>
+            </conditional>
+            <output name="anndata" value="import.mtx.v3_10x.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>!-->
+        <test expect_num_outputs="1">
+            <param name="filetype" value="anndata"/>
+            <conditional name="in">
+                    <param name="adata_format" value="umi_tools"/>
+                    <param name="input" value="umi_tools.tsv"/>
+            </conditional>
+            <output name="anndata" value="import.umi_tools.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="filetype" value="loom"/>
+            <param name="mainmatrix" value="firstlayer.tsv"/>
+            <param name="other_files" value="secondlayer.tsv"/>
+            <param name="coldata" value="cols.tsv"/>
+            <param name="rowdata" value="rows.tsv"/>
+            <output name="loomdata" value="converted.loom" ftype="loom" compare="sim_size"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+This tool creates an AnnData dataset from several input types:
+
+- Loom (`read_loom method <https://anndata.readthedocs.io/en/latest/anndata.read_loom.html>`__)
+- Tabular (`read_csv method <https://anndata.readthedocs.io/en/latest/anndata.read_csv.html>`__)
+- Matrix Market (mtx), from Cell ranger or not (`read_mtx method <https://anndata.readthedocs.io/en/latest/anndata.read_mtx.html>`__)
+- UMI tools (`read_umi_tools method <https://anndata.readthedocs.io/en/latest/anndata.read_umi_tools.html>`__)
+
+@HELP@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
