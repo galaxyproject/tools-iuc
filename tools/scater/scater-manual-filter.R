@@ -58,7 +58,7 @@ if ( ! file.exists(opt$input_object_file)){
 sce <- readRDS(opt$input_object_file)
 print(paste("Starting with", ncol(sce), "cells and", nrow(sce), "features."))
 
-#create a logical vector of features that are expressed (obove detection_limit)
+#create a logical vector of features that are expressed (above detection_limit)
 feature_expressed <- nexprs(sce, detection_limit = opt$detection_limit, byrow=TRUE) > 0
 sce <- sce[feature_expressed, ]
 
