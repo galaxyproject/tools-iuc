@@ -223,8 +223,11 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
     args = [
         '--threads', str(kraken2_args["threads"]),
         '--download-taxonomy',
-        '--db', custom_database_name
+        '--db', custom_database_name,
     ]
+
+    if kraken2_args['skip_maps']:
+        args.append('--skip-maps')
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
@@ -253,7 +256,7 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
         '--db', custom_database_name
     ]
 
-    subprocess.check_call(['kraken2-build'] + args, target_directory)
+    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
         'data_tables': {
@@ -282,6 +285,7 @@ def main():
     parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
     parser.add_argument('--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)')
+    parser.add_argument('--skip-maps', dest='skip_maps', action='store_true', help='')
     args = parser.parse_args()
 
     data_manager_input = json.loads(open(args.data_manager_json).read())
@@ -329,6 +333,7 @@ def main():
     elif str(args.database_type) == 'custom':
         kraken2_args = {
             "custom_fasta": args.custom_fasta,
+            "skip_maps": args.skip_maps,
             "kmer_len": args.kmer_len,
             "minimizer_len": args.minimizer_len,
             "minimizer_spaces": args.minimizer_spaces,
