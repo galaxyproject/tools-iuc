@@ -9,7 +9,8 @@
 #       factFile", "f", 2, "character"      -Path to factor information file
 #       factInput", "i", 2, "character"     -String containing factors if manually input
 #       annoPath", "a", 2, "character"      -Path to input containing gene annotations
-#       contrastData", "C", 1, "character"  -String containing contrasts of interest
+#       contrastFile", "C", 1, "character"  -Path to contrasts information file
+#       contrastInput", "D", 1, "character" -String containing contrasts of interest
 #       cpmReq", "c", 2, "double"           -Float specifying cpm requirement
 #       cntReq", "z", 2, "integer"          -Integer specifying minimum total count requirement
 #       sampleReq", "s", 2, "integer"       -Integer specifying cpm requirement
@@ -161,7 +162,8 @@ spec <- matrix(c(
     "factFile", "f", 2, "character",
     "factInput", "i", 2, "character",
     "annoPath", "a", 2, "character",
-    "contrastData", "C", 1, "character",
+    "contrastFile", "C", 1, "character",
+    "contrastInput", "D", 1, "character",
     "cpmReq", "c", 1, "double",
     "totReq", "y", 0, "logical",
     "cntReq", "z", 1, "integer",
@@ -343,11 +345,18 @@ if (haveAnno) {
 #Create output directory
 dir.create(opt$outPath, showWarnings=FALSE)
 
-# Split up contrasts seperated by comma into a vector then sanitise
-contrastData <- unlist(strsplit(opt$contrastData, split=","))
+# Process contrasts
+if (is.null(opt$contrastInput)) {
+    contrastData <- read.table(opt$contrastFile, header=TRUE, sep="\t", quote= "", strip.white=TRUE, stringsAsFactors=FALSE)
+    contrastData <- contrastData[, 1, drop=TRUE]
+}  else {
+    # Split up contrasts seperated by comma into a vector then sanitise
+    contrastData <- unlist(strsplit(opt$contrastInput, split=","))
+}
+
+# in case input groups start with numbers this will make the names valid R names, required for makeContrasts
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
-# in case input groups start with numbers this will make the names valid R names, required for makeContrasts
 cons <- NULL
 for (i in contrastData) {
     i <- strsplit(i, split="-")
