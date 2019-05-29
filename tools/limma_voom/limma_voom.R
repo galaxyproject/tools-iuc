@@ -79,6 +79,14 @@ sanitiseGroups <- function(string) {
     return(string)
 }
 
+# Function to make contrast contain valid R names
+sanitiseContrast <- function(string) {
+    string <- strsplit(string, split="-")
+    string <- lapply(string, make.names)
+    string <- lapply(string, paste, collapse="-")
+    return(string)
+}
+
 # Function to change periods to whitespace in a string
 unmake.names <- function(string) {
     string <- gsub(".", " ", string, fixed=TRUE)
@@ -353,16 +361,29 @@ if (is.null(opt$contrastInput)) {
     # Split up contrasts seperated by comma into a vector then sanitise
     contrastData <- unlist(strsplit(opt$contrastInput, split=","))
 }
-
-# in case input groups start with numbers this will make the names valid R names, required for makeContrasts
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
+
+# in case input groups start with numbers make the names valid R names, required for makeContrasts
 cons <- NULL
+cons_d <- NULL
 for (i in contrastData) {
-    i <- strsplit(i, split="-")
-    i <- lapply(i, make.names)
-    i <- lapply(i, paste, collapse="-")
-    cons <- append(cons, unlist(i))
+
+    # if the contrast is a difference of differences e.g. (A-B)-(X-Y)
+    if (grepl("\\)-\\(", i)) {
+        i <- unlist(strsplit(i, split="\\)-\\("))
+        i <- gsub("\\(|\\)","", i)
+        for (j in i) {
+           j <- sanitiseContrast(j)
+           j <- paste0("(", j, ")")
+           cons_d  <- append(cons_d, unlist(j))
+        }
+        cons_d <- paste(cons_d, collapse = '-')
+        cons <- append(cons, unlist(cons_d))
+    } else {
+        i <- sanitiseContrast(i)
+        cons <- append(cons, unlist(i))
+    }
 }
 
 plots <- character()
@@ -852,6 +873,7 @@ status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
 sumStatus <- summary(status)
 
 for (i in 1:length(cons)) {
+    con_name <- cons[i]
     con <- cons[i]
     con <- gsub("\\(|\\)", "", con)
     # Collect counts for differential expression
@@ -957,7 +979,7 @@ for (i in 1:length(cons)) {
     imgName <- paste0("MDVolPlot_", con)
     imgAddr <- paste0("mdvolplot_", con, ".png")
     imageData <- rbind(imageData, c(imgName, imgAddr))
-    title(paste0("Contrast: ", unmake.names(con)), outer=TRUE, cex.main=1.5)
+    title(paste0("Contrast: ", con_name), outer=TRUE, cex.main=1.5)
     invisible(dev.off())
 
     if ("h" %in% plots) {
