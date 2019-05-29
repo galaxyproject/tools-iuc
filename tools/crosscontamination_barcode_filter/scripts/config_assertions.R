@@ -31,12 +31,13 @@ checkNoMissingRanges <- function(format, barcodes){
     return(barcodes[!not.in])
 }
 
+
 checkNoMissingBarcodes <- function(headers, barcodes){
     #' Extracts barcodes in the headers and compares them with those in barcodes
     #'
     #' @param headers matrix headers, must be of P1_B2_ACTG format
     #' @param barcodes full list of barcodes
-    barcs.in.matrix <- unique(sort(sub(".*_.*_([ACTG]+)", "\\1", headers)))
+    barcs.in.matrix <- unique(sort(sub("^.*_([ACTGN]+)$", "\\1", headers)))
     not.in <- !(barcs.in.matrix %in% barcodes)
     if (sum(not.in) > 0){
         message("Warning: Barcodes in matrix not in barcodes file\n", barcs.in.matrix[not.in])
@@ -45,9 +46,26 @@ checkNoMissingBarcodes <- function(headers, barcodes){
     }
 }
 
+checkBatchNamesAreValid <- function(headers){
+    #' Checks that Plate and Batch names follow good conventions
+    #' i.e. Batch names are NOT reused across plates
+    #'
+    #' @param headers matrix headers in P1_B2_ACTG format
+    plate.and.batch <- unique(sort(sub("^(.*)_([ATCGN]+)$", "\\1", headers)))
+    message("Discovered ", length(plate.and.batch), " batches: ", paste(plate.and.batch, collapse=" "))
+
+    batch.only <- sub("^.*_(B\\d)$", "\\1", plate.and.batch)
+    dupes.batches <- batch.only[duplicated(batch.only)]
+
+    if (length(dupes.batches) > 0){
+        stop("Batches ", paste(dupes.batches, collapse=" "), " have duplicate names in other plates!")
+    }
+}
+
+
 assertNoMissingBatches <- function(format, plates){
     #' Checks the barcode and plate spec match
-    #' 
+    #'
     #' These must specify the same batches.
     #'
     #' @param format barcode format, ranges to batches
@@ -56,14 +74,17 @@ assertNoMissingBatches <- function(format, plates){
     batches.form = c()
     batches.plate = c()
     for (form in format){batches.form = c(batches.form, form)}
-    for (plate in plates){batches.plate = c(batches.plate, plate)}
+    for (plate in plates){
+        batches.plate = c(batches.plate, plate)
+    }
 
     if (length(batches.plate) != length(batches.form)){
         stop("Error: The number of batches specified in the plate do not match those given in the barcode format")
     }
 
-    range.form <- seq(min(batches.form), max(batches.form))
-    range.plate <- seq(min(batches.plate), max(batches.plate))
+    #range.form <- seq(min(batches.form), max(batches.form))
+    range.form <- unique(sort(batches.form))
+    range.plate <- unique(sort(batches.plate))
 
     if (sum(!(range.form %in% batches.form)) > 0){
         stop("Error: Missing batch in barcode format")
@@ -83,9 +104,11 @@ sanityCheck <- function(spec, matrix.headers){
     barcodes <- scan(spec$barcodes, what="", sep="\n")
     num.barcodes <- length(barcodes)
     num.plates <- length(names(spec$plate))
+
     used.barcodes <- checkNoMissingRanges(spec$format, barcodes)
     num.batches <- assertNoMissingBatches(spec$format, spec$plates)
     checkNoMissingBarcodes(matrix.headers, used.barcodes)
+    checkBatchNamesAreValid(matrix.headers)
 
     return(list(barc=barcodes, barc.n=num.barcodes, plates.n=num.plates, batch.n=num.batches))
 }
