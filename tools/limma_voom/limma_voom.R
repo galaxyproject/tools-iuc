@@ -1098,7 +1098,7 @@ cata("</table>")
 cata("<h4>Plots:</h4>\n")
 #PDFs
 for (i in 1:nrow(linkData)) {
-    if (grepl("density|cpm|boxplot|mds|mdplots|voom|saplot", linkData$Link[i])) {
+    if (grepl(".pdf", linkData$Link[i]) & grepl("density|cpm|boxplot|mds|mdplots|voom|saplot", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
