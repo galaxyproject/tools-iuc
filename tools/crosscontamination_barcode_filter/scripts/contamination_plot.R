@@ -17,22 +17,27 @@ log10histoPlot <- function(title="", columncounts){
     return(p1)
 }
 
+## This is calculated by the first call to contaminationPlot
+## and then re-used by the second call.
+ylim.max = NULL
 
 contaminationPlot <- function(title, columndata, barcode.data, plate.data, RAW)
 {
     coldata = data.frame(colsums=columndata)
     maxval = max(coldata)
-
+    # Set once and once only
+    if (is.null(ylim.max)){
+        ylim.max <<- maxval + 500
+    }
 
     drawPlates <- function(plate.data){ # 0 384 768
 
         plate.boundaries <- plate.data["filtered.plates",]
-        print(plate.boundaries)
         if (RAW){
             plate.boundaries <- plate.data["unfilter.plates",]
         }
 
-        plate.minyval = -200
+        plate.minyval <- -200
         plate.color <- "grey"
         plate.text.color <- "red"
         plate.text.alpha <- 0.5
@@ -44,21 +49,19 @@ contaminationPlot <- function(title, columndata, barcode.data, plate.data, RAW)
 
         zzz <- lapply(names(plate.boundaries), function(plate.name){
             plate.num = as.integer(sub("P","",plate.name))
-            print(plate.name, "SOMETHING WEIRD HAPPENING HERE...!")
-            print(plate.boundaries[[plate.name]])
-            plate.xval = unname(unlist(plate.boundaries[[plate.name]]))
+            plate.xval = plate.boundaries[[plate.name]]
 
             ## If not first plate -- inner boundary, print next plate name to the right
             if (plate.name != names(plate.boundaries)[length(plate.boundaries)]){
                 gplot <<- gplot + annotate("text", x=plate.xval + plate.spacing, label=paste("Plate", plate.num + 1),
                                            size=plate.text.size, y=plate.height*0.7, angle=-90,
-                                           color = plate.text.color, alpha=plate.text.alpha)
+                                           color=plate.text.color, alpha=plate.text.alpha)
             }
             ## If not last plate -- inner boundary, print previous name to the left
             if (plate.name != names(plate.boundaries)[1]){
                 gplot <<- gplot + annotate("text", x=plate.xval - plate.spacing, label=paste("Plate", plate.num),
                                            size=plate.text.size, y=plate.height*0.7, angle=90,
-                                           color = plate.text.color, alpha=plate.text.alpha)
+                                           color=plate.text.color, alpha=plate.text.alpha)
             }
             gplot <<- gplot + geom_segment(aes(x=plate.xval, xend=plate.xval, y=plate.minyval, yend=plate.height), color=plate.color, lty=1, size=1)
         })
@@ -146,11 +149,13 @@ contaminationPlot <- function(title, columndata, barcode.data, plate.data, RAW)
     }
 
     plotTheme <- function(){
+        print("HEY")
+        print(ylim.max)
         gplot <<- gplot + theme(plot.title = element_text(hjust = 0.5),
                                 axis.ticks.x=element_blank(), axis.ticks.y=element_blank(),
                                 axis.text.x=element_blank()) +
             labs(title=paste("Contamination Plot\n", title), y="Library Size", x="Barcode Index") +
-            scale_y_continuous(breaks=seq(0,15000,1000)) +
+            coord_cartesian(ylim = c(-200, ylim.max)) +
             scale_x_continuous(breaks=NULL)
     }
 

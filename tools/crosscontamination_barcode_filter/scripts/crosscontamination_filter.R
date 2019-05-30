@@ -9,7 +9,9 @@ if (length(args) != 1){
 }
 
 source(args[1])
-##source('/tmp/tmpckZpsq/job_working_directory/000/8/tmpywIcp1')
+
+## debug in debug dir
+source('../debug/config.debug')
 
 source(file.path(script.dir, "config_assertions.R"))
 source(file.path(script.dir, "batch_plotting_functions.R"))
@@ -47,13 +49,14 @@ cmatrix <- input_matrix[,ordering$filtered]
 plot.postfilter <- contaminationPlot("Post-Filter", colSums(cmatrix),
                                      barcode.data, plate.data, RAW=FALSE)
 
-plot.histogram <- log10histoPlot("Histogram of Pre-Filter Matrix Counts", colSums(nmatrix))
-plot.histogram <- log10histoPlot("Histogram of Post-Filter Matrix Counts", colSums(cmatrix))
+plot.histogram.pre <- log10histoPlot("Histogram of Pre-Filter Matrix Counts", colSums(nmatrix))
+plot.histogram.post <- log10histoPlot("Histogram of Post-Filter Matrix Counts", colSums(cmatrix))
 
 pdf(out.pdf)
 plot.prefilter
 plot.postfilter
-plot.histogram
+plot.histogram.pre
+plot.histogram.post
 dev.off()
 
 write.table(cmatrix, file=out.table, quote=FALSE, na="0", sep="\t")
