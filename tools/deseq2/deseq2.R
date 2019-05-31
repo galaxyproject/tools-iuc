@@ -46,7 +46,8 @@ args <- commandArgs(trailingOnly = TRUE)
 spec <- matrix(c(
   "quiet", "q", 0, "logical",
   "help", "h", 0, "logical",
-  "batch_factors", "", 1, "character",
+  "cores", "s", 0, "integer",
+  "batch_factors", "w", 1, "character",
   "outfile", "o", 1, "character",
   "countsfile", "n", 1, "character",
   "rlogfile", "r", 1, "character",
@@ -57,7 +58,7 @@ spec <- matrix(c(
   "plots" , "p", 1, "character",
   "tximport", "i", 0, "logical",
   "txtype", "y", 1, "character",
-  "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF file (auto detect .gtf/.GTF)
+  "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF/GFF3 file
   "esf", "e", 1, "character",
   "fit_type", "t", 1, "integer",
   "many_contrasts", "m", 0, "logical",
@@ -104,6 +105,14 @@ suppressPackageStartupMessages({
   library("RColorBrewer")
   library("gplots")
 })
+
+if (opt$cores > 1) {
+  library("BiocParallel")
+  register(MulticoreParam(opt$cores))
+  parallel = TRUE
+} else {
+  parallel = FALSE
+}
 
 # build or read sample table
 
@@ -273,7 +282,7 @@ if (is.null(opt$fit_type)) {
 if (verbose) cat(paste("using disperion fit type:",fitType,"\n"))
 
 # run the analysis
-dds <- DESeq(dds, fitType=fitType, betaPrior=betaPrior, minReplicatesForReplace=minRep)
+dds <- DESeq(dds, fitType=fitType, betaPrior=betaPrior, minReplicatesForReplace=minRep, parallel=parallel)
 
 # create the generic plots and leave the device open
 if (!is.null(opt$plots)) {

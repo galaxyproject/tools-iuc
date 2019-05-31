@@ -1,5 +1,5 @@
 #!/usr/bin/env R
-VERSION = "0.2"
+VERSION = "0.4"
 
 args = commandArgs(trailingOnly = T)
 
@@ -23,10 +23,14 @@ do.filter <- function(sc){
     sc <- do.call(filterdata, c(sc, filt))
 
     ## Get histogram metrics for library size and number of features
-    raw.lib <- log(colSums(as.matrix(sc@expdata)))
-    raw.feat <- log(rowSums(as.matrix(sc@expdata)))
-    filt.lib <- log(colSums(getfdata(sc)))
-    filt.feat <- log(rowSums(getfdata(sc)))
+    raw.lib <- log10(colSums(as.matrix(sc@expdata)))
+    raw.feat <- log10(colSums(as.matrix(sc@expdata)>0))
+    filt.lib <- log10(colSums(getfdata(sc)))
+    filt.feat <- log10(colSums(getfdata(sc)>0))
+
+    if (filt.geqone){
+        filt.feat <- log10(colSums(getfdata(sc)>=1))
+    }
 
     br <- 50
     ## Determine limits on plots based on the unfiltered data
@@ -47,10 +51,17 @@ do.filter <- function(sc){
     ## feat.x_lim <- c(0,betterrange(max(tmp.feat$breaks)))
 
     par(mfrow=c(2,2))
-    print(hist(raw.lib, breaks=br, main="ExpData Log(LibSize)")) # , xlim=lib.x_lim, ylim=lib.y_lim)
-    print(hist(raw.feat, breaks=br, main="ExpData Log(NumFeat)")) #, xlim=feat.x_lim, ylim=feat.y_lim)
-    print(hist(filt.lib, breaks=br, main="FiltData Log(LibSize)")) # , xlim=lib.x_lim, ylim=lib.y_lim)
-    print(hist(filt.feat, breaks=br, main="FiltData Log(NumFeat)")) # , xlim=feat.x_lim, ylim=feat.y_lim)
+    print(hist(raw.lib, breaks=br, main="RawData Log10 LibSize")) # , xlim=lib.x_lim, ylim=lib.y_lim)
+    print(hist(raw.feat, breaks=br, main="RawData Log10 NumFeat")) #, xlim=feat.x_lim, ylim=feat.y_lim)
+    print(hist(filt.lib, breaks=br, main="FiltData Log10 LibSize")) # , xlim=lib.x_lim, ylim=lib.y_lim)
+    tmp <- hist(filt.feat, breaks=br, main="FiltData Log10 NumFeat") # , xlim=feat.x_lim, ylim=feat.y_lim)
+    print(tmp)
+    ## required, for extracting midpoint
+    unq <- unique(filt.feat)
+    if (length(unq) == 1){
+        abline(v=unq, col="red", lw=2)
+        text(tmp$mids, table(filt.feat)[[1]] - 100, pos=1, paste(10^unq, "\nFeatures\nin remaining\nCells", sep=""), cex=0.8)
+    }
 
     if (filt.use.ccorrect){
         par(mfrow=c(2,2))
@@ -117,11 +128,12 @@ mkgenelist <- function(sc){
 
         goi <- head(rownames(dg.goi.table), genelist.plotlim)
         print(plotmarkergenes(sc, goi))
-        print(do.call(mtext, c(paste("                               Cluster ",n), test)))  ## spacing is a hack
+        buffer <- paste(rep("", 36), collapse=" ")
+        print(do.call(mtext, c(paste(buffer, "Cluster ",n), test)))  ## spacing is a hack
         test$line=-1
-        print(do.call(mtext, c(paste("                               Sig. Genes"), test)))  ## spacing is a hack
+        print(do.call(mtext, c(paste(buffer, "Sig. Genes"), test)))  ## spacing is a hack
         test$line=-2
-        print(do.call(mtext, c(paste("                               (fc > ", genelist.foldchange,")"), test)))  ## spacing is a hack
+        print(do.call(mtext, c(paste(buffer, "(fc > ", genelist.foldchange,")"), test)))  ## spacing is a hack
 
     })
     write.table(df, file=out.genelist, sep="\t", quote=F)
@@ -132,10 +144,10 @@ pdf(out.pdf)
 if (use.filtnormconf){
     sc <- do.filter(sc)
     message(paste(" - Source:: genes:",nrow(sc@expdata),", cells:",ncol(sc@expdata)))
-    message(paste(" - Filter:: genes:",nrow(sc@ndata),", cells:",ncol(sc@ndata)))
+    message(paste(" - Filter:: genes:",nrow(getfdata(sc)),", cells:",ncol(getfdata(sc))))
     message(paste("         :: ",
-                  sprintf("%.1f", 100 * nrow(sc@ndata)/nrow(sc@expdata)), "% of genes remain,",
-                  sprintf("%.1f", 100 * ncol(sc@ndata)/ncol(sc@expdata)), "% of cells remain"))
+                  sprintf("%.1f", 100 * nrow(getfdata(sc))/nrow(sc@expdata)), "% of genes remain,",
+                  sprintf("%.1f", 100 * ncol(getfdata(sc))/ncol(sc@expdata)), "% of cells remain"))
 }
 
 if (use.cluster){

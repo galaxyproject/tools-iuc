@@ -31,6 +31,9 @@ def build_bowtie2_index( data_manager_dict, fasta_filename, params, target_direc
     sym_linked_fasta_filename = os.path.join( target_directory, fasta_base_name )
     os.symlink( fasta_filename, sym_linked_fasta_filename )
     args = [ 'bowtie2-build', sym_linked_fasta_filename, sequence_id ]
+    threads = os.environ.get('GALAXY_SLOTS')
+    if threads:
+        args.extend(['--threads', threads])
     proc = subprocess.Popen( args=args, shell=False, cwd=target_directory )
     return_code = proc.wait()
     if return_code:
@@ -74,7 +77,8 @@ def main():
     build_bowtie2_index( data_manager_dict, options.fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name, data_table_names=options.data_table_name or DEFAULT_DATA_TABLE_NAMES )
 
     # save info to json file
-    open( filename, 'wb' ).write( dumps( data_manager_dict ) )
+    with open(filename, 'w') as json_out:
+        json_out.write( dumps( data_manager_dict, sort_keys=True ) )
 
 
 if __name__ == "__main__":

@@ -1,8 +1,32 @@
-<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@.0">
+<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@">
     <description>Querying the GEMINI database</description>
     <macros>
         <import>gemini_macros.xml</import>
         <token name="@BINARY@">query</token>
+
+        <xml name="sorting">
+            <param name="order_by" type="text"
+            label="Sort the output by the following column(s)"
+            help="" />
+            <param name="sort_order" type="select" label="Sort order">
+                <option value=" ASC">Ascending</option>
+                <option value=" DESC">Descending</option>
+            </param>
+        </xml>
+        <xml name="pheno_strat">
+            <param name="phenotype" type="text"
+            label="Phenotype to stratify samples across"
+            help="Leave blank to stratify across the default phenotype column" />
+        </xml>
+        <xml name="sample_delimiter" token_applied_to="samples">
+            <param argument="--sample-delim" name="sample_delim" type="text" value=","
+            label="Delimiter to use in the list of affected @APPLIED_TO@"
+            help="" />
+        </xml>
+        <xml name="dgidb_query">
+            <param argument="--dgidb" name="dgidb" type="boolean" truevalue="--dgidb" falsevalue="" checked="False"
+            label="Request drug-gene interaction info from DGIdb" help="" />
+        </xml>
     </macros>
     <expand macro="requirements" />
     <expand macro="stdio" />
@@ -10,101 +34,372 @@
     <command>
 <![CDATA[
         gemini @BINARY@
+            ${query.oformat.report.header}
+            ${query.oformat.report.dgidb}
 
-            --in "${in}"
+            #for $i in $query.filter_by_genotype:
+                #set $multiline_sql_expr = str($i.gt_filter)
+                #set $cmdln_param = "--gt-filter"
+                @MULTILN_SQL_EXPR_TO_CMDLN@
+            #end for
 
-            #set $multiline_sql_expr = $gt_filter
-            #set $cmdln_param = "--gt-filter"
-            @MULTILN_SQL_EXPR_TO_CMDLN@
+            #for $i in $query.filter_by_sample:
+                $i.family_wise
+                #if int($i.min_kindreds) > 0:
+                    --min-kindreds ${i.min_kindreds}
+                #end if
+                ${i.in}
+                #set $multiline_sql_expr = str($i.sample_filter)
+                #set $cmdln_param = "--sample-filter"
+                @MULTILN_SQL_EXPR_TO_CMDLN@
+            #end for
 
-            #set $multiline_sql_expr = $sample_filter
-            #set $cmdln_param = "--sample-filter"
-            @MULTILN_SQL_EXPR_TO_CMDLN@
-
-            $show_samples
-            $show_families
-            $family_wise
-            $header
-            $dgidb
-            #if $region.strip():
-                --region "${region}"
+            #if str($query.oformat.report.format) == 'with_samples':
+                #set $sample_delim = str($query.oformat.report.sample_delim) or ','
+                --show-samples --sample-delim '$sample_delim'
+            #elif str($query.oformat.report.format) == 'with_samples_flattened':
+                --show-samples --format sampledetail
+            #elif str($query.oformat.report.format) == 'with_families':
+                #set $sample_delim = str($query.oformat.report.sample_delim) or ','
+                --show-families --sample-delim '$sample_delim'
+            #elif str($query.oformat.report.format) == 'carrier_summary':
+                --carrier-summary-by-phenotype
+                #if str($query.oformat.report.phenotype).strip():
+                    '${query.oformat.report.phenotype}'
+                #else:
+                    affected
+                #end if
+            #else:
+                --format ${query.oformat.report.format}
             #end if
-            #if int($min_kindreds) > 0:
-                --min-kindreds $min_kindreds
+
+            #if str($query.interface) == 'basic':
+                ## build the SQL query string from its components
+                #if str($query.oformat.report.format) in ('vcf', 'tped'):
+                    #set $cols = "*"
+                #else:
+                    #set $report = $query.oformat.report.report
+                    @SET_COLS@
+                #end if
+                #set $q = "SELECT %s FROM variants" % $cols
+                #set $where_clause_elements = []
+                #if str($query.filter).strip():
+                    #silent $where_clause_elements.append(str($query.filter).strip())
+                #end if
+
+                #set $regions = $query.regions
+                @PARSE_REGION_ELEMENTS@
+                #if $region_elements:
+                    #silent $where_clause_elements.append(" OR ".join($region_elements))
+                #end if
+                #if $where_clause_elements:
+                    #set $q = $q + " WHERE " + " AND ".join($where_clause_elements)
+                #end if
+                #if str($query.oformat.report.order_by).strip():
+                    #set $q = $q + " ORDER BY " + str($query.oformat.report.order_by).strip() + str($query.oformat.report.sort_order)
+                #end if
+            #else
+                ## The user entered the SQL query string directly.
+                #set $q = str($query.q)
             #end if
-            ##--format FORMAT       Format of output (JSON, TPED or default) # we will take default for the time being
-            ##   --sample-delim STRING The delimiter to be used with the --show-samples option.
 
             #set $multiline_sql_expr = $q
             #set $cmdln_param = "-q"
             @MULTILN_SQL_EXPR_TO_CMDLN@
 
-            "${ infile }"
-            > "${ outfile }"
+            '$infile'
+            > '$outfile'
 ]]>
     </command>
-                <!--
-            ##TODO:
-              - -carrier-summary-by-phenotype CARRIER_SUMMARY
-                        Output columns of counts of carriers and non-carriers
-                        stratified by the given sample phenotype column-->
     <inputs>
         <expand macro="infile" />
-
-        <param name="q" type="text" area="True" size="5x50" label="The query to be issued to the database" help="(-q)">
-            <expand macro="sanitize_query" />
-        </param>
-        <param name="gt_filter" type="text" area="True" size="5x50" label="Restrictions to apply to genotype values" help="(--gt-filer)">
-            <expand macro="sanitize_query" />
-        </param>
-        <param name="sample_filter" type="text" area="True" size="5x50" label="SQL filter to use to filter the sample table" help="(--sample-filter)">
-            <expand macro="sanitize_query" />
-        </param>
-
-        <param name="show_samples" type="boolean" truevalue="--show-samples" falsevalue="" checked="False"
-            label="Add a column of all sample names with a variant to each variant" help="(--show-samples)"/>
-
-        <param name="show_families" type="boolean" truevalue="--show-families" falsevalue="" checked="False"
-            label="Add a column listing all of the families with a variant to each variant" help="(--show-families)"/>
-
-        <param name="family_wise" type="boolean" truevalue="--family-wise" falsevalue="" checked="False"
-            label="Perform the sample-filter on a family-wise basis" help="(--family-wise)"/>
-
-        <expand macro="add_header_column" />
-        <expand macro="min_kindreds" />
-
-        <param name="dgidb" type="boolean" truevalue="--dgidb" falsevalue="" checked="False"
-            label="Request drug-gene interaction info from DGIdb" help="(--dgidb)"/>
-
-        <param name="in" type="select" label="A variant must be in either all, none or any samples passing the sample-query filter" help="(--in)">
-            <option value="all">Return a variant if all samples matching the query have the variant. (all)</option>
-            <option value="none">Return a variant if the variant does not appear in any of the matching samples. (none)</option>
-            <option value="any">Return all of the variant which are in all of the matching samples and not in any of the non-matching samples. (any)</option>
-            <option value="only">Return a variant if the variant is only in the matching samples and not in any of the non-matching samples. (only)</option>
-        </param>
-
-        <param name="region" type="text" value="" label="Restrict query to this region" help="e.g. chr1:10-20 (--region)"/>
-
-
+        <conditional name="query">
+            <param name="interface" type="select"
+            label="Build GEMINI query using"
+            help="">
+                <option value="basic">Basic variant query constructor</option>
+                <option value="advanced">Advanced query constructor</option>
+            </param>
+            <when value="basic">
+                <expand macro="gt_filter" />
+                <expand macro="sample_filter" />
+                <expand macro="region_filter" />
+                <expand macro="filter" argument="" />
+                <section name="oformat" title="Output format options" expanded="true">
+                    <conditional name="report">
+                        <param name="format" type="select"
+                        label="Type of report to generate">
+                            <option value="default">tabular (GEMINI default)</option>
+                            <option value="with_samples">tabular with affected samples</option>
+                            <option value="with_samples_flattened">tabular with affected samples flattened</option>
+                            <option value="with_families">tabular with affected families</option>
+                            <option value="carrier_summary">tabular with carrier summary</option>
+                            <option value="vcf">VCF (simplified)</option>
+                            <option value="json">JSON</option>
+                            <option value="tped">TPED</option>
+                        </param>
+                        <when value="default">
+                            <expand macro="add_header_column" />
+                            <expand macro="column_filter"
+                            minimalset="chrom, start, end, ref, alt, gene, impact"
+                            help=""/>
+                            <expand macro="dgidb_query" />
+                            <expand macro="sorting" />
+                        </when>
+                        <when value="with_samples">
+                            <expand macro="add_header_column" />
+                            <expand macro="sample_delimiter" />
+                            <expand macro="column_filter"
+                            minimalset="chrom, start, end, ref, alt, gene, impact"
+                            help=""/>
+                            <expand macro="dgidb_query" />
+                            <expand macro="sorting" />
+                        </when>
+                        <when value="with_samples_flattened">
+                            <expand macro="add_header_column" />
+                            <expand macro="column_filter"
+                            minimalset="chrom, start, end, ref, alt, gene, impact"
+                            help=""/>
+                            <param name="dgidb" type="hidden" value="" />
+                            <expand macro="sorting" />
+                        </when>
+                        <when value="with_families">
+                            <expand macro="add_header_column" />
+                            <expand macro="sample_delimiter" applied_to="families"/>
+                            <expand macro="column_filter"
+                            minimalset="chrom, start, end, ref, alt, gene, impact"
+                            help=""/>
+                            <expand macro="dgidb_query" />
+                            <expand macro="sorting" />
+                        </when>
+                        <when value="carrier_summary">
+                            <expand macro="add_header_column" />
+                            <expand macro="pheno_strat" />
+                            <expand macro="column_filter"
+                            minimalset="chrom, start, end, ref, alt, gene, impact"
+                            help=""/>
+                            <expand macro="dgidb_query" />
+                            <expand macro="sorting" />
+                        </when>
+                        <when value="vcf">
+                            <expand macro="add_header_column" />
+                            <param name="order_by" type="hidden" value="" />
+                            <param name="dgidb" type="hidden" value="" />
+                        </when>
+                        <when value="json">
+                            <param name="header" type="hidden" value="" />
+                            <expand macro="column_filter"
+                            minimalset="chrom, start, end, ref, alt, gene, impact"
+                            help=""/>
+                            <param name="dgidb" type="hidden" value="" />
+                            <expand macro="sorting" />
+                        </when>
+                        <when value="tped">
+                            <param name="header" type="hidden" value="" />
+                            <param name="dgidb" type="hidden" value="" />
+                            <expand macro="sorting" />
+                        </when>
+                    </conditional>
+                </section>
+            </when>
+            <when value="advanced">
+                <param argument="-q" name="q" type="text" area="True" size="5x50"
+                label="The query to be issued to the database"
+                help="Formulate your query using SQL syntax.">
+                    <expand macro="sanitize_query" />
+                    <validator type="expression" message="Query cannot be empty">value.strip()</validator>
+                </param>
+                <expand macro="gt_filter" />
+                <expand macro="sample_filter" />
+                <section name="oformat" title="Output format options" expanded="true">
+                    <conditional name="report">
+                        <param name="format" type="select"
+                        label="Type of report to generate">
+                            <option value="default">tabular (GEMINI default)</option>
+                            <option value="with_samples">tabular with affected samples</option>
+                            <option value="with_samples_flattened">tabular with affected samples flattened</option>
+                            <option value="with_families">tabular with affected families</option>
+                            <option value="carrier_summary">tabular with carrier summary</option>
+                            <option value="vcf">VCF (simplified)</option>
+                            <option value="json">JSON</option>
+                            <option value="tped">TPED</option>
+                        </param>
+                        <when value="default">
+                            <expand macro="add_header_column" />
+                            <expand macro="dgidb_query" />
+                        </when>
+                        <when value="with_samples">
+                            <expand macro="add_header_column" />
+                            <expand macro="sample_delimiter" />
+                            <expand macro="dgidb_query" />
+                        </when>
+                        <when value="with_samples_flattened">
+                            <expand macro="add_header_column" />
+                            <param name="dgidb" type="hidden" value="" />
+                        </when>
+                        <when value="with_families">
+                            <expand macro="add_header_column" />
+                            <expand macro="sample_delimiter" />
+                            <expand macro="dgidb_query" />
+                        </when>
+                        <when value="carrier_summary">
+                            <expand macro="pheno_strat" />
+                            <expand macro="add_header_column" />
+                            <expand macro="dgidb_query" />
+                        </when>
+                        <when value="vcf">
+                            <expand macro="add_header_column" />
+                            <param name="dgidb" type="hidden" value="" />
+                        </when>
+                        <when value="json">
+                            <param name="header" type="hidden" value="" />
+                            <param name="dgidb" type="hidden" value="" />
+                        </when>
+                        <when value="tped">
+                            <param name="header" type="hidden" value="" />
+                            <param name="dgidb" type="hidden" value="" />
+                        </when>
+                    </conditional>
+                </section>
+            </when>
+        </conditional>
     </inputs>
     <outputs>
-        <data name="outfile" format="tabular" />
+        <data name="outfile" format="tabular">
+	        <change_format>
+	            <when input="query.oformat.report.format" value="json" format="json" />
+	            <when input="query.oformat.report.format" value="vcf" format="vcf" />
+	        </change_format>
+        </data>
     </outputs>
     <tests>
         <test>
-            <param name="infile" value="gemini_load_result.db" ftype="gemini.sqlite" />
-            <param name="q" value="select start from variants limit 10" />
-            <output name="outfile" file="gemini_query_result.tabular" />
+            <param name="infile" value="gemini_load_result1.db" ftype="gemini.sqlite" />
+            <conditional name="query">
+                <param name="interface" value="advanced" />
+                <param name="q" value="select chrom,start from variants limit 10" />
+            </conditional>
+            <output name="outfile">
+                <assert_contents>
+                    <has_line_matching expression="chrom&#009;start" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help>
 <![CDATA[
 **What it does**
 
-The real power in the GEMINI framework lies in the fact that all of your genetic variants have been stored in a convenient database in the context of a wealth of genome annotations that facilitate variant interpretation.
-The expressive power of SQL allows one to pose intricate questions of one’s variation data. This tool offers you an easy way to query your variants!
+The real power in the GEMINI framework lies in the fact that all of your
+genetic variants have been stored in a convenient database in the context of a
+wealth of genome annotations that facilitate variant interpretation.
+The expressive power of SQL allows one to pose intricate questions of one’s
+variation data. This tool offers you a flexible, yet relatively easy way
+to query your variants!
 
-http://gemini.readthedocs.org/en/latest/content/querying.html
+-----
+
+*Building your variant query with the Basic variant query constructor*
+
+This mode tries to break down the complexity of formulating GEMINI queries
+into more easily digestable parts. In this mode, the tool also prevents you
+from combining options that are incompatible or not meaningful.
+
+*Genotype filters*
+
+These are discussed `here
+<https://gemini.readthedocs.io/en/latest/content/querying.html#gt-filter-filtering-on-genotypes>`__
+in the GEMINI documentation.
+
+The tool supports regular genotype filters like::
+
+  gt.sample1 == HET and gt_depths.sample1 >= 15
+
+, which would keep only variants for which sample 1 is a heterozygous carrier
+and if the genomic position in sample1 is covered by at least 15 sequencing
+reads, as well as GEMINI wildcard filters of the general form
+*(COLUMN).(SAMPLE_FILTER).(RULE).(RULE_ENFORCEMENT)* like::
+
+  (gt_types).(phenotype==2).(!=HOM_REF).(all)
+
+, which keeps only variants for which all phenotypic samples are homozygous.
+
+*Sample filters*
+
+Sample filters have the same format as the second component of the genotype
+wildcard filters above, so::
+
+  phenotype == 2
+
+would filter for phenotypically affected samples. In this case, however, the
+filter determines, from which samples variants should be reported, i.e., here,
+only variants found in phenotypically affected samples become analyzed. You can
+use the ``--in`` filter to adjust the exact meaning of the sample filter.
+
+*Region filters*
+
+They let you restrict your analysis to parts of the genome, which can be useful
+if you have prior knowledge of the approximate location of a variant of
+interest.
+
+If you specify more then one region filter, they get combined with a logical
+*OR*, meaning variants and genes falling in *any* of the regions are reported.
+
+*Additional constraints on variants*
+
+These get translated directly into the WHERE clause of an SQL query and, thus,
+have to be expressed in valid SQL syntax. As an example you could use::
+
+  is_exonic = 1 and impact_severity != 'LOW'
+
+to indicate that you are only interested in exonic variants that are not of
+*LOW* impact severity, *i.e.*, not silent mutations.
+
+Note that in SQL syntax tests for equality use a single ``=``, while genotype
+filters (discussed above) are following Python syntax and use ``==`` for the
+same purpose. Also note that non-numerical values need to be enclosed in
+single-quotes, *e.g.* ``'LOW'``, but numerical values must *NOT* be.
+
+-----
+
+*Building your query with the Advanced query constructor*
+
+For the sake of simplicity, the basic mode of the tool limits your queries to
+the variants table of the underlying database. While this still allows many
+useful queries to be formulated, it prevents you from joining information from
+other tables (in particular, the gene_detailed table) or to query a different
+table directly.
+
+In advanced mode, you take responsibility for formulating the complete SQL
+query in correct syntax, which allows you to do anything you could do with the
+command line tool. Beyond querying other tables, this includes changing output
+column names, deriving simple statistics on columns using the SQL Min, Max,
+Count, Avg and Sum functions, and more.
+
+The price you pay for this extra flexibility is that you will have to make sure
+that any other tool options you set are compatible with the result of your
+particular query. For example, most output formats except the tabular default
+output of GEMINI are incompatible with non-standard queries. Choosing
+non-compatible options can result in them getting ignored silently, but also
+in tool errors, or in problems with downstream tools.
+
+The chapter `Querying the GEMINI database
+<http://gemini.readthedocs.org/en/latest/content/querying.html>`__ of the
+GEMINI documentation can get you started with formulating your own queries.
+
+Note that genotype filters and sample filters cannot be expressed as genuine
+SQL queries, so even the Advanced query constructor is offering them. Region
+filters and sort order of rows and columns on the other hand can be controlled
+through SQL queries, like in this example::
+
+  SELECT gene, chrom, start, end, ref, alt FROM variants WHERE chrom = 'chr1'
+  AND start >= 10000000 and stop <= 20000000 and is_lof = 1 ORDER BY chrom,
+  start
+
+, which would report all loss-of-function variants between 10,000,000 and
+20,000,000 on chr1 and report the selected columns sorted on chromosome, then
+position.
+
 ]]>
     </help>
     <expand macro="citations"/>

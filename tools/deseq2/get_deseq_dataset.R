@@ -9,12 +9,12 @@ get_deseq_dataset <- function(sampleTable, header, designFormula, tximport, txty
   }
 
   if (!is.null(tximport)) {
-    if (is.null(tx2gene)) stop("A transcript-to-gene map or a GTF file is required for tximport")
-    if (tolower(file_ext(opt$tx2gene)) == "gtf") {
-      gtfFile <-tx2gene
+    if (is.null(tx2gene)) stop("A transcript-to-gene map or a GTF/GFF3 file is required for tximport")
+    if (tolower(file_ext(tx2gene)) == "gff") {
+      gffFile <-tx2gene
     } else {
-      gtfFile <- NULL
-      tx2gene <- read.table(tx2gene, header=FALSE)
+      gffFile <- NULL
+      tx2gene <- read.table(tx2gene, header=hasHeader)
     }
     useTXI <- TRUE
   } else {
@@ -45,22 +45,29 @@ get_deseq_dataset <- function(sampleTable, header, designFormula, tximport, txty
 
   } else {
       # construct the object using tximport
-      # first need to make the tx2gene table
-      # this takes ~2-3 minutes using Bioconductor functions
-      if (!is.null(gtfFile)) {
-        suppressPackageStartupMessages({
-          library("GenomicFeatures")
-        })
-        txdb <- makeTxDbFromGFF(gtfFile, format="gtf")
-        k <- keys(txdb, keytype = "GENEID")
-        df <- select(txdb, keys = k, keytype = "GENEID", columns = "TXNAME")
-        tx2gene <- df[, 2:1]  # tx ID, then gene ID
-      }
       library("tximport")
       txiFiles <- as.character(sampleTable$filename)
       labs <- row.names(sampleTable)
       names(txiFiles) <- labs
-      txi <- tximport(txiFiles, type=txtype, tx2gene=tx2gene)
+      if (!is.null(gffFile)) {
+        # first need to make the tx2gene table
+        # this takes ~2-3 minutes using Bioconductor functions
+        suppressPackageStartupMessages({
+          library("GenomicFeatures")
+        })
+        txdb <- makeTxDbFromGFF(gffFile)
+        k <- keys(txdb, keytype = "TXNAME")
+        tx2gene <- select(txdb, keys=k, columns="GENEID", keytype="TXNAME")
+        # Remove 'transcript:' from transcript IDs (when gffFile is a GFF3 from Ensembl and the transcript does not have a Name)
+        tx2gene$TXNAME <- sub('^transcript:', '', tx2gene$TXNAME)
+      }
+      try(txi <- tximport(txiFiles, type=txtype, tx2gene=tx2gene))
+      if (!exists("txi")) {
+        # Remove version from transcript IDs in tx2gene...
+        tx2gene$TXNAME <- sub('\\.[0-9]+$', '', tx2gene$TXNAME)
+        # ...and in txiFiles
+        txi <- tximport(txiFiles, type=txtype, tx2gene=tx2gene, ignoreTxVersion=TRUE)
+      }
       dds <- DESeqDataSetFromTximport(txi,
                                       subset(sampleTable, select=-c(filename)),
                                       designFormula)
