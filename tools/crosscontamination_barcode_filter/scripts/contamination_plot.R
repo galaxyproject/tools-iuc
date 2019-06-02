@@ -149,8 +149,6 @@ contaminationPlot <- function(title, columndata, barcode.data, plate.data, RAW)
     }
 
     plotTheme <- function(){
-        print("HEY")
-        print(ylim.max)
         gplot <<- gplot + theme(plot.title = element_text(hjust = 0.5),
                                 axis.ticks.x=element_blank(), axis.ticks.y=element_blank(),
                                 axis.text.x=element_blank()) +
@@ -168,9 +166,3 @@ contaminationPlot <- function(title, columndata, barcode.data, plate.data, RAW)
 
     return(gplot)
 }
-
-## -- to debug in ESS
-#png("red.png")
-#contaminationPlot("Pre-Filter", colSums(nmatrix), barcode.data, plate.data, RAW=TRUE)
-#contaminationPlot("Post-Filter", colSums(cmatrix), barcode.data, plate.data, RAW=FALSE)
-#dev.off()

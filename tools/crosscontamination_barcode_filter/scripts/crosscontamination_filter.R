@@ -11,8 +11,6 @@ if (length(args) != 1){
 source(args[1])
 
 ## debug in debug dir
-source('../debug/config.debug')
-
 source(file.path(script.dir, "config_assertions.R"))
 source(file.path(script.dir, "batch_plotting_functions.R"))
 source(file.path(script.dir, "reorder_matrix_headers.R"))
@@ -35,7 +33,6 @@ num.plates <- sc$plates.n
 
 barcode.data <- calculateBarcodePositions(spec$format, num.barcodes)
 plate.data <- calculatePlatePositions(spec$plates, num.barcodes, barcode.data)
-
 
 ordering <- reorderMatrixHeaders(barcodes, colnames(input_matrix), spec$format, spec$plates)
 
