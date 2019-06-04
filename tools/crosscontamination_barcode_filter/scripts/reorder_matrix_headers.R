@@ -12,7 +12,7 @@ convertHeadersToSensible <- function(regex.from, regex.to, col.names){
     return(sub(regex.from, regex.to, col.names))
 }
 
-reorderMatrixHeaders <- function(barcodes, headers, barcode.format){
+reorderMatrixHeaders <- function(barcodes, fixed.headers, barcode.format, plate.format){
     #' Reorder headers to segment wanted and unwanted barcodes on opposite sides
     #' of each batch
     #'
@@ -20,42 +20,61 @@ reorderMatrixHeaders <- function(barcodes, headers, barcode.format){
     #' @param headers input matrix headers
     #' @param barcode.format batch list specifying valid barcodes for each batch
     #' @return list of all barcodes sorted bilaterally by batch, and true barcodes
-    form <- barcode.format
-    batch.ordering <- list()
-    batch.ordering.correct <- list()
 
-    res <- sapply(names(form), function(key){
+    batch.ordering <- list()
+    batch.ordering.filtered <- list()
+
+    res <- sapply(names(barcode.format), function(key){
         rng <- as.integer(unlist(strsplit(key, '-')))
         ranges <- seq(rng[1],rng[2])
 
+        # Barcodes wanted and unwanted for this range of batches
         barc.wanted <- barcodes[ranges]
         barc.unwant <- barcodes[!(barcodes %in% barc.wanted)]
 
-        sub.batches <- form[[key]]  # 1,3,5,7 or 2,4,6,8
-        res2 <- lapply(sub.batches, function(bat){
-            batch_bar <- headers[grepl(paste("P\\d_B",bat,"_([ACGT]+)", sep=""), headers)]
-            barcs.in.batch <- sub("P._B._([ACGT]+)", "\\1", batch_bar)
-            b.wanted <- batch_bar[barcs.in.batch %in% barc.wanted]
-            b.unwant <- batch_bar[barcs.in.batch %in% barc.unwant]
+        sub.batches <- barcode.format[[key]]  # 1,3,5,7 or 2,4,6,8
 
-            if (sum(b.wanted %in% b.unwant) > 0){
-                stop("Barcode given twice!", b.wanted[b.wanted %in% b.unwant])
+        res2 <- lapply(sub.batches, function(bat){
+            batch.match <- paste("_B",bat,"_",sep="")
+            headers.in.batch <- fixed.headers[grepl(batch.match, fixed.headers)]
+            barcodes.in.batch <- sub(".*_([ATCGN]+)$", "\\1", headers.in.batch)
+
+            headers.in.batch.wanted <- headers.in.batch[barcodes.in.batch %in% barc.wanted]
+            headers.in.batch.unwant <- headers.in.batch[barcodes.in.batch %in% barc.unwant]
+
+            if (sum(headers.in.batch.wanted %in% headers.in.batch.unwant) > 0){
+                stop("Barcode given twice!", headers.in.batch.wanted[headers.in.batch.wanted %in% headers.in.batch.unwant])
             }
-            barc_order <- c(b.wanted, b.unwant)
-            batch.ordering[[bat]] <<- barc_order
-            batch.ordering.correct[[bat]] <<- b.wanted
+
+            headers.in.batch.neworder <- c(headers.in.batch.wanted, headers.in.batch.unwant)
+            batch.name <- paste("B", bat, sep="")
+
+            batch.ordering[[batch.name]] <<- headers.in.batch.neworder
+            batch.ordering.filtered[[batch.name]] <<- headers.in.batch.wanted
+        })
+    })
+    ## Now we have sorted all our barcodes in each batch to the correct order
+    ## we just have to sort the batches into the correct order according to plating setup
+    barcode.ordering <- c()
+    barcode.ordering.filtered <- c()
+
+    res <- sapply(sort(names(plate.format)), function(plate.num){
+        batches <- plate.format[[plate.num]]
+
+        ## Preserve batch order on plates
+        res2 <- sapply(batches, function(batch.num){
+            batch.name <- paste("B", batch.num, sep="")
+            barcs <- batch.ordering[[batch.name]]
+            barcs.filtered <- batch.ordering.filtered[[batch.name]]
+
+            barcode.ordering <<- c(barcode.ordering, barcs)
+            barcode.ordering.filtered <<- c(barcode.ordering.filtered, barcs.filtered)
         })
     })
 
-    barcode.ordering <- c()
-    barcode.ordering.correct <- c()
-
-    res <- lapply(1:length(batch.ordering), function(bat){
-        barc_order <- batch.ordering[[bat]]
-        barc_order.correct <- batch.ordering.correct[[bat]]
-        barcode.ordering <<- c(barcode.ordering, barc_order)
-        barcode.ordering.correct <<- c(barcode.ordering.correct, barc_order.correct)
-    })
-
-    return(list(all=barcode.ordering,correct=barcode.ordering.correct))
+    return(list(
+        all=barcode.ordering,
+        filtered=barcode.ordering.filtered,
+        debug.barcodes = batch.ordering
+    ))
 }
