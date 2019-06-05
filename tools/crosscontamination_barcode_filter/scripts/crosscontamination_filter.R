@@ -1,5 +1,5 @@
 #!/usr/bin/env R
-VERSION = "0.2"
+VERSION = "0.3"
 
 args = commandArgs(trailingOnly = T)
 

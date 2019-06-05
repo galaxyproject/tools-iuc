@@ -58,7 +58,7 @@ reorderMatrixHeaders <- function(barcodes, fixed.headers, barcode.format, plate.
     barcode.ordering <- c()
     barcode.ordering.filtered <- c()
 
-    res <- sapply(sort(names(plate.format)), function(plate.num){
+    res <- sapply(sortedBatchesOrPlates(names(plate.format)), function(plate.num){
         batches <- plate.format[[plate.num]]
 
         ## Preserve batch order on plates

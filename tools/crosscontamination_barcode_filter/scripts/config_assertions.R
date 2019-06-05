@@ -51,10 +51,10 @@ checkBatchNamesAreValid <- function(headers){
     #' i.e. Batch names are NOT reused across plates
     #'
     #' @param headers matrix headers in P1_B2_ACTG format
-    plate.and.batch <- unique(sort(sub("^(.*)_([ATCGN]+)$", "\\1", headers)))
+    plate.and.batch <- unique(sub("^(.*)_([ATCGN]+)$", "\\1", headers))
     message("Discovered ", length(plate.and.batch), " batches: ", paste(plate.and.batch, collapse=" "))
 
-    batch.only <- sub("^.*_(B\\d)$", "\\1", plate.and.batch)
+    batch.only <- sub("^.*_(B\\d+)$", "\\1", plate.and.batch)
     dupes.batches <- batch.only[duplicated(batch.only)]
 
     if (length(dupes.batches) > 0){

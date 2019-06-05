@@ -5,6 +5,14 @@ suppressPackageStartupMessages(require(data.table))
 ##
 ## Batch Plotting Functions
 ##
+sortedBatchesOrPlates <- function(batch.list){
+    #' B0, B1, B11, B12, B2, B3, ...
+    #' to B0,B1,B2,---B11,B12
+    vals.and.index = sort(as.integer(sub("^[BP]", "", batch.list)), index.return=TRUE)
+    return(batch.list[vals.and.index$ix])
+}
+
+
 calculateBarcodePositions <- function(barcode.form, full.barcode.size){
     #' Determine x-axis positions of all batches under the context of
     #' unfiltered barcodes (full set), filtered (real set), dividing line
@@ -36,7 +44,7 @@ calculateBarcodePositions <- function(barcode.form, full.barcode.size){
     filtered_positions <- list(B0=0)
     filter_in_unfilter <- list(B0=0) ## dividing line between real and false barcodes in each batch
 
-    res <- sapply(sort(names(sizes)), function(batch.name){
+    res <- sapply(sortedBatchesOrPlates(names(sizes)), function(batch.name){
 
         batch.num <- as.integer(sub("B","", batch.name))
         if (batch.num > 0){
@@ -80,7 +88,7 @@ calculatePlatePositions <- function(plate.form, full.barcode.size, all.batch.dat
     unfilter.plates.sizes = list(P0=0)
     filtered.plates.sizes = list(P0=0)
 
-    res <- sapply(sort(names(plate.form)), function(plate.num){
+    res <- sapply(sortedBatchesOrPlates(names(plate.form)), function(plate.num){
 
         unfilter.plate.size = 0
         filtered.plate.size = 0
@@ -89,7 +97,6 @@ calculatePlatePositions <- function(plate.form, full.barcode.size, all.batch.dat
 
         res2 <- sapply(sort(batches), function(batch.num){
             batch.size <- all.batch.data["sizes",paste("B", batch.num, sep="")]
-
             unfilter.plate.size <<- unfilter.plate.size + full.barcode.size
             filtered.plate.size <<- filtered.plate.size + batch.size
         })
