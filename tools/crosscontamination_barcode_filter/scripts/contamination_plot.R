@@ -39,58 +39,75 @@ contaminationPlot <- function(title, columndata, barcode.data, plate.data, RAW)
 
         plate.minyval <- -200
         plate.color <- "grey"
-        plate.text.color <- "red"
-        plate.text.alpha <- 0.5
-        plate.height <- 2* maxval / 5
-        plate.spacing <- 12
+        plate.size <- 2
+        plate.text.color <- "#7a0909"
+        plate.text.alpha <- 1
+        plate.text.height <- -200
+        plate.height <- 4 * maxval / 5
+        plate.spacing <- 35
         plate.height.text <- plate.height - 3000
-        plate.text.size <- 3
+        plate.text.size <- 3.5
 
+        ## Connecting bar underneath
+        gplot <<- gplot + geom_segment(aes(x=min(unname(unlist(plate.boundaries))), xend=max(unname(unlist(plate.boundaries))),
+                                           y=plate.minyval, yend=plate.minyval), color=plate.color, lty=1, size=plate.size,
+                                       linejoin="round", lineend="round")
 
+        ## Overlay text
         zzz <- lapply(names(plate.boundaries), function(plate.name){
             plate.num = as.integer(sub("P","",plate.name))
             plate.xval = plate.boundaries[[plate.name]]
 
-            ## If not first plate -- inner boundary, print next plate name to the right
-            if (plate.name != names(plate.boundaries)[length(plate.boundaries)]){
-                gplot <<- gplot + annotate("text", x=plate.xval + plate.spacing, label=paste("Plate", plate.num + 1),
-                                           size=plate.text.size, y=plate.height*0.7, angle=-90,
+            ## ## If not first plate -- inner boundary, print next plate name to the right
+            ## if (plate.name != names(plate.boundaries)[length(plate.boundaries)]){
+            ##     gplot <<- gplot + annotate("text", x=plate.xval + plate.spacing, label=paste("Plate", plate.num + 1),
+            ##                                size=plate.text.size, y=plate.height*0.7, angle=-90,
+            ##                                color=plate.text.color, alpha=plate.text.alpha)
+            ## }
+            ## ## If not last plate -- inner boundary, print previous name to the left
+            ## if (plate.name != names(plate.boundaries)[1]){
+            ##     gplot <<- gplot + annotate("text", x=plate.xval - plate.spacing, label=paste("Plate", plate.num),
+            ##                                size=plate.text.size, y=plate.height*0.7, angle=90,
+            ##                                color=plate.text.color, alpha=plate.text.alpha)
+            ## }
+           
+            gplot <<- gplot + geom_segment(aes(x=plate.xval, xend=plate.xval, y=plate.minyval, yend=plate.height), color=plate.color, lty=1, size=plate.size)
+
+            if (plate.num > 0){
+                ## Print under, between plates
+                prev.plate.name <- paste("P", plate.num - 1, sep="")
+                prev.plate.xval <- plate.boundaries[[prev.plate.name]]
+                p.xval = as.integer((plate.xval + prev.plate.xval)/2)
+
+                gplot <<- gplot + annotate("text", x=p.xval, label=paste("Plate", plate.num),
+                                           size=plate.text.size, y=plate.text.height-200,
                                            color=plate.text.color, alpha=plate.text.alpha)
             }
-            ## If not last plate -- inner boundary, print previous name to the left
-            if (plate.name != names(plate.boundaries)[1]){
-                gplot <<- gplot + annotate("text", x=plate.xval - plate.spacing, label=paste("Plate", plate.num),
-                                           size=plate.text.size, y=plate.height*0.7, angle=90,
-                                           color=plate.text.color, alpha=plate.text.alpha)
-            }
-            gplot <<- gplot + geom_segment(aes(x=plate.xval, xend=plate.xval, y=plate.minyval, yend=plate.height), color=plate.color, lty=1, size=1)
         })
 
-        ## Connecting bar underneath
-        gplot <<- gplot + geom_segment(aes(x=min(unname(unlist(plate.boundaries))), xend=max(unname(unlist(plate.boundaries))),
-                                           y=plate.minyval, yend=plate.minyval), color=plate.color, lty=1, size=1)
     }
 
 
     drawBatches <- function(barcode.data, plate.data){
         batch.minyval = -200
-        divide.color <- "grey"
+        divide.color <- "red"
         divide.style <- 2 ## dashed
         divide.size <- 0.3
+        divide.text.size <- 2
+        divide.height <- (maxval * 7/8) - 500
         boundary.color <- "blue"
         boundary.style <- 1
         boundary.size <- 0.5
         divide.text.true.color <- "blue"
         divide.text.false.color <- "black"
-        divide.text.name.color <- "grey"
-        batch.text.height <- maxval * 4/5
-        batch.text.tf.height <- maxval * 2/5
-        batch.text.tf.spacing <- 12
+        divide.text.name.color <- "#7a0909"
+        batch.text.tf.height <- divide.height * 7/8
+        batch.text.tf.spacing <- 20
         batch.text.alpha <- 0.8
         batch.text.size <- 3
-        batch.label.text.size <- 6
-        batch.height <- maxval * 4/5
-        divide.height <- maxval * 4/5
+        batch.label.text.size <- 4
+        batch.height <- maxval
+        batch.text.height <- maxval * 7/8
         batch.spacing <- 24
 
         boundary.pos <- barcode.data["filtered_positions",]
@@ -123,19 +140,27 @@ contaminationPlot <- function(title, columndata, barcode.data, plate.data, RAW)
                                                color=divide.color, lty=divide.style, size=divide.size)
 
                     ## Plot the True/False labels
-                    gplot <<- gplot + annotate("text", x=divide.xval - batch.text.tf.spacing, label="True positives",
-                                               size=batch.text.size, y=batch.text.tf.height, angle=+90,
-                                               color=divide.text.true.color, alpha=batch.text.alpha)
-                    gplot <<- gplot + annotate("text", x=divide.xval + batch.text.tf.spacing, label="False positives",
-                                               size=batch.text.size, y=batch.text.tf.height, angle=-90,
+                    gplot <<- gplot + annotate("text", x=divide.xval - batch.text.tf.spacing, label="False positives",
+                                               size=divide.text.size, y=batch.text.tf.height, angle=+90,
                                                color=divide.text.false.color, alpha=batch.text.alpha)
+                    gplot <<- gplot + annotate("text", x=divide.xval + batch.text.tf.spacing, label="True positives",
+                                               size=divide.text.size, y=batch.text.tf.height, angle=-90,
+                                               color=divide.text.true.color, alpha=batch.text.alpha)
                     ## Plot the Batch names
                     gplot <<- gplot + annotate("text", x=divide.xval, label=batch.name,
                                                size=batch.label.text.size, y=batch.text.height, angle=0,
-                                               color = divide.text.name.color, alpha=batch.text.alpha)
+                                               color=divide.text.name.color, alpha=batch.text.alpha)
                 } else {
                     ## Plot the Batch names between blue lines
-                    gplot <<- gplot + annotate("text", x=batch.xval, label=batch.name,
+                    ##
+                    ## We calculate this by taking the middle between current batch blue lines
+                    ## and previous blue line
+                    prev.batch.name = paste("B", batch.num - 1, sep="")
+                    prev.batch.xval = unname(unlist(boundary.pos[[prev.batch.name]]))
+
+                    b.xval <- as.integer((batch.xval + prev.batch.xval)/2)
+
+                    gplot <<- gplot + annotate("text", x=b.xval, label=batch.name,
                                                size=batch.label.text.size, y=batch.text.height, angle=0,
                                                color = divide.text.name.color, alpha=batch.text.alpha)
                 }
@@ -159,9 +184,9 @@ contaminationPlot <- function(title, columndata, barcode.data, plate.data, RAW)
 
 
     gplot <- ggplot()
-    drawPlates(plate.data)
-    drawBatches(barcode.data, plate.data)
     plotCells(coldata)
+    drawBatches(barcode.data, plate.data)
+    drawPlates(plate.data)
     plotTheme()
 
     return(gplot)

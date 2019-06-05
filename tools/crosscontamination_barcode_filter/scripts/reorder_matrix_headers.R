@@ -12,14 +12,18 @@ convertHeadersToSensible <- function(regex.from, regex.to, col.names){
     return(sub(regex.from, regex.to, col.names))
 }
 
-reorderMatrixHeaders <- function(barcodes, fixed.headers, barcode.format, plate.format){
+reorderMatrixHeaders <- function(barcodes, count.matrix, barcode.format, plate.format, sort.cells){
     #' Reorder headers to segment wanted and unwanted barcodes on opposite sides
     #' of each batch
     #'
     #' @param barcodes list of full barcodes
-    #' @param headers input matrix headers
+    #' @param count.matrix input matrix
     #' @param barcode.format batch list specifying valid barcodes for each batch
+    #' @param plate.format plate list specifying plate format for each batch
+    #' @param sort.cells sort cells by sizes
     #' @return list of all barcodes sorted bilaterally by batch, and true barcodes
+
+    fixed.headers <- colnames(count.matrix)
 
     batch.ordering <- list()
     batch.ordering.filtered <- list()
@@ -46,7 +50,17 @@ reorderMatrixHeaders <- function(barcodes, fixed.headers, barcode.format, plate.
                 stop("Barcode given twice!", headers.in.batch.wanted[headers.in.batch.wanted %in% headers.in.batch.unwant])
             }
 
-            headers.in.batch.neworder <- c(headers.in.batch.wanted, headers.in.batch.unwant)
+            ## Perform cell sorting if desired
+            if (sort.cells){
+                wanted.sorted.n <- names(sort(colSums(count.matrix[headers.in.batch.wanted])))
+                unwant.sorted.n <- names(sort(colSums(count.matrix[headers.in.batch.unwant])))
+
+                headers.in.batch.wanted <- wanted.sorted.n
+                headers.in.batch.unwant <- unwant.sorted.n
+            }
+
+            ## False on the left, True on the right
+            headers.in.batch.neworder <- c(headers.in.batch.unwant, headers.in.batch.wanted)
             batch.name <- paste("B", bat, sep="")
 
             batch.ordering[[batch.name]] <<- headers.in.batch.neworder

@@ -30,11 +30,10 @@ num.barcodes <- sc$barc.n
 num.batches <- sc$batch.n
 num.plates <- sc$plates.n
 
-
 barcode.data <- calculateBarcodePositions(spec$format, num.barcodes)
 plate.data <- calculatePlatePositions(spec$plates, num.barcodes, barcode.data)
 
-ordering <- reorderMatrixHeaders(barcodes, colnames(input_matrix), spec$format, spec$plates)
+ordering <- reorderMatrixHeaders(barcodes, input_matrix, spec$format, spec$plates, sort.cells)
 
 ## Unfiltered, but sorted matrix
 nmatrix <- input_matrix[,ordering$all]
