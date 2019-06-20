@@ -541,7 +541,10 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
             shutil.copyfile(f, target_file)
         # Add entry to data table
         table_name = "mothur_%s" % type_
-        add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
+        if type_ == "aligndb":
+            add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file, aligned=is_aligned(f)))
+        else:
+            add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
 
 
 if __name__ == "__main__":
