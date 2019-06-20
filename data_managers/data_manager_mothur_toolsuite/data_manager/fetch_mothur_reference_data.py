@@ -408,17 +408,18 @@ def identify_type(filen):
         print("WARNING: unknown file type for " + filen + ", skipping")
         return None
 
+
 def is_aligned(filen):
-    """Return seq/1 depending if the data is 
+    """Return seq/1 depending if the data is
     - unaligned (extension is fasta)
     - aligned (otherwise)
     """
     ext = os.path.splitext(filen)[1]
-    print(filen,ext)
     if ext == ".fasta":
         return "seq"
     else:
         return "align"
+
 
 def get_name(filen):
     """Generate a descriptive name based on the file name
@@ -545,7 +546,6 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
             add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file, aligned=is_aligned(f)))
         else:
             add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
-
 
 if __name__ == "__main__":
     print("Starting...")
