@@ -30,9 +30,13 @@
             --runMode genomeGenerate
             --genomeDir 'tempstargenomedir'
             --genomeFastaFiles '${refGenomeSource.genomeFastaFiles}'
-            #if $refGenomeSource.sjdbGTFfile:
-                --sjdbGTFfile '${refGenomeSource.sjdbGTFfile}'
-                --sjdbOverhang '${refGenomeSource.sjdbOverhang}'
+            ## Handle difference between indices with/without annotations
+            #if str($refGenomeSource.GTFconditional.GTFselect) == 'with-gtf':
+                --sjdbOverhang '${refGenomeSource.GTFconditional.sjdbOverhang}'
+                --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
+                #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
+                    --sjdbGTFtagExonParentTranscript Parent
+                #end if
             #end if
             #if str($refGenomeSource.genomeSAindexNbases):
                 --genomeSAindexNbases ${refGenomeSource.genomeSAindexNbases}
@@ -47,12 +51,18 @@
         --genomeDir
         #if str($refGenomeSource.geneSource) == 'history':
             'tempstargenomedir'
-            #if $refGenomeSource.sjdbGTFfile:
-                --sjdbGTFfile '$refGenomeSource.sjdbGTFfile'
-                --sjdbOverhang '$refGenomeSource.sjdbOverhang'
-            #end if
-        #else
+        #else:
             '${refGenomeSource.GTFconditional.genomeDir.fields.path}'
+            ## Handle difference between indices with/without annotations
+            #if str($refGenomeSource.GTFconditional.GTFselect) == 'with-gtf':
+                #if $refGenomeSource.GTFconditional.sjdbGTFfile:
+                    --sjdbOverhang '$refGenomeSource.GTFconditional.sjdbOverhang'
+                    --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
+                    #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
+                        --sjdbGTFtagExonParentTranscript Parent
+                    #end if
+                #end if
+            #end if
         #end if
 
         --readFilesIn
@@ -75,27 +85,19 @@
 
         --outSAMtype BAM SortedByCoordinate
 
-        ## Handle difference between indices with/without annotations
-        #if str($refGenomeSource.geneSource) == 'indexed':
-            #if str($refGenomeSource.GTFconditional.GTFselect) == 'without-gtf':
-                #if $refGenomeSource.GTFconditional.sjdbGTFfile:
-                    --sjdbOverhang '$refGenomeSource.GTFconditional.sjdbOverhang'
-                    --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
-                    #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
-                        --sjdbGTFtagExonParentTranscript Parent
-                    #end if
-                #end if
-            #end if
-        #end if
-
         ## Two pass mode
         --twopassMode ${twopass.twopassMode} ${twopass.twopass_read_subset}
         #for $sj_input in $twopass.sj_precalculated:
             $sj_input
         #end for
         #if str($twopass.twopassMode) != "None":
-            #if not $refGenomeSource.sjdbGTFfile:
-                --sjdbOverhang '$refGenomeSource.sjdbOverhang'
+            #if str($refGenomeSource.GTFconditional.GTFselect) == 'with-gtf':
+                #if not $refGenomeSource.GTFconditional.sjdbGTFfile:
+                    ## case of cached index without built-in gene model,
+                    ## when user does not supply the optional gtf, but
+                    ## specifies the splice junction overhang
+                    --sjdbOverhang '$refGenomeSource.GTFconditional.sjdbOverhang'
+                #end if
             #end if
         #end if
 
@@ -294,15 +296,15 @@
             <when value="indexed">
                 <conditional name="GTFconditional">
                     <param name="GTFselect" type="select" label="Reference genome with or without an annotation" help="Must the index have been created WITH a GTF file (if not you can specify one afterward).">
-                        <option value="without-gtf">use genome reference without builtin gene-model</option>
-                        <option value="with-gtf">use genome reference with builtin gene-model</option>
+                        <option value="without-gtf">use genome reference with builtin gene-model</option>
+                        <option value="with-gtf">use genome reference without builtin gene-model</option>
                     </param>
                     <when value="with-gtf">
-                        <expand macro="index_selection" with_gtf="1" />
+                        <expand macro="index_selection" with_gene_model="0" />
+                        <expand macro="@SJDBOPTIONS@" />
                     </when>
                     <when value="without-gtf">
-                        <expand macro="index_selection" with_gtf="0" />
-                        <expand macro="@SJDBOPTIONS@" />
+                        <expand macro="index_selection" with_gene_model="1" />
                     </when>
                 </conditional>
             </when>
@@ -312,7 +314,17 @@
                 but used only in the tests to avoid excessive index sizes for
                 the tiny test genomes. -->
                 <param name="genomeSAindexNbases" type="hidden" value="" />
-                <expand macro="@SJDBOPTIONS@" />
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" type="select"
+                    label="Build index with our without transcript annotation">
+                        <option value="without-gtf">build index without gene-model</option>
+                        <option value="with-gtf">build index with gene-model</option>
+                    </param>
+                    <when value="with-gtf">
+                        <expand macro="@SJDBOPTIONS@" optional="false"/>
+                    </when>
+                    <when value="without-gtf" />
+                </conditional>
             </when>
         </conditional>
         <conditional name="twopass">
@@ -586,7 +598,7 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="indexed" />
                 <conditional name="GTFconditional">
-                    <param name="GFTSelect" value="without-gtf" />
+                    <param name="GTFselect" value="with-gtf" />
                     <param name="genomeDir" value="000" />
                 </conditional>
             </conditional>
@@ -613,8 +625,11 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="tophat_test.fa" />
                 <param name="genomeSAindexNbases" value="5" />
-                <param name="sjdbOverhang" value="75"/>
-                <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" value="with-gtf" />
+                    <param name="sjdbOverhang" value="75"/>
+                    <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+                </conditional>
             </conditional>
             <conditional name="quantmode_output">
                 <param name="quantMode" value="GeneCounts"/>
@@ -644,8 +659,11 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="tophat_test.fa" />
                 <param name="genomeSAindexNbases" value="5" />
-                <param name="sjdbOverhang" value="75"/>
-                <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" value="with-gtf" />
+                    <param name="sjdbOverhang" value="75"/>
+                    <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+                </conditional>
             </conditional>
             <conditional name="quantmode_output">
                 <param name="quantMode" value="TranscriptomeSAM"/>
@@ -776,6 +794,8 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <output name="splice_junctions" file="rnastar_test_splicejunctions.bed"/>
             <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" />
         </test>
+        <!-- twopass mode tests -->
+        <!-- test Basic twopass -->
         <test expect_num_outputs="3">
             <conditional name="singlePaired">
                 <param name="sPaired" value="single" />
@@ -809,6 +829,43 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <output name="splice_junctions" file="rnastar_test_splicejunctions_twopass.bed"/>
             <output name="mapped_reads" file="rnastar_test_mapped_reads_twopass.bam" compare="sim_size" delta="634" />
         </test>
+        <!-- test Basic twopass without a gtf file option -->
+        <test expect_num_outputs="3">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="single" />
+                <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
+            </conditional>
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="indexed" />
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" value="without-gtf" />
+                    <param name="genomeDir" value="001" />
+                </conditional>
+            </conditional>
+            <conditional name="twopass">
+                <param name="twopassMode" value="Basic" />
+            </conditional>
+            <section name="oformat">
+                <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
+                <param name="outSAMmapqUnique" value="255" />
+            </section>
+            <section name="filter">
+                <param name="basic_filters" value="exclude_unmapped,--outFilterIntronMotifs RemoveNoncanonical" />
+                <conditional name="output_params2">
+                    <param name="output_select2" value="yes" />
+                </conditional>
+            </section>
+            <section name="algo">
+                <conditional name="params">
+                    <param name="settingsType" value="full" />
+                </conditional>
+            </section>
+
+            <output name="output_log" file="rnastar_test_twopass.log" compare="re_match_multiline" />
+            <output name="splice_junctions" file="rnastar_test_splicejunctions_twopass.bed"/>
+            <output name="mapped_reads" file="rnastar_test_mapped_reads_twopass.bam" compare="sim_size" delta="634" />
+        </test>
+        <!-- test "multisample" twopass -->
         <test expect_num_outputs="3">
             <conditional name="singlePaired">
                 <param name="sPaired" value="single" />
