@@ -88,10 +88,6 @@
             #end if
         #end if
 
-        #if $quantMode:
-            --quantMode GeneCounts
-        #end if
-
         ## Two pass mode
         --twopassMode ${twopass.twopassMode} ${twopass.twopass_read_subset}
         #for $sj_input in $twopass.sj_precalculated:
@@ -101,6 +97,11 @@
             #if not $refGenomeSource.sjdbGTFfile:
                 --sjdbOverhang '$refGenomeSource.sjdbOverhang'
             #end if
+        #end if
+
+        --quantMode ${quantmode_output.quantMode}
+        #if 'TranscriptomeSAM' in str($quantmode_output.quantMode):
+            --quantTranscriptomeBan ${quantmode_output.quantTranscriptomeBan}
         #end if
 
         ## Output format parameters
@@ -206,7 +207,7 @@
             --peOverlapNbasesMin ${algo.params.align.peOverlapNbasesMin}
             --peOverlapMMp ${algo.params.align.peOverlapMMp}
             ## Chimeric alignment parameter options
-            #if str( $chimeric.chim_select ) == "yes":
+            #if str($chimOutType):
                 --chimSegmentMin "${algo.params.align.chim_settings.chimSegmentMin}"
                 --chimScoreMin "${algo.params.align.chim_settings.chimScoreMin}"
                 --chimScoreDropMax "$algo.params.align.chim_settings.chimScoreDropMax"
@@ -214,7 +215,7 @@
                 --chimScoreJunctionNonGTAG "$algo.params.align.chim_settings.chimScoreJunctionNonGTAG"
                 --chimJunctionOverhangMin "$algo.params.align.chim_settings.chimJunctionOverhangMin"
                 --chimMainSegmentMultNmax "$algo.params.align.chim_settings.chimMainSegmentMultNmax"
-                #if str($chimeric.chimOutType) == "Junctions":
+                #if str($chimOutType) == "Junctions":
                     --chimMultimapNmax "$algo.params.align.chim_settings.chimMultimapNmax"
                 #else:
                     --chimMultimapNmax 0
@@ -228,10 +229,18 @@
             --limitSjdbInsertNsj "$algo.params.limits.limitSjdbInsertNsj"
         #else:
             ## Go with STAR's default algorithmic settings,
-            ## but for consistency make the default value of --chimMultimapNmax
-            ## dependent on the chosen reporting format of chimeric alignments
-            #if str( $chimeric.chim_select ) == "yes" and str($chimeric.chimOutType) == "Junctions":
-                --chimMultimapNmax 1
+            ## but we need to provide a reasonable default
+            ## (taken from STAR-Fusion)
+            ## for --chimSegmentMin in case the user enabled chimeric
+            ## alignments (the STAR default is 0, which disables chimeric
+            ## alignments). For consistency, also set
+            ## --chimMultimapNmax to 1 when chimeric alignments are reported
+            ## in Junctions format only.
+            #if str($chimOutType):
+                --chimSegmentMin 12
+                #if str($chimOutType) == "Junctions":
+                    --chimMultimapNmax 1
+                #end if
             #end if
         #end if
 
@@ -240,15 +249,20 @@
         --limitBAMsortRAM \$((\${GALAXY_MEMORY_MB:-0}*1000000))
 
         ## Handle chimeric options and output
-        #if str($chimeric.chim_select) == "yes":
-            --chimOutType ${chimeric.chimOutType}
-            #if "Junctions" in str($chimeric.chimOutType):
+        #if str($chimOutType):
+            --chimOutType $chimOutType
+            #if 'Junctions' in str($chimOutType):
                 --chimOutJunctionFormat 1
             #end if
         #end if
         &&
         ## recompress BAM output for smaller file size
         samtools view -b -o '$mapped_reads' Aligned.sortedByCoord.out.bam
+        #if 'TranscriptomeSAM' in str($quantmode_output.quantMode):
+            ## same recompression for optional transcriptome BM
+            &&
+            samtools view -b -o '$transcriptome_mapped_reads' Aligned.toTranscriptome.out.bam
+        #end if
     ]]></command>
 
     <inputs>
@@ -301,7 +315,6 @@
                 <expand macro="@SJDBOPTIONS@" />
             </when>
         </conditional>
-        <param argument="--quantMode" type="boolean" label="Count number of reads per gene" help="column 1: gene ID, column 2: counts for unstranded RNA-seq, column 3: counts for the 1st read strand aligned with RNA , column 4: counts for the 2nd read strand aligned with RNA. This requires either (A) an index that was built with an annotation (GTF or GFF3 file) or (B) having specified an annotation (GTF or GFF3 file above)."/>
         <conditional name="twopass">
             <param argument="--twopassMode" type="select"
             label="Use 2-pass mapping for more sensitive novel splice junction discovery"
@@ -329,24 +342,36 @@
                 label="Pregenerated splice junctions datasets of your samples" />
             </when>
         </conditional>
-        <conditional name="chimeric">
-            <param name="chim_select" type="select"
-            label="Would you like to detect chimeric alignments?"
-            help="Enable if you want to detect unusual alignments of your reads/read pairs (alignments involving different chromosomes or strands, or to distant chromosomal regions). STAR-Fusion users: select Yes here">
-                <option value="no" selected="true">No</option>
-                <option value="yes">Yes</option>
+        <conditional name="quantmode_output">
+            <param argument="--quantMode" type="select"
+            label="Per gene/transcript output"
+            help="column 1: gene ID, column 2: counts for unstranded RNA-seq, column 3: counts for the 1st read strand aligned with RNA , column 4: counts for the 2nd read strand aligned with RNA. This requires either (A) an index that was built with an annotation (GTF or GFF3 file) or (B) having specified an annotation (GTF or GFF3 file above).">
+                <option value="-">No per gene or transcript output</option>
+                <option value="GeneCounts">Per gene read counts (GeneCounts)</option>
+                <option value="TranscriptomeSAM">Transcript-based BAM output (TranscriptomeSAM)</option>
+                <option value="TranscriptomeSAM GeneCounts">Both per gene read counts and transcript-based BAM output (TranscriptomeSAM GeneCounts)</option>
             </param>
-            <when value="yes">
-                <param argument="--chimOutType" type="select" display="radio"
-                label="Report chimeric alignments"
-                help="Select the reporting format for the chimeric alignments. STAR-Fusion users should select the Junctions option and use the resulting tabular dataset as input to STAR-Fusion. Everyone else: please note that selecting WithinBAM or WithinBAM Junctions disables the --chimMultimapNmax setting in the algorithmic parameters section below (the tool will only consider uniquely mapped reads in the search for chimeric alignments).">
-                    <option value="Junctions">as separate tabular "Junctions" output (Junctions)</option>
-                    <option value="WithinBAM">within the BAM output (together with regular alignments; WithinBAM)</option>
-                    <option value="WithinBAM Junctions">in both forms (WithinBAM Junctions)</option>
-                </param>
+            <when value="-" />
+            <when value="GeneCounts" />
+            <when value="TranscriptomeSAM">
+                <param argument="--quantTranscriptomeBan" type="boolean" truevalue="IndelSoftclipSingleend" falsevalue="Singleend"
+                label="Exclude alignments with indels or soft clipping from the transcriptome BAM output?"
+                help="You will need to exclude alignments with indels and soft-clipped bases from the transcriptome BAM output for compatibility with certain transcript quantification tools, most notably RSEM. If you are using a tool, like eXpress, that can deal with indels and soft-clipped bases, you can achieve better results by leaving this option disabled." />
             </when>
-            <when value="no" />
+            <when value="TranscriptomeSAM GeneCounts">
+                <param argument="--quantTranscriptomeBan" type="boolean" truevalue="IndelSoftclipSingleend" falsevalue="Singleend"
+                label="Exclude alignments with indels or soft clipping from the transcriptome BAM output?"
+                help="You will need to exclude alignments with indels and soft-clipped bases from the transcriptome BAM output for compatibility with certain transcript quantification tools, most notably RSEM. If you are using a tool, like eXpress, that can deal with indels and soft-clipped bases, you can achieve better results by leaving this option disabled." />
+            </when>
         </conditional>
+        <param argument="--chimOutType" type="select"
+        label="Report chimeric alignments?"
+        help="Select the reporting format for the chimeric alignments. STAR-Fusion users should select the Junctions option and use the resulting tabular dataset as input to STAR-Fusion. Everyone else: please note that selecting WithinBAM or WithinBAM Junctions disables the --chimMultimapNmax setting in the algorithmic parameters section below (the tool will only consider uniquely mapped reads in the search for chimeric alignments).">
+            <option value="">Don't report chimeric alignments</option>
+            <option value="Junctions">As separate tabular "Junctions" output (Junctions)</option>
+            <option value="WithinBAM">Within the BAM output (together with regular alignments; WithinBAM)</option>
+            <option value="WithinBAM Junctions">In both forms (WithinBAM Junctions)</option>
+        </param>
 
         <section name="oformat" title="BAM output format specification" expanded="True">
             <param argument="--outSAMattributes" type="select" display="checkboxes" multiple="true" optional="true"
@@ -471,7 +496,7 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                             </param>
                             <when value="no" />
                             <when value="yes">
-                                <param argument="--chimSegmentMin" type="integer" min="1" value="12" label="Minimum length of chimeric segment" help="For small numbers this will cause large number of chimeric alignments. A value of 12 is commonly used. Default of 0 means no chimeric output" />
+                                <param argument="--chimSegmentMin" type="integer" min="1" value="12" label="Minimum length of chimeric segment" help="For small numbers this will cause large number of chimeric alignments. A value of 12 is commonly used." />
                                 <param argument="--chimScoreMin" type="integer" min="0" value="0" label="Minimum total (summed) score of chimeric segments"/>
                                 <param argument="--chimScoreDropMax" type="integer" min="0" value="20" label="Maximum difference of chimeric score from read length"/>
                                 <param argument="--chimScoreSeparation" type="integer" min="0" value="10" label="Minimum difference between the best chimeric score and the next one"/>
@@ -505,7 +530,7 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
         </data>
 
         <data format="interval" name="chimeric_junctions" label="${tool.name} on ${on_string}: chimeric junctions" from_work_dir="Chimeric.out.junction">
-            <filter>(chimeric['chim_select'] == "yes") and ("Junctions" in chimeric['chmiOutType'])</filter>
+            <filter>('Junctions' in chimOutType)</filter>
             <expand macro="dbKeyActions" />
         </data>
 
@@ -517,8 +542,13 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <expand macro="dbKeyActions" />
         </data>
 
+        <data name="transcriptome_mapped_reads" format="unsorted.bam" label="${tool.name} on ${on_string}: transcriptome-mapped.bam" >
+            <filter>'TranscriptomeSAM' in quantmode_output['quantMode']</filter>
+            <expand macro="dbKeyActions" />
+        </data>
+
         <data name="reads_per_gene" format="tabular" label="${tool.name} on ${on_string}: reads per gene" from_work_dir="ReadsPerGene.out.tab">
-            <filter>quantMode is True</filter>
+            <filter>'GeneCounts' in quantmode_output['quantMode']</filter>
             <expand macro="dbKeyActions" />
         </data>
     </outputs>
@@ -573,7 +603,8 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <output name="splice_junctions" file="rnastar_test_splicejunctions.bed"/>
             <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" />
         </test>
-        <test expect_num_outputs="4"><!-- tests gtf file and GeneCounts mode -->
+        <!-- test gtf file and GeneCounts mode -->
+        <test expect_num_outputs="4">
             <conditional name="singlePaired">
                 <param name="sPaired" value="single" />
                 <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
@@ -585,7 +616,9 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                 <param name="sjdbOverhang" value="75"/>
                 <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
             </conditional>
-            <param name="quantMode" value="True"/>
+            <conditional name="quantmode_output">
+                <param name="quantMode" value="GeneCounts"/>
+            </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
                 <param name="outSAMmapqUnique" value="255" />
@@ -600,6 +633,37 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <output name="splice_junctions" file="rnastar_test_splicejunctions.bed"/>
             <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" />
             <output name="reads_per_gene" file="tophat_test_reads_per_gene.txt" />
+        </test>
+        <!-- test gtf file and TranscriptomeSAM mode -->
+        <test expect_num_outputs="4">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="single" />
+                <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
+            </conditional>
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="tophat_test.fa" />
+                <param name="genomeSAindexNbases" value="5" />
+                <param name="sjdbOverhang" value="75"/>
+                <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+            </conditional>
+            <conditional name="quantmode_output">
+                <param name="quantMode" value="TranscriptomeSAM"/>
+            </conditional>
+            <section name="oformat">
+                <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
+                <param name="outSAMmapqUnique" value="255" />
+            </section>
+            <section name="algo">
+                <conditional name="params">
+                    <param name="settingsType" value="default" />
+                </conditional>
+            </section>
+
+            <output name="output_log" file="rnastar_test.log" compare="re_match_multiline" />
+            <output name="splice_junctions" file="rnastar_test_splicejunctions.bed"/>
+            <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" />
+            <output name="transcriptome_mapped_reads" file="rnastar_test_transcriptome_mapped_reads.bam" />
         </test>
         <test expect_num_outputs="3">
             <conditional name="singlePaired">
@@ -646,9 +710,7 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                 <param name="genomeFastaFiles" value="test3.ref.fa" />
                 <param name="genomeSAindexNbases" value="5" />
             </conditional>
-            <conditional name="chimeric">
-                <param name="chim_select" value="yes" />
-            </conditional>
+            <param name="chimOutType" value="Junctions" />
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch,XS" />
                 <param name="outSAMmapqUnique" value="255" />
@@ -671,9 +733,7 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                 <param name="genomeFastaFiles" value="test3.ref.fa" />
                 <param name="genomeSAindexNbases" value="5" />
             </conditional>
-            <conditional name="chimeric">
-                <param name="chim_select" value="yes" />
-            </conditional>
+            <param name="chimOutType" value="Junctions" />
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch,XS" />
                 <param name="outSAMmapqUnique" value="255" />
@@ -695,9 +755,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="tophat_test.fa" />
                 <param name="genomeSAindexNbases" value="5" />
-            </conditional>
-            <conditional name="chimeric">
-                <param name="chim_select" value="no" />
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
@@ -732,9 +789,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <conditional name="twopass">
                 <param name="twopassMode" value="Basic" />
             </conditional>
-            <conditional name="chimeric">
-                <param name="chim_select" value="no" />
-            </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
                 <param name="outSAMmapqUnique" value="255" />
@@ -768,9 +822,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <conditional name="twopass">
                 <param name="twopassMode" value="None --sjdbFileChrStartEnd" />
                 <param name="sj_precalculated" value="rnastar_test_splicejunctions_twopass.bed" />
-            </conditional>
-            <conditional name="chimeric">
-                <param name="chim_select" value="no" />
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
