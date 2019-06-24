@@ -12,7 +12,7 @@ def main():
     parser.add_argument( '--name' )
     parser.add_argument( '--subdir' )
     parser.add_argument( '--data-table' )
-    parser.add_argument( '--withGTF', action='store_true' )
+    parser.add_argument( '--with-gene-model', action='store_true' )
     parser.add_argument( '--index-version' )
 
     args = parser.parse_args()
@@ -20,11 +20,11 @@ def main():
     if args.dbkey in [ None, '', '?' ]:
         raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( args.dbkey ) )
 
-    withGTF = "0"
-    if args.withGTF:
-        withGTF = "1"
+    with_gene_model = "0"
+    if args.with_gene_model:
+        with_gene_model = "1"
 
-    data_manager_dict = {'data_tables': {args.data_table: [dict({"value": args.value, "dbkey": args.dbkey, "name": args.name, "path": args.subdir, "with-gtf": withGTF, "version": args.index_version} )]}}
+    data_manager_dict = {'data_tables': {args.data_table: [dict({"value": args.value, "dbkey": args.dbkey, "name": args.name, "path": args.subdir, "with_gene_model": with_gene_model, "version": args.index_version} )]}}
     open( args.config_file, 'w' ).write( json.dumps( data_manager_dict ) )
 
 
