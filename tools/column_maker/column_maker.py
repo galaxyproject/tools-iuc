@@ -12,7 +12,7 @@ assert sys.version_info[:2] >= ( 2, 4 )
 
 def stop_err( msg ):
     sys.stderr.write( msg )
-    sys.exit()
+    sys.exit(1)
 
 inp_file = sys.argv[1]
 out_file = sys.argv[2]
@@ -22,8 +22,8 @@ try:
     in_columns = int( sys.argv[5] )
 except:
     stop_err( "Missing or invalid 'columns' metadata value, click the pencil icon in the history item and select the Auto-detect option to correct it.  This tool can only be used with tab-delimited data." )
-if in_columns < 2:
-    # To be considered tabular, data must fulfill requirements of the sniff.is_column_based() method.
+if in_columns < 1:
+    # To be considered tabular, data must have at least one column.
     stop_err( "Missing or invalid 'columns' metadata value, click the pencil icon in the history item and select the Auto-detect option to correct it.  This tool can only be used with tab-delimited data." )
 try:
     in_column_types = sys.argv[6].split( ',' )
@@ -67,6 +67,9 @@ for col in range( 1, in_columns + 1 ):
 col_str = ', '.join( cols )    # 'c1, c2, c3, c4'
 type_cast_str = ', '.join( type_casts )  # 'str(c1), int(c2), int(c3), str(c4)'
 assign = "%s = line.split( '\\t' )" % col_str
+if len(cols) == 1:
+    # Single column, unpacking by assignment won't work
+    assign += '[0]'
 wrap = "%s = %s" % ( col_str, type_cast_str )
 skipped_lines = 0
 first_invalid_line = 0
