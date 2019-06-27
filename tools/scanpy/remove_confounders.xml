@@ -30,6 +30,39 @@ sc.pp.regress_out(
    keys=$keys,
    copy=False)
 
+#else if $method.method == "pp.mnn_correct"
+    #for i, filepath in enumerate($methods.extra_adata)
+adata_$i = ad.read('$filepath')
+    #end for
+
+sc.pp.mnn_correct(
+    adata,
+    #for i, filepath in enumerate($methods.extra_adata)
+    adata_$i,
+    #end for
+    #if str($methods.var_subset) != ''
+    #set $var_subset=([x.strip() for x in str($method.var_subset).split(',')])
+    var_subset=$var_subset,
+    #end if
+    batch_key='$method.batch_key',
+    index_unique='$method.index_unique'
+    #if str($methods.batch_categories) != ''
+    #set $batch_categories=([x.strip() for x in str($method.batch_categories).split(',')])
+    batch_categories=$batch_categories,
+    #end if
+    k=$method.k,
+    sigma=$method.sigma,
+    cos_norm_in=$method.cos_norm_in,
+    cos_norm_out=$method.cos_norm_out,
+    svd_dim=$method.svd_dim,
+    var_adj=$method.var_adj,
+    compute_angle=$method.compute_angle,
+    mnn_order='$method.mnn_order',
+    svd_mode='$method.svd_mode',
+    do_concatenate=True,
+    save_raw=True,
+    n_jobs=\${GALAXY_SLOTS:-4})
+
 #else if $method.method == "pp.calculate_qc_metrics"
 sc.pp.calculate_qc_metrics(
     adata=adata,
@@ -58,17 +91,35 @@ sc.tl.score_genes(
     gene_pool=$gene_pool,
     #end if
     @CMD_score_genes_inputs@)
-adata.obs.to_csv('$obs', sep='\t')
 
 #else if $method.method == "tl.score_genes_cell_cycle"
+    #if str($method.s_genes.format) == 'file'
+with open('$method.s_genes.file', 'r') as s_genes_f:
+    s_genes = [str(x.strip()) for x in s_genes_f.readlines()]
+print(s_genes)
+    #end if
+
+    #if str($method.g2m_genes.format) == 'file'
+with open('$method.g2m_genes.file', 'r') as g2m_genes_f:
+    g2m_genes = [str(x.strip()) for x in g2m_genes_f.readlines()]
+print(g2m_genes)
+    #end if
+
 sc.tl.score_genes_cell_cycle(
     adata=adata,
-    #set $s_genes = [str(x.strip()) for x in $method.s_genes.split(',')]
+    #if str($method.s_genes.format) == 'text'
+        #set $s_genes = [str(x.strip()) for x in $method.s_genes.text.split(',')]
     s_genes=$s_genes,
-    #set $g2m_genes = [str(x.strip()) for x in $method.g2m_genes.split(',')]
+    #else if str($method.s_genes.format) == 'file'
+    s_genes=s_genes,
+    #end if
+    #if str($method.g2m_genes.format) == 'text'
+        #set $g2m_genes = [str(x.strip()) for x in $method.g2m_genes.text.split(',')]
     g2m_genes=$g2m_genes,
+    #else if str($method.g2m_genes.format) == 'file'
+    g2m_genes=g2m_genes,
+    #end if
     @CMD_score_genes_inputs@)
-adata.obs.to_csv('$obs', sep='\t')
 #end if
 
 @CMD_anndata_write_outputs@
@@ -79,7 +130,7 @@ adata.obs.to_csv('$obs', sep='\t')
         <conditional name="method">
             <param argument="method" type="select" label="Method used for plotting">
                 <option value="pp.regress_out">Regress out unwanted sources of variation, using `pp.regress_out`</option>
-                <!--<option value="pp.mnn_correct">, using `pp.mnn_correct`</option>!-->
+                <option value="pp.mnn_correct">Correct batch effects by matching mutual nearest neighbors, using `pp.mnn_correct`</option>
                 <!--<option value="pp.dca">, using `pp.mnn_correct`</option>!-->
                 <!--<option value="pp.magic">, using `pp.magic`</option>!-->
                 <!--<option value="tl.sim">, using `tl.sim`</option>!-->
@@ -91,6 +142,31 @@ adata.obs.to_csv('$obs', sep='\t')
             </param>
             <when value="pp.regress_out">
                 <param argument="reg_keys" type="text" value="" label="Keys for observation annotation on which to regress on" help="Keys separated by a comma"/>
+            </when>
+            <when value="pp.mnn_correct">
+                <param name="extra_adata" type="data" multiple="true" optional="true" format="h5ad" label="Extra annotated data matrix" help="They should have same number of variables."/>
+                <param argument="var_subset" type="text" value="" optional="true" label="The subset of vars to be used when performing MNN correction" help="List of comma-separated key from `.var_names`. If not set, all vars are used"/>
+                <param argument="batch_key" type="text" value="batch" label="Batch key for the concatenate"/>
+                <param name="index_unique" type="select" label="Separator to join the existing index names with the batch category" help="Leave it empty to keep existing indices">
+                    <option value="-">-</option>
+                    <option value="_">_</option>
+                    <option value=" "> </option>
+                    <option value="/">/</option>
+                </param>
+                <param argument="batch_categories" type="text" value="" optional="true" label="Batch categories for the concatenate" help="List of comma-separated key"/>
+                <param argument="k" type="integer" value="20" label="Number of mutual nearest neighbors"/>
+                <param argument="sigma" type="float" value="1" label="The bandwidth of the Gaussian smoothing kernel used to compute the correction vectors"/>
+                <param argument="cos_norm_in" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Should cosine normalization be performed on the input data prior to calculating distances between cells?"/>
+                <param argument="cos_norm_out" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Should cosine normalization be performed prior to computing corrected expression values?"/>
+                <param argument="svd_dim" type="integer" value="" optional="true" label="Number of dimensions to use for summarizing biological substructure within each batch" help="If not set, biological components will not be removed from the correction vectors."/>
+                <param argument="var_adj" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Adjust variance of the correction vectors?" help="This step takes most computing time."/>
+                <param argument="compute_angle" type="boolean" truevalue="True" falsevalue="False" checked="false" label="compute the angle between each cell’s correction vector and the biological subspace of the reference batch?"/>
+                <param argument="mnn_order" type="text" value="" optional="true" label="The order in which batches are to be corrected" help="List of comma-separated key. If not set, datas are corrected sequentially"/>
+                <param name="svd_mode" type="select" label="SVD mode">
+                    <option value="svd">svd: SVD using a non-randomized SVD-via-ID algorithm</option>
+                    <option value="rsvd" checked="true">rsvd: SVD using a randomized SVD-via-ID algorithm</option>
+                    <option value="irlb">irlb: truncated SVD by implicitly restarted Lanczos bidiagonalization</option>
+                </param>
             </when>
             <when value="pp.calculate_qc_metrics">
                 <param argument="expr_type" type="text" value="counts" label="Name of kind of values in X"/>
@@ -111,17 +187,36 @@ adata.obs.to_csv('$obs', sep='\t')
                 <param argument="score_name" type="text" value="score" label="Name of the field to be added in `.obs`" help=""/>
             </when>
             <when value="tl.score_genes_cell_cycle">
-                <param name="s_genes" type="text" value="" label="List of genes associated with S phase" help="Genes separated by a comma"/>
-                <param name="g2m_genes" type="text" value="" label="List of genes associated with G2M phase" help="Genes separated by a comma"/>
+                <conditional name='s_genes'>
+                    <param name="format" type="select" label="Format for the list of genes associated with S phase">
+                        <option value="file">File</option>
+                        <option value="text" selected="true">Text</option>
+                    </param>
+                    <when value="text">
+                        <param name="text" type="text" value="" label="List of genes associated with S phase" help="Genes separated by a comma"/>
+                    </when>
+                    <when value="file">
+                        <param name="file" type="data" format="txt" label="File with the list of genes associated with S phase" help="One gene per line"/>
+                    </when>
+                </conditional>
+                <conditional name='g2m_genes'>
+                    <param name="format" type="select" label="Format for the list of genes associated with G2M phase">
+                        <option value="file">File</option>
+                        <option value="text" selected="true">Text</option>
+                    </param>
+                    <when value="text">
+                        <param name="text" type="text" value="" label="List of genes associated with G2M phase" help="Genes separated by a comma"/>
+                    </when>
+                    <when value="file">
+                        <param name="file" type="data" format="txt" label="File with the list of genes associated with G2M phase" help="One gene per line"/>
+                    </when>
+                </conditional>
                 <expand macro="score_genes_params"/>
             </when>
         </conditional>
     </inputs>
     <outputs>
         <expand macro="anndata_outputs"/>
-        <data name="obs" format="tabular" label="${tool.name} on ${on_string}: Observations annotation">
-            <filter>method['method'] == 'tl.score_genes' or method['method'] == 'tl.score_genes_cell_cycle'</filter>
-        </data>
     </outputs>
     <tests>
         <test>
@@ -135,6 +230,18 @@ adata.obs.to_csv('$obs', sep='\t')
                 <has_text_matching expression="keys='cell_type'"/>
             </assert_stdout>
             <output name="anndata_out" file="pp.regress_out.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <param name="adata" value="krumsiek11.h5ad" />
+            <conditional name="method">
+                <param name="method" value="pp.mnn_correct"/>
+                <param name="reg_keys" value="cell_type"/>
+            </conditional>
+            <assert_stdout>
+                <has_text_matching expression="sc.pp.mnn_correct"/>
+                <has_text_matching expression="keys='cell_type'"/>
+            </assert_stdout>
+            <output name="anndata_out" file="pp.mnn_correct.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
             <param name="adata" value="krumsiek11.h5ad" />
@@ -176,7 +283,6 @@ adata.obs.to_csv('$obs', sep='\t')
                 <has_text_matching expression="copy=False" />
             </assert_stdout>
             <output name="anndata_out" file="tl.score_genes.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
-            <output name="obs" file="tl.score_genes.krumsiek11.obs.tabular" ftype="tabular" compare="sim_size"/>
         </test>
         <test>
             <param name="adata" value="krumsiek11.h5ad" />
@@ -197,7 +303,6 @@ adata.obs.to_csv('$obs', sep='\t')
                 <has_text_matching expression="use_raw=False"/>
             </assert_stdout>
             <output name="anndata_out" file="tl.score_genes_cell_cycle.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
-            <output name="obs" file="tl.score_genes_cell_cycle.krumsiek11.obs.tabular" ftype="tabular" compare="sim_size"/>
         </test>
     </tests>
     <help><![CDATA[
@@ -209,6 +314,17 @@ inspired by Seurat's `regressOut` function in R.
 
 More details on the `scanpy documentation
 <https://scanpy.readthedocs.io/en/latest/api/scanpy.api.pp.regress_out.html#scanpy.api.pp.regress_out>`__
+
+Correct batch effects by matching mutual nearest neighbors, using `pp.mnn_correct`
+==================================================================================
+
+This uses the implementation of mnnpy. Depending on do_concatenate, it returns AnnData objects in the 
+original order containing corrected expression values or a concatenated matrix or AnnData object.
+
+Be reminded that it is not advised to use the corrected data matrices for differential expression testing.
+
+More details on the `scanpy documentation
+<https://scanpy.readthedocs.io/en/latest/api/scanpy.api.pp.mnn_correct.html>`__
 
 Calculate quality control metrics., using `pp.calculate_qc_metrics`
 ===================================================================
