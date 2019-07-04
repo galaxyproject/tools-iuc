@@ -125,7 +125,7 @@ if (opt$format == "bed") {
         Strand=gsub("\\*", ".", strand(resSorted)),
         mcols(resSorted))
 }
-write.table(resSorted, file = opt$outfile, sep="\t", quote = FALSE, append=TRUE, row.names = FALSE)
+write.table(resSorted, file = opt$outfile, sep="\t", quote = FALSE, row.names = FALSE)
 
 # Output binding affinity scores
 if (!is.null(opt$bmatrix)) {
