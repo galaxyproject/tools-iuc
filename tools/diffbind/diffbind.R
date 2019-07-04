@@ -60,6 +60,7 @@ if ( length(ctrls) != 0 ) {
                         Tissue=samples, # using "Tissue" column to display ids as labels in PCA plot
                         stringsAsFactors=FALSE)
 } else {
+
     sampleTable <- data.frame(SampleID=samples,
                         Replicate=samples,
                         Condition=groups,
