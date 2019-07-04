@@ -57,8 +57,7 @@ if ( length(ctrls) != 0 ) {
                         bamReads=bams,
                         bamControl=ctrls,
                         Peaks=peaks,
-                        Tissue=samples, # using "Tissue" column to display ids as labels in PCA plot
-                        stringsAsFactors=FALSE)
+                        Tissue=samples) # using "Tissue" column to display ids as labels in PCA plot
 } else {
 
     sampleTable <- data.frame(SampleID=samples,
@@ -66,8 +65,7 @@ if ( length(ctrls) != 0 ) {
                         Condition=groups,
                         bamReads=bams,
                         Peaks=peaks,
-                        Tissue=samples,
-                        stringsAsFactors=FALSE)
+                        Tissue=samples)
 }
 
 sample = dba(sampleSheet=sampleTable, peakFormat='bed', scoreCol=opt$scorecol, bLowerScoreBetter=opt$lowerbetter)
