@@ -1,0 +1,118 @@
+<tool id="dada2_learnErrors" name="dada2: learnErrors" version="@DADA2_VERSION@+galaxy@WRAPPER_VERSION@" profile="19.09">
+    <description>Learn Error rates</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+    Rscript '$dada2_script' \${GALAXY_SLOTS:-1}
+    ]]></command>
+    <configfiles>
+        <configfile name="dada2_script"><![CDATA[
+library(ggplot2, quietly=T)
+library(dada2, quietly=T)
+
+args <- commandArgs(trailingOnly = TRUE)
+nthreads <- as.integer(args[1])
+
+files <- c()
+#for $read in $fls:
+files <- c(files, '$read')
+#end for
+
+err <- learnErrors(files, nbases = 10**$nbases,
+           errorEstimationFunction = $advanced.errfoo, multithread = nthreads,
+           randomize = $advanced.randomize, MAX_CONSIST = $advanced.maxconsist, OMEGA_C = $advanced.omegac)
+
+saveRDS(err, file='$errors')
+
+## generate error plots
+plot <- plotErrors(err, obs = $plotopt.obs, err_out = $plotopt.err_out, err_in = $plotopt.err_in, nominalQ = $plotopt.nominalQ)
+ggsave('plot.pdf', plot, width = 20,height = 15,units = c("cm"))
+    ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param argument="fls" type="data" multiple="true" format="fastq,fastq.gz" label="Short read data" help="forward or reverse reads should be processed separately"/>
+        <param argument="nbases" type="integer" value="8" min="0" label="Magnitide of number of bases to use for learning"/>
+        <section name="advanced" title="Advanced Option">
+            <expand macro="errorEstimationFunction"/>
+            <param argument="randomize" type="boolean" checked="false" truevalue="TRUE" falsevalue="FALSE" label="Randomize samples" help="Pick samples at random, otherwise samples are read in the provided order until enough reads are obtained (default)."/>
+            <param name="maxconsist" argument="MAX_CONSIST" type="integer" value="10" min="0" label="Maximum number of times to step through the selfconsistency loop" help="If convergence was not reached in MAX_CONSIST steps, the estimated error rates in the last step are returned."/>
+            <param name="omegac" argument="OMEGA_C" type="float" value="0" min="0" label="Threshold at which unique sequences inferred to contain errors are corrected" help="For reasons of convergence, and because it is
+more conservative, it is recommended to set this value to 0, which means that
+all reads are counted and contribute to estimating the error rates."/>
+        </section>
+        <section name="plotopt" title="Plotting Option">
+            <param argument="obs" type="boolean" checked="true" truevalue="TRUE" falsevalue="FALSE" label="Plot observed error rates"/>
+            <param argument="err_out" type="boolean" checked="true" truevalue="TRUE" falsevalue="FALSE" label="Plot output error rates"/>
+            <param argument="err_in" type="boolean" checked="false" truevalue="TRUE" falsevalue="FALSE" label="Plot input error rates"/>
+            <param argument="nominalQ" type="boolean" checked="true" truevalue="TRUE" falsevalue="FALSE" label="Plot expected error rates"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="errors" format="dada2_errorrates" label="${tool.name} on ${on_string}"/>
+        <data name="plot" format="pdf" from_work_dir="plot.pdf" label="${tool.name} on ${on_string}: error rates plot"/>
+    </outputs>
+    <tests>
+        <test>
+            <param name="fls" value="filterAndTrim_F3D0_R1.fq.gz" ftype="fastqsanger.gz"/>
+            <output name="errors" value="learnErrors_F3D0_R1.Rdata" ftype="dada2_errorrates"/>
+            <output name="plot" value="learnErrors_F3D0_R1.pdf" ftype="pdf" compare="sim_size" />
+        </test>
+        <!-- test w non-default parameters -->
+        <test>
+            <param name="fls" value="filterAndTrim_F3D0_R1.fq.gz" ftype="fastqsanger.gz"/>
+            <param name="nbases" value="6" />
+            <param name="advanced|errfoo" value="noqualErrfun" />
+            <param name="advanced|randomize" value="TRUE" />
+            <param name="advanced|maxconsist" value="5" />
+            <param name="advanced|omegac" value="1e-10" />
+            <param name="plotopt|obs" value="FALSE" />
+            <param name="plotopt|err_out" value="FALSE" />
+            <param name="plotopt|err_in" value="TRUE" />
+            <param name="plotopt|nominalQ" value="FALSE"/>
+            <output name="errors" value="learnErrors_F3D0_R1.Rdata" ftype="dada2_errorrates" compare="sim_size" delta="14000"/>
+            <output name="plot" value="learnErrors_F3D0_R1.pdf" ftype="pdf" compare="sim_size" />
+        </test>
+        <!-- TODO test w multiple inputs -->
+    </tests>
+    <help><![CDATA[
+Description
+...........
+
+Error rates are learned by alternating between sample inference and error rate estimation until convergence. Additionally a plot is generated that shows the observed frequency of each transition (eg. A->C) as a function of the associated quality score, the final estimated error rates (if they exist), the initial input rates, and the expected error rates under the nominal definition of quality scores.
+
+In addition a plot is generated (with plotErrors) that shows the observed frequency of each transition (eg. A->C) as a function of the associated quality score. Also the final estimated error rates (if they exist) are shown. Optionally also the initial input rates and the expected error rates under the nominal definition of quality scores can be added to the plot.
+
+Usage
+.....
+
+**Input** are the FASTQ dataset containing the filtered and trimmed reads of the samples.
+
+**Output** a dataset with type *dada2_errorrates* (which is a RData file containing the output of dada2's learnErrors function) and a **plot** showing the error rates for each possible transition (A→C, A→G,...)
+
+- Points are the observed error rates for each consensus quality score.
+- The black line shows the estimated error rates after convergence of the machine-learning algorithm.
+- The red line shows the error rates expected under the nominal definition of the Q-score.
+
+The learned error rates are input the the *dada2: dada* tool.
+
+Details
+.......
+
+The learnErrors method learns a parametric error model from the data, by alternating estimation of the error rates and inference of sample composition until they converge on a jointly consistent solution. As in many machine-learning problems, the algorithm must begin with an initial guess, for which the maximum possible error rates in this data are used (the error rates if only the most abundant sequence is correct and all the rest are errors).
+
+It is expected that the estimated error rates (black lines in the plot) are in a good fit to the observed rates (points in the plot), and that the error rates drop with increased quality. Try to increase the **number of bases to use for learning** if this is not the case.
+
+Error functions:
+
+- loessErrfun: accepts a matrix of observed transitions, with each transition corresponding to a row (eg. row 2 = A->C) and each column to a quality score (eg. col 31 = Q30). It returns a matrix of estimated error rates of the same shape. Error rates are estimates by a loess fit of the observed rates of each transition as a function of the quality score. Self-transitions (i.e. A->A) are taken to be the left-over probability.
+- noqualErrfun: accepts a matrix of observed transitions, groups together all observed transitions regardless of quality scores, and estimates the error rate for that transition as the observed fraction of those transitions. The effect is that quality scores will be effectively ignored.
+- PacBioErrfun: This function accepts a matrix of observed transitions from PacBio CCS amplicon sequencing data, with each transition corresponding to a row (eg. row 2 = A->C) and each column to a quality score (eg. col 31 = Q30). It returns a matrix of estimated error rates of the same shape. Error rates are estimates by loessErrfun for quality scores 0-92, and individually by the maximum likelihood estimate for the maximum quality score of 93.
+
+@HELP_OVERVIEW@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

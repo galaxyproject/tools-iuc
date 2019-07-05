@@ -1,0 +1,166 @@
+<tool id="dada2_dada" name="dada2: dada" version="@DADA2_VERSION@+galaxy@WRAPPER_VERSION@" profile="19.09">
+    <description>Remove sequencing errors</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+    #if $batch_cond.batch_select == "no"
+        mkdir output &&
+    #end if
+    Rscript '$dada2_script' \${GALAXY_SLOTS:-1}
+    ]]></command>
+    <configfiles>
+        <configfile name="dada2_script"><![CDATA[
+library(ggplot2, quietly=T)
+library(dada2, quietly=T)
+
+args <- commandArgs(trailingOnly = TRUE)
+nthreads <- as.integer(args[1])
+
+derep <- c()
+#if $batch_cond.batch_select == "no"
+#for $d in $batch_cond.derep:
+derep <- c(derep, '$d')
+#end for
+#else
+derep <- c(derep, '$batch_cond.derep')
+#end if
+
+err <- readRDS('$err')
+
+#if $batch_cond.batch_select == "yes":
+pool <- F
+#else
+    #if $batch_cond.pool == "TRUE"
+pool <- T
+    #else if $batch_cond.pool == "FALSE"
+pool <- F
+    #else
+pool <- 'pseudo'
+    #end if
+#end if
+
+## the Galaxy wrapper does not implement the arguments
+## - errorEstimationFunction = $errfoo, 
+## - selfConsist = $selfconsist
+## since they are probably not relevant for the end user
+dada_result <- dada(derep, err,
+    pool = pool, multithread = nthreads)
+
+#if $batch_cond.batch_select == "no":
+    #if len($batch_cond.derep) > 1:
+    for( id in names(dada_result) ){
+        saveRDS(dada_result[[id]], file=file.path("output" ,paste(id, "dada2_dada", sep=".")))
+    }
+    #else
+    #for $d in $batch_cond.derep:
+        saveRDS(dada_result, file=file.path("output" ,paste('$d.element_identifier', "dada2_dada", sep=".")))
+    #end for
+    #end if
+#else
+    saveRDS(dada_result, file='$dada')
+#end if
+    ]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="batch_cond">
+            <param name="batch_select" type="select" label="Process samples in batches" help="process samples jointly (default) or in independent jobs (see also below)">
+                <option value="no">no</option>
+                <option value="yes">yes</option>
+            </param>
+            <when value="yes">
+                <param argument="derep" type="data" format="fastq,fastq.gz" label="Reads" help="despite the parameter name the sequences don't need to be dereplicated "/>
+            </when>
+            <when value="no">
+                <param argument="derep" type="data" multiple="true" format="fastq,fastq.gz" label="Reads" help="despite the parameter name the sequences don't need to be dereplicated "/>
+                <param argument="pool" type="select" label="Pool samples">
+                    <option value="FALSE">process samples individually</option>
+                    <option value="TRUE">pool samples</option>
+                    <option value="pseudo">pseudo pooling between individually processed samples</option>
+                </param>
+            </when>
+        </conditional>
+        <param argument="err" type="data" format="dada2_errorrates" label="Error rates"/>
+        <!-- not needed for end user I guess
+        <expand macro="errorEstimationFunction"/>
+        <param name="selfconsist" type="boolean" checked="false" truevalue="TRUE" falsevalue="FALSE" label="Alternate between sample inference and error rate estimation until convergence"/>-->
+    </inputs>
+    <outputs>
+        <data name="dada" format="dada2_dada">
+            <filter>batch_cond['batch_select']=="yes"</filter>
+        </data>
+        <collection name="data_collection" type="list">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.dada2_dada" format="dada2_dada" directory="output" />
+            <filter>batch_cond['batch_select']=="no"</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- default, non batch -->
+        <test>
+            <param name="batch_cond|batch_select" value="no"/>
+            <param name="batch_cond|derep" value="filterAndTrim_F3D0_R1.fq.gz" ftype="fastq.gz" />
+            <param name="err" value="learnErrors_F3D0_R1.Rdata" ftype="dada2_errorrates" />
+            <output_collection name="data_collection" type="list">
+                <element name="filterAndTrim_F3D0_R1.fq.gz" file="dada_F3D0_R1.Rdata" ftype="dada2_dada"/>
+            </output_collection>
+        </test>
+        <!-- default, batch -->
+        <test>
+            <param name="batch_cond|batch_select" value="yes"/>
+            <param name="batch_cond|derep" value="filterAndTrim_F3D0_R1.fq.gz" ftype="fastq.gz" />
+            <param name="err" value="learnErrors_F3D0_R1.Rdata" ftype="dada2_errorrates" />
+            <output name="dada" value="dada_F3D0_R1.Rdata" ftype="dada2_dada" />
+       </test>
+        <!-- test non-default options -->
+        <test>
+            <param name="batch_cond|batch_select" value="no"/>
+            <param name="batch_cond|derep" value="filterAndTrim_F3D0_R1.fq.gz" ftype="fastq.gz" />
+            <param name="batch_cond|pool" value="pseudo"/>
+            <param name="err" value="learnErrors_F3D0_R1.Rdata" ftype="dada2_errorrates" />
+            <output_collection name="data_collection" type="list">
+                <element name="filterAndTrim_F3D0_R1.fq.gz" file="dada_F3D0_R1.Rdata" ftype="dada2_dada"/>
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+Description
+...........
+
+The dada function takes as input amplicon sequencing reads and returns the inferred
+composition of the sample (or samples). Put another way, dada removes all sequencing errors to
+reveal the members of the sequenced community.
+
+Usage
+.....
+
+**Input:**
+
+- A number of fastq(.gz) files (given as collection or multiple data sets)
+- An dada2_errorrates data set computed with learnErrors
+
+You can decide to compute the data jointly or in batches.
+
+- Jointly (Process "samples in batches"=no): A single Galaxy job is started that processes all fastq data sets jointly. You may chose different pooling strategies: if the started dada job processes the samples individually, pooled, or pseudo pooled.
+- In batches (Process "samples in batches"=yes): A separate Galaxy job is started for earch fastq data set. This is equivalent to joint processing and choosing to process samples individually.
+
+While the single dada job (in case of joint processing) can use multiple cores on one compute node, batched processing distributes the work on a number of jobs (equal to the number of input fastq data sets) where each can use multiple cores. Hence, if you intend to or need to process the data sets individually, batched processing is more efficient -- in particular if Galaxy has access to a larger number of compute resources.
+
+A typical use case of individual processing of the samples are large data sets for which the pooled strategy needs to much time or memory. Pseudo-pooling is recommended for those interested in detecting singleton ASVs in their samples
+
+
+**Output**: a data set of type dada2_dada (which is a RData file containing the output of dada2's dada function).
+
+The output of this tool can serve as input for *dada2: mergePairs*, *dada2: removeBimeraDinovo*, and "dada2: makeSequenceTable"
+
+Details
+.......
+
+Briefly, dada implements a statistical test for the notion that a specific sequence was seen too many times to have been caused by amplicon errors from currently inferred sample sequences. Overly abundant sequences are used as the seeds of new partitions of sequencing reads, and the final set of partitions is taken to represent the denoised composition of the sample. A more detailed explanation of the algorithm is found in the dada2 puplication (see below) and https://doi.org/10.1186/1471-2105-13-283. dada depends on a parametric error model of substitutions. Thus the quality of its sample inference is affected by the accuracy of the estimated error rates. All comparisons between sequences performed by dada depend on pairwise alignments. This step is the most computationally intensive part of the algorithm, and two alignment heuristics have been implemented in dada for speed: A kmer-distance screen and banded Needleman-Wunsch alignmemt.
+
+@HELP_OVERVIEW@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
