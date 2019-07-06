@@ -2,40 +2,58 @@
     <description>Detecting sites of genomic enrichment</description>
     <requirements>
         <requirement type="package" version="0.5">genrich</requirement>
+        <requirement type="package" version="1.9">samtools</requirement>
     </requirements>
 
     <version_command>Genrich --version</version_command>
 
     <command detect_errors="exit_code"><![CDATA[
 
-#set $file_stderr = 'macs2_stderr'
+#set $file_stderr = 'genrich_stderr'
+#import re
 
-Genrich 
+##########
+## Sort ##
+##########
+
+## Treatment File(s)
+#set $input_treatment_files = ""
+#if str($treatment.t_multi_select) == "Yes":
+    #for $x in $treatment.input_treatment_file
+      #set $tmp = '$x' + '_tmp'
+      samtools sort -n '$x' > $tmp &&
+    #end for
+    #set $input_treatment_files = ' '.join( [ "'%s_tmp'" %  $x for $x in $treatment.input_treatment_file] )
+#else
+    samtools sort -n '$treatment.input_treatment_file' > ./input_treatment_file_tmp.dat &&
+    #set $input_treatment_files = './input_treatment_file_tmp.dat'
+#end if
+
+## Control File(s)
+#set $input_control_files = ""
+#if str($control.c_select) == "Yes":
+    #if str($control.c_multiple.c_multi_select) == "Yes":
+        #for $x in $treatment.input_treatment_file
+          #set $tmp = '$x' + '_tmp'
+          samtools sort -n '$x' > $tmp &&
+        #end for
+        #set $input_control_files = ' '.join( [ "'%s_tmp'" %  $x for $x in $control.c_multiple.input_control_file] )
+    #else
+        samtools sort -n '$control.c_multiple.input_control_file' > ./input_control_file_tmp.dat &&
+        #set $input_control_files = './input_control_file_tmp.dat'
+    #end if
+#end if
+
+Genrich
 
 ###########
 ## Input ##
 ###########
 
-## Treatment File(s)
-
-#if str($treatment.t_multi_select) == "Yes":
-    -t ${ ' '.join( [ "'%s'" %  $x for $x in $treatment.input_treatment_file] ) }
-    #set identifier = re.sub('[^\w\-]', '_', str($treatment.input_treatment_file[0].element_identifier))
-#else
-    -t '$treatment.input_treatment_file'
-    #set identifier = re.sub('[^\w\-]', '_', str($treatment.input_treatment_file.element_identifier))
-#end if
-
---name $identifier
-
-## Control File(s)
+-t $input_treatment_files
 
 #if str($control.c_select) == "Yes":
-    #if str($control.c_multiple.c_multi_select) == "Yes":
-        -c ${ ' '.join( [ "'%s'" %  $x for $x in $control.c_multiple.input_control_file] ) }
-    #else
-        -c '$control.c_multiple.input_control_file'
-    #end if
+  -c $input_control_files
 #end if
 
 ####################
@@ -43,15 +61,11 @@ Genrich
 ####################
 
 #if $filter_options.duplicates:
-    '$filter_options.duplicates' '${out_dups.files_path}'
+    '$filter_options.duplicates' '${out_dups}'
 #end if
 
 #if $filter_options.exclude_chr:
     -e '$filter_options.exclude_chr'
-#end if
-
-#if $filter_options.exclude_regions:
-    -E '$filter_options.exclude_regions.exclude_regions_file'
 #end if
 
 #if str($filter_options.min_mapq) != '0':
@@ -88,6 +102,10 @@ $atac_options.atac
 ## Peakcalling Options ##
 #########################
 
+#if str($cond_exclude.exclude_select) == "Yes":
+    -E $cond_exclude.erf
+#end if
+
 #if str($peakcalling_options.max_q) != '0.05':
     -q $peakcalling_options.max_q
 #end if
@@ -117,29 +135,29 @@ $atac_options.atac
 ###################
 
 $other_options.skip_peak_calling
--v 
+-v
 
 ####################
 ## Output Options ##
 ####################
 
 #if $output_options.bedgraph1:
-    -f '${out_bedgraph1.files_path}'
+    -f '${out_bedgraph1}'
 #end if
 
 #if $output_options.bedgraph2:
-    -k '${out_bedgraph2.files_path}'
+    -k '${out_bedgraph2}'
 #end if
 
 #if $output_options.bed:
-    -f '${out_bed.files_path}'
+    -b '${out_bed}'
 #end if
 
--o '${outfile.files_path}'
+-o '${outfile}'
 
-2>&1 > $temp_stderr && 
+2>&1 > $file_stderr &&
 exit_code_for_galaxy=\$? &&
-cat $temp_stderr 2>&1 &&
+cat $file_stderr 2>&1 &&
 exit \$exit_code_for_galaxy
 
     ]]></command>
@@ -180,24 +198,26 @@ exit \$exit_code_for_galaxy
         </conditional>
 
         <!-- Filter Options -->
+        <conditional name="cond_exclude">
+            <param name="exclude_select" type="select" label="Do you have a BED file of genomic regions to exclude?" help="Input BED file of genomic regions to exclude." >
+                <option value="No" selected="True">No</option>
+                <option value="Yes">Yes</option>
+            </param>
+            <when value="No" />
+            <when value="Yes">
+                <param name="erf" argument="-E" type="data" format="bed" label="BED File" />
+            </when>
+        </conditional>
+
         <section name="filter_options" title="Filter Options">
             <param name="duplicates" argument="-r -R" type="boolean" value="False" truevalue="-r -R" falsevalue="" label="Remove PCR duplicates" help="In this process, it analyzes reads/fragments based on their alignments, in three separate groups (proper pairs, discordant pairs, and singletons), and removes those identified as duplicates from further analysis. One novel feature is that this evaluation takes into account reads/fragments with multiple alignments."/>
-            <param name="exclude_chr" argument="-e" type="text" optional="True" label="Comma-separated list of chromosomes to exclude"
-               help="All alignments to the given list of chromosomes (reference sequences) are excluded from peak-calling. More details can be found in the tool description.">
+            <param name="exclude_chr" argument="-e" type="text" optional="True" label="Comma-separated list of chromosomes to exclude" help="All alignments to the given list of chromosomes (reference sequences) are excluded from peak-calling. More details can be found in the tool description.">
             <sanitizer>
                 <valid initial="string.printable">
                     <remove value="&apos;"/>
                 </valid>
             </sanitizer>
             </param>
-            <param name="exclude_regions" type="select" label="Do you have a BED file(s) of genomic regions to exclude?" >
-                <option value="Yes">Yes</option>
-                <option value="No" selected="True">No</option>
-            </param>
-            <when value="Yes">
-                <param name="exclude_regions_file" argument="-E" type="data" format="bed" label="BED file(s) of genomic regions to exclude" />
-            </when>
-            <when value="No" />
             <param name="min_mapq" argument="-m" type="integer" min="0" optional="True" value="0" label="Minimum MAPQ to keep an alignment." help="All alignments with MAPQ less than the given value are eliminated. This is equivalent to filtering with samtools view -q. This option should not be used if the SAM/BAM lists multiple alignments for some reads/fragments. Instead, filtering should be accomplished via -s. (def. 0)" />
             <param name="alignment_score" argument="-s" type="float" min="0" optional="True" value="0.0" label="Keep sec alns with AS >= bestAS." help="Genrich considers all secondary alignments of multimapping reads, but, by default, it keeps only the alignments whose scores are equal to the best score for the read/fragment. Setting a value such as -s 20 causes Genrich also to keep secondary alignments whose scores are within 20 of the best. (def. 0)" />
             <param name="unpaired" argument="-y" type="boolean" value="False" truevalue="-y" falsevalue="" label="Keep unpaired alignments." help="Unpaired alignments are kept, just as they appear in the SAM/BAM. (def. false)"/>
@@ -233,6 +253,7 @@ exit \$exit_code_for_galaxy
         </section>
     </inputs>
 
+
     <outputs>
         <data name="outfile" format="encodepeak" label="${tool.name} on ${on_string}"/>
 
@@ -250,29 +271,30 @@ exit \$exit_code_for_galaxy
         </data>
     </outputs>
     <tests>
-        <!-- ATAC Test Data --> 
+        <!-- ATAC Test Data -->
         <test expect_num_outputs="4">
-            <param name="treatment" ftype="bam" value="atac_single_test.bam" />
+            <param name="input_treatment_file" ftype="bam" value="atac_test.bam" />
             <param name="atac" value="True" />
-            <param name="out_bedgraph1" value="True" />
-            <param name="out_bedgraph2" value="True" />
-            <param name="out_bed" value="True" />
-            <output name="out_bedgraph1" ftype="encodepeak" file="atac_out.encodepeak" />
-            <output name="out_bedgraph1" ftype="encodepeak" file="atac_out2.bedgraph" />
-            <output name="out_bedgraph2" ftype="encodepeak" file="atac_out3.bedgtraph" />
-            <output name="out_bed" ftype="encodepeak" file="atac_out4.bed" />
+            <param name="bedgraph1" value="True" />
+            <param name="bedgraph2" value="True" />
+            <param name="bed" value="True" />
+            <output name="outfile" ftype="encodepeak" file="atac_out.encodepeak" />
+            <output name="out_bedgraph1" ftype="bedgraph" file="atac_out2.bedgraph" />
+            <output name="out_bedgraph2" ftype="bedgraph" file="atac_out3.bedgraph" compare="contains" lines_diff="1" />
+            <output name="out_bed" ftype="bed" file="atac_out4.bed" />
         </test>
-        <!-- ChIP Test Data with Control--> 
+        <!-- ChIP Test Data with Control-->
         <test expect_num_outputs="4">
-            <param name="treatment" ftype="bam" value="CTCF_PE_ChIP_chr22.bam" />
-            <param name="control" ftype="bam" value="CTCF_PE_CTRL_chr22.bam" />
-            <param name="out_bedgraph1" value="True" />
-            <param name="out_bedgraph2" value="True" />
-            <param name="out_bed" value="True" />
-            <output name="out_bedgraph1" ftype="encodepeak" file="CTCF.encodepeak" />
-            <output name="out_bedgraph1" ftype="encodepeak" file="CTCF1.bedgraph" />
-            <output name="out_bedgraph2" ftype="encodepeak" file="CTCF2.bedgtraph" />
-            <output name="out_bed" ftype="encodepeak" file="CTCF.bed" />
+            <param name="input_treatment_file" ftype="bam" value="CTCF_PE_ChIP_chr22.bam" />
+            <param name="input_control_file" ftype="bam" value="CTCF_PE_CTRL_chr22.bam" />
+            <param name="c_select" value="Yes" />
+            <param name="bedgraph1" value="True" />
+            <param name="bedgraph2" value="True" />
+            <param name="bed" value="True" />
+            <output name="outfile" ftype="encodepeak" file="CTCF.encodepeak" />
+            <output name="out_bedgraph1" ftype="bedgraph" file="CTCF1.bedgraph" />
+            <output name="out_bedgraph2" ftype="bedgraph" file="CTCF2.bedgraph" compare="contains" lines_diff="1" />
+            <output name="out_bed" ftype="bed" file="CTCF.bed" />
         </test>
     </tests>
     <help><![CDATA[
@@ -285,7 +307,7 @@ exit \$exit_code_for_galaxy
 
 **Genrich** Genrich is a peak-caller for genomic enrichment assays (e.g. ChIP-seq, ATAC-seq). It analyzes alignment files generated following the assay and produces a file detailing peaks of significant enrichment.
 
-ATAC-seq is a method for assessing genomic regions of open chromatin. Since only the ends of the DNA fragments indicate where the transposase enzyme was able to insert into the chromatin, it may not be optimal to interpret alignments. Genrich has an alternative analysis mode for ATAC-seq in which it creates intervals centered on transposase cut sites. The remainder of the peak-calling process (calculating pileups and significance values) is identical to the default analysis mode. Note that the interval lengths (not the fragment lengths) are used to sum the total sequence information for the calculation of control/background pileup values. 
+ATAC-seq is a method for assessing genomic regions of open chromatin. Since only the ends of the DNA fragments indicate where the transposase enzyme was able to insert into the chromatin, it may not be optimal to interpret alignments. Genrich has an alternative analysis mode for ATAC-seq in which it creates intervals centered on transposase cut sites. The remainder of the peak-calling process (calculating pileups and significance values) is identical to the default analysis mode. Note that the interval lengths (not the fragment lengths) are used to sum the total sequence information for the calculation of control/background pileup values.
 
 -------------------
 
@@ -326,11 +348,11 @@ Optional files
   -c  Input SAM/BAM file(s) for control sample(s)
 
 Alignment files for control samples (e.g. input DNA) can be specified, although this is not strictly required.
-SAM/BAM files for multiple replicates can be listed, comma-separated (or space-separated, in quotes) and in the same order as the experimental files. Missing control files should be indicated with null. 
+SAM/BAM files for multiple replicates can be listed, comma-separated (or space-separated, in quotes) and in the same order as the experimental files. Missing control files should be indicated with null.
 
   -f  Output bedgraph-ish file for p/q values
 
-With a single replicate, this log file lists experimental/control pileup values, p- and q-values, and significance (*) for each interval. 
+With a single replicate, this log file lists experimental/control pileup values, p- and q-values, and significance (*) for each interval.
 
 Example:
 chr1    894435    894436    33.000000    2.477916    3.183460    1.208321
@@ -347,11 +369,11 @@ When peak-calling is skipped (-X), the significance column is not produced.
 
   -k  Output bedgraph-ish file for pileups and p-values
 
-For each replicate, sequentially, this file lists a header line (# experimental file: <name>; control file: <name>), followed by experimental/control pileups and a p-value for each interval. This is the way to examine pileup values with multiple replicates, since the -f log file does not supply them in that case. 
+For each replicate, sequentially, this file lists a header line (# experimental file: <name>; control file: <name>), followed by experimental/control pileups and a p-value for each interval. This is the way to examine pileup values with multiple replicates, since the -f log file does not supply them in that case.
 
   -b  Output BED file for reads/fragments/intervals
 
-This is an unsorted BED file of the reads/fragments/intervals analyzed. The 4th column gives the read name, number of valid alignments, 'E'xperimental or 'C'ontrol, and sample number (0-based), e.g. SRR5427886.59_2_E_0. 
+This is an unsorted BED file of the reads/fragments/intervals analyzed. The 4th column gives the read name, number of valid alignments, 'E'xperimental or 'C'ontrol, and sample number (0-based), e.g. SRR5427886.59_2_E_0.
 
   -R  Output file for PCR duplicates (only with -r)
 
@@ -363,7 +385,7 @@ SRR5427886.1826     chr12:34372610,+;chr1:91852878,-    SRR5427886.2040    disco
 SRR5427886.10866    chr14:53438632,+                    SRR5427886.4746    single
 
 The duplicates from multiple input files are separated by a comment line listing the next filename, such as # experimental file #0: SRR5427886.bam.
-This file can be used to filter the original SAM/BAM file, using a simple script such as getReads.py, for example. 
+This file can be used to filter the original SAM/BAM file, using a simple script such as getReads.py, for example.
 
 
 --------------------
