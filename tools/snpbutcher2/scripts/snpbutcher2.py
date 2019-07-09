@@ -1,168 +1,41 @@
 #!/usr/bin/env python3
 
+
 import sys
-import os.path
-from subprocess import getoutput
-
-# Clear logfile
-logfile = open('autoconfig_snpbutcher.txt', 'w')
-
-
-name = sys.argv[0]
-
-
-def usage():
-    print('''
-Usage: %s <map file> <maf file> <genotypes file> [OPTIONS]
-
-   emmmmmm~~~~~~~~~~oT                             ver 2.8
-   `""""""|          |
-          |          |
-          `----------'
- OPTIONS:
-  --hg19,     use human genome ver 19 (instead of the version 18)
-
-  -u or --uninformative,     to include uninformative markers too
-  -z or --zeromaf, to include zero minor allele frequency markers
-
-  -nh or --nohapmap, to not check hapmap data
-
-  -cm N or --centimorgans N  space markers at N cM (default=0.05)
-
-  -s N or --spacing N   OR   -m N or --max N
-      select markers at intervals of N, or specify the max number
-      of markers N, or select at intervals of N centiMorgans
-      Both -u and -z are autoselected for this flag.
-    ''' % name, file=sys.stderr)
-    sys.exit(-1)
-
-# ===================
+import argparse
 
 
 def parse_args():
-    lenarg = len(sys.argv)
-
+    parser = argparse.ArgumentParser(prog='deneme.py')
     hg19_flag = False
     uninform = False
     zeromaf = False
     usehapmap = True
     interval = max_interval = centim = -1
 
-    files = []
-    index = lenarg - 1
+    parser.add_argument('mapFile', nargs=1, help='Map File')
+    parser.add_argument('mafFile', nargs=1, help='Maf File')
+    parser.add_argument('genotypesFile', nargs=1, help='Genotypes File')
+    parser.add_argument('--hg19', default=True, action='store_true', help='use human genome ver 19 (instead of the version 18)')
+    parser.add_argument('--nohapmap', default=False, action='store_true', help='to not check hapmap data')
+    parser.add_argument('-u', '--uninformative', default=True, action='store_true', help='to include uninformative markers too')
+    parser.add_argument('-z', '--zeromaf', default=True, action='store_true', help='to include zero minor allele frequency markers')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-s', '--spacing', type=int, help='select markers at intervals of N, or specify the max number of markers N, or select at intervals of N centiMorgans. Both -u and -z are autoselected for this flag.')
+    group.add_argument('-m', '--max', type=int, help='select markers at intervals of N, or specify the max number of markers N, or select at intervals of N centiMorgans. Both -u and -z are autoselected for this flag.')
+    group.add_argument('-cm', '--centim', '--centimorgans', type=float, help='select markers at intervals of N, or specify the max number of markers N, or select at intervals of N centiMorgans. Both -u and -z are autoselected for this flag.')
 
-    while index > 0:
-        arg = sys.argv[index]
+    args = vars(parser.parse_args())
+    interval = args['spacing']
+    usehapmap = args['nohapmap']
+    hg19_flag = args['hg19']
+    uninform = args['uninformative']
+    zeromaf = args['zeromaf']
+    max_interval = args['max']
+    centim = args['centim']
+    files = [args['mapFile'][0], args['mafFile'][0], args['genotypesFile'][0]]
+    return files, interval, max_interval, hg19_flag, uninform, zeromaf, centim, usehapmap
 
-        if arg[0] == '-':
-
-            if arg == '--hg19':
-                hg19_flag = True
-                sys.argv.remove(arg)
-
-            elif arg == '-nh' or arg == "--nohapmap":
-                usehapmap = False
-                sys.argv.remove(arg)
-
-            elif arg == '-u' or arg == "--uninformative":
-                uninform = True
-                sys.argv.remove(arg)
-
-            elif arg == '-z' or arg == "--zeromaf":
-                zeromaf = True
-                sys.argv.remove(arg)
-
-            elif arg == '-s' or arg == '--spacing':
-                try:
-                    interval = sys.argv[index + 1]
-                    sys.argv.remove(arg)
-                    sys.argv.remove(interval)
-                    interval = int(interval)
-
-                    if interval < 0:
-                        print("[Error] Invalid Interval", file=sys.stderr)
-                        exit()
-                except ValueError:
-                    print("[Error] Spacing: Not a number", file=sys.stderr)
-                    exit()
-                except IndexError:
-                    print("[Error] Must specify an interval amount!", file=sys.stderr)
-                    exit()
-
-            elif arg == '-m' or arg == '--max':
-                try:
-                    max_interval = sys.argv[index + 1]
-                    sys.argv.remove(arg)
-                    sys.argv.remove(max_interval)
-                    max_interval = int(max_interval)
-
-                    if max_interval < 0:
-                        print("[Error] Invalid Max Interval", file=sys.stderr)
-                        exit()
-                except ValueError:
-                    print("[Error] Max: Not a number", file=sys.stderr)
-                    exit()
-                except IndexError:
-                    print("[Error] Must specify a max amount!", file=sys.stderr)
-                    exit()
-
-            elif arg == '-cm' or arg == '--centim' or '--centimorgans':
-                try:
-                    centim = sys.argv[index + 1]
-                    sys.argv.remove(arg)
-                    sys.argv.remove(centim)
-                    centim = float(centim)
-
-                    if centim < 0:
-                        print("[Error] Invalid CentiMorgan Interval", file=sys.stderr)
-                        exit()
-                except ValueError:
-                    print("[Error] CentiMorgan: Not a number", file=sys.stderr)
-                    exit()
-                except IndexError:
-                    print("[Error] Must specify a centimorgan amount!", file=sys.stderr)
-                    exit()
-
-            else:
-                usage()
-
-        index -= 1
-
-    sys.argv.remove(name)
-    files = sys.argv
-
-    if len(files) < 3:
-        usage()
-
-        if ((interval != -1 and max_interval != -1) or (interval != -1 and centim != -1) or (centim != -1 and max_interval != -1) ):
-            print("[Error] Cannot specify more than one interval type", file=sys.stderr)
-            sys.exit(-1)
-
-        # Spacing arguments assume zeromaf and use uninf
-            if interval != -1 or max_interval != -1:
-                zeromaf = uninform = True
-
-            print("[ARGS]", end=' ', file=sys.stderr)
-
-            if max_interval != -1:
-                print("Max: %d," % max_interval, end=' ', file=sys.stderr)
-            if interval != -1:
-                print("Spacing: %d," % interval, end=' ', file=sys.stderr)
-            if centim != -1:
-                print("cM: %f," % centim, end=' ', file=sys.stderr)
-            if hg19_flag:
-                print("Human Genome v19,", end=' ', file=sys.stderr)
-            if uninform:
-                print("Uninformative too,", end=' ', file=sys.stderr)
-            if zeromaf:
-                print("Zero maf markers too,", end=' ', file=sys.stderr)
-            if not(usehapmap):
-                print("NOT using hapmap", end=' ', file=sys.stderr)
-
-            print("\n", file=sys.stderr)
-
-            print("\ninterval=", interval, "\nmax_interval=", max_interval, "\nusehapmap=", usehapmap, "\nhg19_flag=", hg19_flag, "\ncM=", centim, "\nzeromaf=", zeromaf, "\nuninformative=", uninform, file=logfile)
-        return files, interval, max_interval, hg19_flag, uninform, zeromaf, centim, usehapmap
 
 # =====================================================
 
@@ -176,13 +49,13 @@ def uninformativeSNPs(genotypesfile):
     f = open(genotypesfile)
     for line in f:
         # if line.startswith('rs'):
-            tmp = line.strip().split()
-            marker = tmp[0]
-            gtypes = tmp[1:]
-            gtypes = set([x for x in gtypes if x != 'NC'])
-            uninformative[marker] = True if len(gtypes) == 1 else False
+        tmp = line.strip().split()
+        marker = tmp[0]
+        gtypes = tmp[1:]
+        gtypes = set([x for x in gtypes if x != 'NC'])
+        uninformative[marker] = True if len(gtypes) == 1 else False
         # genotypecount += 1
-            genotypecount += 1
+        genotypecount += 1
     f.close()
 
     print("[INFO] found %d/%d SNPs uninformative" % (len([x for x in list(uninformative.values()) if x is True]), genotypecount), file=sys.stderr)
@@ -334,7 +207,7 @@ def informativeSNPs(mapfile, uninformative, frequencies, spacing, zeromaf, use_u
 
 # MAIN
 
-try:
+if __name__ == "__main__":
     files, equally_spaced, max_interval, hg19_flag, use_uninf, zeromaf, cm, checkhap = parse_args()
 
     mapfile = files[0]
@@ -342,11 +215,6 @@ try:
     genotypesfile = files[2]
 
     hapmap_path = '/usr/local/maps/hapmap_geneticmaps/'
-
-    for i in [mapfile, maffile, genotypesfile]:
-        if not os.path.exists(i):
-            print("[ERROR] '%s' does not exist" % i, file=sys.stderr)
-            sys.exit(-1)
 
     frequencies = [] if zeromaf else minorAlleleFreqs(maffile)
 
@@ -356,24 +224,20 @@ try:
     # Parse Spacing args
     spacing = -1
 
-    if equally_spaced != -1:
+    if equally_spaced is not None:
         spacing = equally_spaced
         spacing = 1 if (spacing < 1) else spacing
 
-    if max_interval != -1:
-        num_lines_mapf = int(getoutput("wc -l " + mapfile + " | awk '{print $1}'"))
-        spacing = int( float(num_lines_mapf) / float(max_interval) ) - 1
+    if max_interval is not None:
+        def num_lines_mapf(fname):
+            i = 0
+            with open(fname) as f:
+                for i, l in enumerate(f):
+                    pass
+            return i + 1
+        spacing = int( num_lines_mapf(mapfile) / float(max_interval) ) - 1
         spacing = 1 if (spacing < 1) else spacing
 
     # Parse centimorgan spacing
-    interval = 0.05 if (cm < 0) else cm
+    interval = 0.05 if (cm is None) else cm
     mark = informativeSNPs(mapfile, uninformative, frequencies, spacing, zeromaf, use_uninf, checkhap, interval )
-
-# L O G G I N G #
-# Added config output for readme_gen.py  # mct 2013/01/11
-    # Log error for readme_gen.py to print in README.txt
-    print("ver:", ("hg19" if hg19_flag else "hg18"), file=logfile)
-#  #
-except KeyboardInterrupt:
-    print("\r[Terminated]", file=sys.stderr)
-    exit(-1)
