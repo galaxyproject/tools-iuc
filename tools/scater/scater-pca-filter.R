@@ -8,52 +8,54 @@
 # "log10_total_counts_feature_control"
 
 # Load optparse we need to check inputs
-suppressPackageStartupMessages(require(optparse))
-suppressPackageStartupMessages(require(workflowscriptscommon))
-suppressPackageStartupMessages(require(scater))
-suppressPackageStartupMessages(require(mvoutlier))
-
+library(optparse)
+library(workflowscriptscommon)
+library(LoomExperiment)
+library(scater)
+library(mvoutlier)
 
 # parse options
 option_list = list(
   make_option(
-    c("-i", "--input-object-file"),
+    c("-i", "--input-loom"),
     action = "store",
     default = NA,
     type = 'character',
-    help = "A serialized SingleCellExperiment object file in RDS format."
+    help = "A SingleCellExperiment object file in Loom format."
   ),
   make_option(
-    c("-o", "--output-object-file"),
+    c("-o", "--output-loom"),
     action = "store",
     default = NA,
     type = 'character',
-    help = "File name in which to store serialized SingleCellExperiment object."
+    help = "File name in which to store the SingleCellExperiment object in Loom format."
   )
 )
 
-opt <- wsc_parse_args(option_list, mandatory = c('input_object_file', 'output_object_file'))
+opt <- wsc_parse_args(option_list, mandatory = c('input_loom', 'output_loom'))
 
 # Check parameter values
 
-if ( ! file.exists(opt$input_object_file)){
-  stop((paste('File', opt$input_object_file, 'does not exist')))
+if ( ! file.exists(opt$input_loom)){
+  stop((paste('File', opt$input_loom, 'does not exist')))
 }
 
-# Input from serialized R object
+# Input from Loom format
 
-sce <- readRDS(opt$input_object_file)
-print(paste("Starting with", ncol(sce), "cells and", nrow(sce), "features."))
+scle <- import(opt$input_loom, format='loom', type='SingleCellLoomExperiment')
+print(paste("Starting with", ncol(scle), "cells and", nrow(scle), "features."))
 
 #run PCA on data and detect outliers
-sce <- runPCA(sce, use_coldata = TRUE, detect_outliers = TRUE, return_sce = TRUE)
+scle <- runPCA(scle, use_coldata = TRUE, detect_outliers = TRUE, return_sce = TRUE)
 
 #Identify and return non-outliers
-sce$use <- !sce$outlier
-sce <- sce[, colData(sce)$use]
+scle$use <- !scle$outlier
+scle <- scle[, colData(scle)$use]
 
-print(paste("Ending with", ncol(sce), "cells and", nrow(sce), "features."))
+print(paste("Ending with", ncol(scle), "cells and", nrow(scle), "features."))
 
-
-# Output to a serialized R object
-saveRDS(sce, file = opt$output_object_file)
+# Output to a Loom file
+if (file.exists(opt$output_loom)) {
+  file.remove(opt$output_loom)
+}
+export(scle, opt$output_loom, format='loom')

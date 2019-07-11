@@ -4,19 +4,20 @@
 
 # Load optparse we need to check inputs
 
-suppressPackageStartupMessages(require(scater))
-suppressPackageStartupMessages(require(workflowscriptscommon))
-suppressPackageStartupMessages(require(optparse))
+library(optparse)
+library(workflowscriptscommon)
+library(LoomExperiment)
+library(scater)
 
 # parse options
 
 option_list = list(
   make_option(
-    c("-i", "--input-object-file"),
+    c("-i", "--input-loom"),
     action = "store",
     default = NA,
     type = 'character',
-    help = "A serialized SingleCellExperiment object file in RDS format."
+    help = "A SingleCellExperiment object file in Loom format."
   ),
   make_option(
     c("-c", "--colour-by"),
@@ -48,20 +49,20 @@ option_list = list(
   )
 )
 
-opt <- wsc_parse_args(option_list, mandatory = c('input_object_file', 'output_plot_file'))
+opt <- wsc_parse_args(option_list, mandatory = c('input_loom', 'output_plot_file'))
 # Check parameter values
 
-if ( ! file.exists(opt$input_object_file)){
-  stop((paste('File', opt$input_object_file, 'does not exist')))
+if ( ! file.exists(opt$input_loom)){
+  stop((paste('File', opt$input_loom, 'does not exist')))
 }
 
 
-# Input from serialized R object
+# Input from Loom format
 
-sce <- readRDS(opt$input_object_file)
-sce <- normalize(sce)
-sce <- runPCA(sce)
-plot <- plotReducedDim(sce, "PCA", colour_by = opt$colour_by, size_by = opt$size_by, shape_by = opt$shape_by)
+scle <- import(opt$input_loom, format='loom', type='SingleCellLoomExperiment')
+scle <- normalize(scle, exprs_values = 1)
+scle <- runPCA(scle)
+plot <- plotReducedDim(scle, "PCA", colour_by = opt$colour_by, size_by = opt$size_by, shape_by = opt$shape_by)
 #do the scatter plot of reads vs genes
 
 ggsave(opt$output_plot_file, plot, device="pdf")

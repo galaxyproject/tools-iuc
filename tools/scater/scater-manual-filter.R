@@ -2,18 +2,19 @@
 # Manually filter SingleCellExperiment with user-defined parameters
 
 # Load optparse we need to check inputs
-suppressPackageStartupMessages(require(optparse))
-suppressPackageStartupMessages(require(workflowscriptscommon))
-suppressPackageStartupMessages(require(scater))
+library(optparse)
+library(workflowscriptscommon)
+library(LoomExperiment)
+library(scater)
 
 # parse options
 option_list = list(
   make_option(
-    c("-i", "--input-object-file"),
+    c("-i", "--input-loom"),
     action = "store",
     default = NA,
     type = 'character',
-    help = "A serialized SingleCellExperiment object file in RDS format."
+    help = "A SingleCellExperiment object file in Loom format."
   ),
   make_option(
     c("-d", "--detection-limit"),
@@ -37,46 +38,48 @@ option_list = list(
     help = "Maximum % of mitochondrial genes expressed per cell. Cells that exceed this value will be filtered out."
   ),
   make_option(
-    c("-o", "--output-object-file"),
+    c("-o", "--output-loom"),
     action = "store",
     default = NA,
     type = 'character',
-    help = "File name in which to store serialized SingleCellExperiment object."
+    help = "File name in which to store the SingleCellExperiment object in Loom format."
   )
 )
 
-opt <- wsc_parse_args(option_list, mandatory = c('input_object_file', 'output_object_file'))
+opt <- wsc_parse_args(option_list, mandatory = c('input_loom', 'output_loom'))
 
 # Check parameter values
 
-if ( ! file.exists(opt$input_object_file)){
-  stop((paste('File', opt$input_object_file, 'does not exist')))
+if ( ! file.exists(opt$input_loom)){
+  stop((paste('File', opt$input_loom, 'does not exist')))
 }
 
 # Filter out unexpressed features
 
-sce <- readRDS(opt$input_object_file)
-print(paste("Starting with", ncol(sce), "cells and", nrow(sce), "features."))
+scle <- import(opt$input_loom, format='loom', type='SingleCellLoomExperiment')
+print(paste("Starting with", ncol(scle), "cells and", nrow(scle), "features."))
 
-#create a logical vector of features that are expressed (above detection_limit)
-feature_expressed <- nexprs(sce, detection_limit = opt$detection_limit, byrow=TRUE) > 0
-sce <- sce[feature_expressed, ]
+# Create a logical vector of features that are expressed (above detection_limit)
+feature_expressed <- nexprs(scle, detection_limit = opt$detection_limit, exprs_values = 1, byrow=TRUE) > 0
+scle <- scle[feature_expressed, ]
 
-print(paste("After filtering out unexpressed features: ", ncol(sce), "cells and", nrow(sce), "features."))
+print(paste("After filtering out unexpressed features: ", ncol(scle), "cells and", nrow(scle), "features."))
 
-#Filter low library sizes
-sce$use <- sce$total_counts > opt$library_size
-sce <- sce[, colData(sce)$use]
+# Filter low library sizes
+scle$use <- scle$total_counts > opt$library_size
+scle <- scle[, colData(scle)$use]
 
-print(paste("After filtering out low library counts: ", ncol(sce), "cells and", nrow(sce), "features."))
+print(paste("After filtering out low library counts: ", ncol(scle), "cells and", nrow(scle), "features."))
 
-#Filter out high MT counts
+# Filter out high MT counts
 
-sce$use <- sce$pct_counts_MT < opt$percent_counts_MT
-sce <- sce[, colData(sce)$use]
+scle$use <- scle$pct_counts_MT < opt$percent_counts_MT
+scle <- scle[, colData(scle)$use]
 
-print(paste("After filtering out high MT gene counts: ", ncol(sce), "cells and", nrow(sce), "features."))
+print(paste("After filtering out high MT gene counts: ", ncol(scle), "cells and", nrow(scle), "features."))
 
-
-# Output to a serialized R object
-saveRDS(sce, file = opt$output_object_file)
+# Output to a Loom file
+if (file.exists(opt$output_loom)) {
+  file.remove(opt$output_loom)
+}
+export(scle, opt$output_loom, format='loom')
