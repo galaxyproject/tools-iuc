@@ -208,18 +208,33 @@ if user_mode == "single":
             exit(-1)
 
     elif user_mode_single == "fulltable":
-        sto_set = config["SingleTableOps.FULLTABLE"]
-        custom_func = wean(sto_set["fulltable_customop"])
+        general_mode = wean(config["SingleTableOps.FULLTABLE"]["mode"])
 
-        def fun(tableau):
-            """Dummy Function"""
-            return tableau
+        if general_mode == "melt":
+            sto_set = config["SingleTableOps.MELT"]
+            melt_ids = wean(sto_set["melt_ids"])
+            melt_values = wean(sto_set["melt_values"])
 
-        ss = Safety("table", custom_func, strict_xml)
-        fun_string = ss.generateFunction()
-        exec(fun_string)  # SUPER DUPER SAFE...
 
-        out_table = fun(data)
+
+        elif general_mode == "pivot":
+            sto_set = config["SingleTableOps.PIVOT"]
+            pivot_index = wean(sto_set["pivot_index"])
+            pivot_column = wean(sto_set["pivot_column"])
+            pivot_values = wean(sto_set["pivot_values"])
+        elif general_mode == "custom":
+            sto_set = config["SingleTableOps.FULLTABLE_CUSTOM"]
+            custom_func = wean(sto_set["fulltable_customop"])
+
+            def fun(tableau):
+                """Dummy Function"""
+                return tableau
+
+            ss = Safety("table", custom_func, strict_xml)
+            fun_string = ss.generateFunction()
+            exec(fun_string)  # SUPER DUPER SAFE...
+
+            out_table = fun(data)
 
     # elif user_mode_single == "sort":
     #     sto_set = config["SingleTableOps.SELECT"]
