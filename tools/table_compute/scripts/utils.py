@@ -51,11 +51,15 @@ class Utils():
         if mod == "None":
             return None
 
-        # integer array:
-        #    Here we need to convert 1-base
-        #     indexing to 0-base indexing
-        if mod[0] == '[' and mod[len(mod) - 1] == ']':
-            return [x - 1 for x in map(int, mod[1:len(mod) - 1].split(','))]
+        if mod[0] == '[' and mod[-1] == ']':
+            if mod[1] in '0123456789':
+                # integer array:
+                #    Here we need to convert 1-base
+                #     indexing to 0-base indexing
+                return [x - 1 for x in map(int, mod[1:len(mod) - 1].split(','))]
+            else:
+                # string array
+                return list(map(lambda x: x.strip(), mod[1:-1].split(',')))
 
         # String
         return mod

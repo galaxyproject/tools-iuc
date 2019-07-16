@@ -215,13 +215,16 @@ if user_mode == "single":
             melt_ids = wean(sto_set["melt_ids"])
             melt_values = wean(sto_set["melt_values"])
 
-
+            out_table = pd.melt(data, id_vars=melt_ids, value_vars=melt_values)
 
         elif general_mode == "pivot":
             sto_set = config["SingleTableOps.PIVOT"]
             pivot_index = wean(sto_set["pivot_index"])
             pivot_column = wean(sto_set["pivot_column"])
             pivot_values = wean(sto_set["pivot_values"])
+
+            out_table = data.pivot(index=pivot_index, columns=pivot_column, values=pivot_values)
+
         elif general_mode == "custom":
             sto_set = config["SingleTableOps.FULLTABLE_CUSTOM"]
             custom_func = wean(sto_set["fulltable_customop"])
