@@ -89,7 +89,7 @@ if user_mode == "single":
             cols_specified = list(range(len(data.columns)))
         if not rows_specified:
             rows_specified = list(range(len(data)))
-            
+
         # do not use duplicate indexes
         # e.g. [2,3,2,5,5,4,2] to [2,3,5,4]
         nodupes_col = not sto_set["select_cols_unique"]
@@ -98,11 +98,11 @@ if user_mode == "single":
         if nodupes_col:
             tab = cols_specified
             cols_specified = [x for i, x in enumerate(tab)
-                                 if x not in tab[:i]]
+                              if x not in tab[:i]]
         if nodupes_row:
             tab = rows_specified
             rows_specified = [x for i, x in enumerate(tab)
-                                 if x not in tab[:i]]
+                              if x not in tab[:i]]
 
         out_table = data.iloc[rows_specified, cols_specified]
 
@@ -130,6 +130,8 @@ if user_mode == "single":
                 value = str(value)
                 # Convert str_eq to eq
                 operation = operation[4:]
+            else:
+                value = float(value)
 
             op = Utils.getTwoValueBaseOp(operation)
             bool_mat = op(data, value)
@@ -170,6 +172,7 @@ if user_mode == "single":
         sto_set = uc.SingleTableOps["ELEMENT"]
 
         # Add None values for missing keys
+        # - we check if operation exists later
         for co in ('value', 'mode', 'replace', 'modify_op',
                    'scale_op', 'scale_value', 'customop'):
             if 'element_' + co not in sto_set.keys():
@@ -177,6 +180,8 @@ if user_mode == "single":
 
         # lt, gt, ge, etc.
         operation = sto_set["element_op"]
+        if operation == "None":
+            operation = None
         # Here we first create a boolean matrix of all the
         # elements we wish to replace
         #
@@ -189,6 +194,11 @@ if user_mode == "single":
         if operation:
             op = Utils.getTwoValuePandaOp(operation)
             value = sto_set["element_value"]
+            try:
+                # Could be numeric
+                value = float(value)
+            except ValueError:
+                pass
             # Otherwise we subset the data to be
             # replaced using T/F values
             bool_mat = op(data, value)
@@ -227,17 +237,18 @@ if user_mode == "single":
             exit(-1)
 
     elif user_mode_single == "fulltable":
+
         general_mode = uc.SingleTableOps["FULLTABLE"]["mode"]
 
         if general_mode == "melt":
-            sto_set = uc.SingleTableOps["MELT"]
+            sto_set = uc.SingleTableOps["FULLTABLE"]["MELT"]
             melt_ids = sto_set["melt_ids"]
             melt_values = sto_set["melt_values"]
 
             out_table = pd.melt(data, id_vars=melt_ids, value_vars=melt_values)
 
         elif general_mode == "pivot":
-            sto_set = uc.SingleTableOps["PIVOT"]
+            sto_set = uc.SingleTableOps["FULLTABLE"]["PIVOT"]
             pivot_index = sto_set["pivot_index"]
             pivot_column = sto_set["pivot_column"]
             pivot_values = sto_set["pivot_values"]
@@ -245,7 +256,7 @@ if user_mode == "single":
             out_table = data.pivot(index=pivot_index, columns=pivot_column, values=pivot_values)
 
         elif general_mode == "custom":
-            sto_set = uc.SingleTableOps["FULLTABLE_CUSTOM"]
+            sto_set = uc.SingleTableOps["FULLTABLE"]["FULLTABLE_CUSTOM"]
             custom_func = sto_set["fulltable_customop"]
 
             def fun(tableau):
@@ -285,6 +296,10 @@ elif user_mode == "multiple":
 
     # Read and populate tables
     for x, t_sect in enumerate(table_sections):
+        if x == 0:
+            # Skip padding table
+            continue
+
         tmp = pd.read_csv(
             t_sect["file"],
             header=t_sect["header"],
