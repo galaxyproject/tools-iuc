@@ -6,22 +6,46 @@ This script is an all-in-one reproduction of the table_compute.R counterpart
 which was re-written in Python due to sandboxing concerns.
 """
 
-__version__ = "0.2"
+__version__ = "0.7"
 
 
 import csv
 import math
-from configparser import ConfigParser
+import operator
 from sys import argv
 
 import numpy as np
 import pandas as pd
+import userconfig as uc
 from safety import Safety
-from utils import Utils
 
-if len(argv) == 1 or argv[1] == "--version":
+# This should be generated in the same directory
+
+if len(argv) == 2 and argv[1] == "--version":
     print(__version__)
     exit(-1)
+
+
+class Utils:
+    @staticmethod
+    def getOneValueMathOp(op_name):
+        "Returns a simple one value math operator such as log, sqrt, etc"
+        return getattr(math, op_name)
+
+    @staticmethod
+    def getTwoValueBaseOp(op_name):
+        "Returns a basic two value operator such as +, -, etc"
+        return getattr(operator, "__" + op_name + "__")
+
+    @staticmethod
+    def getVectorPandaOp(op_name):
+        "Returns a valid DataFrame vector operator"
+        return getattr(pd.DataFrame, op_name)
+
+    @staticmethod
+    def getTwoValuePandaOp(op_name):
+        "Returns a valid two value DataFrame operator"
+        return getattr(pd.DataFrame, "__" + op_name + "__")
 
 
 # Math is imported but not directly used because users
@@ -30,72 +54,67 @@ if len(argv) == 1 or argv[1] == "--version":
 # we will just use an arbitrary math statement here.
 __ = math.log
 
-conf = argv[1]
-
-config = ConfigParser()
-config.read(conf)
-
-wean = Utils.parseType
-strict_xml = wean(config["Internal"]["function_defs"])
+strict_xml = uc.Default["function_defs"]
 
 # Set decimal precision
-pd.options.display.precision = wean(config["Default"]["precision"])
+pd.options.display.precision = uc.Default["precision"]
 
-user_mode = wean(config["Default"]["user_mode"])
+user_mode = uc.Default["user_mode"]
 user_mode_single = None
 out_table = None
 
 if user_mode == "single":
     # Read in TSV file
     data = pd.read_csv(
-        wean(config["SingleTableOps"]["reader_file"]),
-        header=wean(config["SingleTableOps"]["reader_header"]),
-        index_col=wean(config["SingleTableOps"]["reader_row_col"]),
-        keep_default_na=wean(config["Default"]["narm"]),
+        uc.SingleTableOps["reader_file"],
+        header=uc.SingleTableOps["reader_header"],
+        index_col=uc.SingleTableOps["reader_row_col"],
+        keep_default_na=uc.Default["narm"],
         sep='\t'
     )
-    user_mode_single = wean(config["SingleTableOps"]["user_mode_single"])
+    user_mode_single = uc.SingleTableOps["user_mode_single"]
 
     if user_mode_single == "precision":
         # Useful for changing decimal precision on write out
         out_table = data
 
     elif user_mode_single == "select":
-        sto_set = config["SingleTableOps.SELECT"]
+        sto_set = uc.SingleTableOps["SELECT"]
 
-        # do not use duplicates?
-        unique_col = not wean(sto_set["select_cols_unique"])
-        unique_row = not wean(sto_set["select_rows_unique"])
+        cols_specified = sto_set["select_cols_wanted"]
+        rows_specified = sto_set["select_rows_wanted"]
 
-        unique_col_wanted = wean(sto_set["select_cols_wanted"])
-        unique_row_wanted = wean(sto_set["select_rows_wanted"])
+        # Select all indexes if empty array of values
+        if not cols_specified:
+            cols_specified = list(range(len(data.columns)))
+        if not rows_specified:
+            rows_specified = list(range(len(data)))
+            
+        # do not use duplicate indexes
+        # e.g. [2,3,2,5,5,4,2] to [2,3,5,4]
+        nodupes_col = not sto_set["select_cols_unique"]
+        nodupes_row = not sto_set["select_rows_unique"]
 
-        # Select all indexes if True
-        if unique_col_wanted is True:
-            unique_col_wanted = list(range(len(data.columns)))
-        if unique_row_wanted is True:
-            unique_row_wanted = list(range(len(data)))
-
-        if unique_col:
-            tab = unique_col_wanted
-            unique_col_wanted = [x for i, x in enumerate(tab)
+        if nodupes_col:
+            tab = cols_specified
+            cols_specified = [x for i, x in enumerate(tab)
                                  if x not in tab[:i]]
-        if unique_row:
-            tab = unique_row_wanted
-            unique_row_wanted = [x for i, x in enumerate(tab)
+        if nodupes_row:
+            tab = rows_specified
+            rows_specified = [x for i, x in enumerate(tab)
                                  if x not in tab[:i]]
 
-        out_table = data.iloc[unique_row_wanted, unique_col_wanted]
+        out_table = data.iloc[rows_specified, cols_specified]
 
     elif user_mode_single == "filtersumval":
-        sto_set = config["SingleTableOps.FILTERSUMVAL"]
+        sto_set = uc.SingleTableOps["FILTERSUMVAL"]
 
-        mode = wean(sto_set["filtersumval_mode"])
-        axis = wean(sto_set["filtersumval_axis"])
-        operation = wean(sto_set["filtersumval_op"])
-        compare_operation = wean(sto_set["filtersumval_compare"])
-        value = wean(sto_set["filtersumval_against"])
-        minmatch = wean(sto_set["filtersumval_minmatch"])
+        mode = sto_set["filtersumval_mode"]
+        axis = sto_set["filtersumval_axis"]
+        operation = sto_set["filtersumval_op"]
+        compare_operation = sto_set["filtersumval_compare"]
+        value = sto_set["filtersumval_against"]
+        minmatch = sto_set["filtersumval_minmatch"]
 
         if mode == "operation":
             # Perform axis operation
@@ -119,16 +138,16 @@ if user_mode == "single":
         out_table = data.loc[:, axis_bool] if axis == 0 else data.loc[axis_bool, :]
 
     elif user_mode_single == "matrixapply":
-        sto_set = config["SingleTableOps.MATRIXAPPLY"]
+        sto_set = uc.SingleTableOps["MATRIXAPPLY"]
         # 0 - column, 1 - row
-        axis = wean(sto_set["matrixapply_dimension"])
+        axis = sto_set["matrixapply_dimension"]
         # sd, mean, max, min, sum, median, summary
-        operation = wean(sto_set["matrixapply_op"])
+        operation = sto_set["matrixapply_op"]
 
         if operation is None:
-            use_custom = wean(sto_set["matrixapply_custom"])
+            use_custom = sto_set["matrixapply_custom"]
             if use_custom is True:
-                custom_func = wean(sto_set["matrixapply_custom_func"])
+                custom_func = sto_set["matrixapply_custom_func"]
 
                 def fun(vec):
                     """Dummy Function"""
@@ -148,7 +167,7 @@ if user_mode == "single":
             out_table = op(data, axis)
 
     elif user_mode_single == "element":
-        sto_set = config["SingleTableOps.ELEMENT"]
+        sto_set = uc.SingleTableOps["ELEMENT"]
 
         # Add None values for missing keys
         for co in ('value', 'mode', 'replace', 'modify_op',
@@ -157,7 +176,7 @@ if user_mode == "single":
                 sto_set["element_" + co] = 'None'
 
         # lt, gt, ge, etc.
-        operation = wean(sto_set["element_op"])
+        operation = sto_set["element_op"]
         # Here we first create a boolean matrix of all the
         # elements we wish to replace
         #
@@ -169,29 +188,29 @@ if user_mode == "single":
 
         if operation:
             op = Utils.getTwoValuePandaOp(operation)
-            value = wean(sto_set["element_value"])
+            value = sto_set["element_value"]
             # Otherwise we subset the data to be
             # replaced using T/F values
             bool_mat = op(data, value)
 
         # Get the main processing mode
-        mode = wean(sto_set["element_mode"])
+        mode = sto_set["element_mode"]
 
         if mode == "replace":
-            replacement_val = wean(sto_set["element_replace"])
+            replacement_val = sto_set["element_replace"]
             out_table[bool_mat] = replacement_val
 
         elif mode == "modify":
-            mod_op = Utils.getOneValueMathOp(wean(sto_set["element_modify_op"]))
+            mod_op = Utils.getOneValueMathOp(sto_set["element_modify_op"])
             out_table[bool_mat] = out_table[bool_mat].applymap(mod_op)
 
         elif mode == "scale":
-            scale_op = Utils.getTwoValueBaseOp(wean(sto_set["element_scale_op"]))
-            scale_value = wean(sto_set["element_scale_value"])
+            scale_op = Utils.getTwoValueBaseOp(sto_set["element_scale_op"])
+            scale_value = sto_set["element_scale_value"]
             out_table[bool_mat] = scale_op(out_table[bool_mat], scale_value)
 
         elif mode == "custom":
-            element_customop = wean(sto_set["element_customop"])
+            element_customop = sto_set["element_customop"]
 
             def fun(elem):
                 """Dummy Function"""
@@ -208,26 +227,26 @@ if user_mode == "single":
             exit(-1)
 
     elif user_mode_single == "fulltable":
-        general_mode = wean(config["SingleTableOps.FULLTABLE"]["mode"])
+        general_mode = uc.SingleTableOps["FULLTABLE"]["mode"]
 
         if general_mode == "melt":
-            sto_set = config["SingleTableOps.MELT"]
-            melt_ids = wean(sto_set["melt_ids"])
-            melt_values = wean(sto_set["melt_values"])
+            sto_set = uc.SingleTableOps["MELT"]
+            melt_ids = sto_set["melt_ids"]
+            melt_values = sto_set["melt_values"]
 
             out_table = pd.melt(data, id_vars=melt_ids, value_vars=melt_values)
 
         elif general_mode == "pivot":
-            sto_set = config["SingleTableOps.PIVOT"]
-            pivot_index = wean(sto_set["pivot_index"])
-            pivot_column = wean(sto_set["pivot_column"])
-            pivot_values = wean(sto_set["pivot_values"])
+            sto_set = uc.SingleTableOps["PIVOT"]
+            pivot_index = sto_set["pivot_index"]
+            pivot_column = sto_set["pivot_column"]
+            pivot_values = sto_set["pivot_values"]
 
             out_table = data.pivot(index=pivot_index, columns=pivot_column, values=pivot_values)
 
         elif general_mode == "custom":
-            sto_set = config["SingleTableOps.FULLTABLE_CUSTOM"]
-            custom_func = wean(sto_set["fulltable_customop"])
+            sto_set = uc.SingleTableOps["FULLTABLE_CUSTOM"]
+            custom_func = sto_set["fulltable_customop"]
 
             def fun(tableau):
                 """Dummy Function"""
@@ -240,7 +259,7 @@ if user_mode == "single":
             out_table = fun(data)
 
     # elif user_mode_single == "sort":
-    #     sto_set = config["SingleTableOps.SELECT"]
+    #     sto_set = uc.SingleTableOps["SELECT"]
     else:
         print("No such mode!", user_mode_single)
         exit(-1)
@@ -248,42 +267,43 @@ if user_mode == "single":
 
 elif user_mode == "multiple":
 
-    table_sections = list(filter(
-        lambda x: x.startswith("MultipleTableOps.TABLE"), config.sections()
-    ))
+    table_sections = uc.MultipleTableOps["TABLES"]
 
     if not table_sections:
         print("Multiple table sets not given!")
         exit(-1)
 
-    reader_skip = wean(config["Default"]["reader_skip"])
+    reader_skip = uc.Default["reader_skip"]
 
-    table = ["Dummy Table"]
+    # Data
+    table = [None]
+    # Handlers for users "table1", "table2", etc.
+    table_names = []
+    # Actual references "table[1]", "table[2]", etc.
+    # - as a result we need a DummyTable to fill the table[0] slot
+    table_names_real = []
 
     # Read and populate tables
-    for sect in table_sections:
+    for x, t_sect in enumerate(table_sections):
         tmp = pd.read_csv(
-            wean(config[sect]["file"]),
-            header=wean(config[sect]["header"]),
-            index_col=wean(config[sect]["row_names"]),
-            keep_default_na=wean(config["Default"]["narm"]),
+            t_sect["file"],
+            header=t_sect["header"],
+            index_col=t_sect["row_names"],
+            keep_default_na=uc.Default["narm"],
             sep="\t"
         )
         table.append(tmp)
+        table_names.append("table" + str(x))
+        table_names_real.append("table[" + str(x) + "]")
 
-    custom_op = wean(config["MultipleTableOps"]["fulltable_customop"])
-    table_names = list(map(lambda x: "table" + str(x), range(1, len(table))))
-    table_real_names = list(map(lambda x: "table[" + str(x) + "]", range(1, len(table))))
-
+    custom_op = uc.MultipleTableOps["fulltable_customop"]
     ss = Safety(table_names, custom_op, strict_xml)
     fun_string = ss.generateFunction()
     # Change the argument to table
     fun_string = fun_string.replace("fun(table1):", "fun():")
     # table1 to table[1]
-    for i, tab in enumerate(table_names):
-        oldtab = tab
-        newtab = table_real_names[i]
-        fun_string = fun_string.replace(oldtab, newtab, 1)
+    for name, name_real in zip(table_names, table_names_real):
+        fun_string = fun_string.replace(name, name_real)
 
     fun_string = fun_string.replace("fun():", "fun(table):")
     exec(fun_string)  # SUPER DUPER SAFE...
@@ -296,10 +316,10 @@ else:
 out_parameters = {
     "sep": "\t",
     "float_format": "%%.%df" % pd.options.display.precision,
-    "header": wean(config["Default"]["out_headers_col"]),
-    "index": wean(config["Default"]["out_headers_row"])
+    "header": uc.Default["out_headers_col"],
+    "index": uc.Default["out_headers_row"]
 }
 if user_mode_single not in ('matrixapply', None):
     out_parameters["quoting"] = csv.QUOTE_NONE
 
-out_table.to_csv(wean(config["Default"]["outtable"]), **out_parameters)
+out_table.to_csv(uc.Default["outtable"], **out_parameters)
