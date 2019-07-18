@@ -57,16 +57,15 @@ if ( length(ctrls) != 0 ) {
                         bamReads=bams,
                         bamControl=ctrls,
                         Peaks=peaks,
-                        Tissue=samples, # using "Tissue" column to display ids as labels in PCA plot
-                        stringsAsFactors=FALSE)
+                        Tissue=samples) # using "Tissue" column to display ids as labels in PCA plot
 } else {
+
     sampleTable <- data.frame(SampleID=samples,
                         Replicate=samples,
                         Condition=groups,
                         bamReads=bams,
                         Peaks=peaks,
-                        Tissue=samples,
-                        stringsAsFactors=FALSE)
+                        Tissue=samples)
 }
 
 sample = dba(sampleSheet=sampleTable, peakFormat='bed', scoreCol=opt$scorecol, bLowerScoreBetter=opt$lowerbetter)
@@ -126,7 +125,7 @@ if (opt$format == "bed") {
         Strand=gsub("\\*", ".", strand(resSorted)),
         mcols(resSorted))
 }
-write.table(resSorted, file = opt$outfile, sep="\t", quote = FALSE, append=TRUE, row.names = FALSE)
+write.table(resSorted, file = opt$outfile, sep="\t", quote = FALSE, row.names = FALSE)
 
 # Output binding affinity scores
 if (!is.null(opt$bmatrix)) {
