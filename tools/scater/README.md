@@ -10,8 +10,8 @@ Various filter scripts are provided, along with some plotting functions for QC.
 2. Visualise it.\
    Take a look at the distribution of library sizes, expressed features and mitochondrial genes with `scater-plot-dist-scatter`.
    Then look at the distibution of genes across cells with `scater-plot-exprs-freq`.
-3. Use the plots to decide on filtering parameters.\
-   Either automatically filter on outliers with `scater-pca-filter` or manually filter with `scater-manual-filter`.
+3. Guided by the plots, filter the data with `scater-filter`.\
+   You can either manually filter with user-defined parameters or use PCA to automatically removes outliers.
 4. Visualise data again to see how the filtering performed using `scater-plot-dist-scatter`.\
    Decide if you're happy with the data. If not, try increasing or decreasing the filtering parameters.
 5. Normalise data with `scater-normalize`.

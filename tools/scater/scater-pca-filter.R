@@ -45,12 +45,11 @@ if ( ! file.exists(opt$input_loom)){
 scle <- import(opt$input_loom, format='loom', type='SingleCellLoomExperiment')
 print(paste("Starting with", ncol(scle), "cells and", nrow(scle), "features."))
 
-#run PCA on data and detect outliers
-scle <- runPCA(scle, use_coldata = TRUE, detect_outliers = TRUE, return_sce = TRUE)
+# Run PCA on data and detect outliers
+scle <- runPCA(scle, use_coldata = TRUE, detect_outliers = TRUE)
 
-#Identify and return non-outliers
-scle$use <- !scle$outlier
-scle <- scle[, colData(scle)$use]
+# Filter out outliers
+scle <- scle[, !scle$outlier]
 
 print(paste("Ending with", ncol(scle), "cells and", nrow(scle), "features."))
 

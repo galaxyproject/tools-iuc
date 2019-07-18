@@ -66,15 +66,14 @@ scle <- scle[feature_expressed, ]
 print(paste("After filtering out unexpressed features: ", ncol(scle), "cells and", nrow(scle), "features."))
 
 # Filter low library sizes
-scle$use <- scle$total_counts > opt$library_size
-scle <- scle[, colData(scle)$use]
+to_keep <- scle$total_counts > opt$library_size
+scle <- scle[, to_keep]
 
 print(paste("After filtering out low library counts: ", ncol(scle), "cells and", nrow(scle), "features."))
 
 # Filter out high MT counts
-
-scle$use <- scle$pct_counts_MT < opt$percent_counts_MT
-scle <- scle[, colData(scle)$use]
+to_keep <- scle$pct_counts_MT < opt$percent_counts_MT
+scle <- scle[, to_keep]
 
 print(paste("After filtering out high MT gene counts: ", ncol(scle), "cells and", nrow(scle), "features."))
 
