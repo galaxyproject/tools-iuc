@@ -19,32 +19,16 @@ class Safety():
     __conditionals = ('(', ')', '()', '.', 'if', 'else')
     __basicops = ('+', '-', '*', '/', '%', '!=', '==')
     __allowedlibs = ('np', 'math')
-    __allowed = (
-        # common subset of Math, Pandas.Dataframe, and Numpy
-        'abs', 'add', 'all', 'any', 'append', 'array', 'bool',
-        'ceil', 'complex', 'cos', 'cosh', 'cov', 'cumprod',
-        'cumsum', 'degrees', 'divide', 'divmod', 'dot', 'e', 'empty',
-        'exp', 'filter', 'float', 'floor', 'hypot', 'inf', 'int',
-        'isfinite', 'isin', 'isinf', 'isna', 'isnan', 'isnull',
-        'log', 'log10', 'log2', 'max', 'mean', 'median', 'melt',
-        'merge', 'min', 'mod', 'multiply', 'nan', 'ndim', 'notna',
-        'notnull', 'pi', 'pivot', 'pivot_table', 'pow', 'product',
-        'quantile', 'radians', 'rank', 'remainder', 'round', 'sin',
-        'sinh', 'size', 'sqrt', 'squeeze', 'stack', 'std', 'str',
-        'subtract', 'sum', 'swapaxes', 'take', 'tan', 'tanh',
-        'transpose', 'unique', 'var', 'where'
-    )
 
     def __init__(self, obj_name, custom_string, strict_functiondefs):
         if isinstance(obj_name, list):
             self.name = obj_name[0]
-            self.allowed_names = obj_name + list(self.__allowed)
+            self.allowed_names = tuple(obj_name + self.parseXML(strict_functiondefs))
         else:
             self.name = obj_name
-            self.allowed_names = list(self.__allowed)
+            self.allowed_names = tuple(self.parseXML(strict_functiondefs))
 
         self.expr = custom_string
-        self.parseXML(strict_functiondefs)
         self.__assertSafe()
 
     def parseXML(self, xml_file):
@@ -53,20 +37,16 @@ class Safety():
                    for macro in root for option in macro
                    if macro.tag == "macro" and option.tag == "option"]
 
-        self.allowed_names = self.allowed_names + options
+        return(list(set(options)))
 
     def generateMultiLine(self):
-        """
-        Generates a multi-line function to be evaluated outside the class
-        """
-        cust_fun = "def fun(%s):%s" % (
+        "Generates a multi-line function to be evaluated outside the class"
+        cust_fun = "def fun(%s):\n%s" % (
             self.name, "\n".join("\t" + x for x in self.expr.splitlines()))
         return cust_fun
 
     def generateFunction(self):
-        """
-        Generates a function to be evaluated outside the class
-        """
+        "Generates a function to be evaluated outside the class"
         cust_fun = "def fun(%s):\n\treturn(%s)" % (self.name, self.expr)
         return cust_fun
 
@@ -78,17 +58,12 @@ class Safety():
 
     @staticmethod
     def arrange(str_array):
-        """
-        Method to always arrange list set objects in
-        the same way across multiple tests
-        """
+        "Method to always arrange list set objects in the same way across multiple tests"
         return sorted(str_array, key=len, reverse=True)
 
     @staticmethod
     def detailedExcuse(word):
-        """
-        Gives a verbose statement for why users should not use some specific operators.
-        """
+        "Gives a verbose statement for why users should not use some specific operators."
         mess = None
         if word == "for":
             mess = "For loops are not permitted. Use numpy or pandas table operations instead."
@@ -141,9 +116,7 @@ class Safety():
                     safe = False
 
         # 4. Test the remaining string
-        valid_ops = operators + keywords \
-            + Safety.arrange(list(self.__conditionals)) \
-            + Safety.arrange(list(self.allowed_names))
+        valid_ops = operators + keywords + Safety.arrange(list(self.__conditionals))
 
         remstring = self.expr
 
@@ -159,7 +132,7 @@ class Safety():
         return safe
 
     def __checkKeyword(self, keyw):
-        """Tests a token keyword for malicious intent"""
+        "Tests a token keyword for malicious intent"
         is_name = keyw == self.name
         is_ifel = keyw in self.__conditionals
         is_lib = keyw in self.__allowedlibs
@@ -167,8 +140,7 @@ class Safety():
         # is_pd = hasattr(pd.DataFrame, keyw)
         # is_np = hasattr(np, keyw)
         is_allowedname = keyw in self.allowed_names
-        is_allow = keyw in self.__allowed
 
         # is_good = is_name or is_ifel or is_math or is_pd or is_np or is_allow
-        is_good = is_name or is_ifel or is_lib or is_allowedname or is_allow
+        is_good = is_name or is_ifel or is_lib or is_allowedname
         return is_good
