@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # Based heavily on the HISAT2 data manager wrapper
 
+from __future__ import print_function
+
 import argparse
 import os
 import subprocess
@@ -22,7 +24,7 @@ def build_bwameth_index(data_manager_dict, params, args):
     proc = subprocess.Popen(args=cmd, shell=False, cwd=target_directory)
     return_code = proc.wait()
     if return_code:
-        print >> sys.stderr, "Error building index."
+        print("Error building index.", file=sys.stderr)
         sys.exit( return_code )
     data_table_entry = dict(value=args.dbkey, dbkey=args.dbkey, name=args.name, path=sym_linked_fasta_filename)
     _add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
@@ -57,7 +59,7 @@ def main():
     build_bwameth_index(data_manager_dict, params, args)
 
     # save info to json file
-    open(filename, 'wb').write(dumps(data_manager_dict))
+    open(filename, 'w').write(dumps(data_manager_dict))
 
 
 if __name__ == "__main__":

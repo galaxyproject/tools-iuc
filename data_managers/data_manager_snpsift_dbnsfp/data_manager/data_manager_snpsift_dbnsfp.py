@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
+
 import gzip
 import json
 import optparse
@@ -8,7 +10,9 @@ import os.path
 import re
 import shutil
 import sys
-import urllib
+import urllib.error
+import urllib.parse
+import urllib.request
 import zipfile
 
 from pysam import ctabix
@@ -82,7 +86,7 @@ def get_annotations(gzip_path):
 
 
 def tabix_file(input_fname, output_fname):
-    print >> sys.stdout, "tabix_file: %s -> %s" % (input_fname, output_fname)
+    print("tabix_file: %s -> %s" % (input_fname, output_fname), file=sys.stdout)
     ctabix.tabix_compress(input_fname, output_fname, force=True)
     # Column indices are 0-based.
     ctabix.tabix_index(output_fname, seq_col=0, start_col=1, end_col=1)
@@ -95,7 +99,7 @@ def natural_sortkey(string):
 def download_dbnsfp_database(url, output_file):
     dbnsfp_tsv = None
     file_path = 'downloaded_file'
-    urllib.urlretrieve(url, file_path)
+    urllib.request.urlretrieve(url, file_path)
     with zipfile.ZipFile(file_path, 'r') as my_zip:
         dbnsfp_tsv = output_file if output_file else 'dbnsfp_tsv'
         wtr = open(dbnsfp_tsv, 'w')
@@ -119,7 +123,7 @@ def download_dbnsfp_database(url, output_file):
                         tfh.close()
                         tempfiles.append(file + "_%d" % len(tempfiles))
                         tfh = open(tempfiles[-1], 'w')
-                        print >> sys.stderr, "%s [%d] pos: %d < %d" % (file, i, pos, lastpos)
+                        print("%s [%d] pos: %d < %d" % (file, i, pos, lastpos), file=sys.stderr)
                     lastpos = pos
                 tfh.write(line)
             tfh.close()
@@ -195,7 +199,7 @@ def main():
     data_manager_dict['data_tables'][data_table].append(data_table_entry)
 
     # save info to json file
-    open(filename, 'wb').write(json.dumps(data_manager_dict))
+    open(filename, 'w').write(json.dumps(data_manager_dict))
 
 
 if __name__ == "__main__":
