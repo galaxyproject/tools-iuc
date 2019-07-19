@@ -1,13 +1,16 @@
 #!/usr/bin/env python
 #
 # Data manager for downloading Plant Tribes scaffolds data.
+from __future__ import print_function
 import argparse
 import json
 import os
 import shutil
 import sys
 import tarfile
-import urllib2
+import urllib.error
+import urllib.parse
+import urllib.request
 import zipfile
 
 
@@ -52,8 +55,8 @@ def url_download(url, work_directory):
     src = None
     dst = None
     try:
-        req = urllib2.Request(url)
-        src = urllib2.urlopen(req)
+        req = urllib.request.Request(url)
+        src = urllib.request.urlopen(req)
         dst = open(file_path, 'wb')
         while True:
             chunk = src.read(2**10)
@@ -62,7 +65,7 @@ def url_download(url, work_directory):
             else:
                 break
     except Exception as e:
-        print >>sys.stderr, str(e)
+        print(str(e), file=sys.stderr)
     finally:
         if src:
             src.close()
@@ -131,6 +134,5 @@ else:
 # Get the scaffolds data.
 data_manager_dict = download(target_directory, args.web_url, args.config_web_url, description)
 # Write the JSON output dataset.
-fh = open(args.out_file, 'wb')
-fh.write(json.dumps(data_manager_dict))
-fh.close()
+with open(args.out_file, 'w') as fh:
+    fh.write(json.dumps(data_manager_dict))

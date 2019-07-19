@@ -17,9 +17,10 @@ or gzipped files on the fly, so long as the gzipped files end with 'gz'.
 """
 
 # import sys
+from __future__ import print_function
 import argparse
 import gzip
-from itertools import izip_longest
+from itertools import zip_longest
 # izip
 from os.path import basename
 
@@ -38,7 +39,7 @@ def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
     args = [iter(iterable)] * n
-    return izip_longest(fillvalue=fillvalue, * args)
+    return zip_longest(fillvalue=fillvalue, * args)
 
 
 if __name__ == "__main__":
@@ -61,9 +62,9 @@ if __name__ == "__main__":
         for entry in R1:
             counter += 1
             if counter % 100000 == 0:
-                print "%s reads processed" % counter
+                print("%s reads processed" % counter)
             head1, seq1, placeholder1, qual1 = [i.strip() for i in entry]
-            head2, seq2, placeholder2, qual2 = [j.strip() for j in R2.next()]
+            head2, seq2, placeholder2, qual2 = [j.strip() for j in next(R2)]
             if 'unfixable' in head1 or 'unfixable' in head2:
                 unfix_count += 1
             else:

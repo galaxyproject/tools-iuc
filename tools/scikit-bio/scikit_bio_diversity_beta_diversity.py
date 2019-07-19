@@ -3,7 +3,7 @@
 # Reports a beta diversity matrix for tabular input file
 # using scikit-bio
 # Daniel Blankenberg
-
+from __future__ import print_function
 import codecs
 import optparse
 import sys
@@ -33,7 +33,7 @@ def __main__():
     parser.add_option( '-o', '--output', dest='output', action='store', type="string", default=None, help='Output Filename' )
     (options, args) = parser.parse_args()
     if options.version:
-        print >> sys.stderr, "scikit-bio betadiversity from tabular file", __VERSION__
+        print("scikit-bio betadiversity from tabular file", __VERSION__, file=sys.stderr)
         sys.exit()
 
     if options.otu_column is not None:
@@ -44,11 +44,11 @@ def __main__():
     if options.sample_columns is None:
         with open( options.input, 'rb' ) as fh:
             line = fh.readline()
-            columns = range( len( line.split( DELIMITER ) ) )
+            columns = list(range( len( line.split( DELIMITER ) )))
             if otu_column in columns:
                 columns.remove( otu_column )
     else:
-        columns = map( lambda x: int( x ) - 1, options.sample_columns.split( "," ) )
+        columns = [int( x ) - 1 for x in options.sample_columns.split( "," )]
 
     max_col = max( columns + [otu_column] )
     counts = [ [] for x in columns ]
@@ -63,7 +63,7 @@ def __main__():
         for i, line in enumerate( fh ):
             fields = line.rstrip('\n\r').split( DELIMITER )
             if len(fields) <= max_col:
-                print >> sys.stederr, "Bad data line: ", fields
+                print("Bad data line: ", fields, file=sys.stederr)
                 continue
             if otu_column is not None:
                 otu_names.append( fields[ otu_column ] )

@@ -62,7 +62,7 @@ class GZFile(CompressedFile):
 
 # factory function to create a suitable instance for accessing files
 def get_compressed_file(filename):
-    with file(filename, 'rb') as f:
+    with open(filename, 'rb') as f:
         start_of_file = f.read(1024)
         f.seek(0)
         for cls in (ZIPFile, BZ2File, GZFile):
