@@ -69,7 +69,7 @@ class SnpEffDb( Text ):
             dataset.metadata.regulation = regulations
             dataset.metadata.annotation = annotations
             try:
-                fh = file(dataset.file_name, 'w')
+                fh = open(dataset.file_name, 'w')
                 fh.write("%s\n" % genome_version if genome_version else 'Genome unknown')
                 fh.write("%s\n" % snpeff_version if snpeff_version else 'SnpEff version unknown')
                 if annotations:
