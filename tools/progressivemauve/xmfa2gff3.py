@@ -158,7 +158,7 @@ def convert_xmfa_to_gff3(xmfa_file, relative_to='1', sequences=None, window_size
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert XMFA alignments to gff3', prog='xmfa2gff3')
-    parser.add_argument('xmfa_file', type=str, help='XMFA File')
+    parser.add_argument('xmfa_file', type=argparse.FileType('r'), help='XMFA File')
     parser.add_argument('--window_size', type=int, help='Window size for analysis', default=1000)
     parser.add_argument('--relative_to', type=str, help='Index of the parent sequence in the MSA', default='1')
     parser.add_argument('--sequences', type=str, nargs='+',
