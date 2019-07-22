@@ -9,7 +9,8 @@
 #       factFile", "f", 2, "character"      -Path to factor information file
 #       factInput", "i", 2, "character"     -String containing factors if manually input
 #       annoPath", "a", 2, "character"      -Path to input containing gene annotations
-#       contrastData", "C", 1, "character"  -String containing contrasts of interest
+#       contrastFile", "C", 1, "character"  -Path to contrasts information file
+#       contrastInput", "D", 1, "character" -String containing contrasts of interest
 #       cpmReq", "c", 2, "double"           -Float specifying cpm requirement
 #       cntReq", "z", 2, "integer"          -Integer specifying minimum total count requirement
 #       sampleReq", "s", 2, "integer"       -Integer specifying cpm requirement
@@ -75,6 +76,14 @@ sanitiseEquation <- function(equation) {
 sanitiseGroups <- function(string) {
     string <- gsub(" *[,] *", ",", string)
     string <- gsub("^\\s+|\\s+$", "", string)
+    return(string)
+}
+
+# Function to make contrast contain valid R names
+sanitiseContrast <- function(string) {
+    string <- strsplit(string, split="-")
+    string <- lapply(string, make.names)
+    string <- lapply(string, paste, collapse="-")
     return(string)
 }
 
@@ -161,7 +170,8 @@ spec <- matrix(c(
     "factFile", "f", 2, "character",
     "factInput", "i", 2, "character",
     "annoPath", "a", 2, "character",
-    "contrastData", "C", 1, "character",
+    "contrastFile", "C", 1, "character",
+    "contrastInput", "D", 1, "character",
     "cpmReq", "c", 1, "double",
     "totReq", "y", 0, "logical",
     "cntReq", "z", 1, "integer",
@@ -343,17 +353,37 @@ if (haveAnno) {
 #Create output directory
 dir.create(opt$outPath, showWarnings=FALSE)
 
-# Split up contrasts seperated by comma into a vector then sanitise
-contrastData <- unlist(strsplit(opt$contrastData, split=","))
+# Process contrasts
+if (is.null(opt$contrastInput)) {
+    contrastData <- read.table(opt$contrastFile, header=TRUE, sep="\t", quote= "", strip.white=TRUE, stringsAsFactors=FALSE)
+    contrastData <- contrastData[, 1, drop=TRUE]
+}  else {
+    # Split up contrasts seperated by comma into a vector then sanitise
+    contrastData <- unlist(strsplit(opt$contrastInput, split=","))
+}
 contrastData <- sanitiseEquation(contrastData)
 contrastData <- gsub(" ", ".", contrastData, fixed=TRUE)
-# in case input groups start with numbers this will make the names valid R names, required for makeContrasts
+
+# in case input groups start with numbers make the names valid R names, required for makeContrasts
 cons <- NULL
+cons_d <- NULL
 for (i in contrastData) {
-    i <- strsplit(i, split="-")
-    i <- lapply(i, make.names)
-    i <- lapply(i, paste, collapse="-")
-    cons <- append(cons, unlist(i))
+
+    # if the contrast is a difference of differences e.g. (A-B)-(X-Y)
+    if (grepl("\\)-\\(", i)) {
+        i <- unlist(strsplit(i, split="\\)-\\("))
+        i <- gsub("\\(|\\)","", i)
+        for (j in i) {
+           j <- sanitiseContrast(j)
+           j <- paste0("(", j, ")")
+           cons_d  <- append(cons_d, unlist(j))
+        }
+        cons_d <- paste(cons_d, collapse = '-')
+        cons <- append(cons, unlist(cons_d))
+    } else {
+        i <- sanitiseContrast(i)
+        cons <- append(cons, unlist(i))
+    }
 }
 
 plots <- character()
@@ -843,6 +873,7 @@ status = decideTests(fit, adjust.method=opt$pAdjOpt, p.value=opt$pValReq,
 sumStatus <- summary(status)
 
 for (i in 1:length(cons)) {
+    con_name <- cons[i]
     con <- cons[i]
     con <- gsub("\\(|\\)", "", con)
     # Collect counts for differential expression
@@ -879,8 +910,15 @@ for (i in 1:length(cons)) {
         geneanno <- y$genes
         geneanno[, 2] <- make.unique(geneanno[, 2])
 
+        # use the logCPMS for the counts
+        if (wantTrend) {
+            cnts <- logCPM
+        } else{
+            cnts <- vData$E
+        }
+
         # MD plot
-        Glimma::glMDPlot(fit, coef=i, counts=y$counts, anno=geneanno, groups=factors[, 1],
+        Glimma::glMDPlot(fit, coef=i, counts=cnts, anno=geneanno, groups=factors[, 1],
              status=status[, i], sample.cols=col.group,
              main=paste("MD Plot:", unmake.names(con)), side.main=colnames(y$genes)[2],
              folder=paste0("glimma_", unmake.names(con)), launch=FALSE)
@@ -889,10 +927,10 @@ for (i in 1:length(cons)) {
         linkData <- rbind(linkData, c(linkName, linkAddr))
 
         # Volcano plot
-        Glimma::glXYPlot(x=fit$coefficients[, i], y=fit$lods[, i], counts=y$counts, anno=geneanno, groups=factors[, 1], 
+        Glimma::glXYPlot(x=fit$coefficients[, i], y=-log10(fit$p.value[, i]), counts=cnts, anno=geneanno, groups=factors[, 1],
             status=status[, i], sample.cols=col.group,
             main=paste("Volcano Plot:", unmake.names(con)), side.main=colnames(y$genes)[2],
-            xlab="logFC", ylab="logodds",
+            xlab="logFC", ylab="-log10(P-value)",
             folder=paste0("glimma_volcano_", unmake.names(con)), launch=FALSE)
         linkName <- paste0("Glimma_VolcanoPlot_", con, ".html")
         linkAddr <- paste0("glimma_volcano_", con, "/XY-Plot.html")
@@ -941,7 +979,7 @@ for (i in 1:length(cons)) {
     imgName <- paste0("MDVolPlot_", con)
     imgAddr <- paste0("mdvolplot_", con, ".png")
     imageData <- rbind(imageData, c(imgName, imgAddr))
-    title(paste0("Contrast: ", unmake.names(con)), outer=TRUE, cex.main=1.5)
+    title(paste0("Contrast: ", con_name), outer=TRUE, cex.main=1.5)
     invisible(dev.off())
 
     if ("h" %in% plots) {
@@ -1060,7 +1098,7 @@ cata("</table>")
 cata("<h4>Plots:</h4>\n")
 #PDFs
 for (i in 1:nrow(linkData)) {
-    if (grepl("density|cpm|boxplot|mds|mdplots|voom|saplot", linkData$Link[i])) {
+    if (grepl(".pdf", linkData$Link[i]) & grepl("density|cpm|boxplot|mds|mdplots|voom|saplot", linkData$Link[i])) {
         HtmlLink(linkData$Link[i], linkData$Label[i])
   }
 }
