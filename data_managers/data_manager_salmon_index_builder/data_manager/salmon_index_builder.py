@@ -40,7 +40,7 @@ def build_salmon_index( data_manager_dict, options, params, sequence_id, sequenc
     if return_code:
         print("Error building index.", file=sys.stderr)
         sys.exit( return_code )
-    data_table_entry = dict( value=sequence_id, dbkey=options.fasta_dbkey, name=sequence_name, path=sequence_id )
+    data_table_entry = dict( value=sequence_id, dbkey=options.fasta_dbkey, name=sequence_name, path=sequence_id, version=options.index_version )
     _add_data_table_entry( data_manager_dict, data_table_name, data_table_entry )
 
 
