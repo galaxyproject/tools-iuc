@@ -8,7 +8,7 @@ import subprocess
 import sys
 from json import dumps, loads
 
-DEFAULT_DATA_TABLE_NAME = "salmon_indexes"
+DEFAULT_DATA_TABLE_NAME = "salmon_indexes_versioned"
 
 
 def get_id_name( params, dbkey, fasta_description=None):
