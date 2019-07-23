@@ -59,7 +59,7 @@ def main():
     parser.add_argument( '--fasta_dbkey', dest='fasta_dbkey', action='store', type=str, default=None )
     parser.add_argument( '--fasta_description', dest='fasta_description', action='store', type=str, default=None )
     parser.add_argument( '--data_table_name', dest='data_table_name', action='store', type=str, default='salmon_indexes' )
-    parser.add_argument( '-v','--index_version', dest='index_version', action='store', type=str, help='Use IndexVersion attribute from header.json' )
+    parser.add_argument( '-v', '--index_version', dest='index_version', action='store', type=str, help='Use IndexVersion attribute from header.json' )
     parser.add_argument( '-k', '--kmer_size', dest='kmer_size', action='store', type=str, help='kmer_size' )
     options = parser.parse_args()
 
