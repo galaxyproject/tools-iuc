@@ -68,7 +68,7 @@ def main():
         params = json.load(fh)
     data_manager_dict = {}
 
-    if options.fasta_dbkey in [ None, '', '?' ]:
+    if options.fasta_dbkey in [None, '', '?']:
         raise Exception('"%s" is not a valid dbkey. You must specify a valid dbkey.' % options.fasta_dbkey)
 
     sequence_id, sequence_name = get_id_name(params, dbkey=options.fasta_dbkey, fasta_description=options.fasta_description)
