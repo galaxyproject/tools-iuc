@@ -89,7 +89,7 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
             '--clean',
             '--db', database_path
         ]
-        
+
         subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
