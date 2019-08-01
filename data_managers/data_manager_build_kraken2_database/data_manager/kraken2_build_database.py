@@ -83,13 +83,14 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
-    args = [
-        '--threads', str(kraken2_args["threads"]),
-        '--clean',
-        '--db', database_path
-    ]
-
-    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+    if kraken2_args["clean"]:
+        args = [
+            '--threads', str(kraken2_args["threads"]),
+            '--clean',
+            '--db', database_path
+        ]
+        
+        subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
         'data_tables': {
@@ -195,13 +196,14 @@ def kraken2_build_special(kraken2_args, target_directory, data_table_name=DATA_T
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
-    args = [
-        '--threads', str(kraken2_args["threads"]),
-        '--clean',
-        '--db', database_path
-    ]
+    if kraken2_args["clean"]:
+        args = [
+            '--threads', str(kraken2_args["threads"]),
+            '--clean',
+            '--db', database_path
+        ]
 
-    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+        subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
         'data_tables': {
@@ -250,13 +252,14 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
-    args = [
-        '--threads', str(kraken2_args["threads"]),
-        '--clean',
-        '--db', custom_database_name
-    ]
+    if kraken2_args["clean"]:
+        args = [
+            '--threads', str(kraken2_args["threads"]),
+            '--clean',
+            '--db', custom_database_name
+        ]
 
-    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+        subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
         'data_tables': {
@@ -286,6 +289,7 @@ def main():
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
     parser.add_argument('--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)')
     parser.add_argument('--skip-maps', dest='skip_maps', action='store_true', help='')
+    parser.add_argument('--clean', dest='clean', action='store_true', help='Clean up extra files')
     args = parser.parse_args()
 
     data_manager_input = json.loads(open(args.data_manager_json).read())
@@ -308,6 +312,7 @@ def main():
             "minimizer_len": args.minimizer_len,
             "minimizer_spaces": args.minimizer_spaces,
             "threads": args.threads,
+            "clean": args.clean,
         }
         data_manager_output = kraken2_build_standard(
             kraken2_args,
@@ -325,6 +330,7 @@ def main():
             "minimizer_len": args.minimizer_len,
             "minimizer_spaces": args.minimizer_spaces,
             "threads": args.threads,
+            "clean": args.clean,
         }
         data_manager_output = kraken2_build_special(
             kraken2_args,
@@ -338,6 +344,7 @@ def main():
             "minimizer_len": args.minimizer_len,
             "minimizer_spaces": args.minimizer_spaces,
             "threads": args.threads,
+            "clean": args.clean,
         }
         data_manager_output = kraken2_build_custom(
             kraken2_args,
