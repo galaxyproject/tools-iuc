@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@TOOL_VERSION@">
+<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@TOOL_VERSION@+galaxy1">
     <description>Left-align and normalize indels; check if REF alleles match the reference; split multiallelic sites into multiple rows; recover multiallelics from multiple rows</description>
     <macros>
         <token name="@EXECUTABLE@">norm</token>
@@ -12,7 +12,7 @@
     <command detect_errors="aggressive"><![CDATA[
 @PREPARE_ENV@
 @PREPARE_INPUT_FILE@
-#set $section = $sec_ref
+#set $section = $reference_source
 @PREPARE_FASTA_REF@
 #set $section = $sec_restrict
 @PREPARE_TARGETS_FILE@
@@ -20,28 +20,21 @@
 
 bcftools @EXECUTABLE@
 
-#set $section = $sec_ref
+#set $section = $reference_source
 @FASTA_REF@
-${section.do_not_normalize}
-#if $section.check_ref:
-  --check-ref "${section.check_ref}"
+--check-ref $check_ref
+$normalize_indels
+#if $rm_dup:
+  --rm-dup "$rm_dup"
 #end if
-
-## Default section
-#set $section = $sec_default
-#if $section.rm_dup:
-  --rm-dup "${section.rm_dup}"
+#if $multiallelics.mode:
+  --multiallelics '${multiallelics.mode}${multiallelics.multiallelic_types}'
 #end if
-#if $section.multiallelics:
-  #set $mtype = ''
-  #if $section.multiallelic_types:
-    #set $mtype = $section.multiallelic_types
-  #end if
-  --multiallelics "${section.multiallelics}${mtype}" 
+#if $multiallelics.mode == '+':
+  ${multiallelics.strict_filter}
 #end if
-${section.strict_filter}
-#if $section.site_win:
-  --site-win "${section.site_win}"
+#if $sec_default.site_win:
+  --site-win ${sec_default.site_win}
 #end if
 
 #set $section = $sec_restrict
@@ -58,49 +51,67 @@ ${section.strict_filter}
     </command>
     <inputs>
         <expand macro="macro_input" />
-        <section name="sec_restrict" expanded="false" title="Restrict to">
-            <expand macro="macro_regions" />
-            <expand macro="macro_targets" />
-        </section>
-        <section name="sec_ref" expanded="false" title="Reference Options">
-            <expand macro="macro_fasta_ref" />
-            <param name="check_ref" type="select" label="Check REF" optional="true" 
-                    help="What to do when incorrect or missing REF allele is encountered">
-                <option value="e">check REF alleles and exit (e)</option>
-                <option value="w">warn (w)</option>
-                <option value="x">exclude (x)</option>
-                <option value="s">set bad sites (s)</option>
-                <option value="wx">warn and exclude (wx)</option>
-                <option value="ws">warn and set bad sites (ws)</option>
-            </param>
-            <param name="do_not_normalize" type="boolean" truevalue="--do-not-normalize" falsevalue="" label="Skip Normalization, just set REF allele" 
-                   help="Do not normalize indels, just fix or set the REF allele from the reference (-N, --do-not-normalize with -m or -c s)" />
-        </section>
-
-        <section name="sec_default" expanded="false" title="Default Options">
-            <param name="rm_dup" type="select" label="Rm Dup" optional="true" 
-                   help="Remove duplicate snps|indels|both|any">
-                <option value="snps">snps</option>
-                <option value="indels">indels</option>
-                <option value="both">both</option>
-                <option value="any">any</option>
-            </param>
-            <param name="multiallelics" type="select" label="~multiallelics" optional="true">
+        <expand macro="macro_fasta_ref" />
+        <param name="check_ref" type="select" display="radio"
+        label="When any REF allele does not match the reference genome base"
+        help="Warnings about REF mismatches will be emitted to the standard
+        error (stderr) stream, and it is recommended to check there for
+        problems if you choose not to exit with an error immediately upon
+        encountering a mismatch.">
+            <option value="w">ignore the problem (-w)</option>
+            <option value="wx">exclude the variant record from the output (-wx)</option>
+            <option value="ws">fix the variant record using the reference genome information (-ws)</option>
+            <option value="e">exit with an error (-e)</option>
+        </param>
+        <param argument="--do-not-normalize" name="normalize_indels" type="boolean" truevalue="" falsevalue="--do-not-normalize" checked="false"
+        label="Left-align and normalize indels?" />
+        <param name="rm_dup" type="select" display="radio"
+        label="Perform deduplication for the folowing types of variant records">
+            <option value="">do not deduplicate any records</option>
+            <option value="snps">snps</option>
+            <option value="indels">indels</option>
+            <option value="both">both</option>
+            <option value="any">any</option>
+        </param>
+        <conditional name="multiallelics">
+            <param name="mode" type="select" label="~multiallelics">
+                <option value="">preserve multiallelic/biallelic sites</option>
                 <option value="-">split multiallelic sites into biallelic records (-)</option> 
                 <option value="+">join biallelic sites into multiallelic records (+)</option> 
             </param>
-            <param name="multiallelic_types" type="select" label="variant types which should be split or merged" optional="true">
-                <option value="snps">snps - only SNP records should be split or merged</option>
-                <option value="indels">indels - only indel records should be split or merged</option>
-                <option value="both">both - records should be split or merged</option>
-                <option value="any">any - SNPs and indels should be merged into a single record</option>
-            </param>
-            <param name="strict_filter" type="boolean" truevalue="--strict-filter" falsevalue="" label="Strict Filter" 
-                   help="When merging (-m+), merged site is PASS only if all sites being merged PASS" />
+            <when value="" />
+            <when value="-">
+                <param name="multiallelic_types" type="select" display="radio"
+                label="split the following variant types">
+                    <option value="snps">SNPs</option>
+                    <option value="indels">indels</option>
+                    <option value="both" selected="true">both</option>
+                </param>
+            </when>
+            <when value="+">
+                <param name="multiallelic_types" type="select" display="radio"
+                label="merge the following variant types">
+                    <option value="snps">SNPs</option>
+                    <option value="indels">indels</option>
+                    <option value="both" selected="true">SNPs and indels, but keep variants of the two types separate (both)</option>
+                    <option value="any">SNPs and indels, and merge variant records of different types (any)</option>
+                </param>
+                <param name="strict_filter" type="boolean" truevalue="--strict-filter" falsevalue=""
+                label="Strict Filter"
+                help="merged site is PASS only if all sites being merged PASS" />
+            </when>
+        </conditional>
+        <section name="sec_restrict" expanded="false" title="Restrict all operations to">
+            <expand macro="macro_restrict" type="region" label_type="Region" />
+            <expand macro="macro_restrict" type="target" label_type="Target">
+              <expand macro="macro_invert_targets" />
+            </expand>
+        </section>
+
+        <section name="sec_default" expanded="false" title="Other Options">
             <param name="site_win" type="integer" label="Site Window" value="1000" optional="True" 
                    help="(-w, --site-win) Buffer for sorting lines which changed position during realignment" />
         </section>
-
         <expand macro="macro_select_output_type" />
     </inputs>
     <outputs>
@@ -109,7 +120,21 @@ ${section.strict_filter}
     <tests>
         <test>
             <param name="input_file" ftype="vcf" value="norm.vcf" />
-            <param name="fasta_ref" ftype="fasta" value="norm.fa" />
+            <expand macro="test_using_reference" ref="norm.fa" />
+            <param name="normalize_indels" value="true" />
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="T,TAACCCTA" />
+                    <not_has_text text="TAA,TAACCCTAAA" />
+                </assert_contents>
+            </output>
+        </test>
+
+        <test>
+            <param name="input_file" ftype="vcf" dbkey="?" value="norm.vcf" />
+            <expand macro="test_using_reference" select_from="cached" ref="norm" />
+            <param name="normalize_indels" value="true" />
             <param name="output_type" value="v" />
             <output name="output_file">
                 <assert_contents>
@@ -121,7 +146,10 @@ ${section.strict_filter}
 
         <test>
             <param name="input_file" ftype="vcf" value="norm.split.vcf" />
-            <param name="multiallelics" value="-" />
+            <expand macro="test_using_reference" ref="norm.fa" />
+            <conditional name="multiallelics">
+                <param name="mode" value="-" />
+            </conditional>
             <param name="output_type" value="v" />
             <output name="output_file">
                 <assert_contents>
@@ -134,8 +162,11 @@ ${section.strict_filter}
 
         <test>
             <param name="input_file" ftype="vcf" value="norm.split.vcf" />
-            <param name="fasta_ref" ftype="fasta" value="norm.fa" />
-            <param name="multiallelics" value="-" />
+            <expand macro="test_using_reference" ref="norm.fa" />
+            <param name="normalize_indels" value="true" />
+            <conditional name="multiallelics">
+                <param name="mode" value="-" />
+            </conditional>
             <param name="output_type" value="v" />
             <output name="output_file">
                 <assert_contents>
@@ -148,7 +179,10 @@ ${section.strict_filter}
 
         <test>
             <param name="input_file" ftype="vcf" value="norm.merge.vcf" />
-            <param name="multiallelics" value="+" />
+            <expand macro="test_using_reference" ref="norm.fa" />
+            <conditional name="multiallelics">
+                <param name="mode" value="+" />
+            </conditional>
             <param name="output_type" value="v" />
             <output name="output_file">
                 <assert_contents>
@@ -159,8 +193,11 @@ ${section.strict_filter}
         </test>
         <test>
             <param name="input_file" ftype="vcf" value="norm.merge.vcf" />
-            <param name="multiallelics" value="+" />
-            <param name="strict_filter" value="true" />
+            <expand macro="test_using_reference" ref="norm.fa" />
+            <conditional name="multiallelics">
+                <param name="mode" value="+" />
+                <param name="strict_filter" value="true" />
+            </conditional>
             <param name="output_type" value="v" />
             <output name="output_file">
                 <assert_contents>
@@ -172,9 +209,8 @@ ${section.strict_filter}
 
         <test>
             <param name="input_file" ftype="vcf" value="norm.setref.vcf" />
-            <param name="fasta_ref" ftype="fasta" value="norm.fa" />
-            <param name="do_not_normalize" value="true" />
-            <param name="check_ref" value="s" />
+            <expand macro="test_using_reference" ref="norm.fa" />
+            <param name="check_ref" value="ws" />
             <param name="output_type" value="v" />
             <output name="output_file">
                 <assert_contents>
