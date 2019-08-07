@@ -1,11 +1,13 @@
 <?xml version='1.0' encoding='utf-8'?>
-<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@VERSION@.0">
-    <description>Copy number variation caller, requires Illumina's B-allele frequency (BAF) and Log R Ratio intensity (LRR)</description>
+<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@TOOL_VERSION@+galaxy1">
+    <description>Call copy number variation from VCF B-allele frequency (BAF) and Log R Ratio intensity (LRR) values</description>
     <macros>
         <token name="@EXECUTABLE@">cnv</token>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements" />
+    <expand macro="requirements">
+        <expand macro="matplotlib_requirement" />
+    </expand>
     <expand macro="version_command" />
     <command detect_errors="aggressive"><![CDATA[
 @PREPARE_ENV@
@@ -16,59 +18,44 @@
 
 bcftools @EXECUTABLE@
 
---output-dir cnv_tmp
+#set $output_dir = 'cnv_tmp'
+--output-dir $output_dir
 
 ## General section
-#set $section = $sec_general
-#if $section.control_sample:
-  --control-sample "${section.control_sample}"
+#set $query_sample = str($query_sample).strip()
+#set $control_sample = str($control_sample).strip()
+#if $control_sample:
+  -c '$control_sample'
 #end if
-#if $section.query_sample:
-  --query-sample "${section.query_sample}"
+#if $query_sample:
+  -s '$query_sample'
 #end if
 @AF_FILE@
-
-#if $section.plot_threshold:
-  --plot-threshold "${section.plot_threshold}"
+#if str($plotting.generate_plots) != 'none':
+  -p ${plotting.plot_threshold}
 #end if
 
 ## HMM section
 #set $section = $sec_hmm
-#if $section.aberrant_query or $section.aberrant_control:
-  #set $query_val = #if $section.aberrant_query then $section.aberrant_query else '1.0'#
-  #set $control_val = #if $section.aberrant_control then $section.aberrant_control else '1.0'#
-  --aberrant "${query_val},${control_val}"
+--aberrant "${section.aberrant_query},${section.aberrant_control}"
+#if str($section.aberrant_optimization.do_optimize) == 'yes':
+  --optimize ${section.aberrant_optimization.lower_bound}
 #end if
-#if $section.BAF_weight:
-  --BAF-weight "${section.BAF_weight}"
-#end if
-#if $section.BAF_dev_query or $section.BAF_dev_control:
-  #set $query_val = #if $section.BAF_dev_query then $section.BAF_dev_query else '1.0'#
-  #set $control_val = #if $section.BAF_dev_control then $section.BAF_dev_control else '1.0'#
-  --BAF-dev "${query_val},${control_val}"
-#end if
-#if $section.LRR_weight:
-  --LRR-weight "${section.LRR_weight}"
-#end if
-#if $section.LRR_dev_query or $section.LRR_dev_control:
-  #set $query_val = #if $section.LRR_dev_query then $section.LRR_dev_query else '1.0'#
-  #set $control_val = #if $section.LRR_dev_control then $section.LRR_dev_control else '1.0'#
-  --LRR-dev "${query_val},${control_val}"
-#end if
-#if $section.LRR_smooth_win:
-  --LRR-smooth-win "${section.LRR_smooth_win}"
-#end if
-#if $section.optimize:
-  --optimize "${section.optimize}"
+--BAF-weight ${section.score_usage.baf_weight}
+--BAF-dev "${section.score_usage.baf_dev_query},${section.score_usage.baf_dev_control}"
+--LRR-weight ${section.score_usage.lrr_weight}
+#if str($section.score_usage.compute_on) == 'baf+lrr':
+  --LRR-dev "${section.score_usage.lrr_dev_query},${section.score_usage.lrr_dev_control}"
+  --LRR-smooth-win ${section.score_usage.lrr_smooth_win}
 #end if
 #if $section.same_prob:
-  --same-prob "${section.same_prob}"
+  --same-prob ${section.same_prob}
 #end if
 #if $section.err_prob:
-  --err-prob "${section.err_prob}"
+  --err-prob ${section.err_prob}
 #end if
 #if $section.xy_prob:
-  --xy-prob "${section.xy_prob}"
+  --xy-prob ${section.xy_prob}
 #end if
 
 ## Filter section
@@ -78,85 +65,172 @@ bcftools @EXECUTABLE@
 
 ## Primary Input/Outputs
 @INPUT_FILE@
-&& mv $output_dir/cn.*.tab "$output_cn"
-&& mv $output_dir/dat.*.tab "$output_dat"
-&& mv $output_dir/summary.*.tab "$output_summary"
-## && python $output_dir/plot.*.py
+
+&& mv $output_dir/cn.*.tab '$output_cn'
+#if $control_sample:
+  && mv ${output_dir}/summary.tab '$output_summary'
+#else:
+  && mv ${output_dir}/summary.*.tab '$output_summary'
+#end if
+
+#if str($plotting.generate_plots) != 'none':
+  ## collect all generated plots and embed them in html as base-64 encoded data
+  && (echo '<html><body><head><title>Copy-number variation plots (bcftools cnv)</title><style type="text/css">
+  @media print {
+	img {
+		max-width:100% !important;
+		page-break-inside: avoid;
+	}
+  </style>' > $output_plots;
+  for plot in $output_dir/*.png; do
+    [ -f "\$plot" ] || break;
+    echo '<div><img src="data:image/png;base64,' >> $output_plots;
+    python -m base64 \$plot >> $output_plots;
+    echo '" /></div><hr>' >> $output_plots;
+  done;
+  echo '</body></html>' >> $output_plots;)
+#end if
+
 ]]>
     </command>
     <inputs>
-        <param name="output_dir" type="hidden" value="cnv_tmp"/>
         <expand macro="macro_input" />
+        <param argument="-s" name="query_sample" type="text" label="Query Sample" optional="True" help="The name (as used in the input) of the query sample in the input. Can be ommitted if, and only if, there is only one sample in the input." />
+        <param argument="-c" name="control_sample" type="text" label="Control Sample" optional="True" help="The name (as used in the input) of an optional control sample to compare against. Note: The pairwise calling mode represents the real strength of the tool as it helps to reduce the number of false calls and also allows one to distinguish between normal and novel copy number variation." />
+        <expand macro="macro_AF_file" />
+        <conditional name="plotting">
+            <param name="generate_plots" type="select" label="Plot results?">
+                <option value="all">Yes, plot results for all chromosomes</option>
+                <option value="some">Yes, but plot only chromosomes with above-threshold quality of CNV status estimate</option>
+                <option value="none">No, do not generate plots</option>
+            </param>
+            <when value="all">
+                <param name="plot_threshold" type="hidden" value="0" />
+            </when>
+            <when value="some">
+                <param argument="-p" name="plot_threshold" type="float" value="0"
+                label="Plot Threshold"
+                help="Plot aberrant chromosomes with quality at least 'float'" />
+            </when>
+            <when value="none" />
+        </conditional>
         <section name="sec_restrict" expanded="false" title="Restrict to">
-            <expand macro="macro_regions" />
-            <expand macro="macro_targets" />
-        </section>
-        <param name="reference_fasta" type="data" format="fasta" label="Reference Fasta" />
-        <section name="sec_general" expanded="true" title="General Options">
-            <param name="query_sample" type="text" label="Query Sample" optional="True" help="Query samply name" />
-            <param name="control_sample" type="text" label="Control Sample" optional="True" help="Optional control sample name to highlight differences" />
-            <expand macro="macro_AF_file" />
-            <param name="plot_threshold" type="float" label="Plot Threshold" optional="True" help="Plot aberrant chromosomes with quality at least 'float'" />
+            <expand macro="macro_restrict" />
+            <expand macro="macro_restrict" type="target" label_type="Target" />
         </section>
         <section name="sec_hmm" expanded="false" title="HMM Options">
-            <param name="err_prob" type="float" value="1e-4" label="Err Prob" optional="True" help="Uniform error probability" />
-            <param name="optimize" type="float" value="" min="0." max="1." label="Optimize" optional="True" >
-                <help>
-                  Iteratively estimate the fraction of aberrant cells, down to the given fraction. 
-                  Lowering this value from the default 1.0 to say, 0.3, can help discover more events but also increases noise.
-                </help>
-            </param>
-            <param name="same_prob" type="float" value="" min="0." max="1." label="Same Prob" optional="True">
+            <param argument="--aberrant" name="aberrant_query" type="float" value="1" min="0" max="1"
+            label="Estimated purity of the query sample"
+            help="Estimate of the fractional contribution of the desired query tissue to the (possibly control-contaminated) query sample (default: 1 = no contamination with control tissue)" />
+            <param argument="--aberrant" name="aberrant_control" type="float" value="1" min="0" max="1"
+            label="Estimated purity of the control sample"
+            help="Estimate of the fractional contribution of the desired control tissue to the (possibly query-contaminated) control sample (default: 1 = no contamination with query tissue)" />
+            <conditional name="aberrant_optimization">
+                <param name="do_optimize" type="select"
+                label="Adjust sample purity estimates based on data?"
+                help="Instead of treating your specified estimates of the sample purities as fixed values, the tool can use them as starting values for an iterative optimization that tries to estimate the sample purities from the data. Note: With estimate optimization enabled the final estimates will be reported as cell fraction (CF) estimates in the summary report.">
+                    <option value="no">No, leave sample purities as specified</option>
+                    <option value="yes">Yes, adjust purity estimates</option>
+                </param>
+                <when value="no" />
+                <when value="yes">
+                    <param argument="--optimize" name="lower_bound" type="float" value="0.3" min="1e-9" max="1"
+                    label="Lower bound for adjusted estimate"
+                    help="Constrains the final adjusted purity estimates not to be smaller than this value." />
+                </when>
+            </conditional>
+            <conditional name="score_usage">
+                <param name="compute_on" type="select" label="Use BAF and LRR annotations to call CNVs?"
+                help="Using LRR information in addition to BAF values is the default and helps in dealing with random noise in the data. However, the tool is also able to call CNVs from BAF values alone in case your input does not feature LRR information.">
+                    <option value="baf+lrr">Yes (requires input with both BAF and LRR subfields)</option>
+                    <option value="baf">No, use BAF values exclusively</option>
+                </param>
+                <when value="baf+lrr">
+                    <param argument="--BAF-weight" name="baf_weight" type="float" value="1" min="0" max="1"
+                    label="Baf Weight" help="relative contribution from BAF" />
+
+                    <param argument="--BAF-dev" name="baf_dev_query" type="float" value="0.04" min="0" max="1"
+                    label="Query sample BAF deviation"
+                    help="Expected BAF deviation in the query sample (default: 0.04)" />
+                    <param argument="--BAF-dev" name="baf_dev_control" type="float" value="0.04" min="0" max="1"
+                    label="Control sample BAF deviation"
+                    help="Expected BAF deviation in the control sample (default: 0.04)" />
+
+                    <param argument="--LRR-weight" name="lrr_weight" type="float" value="0.2" min="0" max="1"
+                    label="LRR Weight"
+                    help="Relative contribution from LRR. This option can have a big effect on the number of calls produced. With truly random noise (such as in simulated data), the value should be set high (1.0), but in the presence of systematic noise when LRR values are not informative, lower values result in cleaner calls (default: 0.2)." />
+                    <param argument="--LRR-dev" name="lrr_dev_query" type="float" value="0.2" min="0" max="1"
+                    label="Query sample LRR Deviation"
+                    help="Expected LRR deviation in the query sample (default: 0.2)" />
+                    <param argument="--LRR-dev" name="lrr_dev_control" type="float" value="0.2" min="0" max="1"
+                    label="Control sample LRR Deviation"
+                    help="Expected LRR deviation in the control sample (default: 0.2)" />
+                    <param argument="--LRR-smooth-win" name="lrr_smooth_win" type="integer" value="10"
+                    label="LRR Smoothing Window"
+                    help="Window of LRR moving average smoothing (default: 10)" />
+                </when>
+                <when value="baf">
+                    <param argument="--BAF-dev" name="baf_dev_query" type="float" value="0.04" min="0" max="1"
+                    label="Query sample BAF deviation"
+                    help="Expected BAF deviation in the query sample (default: 0.04)" />
+                    <param argument="--BAF-dev" name="baf_dev_control" type="float" value="0.04" min="0" max="1"
+                    label="Control sample BAF deviation"
+                    help="Expected BAF deviation in the control sample (default: 0.04)" />
+                    <param name="baf_weight" type="hidden" value="1" />
+                    <param name="lrr_weight" type="hidden" value="0" />
+                </when>
+            </conditional>
+            <param argument="--err-prob" name="err_prob" type="float" value="1e-4" label="Err Prob" help="Uniform error probability" />
+            <param argument="--same-prob" name="same_prob" type="float" value="0.5" min="0" max="1" label="Same Prob">
                 <help>
                     The prior probability of the query and the control sample being the same. 
-                    Setting to 0 calls both independently, setting to 1 forces the same copy number state in both.
+                    Setting to 0 calls both independently, setting to 1 forces the same copy number state in both. (default: 0.5)
                 </help>
             </param>
-            <param name="xy_prob" type="float" min="0." max="1." label="Xy Prob" value="1e-9" optional="True">
+            <param argument="--xy-prob" name="xy_prob" type="float" min="0." max="1." label="Xy Prob" value="1e-9">
                 <help>
                     The HMM probability of transition to another copy number state. 
                     Increasing this value leads to smaller and more frequent calls. 
                 </help>
             </param>
-
-            <param name="aberrant_query" type="float" value="" min="0." max="1." label="Aberrant Query" optional="true" 
-                   help="Fraction of aberrant cells in query, defaults to 1." />
-            <param name="aberrant_control" type="float" value="" min="0." max="1." label="Aberrant Control" optional="true" 
-                   help="Fraction of aberrant cells in control, defaults to 1." />
-            <param name="BAF_weight" type="float" value="1." min="0." max="1." label="Baf Weight" optional="True" help="relative contribution from BAF" />
-
-            <param name="BAF_dev_query" type="float" value="" min="0." max="1." label="Baf Query Deviation" optional="true" 
-                   help="Expected BAF deviation in query, defaults to: 0.04" />
-            <param name="BAF_dev_control" type="float" value="" min="0." max="1." label="Baf Control Deviation" optional="true" 
-                   help="Expected BAF deviation in control, defaults to: 0.04" />
-
-            <param name="LRR_weight" type="float" label="LRR Weight" optional="True" >
-                <help>
-                    Relative contribution from LRR.  
-                    With noisy data, this option can have big effect on the number of calls produced. 
-                    In truly random noise (such as in simulated data), the value should be set high (1.0), i
-                    but in the presence of systematic noise when LRR are not informative, lower values result in cleaner calls (0.2).
-                </help>
-            </param>
-            <param name="LRR_dev_query" type="float" value="" min="0." max="1." label="LRR Query Deviation" 
-                   help="Expected LRR deviation in query, default is: 0.2" />
-            <param name="LRR_dev_control" type="float" value="" min="0." max="1." label="LRR Control Deviation" 
-                   help="Expected LRR deviation in control, default is: 0.2" />
-            <param name="LRR_smooth_win" type="integer" label="Lrr Smooth Win" value="10" optional="True" 
-                   help="Window of LRR moving average smoothing" />
-
         </section>
     </inputs>
     <outputs>
         <data name="output_cn" format="tabular" label="${input_file.name.rsplit('.',1)[0]}.cn"/>
-        <data name="output_dat" format="tabular" label="${input_file.name.rsplit('.',1)[0]}.dat"/>
         <data name="output_summary" format="tabular" label="${input_file.name.rsplit('.',1)[0]}.summary"/>
-        <!-- add plot output -->
-        <!-- script has png per chr, html of images or collect into pdf?
-        <data name="output_plots" format="" />
-         -->
+        <data name="output_plots" format="html" label="${input_file.name.rsplit('.',1)[0]}.plots">
+            <filter>plotting['generate_plots'] != 'none'</filter>
+        </data>
     </outputs>
-    <tests />
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="input_file" ftype="vcf" value="cnv.vcf" />
+            <output name="output_summary" file="cnv_summary.tab" compare="re_match" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_file" ftype="vcf" value="cnv.vcf" />
+            <conditional name="plotting">
+                <param name="generate_plots" value="none" />
+            </conditional>
+            <output name="output_summary" file="cnv_summary.tab" compare="re_match" />
+        </test>
+        <test expect_num_outputs="3">
+            <param name="input_file" ftype="vcf" value="cnv.vcf" />
+            <param name="query_sample" value="test" />
+            <param name="control_sample" value="test" />
+            <output name="output_summary" file="cnv_pairwise_summary.tab" compare="re_match" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input_file" ftype="vcf" value="cnv_baf_only.vcf" />
+            <conditional name="plotting">
+                <param name="generate_plots" value="none" />
+            </conditional>
+            <conditional name="score_usage">
+                <param name="compute_on" value="baf" />
+            </conditional>
+            <output name="output_summary" file="cnv_summary.tab" compare="re_match" />
+        </test>
+    </tests>
     <help><![CDATA[
 =====================================
  bcftools @EXECUTABLE@

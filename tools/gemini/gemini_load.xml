@@ -1,4 +1,4 @@
-<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@.0">
+<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@+galaxy1">
     <description>Loading a VCF file into GEMINI</description>
     <macros>
         <import>gemini_macros.xml</import>
@@ -9,92 +9,257 @@
     <expand macro="version_command" />
     <command>
 <![CDATA[
-        ln -s "${ infile }" input.vcf &&
+        @PROVIDE_ANNO_DATA@
+
+        ln -s '$infile' input.vcf &&
         bgzip -c input.vcf > input.vcf.gz &&
         tabix -p vcf input.vcf.gz &&
 
         gemini
-            #if $annotation_databases:
-                --annotation-dir "${annotation_databases.fields.path}"
-            #end if
             @BINARY@
             -v input.vcf.gz
             #if str( $annotation_type ) != "None":
-                -t "$annotation_type"
+                -t $annotation_type
             #end if
+
+            $has_genotypes
 
             #if $ped:
                 -p $ped
             #end if
 
-            $skip_gerp_bp
-            $skip_cadd
-            $skip_gene_tables
-            $no_load_genotypes
-            $no_genotypes
-            $passonly
-            $infostring
+            #if 'gerp_bp' not in str($opt_content):
+                --skip-gerp-bp
+            #end if
+            #if 'cadd' not in str($opt_content):
+                --skip-cadd
+            #end if
+            #if 'gene_tables' not in str($opt_content):
+                --skip-gene-tables
+            #end if
+            #if 'genotypes' not in str($opt_content):
+                --no-load-genotypes
+            #end if
+            #if 'gt_pl' not in str($opt_content):
+                --skip-pls
+            #end if
+            #if 'passonly' in str($opt_content):
+                --passonly
+            #end if
+            #if 'info_string' in str($opt_content):
+                --save-info-string
+            #end if
+
             --cores \${GALAXY_SLOTS:-4}
 
-            "${ outfile }"
+            '$outfile'
 ]]>
     </command>
     <inputs>
-        <param name="infile" type="data" format="vcf" label="VCF file to be loaded in the GEMINI database" help="Only build 37 (aka hg19) of the human genome is supported.">
+        <param name="infile" type="data" format="vcf"
+        label="VCF dataset to be loaded in the GEMINI database"
+        help="Only build 37 (aka hg19) of the human genome is supported.">
             <options>
                 <filter type="add_value" value="hg19" />
                 <filter type="add_value" value="Homo_sapiens_nuHg19_mtrCRS" />
                 <filter type="add_value" value="hg_g1k_v37" />
             </options>
         </param>
-
-        <param name="annotation_type" type="select" label="The annotations to be used with the input vcf" help="(-t)">
-            <option value="None">None (not recommended)</option>
-            <option value="snpEff" selected="True">snpEff annotated VCF file</option>
-            <option value="VEP">VEP annotated VCF file</option>
+        <param argument="-t" name="annotation_type" type="select"
+        label="The variants in this input are"
+        help="GEMINI can parse and use annotations generated with either snpEff (both 'EFF'- and 'ANN'-style annotations are supported) or VEP. You can also load unannotated variants, but most of GEMINI's functionality will not be available or not be very useful without annotations.">
+            <option value="snpEff" selected="True">annotated with snpEff</option>
+            <option value="VEP">annotated with VEP</option>
+            <option value="None">not annotated (not recommended)</option>
         </param>
-        <param name="ped" type="data" format="tabular" optional="True" label="Sample information file in PED+ format" help="(-p)" />
+        <param argument="--no-genotypes" name="has_genotypes" type="boolean" falsevalue="--no-genotypes" truevalue="" checked="True"
+        label="This input comes with genotype calls for its samples"
+        help="This is usually the case, but some published datasets, like some 1000G VCFs, are missing genotype information."/>
         <expand macro="annotation_dir" />
-
-        <param name="skip_gerp_bp" type="boolean" truevalue="--skip-gerp-bp" falsevalue="" checked="False"
-            label="Do not load GERP scores at base pair resolution" help="(--skip-gerp-bp)"/>
-
-        <param name="skip_cadd" type="boolean" truevalue="--skip-cadd" falsevalue="" checked="False"
-            label="Do not load CADD scores" help="(--skip-cadd)"/>
-
-        <param name="skip_gene_tables" type="boolean" truevalue="--skip-gene-tables" falsevalue="" checked="False"
-            label="Do not load gene tables" help="(--skip-gene-tables)"/>
-
-        <param name="no_load_genotypes" type="boolean" truevalue="--no-load-genotypes" falsevalue="" checked="False"
-            label="Genotypes exist in the file, but should not be stored" help="(--no-load-genotypes)"/>
-
-        <param name="no_genotypes" type="boolean" truevalue="--no-genotypes" falsevalue="" checked="False"
-            label="There are no genotypes in the file" help="e.g. some 1000G VCFs (--no-genotypes)"/>
-
-        <param name="passonly" type="boolean" truevalue="--passonly" falsevalue="" checked="False"
-            label="Keep only variants that pass all filters" help="e.g. some 1000G VCFs (--passonly)"/>
-
-        <param name="infostring" type="boolean" truevalue="--save-info-string" falsevalue="" checked="False"
-            label="Load INFO string from VCF file"  help="(--save-info-string)"/>
+        <param argument="-p" name="ped" type="data" format="tabular" optional="True"
+        label="Sample and family information in PED format"
+        help="The pedigree dataset is optional, but several GEMINI tools require the relationship between samples (i.e., the family structure) and/or the sample phenotype to be defined. The PED format is a simple tabular format (see the tool help below for details). If you choose to not provide sample information now, but later find that you need it for your analysis, you can also add it to an existing GEMINI database by using the GEMINI amend tool." />
+        <param name="opt_content" type="select" display="checkboxes" multiple="true" optional="true"
+        label="Load the following optional content into the database"
+        help="The preselected defaults should be ok for most use cases (feel free to enable CADD scores for non-commercial use). If you are not interested in certain annotations, you can speed up database creation and decrease the resulting database size slightly by not loading them into the database. Note: GERP and CADD scores are optional parts of the annotation source and can only be loaded if available.">
+            <option value="gerp_bp" selected="true">GERP scores</option>
+            <option value="cadd" selected="false">CADD scores (non-commercial use only; see licensing note below)</option>
+            <option value="gene_tables" selected="true">Gene tables</option>
+            <option value="genotypes" selected="true">Sample genotypes</option>
+            <option value="gt_pl" selected="true">Genotype likelihoods (sample PLs)</option>
+            <option value="passonly" selected="false">only variants that passed all filters</option>
+            <option value="info_string" selected="false">variant INFO field</option>
+        </param>
     </inputs>
     <outputs>
         <data name="outfile" format="gemini.sqlite" />
     </outputs>
     <tests>
         <test>
-            <param name="infile" value="gemini_load_input.vcf" ftype="vcf" />
-            <param name="skip_gene_tables" value="True" />
-            <param name="skip_gerp_bp" value="True" />
-            <param name="skip_cadd" value="True" />
-            <param name="no_genotypes" value="True" />
-            <output name="outfile" file="gemini_load_result.db" compare="sim_size" delta="1000"/>
+            <param name="annotation_databases" value="1999-01-01" />
+            <param name="infile" dbkey="hg19" value="gemini_load_input.vcf" ftype="vcf" />
+            <param name="opt_content" value="gene_tables,genotypes,gt_pl" />
+            <output name="outfile" file="gemini_load_result1.db" ftype="gemini.sqlite" compare="sim_size" delta="1000" />
+            <assert_command>
+                <has_text text="--skip-gerp-bp" />
+                <has_text text="--skip-cadd" />
+                <not_has_text text="--skip-gene-tables" />
+                <not_has_text text="--skip-pls" />
+                <not_has_text text="--no-load-genotypes" />
+                <not_has_text text="--passonly" />
+                <not_has_text text="--save-info-string" />
+                <not_has_text text="--no-genotypes" />
+            </assert_command>
+        </test>
+        <test>
+            <param name="annotation_databases" value="1999-01-01" />
+            <param name="infile" dbkey="hg19" value="gemini_load_input.vcf" ftype="vcf" />
+            <param name="opt_content" value="gerp_bp,cadd,gene_tables,genotypes,gt_pl" />
+            <param name="has_genotypes" value="True" />
+            <output name="outfile" file="gemini_load_result1.db" ftype="gemini.sqlite" compare="sim_size" delta="1000" />
+            <assert_stderr>
+                <has_text text="CADD scores are not being loaded because the annotation file could not be found." />
+                <has_text text="GERP per bp is not being loaded because the annotation file could not be found." />
+            </assert_stderr>
+            <assert_command>
+                <not_has_text text="--skip-gerp-bp" />
+                <not_has_text text="--skip-cadd" />
+                <not_has_text text="--skip-gene-tables" />
+                <not_has_text text="--skip-pls" />
+                <not_has_text text="--no-load-genotypes" />
+                <not_has_text text="--passonly" />
+                <not_has_text text="--save-info-string" />
+                <not_has_text text="--no-genotypes" />
+            </assert_command>
+        </test>
+        <test>
+            <param name="annotation_databases" value="1999-01-01" />
+            <param name="infile" dbkey="hg19" value="gemini_load_input.vcf" ftype="vcf" />
+            <param name="opt_content" value="genotypes,gt_pl" />
+            <param name="has_genotypes" value="False" />
+            <output name="outfile" file="gemini_load_result2.db" ftype="gemini.sqlite" compare="sim_size" delta="1000" />
+            <assert_command>
+                <has_text text="--skip-gerp-bp" />
+                <has_text text="--skip-cadd" />
+                <has_text text="--skip-gene-tables" />
+                <not_has_text text="--skip-pls" />
+                <not_has_text text="--no-load-genotypes" />
+                <not_has_text text="--passonly" />
+                <not_has_text text="--save-info-string" />
+                <has_text text="--no-genotypes" />
+            </assert_command>
+        </test>
+        <test>
+            <param name="annotation_databases" value="1999-01-01" />
+            <param name="infile" dbkey="hg19" value="gemini_amend.vcf" ftype="vcf" />
+            <param name="opt_content" value="gene_tables,genotypes,gt_pl" />
+            <param name="has_genotypes" value="True" />
+            <param name="ped" value="gemini_amend.ped" ftype="tabular" />
+            <output name="outfile" file="gemini_auto_rec_input.db" ftype="gemini.sqlite" compare="sim_size" delta="1000" />
         </test>
     </tests>
     <help><![CDATA[
+.. class:: Warning mark
+
+**CADD scores licensing**
+
+CADD scores are freely available for non-commercial applications only. Make
+sure you `contact the developers <https://cadd.gs.washington.edu/contact>`__
+before using them in any commercial application.
+
+-----
+
 **What it does**
 
-Before we can use GEMINI to explore genetic variation, we must first load our VCF file into the GEMINI database framework.
-We expect you to have first annotated the functional consequence of each variant in your VCF using either VEP or snpEff.
+Before we can use GEMINI to explore genetic variation, we must first load the
+variant information stored in VCF format into the GEMINI database framework.
+
+To fully leverage the power of GEMINI, you should first **annotate your VCF
+dataset** with the functional consequences of the variants using either *VEP*
+or *snpEff*.
+
+.. class:: Warning mark
+
+    To avoid problems during annotation, but also during later variant queries with
+    GEMINI tools, it is good practice to preprocess your VCF dataset even before
+    annoation to split records with multiple alternate alleles, and to left-align
+    and trim indels. The authors of GEMINI recommend the tool *vt* for this purpose,
+    an equivalently good option is *bcftools norm*, and Galaxy wrappers exist for
+    both tools.
+
+In addition, you are encouraged to provide **family and sample phenotype
+information in PED format**, if you are planning to use GEMINI for any kind of
+variant identification based on inheritance patterns.
+
+A PED file is simply a tabular text file (columns can be separated by either
+spaces or TABs, but not a mixture of the two within the same file) with the
+header::
+
+  #family_id    name     paternal_id    maternal_id    sex    phenotype
+
+and optional additional columns. The actual column names in the header are not
+fixed, but there have to be at least six columns that are interpreted as
+detailed next.
+
+Subsequent lines describe one sample from the VCF input dataset each, where
+
+- *family_id* is an alphanumeric identifier of a family
+
+  If the family, to which the sample belongs, is unknown, a placeholder of
+  ``0``, ``-9`` or ``None`` can be used to indicate this fact.
+
+- *name* is the identifier of the sample described by the line
+
+- *paternal_id* is the identifier of the sample's father
+
+  If the sample's father is not available in the VCF, a placeholder of
+  ``0``, ``-9`` or ``None`` can be used to indicate this fact.
+
+- *maternal_id* is the identifier of the sample's mother
+
+  If the sample's mother is not available in the VCF, a placeholder of
+  ``0``, ``-9`` or ``None`` can be used to indicate this fact.
+
+- *sex* is a numeric code for the sample's sex
+  (1=male, 2=female, any other number=unknown sex)
+
+- *phenotype* is a numeric code for the sample's phenotypic affection status
+  (1=unaffected, 2=affected)
+
+  If the sample's phenotype is unknown, a placeholder of ``0`` or ``-9`` can be
+  used to indicate this fact.
+
+- Optional additional columns can have any column name you like, and accept any
+  per-sample value. The data from such extra columns will be added to the
+  samples table of the GEMINI database so you can use them in queries. Extra
+  columns can be used, *e.g.*, to describe additional phenotypes.
+
+- If no extra columns are present in a PED file, then the header line is
+  optional.
+
+Here are two examples of valid PED file contents::
+
+  #family_id    name    paternal_id    maternal_id    sex    phenotype    hair_color
+  1             M10475  -9             -9             1      1            brown
+  1             M10478  M10475         M10500         2      2            brown
+  1             M10500  -9             -9             2      2            black
+  1             M128215 M10475         M10500         1      1            blue
+
+This describes a family with two kids, in which mother and daughter, but not
+father and son are phenotypically affected. The file also stores the hair color
+of all family members.
+
+::
+
+  #family_id    name         paternal_id    maternal_id    sex    phenotype
+  0             M10475       0              0              -1     1
+  0             M10478       0              0              -1     2
+  0             M10500       0              0              -1     2
+  0             M128215      0              0              -1     1
+
+This describes the same samples as above, but without recording family
+structure, sex or additional traits. Only the sample phenotypes are provided.
+In this case (no extra columns), the header line could be omitted.
 
     ]]></help>
     <expand macro="citations"/>
