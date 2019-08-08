@@ -1,87 +1,65 @@
 <tool id="strelka_germline" name="Strelka Germline" version="@TOOL_VERSION@+galaxy1">
+    <description>@DESCRIPTION@ for germline variation in small cohorts</description>
     <macros>
         <import>macros.xml</import>
     </macros>
-    <description>@DESCRIPTION@ for germline variation in small cohorts</description>
     <expand macro="requirements" />
     <command detect_errors="exit_code"><![CDATA[
-        ## tool: init
-        #if $bam:
-            #for $i, $s in enumerate($bam):
+        ## initialize: strelka config file 
+        ## /src/python/bin/configureStrelkaGermlineWorkflow.py.ini
+        touch config.ini &&
+        echo "[StrelkaGermline]" > config.ini &&
+        echo "minMapq" = $strelka.minMapq >> config.ini &&
+        @INIT_STRELKA@
+
+        ## initialize: required parameters
+        #if $bam
+            #for $i, $s in enumerate($bam)
                 ln -s ${s} ./input_sample_${i}.bam &&
                 samtools index ./input_sample_${i}.bam &&
             #end for
         #end if
-        #if $referenceFasta:            
-            ln -s '$referenceFasta' ./input_ref.fasta &&
-            samtools faidx ./input_ref.fasta &&
-        #end if
-        #if $advanced.ploidy:
+        @INIT_REQUIRED@
+
+        ## initialize: advanced parameters
+        #if $advanced.ploidy
             ln -s '$advanced.ploidy' ./input_ploidy.vcf &&
         #end if
-        #if $advanced.noCompress:
+        #if $advanced.noCompress
             ln -s '$advanced.noCompress' ./input_nocompress.bgzip &&
         #end if
-        #if $advanced.indelCandidates:
-            ln -s '$advanced.indelCandidates' ./input_indelcandidates.vcf &&
-        #end if
-        #if $advanced.forcedGT:
-            ln -s '$advanced.forcedGT' ./input_forcedgt.vcf &&
-        #end if
-        #if $advanced.callRegions:
-            ln -s '$advanced.callRegions' ./input_callregions.bgzip &&
-        #end if
+        @INIT_ADVANCED@
 
-        ## tool: configuration
+        ## initialize: workflow
         configureStrelkaGermlineWorkflow.py
-            #if $bam:
-                #for $i, $s in enumerate($bam):
+            #if $bam
+                #for $i, $s in enumerate($bam)
                     --bam ./input_sample_${i}.bam
                 #end for
             #end if
-            #if $referenceFasta:
-                --referenceFasta ./input_ref.fasta
-            #end if
-            #if $advanced.callContinuousVf != 'none':
+            #if $advanced.callContinuousVf != 'none'
                 --callContinuousVf $advanced.callContinuousVf
             #end if
-            #if $advanced.ploidy:
+            #if $advanced.ploidy
                 --ploidy ./input_ploidy.vcf
             #end if
-            #if $advanced.noCompress:
+            #if $advanced.noCompress
                 --noCompress ./input_nocompress.bgzip
             #end if
-            #if $advanced.indelCandidates:
-                --indelCandidates ./input_indelcandidates.vcf
-            #end if
-            #if $advanced.forcedGT:
-                --forcedGT ./input_forcedgt.vcf
-            #end if
-            #if $advanced.callRegions:
-                --callRegions ./input_callregions.bgzip
-            #end if
-            $advanced.exome
-            $advanced.rna
-            $advanced.targeted  
-            --disableSequenceErrorEstimation ## TODO need to be removed, just for the test dataset
-            --runDir ./results &&
+            $advanced.rna 
+            --disableSequenceErrorEstimation ## TODO demo datasets throughs warnings otherwise
+            @INIT_WORKFLOW@
 
-        ## tool: workflow execution
+        ## run: workflow
         @RUN_WORKFLOW@
-
-        && ls -lisa results/results/variants
-
     ]]></command>
     <inputs>
         <param argument="--bam" type="data" format="bam" multiple="true" label="Sample files" help="" />
-        <param argument="--referenceFasta" type="data" format="fasta" label="Reference file" help="" />
-
+        <expand macro="input_required" />
+        
         <section name="advanced" title="Advanced Options" expanded="false">
             <param argument="--ploidy" type="data" format="vcf" optional="true" label="Ploidy file" help="" />
             <param argument="--noCompress" type="data" format="bgzip" optional="true" label="File of regions where gVCF block compression is not allowed" help="" />
-            <param argument="--indelCandidates" type="data" format="vcf" optional="true" label="File with candidate indel alleles" help=""/>
-            <param argument="--forcedGT" type="data" format="vcf" optional="true" label="File with candidate alleles" help=""/>
-            <param argument="--callRegions" type="data" format="bgzip" optional="true" label="File containing a set of regions to call" help=""/>
             <param argument="--callContinuousVf" type="select" label="Chromosome to Call variants on" help="">    
                 <option value="none" selected="true">None</option>
                 <option value="Chr1">Chr1</option>
@@ -109,38 +87,55 @@
                 <option value="ChrX">ChrX</option>
                 <option value="ChrY">ChrY</option>
             </param>
-            <param argument="--exome" type="boolean" checked="false" truevalue="--exome" falsevalue="" label="Set options for exome input" help="" />
             <param argument="--rna" type="boolean" checked="false" truevalue="--rna" falsevalue="" label="Set options for RNA-Seq input" help="" />
-            <param argument="--targeted" type="boolean" checked="false" truevalue="--targeted" falsevalue="" label="Set options for other targeted input" help="" />
+            <expand macro="input_advanced" />
+        </section>
+
+        <section name="strelka" title="Strelka Options" expanded="false">            
+            <param argument="minMapq" name="minMapq" type="integer" value="20" label="minMapq" help=""/>
+            <expand macro="input_strelka"/>
         </section>
     </inputs>
     <outputs>
-        <data name="variants" format="data" from_work_dir="results/results/variants/variants.vcf.gz" label="Variants"/>
-        <data format="gz" name="genome">
-            <discover_datasets pattern="^genome.S\S.vcf.gz$" directory="results/results/variants/" visible="true" />
-        </data>
+        <data name="output_variants" format="data" from_work_dir="results/results/variants/variants.vcf.gz" label="Variants"/>
+        <!--
+        <data format="gz" name="output_genome">
+            <discover_datasets pattern="^genome.S\S.vcf.gz$" directory="results/results/variants/" visible="true"/>
+        </data> -->
    </outputs>
     <tests>
-        <!-- germline -->
+        <!-- #1: strelka: gernline workflow demo -->
         <test>
-            <param name="bam" value="sample1.bam, sample2.bam" ftype="bam"/>
-            <param name="referenceFasta" value="hg98.fa" ftype="fasta"/>
-            
+            <param name="bam" value="sample1.bam,sample2.bam"/>
+            <param name="referenceFasta" value="hg98.fa"/>
+            <!-- different fileDate and startTime -->
+            <output name="output_variants" file="variants.vcf.gz"  compare="sim_size" delta="100"/>
         </test>
+        <!-- #2: with advanced parameters -->
+        <!-- #3: with config file parameters -->
     </tests>
     <help><![CDATA[
+What it does
+============
 @HELP_HEADER@
 
---bam Sample BAM or CRAM file. May be specified more than once, multiple inputs will be treated as each BAM file representing a different sample.
+Parameter
+=========
+--bam   Sample BAM or CRAM file. May be specified more than once, multiple inputs will be treated as each BAM file representing a different sample.
+@HELP_PARAMETER_REQUIRED@
 
-@HELP_PARAMETER@
-
+Advanced
+--------
 --ploidy    Provide ploidy file in VCF. The VCF should include one sample column per input sample labeled with the same sample names found in the input BAM/CRAM RG header sections. Ploidy should be provided in records using the FORMAT/CN field, which are interpreted to span the range [POS+1, INFO/END]. Any CN value besides 1 or 0 will be treated as 2. File must be tabix indexed.
 --noCompress    Provide BED file of regions where gVCF block compression is not allowed. File must be bgzip-compressed/tabix-indexed.
 --callContinuousVf  Call variants on CHROM without a ploidy prior assumption, issuing calls with continuous variant frequencies.
 --rna   Set options for RNA-Seq input.
-    ]]>
-        
-    </help>
+@HELP_PARAMETER_ADVANCED@
+
+Strelka Config File
+-------------------
+- **minMapq**: Don't use reads with MAPQ less than this value for variant calling
+@HELP_PARAMETER_STRELKA@
+    ]]></help>
     <expand macro="citations" />
 </tool>
