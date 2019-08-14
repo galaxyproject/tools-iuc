@@ -130,8 +130,9 @@ class Safety():
         return cust_fun
 
     def __assertSafe(self):
-        indeed = self.__isSafeStatement()
+        indeed, problematic_token = self.__isSafeStatement()
         if not indeed:
+            self.detailedExcuse(problematic_token)
             raise ValueError("Custom Expression is not safe.")
 
     @staticmethod
@@ -139,16 +140,15 @@ class Safety():
         "Gives a verbose statement for why users should not use some specific operators."
         mess = None
         if word == "for":
-            mess = "For loops are not permitted. Use numpy or pandas table operations instead."
+            mess = "for loops and comprehensions are not allowed. Use numpy or pandas table operations instead."
         elif word == ":":
-            mess = "Please do not use colons for expressions. Use inline Python if/else statements"
+            mess = "Colons are not allowed. Use inline Python if/else statements."
         elif word == "=":
-            mess = "Please do not use variable assignment in expressions. Use the in-built functions for substituting values"
-        elif word in (",", "[", "]"):
-            mess = "Please do not subscript arrays in custom functions. Use the in-built functions for substituting values"
+            mess = "Variable assignment is not allowed. Use object methods to substitute values."
+        elif word in ("[", "]"):
+            mess = "Direct indexing of arrays is not allowed. Use numpy or pandas functions/methods to address specific parts of tables."
         else:
-            mess = "Not a safe operation"
-
+            mess = "Not an allowed token in this operation"
         print("( '%s' ) %s" % (word, mess))
 
     def __isSafeStatement(self):
@@ -205,10 +205,12 @@ class Safety():
             rem2.append(e)
 
         # 4. Assert that rest are real numbers
+        e = ''
         for e in rem2:
             try:
                 _ = float(e)
             except ValueError:
                 safe = False
+                break
 
-        return safe
+        return safe, e
