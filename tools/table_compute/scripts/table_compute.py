@@ -328,6 +328,11 @@ else:
     print("No such mode!", user_mode)
     exit(-1)
 
+if not isinstance(out_table, pd.DataFrame):
+    print('The specified operation did not result in a table to return.')
+    raise RuntimeError(
+        'The operation did not result in a pd.DataFrame to return.'
+    )
 out_parameters = {
     "sep": "\t",
     "float_format": "%%.%df" % pd.options.display.precision,
