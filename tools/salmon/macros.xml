@@ -10,30 +10,28 @@
         </requirements>
     </xml>
     <xml name="index">
-        <!-- Salmon data manager not at 0.14.1 yet.
-        https://github.com/galaxyproject/tools-iuc/pull/2189
-        <conditional name="preindexed">
-            <param name="indexed" type="select" label="Index files">
+        <conditional name="refTranscriptSource">
+            <param name="TranscriptSource" type="select" label="Select a reference transcriptome from your history or use a built-in index?" help="Built-ins were indexed using default options">
                 <option value="indexed">Use a built-in index</option>
                 <option value="history" selected="True">Use one from the history</option>
             </param>
             <when value="indexed">
-                <param name="fasta" type="select" label="Select a reference transcriptome" help="If your transcriptome of interest is not listed, contact your Galaxy admin">
-                <options from_data_table="data_manager_salmon_index_builder">
-                    <filter type="sort_by" column="2"/>
-                    <validator type="no_options" message="No indexes are available for the selected input dataset"/>
-                </options>
-            </param>
-            </when>
+                <param name="index" type="select" label="Select a reference transcriptome" help="If your transcriptome of interest is not listed, contact your Galaxy admin">
+                    <options from_data_table="salmon_indexes_versioned">
+                        <filter type="sort_by" column="2"/>
+                        <filter type="static_value" column="4" value="@IDX_VERSION@" />
+                        <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                    </options>
+                </param>
+            </when>  <!-- build-in -->
             <when value="history">
-            -->
-        <section name="s_index" title="salmon_index" expanded="true">
-            <param name="fasta" type="data" format="fasta, fa" label="Transcripts fasta file"/>
-            <param name="kmer" type="integer" value="31" label="Kmer length"/>
-            <param name="phash" type="boolean" label="Perfect Hash" truevalue="--perfectHash" falsevalue="" help="Build the index using a perfect hash rather than a dense hash.  This will require less memory (especially during quantification), but will take longer to construct"/>
-        </section>
-            <!--</when>
-        </conditional>-->
+                <section name="s_index" title="salmon_index" expanded="true">
+                    <param name="fasta" type="data" format="fasta, fa" label="Transcripts fasta file"/>
+                    <param name="kmer" type="integer" value="31" label="Kmer length"/>
+                    <param name="phash" type="boolean" label="Perfect Hash" truevalue="--perfectHash" falsevalue="" help="Build the index using a perfect hash rather than a dense hash.  This will require less memory (especially during quantification), but will take longer to construct"/>
+                </section>
+            </when>
+        </conditional>
     </xml>
     <xml name="alevin">
         <conditional name="pairstraight">
@@ -346,9 +344,11 @@
         </section>
     </xml>
     <xml name="quantmerge">
-        <param name="quants" type="data" format="tsv, tabular" multiple="True"
-        label="Salmon quant files"/>
-        <param name="names" type="text" label="Sample names" optional="True"/>
+        <repeat name="quantfiles" title="Quant file and names">
+            <param name="quants" type="data" format="tsv, tabular"
+            label="Salmon quant tabular output files"/>
+            <param name="names" type="text" label="One-word sample names" optional="True"/>
+        </repeat>
         <param name="column" type="select" label="Columns"
         help="Name of columns that will be merged in the output file">
             <option value="len" selected="True">Length</option>
@@ -378,19 +378,23 @@
             #set $index_path = './index'
         #else:
             echo test
-            ##set $index_path = $preindexed.indexed.index.fields.path
+            ##set $index_path = $refTranscriptSource.index.fields.path
         #end if
         ]]>
     </token>
     <token name="@indexing@"><![CDATA[
         mkdir ./index
         && mkdir ./output
-        && salmon index -i ./index
-            --kmerLen '${quant_type.s_index.kmer}'
-            --gencode
-            --transcripts '${quant_type.s_index.fasta}'
-        #set $index_path = './index'
-        &&
+        #if '${refTranscriptSource.TranscriptSource}' != "indexed":
+            && salmon index -i ./index
+                --kmerLen '${quant_type.s_index.kmer}'
+                --gencode
+                --transcripts '${quant_type.s_index.fasta}'
+            #set $index_path = './index'
+            &&
+        #else
+            #set $index_path = $refTranscriptSource.index.fields.path
+        #end if
         ]]>
     </token>
     <token name="@salreads@"><![CDATA[
@@ -530,6 +534,7 @@
         -t "${quant_type.transcript}"
         -l "${quant_type.strandedness}"
         -a "${quant_type.afile}"
+        --threads "\${GALAXY_SLOTS:-4}"
         "${quant_type.discardOrphans}"
         "${quant_type.noErrorModel}"
         #if $quant_type.numErrorBins:
@@ -538,7 +543,6 @@
         "${quant_type.sampleOut}"
         "${quant_type.sampleUnaligned}"
         "${quant_type.gencode}"
-        --threads "\${GALAXY_SLOTS:-4}"
         ]]>
     </token>
     <token name="@salquant@"><![CDATA[
@@ -619,17 +623,30 @@
         ]]>
     </token>
     <token name="@qmerge@"><![CDATA[
+        #import re
+
+        #for $counter, $input_data in enumerate($quantfiles):
+            rank_of_series=$counter
+            mkdir ${counter}.quantmerge &&
+            ln -s $input_data.quants ${counter}.quantmerge/quant.sf &&
+        #end for
         salmon quantmerge
-            --quants "${quants}"
-            #if $names:
-                --names "${names}"
-            #end if
+            --quants *.quantmerge
+            --names
+            #for $counter, $input_data in enumerate($quantfiles):
+                #if $input_data.names and re.sub(' ', '', '$input_data.names') != '':
+                    "${input_data.names}"
+                #else:
+                    #set $identifier=re.sub('[^\w\-\s]', '_', str($input_data.quants.element_identifier))
+                    "$identifier"
+               #end if
+            #end for
             --column "${column}"
             "${genes}"
             #if $missing:
                 --missing "${missing}"
             #end if
-            -o qmergeout
+            -o qmergeout.tab
         ]]>
     </token>
     <token name="@salmonhelp@"><![CDATA[
