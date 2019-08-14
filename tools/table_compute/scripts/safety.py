@@ -1,13 +1,4 @@
-import math
 import re
-import xml.etree.ElementTree as ET
-
-import numpy as np
-import pandas as pd
-
-# Removing linting error on Travis
-# with junk function  declaration
-__ = math.log, np.log, pd.DataFrame.sum
 
 
 class Safety():
@@ -16,50 +7,132 @@ class Safety():
     or table data
     """
 
-    __conditionals = ('(', ')', '()', '.', 'if', 'else')
-    __basicops = ('+', '-', '*', '/', '%', '!=', '==')
-    __allowedlibs = ('np', 'math')
+    __allowed_tokens = (
+        '(', ')', '()', 'if', 'else', 'or', 'and', 'not', 'in',
+        '+', '-', '*', '/', '%', '!=', '==', '>', '>=', '<', '<='
+    )
+    __allowed_ref_types = {
+        'pd.DataFrame': {
+            'abs', 'add', 'agg', 'aggregate', 'align', 'all', 'any', 'append',
+            'apply', 'applymap', 'as_matrix', 'asfreq', 'at', 'axes', 'bool',
+            'clip', 'clip_lower', 'clip_upper', 'columns', 'combine',
+            'compound', 'corr', 'count', 'cov', 'cummax', 'cummin', 'cumprod',
+            'cumsum', 'describe', 'div', 'divide', 'dot', 'drop',
+            'drop_duplicates', 'droplevel', 'dropna', 'duplicated', 'empty',
+            'eq', 'equals', 'expanding', 'ffill', 'fillna', 'filter', 'first',
+            'first_valid_index', 'floordiv', 'ge', 'groupby', 'gt', 'head',
+            'iat', 'iloc', 'index', 'insert', 'interpolate', 'isin', 'isna',
+            'isnull', 'items', 'iteritems', 'iterrows', 'itertuples', 'ix',
+            'join', 'keys', 'kurt', 'kurtosis', 'last', 'last_valid_index',
+            'le', 'loc', 'lookup', 'lt', 'mad', 'mask', 'max', 'mean',
+            'median', 'melt', 'merge', 'min', 'mod', 'mode', 'mul', 'multiply',
+            'ndim', 'ne', 'nlargest', 'notna', 'notnull', 'nsmallest',
+            'nunique', 'pct_change', 'pivot', 'pivot_table', 'pop', 'pow',
+            'prod', 'product', 'quantile', 'radd', 'rank', 'rdiv', 'replace',
+            'resample', 'rfloordiv', 'rmod', 'rmul', 'rolling', 'round',
+            'rpow', 'rsub', 'rtruediv', 'sample', 'select',
+            'sem', 'shape', 'shift', 'size', 'skew', 'slice_shift',
+            'squeeze', 'stack', 'std', 'sub', 'subtract', 'sum', 'swapaxes',
+            'swaplevel', 'tail', 'take', 'transform', 'transpose', 'truediv',
+            'truncate', 'tshift', 'unstack', 'var', 'where',
+        },
+        'pd.Series': {
+            'abs', 'add', 'agg', 'aggregate', 'align', 'all', 'any', 'append',
+            'apply', 'argsort', 'as_matrix', 'asfreq', 'asof', 'astype', 'at',
+            'at_time', 'autocorr', 'axes', 'between', 'between_time', 'bfill',
+            'bool', 'cat', 'clip', 'clip_lower', 'clip_upper', 'combine',
+            'combine_first', 'compound', 'corr', 'count', 'cov', 'cummax',
+            'cummin', 'cumprod', 'cumsum', 'describe', 'diff', 'div', 'divide',
+            'divmod', 'dot', 'drop', 'drop_duplicates', 'droplevel', 'dropna',
+            'dt', 'dtype', 'dtypes', 'duplicated', 'empty', 'eq', 'equals',
+            'ewm', 'expanding', 'factorize', 'ffill', 'fillna', 'filter',
+            'first', 'first_valid_index', 'flags', 'floordiv', 'ge', 'groupby',
+            'gt', 'hasnans', 'head', 'iat', 'idxmax', 'idxmin', 'iloc', 'imag',
+            'index', 'interpolate', 'is_monotonic', 'is_monotonic_decreasing',
+            'is_monotonic_increasing', 'is_unique', 'isin', 'isna', 'isnull',
+            'item', 'items', 'iteritems', 'ix', 'keys', 'kurt', 'kurtosis',
+            'last', 'last_valid_index', 'le', 'loc', 'lt', 'mad', 'map',
+            'mask', 'max', 'mean', 'median', 'min', 'mod', 'mode', 'mul',
+            'multiply', 'name', 'ndim', 'ne', 'nlargest', 'nonzero', 'notna',
+            'notnull', 'nsmallest', 'nunique', 'pct_change', 'pop', 'pow',
+            'prod', 'product', 'ptp', 'quantile', 'radd', 'rank', 'rdiv',
+            'rdivmod', 'real', 'repeat', 'replace', 'resample', 'rfloordiv',
+            'rmod', 'rmul', 'rolling', 'round', 'rpow', 'rsub', 'rtruediv',
+            'sample', 'searchsorted', 'select', 'sem', 'shape', 'shift',
+            'size', 'skew', 'slice_shift', 'sort_index', 'sort_values',
+            'squeeze', 'std', 'sub', 'subtract', 'sum', 'swapaxes',
+            'swaplevel', 'tail', 'take', 'transform', 'transpose', 'truediv',
+            'truncate', 'tshift', 'unique', 'unstack', 'value_counts',
+            'var', 'where', 'xs',
+        },
+    }
 
-    def __init__(self, obj_name, custom_string, strict_functiondefs):
-        if isinstance(obj_name, list):
-            self.name = obj_name[0]
-            self.allowed_names = tuple(obj_name + self.parseXML(strict_functiondefs))
+    __allowed_qualified = {
+        # allowed numpy functionality
+        'np': {
+            'abs', 'add', 'all', 'any', 'append', 'array', 'bool', 'ceil',
+            'complex', 'cos', 'cosh', 'cov', 'cumprod', 'cumsum', 'degrees',
+            'divide', 'divmod', 'dot', 'e', 'empty', 'exp', 'float', 'floor',
+            'hypot', 'inf', 'int', 'isfinite', 'isin', 'isinf', 'isnan', 'log',
+            'log10', 'log2', 'max', 'mean', 'median', 'min', 'mod', 'multiply',
+            'nan', 'ndim', 'pi', 'product', 'quantile', 'radians', 'rank',
+            'remainder', 'round', 'sin', 'sinh', 'size', 'sqrt', 'squeeze',
+            'stack', 'std', 'str', 'subtract', 'sum', 'swapaxes', 'take',
+            'tan', 'tanh', 'transpose', 'unique', 'var', 'where',
+        },
+        # allowed math functionality
+        'math': {
+            'acos', 'acosh', 'asin', 'asinh', 'atan', 'atan2', 'atanh', 'ceil',
+            'copysign', 'cos', 'cosh', 'degrees', 'e', 'erf', 'erfc', 'exp',
+            'expm1', 'fabs', 'factorial', 'floor', 'fmod', 'frexp', 'fsum',
+            'gamma', 'gcd', 'hypot', 'inf', 'isclose', 'isfinite', 'isinf',
+            'isnan', 'ldexp', 'lgamma', 'log', 'log10', 'log1p', 'log2',
+            'modf', 'nan', 'pi', 'pow', 'radians', 'remainder', 'sin', 'sinh',
+            'sqrt', 'tan', 'tanh', 'tau', 'trunc',
+        },
+        # allowed pd functionality
+        'pd': {
+            'DataFrame', 'array', 'concat', 'cut', 'date_range', 'factorize',
+            'interval_range', 'isna', 'isnull', 'melt', 'merge', 'notna',
+            'notnull', 'period_range', 'pivot', 'pivot_table', 'unique',
+            'value_counts', 'wide_to_long',
+        },
+    }
+
+    def __init__(self, expression,
+                 ref_whitelist=None, ref_type=None,
+                 custom_qualified=None):
+        self.allowed_qualified = self.__allowed_qualified.copy()
+        if ref_whitelist is None:
+            self.these = []
         else:
-            self.name = obj_name
-            self.allowed_names = tuple(self.parseXML(strict_functiondefs))
-
-        self.expr = custom_string
+            self.these = ref_whitelist
+            if ref_type is None or ref_type not in self.__allowed_ref_types:
+                self.allowed_qualified['_this'] = set()
+            else:
+                self.allowed_qualified[
+                    '_this'
+                ] = self.__allowed_ref_types[ref_type]
+        if custom_qualified is not None:
+            self.allowed_qualified.update(custom_qualified)
+        self.expr = expression
         self.__assertSafe()
-
-    def parseXML(self, xml_file):
-        root = ET.parse(xml_file).getroot()
-        options = [option.attrib["value"]
-                   for macro in root for option in macro
-                   if macro.tag == "macro" and option.tag == "option"]
-
-        return(list(set(options)))
 
     def generateMultiLine(self):
         "Generates a multi-line function to be evaluated outside the class"
         cust_fun = "def fun(%s):\n%s" % (
-            self.name, "\n".join("\t" + x for x in self.expr.splitlines()))
+            self.these[0], "\n".join("\t" + x for x in self.expr.splitlines()))
         return cust_fun
 
     def generateFunction(self):
         "Generates a function to be evaluated outside the class"
-        cust_fun = "def fun(%s):\n\treturn(%s)" % (self.name, self.expr)
+        cust_fun = "def fun(%s):\n\treturn(%s)" % (self.these[0], self.expr)
         return cust_fun
 
     def __assertSafe(self):
         indeed = self.__isSafeStatement()
         if not indeed:
-            print("Custom Expression is not safe.")
-            exit(-1)
-
-    @staticmethod
-    def arrange(str_array):
-        "Method to always arrange list set objects in the same way across multiple tests"
-        return sorted(str_array, key=len, reverse=True)
+            raise ValueError("Custom Expression is not safe.")
 
     @staticmethod
     def detailedExcuse(word):
@@ -80,67 +153,62 @@ class Safety():
 
     def __isSafeStatement(self):
         """
-        Determines how safe a user-expression is.
+        Determines if a user-expression is safe to evaluate.
 
-        We wish only for operators from the math, pd, or np library
-        to be used as well as the builtins of +/-* and inline if/else.
+        To be considered safe an expression may contain only:
+        - standard Python operators and numbers
+        - inline conditional expressions
+        - select functions and objects
+          by default, these come from the math, numpy and pandas
+          libraries, and must be qualified with the modules' conventional
+          names math, np, pd; can be overridden at the instance level
+        - references to a whitelist of objects (pd.DataFrames by default)
+          and their methods
         """
-        #  '-log(1 - elem/4096) * 4096 if elem != bn else elem - 0.5'
-        # 'vec.median() +  vec.sum()'
+
         safe = True
+        # examples of user-expressions
+        # '-math.log(1 - elem/4096) * 4096 if elem != bn else elem - 0.5'
+        # 'vec.median() +  vec.sum()'
 
-        # 1. Split statement into keywords and operators
-        keywords = Safety.arrange(set(re.findall(r'[a-zA-Z0-9]+', self.expr)))
-        # ['log', '1', 'elem', '4096', 'if', 'else', '0', '5']
-        # ['sum', 'median', 'vec']
-        operators = Safety.arrange(set(re.findall(r'[^a-zA-Z0-9_.() ]+', self.expr)))
-        # ['!=', '*', '-', '/']
-        # ['+']
+        # 1. Break expressions into tokens
+        # e.g.,
+        # [
+        #     '-', 'math.log', '(', '1', '-', 'elem', '/', '4096', ')', '*',
+        #     '4096', 'if', 'elem', '!=', 'bn', 'else', 'elem', '-', '0.5'
+        # ]
+        # or
+        # ['vec.median', '()', '+', 'vec.sum', '()']
+        tokens = [
+            e for e in re.split(
+                r'([a-zA-Z0-9_.]+|[^a-zA-Z0-9_.() ]+|[()]+)', self.expr
+            ) if e.strip()
+        ]
 
-        # 2. Check operators for basic ops
-        for opw in Safety.arrange(filter(
-                lambda x: x not in self.__conditionals, Safety.arrange(operators))):
-            if opw not in self.__basicops:
-                Safety.detailedExcuse(opw)
+        # 2. Subtract allowed standard tokens
+        rem = [e for e in tokens if e not in self.__allowed_tokens]
+
+        # 3. Subtract allowed qualified objects from allowed modules
+        #    and whitelisted references and their attributes
+        rem2 = []
+        for e in rem:
+            parts = e.split('.')
+            if len(parts) == 1:
+                if parts[0] in self.these:
+                    continue
+            if len(parts) == 2:
+                if parts[0] in self.these:
+                    parts[0] = '_this'
+                if parts[0] in self.allowed_qualified:
+                    if parts[1] in self.allowed_qualified[parts[0]]:
+                        continue
+            rem2.append(e)
+
+        # 4. Assert that rest are real numbers
+        for e in rem2:
+            try:
+                _ = float(e)
+            except ValueError:
                 safe = False
 
-        # 3. Check keywords for numeric, if, else, mathfns, and elem
-        for keyw in Safety.arrange(keywords):
-            try:
-                # '.' isn't matched, so only ints expected
-                int(keyw)
-            except ValueError:
-                is_good = self.__checkKeyword(keyw)
-                if not is_good:
-                    Safety.detailedExcuse(keyw)
-                    safe = False
-
-        # 4. Test the remaining string
-        valid_ops = operators + keywords + Safety.arrange(list(self.__conditionals))
-
-        remstring = self.expr
-
-        for rem in Safety.arrange(valid_ops):
-            remstring = remstring.replace(rem, "")
-
-        remstring = remstring.strip()
-
-        if remstring:
-            print("Unable to parse leftover string:", remstring)
-            safe = False
-
         return safe
-
-    def __checkKeyword(self, keyw):
-        "Tests a token keyword for malicious intent"
-        is_name = keyw == self.name
-        is_ifel = keyw in self.__conditionals
-        is_lib = keyw in self.__allowedlibs
-        # is_math = hasattr(math, keyw)
-        # is_pd = hasattr(pd.DataFrame, keyw)
-        # is_np = hasattr(np, keyw)
-        is_allowedname = keyw in self.allowed_names
-
-        # is_good = is_name or is_ifel or is_math or is_pd or is_np or is_allow
-        is_good = is_name or is_ifel or is_lib or is_allowedname
-        return is_good

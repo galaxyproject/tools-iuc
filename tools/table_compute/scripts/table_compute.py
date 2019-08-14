@@ -155,7 +155,7 @@ if user_mode == "single":
                     """Dummy Function"""
                     return vec
 
-                ss = Safety("vec", custom_func, strict_xml)
+                ss = Safety(custom_func, ['vec'], 'pd.Series')
                 fun_string = ss.generateFunction()
                 exec(fun_string)  # SUPER DUPER SAFE...
 
@@ -226,7 +226,7 @@ if user_mode == "single":
                 """Dummy Function"""
                 return elem
 
-            ss = Safety("elem", element_customop, strict_xml)
+            ss = Safety(element_customop, ['elem'])
             fun_string = ss.generateFunction()
             exec(fun_string)  # SUPER DUPER SAFE...
 
@@ -263,7 +263,7 @@ if user_mode == "single":
                 """Dummy Function"""
                 return tableau
 
-            ss = Safety("table", custom_func, strict_xml)
+            ss = Safety(custom_func, ['table'], 'pd.DataFrame')
             fun_string = ss.generateFunction()
             exec(fun_string)  # SUPER DUPER SAFE...
 
@@ -312,7 +312,7 @@ elif user_mode == "multiple":
         table_names_real.append("table[" + str(x) + "]")
 
     custom_op = uc.MultipleTableOps["fulltable_customop"]
-    ss = Safety(table_names, custom_op, strict_xml)
+    ss = Safety(custom_op, table_names, 'pd.DataFrame')
     fun_string = ss.generateFunction()
     # Change the argument to table
     fun_string = fun_string.replace("fun(table1):", "fun():")
