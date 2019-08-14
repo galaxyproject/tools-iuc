@@ -118,12 +118,6 @@ class Safety():
         self.expr = expression
         self.__assertSafe()
 
-    def generateMultiLine(self):
-        "Generates a multi-line function to be evaluated outside the class"
-        cust_fun = "def fun(%s):\n%s" % (
-            self.these[0], "\n".join("\t" + x for x in self.expr.splitlines()))
-        return cust_fun
-
     def generateFunction(self):
         "Generates a function to be evaluated outside the class"
         cust_fun = "def fun(%s):\n\treturn(%s)" % (self.these[0], self.expr)
