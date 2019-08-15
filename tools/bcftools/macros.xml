@@ -1,13 +1,5 @@
 <macros>
   <token name="@TOOL_VERSION@">1.9</token>
-  <xml name="stdio">
-    <stdio>
-      <exit_code range="1:" />
-      <exit_code range=":-1" />
-      <regex match="Error:" />
-      <regex match="Exception:" />
-    </stdio>
-  </xml>
   <xml name="requirements">
     <requirements>
       <requirement type="package" version="@TOOL_VERSION@">bcftools</requirement>
@@ -17,6 +9,9 @@
   </xml>
   <xml name="samtools_requirement">
       <requirement type="package" version="1.9">samtools</requirement>
+  </xml>
+  <xml name="matplotlib_requirement">
+      <requirement type="package" version="3.1.0">matplotlib</requirement>
   </xml>
   <xml name="version_command">
     <version_command>bcftools 2&gt;&amp;1 | grep 'Version:'</version_command>
@@ -111,16 +106,45 @@ $input_vcf
 $vcfs_list_file
   </token>
 
+  <xml name="test_using_reference" token_select_from="history" token_ref="">
+    <conditional name="reference_source">
+        <param name="reference_source_selector" value="@SELECT_FROM@" />
+        <param name="fasta_ref" ftype="fasta" value="@REF@" />
+    </conditional>
+  </xml>
+
   <xml name="macro_fasta_ref">
-    <param name="fasta_ref" argument="--fasta-ref" type="data" format="data" optional="true" label="Reference sequence in FASTA format" />
+    <conditional name="reference_source">
+        <param name="reference_source_selector" type="select" label="Choose the source for the reference genome">
+            <option value="cached">Use a built-in genome</option>
+            <option value="history">Use a genome from the history</option>
+        </param>
+        <when value="cached">
+            <param name="fasta_ref" type="select" label="Reference genome">
+                <options from_data_table="fasta_indexes">
+                    <filter type="data_meta" column="1" key="dbkey" ref="input_file" />
+                    <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file" />
+                </options>
+            </param>
+        </when>
+        <when value="history">
+            <param name="fasta_ref" type="data" format="fasta" label="Reference genome" />
+        </when>
+    </conditional>
   </xml>
   <token name="@PREPARE_FASTA_REF@">
 <![CDATA[
 #set $input_fa_ref = None
 #if 'fasta_ref' in $section and $section.fasta_ref:
-  #set $input_fa_ref = 'ref.fa'
-  ln -s '$section.fasta_ref' $input_fa_ref &&
-  samtools faidx $input_fa_ref &&
+  #if 'reference_source_selector' in $section:
+    #if str($section.reference_source_selector) == "history":
+      #set $input_fa_ref = 'ref.fa'
+      ln -s '$section.fasta_ref' $input_fa_ref &&
+      samtools faidx $input_fa_ref &&
+    #else:
+      #set $input_fa_ref = str($section.fasta_ref.fields.path)
+    #end if
+  #end if
 #end if
 ]]>
   </token>
@@ -131,27 +155,6 @@ $vcfs_list_file
   --fasta-ref '${section.fasta_ref}'
 #end if
   </token>
-
-  <xml name="macro_ref_fasta">
-    <conditional name="reference_source">
-       <param name="reference_source_selector" type="select" label="Choose the source for the reference genome">
-         <option value="cached">Locally cached</option>
-         <option value="history">History</option>
-       </param>
-       <when value="cached">
-         <param name="ref_file" type="select" label="Select reference genome">
-           <options from_data_table="fasta_indexes">
-             <!--<filter type="data_meta" key="dbkey" ref="input_bam" column="value"/>-->
-           </options>
-           <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file"/>
-         </param>
-       </when>
-       <when value="history"> <!-- FIX ME!!!! -->
-         <param name="ref_file" type="data" format="fasta" label="Using reference file" />
-       </when>
-     </conditional>
-  </xml>
-
 
   <xml name="macro_AF_file">
     <param name="AF_file" argument="--AF-file" type="data" format="tabular" optional="true" label="Allele frequencies file" help="Tab-delimited file containing the columns CHR,POS,REF,ALT,AF" />
@@ -268,25 +271,97 @@ $vcfs_list_file
       </data>
   </xml>
 
-  <xml name="macro_regions">
-    <conditional name="regions">
-        <param name="regions_src" type="select" label="Regions">
-            <option value="__none__">None</option>
-            <option value="regions">regions</option>
-            <option value="regions_file">regions-file</option>
+  <xml name="macro_invert_targets">
+    <param name="invert_targets_file" type="boolean" truevalue="^" falsevalue=""
+    label="Invert Targets"
+    help="inverts the query/filtering applied by the targets" />
+  </xml>
+
+  <xml name="macro_restriction_spec" token_type="region" token_label_type="Region">
+    <repeat name="@TYPE@s" title="@LABEL_TYPE@ Filter" default="1" min="1">
+        <param name="chrom" type="text" label="@LABEL_TYPE@ chromosome">
+            <validator type="expression" message="A chromosome identifier is required when specifying a @LABEL_TYPE@ filter">value.strip()</validator>
+        </param>
+        <param name="start" type="text" label="@LABEL_TYPE@ start position">
+            <validator type="expression" message="an integer number is required">not value or value.isdigit()</validator>
+        </param>
+        <param name="stop" type="text" label="@LABEL_TYPE@ end position">
+            <validator type="expression" message="an integer number is required">not value or value.isdigit()</validator>
+        </param>
+        <yield />
+    </repeat>
+  </xml>
+
+  <xml name="macro_restrictions_file" token_type="region" token_label_type="Region">
+    <param name="@TYPE@s_file" type="data" format="tabular" label="@LABEL_TYPE@s File" help="restrict to @LABEL_TYPE@s listed in a file" />
+  </xml>
+
+  <xml name="macro_restrict" token_type="region" token_label_type="Region" >
+    <conditional name="@TYPE@s">
+        <param name="@TYPE@s_src" type="select" label="@LABEL_TYPE@s">
+            <option value="__none__">Do not restrict to @LABEL_TYPE@s</option>
+            <option value="@TYPE@s">Specify one or more @LABEL_TYPE@(s) directly</option>
+            <option value="@TYPE@s_file">Operate on @LABEL_TYPE@s specified in a history dataset</option>
         </param>
         <when value="__none__"/>
-        <when value="regions">
-            <param name="regions" type="text" value="" optional="true" label="Restrict to comma-separated list of regions"
-                   help="Each region is specifed as: chr or chr:pos or chr:from-to">
-                 <validator type="regex" message="">^(\w+(:\d+(-\d+)?)?(,\w+(:\d+(-\d+)?)?)*)?$</validator>
-            </param>
+        <when value="@TYPE@s">
+            <expand macro="macro_restriction_spec" type="@TYPE@" label_type="@LABEL_TYPE@" />
+            <yield />
         </when>
-        <when value="regions_file">
-            <param name="regions_file" type="data" format="vcf,bed,tabular" optional="true" label="Regions file" help="Restrict to regions listed in a file" />
-        </when>
+        <when value="@TYPE@s_file">
+            <expand macro="macro_restrictions_file" type="@TYPE@" label_type="@LABEL_TYPE@" />
+            <yield />
+        </when>        
     </conditional>
   </xml>
+
+  <token name="@PARSE_INTERVALS@">
+<![CDATA[
+#set $components = []
+#for $i in $intervals:
+  #set $chrom = str($i.chrom).strip()
+  #set $start = str($i.start).strip()
+  #set $stop = str($i.stop).strip()
+  #if $start or $stop:
+    $components.append($chrom + ':' + ($start or '0') + '-' + $stop)
+  #else:
+    $components.append($chrom)
+  #end if
+#end for
+#set $intervals_spec = ','.join($components)
+]]>
+  </token>
+  
+  <token name="@REGIONS@">
+<![CDATA[
+#if $section.regions.regions_src == 'regions':
+  #set $intervals = $section.regions.regions
+  @PARSE_INTERVALS@
+  --regions '$intervals_spec'
+#elif $section.regions.regions_src == 'regions_file' and $section.regions.regions_file:
+  #if $regions_path is not None:
+    --regions-file '$regions_path'
+  #else:
+    --regions-file '$section.regions.regions_file'
+  #end if
+#end if
+]]>
+  </token>
+  
+  <token name="@TARGETS@">
+<![CDATA[
+#if $targets_path:
+  --targets-file "${section.targets.invert_targets_file}${targets_path}"
+#elif $section.targets.targets_src == 'targets':
+  #set $intervals = $section.targets.targets
+  @PARSE_INTERVALS@
+  --targets '${section.targets.invert_targets_file}$intervals_spec'
+#elif $section.targets.targets_src == 'targets_file' and $section.targets.targets_file:
+  --targets-file "${section.targets.invert_targets_file}${section.targets.targets_file}"
+#end if
+]]>
+  </token>
+
   <token name="@PREPARE_REGIONS_FILE@">
 <![CDATA[
 #set $regions_path = None
@@ -300,23 +375,7 @@ $vcfs_list_file
 #end if
 ]]>
   </token>
-  <token name="@REGIONS@">
-#if $section.regions.regions_src == 'regions' and $section.regions.regions != '':
-  --regions '$section.regions.regions'
-#elif $section.regions.regions_src == 'regions_file' and $section.regions.regions_file:
-  #if $regions_path is not None:
-    --regions-file '$regions_path'
-  #else:
-    --regions-file '$section.regions.regions_file'
-  #end if
-#end if
-  </token>
-  <xml name="macro_targets_file">
-            <param name="targets_file" type="data" format="tabular" label="Targets File" help="restrict to targets listed in a file" >
-              <yield/>
-            </param>
-            <param name="invert_targets_file" type="boolean" truevalue="^" falsevalue="" label="Invert Targets" help="inverts the query/filtering applied by the target file selection" />
-  </xml>
+
   <token name="@PREPARE_TARGETS_FILE@">
 <![CDATA[
 #set $targets_path = None
@@ -333,47 +392,13 @@ $vcfs_list_file
 #end if
 ]]>
   </token>
+
   <token name="@TARGETS_FILE@">
 <![CDATA[
 #if $targets_path is not None:
   --targets-file "${section.invert_targets_file}${targets_path}"
 #elif $section.targets_file:
   --targets-file "${section.invert_targets_file}${section.targets_file}"
-#end if
-]]>
-  </token>
-
-  <xml name="macro_targets">
-    <conditional name="targets">
-        <param name="targets_src" type="select" label="Targets">
-            <option value="__none__">None</option>
-            <option value="targets">targets</option>
-            <option value="targets_file">targets-file</option>
-        </param>
-        <when value="__none__"/>
-        <when value="targets">
-            <param name="targets" type="text" value="" optional="true" label="Restrict to comma-separated list of targets"
-                   help="Each target is specifed as: chr or chr:pos or chr:from-to">
-                 <validator type="regex" message="">^(\w+(:\d+(-\d+)?)?(,\w+(:\d+(-\d+)?)?)*)?$</validator>
-            </param>
-            <param name="invert_targets_file" type="boolean" truevalue="^" falsevalue="" label="Invert Targets" help="inverts the query/filtering applied by the targets" />
-        </when>
-        <when value="targets_file">
-            <expand macro="macro_targets_file">
-            </expand>
-        </when>
-    </conditional>
-  </xml>
-  <token name="@TARGETS@">
-<![CDATA[
-#if $targets_path:
-  --targets-file "${section.targets.invert_targets_file}${targets_path}"
-#else:
-  #if $section.targets.targets_src == 'targets' and $section.targets.targets != '':
-    --targets '${section.targets.invert_targets_file}${section.targets.targets}'
-  #elif $section.targets.targets_src == 'targets_file' and $section.targets.targets_file:
-    --targets-file "${section.targets.invert_targets_file}${section.targets.targets_file}"
-  #end if
 #end if
 ]]>
   </token>

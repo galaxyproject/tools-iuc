@@ -83,9 +83,12 @@ plot_factors_of_unwanted_variation <- function(set, method, k){
 
 create_seq_expression_set <- function (dds, min_mean_count) {
   count_values <- counts(dds)
+  print(paste0("feature count before filtering :",nrow(count_values),"\n"))
+  print(paste0("Filtering features which mean expression is less or eq. than ", min_mean_count, " counts\n"))
   filter <- apply(count_values, 1, function(x) mean(x) > min_mean_count)
   filtered <- count_values[filter,]
-  set = newSeqExpressionSet(as.matrix(count_values),
+  print(paste0("feature count after filtering :",nrow(filtered),"\n")) 
+  set = newSeqExpressionSet(as.matrix(filtered),
                             phenoData = data.frame(colData(dds)$condition, row.names=colnames(filtered)))
   plot_pca_rle(set = set, title = 'raw data')
   set <- betweenLaneNormalization(set, which="upper")
@@ -103,7 +106,7 @@ get_empirical_control_genes <- function(set, cutoff_p) {
   fit <- glmFit(y, design)
   lrt <- glmLRT(fit, coef=2)
   top <- topTags(lrt, n=nrow(set))$table
-  top_rows <- rownames(top)[which(top$PValue > cutoff_p)]
+  top_rows <- rownames(top)[which(top$PValue < cutoff_p)]
   empirical <- rownames(set)[which(!(rownames(set) %in% top_rows))]
   return(empirical)
 }
@@ -154,6 +157,7 @@ opt <- setup_cmdline_options()
 alpha <- opt$alpha
 min_k <- opt$min_k
 max_k <- opt$max_k
+min_c <- opt$min_mean_count
 sample_json <- fromJSON(opt$sample_json)
 sample_paths <- sample_json$path
 sample_names <- sample_json$label
@@ -169,7 +173,7 @@ if (!is.null(opt$plots)) {
 }
 
 # Run through the ruvseq variants
-set <- create_seq_expression_set(dds, min_mean_count = opt$min_mean_count)
+set <- create_seq_expression_set(dds, min_mean_count = min_c)
 result <- list(no_correction = set)
 for (k in seq(min_k, max_k)) {
   result[[paste0('residual_method_k', k)]] <- ruv_residual_method(set, k=k)

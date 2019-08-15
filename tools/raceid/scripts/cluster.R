@@ -1,5 +1,5 @@
 #!/usr/bin/env R
-VERSION = "0.3"
+VERSION = "0.5"
 
 args = commandArgs(trailingOnly = T)
 
@@ -27,6 +27,10 @@ do.filter <- function(sc){
     raw.feat <- log10(colSums(as.matrix(sc@expdata)>0))
     filt.lib <- log10(colSums(getfdata(sc)))
     filt.feat <- log10(colSums(getfdata(sc)>0))
+
+    if (filt.geqone){
+        filt.feat <- log10(colSums(getfdata(sc)>=1))
+    }
 
     br <- 50
     ## Determine limits on plots based on the unfiltered data
@@ -124,25 +128,40 @@ mkgenelist <- function(sc){
 
         goi <- head(rownames(dg.goi.table), genelist.plotlim)
         print(plotmarkergenes(sc, goi))
-        print(do.call(mtext, c(paste("                               Cluster ",n), test)))  ## spacing is a hack
+        buffer <- paste(rep("", 36), collapse=" ")
+        print(do.call(mtext, c(paste(buffer, "Cluster ",n), test)))  ## spacing is a hack
         test$line=-1
-        print(do.call(mtext, c(paste("                               Sig. Genes"), test)))  ## spacing is a hack
+        print(do.call(mtext, c(paste(buffer, "Sig. Genes"), test)))  ## spacing is a hack
         test$line=-2
-        print(do.call(mtext, c(paste("                               (fc > ", genelist.foldchange,")"), test)))  ## spacing is a hack
+        print(do.call(mtext, c(paste(buffer, "(fc > ", genelist.foldchange,")"), test)))  ## spacing is a hack
 
     })
     write.table(df, file=out.genelist, sep="\t", quote=F)
 }
+
+
+writecellassignments <- function(sc){
+    dat <- sc@cluster$kpart
+    tab <- data.frame(row.names = NULL,
+                      cells = names(dat),
+                      cluster.initial = dat,
+                      cluster.final = sc@cpart,
+                      is.outlier = names(dat) %in% sc@out$out)
+
+    write.table(tab, file=out.assignments, sep="\t", quote=F, row.names = F)
+}
+
 
 pdf(out.pdf)
 
 if (use.filtnormconf){
     sc <- do.filter(sc)
     message(paste(" - Source:: genes:",nrow(sc@expdata),", cells:",ncol(sc@expdata)))
-    message(paste(" - Filter:: genes:",nrow(sc@ndata),", cells:",ncol(sc@ndata)))
+    message(paste(" - Filter:: genes:",nrow(getfdata(sc)),", cells:",ncol(getfdata(sc))))
     message(paste("         :: ",
-                  sprintf("%.1f", 100 * nrow(sc@ndata)/nrow(sc@expdata)), "% of genes remain,",
-                  sprintf("%.1f", 100 * ncol(sc@ndata)/ncol(sc@expdata)), "% of cells remain"))
+                  sprintf("%.1f", 100 * nrow(getfdata(sc))/nrow(sc@expdata)), "% of genes remain,",
+                  sprintf("%.1f", 100 * ncol(getfdata(sc))/ncol(sc@expdata)), "% of cells remain"))
+    write.table(as.matrix(sc@ndata), file=out.table, col.names=NA, row.names=T, sep="\t", quote=F)
 }
 
 if (use.cluster){
@@ -156,6 +175,7 @@ if (use.cluster){
     sc <- do.clustmap(sc)
 
     mkgenelist(sc)
+    writecellassignments(sc)
 }
 
 dev.off()
