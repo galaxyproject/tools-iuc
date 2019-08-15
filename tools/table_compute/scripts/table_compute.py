@@ -41,6 +41,7 @@ class Utils:
         "Returns a valid two value DataFrame or Series operator"
         return getattr(type(pd_obj), "__" + op_name + "__")
 
+
 # Math is imported but not directly used because users
 # may specify a "math.<function>" when inserting a custom
 # function. To remove linting errors, which break Travis
@@ -270,7 +271,7 @@ elif user_mode == "multiple":
             sep="\t"
         )
         table.append(tmp)
-        table_names.append("table" + str(x+1))
+        table_names.append("table" + str(x + 1))
         table_names_real.append("table[" + str(x) + "]")
 
     custom_op = params["fulltable_customop"]
