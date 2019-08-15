@@ -8,8 +8,9 @@ class Safety():
     """
 
     __allowed_tokens = (
-        '(', ')', '()', 'if', 'else', 'or', 'and', 'not', 'in',
-        '+', '-', '*', '/', '%', '!=', '==', '>', '>=', '<', '<='
+        '(', ')', 'if', 'else', 'or', 'and', 'not', 'in',
+        '+', '-', '*', '/', '%', ',', '!=', '==', '>', '>=', '<', '<=',
+        'min', 'max', 'sum',
     )
     __allowed_ref_types = {
         'pd.DataFrame': {
@@ -33,8 +34,8 @@ class Safety():
             'rpow', 'rsub', 'rtruediv', 'sample', 'select',
             'sem', 'shape', 'shift', 'size', 'skew', 'slice_shift',
             'squeeze', 'stack', 'std', 'sub', 'subtract', 'sum', 'swapaxes',
-            'swaplevel', 'tail', 'take', 'transform', 'transpose', 'truediv',
-            'truncate', 'tshift', 'unstack', 'var', 'where',
+            'swaplevel', 'T', 'tail', 'take', 'transform', 'transpose',
+            'truediv', 'truncate', 'tshift', 'unstack', 'var', 'where',
         },
         'pd.Series': {
             'abs', 'add', 'agg', 'aggregate', 'align', 'all', 'any', 'append',
@@ -61,9 +62,9 @@ class Safety():
             'sample', 'searchsorted', 'select', 'sem', 'shape', 'shift',
             'size', 'skew', 'slice_shift', 'sort_index', 'sort_values',
             'squeeze', 'std', 'sub', 'subtract', 'sum', 'swapaxes',
-            'swaplevel', 'tail', 'take', 'transform', 'transpose', 'truediv',
-            'truncate', 'tshift', 'unique', 'unstack', 'value_counts',
-            'var', 'where', 'xs',
+            'swaplevel', 'T', 'tail', 'take', 'transform', 'transpose',
+            'truediv', 'truncate', 'tshift', 'unique', 'unstack',
+            'value_counts', 'var', 'where', 'xs',
         },
     }
 
@@ -172,10 +173,10 @@ class Safety():
         #     '4096', 'if', 'elem', '!=', 'bn', 'else', 'elem', '-', '0.5'
         # ]
         # or
-        # ['vec.median', '()', '+', 'vec.sum', '()']
+        # ['vec.median', '(', ')', '+', 'vec.sum', '(', ')']
         tokens = [
             e for e in re.split(
-                r'([a-zA-Z0-9_.]+|[^a-zA-Z0-9_.() ]+|[()]+)', self.expr
+                r'([a-zA-Z0-9_.]+|[^a-zA-Z0-9_.() ]+|[()])', self.expr
             ) if e.strip()
         ]
 
