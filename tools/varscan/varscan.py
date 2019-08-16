@@ -124,7 +124,7 @@ def _get_allele_specific_pileup_column_stats(pileups, ref_fetch,
             #    the reference, we follow the authoritative definition of the
             #    NM tag calculation in
             #    http://samtools.github.io/hts-specs/SAMtags.pdf
-            #pileup
+            #
             #    For historical reasons, the result of this calculation will
             #    disagree more often than not with NM tag values calculated by
             #    other tools.
@@ -246,17 +246,11 @@ def _get_allele_specific_pileup_column_stats(pileups, ref_fetch,
     )
 
 
-def get_allele_stats(reads, pos, allele,
+def get_allele_stats(reads, pos, alleles,
                      ref=None, ignore_md=True, ignore_nm=True,
                      mm_runs=True, detect_q2_runs=False,
                      pileup_args=None):
     chrom, start, stop = pos
-    if '-' in allele:
-        allele, indel_type, indel_after = allele.partition('-')
-    elif '+' in allele:
-        allele, indel_type, indel_after = allele.partition('+')
-    else:
-        indel_type = None
     if pileup_args is None:
         pileup_args = {}
     if pileup_args.get('stepper') == 'samtools':
@@ -279,53 +273,73 @@ def get_allele_stats(reads, pos, allele,
     else:
         # With no reads covering the genomic position
         # we can only return "empty" allele stats
-        return AlleleStats(0, 0, 0, *[float('nan')] * 7)
+        return [
+            AlleleStats(0, 0, 0, *[float('nan')] * 7)
+            for allele in alleles
+        ]
 
     # extract required information
     # overall read depth at the site
     read_depth = pile_column.get_num_aligned()
     assert read_depth > 0
 
-    stats_it = (
-        p for p in pile_column.pileups
-        # skip reads that don't support the allele we're looking for
-        if (p.query_position is not None)
-        and (p.alignment.query_sequence[p.query_position] == allele)
-    )
-    if indel_type == '-':
+    alleles_stats = []
+    for allele in alleles:
+        if '-' in allele:
+            allele, indel_type, indel_after = allele.partition('-')
+            indel_len = -len(indel_after)
+        elif '+' in allele:
+            allele, indel_type, indel_after = allele.partition('+')
+            indel_len = len(indel_after)
+        else:
+            indel_type = None
+
         stats_it = (
-            p for p in stats_it if p.indel == -len(indel_after)
+            p for p in pile_column.pileups
+            # skip reads that don't support the allele we're looking for
+            if (p.query_position is not None)
+            and (p.alignment.query_sequence[p.query_position] == allele)
         )
-    elif indel_type == '+':
-        stats_it = (
-            p for p in stats_it if (
-                p.indel == len(indel_after)
-            ) and (
-                p.alignment.query_sequence[
-                    p.query_position+1:p.query_position+1+len(indel_after)
-                ] == indel_after
+        if indel_type == '-':
+            stats_it = (
+                p for p in stats_it if p.indel == indel_len
             )
+        elif indel_type == '+':
+            stats_it = (
+                p for p in stats_it if (
+                    p.indel == indel_len
+                ) and (
+                    p.alignment.query_sequence[
+                        p.query_position + 1:
+                        p.query_position + 1 + indel_len
+                    ] == indel_after
+                )
+            )
+        allele_stats = _get_allele_specific_pileup_column_stats(
+            stats_it,
+            partial(
+                pysam.FastaFile.fetch, ref, chrom
+            ) if ref else None,
+            ignore_md,
+            ignore_nm,
+            mm_runs,
+            detect_q2_runs
         )
-    allele_stats = _get_allele_specific_pileup_column_stats(
-        stats_it,
-        partial(
-            pysam.FastaFile.fetch, ref, chrom
-        ) if ref else None,
-        ignore_md,
-        ignore_nm,
-        mm_runs,
-        detect_q2_runs
-    )
 
-    allele_reads_total = allele_stats[0] + allele_stats[1]
-    if allele_reads_total == 0:
-        # No stats without reads!
-        return AlleleStats(read_depth, 0, 0, *[float('nan')] * 7)
-
-    return AlleleStats(
-        read_depth, allele_stats[0], allele_stats[1],
-        *(i / allele_reads_total for i in allele_stats[2:])
-    )
+        allele_reads_total = allele_stats[0] + allele_stats[1]
+        if allele_reads_total == 0:
+            # No stats without reads!
+            alleles_stats.append(
+                AlleleStats(read_depth, 0, 0, *[float('nan')] * 7)
+            )
+        else:
+            alleles_stats.append(
+                AlleleStats(
+                    read_depth, allele_stats[0], allele_stats[1],
+                    *(i / allele_reads_total for i in allele_stats[2:])
+                )
+            )
+    return alleles_stats
 
 
 class VariantCallingError (RuntimeError):
@@ -404,7 +418,7 @@ class VarScanCaller (object):
             'ignore_overlaps': False,
             'compute_baq': False,
             'stepper': 'samtools',
-            }
+        }
         # user-controllable parameters
         if self.count_orphans:
             param_dict['ignore_orphans'] = False
@@ -928,33 +942,30 @@ class VarScanCaller (object):
                 assert len(record.alleles) == 2
 
                 if calculate_ref_stats:
-                    ref_stats, alt_stats = [
-                        _get_stats(
-                            reads_of_interest,
-                            (record.chrom, record.start, record.stop),
-                            allele,
-                            refseq,
-                            ignore_md=ignore_md,
-                            ignore_nm=False,
-                            mm_runs=True,
-                            detect_q2_runs=detect_q2_runs,
-                            pileup_args = pileup_args
-                        )
-                        for allele in alleles
-                    ]
-                else:
-                    ref_stats = None
-                    alt_stats = _get_stats(
+                    ref_stats, alt_stats = _get_stats(
                         reads_of_interest,
                         (record.chrom, record.start, record.stop),
-                        alleles[1],
+                        alleles,
                         refseq,
                         ignore_md=ignore_md,
                         ignore_nm=False,
                         mm_runs=True,
                         detect_q2_runs=detect_q2_runs,
-                        pileup_args = pileup_args
+                        pileup_args=pileup_args
                     )
+                else:
+                    ref_stats = None
+                    alt_stats = _get_stats(
+                        reads_of_interest,
+                        (record.chrom, record.start, record.stop),
+                        alleles[1:2],
+                        refseq,
+                        ignore_md=ignore_md,
+                        ignore_nm=False,
+                        mm_runs=True,
+                        detect_q2_runs=detect_q2_runs,
+                        pileup_args=pileup_args
+                    )[0]
                 ref_count = 0
                 if ref_stats:
                     ref_count = ref_stats.reads_fw + ref_stats.reads_rv
