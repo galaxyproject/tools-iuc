@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-Table Compute
-
-This script is an all-in-one reproduction of the table_compute.R counterpart
-which was re-written in Python due to sandboxing concerns.
+Table Compute tool - a wrapper around pandas with parameter input validation.
 """
 
 __version__ = "0.7"
@@ -44,7 +41,7 @@ class Utils:
 
 # Math is imported but not directly used because users
 # may specify a "math.<function>" when inserting a custom
-# function. To remove linting errors, which break Travis
+# function. To remove linting errors, which break CI testing
 # we will just use an arbitrary math statement here.
 __ = math.log
 
