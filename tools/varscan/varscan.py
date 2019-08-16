@@ -8,11 +8,324 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import namedtuple
 from contextlib import ExitStack
 from functools import partial
 from threading import Thread
 
 import pysam
+
+
+AlleleStats = namedtuple(
+    "AlleleStats",
+    [
+        'reads_total',
+        'reads_fw',
+        'reads_rv',
+        'avg_mapqual',
+        'avg_basequal',
+        'avg_dist_from_center',
+        'avg_mismatch_fraction',
+        'avg_mismatch_qualsum',
+        'avg_clipped_len',
+        'avg_dist_from_3prime'
+    ]
+)
+
+
+def _get_allele_specific_pileup_column_stats(pileups, ref_fetch,
+                                             ignore_md, ignore_nm,
+                                             mm_runs, detect_q2_runs):
+    var_reads_plus = var_reads_minus = 0
+    sum_mapping_qualities = 0
+    sum_base_qualities = 0
+    sum_dist_from_center = 0
+    sum_dist_from_3prime = 0
+    sum_clipped_length = 0
+    sum_unclipped_length = 0
+    sum_mismatch_fractions = 0
+    sum_mismatch_qualities = 0
+
+    for p in pileups:
+        if p.alignment.is_reverse:
+            var_reads_minus += 1
+        else:
+            var_reads_plus += 1
+        sum_mapping_qualities += p.alignment.mapping_quality
+        sum_base_qualities += p.alignment.query_qualities[p.query_position]
+        sum_clipped_length += p.alignment.query_alignment_length
+        unclipped_length = p.alignment.query_length
+        sum_unclipped_length += unclipped_length
+        # The following calculations are all in 1-based coordinates
+        # with respect to the physical 5'-end of the read sequence.
+        if p.alignment.is_reverse:
+            read_base_pos = unclipped_length - p.query_position
+            read_first_aln_pos = (
+                unclipped_length - p.alignment.query_alignment_end + 1
+            )
+            read_last_aln_pos = (
+                unclipped_length - p.alignment.query_alignment_start
+            )
+            qualities_3to5prime = p.alignment.query_alignment_qualities
+        else:
+            read_base_pos = p.query_position + 1
+            read_first_aln_pos = p.alignment.query_alignment_start + 1
+            read_last_aln_pos = p.alignment.query_alignment_end
+            qualities_3to5prime = reversed(
+                p.alignment.query_alignment_qualities
+            )
+
+        read_last_effective_aln_pos = read_last_aln_pos
+        if detect_q2_runs:
+            # Note: the original bam-readcount algorithm always takes
+            # terminal q2 runs into account when determining the
+            # effective 3'-ends of reads.
+            # However, q2 runs have no special meaning since Illumina
+            # pipeline version 1.8 so detecting them is optional
+            # in this code.
+            for qual in qualities_3to5prime:
+                if qual != 2:
+                    break
+                read_last_effective_aln_pos -= 1
+
+        # Note: the original bam-readcount algorithm defines the
+        # read center as:
+        # read_center = p.alignment.query_alignment_length / 2
+        # This is less accurate than the implementation here.
+        read_center = (read_first_aln_pos + read_last_aln_pos) / 2
+        sum_dist_from_center += 1 - abs(
+            read_base_pos - read_center
+        ) / (read_center - 1)
+        # To calculate the distance of base positions from the 3'-ends
+        # of reads bam-readcount uses the formula:
+        # sum_dist_from_3prime += abs(
+        #     read_last_effective_aln_pos - read_base_pos
+        # ) / (unclipped_length - 1)
+        # , which treats base positions on both sides of the effective
+        # 3'-end equally. Since this seems hard to justify, we cap
+        # the distance calculation at 0 for base positions past the
+        # effective 3'-end (which, in turn, should only be possible
+        # with detection of q2 runs).
+        if read_last_effective_aln_pos > read_base_pos:
+            sum_dist_from_3prime += (
+                read_last_effective_aln_pos - read_base_pos
+            ) / (unclipped_length - 1)
+
+        if sum_mismatch_fractions >= 0 or sum_mismatch_qualities >= 0:
+            # sum_mismatch_fractions and sum_mismatch_qualities will be
+            # set to float('nan') if reference info (in form of an MD tag or
+            # an actual reference sequence) was not available for any previous
+            # read in the pileup.
+            # In that case, there is no point to trying to calculate
+            # mismatch stats for other reads anymore.
+
+            # The following mismatch calculations use this logic:
+            # 1. For determining the edit distance between an aligned read and
+            #    the reference, we follow the authoritative definition of the
+            #    NM tag calculation in
+            #    http://samtools.github.io/hts-specs/SAMtags.pdf
+            #pileup
+            #    For historical reasons, the result of this calculation will
+            #    disagree more often than not with NM tag values calculated by
+            #    other tools.
+            #    If precalculated NM tag values are present on the aligned
+            #    reads, these can be given preference through the use_nm flag.
+            #    Doing so will mimick the behavior of bam-readcount, which
+            #    requires and always just looks at NM tags.
+            # 2. For determining mismatch quality sums, a mismatch is defined
+            #    differently and in accordance with the implementation in
+            #    bam-readcount:
+            #    - only mismatches (not inserted or deleted bases) are
+            #      considered
+            #    - 'N' in the reference is considered a match for any read base
+            #    - any matching (case-insensitive) base in reference and read
+            #      is considered a match, even if that base is not one of
+            #      A, C, G or T.
+            # In both 1. and 2. above a '=' in the read is always considered a
+            # match, irrespective of the reference base.
+
+            num_mismatches = 0
+            if not ignore_md:
+                try:
+                    # see if the read has an MD tag, in which case pysam can
+                    # calculate the reference sequence for us
+                    ref_seq = p.alignment.get_reference_sequence().upper()
+                except ValueError:
+                    ignore_md = True
+            if not ignore_nm:
+                try:
+                    num_mismatches = p.alignment.get_tag('NM')
+                except KeyError:
+                    ignore_nm = True
+
+            if ignore_md:
+                if not ref_fetch:
+                    # cannot calculate mismatch stats without ref info
+                    sum_mismatch_qualities = float('nan')
+                    if ignore_nm:
+                        sum_mismatch_fractions = float('nan')
+                    else:
+                        sum_mismatch_fractions += (
+                            num_mismatches / p.alignment.query_alignment_length
+                        )
+                    continue
+                # Without an MD tag we need to extract the relevant part
+                # of the reference from the full sequence by position.
+                ref_positions = p.alignment.get_reference_positions()
+                ref_seq = ref_fetch(
+                    ref_positions[0], ref_positions[-1] + 1
+                ).upper()
+
+            potential_matches = {'A', 'C', 'G', 'T'}
+            aligned_pairs = p.alignment.get_aligned_pairs(matches_only=True)
+            ref_offset = aligned_pairs[0][1]
+            last_mismatch_pos = None
+            mismatch_run_quals = []
+            for qpos, rpos in aligned_pairs:
+                read_base = p.alignment.query_sequence[qpos].upper()
+                if read_base == '=':
+                    # always treat the special read base '=' as a
+                    # match, irrespective of the reference base
+                    continue
+                ref_base = ref_seq[rpos - ref_offset]
+                # see if we have a mismatch to use for mismatch quality sum
+                # calculation
+                if ref_base != 'N' and ref_base != read_base:
+                    if mm_runs:
+                        if (
+                            last_mismatch_pos is None
+                        ) or (
+                            last_mismatch_pos + 1 == qpos
+                        ):
+                            mismatch_run_quals.append(
+                                p.alignment.query_qualities[qpos]
+                            )
+                        else:
+                            sum_mismatch_qualities += max(mismatch_run_quals)
+                            mismatch_run_quals = [
+                                p.alignment.query_qualities[qpos]
+                            ]
+                        last_mismatch_pos = qpos
+                    else:
+                        sum_mismatch_qualities += (
+                            p.alignment.query_qualities[qpos]
+                        )
+                if ignore_nm:
+                    # see if we have a mismatch that increases the edit
+                    # distance according to the SAMtags specs
+                    if (
+                        read_base not in potential_matches
+                    ) or (
+                        ref_base not in potential_matches
+                    ) or (
+                        read_base != ref_base
+                    ):
+                        num_mismatches += 1
+
+            if mismatch_run_quals:
+                sum_mismatch_qualities += max(mismatch_run_quals)
+            if ignore_nm:
+                # use the number of mismatches calculated above,
+                # but add inserted and deleted bases to it
+                cigar_stats = p.alignment.get_cigar_stats()[0]
+                num_mismatches += cigar_stats[1] + cigar_stats[2]
+            sum_mismatch_fractions += (
+                num_mismatches / p.alignment.query_alignment_length
+            )
+
+    return (
+        var_reads_plus,
+        var_reads_minus,
+        sum_mapping_qualities,
+        sum_base_qualities,
+        sum_dist_from_center,
+        sum_mismatch_fractions,
+        sum_mismatch_qualities,
+        sum_clipped_length,
+        sum_dist_from_3prime
+    )
+
+
+def get_allele_stats(reads, pos, allele,
+                     ref=None, ignore_md=True, ignore_nm=True,
+                     mm_runs=True, detect_q2_runs=False,
+                     pileup_args=None):
+    chrom, start, stop = pos
+    if '-' in allele:
+        allele, indel_type, indel_after = allele.partition('-')
+    elif '+' in allele:
+        allele, indel_type, indel_after = allele.partition('+')
+    else:
+        indel_type = None
+    if pileup_args is None:
+        pileup_args = {}
+    if pileup_args.get('stepper') == 'samtools':
+        if pileup_args.get('compute_baq', True) is not False:
+            if 'fastafile' not in pileup_args:
+                pileup_args['fastafile'] = ref
+        # be careful when passing in a custom 'fastafile' option:
+        # providing it slows down pysam tremendously even if the option
+        # isn't actually required.
+
+    pile = reads.pileup(
+        chrom, start, stop,
+        **pileup_args
+    )
+    # apply false-positive filtering a la varscan fpfilter
+    # find the variant site in the pileup columns
+    for pile_column in pile:
+        if pile_column.reference_pos == start:
+            break
+    else:
+        # With no reads covering the genomic position
+        # we can only return "empty" allele stats
+        return AlleleStats(0, 0, 0, *[float('nan')] * 7)
+
+    # extract required information
+    # overall read depth at the site
+    read_depth = pile_column.get_num_aligned()
+    assert read_depth > 0
+
+    stats_it = (
+        p for p in pile_column.pileups
+        # skip reads that don't support the allele we're looking for
+        if (p.query_position is not None)
+        and (p.alignment.query_sequence[p.query_position] == allele)
+    )
+    if indel_type == '-':
+        stats_it = (
+            p for p in stats_it if p.indel == -len(indel_after)
+        )
+    elif indel_type == '+':
+        stats_it = (
+            p for p in stats_it if (
+                p.indel == len(indel_after)
+            ) and (
+                p.alignment.query_sequence[
+                    p.query_position+1:p.query_position+1+len(indel_after)
+                ] == indel_after
+            )
+        )
+    allele_stats = _get_allele_specific_pileup_column_stats(
+        stats_it,
+        partial(
+            pysam.FastaFile.fetch, ref, chrom
+        ) if ref else None,
+        ignore_md,
+        ignore_nm,
+        mm_runs,
+        detect_q2_runs
+    )
+
+    allele_reads_total = allele_stats[0] + allele_stats[1]
+    if allele_reads_total == 0:
+        # No stats without reads!
+        return AlleleStats(read_depth, 0, 0, *[float('nan')] * 7)
+
+    return AlleleStats(
+        read_depth, allele_stats[0], allele_stats[1],
+        *(i / allele_reads_total for i in allele_stats[2:])
+    )
 
 
 class VariantCallingError (RuntimeError):
@@ -40,13 +353,15 @@ class VariantCallingError (RuntimeError):
 
 class VarScanCaller (object):
     def __init__(self, ref_genome, bam_input_files,
-                 max_depth=None,
+                 max_depth=None, count_orphans=False, detect_overlaps=True,
                  min_mapqual=None, min_basequal=None,
                  threads=1, verbose=False, quiet=True
                  ):
         self.ref_genome = ref_genome
         self.bam_input_files = bam_input_files
         self.max_depth = max_depth
+        self.count_orphans = count_orphans
+        self.detect_overlaps = detect_overlaps
         self.min_mapqual = min_mapqual
         self.min_basequal = min_basequal
         self.threads = threads
@@ -67,15 +382,38 @@ class VarScanCaller (object):
         self.tmpfiles = []
 
     def _get_pysam_pileup_args(self):
-        param_dict = {}
+        # Compute the pileup args dynamically to account for possibly updated
+        # instance attributes.
+
+        # fixed default parameters
+        # Note on the fixed default for 'ignore_overlaps':
+        # In order to use the exact same pileup parameters during variant
+        # calling and postprocessing, we would have to compute the setting
+        # dynamically like so:
+        # if not self.detect_overlaps:
+        #    param_dict['ignore_overlaps'] = False
+        # However, samtools/pysam implement overlap correction by manipulating
+        # (setting to zero) the lower qualities of bases that are part of an
+        # overlap (see
+        # https://sourceforge.net/p/samtools/mailman/message/32793789/). This
+        # manipulation has such a big undesirable effect on base quality stats
+        # calculated during postprocessing that calculating the stats on a
+        # slightly different pileup seems like the lesser evil.
+
+        param_dict = {
+            'ignore_overlaps': False,
+            'compute_baq': False,
+            'stepper': 'samtools',
+            }
+        # user-controllable parameters
+        if self.count_orphans:
+            param_dict['ignore_orphans'] = False
         if self.max_depth is not None:
             param_dict['max_depth'] = self.max_depth
         if self.min_mapqual is not None:
             param_dict['min_mapping_quality'] = self.min_mapqual
         if self.min_basequal is not None:
             param_dict['min_base_quality'] = self.min_basequal
-        param_dict['compute_baq'] = False
-        param_dict['stepper'] = 'samtools'
         return param_dict
 
     def varcall_parallel(self, normal_purity=None, tumor_purity=None,
@@ -108,6 +446,10 @@ class VarScanCaller (object):
             if value is not None:
                 varcall_engine_options += [option, str(value)]
         pileup_engine_options = ['-B']
+        if self.count_orphans:
+            pileup_engine_options += ['-A']
+        if not self.detect_overlaps:
+            pileup_engine_options += ['-x']
         if self.max_depth is not None:
             pileup_engine_options += ['-d', str(self.max_depth)]
         if self.min_mapqual is not None:
@@ -506,154 +848,12 @@ class VarScanCaller (object):
         del record.format['RD']
         del record.format['DP4']
 
-    def get_allele_specific_pileup_column_stats(
-        self, allele, pile_column, ref_fetch, use_md=True
-    ):
-        var_reads_plus = var_reads_minus = 0
-        sum_mapping_qualities = 0
-        sum_base_qualities = 0
-        sum_dist_from_center = 0
-        sum_dist_from_3prime = 0
-        sum_clipped_length = 0
-        sum_unclipped_length = 0
-        sum_num_mismatches_as_fraction = 0
-        sum_mismatch_qualities = 0
-
-        for p in pile_column.pileups:
-            # skip reads that don't support the allele we're looking for
-            if p.query_position is None:
-                continue
-            if p.alignment.query_sequence[p.query_position] != allele:
-                continue
-
-            if p.alignment.is_reverse:
-                var_reads_minus += 1
-            else:
-                var_reads_plus += 1
-            sum_mapping_qualities += p.alignment.mapping_quality
-            sum_base_qualities += p.alignment.query_qualities[p.query_position]
-            sum_clipped_length += p.alignment.query_alignment_length
-            unclipped_length = p.alignment.query_length
-            sum_unclipped_length += unclipped_length
-            # The following calculations are all in 1-based coordinates
-            # with respect to the physical 5'-end of the read sequence.
-            if p.alignment.is_reverse:
-                read_base_pos = unclipped_length - p.query_position
-                read_first_aln_pos = (
-                    unclipped_length - p.alignment.query_alignment_end + 1
-                )
-                read_last_aln_pos = (
-                    unclipped_length - p.alignment.query_alignment_start
-                )
-            else:
-                read_base_pos = p.query_position + 1
-                read_first_aln_pos = p.alignment.query_alignment_start + 1
-                read_last_aln_pos = p.alignment.query_alignment_end
-            # Note: the original bam-readcount algorithm uses the less accurate
-            # p.alignment.query_alignment_length / 2 as the read center
-            read_center = (read_first_aln_pos + read_last_aln_pos) / 2
-            sum_dist_from_center += 1 - abs(
-                read_base_pos - read_center
-            ) / (read_center - 1)
-            # Note: the original bam-readcount algorithm uses a more
-            # complicated definition of the 3'-end of a read sequence, which
-            # clips off runs of bases with a quality scores of exactly 2.
-            sum_dist_from_3prime += (
-                read_last_aln_pos - read_base_pos
-            ) / (unclipped_length - 1)
-
-            sum_num_mismatches = 0
-            if use_md:
-                try:
-                    # see if the read has an MD tag, in which case pysam can
-                    # calculate the reference sequence for us
-                    aligned_pairs = p.alignment.get_aligned_pairs(
-                        matches_only=True, with_seq=True
-                    )
-                except ValueError:
-                    use_md = False
-            if use_md:
-                # The ref sequence got calculated from alignment and MD tag.
-                for qpos, rpos, ref_base in aligned_pairs:
-                    # pysam uses lowercase ref bases to indicate mismatches
-                    if (
-                        ref_base == 'a' or ref_base == 't' or
-                        ref_base == 'g' or ref_base == 'c'
-                    ):
-                        sum_num_mismatches += 1
-                        sum_mismatch_qualities += p.alignment.query_qualities[
-                            qpos
-                        ]
-            else:
-                # We need to obtain the aligned portion of the reference
-                # sequence.
-                aligned_pairs = p.alignment.get_aligned_pairs(
-                    matches_only=True
-                )
-                # note that ref bases can be lowercase
-                ref_seq = ref_fetch(
-                    aligned_pairs[0][1], aligned_pairs[-1][1] + 1
-                ).upper()
-                ref_offset = aligned_pairs[0][1]
-
-                for qpos, rpos in p.alignment.get_aligned_pairs(
-                    matches_only=True
-                ):
-                    # see if we have a mismatch to the reference at this
-                    # position, but note that
-                    # - the query base may be lowercase (SAM/BAM spec)
-                    # - an '=', if present in the query seq, indicates a match
-                    #   to the reference (SAM/BAM spec)
-                    # - there cannot be a mismatch with an N in the reference
-                    ref_base = ref_seq[rpos - ref_offset]
-                    read_base = p.alignment.query_sequence[qpos].upper()
-                    if (
-                        read_base != '=' and ref_base != 'N'
-                    ) and (
-                        ref_base != read_base
-                    ):
-                        sum_num_mismatches += 1
-                        sum_mismatch_qualities += p.alignment.query_qualities[
-                            qpos
-                        ]
-            sum_num_mismatches_as_fraction += (
-                sum_num_mismatches / p.alignment.query_alignment_length
-            )
-
-        var_reads_total = var_reads_plus + var_reads_minus
-        if var_reads_total == 0:
-            # No stats without reads!
-            return None
-        avg_mapping_quality = sum_mapping_qualities / var_reads_total
-        avg_basequality = sum_base_qualities / var_reads_total
-        avg_pos_as_fraction = sum_dist_from_center / var_reads_total
-        avg_num_mismatches_as_fraction = (
-            sum_num_mismatches_as_fraction / var_reads_total
-        )
-        avg_sum_mismatch_qualities = sum_mismatch_qualities / var_reads_total
-        avg_clipped_length = sum_clipped_length / var_reads_total
-        avg_distance_to_effective_3p_end = (
-            sum_dist_from_3prime / var_reads_total
-        )
-
-        return (
-            avg_mapping_quality,
-            avg_basequality,
-            var_reads_plus,
-            var_reads_minus,
-            avg_pos_as_fraction,
-            avg_num_mismatches_as_fraction,
-            avg_sum_mismatch_qualities,
-            avg_clipped_length,
-            avg_distance_to_effective_3p_end
-        )
-
     def _postprocess_variant_records(self, invcf,
                                      min_var_count2, min_var_count2_lc,
-                                     min_var_freq2, max_somatic_p,
-                                     max_somatic_p_depth,
+                                     min_var_freq2, min_var_count2_depth,
                                      min_ref_readpos, min_var_readpos,
                                      min_ref_dist3, min_var_dist3,
+                                     detect_q2_runs,
                                      min_ref_len, min_var_len,
                                      max_relative_len_diff,
                                      min_strandedness, min_strand_reads,
@@ -663,6 +863,7 @@ class VarScanCaller (object):
                                      max_mapqual_diff,
                                      max_ref_mmqs, max_var_mmqs,
                                      min_mmqs_diff, max_mmqs_diff,
+                                     ignore_md,
                                      **args):
         # set FILTER field according to Varscan criteria
         # multiple FILTER entries must be separated by semicolons
@@ -681,134 +882,161 @@ class VarScanCaller (object):
             )
             refseq = io_stack.enter_context(pysam.FastaFile(self.ref_genome))
             pileup_args = self._get_pysam_pileup_args()
+            _get_stats = get_allele_stats
             for record in invcf:
-                if any(len(allele) > 1 for allele in record.alleles):
-                    # skip indel postprocessing for the moment
-                    yield record
-                    continue
+                is_indel = False
                 if record.alleles[0] == 'N':
                     # It makes no sense to call SNPs against an unknown
                     # reference base
                     continue
+                if len(record.alleles[0]) > 1:
+                    # a deletion
+                    is_indel = True
+                    alleles = [
+                        record.alleles[1], record.alleles[0].replace(
+                            record.alleles[1], record.alleles[1] + '-', 1
+                        )
+                    ]
+                elif len(record.alleles[1]) > 1:
+                    # an insertion
+                    is_indel = True
+                    alleles = [
+                        record.alleles[0],
+                        record.alleles[1].replace(
+                            record.alleles[0], record.alleles[0] + '+', 1
+                        )
+                    ]
+                else:
+                    # a regular SNV
+                    alleles = record.alleles[:2]
                 # get pileup for genomic region affected by this variant
                 if record.info['SS'] == '2':
                     # a somatic variant => generate pileup from tumor data
-                    pile = tumor_reads.pileup(
-                        record.chrom, record.start, record.stop,
-                        **pileup_args
-                    )
-                    sample_of_interest = 'TUMOR'
+                    reads_of_interest = tumor_reads
+                    calculate_ref_stats = record.samples['TUMOR']['RD'] > 0
                 elif record.info['SS'] in ['1', '3']:
                     # a germline or LOH variant => pileup from normal data
-                    pile = normal_reads.pileup(
-                        record.chrom, record.start, record.stop,
-                        **pileup_args
-                    )
-                    sample_of_interest = 'NORMAL'
+                    reads_of_interest = normal_reads
+                    calculate_ref_stats = record.samples['NORMAL']['RD'] > 0
                 else:
                     # TO DO: figure out if there is anything interesting to do
                     # for SS status codes 0 (reference) and 5 (unknown)
                     yield record
                     continue
 
-                # apply false-positive filtering a la varscan fpfilter
-                # find the variant site in the pileup columns
-                for pile_column in pile:
-                    if pile_column.reference_pos == record.start:
-                        break
-                # extract required information
-                # overall read depth at the site
-                read_depth = pile_column.get_num_aligned()
-                assert read_depth > 0
                 # no multiallelic sites in varscan
                 assert len(record.alleles) == 2
-                if record.samples[sample_of_interest]['RD'] > 0:
+
+                if calculate_ref_stats:
                     ref_stats, alt_stats = [
-                        self.get_allele_specific_pileup_column_stats(
+                        _get_stats(
+                            reads_of_interest,
+                            (record.chrom, record.start, record.stop),
                             allele,
-                            pile_column,
-                            partial(
-                                pysam.FastaFile.fetch, refseq, record.chrom
-                            )
+                            refseq,
+                            ignore_md=ignore_md,
+                            ignore_nm=False,
+                            mm_runs=True,
+                            detect_q2_runs=detect_q2_runs,
+                            pileup_args = pileup_args
                         )
-                        for allele in record.alleles
+                        for allele in alleles
                     ]
                 else:
                     ref_stats = None
-                    alt_stats = self.get_allele_specific_pileup_column_stats(
-                        record.alleles[1],
-                        pile_column,
-                        partial(pysam.FastaFile.fetch, refseq, record.chrom)
+                    alt_stats = _get_stats(
+                        reads_of_interest,
+                        (record.chrom, record.start, record.stop),
+                        alleles[1],
+                        refseq,
+                        ignore_md=ignore_md,
+                        ignore_nm=False,
+                        mm_runs=True,
+                        detect_q2_runs=detect_q2_runs,
+                        pileup_args = pileup_args
                     )
                 ref_count = 0
                 if ref_stats:
-                    ref_count = ref_stats[2] + ref_stats[3]
-                    if ref_stats[1] < min_ref_basequal:
+                    ref_count = ref_stats.reads_fw + ref_stats.reads_rv
+                    if ref_stats.avg_basequal < min_ref_basequal:
                         record.filter.add('RefBaseQual')
                     if ref_count >= 2:
-                        if ref_stats[0] < min_ref_mapqual:
+                        if ref_stats.avg_mapqual < min_ref_mapqual:
                             record.filter.add('RefMapQual')
-                        if ref_stats[4] < min_ref_readpos:
+                        if ref_stats.avg_dist_from_center < min_ref_readpos:
                             record.filter.add('RefReadPos')
-                        # ref_stats[5] (avg_num_mismatches_as_fraction
+                        # ref_stats.avg_mismatch_fraction
                         # is not a filter criterion in VarScan fpfilter
-                        if ref_stats[6] > max_ref_mmqs:
+                        if ref_stats.avg_mismatch_qualsum > max_ref_mmqs:
                             record.filter.add('RefMMQS')
-                        if ref_stats[7] < min_ref_len:
+                        if not is_indel and (
+                            ref_stats.avg_clipped_len < min_ref_len
+                        ):
                             # VarScan fpfilter does not apply this filter
-                            # for indels, but there is no reason
-                            # not to do it.
+                            # for indels, so we do not do it either.
                             record.filter.add('RefAvgRL')
-                        if ref_stats[8] < min_ref_dist3:
+                        if ref_stats.avg_dist_from_3prime < min_ref_dist3:
                             record.filter.add('RefDist3')
                 if alt_stats:
-                    alt_count = alt_stats[2] + alt_stats[3]
-                    if (
-                        alt_count < min_var_count2_lc
-                    ) or (
-                        read_depth >= max_somatic_p_depth and
-                        alt_count < min_var_count2
-                    ):
-                        record.filter.add('VarCount')
-                    if alt_count / read_depth < min_var_freq2:
-                        record.filter.add('VarFreq')
-                    if alt_stats[1] < min_var_basequal:
-                        record.filter.add('VarBaseQual')
-                    if alt_count > min_strand_reads:
+                    alt_count = alt_stats.reads_fw + alt_stats.reads_rv
+                    if alt_count < min_var_count2:
                         if (
-                            alt_stats[2] / alt_count < min_strandedness
+                            (alt_count + ref_count) >= min_var_count2_depth
                         ) or (
-                            alt_stats[3] / alt_count < min_strandedness
+                            alt_count < min_var_count2_lc
+                        ):
+                            record.filter.add('VarCount')
+                    if alt_count / alt_stats.reads_total < min_var_freq2:
+                        record.filter.add('VarFreq')
+                    if not is_indel and (
+                        alt_stats.avg_basequal < min_var_basequal
+                    ):
+                        record.filter.add('VarBaseQual')
+                    if alt_count >= min_strand_reads:
+                        if (
+                            alt_stats.reads_fw / alt_count < min_strandedness
+                        ) or (
+                            alt_stats.reads_rv / alt_count < min_strandedness
                         ):
                             record.filter.add('Strand')
-                    if alt_stats[2] + alt_stats[3] >= 2:
-                        if alt_stats[0] < min_var_mapqual:
+                    if alt_count >= 2:
+                        if alt_stats.avg_mapqual < min_var_mapqual:
                             record.filter.add('VarMapQual')
-                        if alt_stats[4] < min_var_readpos:
+                        if alt_stats.avg_dist_from_center < min_var_readpos:
                             record.filter.add('VarReadPos')
-                        # alt_stats[5] (avg_num_mismatches_as_fraction
+                        # alt_stats.avg_mismatch_fraction
                         # is not a filter criterion in VarScan fpfilter
-                        if alt_stats[6] > max_var_mmqs:
+                        if alt_stats.avg_mismatch_qualsum > max_var_mmqs:
                             record.filter.add('VarMMQS')
-                        if alt_stats[7] < min_var_len:
+                        if not is_indel and (
+                            alt_stats.avg_clipped_len < min_var_len
+                        ):
                             # VarScan fpfilter does not apply this filter
-                            # for indels, but there is no reason
-                            # not to do it.
+                            # for indels, so we do not do it either.
                             record.filter.add('VarAvgRL')
-                        if alt_stats[8] < min_var_dist3:
+                        if alt_stats.avg_dist_from_3prime < min_var_dist3:
                             record.filter.add('VarDist3')
                     if ref_count >= 2 and alt_count >= 2:
-                        if (ref_stats[0] - alt_stats[0]) > max_mapqual_diff:
+                        if (
+                            ref_stats.avg_mapqual - alt_stats.avg_mapqual
+                        ) > max_mapqual_diff:
                             record.filter.add('MapQualDiff')
-                        if (ref_stats[1] - alt_stats[1]) > max_basequal_diff:
+                        if (
+                            ref_stats.avg_basequal - alt_stats.avg_basequal
+                        ) > max_basequal_diff:
                             record.filter.add('MaxBAQdiff')
-                        mmqs_diff = alt_stats[6] - ref_stats[6]
+                        mmqs_diff = (
+                            alt_stats.avg_mismatch_qualsum
+                            - ref_stats.avg_mismatch_qualsum
+                        )
                         if mmqs_diff < min_mmqs_diff:
                             record.filter.add('MinMMQSdiff')
                         if mmqs_diff > max_mmqs_diff:
                             record.filter.add('MMQSdiff')
                         if (
-                            1 - alt_stats[7] / ref_stats[7]
+                            1 -
+                            alt_stats.avg_clipped_len
+                            / ref_stats.avg_clipped_len
                         ) > max_relative_len_diff:
                             record.filter.add('ReadLenDiff')
                 else:
@@ -994,6 +1222,8 @@ def varscan_call(ref_genome, normal, tumor, output_path, **args):
     instance_args = {
         k: args.pop(k) for k in [
             'max_depth',
+            'count_orphans',
+            'detect_overlaps',
             'min_mapqual',
             'min_basequal',
             'threads',
@@ -1046,7 +1276,7 @@ if __name__ == '__main__':
     )
     p.add_argument(
         '-s', '--split-output',
-        dest='split_output', action='store_true', default=False,
+        dest='split_output', action='store_true',
         help='indicate that separate output files for SNPs and indels '
              'should be generated (original VarScan behavior). If specified, '
              '%%T in the --ofile file name will be replaced with "snp" and '
@@ -1088,6 +1318,20 @@ if __name__ == '__main__':
         dest='max_depth', type=int, default=8000,
         help='Maximum depth of generated pileups (samtools mpileup -d option; '
              'default: 8000)'
+    )
+    call_group.add_argument(
+        '--count-orphans',
+        dest='count_orphans', action='store_true',
+        help='Use anomalous read pairs in variant calling '
+             '(samtools mpileup -A option; default: ignore anomalous pairs)'
+    )
+    call_group.add_argument(
+        '--no-detect-overlaps',
+        dest='detect_overlaps', action='store_false',
+        help='Disable automatic read-pair overlap detection by samtools '
+             'mpileup. Overlap detection tries to avoid counting duplicated '
+             'bases twice during variant calling. '
+             '(samtools mpileup -x option; default: use overlap detection)'
     )
     call_group.add_argument(
         '--min-basequal',
@@ -1160,25 +1404,21 @@ if __name__ == '__main__':
         dest='min_var_count2_lc', type=int,
         default=2,
         help='Minimum number of variant-supporting reads when depth below '
-             '--somatic-p-depth (default: 2)'
+             '--min-var-count2-depth (default: 2)'
+    )
+    filter_group.add_argument(
+        '--min-var-count2-depth',
+        dest='min_var_count2_depth', type=int,
+        default=10,
+        help='Combined depth of ref- and variant-supporting reads required to '
+             'apply the --min-var-count filter instead of --min-var-count-lc '
+             '(default: 10)'
     )
     filter_group.add_argument(
         '--min-var-freq2',
         dest='min_var_freq2', type=float,
         default=0.05,
         help='Minimum variant allele frequency (default: 0.05)'
-    )
-    filter_group.add_argument(
-        '--max-somatic-p',
-        dest='max_somatic_p', type=float,
-        default=0.05,
-        help='Maximum somatic p-value (default: 0.05)'
-    )
-    filter_group.add_argument(
-        '--max-somatic-p-depth',
-        dest='max_somatic_p_depth', type=int,
-        default=10,
-        help='Depth required to run --max-somatic-p filter (default: 10)'
     )
     filter_group.add_argument(
         '--min-ref-readpos',
@@ -1207,6 +1447,13 @@ if __name__ == '__main__':
         default=0.1,
         help='Minimum average relative distance of site from the effective '
              '3\'end of variant-supporting reads (default: 0.1)'
+    )
+    filter_group.add_argument(
+        '--detect-q2-runs',
+        dest='detect_q2_runs', action='store_true',
+        help='Look for 3\'-terminal q2 runs and take their lengths into '
+             'account for determining the effective 3\'end of reads '
+             '(default: off)'
     )
     filter_group.add_argument(
         '--min-ref-len',
@@ -1309,5 +1556,13 @@ if __name__ == '__main__':
         default=50,
         help='Maximum mismatch quality sum difference (var - ref; default: 50)'
     )
+    filter_group.add_argument(
+        '--ignore-md',
+        dest='ignore_md', action='store_true',
+        help='Do not rely on read MD tag, even if it is present on the mapped '
+             'reads, and recalculate mismatch quality stats from ref '
+             'alignments instead.'
+    )
+
     args = vars(p.parse_args())
     varscan_call(**args)
