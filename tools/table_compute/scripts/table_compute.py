@@ -3,8 +3,7 @@
 Table Compute tool - a wrapper around pandas with parameter input validation.
 """
 
-__version__ = "0.7"
-
+__version__ = "0.8"
 
 import csv
 import math
@@ -14,9 +13,9 @@ import numpy as np
 import pandas as pd
 import userconfig as uc
 from safety import Safety
-
 # This should be generated in the same directory
 
+# Version command should not need to copy the config
 if len(argv) == 2 and argv[1] == "--version":
     print(__version__)
     exit(-1)
@@ -63,6 +62,12 @@ if user_mode == "single":
         keep_default_na=uc.Default["narm"],
         sep='\t'
     )
+    # Fix whitespace issues in index or column names
+    data.columns = [col.strip() if type(col) is str else col
+                    for col in data.columns]
+    data.index = [row.strip() if type(row) is str else row
+                  for row in data.index]
+
     user_mode_single = params["user_mode_single"]
 
     if user_mode_single == "precision":
