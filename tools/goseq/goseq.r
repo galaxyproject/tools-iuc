@@ -29,7 +29,8 @@ option_list <- list(
     make_option(c("-plots", "--make_plots"), default=FALSE, type="logical", help="Produce diagnostic plots?"),
     make_option(c("-l","--length_bias_plot"), type="character", default=NULL, help="Path to length-bias plot"),
     make_option(c("-sw","--sample_vs_wallenius_plot"), type="character", default=NULL, help="Path to plot comparing sampling with wallenius p-values"),
-    make_option(c("-rd", "--rdata"), type="character", default=NULL, help="Path to RData output file")
+    make_option(c("-rd", "--rdata"), type="character", default=NULL, help="Path to RData output file"),
+    make_option(c("-g2g", "--categories_genes_out_fp"), type="character", default=NULL, help="Path to file with categories (GO/KEGG terms) and associated DE genes")
     )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
@@ -167,6 +168,28 @@ if (!is.null(args$top_plot)) {
     print(p)
   }
   dev.off()
+}
+
+# Extract the genes to the categories (GO/KEGG terms)
+if (!is.null(args$categories_genes_out_fp)) {
+  cat2gene = split(rep(names(go_map), sapply(go_map, length)), unlist(go_map, use.names = FALSE))
+  # extract categories (GO/KEGG terms) for all results
+  categories = c()
+  for (m in names(results)) {
+    categories = c(categories, results[[m]]$category)
+  }
+  categories = unique(categories)
+  # extract the DE genes for each catge term
+  categories_genes = data.frame(Categories=categories, DEgenes=rep('', length(categories)))
+  categories_genes$DEgenes = as.character(categories_genes$DEgenes)
+  rownames(categories_genes) = categories
+  for (cat in categories){
+    tmp = pwf[cat2gene[[cat]],]
+    tmp = rownames(tmp[tmp$DEgenes > 0, ])
+    categories_genes[cat, 'DEgenes'] = paste(tmp, collapse=',')
+  }
+  # output
+  write.table(categories_genes, args$categories_genes_out_fp, sep = "\t", row.names=FALSE, quote=FALSE)
 }
 
 # Output RData file
