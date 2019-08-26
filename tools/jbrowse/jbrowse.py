@@ -379,9 +379,15 @@ class JbrowseConnector(object):
         with open(trackList, 'w') as handle:
             json.dump(trackListData, handle, indent=2)
 
-    def subprocess_check_call(self, command):
+    def subprocess_check_call(self, command, output=None):
         log.debug('cd %s && %s', self.outdir, ' '.join(command))
-        subprocess.check_call(command, cwd=self.outdir)
+        kw = {
+            'cwd': self.outdir
+        }
+        if output:
+            kw['stdout'] = output
+
+        subprocess.check_call(command, **kw)
 
     def subprocess_popen(self, command):
         log.debug('cd %s && %s', self.outdir, command)
@@ -503,29 +509,29 @@ class JbrowseConnector(object):
             self.tracksToIndex.append("%s" % trackData['label'])
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
-        dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
+        dest = os.path.join('data', 'raw', trackdata['label'] + '.bw')
         cmd = ['ln', '-s', data, dest]
         self.subprocess_check_call(cmd)
 
-        url = os.path.join('raw', trackData['label'] + '.bw')
-        trackData.update({
-            "urlTemplate": url,
-            "storeClass": "JBrowse/Store/SeqFeature/BigWig",
-            "type": "JBrowse/View/Track/Wiggle/Density",
+        url = os.path.join('raw', trackdata['label'] + '.bw')
+        trackdata.update({
+            "urltemplate": url,
+            "storeclass": "jbrowse/store/seqfeature/bigwig",
+            "type": "jbrowse/view/track/wiggle/density",
         })
 
-        trackData['type'] = wiggleOpts['type']
-        trackData['variance_band'] = True if wiggleOpts['variance_band'] == 'true' else False
+        trackdata['type'] = wiggleopts['type']
+        trackdata['variance_band'] = true if wiggleopts['variance_band'] == 'true' else false
 
-        if 'min' in wiggleOpts and 'max' in wiggleOpts:
-            trackData['min_score'] = wiggleOpts['min']
-            trackData['max_score'] = wiggleOpts['max']
+        if 'min' in wiggleopts and 'max' in wiggleopts:
+            trackdata['min_score'] = wiggleopts['min']
+            trackdata['max_score'] = wiggleopts['max']
         else:
-            trackData['autoscale'] = wiggleOpts.get('autoscale', 'local')
+            trackdata['autoscale'] = wiggleopts.get('autoscale', 'local')
 
-        trackData['scale'] = wiggleOpts['scale']
+        trackdata['scale'] = wiggleopts['scale']
 
-        self._add_track_json(trackData)
+        self._add_track_json(trackdata)
 
     def add_bigwig_multiple(self, data, trackData, wiggleOpts, **kwargs):
 
@@ -557,6 +563,43 @@ class JbrowseConnector(object):
         trackData['scale'] = wiggleOpts['scale']
 
         self._add_track_json(trackData)
+
+    def add_maf(self, data, trackData, mafOpts, **kwargs):
+        script = os.path.realpath(os.path.join(self.jbrowse, 'plugins', 'MAFViewer', 'bin', 'maf2bed.pl'))
+        dest = os.path.join('data', 'raw', trackdata['label'] + '.txt')
+
+        tmp1 = tempfile.NamedTemporaryFile(delete=False)
+        tmp1.close()
+
+        # Process MAF to bed-like
+        cmd = [script, data]
+        self.subprocess_check_call(cmd, output=tmp1.path)
+
+        # Sort it
+        cmd = ['sort', '-k1,1', '-k2,2n', tmp1.path]
+        self.subprocess_check_call(cmd, output=dest)
+
+        # gzip / index
+        cmd = ['bgzip', dest]
+        self.subprocess_check_call(cmd)
+        cmd = ['tabix', '-p', 'bed', dest + '.gz']
+        self.subprocess_check_call(cmd)
+
+        # Construct samples list
+        # We could get this from galaxy metadata, not sure how easily.
+        ps = subprocess.Popen(['grep', '^s [^ ]*', '-o', data], stdout=subprocess.PIPE)
+        output = subprocess.check_output(('sort', '-u'), stdin=ps.stdout)
+        ps.wait()
+        samples = [x[2:] for x in output]
+
+        trackdata.update({
+            "storeClass": "MAFViewer/Store/SeqFeature/MAFTabix",
+            "type": "MAFViewer/View/Track/MAF",
+            "urlTemplate": trackdata['label'] + '.txt.gz',
+            "samples": samples,
+        })
+
+        self._add_track_json(trackdata)
 
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bam')
@@ -791,6 +834,9 @@ class JbrowseConnector(object):
             elif dataset_ext == 'bigwig_multiple':
                 self.add_bigwig_multiple(dataset_path, outputTrackConfig,
                                          track['conf']['options']['wiggle'])
+            elif dataset_ext == 'maf':
+                self.add_maf(dataset_path, outputTrackConfig,
+                             track['conf']['options']['maf'])
             elif dataset_ext == 'bam':
                 real_indexes = track['conf']['options']['pileup']['bam_indices']['bam_index']
                 if not isinstance(real_indexes, list):
