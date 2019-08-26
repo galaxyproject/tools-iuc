@@ -3,7 +3,7 @@
 Table Compute tool - a wrapper around pandas with parameter input validation.
 """
 
-__version__ = "0.8"
+__version__ = "0.9"
 
 import csv
 import math
@@ -11,14 +11,15 @@ from sys import argv
 
 import numpy as np
 import pandas as pd
-import userconfig as uc
 from safety import Safety
-# This should be generated in the same directory
 
 # Version command should not need to copy the config
 if len(argv) == 2 and argv[1] == "--version":
     print(__version__)
     exit(-1)
+
+# This should be generated in the same directory
+import userconfig as uc  # noqa: I100,I202
 
 
 class Utils:
