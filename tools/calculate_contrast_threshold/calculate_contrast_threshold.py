@@ -1,9 +1,10 @@
 #!/usr/bin/python
 
 import getopt
-import sys
-import numpy as np
 import math
+import sys
+
+import numpy as np
 
 """
 Program to calculate the contrast thresholds for heatmap from tagPileUp CDT
