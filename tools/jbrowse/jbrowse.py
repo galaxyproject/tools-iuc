@@ -690,12 +690,16 @@ class JbrowseConnector(object):
         assert isinstance(trackConfigSubDict, dict), 'Config element {} is not a dict'.format(trackConfigSubDict)
         return trackConfigSubDict
 
+    def revert_mapped_chars_in_string(self, stringValue, mapped_chars):
+        for char, mapped_char in mapped_chars.items():
+            stringValue = stringValue.replace(mapped_char, char)
+        return stringValue
+
     def get_formatted_option(self, valType2ValDict, mapped_chars):
         assert isinstance(valType2ValDict, dict) and len(valType2ValDict.items()) == 1
         for valType, value in valType2ValDict.items():
             if valType == "text":
-                for char, mapped_char in mapped_chars.items():
-                    value = value.replace(mapped_char, char)
+                self.revert_mapped_chars_in_string(value, mapped_chars)
             elif valType == "integer":
                 value = int(value)
             elif valType == "float":
@@ -713,17 +717,6 @@ class JbrowseConnector(object):
 
     def process_annotations(self, track):
         category = track['category'].replace('__pd__date__pd__', TODAY)
-        outputTrackConfig = {
-            'style': {
-                'label': track['style'].get('label', 'description'),
-                'className': track['style'].get('className', 'feature'),
-                'description': track['style'].get('description', ''),
-            },
-            'overridePlugins': track['style'].get('overridePlugins', False) == 'True',
-            'overrideDraggable': track['style'].get('overrideDraggable', False) == 'True',
-            'maxHeight': track['style'].get('maxHeight', '600'),
-            'category': category,
-        }
 
         mapped_chars = {
             '>': '__gt__',
@@ -739,10 +732,21 @@ class JbrowseConnector(object):
             "": '__cn__'
         }
 
+        outputTrackConfig = {
+            'style': {
+                'label': self.revert_mapped_chars_in_string(track['style'].get('label', 'description'), mapped_chars),
+                'className': track['style'].get('className', 'feature'),
+                'description': self.revert_mapped_chars_in_string(track['style'].get('description', ''), mapped_chars),
+            },
+            'overridePlugins': track['style'].get('overridePlugins', False) == 'True',
+            'overrideDraggable': track['style'].get('overrideDraggable', False) == 'True',
+            'maxHeight': track['style'].get('maxHeight', '600'),
+            'category': category,
+        }
+
         for i, (dataset_path, dataset_ext, track_human_label, extra_metadata) in enumerate(track['trackfiles']):
             # Unsanitize labels (element_identifiers are always sanitized by Galaxy)
-            for key, value in mapped_chars.items():
-                track_human_label = track_human_label.replace(value, key)
+            self.revert_mapped_chars_in_string(track_human_label, mapped_chars)
 
             log.info('Processing %s / %s', category, track_human_label)
             outputTrackConfig['key'] = track_human_label
@@ -814,8 +818,7 @@ class JbrowseConnector(object):
                 self.add_rest(track['conf']['options']['rest']['url'], outputTrackConfig)
             elif dataset_ext == 'sparql':
                 sparql_query = track['conf']['options']['sparql']['query']
-                for key, value in mapped_chars.items():
-                    sparql_query = sparql_query.replace(value, key)
+                self.revert_mapped_chars_in_string(sparql_query, mapped_chars)
                 self.add_sparql(track['conf']['options']['sparql']['url'], sparql_query, outputTrackConfig)
             else:
                 log.warn('Do not know how to handle %s', dataset_ext)
