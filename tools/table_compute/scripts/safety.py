@@ -182,7 +182,6 @@ class Safety():
 
         # 2. Subtract allowed standard tokens
         rem = [e for e in tokens if e not in self.__allowed_tokens]
-
         # 3. Subtract allowed qualified objects from allowed modules
         #    and whitelisted references and their attributes
         rem2 = []
@@ -194,10 +193,22 @@ class Safety():
             if len(parts) == 2:
                 if parts[0] in self.these:
                     parts[0] = '_this'
+                elif parts[0] == "":
+                    # e.g. '.T' gives ['','.T']
+                    # Here we assume that the blank part[0] refers to the
+                    # self.ref_type (e.g. "pd.DataFrame"), and that
+                    # the second part is a function of that type.
+                    if parts[1] in self.allowed_qualified['_this']:
+                        continue
+
                 if parts[0] in self.allowed_qualified:
                     if parts[1] in self.allowed_qualified[parts[0]]:
                         continue
+
             rem2.append(e)
+
+        # Debug
+        # for x in (tokens, rem, rem2):print("  ".join(x))
 
         # 4. Assert that rest are real numbers
         e = ''
