@@ -1,4 +1,4 @@
-<tool id="umi_tools_whitelist" name="UMI-tools whitelist" version="@VERSION@.1">
+<tool id="umi_tools_whitelist" name="UMI-tools whitelist" version="@VERSION@.2">
     <description>Extract cell barcodes from FASTQ files</description>
     <macros>
         <import>macros.xml</import>
@@ -9,6 +9,7 @@
 
         umi_tools whitelist
             --bc-pattern='$bc_pattern'
+            --extract-method='$extract_method'
             --subset-reads='$subset_reads'
             #if $input_type.type == 'single':
                 #if $gz:
@@ -70,13 +71,18 @@
                     represent the random positions and Xs to indicate the bc positions.
                     Bases with Ns will be extracted and added to the read name. Remaining
                     bases, marked with an X will be reattached to the read.">
+            <expand macro="barcode_sanitizer" />
+        </param>
+        <param name="extract_method" argument="--extract-method" type="select" label="Barcode Extraction Method"
+               help="If bracketed expressions are used in the above barcode pattern, then set this to 'regex'. Otherwise leave as 'string'" >
+            <option value="string" selected="true" />
+            <option value="regex" />
         </param>
         <param name="method" argument="--method" type="select" label="Count reads or UMIs"
                help="Many published protocols rank CBs by the number of reads the CBs appear in. However you could also use the number of unique UMIs a CB is associated with. Note that this is still and approximation to the number of transcripts captured because the same UMI could be associated with two different transcripts and be counted as independent." >
             <option value="reads" selected="true" />
             <option value="umis" />
         </param>
-
         <param argument="--3prime" name="prime3" type="boolean" label="Is barcode on 3' end of the read?"
             truevalue="--3prime" falsevalue=""
             help="By default the barcode is assumed to be on the 5' end of the read, but
@@ -91,12 +97,11 @@
             <when value="advanced">
                 <param name="set_cell_number" type="integer" min="0" value="0" label="Specify the number of cell barcodes to accept" />
                 <param name="expect_cells" type="integer" min="0" value="0" label="Prior expectation on the upper limit on the number of cells sequenced" />
-                <param name="error_correct_thresh" type="integer" min="0" value="0" label="Hamming distance for correction of barcodes to whilelist barcodes. Set to zero to generate no error correcting metrics." />
+                <param name="error_correct_thresh" type="integer" min="0" value="0" label="Hamming distance for correction of barcodes to whitelist barcodes. Set to zero to generate no error correcting metrics." />
             </when>
         </conditional>
         <param argument="--log" type="boolean" label="Output log?" truevalue="--log" falsevalue=""
             help="Choose if you want to generate a text file containing logging information." />
-
     </inputs>
     <outputs>
         <data name="out_whitelist" format="tabular" label="${tool.name} on ${on_string}: Whitelist"/>
@@ -108,8 +113,10 @@
     </outputs>
     <tests>
         <test expect_num_outputs="3">
-            <param name="type" value="single" />
-            <param name="input_single" value="t_R2.fastq.gz" ftype="fastq" />
+            <conditional name="input_type" >
+                <param name="type" value="single" />
+                <param name="input_single" value="t_R2.fastq.gz" ftype="fastq.gz" />
+            </conditional>
             <param name="bc_pattern" value="CCCCCCCCNNNNNNNN" />
             <param name="method" value="reads" />
             <param name="prime3" value="true" />
@@ -118,9 +125,11 @@
             <output name="out_html_report" file="out_wl_single.html" />
         </test>
         <test expect_num_outputs="4">
-            <param name="type" value="paired" />
-            <param name="input_read1" value="t_R1.fastq.gz" ftype="fastq" />
-            <param name="input_read2" value="t_R2.fastq.gz" ftype="fastq" />
+            <conditional name="input_type" >
+                <param name="type" value="paired" />
+                <param name="input_read1" value="t_R1.fastq.gz" ftype="fastq.gz" />
+                <param name="input_read2" value="t_R2.fastq.gz" ftype="fastq.gz" />
+            </conditional>
             <param name="barcode_select" value="first_read_only" />
             <param name="bc_pattern" value="CCCNNNNNNNNXXXXX" />
             <param name="bc_pattern2" value="CCCCCCCCNNNNNNNN" />
@@ -136,13 +145,15 @@
             <output name="out_thresh" file="out_wl_paired.tresh.tab" />
         </test>
         <test expect_num_outputs="4"> <!-- As previous, identical outputs but paired collection input -->
-            <param name="type" value="paired_collection" />
-            <param name="input_readpair" >
-                <collection type="paired">
-                    <element name="forward" ftype="fastq.gz" value="t_R1.fastq.gz" />
-                    <element name="reverse" ftype="fastq.gz" value="t_R2.fastq.gz" />
-                </collection>
-            </param>
+            <conditional name="input_type" >
+                <param name="type" value="paired_collection" />
+                <param name="input_readpair" >
+                    <collection type="paired">
+                        <element name="forward" ftype="fastq.gz" value="t_R1.fastq.gz" />
+                        <element name="reverse" ftype="fastq.gz" value="t_R2.fastq.gz" />
+                    </collection>
+                </param>
+            </conditional>
             <param name="barcode_select" value="first_read_only" />
             <param name="bc_pattern"  value="CCCNNNNNNNNXXXXX" />
             <param name="bc_pattern2" value="CCCCCCCCNNNNNNNN" />
@@ -156,6 +167,20 @@
             <output name="out_log" file="out_wl_paired.log" lines_diff="40" />
             <output name="out_html_report" file="out_wl_paired.html" />
             <output name="out_thresh" file="out_wl_paired.tresh.tab" />
+        </test>
+        <!-- Error report on not accepting regex and lt and gt symbols -->
+        <test expect_num_outputs="3">
+            <conditional name="input_type" >
+                <param name="type" value="single" />
+                <param name="input_single" value="testYYY.40k.fastq.gz" ftype="fastq.gz" />
+            </conditional>
+            <param name="bc_pattern" value="(?P&#60;cell_1&#62;.{8,10})(?P&#60;discard_1&#62;ACTGGCCTGCGA){s&#60;=3}(?P&#60;cell_2&#62;.{9})(?P&#60;discard_2&#62;GGTAGCGGTGACA){s&#60;=3}(?P&#60;cell_3&#62;.{9})(?P&#60;umi_1&#62;.{8})T{3}.*" />
+            <param name="extract_method" value="regex" />
+            <param name="method" value="umis" />
+            <param name="prime3" value="true" />
+            <output name="out_whitelist" file="out_wl_user.single.txt" />
+            <output name="out_thresh" file="out_wl_user.single.tresh.tab" />
+            <output name="out_html_report" file="out_wl_user.single.html" />
         </test>
     </tests>
     <help><![CDATA[
