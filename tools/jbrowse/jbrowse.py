@@ -478,10 +478,10 @@ class JbrowseConnector(object):
         })
         self._add_track_json(trackData)
 
-    def add_features(self, data, format, trackData, gffOpts, **kwargs):
+    def add_features(self, data, data_format, trackData, gffOpts, **kwargs):
         cmd = [
             'perl', self._jbrowse_bin('flatfile-to-json.pl'),
-            self.TN_TABLE.get(format, 'gff'),
+            self.TN_TABLE[data_format],
             data,
             '--trackLabel', trackData['label'],
             # '--trackType', 'JBrowse/View/Track/CanvasFeatures',
