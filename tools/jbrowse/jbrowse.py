@@ -622,7 +622,7 @@ class JbrowseConnector(object):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
-    parser.add_argument('xml', type=file, help='Track Configuration')
+    parser.add_argument("xml", type=argparse.FileType("r"), help="Track Configuration")
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
