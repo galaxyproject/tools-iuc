@@ -571,7 +571,7 @@ class JbrowseConnector(object):
         # Cleanup
         try:
             os.remove(tmp1.path)
-        except:
+        except OSError:
             pass
 
         # Construct samples list
