@@ -7,7 +7,7 @@ Table Compute tool - a wrapper around pandas with parameter input validation.
 __version__ = "0.9.1"
 
 import csv
-import math  # noqa: something
+import math
 from sys import argv
 
 import numpy as np
@@ -18,7 +18,8 @@ if len(argv) == 2 and argv[1] == "--version":
     print(__version__)
     exit(-1)
 
-# The import below should be generated in the same directory
+# The import below should be generated in the same directory as
+# the table_compute.py script.
 # It is placed here so that the --version switch does not fail
 import userconfig as uc  # noqa: I100,I202
 
@@ -57,8 +58,6 @@ class Utils:
         data.index = [row.strip() if type(row) is str else row
                       for row in data.index]
         return(data)
-
-
 
     @staticmethod
     def rangemaker(tab):
@@ -109,8 +108,6 @@ class Utils:
                 print(err_mess)
                 return(None)
         return(out)
-
-
 
 
 # Set decimal precision
