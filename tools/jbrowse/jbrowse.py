@@ -635,7 +635,7 @@ if __name__ == '__main__':
     jc = JbrowseConnector(
         jbrowse=args.jbrowse,
         outdir=args.outdir,
-        genomes=[os.path.realpath(x.text) for x in root.findall('metadata/genomes/genome')],
+        genomes=[os.path.realpath(x.attrib['path']) for x in root.findall('metadata/genomes/genome')],
         standalone=args.standalone,
         gencode=root.find('metadata/gencode').text
     )
