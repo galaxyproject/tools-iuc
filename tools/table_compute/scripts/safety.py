@@ -11,6 +11,7 @@ class Safety():
         '(', ')', 'if', 'else', 'or', 'and', 'not', 'in',
         '+', '-', '*', '/', '%', ',', '!=', '==', '>', '>=', '<', '<=',
         'min', 'max', 'sum',
+        'str', 'int', 'float'
     )
     __allowed_ref_types = {
         'pd.DataFrame': {
@@ -163,20 +164,20 @@ class Safety():
 
         safe = True
         # examples of user-expressions
-        # '-math.log(1 - elem/4096) * 4096 if elem != bn else elem - 0.5'
+        # '-math.log(1 - elem/4096) * 4096 if elem != 1 else elem - 0.5'
         # 'vec.median() +  vec.sum()'
 
         # 1. Break expressions into tokens
         # e.g.,
         # [
         #     '-', 'math.log', '(', '1', '-', 'elem', '/', '4096', ')', '*',
-        #     '4096', 'if', 'elem', '!=', 'bn', 'else', 'elem', '-', '0.5'
+        #     '4096', 'if', 'elem', '!=', '1', 'else', 'elem', '-', '0.5'
         # ]
         # or
         # ['vec.median', '(', ')', '+', 'vec.sum', '(', ')']
         tokens = [
             e for e in re.split(
-                r'([a-zA-Z0-9_.]+|[^a-zA-Z0-9_.() ]+|[()])', self.expr
+                r'("[a-zA-Z%0-9_.]+"|[a-zA-Z0-9_.]+|[^a-zA-Z0-9_.() ]+|[()])', self.expr
             ) if e.strip()
         ]
 
@@ -208,15 +209,17 @@ class Safety():
             rem2.append(e)
 
         # Debug
-        # for x in (tokens, rem, rem2):print("  ".join(x))
+        # for x in (tokens, rem, rem2):print(x)
 
-        # 4. Assert that rest are real numbers
+        # 4. Assert that rest are real numbers or strings
         e = ''
         for e in rem2:
             try:
                 _ = float(e)
             except ValueError:
-                safe = False
-                break
+                # e.g. '"TEXT"' is okay.
+                if not(e[0] == '"' and e[-1] == '"'):
+                    safe = False
+                    break
 
         return safe, e

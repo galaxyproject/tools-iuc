@@ -218,16 +218,44 @@ if user_mode == "single":
     elif user_mode_single == "element":
         # lt, gt, ge, etc.
         operation = params["element_op"]
+        bool_mat = None
         if operation is not None:
-            op = Utils.getTwoValuePandaOp(operation, data)
-            value = params["element_value"]
-            try:
-                # Could be numeric
-                value = float(value)
-            except ValueError:
-                pass
-            # generate filter matrix of True/False values
-            bool_mat = op(data, value)
+            if operation == "rowcol":
+                # Select all indexes if empty array of values
+                if "element_cols" in params:
+                    cols_specified = Utils.rangemaker(params["element_cols"])
+                else:
+                    cols_specified = range(len(data.columns))
+                if "element_rows" in params:
+                    rows_specified = Utils.rangemaker(params["element_rows"])
+                else:
+                    rows_specified = range(len(data))
+
+                # Inclusive selection:
+                # - True: Giving a row or column will match all elements in that row or column
+                # - False: Give a row or column will match only elements in both those rows or columns
+                inclusive = params["element_inclusive"]
+
+                # Create a bool matrix (intialised to False) with selected
+                # rows and columns set to True
+                bool_mat = data.copy()
+                bool_mat[:] = False
+                if inclusive:
+                    bool_mat.iloc[rows_specified, :] = True
+                    bool_mat.iloc[:, cols_specified] = True
+                else:
+                    bool_mat.iloc[rows_specified, cols_specified] = True
+
+            else:
+                op = Utils.getTwoValuePandaOp(operation, data)
+                value = params["element_value"]
+                try:
+                    # Could be numeric
+                    value = float(value)
+                except ValueError:
+                    pass
+                # generate filter matrix of True/False values
+                bool_mat = op(data, value)
         else:
             # implement no filtering through a filter matrix filled with
             # True values.
