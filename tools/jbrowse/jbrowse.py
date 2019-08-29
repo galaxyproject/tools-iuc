@@ -728,6 +728,56 @@ class JbrowseConnector(object):
         if gffOpts.get('index', 'false') == 'true':
             self.tracksToIndex.append("%s" % trackData['label'])
 
+    def add_genbank(self, data, format, trackData, gffOpts, **kwargs):
+        cmd = [
+            'perl', self._jbrowse_bin('flatfile-to-json.pl'),
+            '--genbank', data,
+            '--trackLabel', trackData['label'],
+            '--key', trackData['key']
+        ]
+
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
+
+        config = copy.copy(trackData)
+        clientConfig = trackData['style']
+        del config['style']
+
+        if 'match' in gffOpts:
+            config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
+            if bool(gffOpts['match']):
+                # Can be empty for CanvasFeatures = will take all by default
+                cmd += ['--type', gffOpts['match']]
+
+        cmd += ['--clientConfig', json.dumps(clientConfig)]
+
+        trackType = 'JBrowse/View/Track/CanvasFeatures'
+        if 'trackType' in gffOpts:
+            trackType = gffOpts['trackType']
+
+        if trackType == 'JBrowse/View/Track/CanvasFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                config['transcriptType'] = gffOpts['transcriptType']
+            if 'subParts' in gffOpts and gffOpts['subParts']:
+                config['subParts'] = gffOpts['subParts']
+            if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
+                config['impliedUTRs'] = gffOpts['impliedUTRs']
+        elif trackType == 'JBrowse/View/Track/HTMLFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                cmd += ['--type', gffOpts['transcriptType']]
+
+        cmd += [
+            '--trackType', gffOpts['trackType']
+        ]
+
+        cmd.extend(['--config', json.dumps(config)])
+
+        self.subprocess_check_call(cmd)
+
+        if gffOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
+
     def add_rest(self, url, trackData):
         data = {
             "label": trackData['label'],
@@ -858,9 +908,9 @@ class JbrowseConnector(object):
             elif dataset_ext in ('bed', ):
                 self.add_bed(dataset_path, dataset_ext, outputTrackConfig,
                              track['conf']['options']['gff'])
-            # elif dataset_ext in ('genbank', ):
-                # self.add_genbank(dataset_path, dataset_ext, outputTrackConfig,
-                                 # track['conf']['options']['gff'])
+            elif dataset_ext in ('genbank', ):
+                self.add_genbank(dataset_path, dataset_ext, outputTrackConfig,
+                                 track['conf']['options']['gff'])
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
                                 track['conf']['options']['wiggle'])
