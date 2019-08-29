@@ -544,7 +544,7 @@ class JbrowseConnector(object):
 
             # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
-            if dataset_ext in ('gff', 'gff3', 'bed'):
+            if dataset_ext in ('gff', 'gff3', 'bed', 'genbank'):
                 self.add_features(dataset_path, dataset_ext, outputTrackConfig,
                                   track['conf']['options']['gff'])
             elif dataset_ext == 'bigwig':
