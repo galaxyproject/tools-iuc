@@ -3,7 +3,8 @@
 Table Compute tool - a wrapper around pandas with parameter input validation.
 """
 
-__version__ = "0.8"
+
+__version__ = "0.9.1"
 
 import csv
 import math
@@ -11,14 +12,16 @@ from sys import argv
 
 import numpy as np
 import pandas as pd
-import userconfig as uc
 from safety import Safety
-# This should be generated in the same directory
 
-# Version command should not need to copy the config
 if len(argv) == 2 and argv[1] == "--version":
     print(__version__)
     exit(-1)
+
+# The import below should be generated in the same directory as
+# the table_compute.py script.
+# It is placed here so that the --version switch does not fail
+import userconfig as uc  # noqa: I100,I202
 
 
 class Utils:
@@ -37,12 +40,74 @@ class Utils:
         "Returns a valid two value DataFrame or Series operator"
         return getattr(type(pd_obj), "__" + op_name + "__")
 
+    @staticmethod
+    def readcsv(filedict, narm):
+        data = pd.read_csv(
+            filedict["file"],
+            header=filedict["header"],
+            index_col=filedict["row_names"],
+            keep_default_na=narm,
+            nrows=filedict["nrows"],
+            skipfooter=filedict["skipfooter"],
+            skip_blank_lines=filedict["skip_blank_lines"],
+            sep='\t'
+        )
+        # Fix whitespace issues in index or column names
+        data.columns = [col.strip() if type(col) is str else col
+                        for col in data.columns]
+        data.index = [row.strip() if type(row) is str else row
+                      for row in data.index]
+        return(data)
 
-# Math is imported but not directly used because users
-# may specify a "math.<function>" when inserting a custom
-# function. To remove linting errors, which break CI testing
-# we will just use an arbitrary math statement here.
-__ = math.log
+    @staticmethod
+    def rangemaker(tab):
+        # e.g. "1:3,2:-2" specifies "1,2,3,2,1,0,-1,-2" to give [0,1,2,1,0,-1,-2]
+        # Positive indices are decremented by 1 to reference 0-base numbering
+        # Negative indices are unaltered, so that -1 refers to the last column
+        out = []
+        err_mess = None
+        for ranges in tab.split(","):
+            nums = ranges.split(":")
+            if len(nums) == 1:
+                numb = int(nums[0])
+                # Positive numbers get decremented.
+                # i.e. column "3" refers to index 2
+                #      column "-1" still refers to index -1
+                if numb != 0:
+                    out.append(numb if (numb < 0) else (numb - 1))
+                else:
+                    err_mess = "Please do not use 0 as an index"
+            elif len(nums) == 2:
+                left, right = map(int, nums)
+                if 0 in (left, right):
+                    err_mess = "Please do not use 0 as an index"
+                elif left < right:
+                    if left > 0:  # and right > 0 too
+                        # 1:3 to 0,1,2
+                        out.extend(range(left - 1, right))
+                    elif right < 0:  # and left < 0 too
+                        # -3:-1 to -3,-2,-1
+                        out.extend(range(left, right + 1))
+                    elif left < 0 and right > 0:
+                        # -2:2 to -2,-1,0,1
+                        out.extend(range(left, 0))
+                        out.extend(range(0, right))
+                elif right < left:
+                    if right > 0:  # and left > 0
+                        # 3:1 to 2,1,0
+                        out.extend(range(left - 1, right - 2, -1))
+                    elif left < 0:  # and right < 0
+                        # -1:-3 to -1,-2,-3
+                        out.extend(range(left, right - 1, -1))
+                    elif right < 0 and left > 0:
+                        # 2:-2 to 1,0,-1,-2
+                        out.extend(range(left - 1, right - 1, -1))
+                else:
+                    err_mess = "%s should not be equal or contain a zero" % nums
+            if err_mess:
+                print(err_mess)
+                return(None)
+        return(out)
 
 
 # Set decimal precision
@@ -55,19 +120,7 @@ params = uc.Data["params"]
 
 if user_mode == "single":
     # Read in TSV file
-    data = pd.read_csv(
-        uc.Data["tables"][0]["reader_file"],
-        header=uc.Data["tables"][0]["reader_header"],
-        index_col=uc.Data["tables"][0]["reader_row_col"],
-        keep_default_na=uc.Default["narm"],
-        sep='\t'
-    )
-    # Fix whitespace issues in index or column names
-    data.columns = [col.strip() if type(col) is str else col
-                    for col in data.columns]
-    data.index = [row.strip() if type(row) is str else row
-                  for row in data.index]
-
+    data = Utils.readcsv(uc.Data["tables"][0], uc.Default["narm"])
     user_mode_single = params["user_mode_single"]
 
     if user_mode_single == "precision":
@@ -79,9 +132,13 @@ if user_mode == "single":
         rows_specified = params["select_rows_wanted"]
 
         # Select all indexes if empty array of values
-        if not cols_specified:
+        if cols_specified:
+            cols_specified = Utils.rangemaker(cols_specified)
+        else:
             cols_specified = range(len(data.columns))
-        if not rows_specified:
+        if rows_specified:
+            rows_specified = Utils.rangemaker(rows_specified)
+        else:
             rows_specified = range(len(data))
 
         # do not use duplicate indexes
@@ -161,16 +218,44 @@ if user_mode == "single":
     elif user_mode_single == "element":
         # lt, gt, ge, etc.
         operation = params["element_op"]
+        bool_mat = None
         if operation is not None:
-            op = Utils.getTwoValuePandaOp(operation, data)
-            value = params["element_value"]
-            try:
-                # Could be numeric
-                value = float(value)
-            except ValueError:
-                pass
-            # generate filter matrix of True/False values
-            bool_mat = op(data, value)
+            if operation == "rowcol":
+                # Select all indexes if empty array of values
+                if "element_cols" in params:
+                    cols_specified = Utils.rangemaker(params["element_cols"])
+                else:
+                    cols_specified = range(len(data.columns))
+                if "element_rows" in params:
+                    rows_specified = Utils.rangemaker(params["element_rows"])
+                else:
+                    rows_specified = range(len(data))
+
+                # Inclusive selection:
+                # - True: Giving a row or column will match all elements in that row or column
+                # - False: Give a row or column will match only elements in both those rows or columns
+                inclusive = params["element_inclusive"]
+
+                # Create a bool matrix (intialised to False) with selected
+                # rows and columns set to True
+                bool_mat = data.copy()
+                bool_mat[:] = False
+                if inclusive:
+                    bool_mat.iloc[rows_specified, :] = True
+                    bool_mat.iloc[:, cols_specified] = True
+                else:
+                    bool_mat.iloc[rows_specified, cols_specified] = True
+
+            else:
+                op = Utils.getTwoValuePandaOp(operation, data)
+                value = params["element_value"]
+                try:
+                    # Could be numeric
+                    value = float(value)
+                except ValueError:
+                    pass
+                # generate filter matrix of True/False values
+                bool_mat = op(data, value)
         else:
             # implement no filtering through a filter matrix filled with
             # True values.
@@ -265,13 +350,7 @@ elif user_mode == "multiple":
 
     # Read and populate tables
     for x, t_sect in enumerate(table_sections):
-        tmp = pd.read_csv(
-            t_sect["file"],
-            header=t_sect["header"],
-            index_col=t_sect["row_names"],
-            keep_default_na=uc.Default["narm"],
-            sep="\t"
-        )
+        tmp = Utils.readcsv(t_sect, uc.Default["narm"])
         table.append(tmp)
         table_names.append("table" + str(x + 1))
         table_names_real.append("table[" + str(x) + "]")

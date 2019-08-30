@@ -1,7 +1,7 @@
 <tool id="table_compute" name="Table Compute" version="@VERSION@">
     <description>computes operations on table data</description>
     <macros>
-        <token name="@VERSION@">0.8</token>
+        <token name="@VERSION@">0.9.1</token>
         <token name="@COPEN@"><![CDATA[<code>]]></token>
         <token name="@CCLOSE@"><![CDATA[</code>]]></token>
         <import>allowed_functions.xml</import>
@@ -19,11 +19,11 @@
             <sanitizer sanitize="false" />
         </macro>
         <macro name="validator_index_ranges">
-            <validator type="regex" message="Specify a comma-separated list index numbers or ranges">^(?:\d+(?::\d)*(?:, *\d+(?::\d)*)*)?$</validator>
+            <validator type="regex" message="Specify a comma-separated list index numbers or ranges">^(?:-?\d+(?::-?\d+)*(?:, *-?\d+(?::-?\d+)*)*)?$</validator>
             <sanitizer sanitize="false" />
         </macro>
         <macro name="validator_functiondef">
-            <validator type="regex" message="An expression is required and is allowed to contain only letters, numbers and the characters '_ !-+=/*%.&lt;&gt;()'">^[\w !\-+=/*%,.&lt;&gt;()]+$</validator>
+            <validator type="regex" message="An expression is required and is allowed to contain only letters, numbers and the characters '_ !-+=/*%.&lt;&gt;()'">^['"\w !\-+=/*%,.&lt;&gt;()]+$</validator>
             <sanitizer sanitize="false" />
         </macro>
         <!-- macro for main input tests -->
@@ -32,6 +32,16 @@
                 <param name="use_type" value="single" />
                 <param name="input" value="small.tsv" />
                 <conditional name="user" >
+                    <yield />
+                </conditional>
+            </conditional>
+        </macro>
+        <macro name="test_inputs_ranges" >
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="examples.1.tsv" />
+                <conditional name="user" >
+                    <param name="mode" value="select" />
                     <yield />
                 </conditional>
             </conditional>
@@ -53,14 +63,31 @@
         <macro name="file_opts">
             <param name="input" type="data" format="tsv,tabular" label="Table" />
             <param name="col_row_names" type="select" display="checkboxes" multiple="true" optional="true"
-            label="This input data has">
+                   label="Input data has">
                 <option value="has_col_names" selected="true">Column names on the first row</option>
-                <option value="has_row_names" selected="true">Row names on the first column"</option>
+                <option value="has_row_names" selected="true">Row names on the first column</option>
             </param>
+            <section name="adv" title="Advanced File Options " expanded="false" >
+                <param name="header" type="integer" min="0" optional="true" label="Header begins at line N" help="All lines before line N will be skipped. If a value is set, this will override the above 'Column names on the first row' parameter." />
+                <param name="nrows" type="integer" min="0" optional="true" label="Read N lines only" help="Parses only N lines after the header line." />
+                <param name="skipfooter" type="integer" min="0" optional="true" label="Skip N lines from bottom" help="Do not use this in conjunction with the 'Read N lines only' parameter." />
+                <param name="skip_blank_lines" type="boolean" checked="true" falsevalue="False" truevalue="True" label="Skip blank lines" help="Otherwise it will insert NaN values for every blank line detected." />
+            </section>
         </macro>
         <!-- element value macro -->
-        <macro name="elem_val_macro" >
-            <param name="element_value" type="text" optional="true" label="Filter value" help="This value is converted to numeric if possible, otherwise it is treated as a string" />
+        <macro name="elem_val_macro" token_when="@WHEN@" >
+            <when value="@WHEN@" >
+                <param name="element_value" type="text" optional="true" label="Filter value" help="This value is converted to numeric if possible, otherwise it is treated as a string" />
+            </when>
+        </macro>
+        <!-- Row/Col macro -->
+        <macro name="select_rowcols" >
+            <param name="select_cols_wanted" type="text" optional="true" label="List of columns to select" help="Comma separated. (e.g. @COPEN@3:5,10,-1,2:-2@CCLOSE@ will select columns @COPEN@3,4,5,10,-1,2,1,0,-1,-2@CCLOSE@, where negative indices refer to the offset from the last index). Columns can be duplicated by specifying them multiple times. Leave blank to retain all columns. See Example #1 for an example of using this mode." >
+                <expand macro="validator_index_ranges" />
+            </param>
+            <param name="select_rows_wanted" type="text" optional="true" label="List of rows to select" help="The same rules apply as above" >
+                <expand macro="validator_index_ranges" />
+            </param>
         </macro>
     </macros>
     <requirements>
@@ -69,7 +96,7 @@
     </requirements>
 
     <version_command><![CDATA[
-        touch '$__tool_directory__/scripts/userconfig.py' && python '$__tool_directory__/scripts/table_compute.py' --version
+        python '$__tool_directory__/scripts/table_compute.py' --version
     ]]></version_command>
 
     <command detect_errors="exit_code"><![CDATA[
@@ -83,15 +110,6 @@
     ]]></command>
     <configfiles>
         <configfile name="userconf"><![CDATA[
-
-## Range Maker
-##  "2:5,11,1:2" specifies "2,3,4,5,11,1,2" which in python is "1,2,3,4,10,0,1"
-#def rangemake(tab):
-#echo    [(n-1) for r in map(lambda y: range(int(y[0]),int(y[-1])+1), map(lambda x: x.split(':'), tab.split(','))) for n in r]
-#end def
-
-## Strip leading and trailing whitespace off custom functions
-
 Default = {
     "reader_skip": 0,
     "precision": $precision,
@@ -118,16 +136,25 @@ Default = {
 Data = {
     "tables": [
         {
-          "reader_file": '$singtabop.input',
-        #if 'has_col_names' in str($singtabop.col_row_names):
-          "reader_header": 0,
+          "file": '$singtabop.input',
+        #if $singtabop.adv.header:
+          "header": int('$singtabop.adv.header'),
+        #elif 'has_col_names' in str($singtabop.col_row_names):
+          "header": 0,
         #else:
-          "reader_header": None,
+          "header": None,
         #end if
-        #if 'has_row_names' in str($singtabop.col_row_names):
-          "reader_row_col": 0,
-        #else:
-          "reader_row_col": False,
+          "row_names": #if ('has_row_names' in str($singtabop.col_row_names)) then 0 else False#,
+          "skipfooter": #if $singtabop.adv.skipfooter then int($singtabop.adv.skipfooter) else 0#,
+        #if $singtabop.adv.skip_blank_lines
+          "skip_blank_lines": $singtabop.adv.skip_blank_lines,
+        #else
+          "skip_blank_lines": None,
+        #end if
+        #if $singtabop.adv.nrows
+          "nrows": int('$singtabop.adv.nrows'),
+        #else
+          "nrows": None,
         #end if
         }
     ],
@@ -141,12 +168,12 @@ Data = {
         "select_cols_unique": #echo 'select_cols_keepdupe' in str($singtabop.user.select_keepdupe)#,
         "select_rows_unique": #echo 'select_rows_keepdupe' in str($singtabop.user.select_keepdupe)#,
       #if $singtabop.user.select_cols_wanted:
-        "select_cols_wanted": $rangemake(str($singtabop.user.select_cols_wanted)),
+        "select_cols_wanted": '$singtabop.user.select_cols_wanted',
       #else
         "select_cols_wanted": None,
       #end if
       #if $singtabop.user.select_rows_wanted:
-        "select_rows_wanted": $rangemake(str($singtabop.user.select_rows_wanted)),
+        "select_rows_wanted": '$singtabop.user.select_rows_wanted',
       #else
         "select_rows_wanted": None,
       #end if
@@ -181,12 +208,21 @@ Data = {
       #end if
     }
     #elif $singtabop.user.mode.value == 'element':
-      #if str($singtabop.user.elem_val.element_op) != "None":
+      #if str($singtabop.user.elem_val.element_op) == "None":
+        "element_op": None,
+      #elif str($singtabop.user.elem_val.element_op) == "rowcol":
+        "element_op": "rowcol",
+          #if $singtabop.user.elem_val.select_rows_wanted
+        "element_rows": '$singtabop.user.elem_val.select_rows_wanted',
+          #end if
+          #if $singtabop.user.elem_val.select_cols_wanted
+        "element_cols": '$singtabop.user.elem_val.select_cols_wanted',
+          #end if
+        "element_inclusive": $singtabop.user.elem_val.inclusive_selection,
+      #else:
         "element_op": '$singtabop.user.elem_val.element_op.value',
         ## Value is string or float, parsed in code later
         "element_value" : '$singtabop.user.elem_val.element_value',
-      #else:
-        "element_op": None,
       #end if
         "element_mode": '$singtabop.user.element.mode.value',
       #if str($singtabop.user.element.mode) == "replace":
@@ -252,16 +288,26 @@ Data = {
     #for $i, $s in enumerate($singtabop.tables)
         {
           "file": '${s.input}',
-        #if 'has_col_names' in str($s.col_row_names):
+        #if $s.adv.header:
+          "header": int('${s.adv.header}'),
+        #elif 'has_col_names' in str($s.col_row_names):
           "header": 0,
         #else:
           "header": None,
         #end if
-        #if 'has_row_names' in str($s.col_row_names):
-          "row_names": 0,
-        #else:
-          "row_names": False,
+          "row_names": #if ('has_row_names' in str($s.col_row_names)) then 0 else False#,
+          "skipfooter": #if $s.adv.skipfooter then int('$s.adv.skipfooter') else 0#,
+        #if $s.adv.skip_blank_lines:
+          "skip_blank_lines": $s.adv.skip_blank_lines,
+        #else
+           "skip_blank_lines": None,
         #end if
+        #if $s.adv.nrows:
+           "nrows": int('${s.adv.nrows}'),
+        #else
+           "nrows": None,
+        #end if
+
         },
     #end for
     ],
@@ -293,12 +339,7 @@ Data = {
                     </param>
                     <when value="precision" />
                     <when value="select">
-                        <param name="select_cols_wanted" type="text" optional="true" label="List of columns to select" help="Comma separated. (e.g. @COPEN@3:5,99,2:4@CCLOSE@ will select columns @COPEN@3,4,5,99,2,3,4@CCLOSE@). Columns can be duplicated by specifying them multiple times. Leave blank to retain all columns. See Example #1 for an example of using this mode." >
-                            <expand macro="validator_index_ranges" />
-                        </param>
-                        <param name="select_rows_wanted" type="text" optional="true" label="List of rows to select" help="The same rules apply as above" >
-                            <expand macro="validator_index_ranges" />
-                        </param>
+                        <expand macro="select_rowcols" />
                         <param name="select_keepdupe" type="select" display="checkboxes" multiple="true" label="Duplicate Indices" help="Keep duplicates when specifying ranges (e.g. if unset, @COPEN@1:3,2:4@CCLOSE@ will yield @COPEN@1,2,3,4@CCLOSE@ instead of @COPEN@1,2,3,2,3,4@CCLOSE@)" >
                             <option value="select_cols_keepdupe" selected="true" >Keep duplicate columns</option>
                             <option value="select_rows_keepdupe" selected="true" >Keep duplicate rows</option>
@@ -447,38 +488,30 @@ Data = {
                                 <param name="scale_value" type="float" value="0" label="Second operand value" />
                             </when>
                             <when value="custom">
-                                <param name="custom_expr" type="text"
-                                label="Custom expression on 'elem'"
-                                help="The parameter name is @COPEN@elem@CCLOSE@, referring to the element being acted on. Most operators and @COPEN@if@CCLOSE@ @COPEN@else@CCLOSE@ statements are supported. See Examples #3 and #4 in the Help section.">
+                                <param name="custom_expr" type="text" label="Custom expression on 'elem'"
+                                       help="The parameter name is @COPEN@elem@CCLOSE@, referring to the element being acted on. Most operators and @COPEN@if@CCLOSE@ @COPEN@else@CCLOSE@ statements are supported. See Examples #3 and #4 in the Help section.">
                                     <expand macro="validator_functiondef" />
                                 </param>
                             </when>
                         </conditional>
                         <conditional name="elem_val" >
                             <param name="element_op" type="select" label="Operate on elements"
-                                help="Only selected elements will be manipulated. Other elements will retain their original value." >
+                                   help="Only selected elements will be manipulated. Other elements will retain their original value." >
                                 <expand macro="select_twovaluebooleanops" >
                                     <option value="None" selected="true">All</option>
+                                    <option value="rowcol" >Specific Rows and/or Columns</option>
                                 </expand>
                             </param>
                             <when value="None" />
-                            <when value="lt">
-                                <expand macro="elem_val_macro" />
-                            </when>
-                            <when value="le">
-                                <expand macro="elem_val_macro" />
-                            </when>
-                            <when value="gt">
-                                <expand macro="elem_val_macro" />
-                            </when>
-                            <when value="ge">
-                                <expand macro="elem_val_macro" />
-                            </when>
-                            <when value="eq">
-                                <expand macro="elem_val_macro" />
-                            </when>
-                            <when value="ne">
-                                <expand macro="elem_val_macro" />
+                            <expand macro="elem_val_macro" when="lt" />
+                            <expand macro="elem_val_macro" when="le" />
+                            <expand macro="elem_val_macro" when="gt" />
+                            <expand macro="elem_val_macro" when="ge" />
+                            <expand macro="elem_val_macro" when="eq" />
+                            <expand macro="elem_val_macro" when="ne" />
+                            <when value="rowcol" >
+                                <expand macro="select_rowcols" />
+                                <param name="inclusive_selection" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Inclusive Selection" help="If enabled, all elements that match ANY row or column given above will be acted on. Otherwise, only the elements that match BOTH a row or column given above will be acted on." />
                             </when>
                         </conditional>
                     </when>
@@ -1039,6 +1072,205 @@ Data = {
                 </assert_contents>
             </output>
         </test>
+        <test expect_num_outputs="1" >
+            <!-- Test 33: Subtracting table means #1 -->
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="examples.5.tsv" />
+                <param name="col_row_names" value="has_col_names,has_row_names" />
+                <conditional name="user" >
+                    <param name="mode" value="fulltable" />
+                    <conditional name="general" >
+                        <param name="use" value="custom" />
+                        <param name="fulltable_custom_expr" value="table - table.mean(1)/table.std(1)" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="table" >
+                <assert_contents>
+                    <has_n_columns n="8" />
+                    <!-- should give nonsense empty output -->
+                    <has_line_matching expression="^\sc1\sc2\sc3\sg1\sg2\sg3\sg4$" />
+                    <has_line_matching expression="^g4\s+$" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1" >
+            <!-- Test 34: Subtracting table means #2 -->
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="examples.5.tsv" />
+                <param name="col_row_names" value="has_col_names,has_row_names" />
+                <conditional name="user" >
+                    <param name="mode" value="fulltable" />
+                    <conditional name="general" >
+                        <param name="use" value="custom" />
+                        <param name="fulltable_custom_expr" value="table.sub(table.mean(1), 0).div(table.std(1),0)" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="table" >
+                <assert_contents>
+                    <has_n_columns n="4" />
+                    <has_line_matching expression="^g1\s+-1\.\d+\s+0\.\d+\s+1\.\d+\s*$" />
+                    <has_line_matching expression="^g4\s+1\.1\d+\s+-0\.5\d+\s+-0\.5\d+\s*$" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1" >
+            <!-- Test 35: Subtracting table means #3 -->
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="examples.5.tsv" />
+                <param name="col_row_names" value="has_col_names,has_row_names" />
+                <conditional name="user" >
+                    <param name="mode" value="fulltable" />
+                    <conditional name="general" >
+                        <param name="use" value="custom" />
+                        <param name="fulltable_custom_expr" value="(table.T - table.mean(1)).T" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="table" >
+                <assert_contents>
+                    <has_n_columns n="4" />
+                    <has_line_matching expression="^g1\s+-10\.\d+\s+0\.\d+\s+10\.\d+\s*$" />
+                    <has_line_matching expression="^g4\s+47\.3\d+\s+-23\.6\d+\s+-23\.6\d+\s*$" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1" >
+            <!-- Test 36: Negative range test #1 -->
+            <expand macro="test_inputs_ranges" >
+                <param name="select_cols_wanted" value="-2:2,1,-1" />
+                <param name="select_rows_wanted" value="1,3:-3,1" />
+            </expand>
+            <output name="table" >
+                <assert_contents>
+                    <has_n_columns n="7" />
+                    <has_line_matching expression="^\s*c2\s+c3\s+c1\s+c2\s+c1\s+c3$" />
+                    <has_line_matching expression="^g1\s+20\s+30\s+10\s+20\s+10\s+30$" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1" >
+            <!-- Test 37: Negative range test #2 -->
+            <expand macro="test_inputs_ranges" >
+                <param name="select_cols_wanted" value="-1,-3,3:-3,2" />
+                <param name="select_rows_wanted" value="3:-1" />
+                <param name="select_keepdupe" value="" />
+            </expand>
+            <output name="table" >
+                <assert_contents>
+                    <has_n_columns n="7" />
+                    <has_line_matching expression="^\s*c3\s+c1\s+c3\s+c2\s+c1\s+c2$" />
+                    <has_line_matching expression="^g4\s+3\s+81\s+3\s+6\s+81\s+6$" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- Test 38: Skip first 3 lines -->
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="skiplines.tsv" />
+                <section name="adv" >
+                    <param name="header" value="2" />
+                    <param name="nrows" value="4" />
+                    <param name="skip_blank_lines" value="true" />
+                </section>
+                <conditional name="user" >
+                    <param name="mode" value="precision" />
+                </conditional>
+            </conditional>
+            <param name="precision" value="2" />
+            <output name="table" >
+                <assert_contents>
+                    <has_n_columns n="4" />
+                    <has_line_matching expression="^\s+c1\s+c2\s+c3$" />
+                    <has_line_matching expression="^g4\s+81\s+6\s+3$" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- Test 39: Skip first 3 lines -->
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="skiplines.tsv" />
+                <section name="adv" >
+                    <param name="header" value="2" />
+                    <param name="skipfooter" value="2" />
+                    <param name="skip_blank_lines" value="false" />
+                </section>
+                <conditional name="user" >
+                    <param name="mode" value="precision" />
+                </conditional>
+            </conditional>
+            <param name="precision" value="2" />
+            <param name="out_opts" value="" />
+            <output name="table" >
+                <assert_contents>
+                    <has_n_columns n="3" />
+                    <has_line_matching expression="^10.00\s+20.00\s+30.00$" />
+                    <has_line_matching expression="^\s+$" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1" >
+            <!-- Test 40: Row Col custom op #1 -->
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="examples.1.tsv" />
+                <param name="col_row_names" value="has_col_names,has_row_names" />
+                <conditional name="user" >
+                    <param name="mode" value="element" />
+                    <conditional name="element" >
+                        <param name="mode" value="custom" />
+                        <param name="custom_expr" value="&#34;chr%.f&#34; % elem" />
+                    </conditional>
+                    <conditional name="elem_val" >
+                        <param name="element_op" value="rowcol" />
+                        <param name="select_cols_wanted" value="2" />
+                        <param name="select_rows_wanted" value="2,4" />
+                        <param name="inclusive_selection" value="True" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="table" >
+                <assert_contents>
+                    <has_n_columns n="4" />
+                    <has_line_matching expression="^g2\s+chr3\s+chr6\s+chr9$" />
+                    <has_line_matching expression="^g4\s+chr81\s+chr6\s+chr3$" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1" >
+            <!-- Test 41: Row Col custom op #2 -->
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="examples.1.tsv" />
+                <param name="col_row_names" value="has_col_names,has_row_names" />
+                <conditional name="user" >
+                    <param name="mode" value="element" />
+                    <conditional name="element" >
+                        <param name="mode" value="custom" />
+                        <param name="custom_expr" value="&#34;chr%.f&#34; % elem" />
+                    </conditional>
+                    <conditional name="elem_val" >
+                        <param name="element_op" value="rowcol" />
+                        <param name="select_cols_wanted" value="2" />
+                        <param name="select_rows_wanted" value="2,4" />
+                        <param name="inclusive_selection" value="False" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="table" >
+                <assert_contents>
+                    <has_n_columns n="4" />
+                    <has_line_matching expression="^g2\s+3\s+chr6\s+9$" />
+                    <has_line_matching expression="^g4\s+81\s+chr6\s+3$" />
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 This tool computes table expressions on the element, row, and column basis. It can sub-select,
@@ -1435,6 +1667,65 @@ In Galaxy we would select the following:
    * *Values* → "baz"
 
 This splits the matrix using "foo" and "bar" using only the values from "baz". Header values may contain extra information.
+
+
+Example 9: Replacing text in specific rows or columns
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We have the following table
+
+ === === === ===
+  .  c1  c2  c3
+ === === === ===
+ g1  10  20  30
+ g2   3   3   9
+ g3   4   8  12
+ g4  81   6   3
+ === === === ===
+
+and we want to add "chr" to the elements in column 2 AND rows 2 and 4:
+
+ === === ==== ===
+  .  c1    c2  c3
+ === === ==== ===
+ g1  10    20  30
+ g2   3  chr3   9
+ g3   4     8  12
+ g4  81  chr6   3
+ === === ==== ===
+
+In Galaxy we would select the following:
+
+ * *Input Single or Multiple Tables* → **Single Table**
+ * *Column names on first row?* → **Yes**
+ * *Row names on first column?* → **Yes**
+
+ * *Type of table operation* →  **Manipulate selected table elements**
+
+   * *Operation to perform* → **Custom**
+
+     * *Custom Expression* → ::
+
+         "chr%.f" % elem
+
+     * *Operate on elements* → **Specific Rows and/or Columns**
+     * *List of columns to select* → "2"
+     * *List of rows to select* → "2,4"
+     * *Inclusive Selection* → "No"
+
+
+If we wanted to instead add "chr" to the ALL elements in column 2 and rows 2 and 4, we would repeat the steps above but set the *Inclusive Selection* to "Yes", to give:
+
+ === =====  ===== =====
+  .    c1     c2    c3
+ === =====  ===== =====
+ g1     10  chr20    30
+ g2   chr3   chr3  chr9
+ g3      4      8    12
+ g4  chr81   chr6  chr3
+ === =====  ===== =====
+
+
 
 ]]></help>
     <citations></citations>
