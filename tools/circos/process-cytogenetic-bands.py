@@ -9,12 +9,12 @@ COLS = ('chrom', 'chromStart', 'chromEnd', 'name', 'score', 'strand',
 
 colormap = {}
 # Process optional cytogenetic bands
-    # band
-    # ID
-    # parentChr
-    # parentChr
-    # START
-    # END COLOR
+#     band
+#     ID
+#     parentChr
+#     parentChr
+#     START
+#     END COLOR
 with open(sys.argv[1], 'r') as handle:
     for line in handle:
         if line.startswith('#'):

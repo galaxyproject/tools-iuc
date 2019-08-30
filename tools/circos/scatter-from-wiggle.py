@@ -1,7 +1,8 @@
 #!/usr/bin/env python
-import pyBigWig
 import logging
 import sys
+
+import pyBigWig
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
