@@ -2,8 +2,6 @@
 
 import sys
 import os
-# from pathlib import Path
-
 
 def make_list(tmp_file, lst_file):
     dividers = ["_1", "_F", "_R1", "_2", "_R", "_R2"]
@@ -26,8 +24,6 @@ def make_list(tmp_file, lst_file):
                                 paired = "{},{}".format(lines[i].strip(), lines[j].strip())
                                 _lines.append(paired)
                                 processed_list.append(file_name)
-                            # else:
-                            #     _lines.append(lines[i].strip())
     
     with open(lst_file,"w") as fh:
         for _line in _lines:
