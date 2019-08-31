@@ -19,12 +19,11 @@ def make_list(tmp_file, lst_file):
                     if len(detected_devider) > 0:
                         detected_devider = detected_devider[0]
                         new_file_name = file_name.split(detected_devider)[0]
-                        for j in range(i+1, len(lines)):
+                        for j in range(i + 1, len(lines)):
                             if new_file_name in lines[j]:
                                 paired = "{},{}".format(lines[i].strip(), lines[j].strip())
                                 _lines.append(paired)
                                 processed_list.append(file_name)
-
 
     with open(lst_file, "w") as fh:
         for _line in _lines:
