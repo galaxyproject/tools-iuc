@@ -20,6 +20,13 @@ Various filter scripts are provided, along with some plotting functions for QC.
 
 ## Command-line usage
 
+The scripts require the installation of scater and few other R/BioConductor packages. An easy way to install them is to create a [conda](https://conda.io/) environment using the `environment.yml` file distributed together with these wrappers:
+
+```
+conda env create -f environment.yml
+conda activate scater
+```
+
 For help with any of the following scripts, run:
  `<script-name> --help`
 
