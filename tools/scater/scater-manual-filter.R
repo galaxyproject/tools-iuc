@@ -80,7 +80,7 @@ print(paste("After filtering out low library counts: ", ncol(scle), "cells and",
 
 
 # Filter low expressed genes
-to_keep <- scle$total_features > opt$expressed_genes
+to_keep <- scle$total_features_by_counts > opt$expressed_genes
 scle <- scle[, to_keep]
 
 print(paste("After filtering out low expressed: ", ncol(scle), "cells and", nrow(scle), "features."))
