@@ -6,14 +6,16 @@
     </macros>
     <requirements>
         <requirement type="package" version="@VERSION@">telescope</requirement>
+        <requirement type="package" version="1.9">samtools</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
         mkdir tempdir &&
         mkdir outdir &&
-        telescope assign '$input_sam' '$input_gtf'
+        telescope assign '$input_alignment' '$input_gtf'
             --tempdir tempdir
             --outdir outdir
             --ncpu \${GALAXY_SLOTS:-1}
+            $updated_sam
             #if str($advanced.advanced_options) == 'select':
                 --reassign_mode $advanced.reassign_mode
                 --conf_prob $advanced.conf_prob
@@ -26,10 +28,20 @@
                 --max_iter $advanced.max_iter
                 $advanced.use_likelihood
             #end if
+        #if $updated_sam
+            &&
+            if [ -f outdir/telescope-updated.bam ] ; then
+                samtools sort outdir/telescope-updated.bam > '$updated_alignment' ;
+            else
+                echo 'Updated alignment file not found.' ;
+                exit 1 ;
+            fi
+        #end if
     ]]></command>
     <inputs>
-        <param name="input_sam" type="data" format="sam,bam" label="Input SAM file" />
+        <param name="input_alignment" type="data" format="sam,bam" label="Input SAM or BAM file" />
         <param name="input_gtf" type="data" format="gtf" label="Input annotation" />
+        <param argument="--updated_sam" type="boolean" truevalue="--updated_sam" falsevalue="" label="Also output an updated SAM file with reassigned reads" />
         <conditional name="advanced">
             <param name="advanced_options" type="select" label="Advanced options">
                 <option value="defaults">Use defaults</option>
@@ -66,67 +78,92 @@
     </inputs>
     <outputs>
         <data name="output" format="tabular" from_work_dir="outdir/telescope-telescope_report.tsv" />
+        <data name="updated_alignment" format="bam">
+            <filter>updated_sam</filter>
+        </data>
     </outputs>
     <tests>
         <test>
-            <param name="input_sam" value="telescope-in1.bam" />
+            <param name="input_alignment" value="telescope-in1.bam" />
             <param name="input_gtf" value="telescope-in1.gtf" />
+            <param name="updated_sam" value="true" />
             <output name="output" file="telescope-out1.tabular" />
+            <output name="updated_alignment" file="telescope-out1.bam" />
         </test>
     </tests>
     <help><![CDATA[
-**Command-line parameters**
+Output
+------
 
-**Input Options**::
+Telescope has two main output files: the telescope report and an updated
+SAM file (optional). The report file is most important for downstream
+differential expression analysis since it contains the fragment count
+estimates. The updated SAM file is useful for downstream locus-specific
+analyses.
 
-    samfile             Path to alignment file. Alignment file can be in SAM or BAM format. File must be collated
-                        so that all alignments for a read pair appear sequentially in the file.
-    gtffile             Path to annotation file (GTF format)
-    --attribute         GTF attribute that defines a transposable element locus. GTF features that share the same
-                        value for --attribute will be considered as part of the same locus. (default: locus)
-    --no_feature_key    Used internally to represent alignments. Must be different from all other feature names.
-                        (default: __no_feature)
-    --ncpu              Number of cores to use. (Multiple cores not supported yet). (default: 1)
-    --tempdir           Path to temporary directory. Temporary files will be stored here. Default uses python
-                        tempfile package to create the temporary directory. (default: None)
+Telescope report
+~~~~~~~~~~~~~~~~
 
-**Reporting Options**::
+The first line in the telescope report is a comment (starting with a
+“#”) that contains information about the run such as the number of
+fragments processed, number of mapped fragments, number of uniquely and
+ambiguously mapped fragments, and number of fragments mapping to the
+annotation. The total number of mapped fragments may be useful for
+normalization.
 
-    --quiet         Silence (most) output. (default: False)
-    --debug         Print debug messages. (default: False)
-    --logfile       Log output to this file. (default: None)
-    --outdir        Output directory. (default: .)
-    --exp_tag       Experiment tag (default: telescope)
-    --updated_sam   Generate an updated alignment file. (default: False)
+The rest of the report is a table with calculated expression values for
+individual transposable element locations. The columns of the table are:
 
-**Run Modes**::
+-  ``transcript`` - Transcript ID, by default from "locus" field. See
+   --attribute argument to use a different attribute.
+-  ``transcript_length`` - Approximate length of transcript. This is
+   calculated from the annotation, not the data, and is equal to the
+   spanning length of the annotation minus any non-model regions.
+-  ``final_count`` - Total number of fragments assigned to transcript
+   after fitting the Telescope model. This is the column to use for
+   downstream analysis that models data as negative binomial, i.e.
+   DESeq2.
+-  ``final_conf`` - Final confident fragments. The number of fragments
+   assigned to transcript whose posterior probability exceeds a cutoff,
+   0.9 by default. Set this using the --conf_prob argument.
+-  ``final_prop`` - Final proportion of fragments represented by
+   transcript. This is the final estimate of the π parameter.
+-  ``init_aligned`` - Initial number of fragments aligned to transcript.
+   A given fragment will contribute +1 to each transcript that it is
+   aligned to, thus the sum of this will be greater than the number of
+   fragments if there are multimapped reads.
+-  ``unique_count`` - Unique count. Number of fragments aligning
+   uniquely to this transcript.
+-  ``init_best`` - Initial number of fragments aligned to transcript
+   that have the "best" alignment score for that fragment. Fragments
+   that have the same best alignment score to multiple transcripts will
+   contribute +1 to each transcript.
+-  ``init_best_random`` - Initial number of fragments aligned to
+   transcript that have the "best" alignment score for that fragment.
+   Fragments that have the same best alignment score to multiple
+   transcripts will be randomly assigned to one transcript.
 
-    --reassign_mode         Reassignment mode. After EM is complete, each fragment is reassigned according to the
-                            expected value of its membership weights. The reassignment method is the method for
-                            resolving the "best" reassignment for fragments that have multiple possible reassignments.
-                            Available modes are: "exclude" - fragments with multiple best assignments are excluded from
-                            the final counts; "choose" - the best assignment is randomly chosen from among the set of
-                            best assignments; "average" - the fragment is divided evenly among the best assignments;
-                            "conf" - only assignments that exceed a certain threshold (see --conf_prob) are accepted;
-                            "unique" - only uniquely aligned reads are included. NOTE: Results using all assignment
-                            modes are included in the Telescope report by default. This argument determines what mode
-                            will be used for the "final counts" column. (default: exclude)
-    --conf_prob             Minimum probability for high confidence assignment. (default: 0.9)
-    --overlap_mode          Overlap mode. The method used to determine whether a fragment overlaps feature.
-                            (default: threshold)
-    --overlap_threshold     Fraction of fragment that must be contained within a feature to be assigned to that locus.
-                            Ignored if --overlap_method is not "threshold". (default: 0.2)
-    --annotation_class      Annotation class to use for finding overlaps. Both htseq and intervaltree appear to yield
-                            identical results. Performance differences are TBD. (default: intervaltree)
+Updated SAM file
+~~~~~~~~~~~~~~~~
 
-**Model Parameters**::
+The updated SAM file contains those fragments that has at least 1
+initial alignment to a transposable element. The final assignment and
+probabilities are encoded in the SAM tags:
 
-    --pi_prior          Prior on π. Equivalent to adding n unique reads. (default: 0)
-    --theta_prior       Prior on θ. Equivalent to adding n non-unique reads. (default: 0)
-    --em_epsilon        EM Algorithm Epsilon cutoff (default: 1e-7)
-    --max_iter          EM Algorithm maximum iterations (default: 100)
-    --use_likelihood    Use difference in log-likelihood as convergence criteria. (default: False)
-    --skip_em           Exits after loading alignment and saving checkpoint file. (default: False)
+-  ``ZF:Z`` Assigned Feature - The name of the feature that alignment is
+   assigned to.
+-  ``ZT:Z`` Telescope tag - A value of ``PRI`` indicates that this
+   alignment is the best hit for the feature and is used in the
+   likelihood calculations. Otherwise the value will be ``SEC``, meaning
+   that another alignment to the same feature has a higher score.
+-  ``ZB:Z`` Best Feature = The name(s) of the highest scoring feature(s)
+   for the fragment.
+-  ``YC:Z`` Specifies color for alignment as R,G,B. UCSC sanctioned tag,
+   see documentation `here.`_
+-  ``XP:Z`` Alignment probability - estimated posterior probability for
+   this alignment.
+
+.. _here.: http://genome.ucsc.edu/goldenpath/help/hgBamTrackHelp.html
 
     ]]>
     </help>
