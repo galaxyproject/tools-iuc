@@ -8,7 +8,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     attr = sys.argv[2]
 
     for record in GFF.parse(sys.argv[1]):
@@ -21,8 +21,8 @@ if __name__ == '__main__':
             # thickStart thickEnd itemRgb
 
             kv = {
-                'strand': 0 if not feature.location.strand else feature.location.strand,
-                'value': feature.qualifiers.get('score', [0])[0],
+                "strand": 0 if not feature.location.strand else feature.location.strand,
+                "value": feature.qualifiers.get("score", [0])[0],
             }
 
             if attr not in feature.qualifiers:
@@ -35,8 +35,8 @@ if __name__ == '__main__':
                 str(int(feature.location.start)),
                 str(int(feature.location.end)),
                 name,
-                ','.join(['%s=%s' % x for x in kv.items()])
+                ",".join(["%s=%s" % x for x in kv.items()]),
             ]
 
-            sys.stdout.write('\t'.join(line))
-            sys.stdout.write('\n')
+            sys.stdout.write("\t".join(line))
+            sys.stdout.write("\n")

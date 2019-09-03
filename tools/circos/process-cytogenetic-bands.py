@@ -4,8 +4,17 @@ import sys
 # band hs1 p36.32 p36.32 2200000 5100000 gpos25
 # band hs1 p36.31 p36.31 5100000 6900000 gneg
 # band hs1 p36.23 p36.23 6900000 8800000 gpos25
-COLS = ('chrom', 'chromStart', 'chromEnd', 'name', 'score', 'strand',
-        'thickStart', 'thickEnd', 'itemRgb')
+COLS = (
+    "chrom",
+    "chromStart",
+    "chromEnd",
+    "name",
+    "score",
+    "strand",
+    "thickStart",
+    "thickEnd",
+    "itemRgb",
+)
 
 colormap = {}
 # Process optional cytogenetic bands
@@ -15,19 +24,19 @@ colormap = {}
 #     parentChr
 #     START
 #     END COLOR
-with open(sys.argv[1], 'r') as handle:
+with open(sys.argv[1], "r") as handle:
     for line in handle:
-        if line.startswith('#'):
+        if line.startswith("#"):
             continue
 
         lineData = dict(zip(COLS, line.split()))
-        color = lineData.get('itemRgb', 'gpos50')
+        color = lineData.get("itemRgb", "gpos50")
 
         if color not in colormap:
             # Color MUST be an RGB triplet
-            if color.count(',') != 2:
+            if color.count(",") != 2:
                 continue
-            tmp = color.replace(',', '')
+            tmp = color.replace(",", "")
             # Try interpreting it, without `,`s as an integer. If it fails this
             # test there are non-numerical values and they might try and send
             # us an `eval()` or a colour name. We do not currently support
@@ -38,22 +47,23 @@ with open(sys.argv[1], 'r') as handle:
                 # Does not look like an int
                 continue
 
-            colormap[color] = 'gx-karyotype-%s' % len(colormap.keys())
+            colormap[color] = "gx-karyotype-%s" % len(colormap.keys())
 
-            sys.stderr.write("{colorName} = {color}\n".format(
-                colorName=colormap[color],
-                color=color
-            ))
+            sys.stderr.write(
+                "{colorName} = {color}\n".format(colorName=colormap[color], color=color)
+            )
 
-        sys.stdout.write("band {chrom} {name} {name} {chromStart} {chromEnd} {color}\n".format(
-            # Can access name because requiring >bed3
-            name=lineData['name'],
-            chrom=lineData['chrom'],
-            chromStart=lineData['chromStart'],
-            chromEnd=lineData['chromEnd'],
-            # 255,0,0 is a valid colour specifier
-            color=colormap[color],
-        ))
+        sys.stdout.write(
+            "band {chrom} {name} {name} {chromStart} {chromEnd} {color}\n".format(
+                # Can access name because requiring >bed3
+                name=lineData["name"],
+                chrom=lineData["chrom"],
+                chromStart=lineData["chromStart"],
+                chromEnd=lineData["chromEnd"],
+                # 255,0,0 is a valid colour specifier
+                color=colormap[color],
+            )
+        )
 
 
 # chrom - The name of the chromosome (e.g. chr3, chrY, chr2_random) or scaffold (e.g. scaffold10671).
