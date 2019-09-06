@@ -59,21 +59,20 @@ def rebin(a, new_shape):
     M, N = a.shape
 
     # compare the heatmap matrix
-    a_compress = a.reshape((m, M / m, n, N / n)).mean(3).mean(1)
+    a_compress = a.reshape((m, int(M / m), n, int(N / n))).mean(3).mean(1)
     return np.array(a_compress)
 
 
 def load_Data(input_file, quantile, absolute, header, start_col, row_num, col_num, min_upper_lim):
-    data = open(input_file, 'r')
-    if header == 'T':
-        data.readline()
-
     data0 = []
+    with open(input_file, 'r') as data:
+        if header == 'T':
+            data.readline()
 
-    for rec in data:
-        tmp = [(x.strip()) for x in rec.split('\t')]
-        data0.append(tmp[start_col:])
-    data0 = np.array(data0, dtype=float)
+        for rec in data:
+            tmp = [(x.strip()) for x in rec.split('\t')]
+            data0.append(tmp[start_col:])
+        data0 = np.array(data0, dtype=float)
 
     if row_num == -999:
         row_num = data0.shape[0]
@@ -97,12 +96,12 @@ def load_Data(input_file, quantile, absolute, header, start_col, row_num, col_nu
 
     # Setting an absolute threshold to a minimum,
     # in cases the 95th percentile contrast is <= user defined min_upper_lim
-    if quantile != 90.0:
-        print "\nQUANTILE: {}".format(quantile)
-        print "Quantile calculated UPPER LIM: {}".format(upper_lim)
-        print "LOWER LIM: {}".format(lower_lim)
+    if quantile > 0.0:
+        print("\nQUANTILE: {}".format(quantile))
+        print("Quantile calculated UPPER LIM: {}".format(upper_lim))
+        print("LOWER LIM: {}".format(lower_lim))
         if upper_lim <= min_upper_lim:
-            print "setting heatmap upper_threshold to min_upper_lim\n"
+            print("setting heatmap upper_threshold to min_upper_lim\n")
             upper_lim = min_upper_lim
 
     outfile = open('calcThreshold.txt', 'w')
@@ -169,18 +168,18 @@ if __name__ == '__main__':
         elif opt[0] == "-m":
             min_upper_lim = float(opt[1])
 
-    print "Header present:", header
-    print "Start column:", start_col
-    print "Row number (pixels):", row_num
-    print "Col number (pixels):", col_num
-    print "Min Upper Limit while using Quantile:", min_upper_lim
+    print("Header present:", header)
+    print("Start column:", start_col)
+    print("Row number (pixels):", row_num)
+    print("Col number (pixels):", col_num)
+    print("Min Upper Limit while using Quantile:", min_upper_lim)
     if absolute != -999:
-        print "Absolute tag contrast threshold:", absolute
+        print("Absolute tag contrast threshold:", absolute)
     else:
-        print "Percentile tag contrast threshold:", quantile
+        print("Percentile tag contrast threshold:", quantile)
 
     if absolute == -999 and quantile <= 0:
-        print "\nInvalid threshold!!!"
+        print("\nInvalid threshold!!!")
         sys.exit(usage)
 
     load_Data(input_file, quantile, absolute,
