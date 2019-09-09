@@ -1,6 +1,9 @@
-from Bio import SeqIO, SeqUtils
-import pyBigWig
 import sys
+
+import pyBigWig
+from Bio import SeqIO
+from Bio import SeqUtils
+
 
 span = int(sys.argv[2])
 bw = pyBigWig.open(sys.argv[3], "w")
