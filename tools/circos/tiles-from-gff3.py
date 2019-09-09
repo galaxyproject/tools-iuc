@@ -9,6 +9,8 @@ log = logging.getLogger()
 
 
 if __name__ == "__main__":
+    attr = sys.argv[2]
+
     for record in GFF.parse(sys.argv[1]):
         if len(record.features) == 0:
             continue
@@ -20,7 +22,7 @@ if __name__ == "__main__":
 
             kv = {
                 "strand": 0 if not feature.location.strand else feature.location.strand,
-                "name": feature.qualifiers.get("Name", [None])[0] or feature.id,
+                "name": feature.qualifiers.get(attr, ["None"])[0] or feature.id,
                 "value": feature.qualifiers.get("score", [0])[0],
             }
 
