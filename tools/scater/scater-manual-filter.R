@@ -31,6 +31,13 @@ option_list = list(
     help = "Minimum library size (mapped reads) to filter cells on"
   ),
   make_option(
+    c("-e", "--expressed-genes"),
+    action = "store",
+    default = 0,
+    type = 'numeric',
+    help = "Minimum number of expressed genes to filter cells on"
+  ),
+  make_option(
     c("-m", "--percent-counts-MT"),
     action = "store",
     default = 100,
@@ -70,6 +77,14 @@ to_keep <- scle$total_counts > opt$library_size
 scle <- scle[, to_keep]
 
 print(paste("After filtering out low library counts: ", ncol(scle), "cells and", nrow(scle), "features."))
+
+
+# Filter low expressed genes
+to_keep <- scle$total_features_by_counts > opt$expressed_genes
+scle <- scle[, to_keep]
+
+print(paste("After filtering out low expressed: ", ncol(scle), "cells and", nrow(scle), "features."))
+
 
 # Filter out high MT counts
 to_keep <- scle$pct_counts_MT < opt$percent_counts_MT
