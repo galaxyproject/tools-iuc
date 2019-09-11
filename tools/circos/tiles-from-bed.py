@@ -23,7 +23,7 @@ if __name__ == "__main__":
                 lineData[0],  # chrom
                 lineData[1],  # chromStart
                 lineData[2],  # chromEnd
-                ",".join(["%s=%s" % x for x in kv.items()]),
+                ",".join(["%s=%s" % x for x in sorted(kv.items())]),
             ]
 
             sys.stdout.write("\t".join(line))

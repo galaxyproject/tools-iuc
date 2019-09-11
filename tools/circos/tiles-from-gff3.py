@@ -30,7 +30,7 @@ if __name__ == "__main__":
                 record.id,
                 str(int(feature.location.start)),
                 str(int(feature.location.end)),
-                ",".join(["%s=%s" % x for x in kv.items()]),
+                ",".join(["%s=%s" % x for x in sorted(kv.items())]),
             ]
 
             sys.stdout.write("\t".join(line))
