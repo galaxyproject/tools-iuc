@@ -654,7 +654,8 @@ class JbrowseConnector(object):
         # Only index if not already done
         if not os.path.exists(dest):
             cmd = ['sort', '-k1,1', '-k2,2n', data]
-            self.subprocess_check_call(cmd, output=dest)
+            with open(dest, 'w') as handle:
+                self.subprocess_check_call(cmd, output=handle)
 
             self.subprocess_check_call(['bgzip', '-f', dest])
             self.subprocess_check_call(['tabix', '-f', '-p', 'bed', dest + '.gz'])
