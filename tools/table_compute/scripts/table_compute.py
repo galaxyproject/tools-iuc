@@ -265,7 +265,12 @@ if user_mode == "single":
         mode = params["element_mode"]
         if mode == "replace":
             replacement_val = params["element_replace"]
-            out_table = data.mask(bool_mat, replacement_val)
+            out_table = data.mask(
+                bool_mat,
+                data.where(bool_mat).applymap(
+                    lambda x: replacement_val.format(elem=x)
+                )
+            )
         elif mode == "modify":
             mod_op = Utils.getOneValueMathOp(params["element_modify_op"])
             out_table = data.mask(

@@ -177,12 +177,13 @@ class Safety():
         # ['vec.median', '(', ')', '+', 'vec.sum', '(', ')']
         tokens = [
             e for e in re.split(
-                r'("[a-zA-Z%0-9_.]+"|[a-zA-Z0-9_.]+|[^a-zA-Z0-9_.() ]+|[()])', self.expr
+                r'([a-zA-Z0-9_.]+|[^a-zA-Z0-9_.() ]+|[()])', self.expr
             ) if e.strip()
         ]
 
         # 2. Subtract allowed standard tokens
         rem = [e for e in tokens if e not in self.__allowed_tokens]
+
         # 3. Subtract allowed qualified objects from allowed modules
         #    and whitelisted references and their attributes
         rem2 = []
@@ -208,18 +209,13 @@ class Safety():
 
             rem2.append(e)
 
-        # Debug
-        # for x in (tokens, rem, rem2):print(x)
-
         # 4. Assert that rest are real numbers or strings
         e = ''
         for e in rem2:
             try:
                 _ = float(e)
             except ValueError:
-                # e.g. '"TEXT"' is okay.
-                if not(e[0] == '"' and e[-1] == '"'):
-                    safe = False
-                    break
+                safe = False
+                break
 
         return safe, e
