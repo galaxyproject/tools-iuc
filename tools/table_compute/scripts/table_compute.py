@@ -305,7 +305,9 @@ if user_mode == "single":
     elif user_mode_single == "fulltable":
         general_mode = params["mode"]
 
-        if general_mode == "melt":
+        if general_mode == "transpose":
+            out_table = data.T
+        elif general_mode == "melt":
             melt_ids = params["MELT"]["melt_ids"]
             melt_values = params["MELT"]["melt_values"]
 
