@@ -11,7 +11,6 @@ class Safety():
         '(', ')', 'if', 'else', 'or', 'and', 'not', 'in',
         '+', '-', '*', '/', '%', ',', '!=', '==', '>', '>=', '<', '<=',
         'min', 'max', 'sum',
-        'str', 'int', 'float'
     )
     __allowed_ref_types = {
         'pd.DataFrame': {
@@ -195,18 +194,9 @@ class Safety():
             if len(parts) == 2:
                 if parts[0] in self.these:
                     parts[0] = '_this'
-                elif parts[0] == "":
-                    # e.g. '.T' gives ['','.T']
-                    # Here we assume that the blank part[0] refers to the
-                    # self.ref_type (e.g. "pd.DataFrame"), and that
-                    # the second part is a function of that type.
-                    if parts[1] in self.allowed_qualified['_this']:
-                        continue
-
                 if parts[0] in self.allowed_qualified:
                     if parts[1] in self.allowed_qualified[parts[0]]:
                         continue
-
             rem2.append(e)
 
         # 4. Assert that rest are real numbers or strings
