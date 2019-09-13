@@ -4,7 +4,7 @@ Table Compute tool - a wrapper around pandas with parameter input validation.
 """
 
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 import csv
 import math
@@ -265,7 +265,12 @@ if user_mode == "single":
         mode = params["element_mode"]
         if mode == "replace":
             replacement_val = params["element_replace"]
-            out_table = data.mask(bool_mat, replacement_val)
+            out_table = data.mask(
+                bool_mat,
+                data.where(bool_mat).applymap(
+                    lambda x: replacement_val.format(elem=x)
+                )
+            )
         elif mode == "modify":
             mod_op = Utils.getOneValueMathOp(params["element_modify_op"])
             out_table = data.mask(
@@ -300,7 +305,9 @@ if user_mode == "single":
     elif user_mode_single == "fulltable":
         general_mode = params["mode"]
 
-        if general_mode == "melt":
+        if general_mode == "transpose":
+            out_table = data.T
+        elif general_mode == "melt":
             melt_ids = params["MELT"]["melt_ids"]
             melt_values = params["MELT"]["melt_values"]
 

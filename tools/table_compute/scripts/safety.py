@@ -11,7 +11,6 @@ class Safety():
         '(', ')', 'if', 'else', 'or', 'and', 'not', 'in',
         '+', '-', '*', '/', '%', ',', '!=', '==', '>', '>=', '<', '<=',
         'min', 'max', 'sum',
-        'str', 'int', 'float'
     )
     __allowed_ref_types = {
         'pd.DataFrame': {
@@ -177,12 +176,13 @@ class Safety():
         # ['vec.median', '(', ')', '+', 'vec.sum', '(', ')']
         tokens = [
             e for e in re.split(
-                r'("[a-zA-Z%0-9_.]+"|[a-zA-Z0-9_.]+|[^a-zA-Z0-9_.() ]+|[()])', self.expr
+                r'([a-zA-Z0-9_.]+|[^a-zA-Z0-9_.() ]+|[()])', self.expr
             ) if e.strip()
         ]
 
         # 2. Subtract allowed standard tokens
         rem = [e for e in tokens if e not in self.__allowed_tokens]
+
         # 3. Subtract allowed qualified objects from allowed modules
         #    and whitelisted references and their attributes
         rem2 = []
@@ -194,22 +194,10 @@ class Safety():
             if len(parts) == 2:
                 if parts[0] in self.these:
                     parts[0] = '_this'
-                elif parts[0] == "":
-                    # e.g. '.T' gives ['','.T']
-                    # Here we assume that the blank part[0] refers to the
-                    # self.ref_type (e.g. "pd.DataFrame"), and that
-                    # the second part is a function of that type.
-                    if parts[1] in self.allowed_qualified['_this']:
-                        continue
-
                 if parts[0] in self.allowed_qualified:
                     if parts[1] in self.allowed_qualified[parts[0]]:
                         continue
-
             rem2.append(e)
-
-        # Debug
-        # for x in (tokens, rem, rem2):print(x)
 
         # 4. Assert that rest are real numbers or strings
         e = ''
@@ -217,9 +205,7 @@ class Safety():
             try:
                 _ = float(e)
             except ValueError:
-                # e.g. '"TEXT"' is okay.
-                if not(e[0] == '"' and e[-1] == '"'):
-                    safe = False
-                    break
+                safe = False
+                break
 
         return safe, e
