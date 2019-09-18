@@ -7,7 +7,7 @@ import optparse
 import os
 import shutil
 import tempfile
-import urllib2
+#import urllib2
 from xml.etree.ElementTree import tostring
 
 try:
@@ -20,9 +20,11 @@ except ImportError:
 try:
     # For Python 3.0 and later
     from urllib.request import urlretrieve
+    from urllib.parse import urlsplit
 except ImportError:
     # Fall back to Python 2 imports
     from urllib import urlretrieve
+    from urllib2.urlparse import urlsplit
 
 _log_name = __name__
 if _log_name == '__builtin__':
@@ -133,7 +135,7 @@ def get_file_content( params, target_directory ):
             try:
                 bname = headers['Content-Disposition']
             except KeyError:
-                bname = os.path.basename( urllib2.urlparse.urlsplit( content.get( 'file_source', {}).get( 'file_URL', None ) ).path )
+                bname = os.path.basename( urlsplit( content.get( 'file_source', {}).get( 'file_URL', None ) ).path )
         else:
             filename = content.get( 'file_source', {}).get( 'file_history', None )
             bname = os.path.basename( filename )
