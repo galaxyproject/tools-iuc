@@ -15,7 +15,6 @@
 
 import argparse
 import sys
-import os
 
 import matplotlib.pyplot as plt
 import numpy
@@ -344,10 +343,10 @@ def compare_read_families(argv):
                 x = [xi + barWidth for xi in x]
                 w = 1. / (len(list_to_plot) + 1)
             if rel_freq:
-                counts2_rel = ax2.bar(x, list(numpy.float_(y)) / numpy.sum(y), align="edge", width=w, edgecolor="black", label=label[i], linewidth=1, alpha=0.7, color=colors[i])
+                ax2.bar(x, list(numpy.float_(y)) / numpy.sum(y), align="edge", width=w, edgecolor="black", label=label[i], linewidth=1, alpha=0.7, color=colors[i])
                 ax2.set_ylim(0, 1.07)
             else:
-                counts2 = ax2.bar(x, y, align="edge", width=w, edgecolor="black", label=label[i], linewidth=1, alpha=0.7, color=colors[i])
+                ax2.bar(x, y, align="edge", width=w, edgecolor="black", label=label[i], linewidth=1, alpha=0.7, color=colors[i])
 
             if i == len(list_to_plot2) - 1:
                 barWidth += 1. / (len(list_to_plot) + 1) + 1. / (len(list_to_plot) + 1)
@@ -424,8 +423,8 @@ def compare_read_families(argv):
 
         # Family size distribution after DCS and SSCS
         for dataset, data_o, name_file in zip(list_to_plot, data_array_list, label):
-            maximumX = numpy.amax(dataset)
-            minimumX = numpy.amin(dataset)
+            # maximumX = numpy.amax(dataset)
+            # minimumX = numpy.amin(dataset)
 
             tags = numpy.array(data_o[:, 2])
             seq = numpy.array(data_o[:, 1])
@@ -491,7 +490,7 @@ def compare_read_families(argv):
             plt.subplots_adjust(left=0.12, right=0.97, bottom=0.3, top=0.94, hspace=0)
 
             if rel_freq:
-                w = [numpy.zeros_like(d) + 1. / len(numpy.concatenate(list1)) for d in list1]
+                w = [numpy.zeros_like(e) + 1. / len(numpy.concatenate(list1)) for e in list1]
                 counts = plt.hist(list1, bins=numpy.arange(1, 23), stacked=True, label=["duplex", "ab", "ba"], weights=w,
                                   edgecolor="black", linewidth=1, align="left", color=["#FF0000", "#5FB404", "#FFBF00"],
                                   rwidth=0.8)
@@ -543,8 +542,7 @@ def compare_read_families(argv):
             legend = "total\n{:.3f}\n{:.3f}\n{:.3f} ({:.3f})\n{:,}".format(float(len(dataAB)) / (len(ab) + len(ba)),
                                                                            float(len(dataBA)) / (len(ab) + len(ba)),
                                                                            float(len(duplTags)) / (len(ab) + len(ba)),
-                                                                           float(len(duplTags_double)) / (
-                                                                                       len(ab) + len(ba)),
+                                                                           float(len(duplTags_double)) / (len(ab) + len(ba)),
                                                                            (len(ab) + len(ba)))
             plt.text(0.64, 0.09, legend, size=10, transform=plt.gcf().transFigure)
 
@@ -615,12 +613,12 @@ def compare_read_families(argv):
 
                 list_y.append(y)
                 if i == 0:
-                    counts2 = ax2.bar(x, y, align="center", width=0.8, edgecolor="black", label=label[0], linewidth=1, alpha=1, color=col[0])
+                    ax2.bar(x, y, align="center", width=0.8, edgecolor="black", label=label[0], linewidth=1, alpha=1, color=col[0])
                 elif i == 1:
-                    counts2 = ax2.bar(x, y, bottom=list_y[i-1], align="center", width=0.8, edgecolor="black", label=label[1], linewidth=1, alpha=1, color=col[1])
+                    ax2.bar(x, y, bottom=list_y[i - 1], align="center", width=0.8, edgecolor="black", label=label[1], linewidth=1, alpha=1, color=col[1])
                 elif i == 2:
                     bars = numpy.add(list_y[0], list_y[1]).tolist()
-                    counts2 = ax2.bar(x, y, bottom=bars, align="center", width=0.8, edgecolor="black", label=label[2], linewidth=1, alpha=1, color=col[2])
+                    ax2.bar(x, y, bottom=bars, align="center", width=0.8, edgecolor="black", label=label[2], linewidth=1, alpha=1, color=col[2])
 
             ax2.legend(loc='upper right', fontsize=14, frameon=True, bbox_to_anchor=(0.9, 1))
 

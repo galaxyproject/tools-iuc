@@ -24,8 +24,6 @@ import sys
 from collections import Counter, defaultdict
 from functools import partial
 from multiprocessing.pool import Pool
-import random
-import os
 
 import matplotlib.pyplot as plt
 import numpy
@@ -59,12 +57,12 @@ def plotFSDwithHD2(familySizeList1, maximumXFS, minimumXFS, originalCounts,
 
     if rel_freq:
         w = [numpy.zeros_like(data) + 1. / len(numpy.concatenate(familySizeList1)) for data in familySizeList1]
-        counts = plt.hist(familySizeList1, label=labels, weights=w, color=colors, stacked=True,
+        plt.hist(familySizeList1, label=labels, weights=w, color=colors, stacked=True,
                           rwidth=0.8, alpha=1, align="left", edgecolor="None", bins=range1)
         plt.ylabel("Relative Frequency", fontsize=14)
         plt.ylim((0, 1.07))
     else:
-        counts = plt.hist(familySizeList1, label=labels, color=colors, stacked=True,
+        plt.hist(familySizeList1, label=labels, color=colors, stacked=True,
                           rwidth=0.8, alpha=1, align="left", edgecolor="None", bins=range1)
         if len(numpy.concatenate(familySizeList1)) != 0:
             plt.ylim((0, max(numpy.bincount(numpy.concatenate(familySizeList1))) * 1.1))
@@ -83,7 +81,7 @@ def plotFSDwithHD2(familySizeList1, maximumXFS, minimumXFS, originalCounts,
     legend = "\nfamily size: \nabsolute frequency: \nrelative frequency: "
     plt.text(0.15, -0.08, legend, size=12, transform=plt.gcf().transFigure)
 
-    count = numpy.bincount(originalCounts)  # original counts
+    # count = numpy.bincount(originalCounts)  # original counts
     if max(originalCounts) >= 20:
         max_count = ">= 20"
     else:
