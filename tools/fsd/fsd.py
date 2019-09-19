@@ -279,8 +279,8 @@ def compare_read_families(argv):
             fig.text(0.89, 0.05, legend6b, size=10, transform=plt.gcf().transFigure)
             fig2.text(0.89, 0.05, legend6b, size=10, transform=plt.gcf().transFigure)
 
-        maximumX = numpy.amax(numpy.concatenate(list_to_plot))
-        minimumX = numpy.amin(numpy.concatenate(list_to_plot))
+        # maximumX = numpy.amax(numpy.concatenate(list_to_plot))
+        # minimumX = numpy.amin(numpy.concatenate(list_to_plot))
         list_to_plot2 = list_to_plot
 
         if rel_freq:
@@ -787,7 +787,7 @@ def compare_read_families(argv):
                 sep, (sum(dataAB_FS3_o) + sum(dataBA_FS3_o) + sum(duplTags_FS3_o)), sep,
                 (sum(dataAB_FS3_o) + sum(dataBA_FS3_o) + duplTags_double_FS3_o)))
 
-            counts = [numpy.bincount(d, minlength=22)[1:] for d in list1]  # original counts of family sizes
+            counts = [numpy.bincount(de, minlength=22)[1:] for de in list1]  # original counts of family sizes
             output_file.write("\nValues from family size distribution based on families\n")
             output_file.write("{}duplex{}ab{}ba{}sum\n".format(sep, sep, sep, sep))
 

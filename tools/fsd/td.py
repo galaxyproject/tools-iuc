@@ -57,13 +57,11 @@ def plotFSDwithHD2(familySizeList1, maximumXFS, minimumXFS, originalCounts,
 
     if rel_freq:
         w = [numpy.zeros_like(data) + 1. / len(numpy.concatenate(familySizeList1)) for data in familySizeList1]
-        plt.hist(familySizeList1, label=labels, weights=w, color=colors, stacked=True,
-                          rwidth=0.8, alpha=1, align="left", edgecolor="None", bins=range1)
+        plt.hist(familySizeList1, label=labels, weights=w, color=colors, stacked=True, rwidth=0.8, alpha=1, align="left", edgecolor="None", bins=range1)
         plt.ylabel("Relative Frequency", fontsize=14)
         plt.ylim((0, 1.07))
     else:
-        plt.hist(familySizeList1, label=labels, color=colors, stacked=True,
-                          rwidth=0.8, alpha=1, align="left", edgecolor="None", bins=range1)
+        plt.hist(familySizeList1, label=labels, color=colors, stacked=True, rwidth=0.8, alpha=1, align="left", edgecolor="None", bins=range1)
         if len(numpy.concatenate(familySizeList1)) != 0:
             plt.ylim((0, max(numpy.bincount(numpy.concatenate(familySizeList1))) * 1.1))
         plt.ylabel("Absolute Frequency", fontsize=14)
@@ -158,7 +156,7 @@ def plotHDwithFSD(list1, maximumX, minimumX, subtitle, lenTags, pdf, xlabel, rel
                                  xycoords="data", color="#000066", fontsize=10)
 
     if nr_unique_chimeras != 0:
-        if (relative and ((counts[len(counts)-1] / nr_unique_chimeras) == 2)) or \
+        if (relative and ((counts[len(counts) - 1] / nr_unique_chimeras) == 2)) or \
                 (sum(counts) / nr_unique_chimeras) == 2:
             legend = "nr. of tags = {:,}\nsample size = {:,}\nnr. of data points = {:,}\nnr. of CF = {:,} ({:,})"\
                 .format(lenTags, len_sample, len(numpy.concatenate(list1)), nr_unique_chimeras, nr_unique_chimeras * 2)
@@ -256,7 +254,7 @@ def plotHDwithinSeq(sum1, sum1min, sum2, sum2min, min_value, lenTags, pdf, len_s
     ham_partial = [sum1, sum1min, sum2, sum2min, numpy.array(min_value)]  # new hd within tags
     maximumX = numpy.amax(numpy.concatenate(ham_partial))
     minimumX = numpy.amin(numpy.concatenate(ham_partial))
-    maximumY = numpy.amax(numpy.array(numpy.concatenate(map(lambda x: numpy.bincount(x), ham_partial))))
+    # maximumY = numpy.amax(numpy.array(numpy.concatenate(map(lambda x: numpy.bincount(x), ham_partial))))
 
     if len(range(minimumX, maximumX)) == 0:
         range1 = minimumX
