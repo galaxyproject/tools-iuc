@@ -1,6 +1,409 @@
 <macros>
-    <token name="@TOOL_VERSION@">3.12.0</token>
+    <token name="@TOOL_VERSION@">3.13.1</token>    
+    <token name="@WRAPPER_VERSION@">galaxy0</token>    
+	<token name="@DESCRIPTION@">assembler for</token>
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@TOOL_VERSION@">spades</requirement>
+            <yield/>
+        </requirements>
+    </xml>
+    <xml name="stdio">
+        <stdio>
+            <exit_code range="1:"/>
+            <regex match="Cannot allocate memory"
+               source="stdout"
+               level="fatal_oom"
+               description="Out of memory error occurred"/>
+            <regex match="The reads contain too many k-mers to fit into available memory"
+               source="stdout"
+               level="fatal_oom"
+               description="Out of memory error occurred"/>
+        </stdio>
+    </xml>
     <token name="@INTYPES@">
         fasta,fasta.gz,fastq,fastq.gz,fastqsanger,fastqsanger.gz
+    </token>
+
+    <!-- command -->
+    <!-- files -->
+    <token name="@LIBTYPE_SPADES-PLASMID-META-RNA@">
+        #if str( $library.libtype ) == "paired_end"
+            #set prefix = 'pe'
+    </token>    
+    <token name="@LIBTYPE_SPADES-PLASMID@">
+        #elif str( $library.libtype ) == "mate_paired"
+            #set prefix = 'mp'
+        #elif str( $library.libtype ) == "nxmate_paired"
+            #set prefix = 'nxmate'
+        #else
+            #set prefix = 'hqmp'
+        #end if
+    </token>
+    <token name="@FILETYPE_SPADES-PLASMID-META-RNA@">
+        --$prefix$i-$library.orientation
+        #for $file in $library.files
+            #if $file.filetype.type == "separate"
+                --$prefix$i-1 $file.filetype.fwd_reads.extension.replace('fastqsanger', 'fastq'):$file.filetype.fwd_reads
+                --$prefix$i-2 $file.filetype.fwd_reads.extension.replace('fastqsanger', 'fastq'):$file.filetype.rev_reads
+            #elif $file.filetype.type == "interleaved"
+                --$prefix$i-12 $file.filetype.interleaved_reads.extension.replace('fastqsanger', 'fastq'):$file.filetype.interleaved_reads
+            #elif $file.filetype.type == "merged"
+                --$prefix$i-m $file.filetype.merged_reads.extension.replace('fastqsanger', 'fastq'):$file.filetype.merged_reads
+            #elif $file.filetype.type == "unpaired"
+                --$prefix$i-s $file.filetype.unpaired_reads.extension.replace('fastqsanger', 'fastq'):$file.filetype.unpaired_reads
+            #elif $file.filetype.type == "paired-collection"
+                --$prefix$i-1 $file.filetype.fastq_collection.forward.extension.replace('fastqsanger', 'fastq'):$file.filetype.fastq_collection.forward
+                --$prefix$i-2 $file.filetype.fastq_collection.reverse.extension.replace('fastqsanger', 'fastq'):$file.filetype.fastq_collection.reverse
+            #end if
+        #end for
+    </token>
+
+    <!-- parameter -->
+    <token name="@PARAM_ALL@">
+        -o ./output
+        -t \${GALAXY_SLOTS:-4}
+        -m \${GALAXY_MEMORY_GB:-8}
+    </token>
+    <token name="@PARAM_SPADES-PLASMID@">
+        $careful
+        #if $select_cov.state == "auto":
+            --cov-cutoff 'auto'
+        #elif $select_cov.state == "value":
+            --cov-cutoff '$select_cov.manual'
+        #end if
+        #for $file in $sanger
+            #if $file
+                --sanger $file.extension.replace('fastqsanger', 'fastq'):$file
+            #end if
+        #end for
+    </token>
+    <token name="@PARAM_SPADES-PLASMID-META@">
+        #for $file in $pacbio
+            #if $file
+                --pacbio fastq:$file
+            #end if
+        #end for
+        #for $file in $nanopore
+            #if $file
+                --nanopore fastq:$file
+            #end if
+        #end for
+        #for $file in $tslr
+            #if $file:
+                --tslr $file.extension.replace('fastqsanger', 'fastq'):$file
+            #end if
+        #end for
+    </token>
+    <token name="@PARAM_SPADES-PLASMID-RNA@">
+        #for $file in $trustedcontigs
+            #if $file:
+                --trusted-contigs $file.extension.replace('fastqsanger', 'fastq'):$file
+            #end if
+        #end for
+        #for $file in $untrustedcontigs
+            #if $file:
+                --untrusted-contigs $file.extension.replace('fastqsanger', 'fastq'):$file
+            #end if
+        #end for
+    </token>
+    <token name="@PARAM_SPADES-PLASMID-META-RNA@">
+            --disable-gzip-output
+            $disablerr
+            $iontorrent
+            #if $select_kmer.state != 'auto'
+                -k '$select_kmer.manual'
+            #end if
+            #if $select_mode == 'assembler'
+                --only-assembler
+            #elif $select_mode == 'correction'
+                --only-error-correction
+            #end if
+            #if $phredoffset != 'auto'
+                --phred-offset $phredoffset
+            #end if
+    </token>
+    <!--  parse config.fasta and scaffolds.fasta with script in configfiles tag -->
+    <token name="@OUTPUT_SPADES_PLASMID_META@">
+        #if $in_outoptions.in_contigstats
+            &amp;&amp; python '$write_tsv_script' &lt; output/contigs.fasta > '$out_contigstats'
+        #end if
+        #if $in_outoptions.in_scaffoldstats
+            &amp;&amp; python '$write_tsv_script' &lt; output/scaffolds.fasta > '$out_scaffoldstats'
+        #end if
+    </token>
+
+    <!-- configfile -->
+    <xml name="config_script">
+        <configfile name="write_tsv_script"><![CDATA[
+#!/usr/bin/env python
+import sys,re
+search_str = r'^>(NODE|\S+)_(\d+)(?:_|\s)length_(\d+)_cov_(\d+\.*\d*).*\$'
+replace_str = r'\1_\2\t\3\t\4'
+cmd = re.compile(search_str)
+sys.stdout.write('#name\tlength\tcoverage\n')
+for i,line in enumerate(sys.stdin):
+    if cmd.match(line):
+        sys.stdout.write(cmd.sub(replace_str,line))
+        ]]></configfile>
+    </xml>
+
+    <!-- input -->
+    <!-- files -->
+    <xml name="in_libtype_spades_plasmid">
+        <option value="mate_paired">Mate pairs</option>
+        <option value="high_mate_paired">High Quality Mate pairs</option>
+        <option value="nxmate_paired">Lucigen NxMate pairs</option>
+    </xml>
+
+    <xml name="in_libtype_spades_plasmid_meta_rna">
+        <option value="paired_end">Paired-end / Single reads</option>
+    </xml>
+    <xml name="in_files">
+        <param name="orientation" type="select" label="Orientation" >
+            <option selected="true" value="fr"><![CDATA[-> <- (fr)]]></option>
+            <option value="rf"><![CDATA[<- -> (rf)]]></option>
+            <option value="ff"><![CDATA[-> -> (ff)]]></option>
+        </param>
+        <repeat name="files" min="1" title="Files">
+            <conditional name="filetype">
+                <param name="type" type="select" label="Select file format">
+                    <option value="separate">Separate input files</option>
+                    <option value="interleaved">Interleaved files</option>
+                    <option value="merged">Merged files</option>
+                    <option value="unpaired">Unpaired/Single reads</option>
+                    <option value="paired-collection">Paired List Collection</option>
+                </param>
+                <when value="separate">
+                    <param name="fwd_reads" type="data" format="@INTYPES@" help="FASTQ format" label="Forward reads"/>
+                    <param name="rev_reads" type="data" format="@INTYPES@" help="FASTQ format" label="Reverse reads"/>
+                </when>
+                <when value="interleaved">
+                    <param name="interleaved_reads" type="data" format="@INTYPES@" help="FASTQ format" label="Interleaved paired reads"/>
+                </when>
+                <when value="merged">
+                    <param name="merged_reads" type="data" format="@INTYPES@" help="FASTQ format" label="Merged paired reads"/>
+                </when>
+                <when value="unpaired">
+                    <param name="unpaired_reads" type="data" format="@INTYPES@" help="FASTQ format" label="Unpaired reads"/>
+                </when>
+                <when value="paired-collection">
+                    <param name="fastq_collection" type="data_collection" collection_type="paired" format="@INTYPES@" optional="false" help="FASTQ format" label="Paired-end reads collection"/>
+                </when>
+            </conditional>
+        </repeat>
+    </xml>
+    <!-- shared parameter -->
+    <xml name="in_param_spades_plasmid_meta_rna">
+        <param type="select" name="select_mode" label="Mode" help="">
+            <option value="assembler">Only assembler</option>
+            <option value="complete">Complete</option>
+            <option value="correction">Only error correction</option>
+        </param>
+        <param argument="--disable-rr" name="disablerr" type="boolean" truevalue="--disable-rr" falsevalue="" checked="False" label="Disables repeat resolution stage of assembling" help=""/>
+        <param argument="--iontorrent" type="boolean" truevalue="--iontorrent" falsevalue="" checked="false" label="IonTorrent data" help=""/>
+        <conditional name="select_kmer">
+            <param name="state" type="select" label="k-mer" help="(Comma-separated list, all values must be odd, less than 128 and listed in ascending order). If --sc is set the default values are 21,33,55.">
+                <option value="auto">Auto</option>
+                <option value="manual">User specific</option>
+            </param>
+            <when value="auto"/>
+            <when value="manual">
+               <param name="manual" type="text" value="21,33,55" label="Values"/>
+            </when>        
+        </conditional>
+        <param argument="--phred-offset" name="phredoffset" type="select" label="PHRED quality offset in the input reads" help="">
+            <option value="auto" selected="true">Auto</option>
+            <option value="33">33 (Sanger)</option>
+            <option value="64">64 (Illumina)</option>
+        </param>
+    </xml>
+    <xml name="in_param_spades_plasmid">
+        <param argument="--careful" type="boolean" truevalue="--careful" falsevalue="" checked="true" label="Careful correction" help="Tries to reduce number of mismatches and short indels."/>
+        <conditional name="select_cov">
+            <param name="state" type="select" label="Coverage cutoff">
+                <option value="off">Off</option>
+                <option value="auto">Auto</option>
+                <option value="value">User specific</option>
+            </param>
+            <when value="off"/>
+            <when value="value">
+                <param name="manual" type="float" min="0.0" value="" label="Value" help=""/>
+            </when>
+            <when value="auto"/>
+        </conditional>
+        <param argument="--sanger" optional="true" type="data" format="@INTYPES@" multiple="true" label="Sanger reads" help=""/>
+    </xml>
+    <xml name="in_param_spades_plasmid_rna">
+        <param argument="--trusted-contigs" name="trustedcontigs" type="data" optional="true" format="@INTYPES@" multiple="true" label="Trusted contigs" help=""/>
+        <param argument="--untrusted-contigs" name="untrustedcontigs" type="data" optional="true" format="@INTYPES@" multiple="true" label="Untrusted contigs" help=""/>
+    </xml>
+    <xml name="in_param_spades_plasmid_meta">
+        <param argument="--pacbio" optional="true" type="data" format="@INTYPES@" multiple="true" label="PacBio CLR reads" help=""/>
+        <param argument="--nanopore" optional="true" type="data" format="@INTYPES@" multiple="true" label="Nanopore reads" help=""/>
+        <param argument="--tslr" optional="true" type="data" format="@INTYPES@" multiple="true" label="TSLR-contigs" help=""/>
+    </xml>
+    <!-- output options -->
+    <xml name="in_outoptions_spades_plasmid_meta">
+        <param name="in_contigstats" type="boolean" checked="False" label="Contigs stats" help=""/>
+        <param name="in_scaffoldstats" type="boolean" checked="False" label="Scaffold stats" help=""/>
+    </xml>
+    <xml name="in_outoptions_spades_plasmid_meta_rna">        
+        <param name="in_contiggraph" type="boolean" checked="False" label="Final assembly graph (contigs)" help="(assembly_graph.fastg)"/>
+        <param name="in_scaffoldgraph" type="boolean" checked="true" label="Final assembly graph with scaffolds" help="(assembly_graph_with_scaffolds.gfa)"/>
+        <param name="in_log" type="boolean" checked="true" label="Log file" help=""/>        
+    </xml>
+
+    <!-- output -->
+    <xml name="out_spades_plasmid_meta">
+        <data name="out_contigs" format="fasta" from_work_dir="output/contigs.fasta" label="${tool.name} on ${on_string}: contigs (fasta)"/>
+        <data name="out_scaffolds" format="fasta" from_work_dir="output/scaffolds.fasta" label="${tool.name} on ${on_string}: scaffolds (fasta)"/>
+        <!-- script in configfile -->
+        <data name="out_contigstats" format="tabular" label="${tool.name} on ${on_string}: contig stats">
+            <actions>
+                <action name="column_names" type="metadata" default="name,length,coverage"/>
+            </actions>
+            <filter>in_outoptions['in_contigstats']</filter>
+        </data>
+        <data name="out_scaffoldstats" format="tabular" label="${tool.name} on ${on_string}: scaffold stats">
+            <actions>
+                <action name="column_names" type="metadata" default="name,length,coverage"/>
+            </actions>
+            <filter>in_outoptions['in_scaffoldstats']</filter>
+        </data>
+   </xml>
+    <xml name="out_spades_plasmid_meta_rna">
+        <data name="out_contiggraph" format="fastg" from_work_dir="output/assembly_graph.fastg" label="${tool.name} on ${on_string}: assembly graph (fastg)">
+            <filter>in_outoptions['in_contiggraph']</filter>
+        </data>
+        <data name="out_scaffoldgraph" format="txt" from_work_dir="output/assembly_graph_with_scaffolds.gfa" label="${tool.name} on ${on_string}: assembly graph with scaffolds (gfa)">
+            <filter>in_outoptions['in_scaffoldgraph']</filter>
+        </data>
+        <data name="out_log" format="txt" from_work_dir="output/spades.log" label="${tool.name} on ${on_string}: log">
+            <filter>in_outoptions['in_log']</filter>
+        </data>
+    </xml>
+
+    <!-- tests -->
+    <xml name="test_filetypes_spades" token_filetype="fastq" token_fileext="fq" token_k="auto">
+        <param name="select_mode" value="assembler"/>
+        <param name="sc" value="false"/>
+        <param name="careful" value="false"/>
+        <conditional name="select_kmer">
+            <param name="manual" value="@K@"/>
+        </conditional>
+        <repeat name="libraries">
+            <param name="libtype" value="paired_end"/>
+            <repeat name="files">
+                <conditional name="filetype">
+                    <param name="fwd_reads" ftype="@FILETYPE@" value="ecoli_1K_1.@FILEEXT@"/>
+                    <param name="rev_reads" ftype="@FILETYPE@" value="ecoli_1K_2.@FILEEXT@"/>
+                </conditional>
+            </repeat>
+        </repeat>
+        <section name="in_outoptions">
+            <param name="in_contigstats" value="true"/>
+            <param name="in_scaffoldstats" value="true"/>
+            <param name="in_contiggraph" value="true"/>
+            <param name="in_scaffoldgraph" value="true"/>
+        </section>
+        <output name="out_contigs">
+            <assert_contents>
+                <has_text_matching expression=">NODE_1"/>
+            </assert_contents>
+        </output>
+        <output name="out_contigstats">
+            <assert_contents>
+                <has_text_matching expression="NODE_1\t1000"/>
+            </assert_contents>
+        </output>
+        <output name="out_contiggraph">
+            <assert_contents>
+                <has_text text=">EDGE_"/>
+            </assert_contents>
+        </output>
+        <output name="out_scaffoldgraph">
+            <assert_contents>
+                <has_text text="NODE_"/>
+            </assert_contents>
+        </output>
+    </xml>
+    <xml name="test_filetypes_plasmid" token_filetype="fastq" token_fileext="fq" token_k="auto">
+        <param name="select_mode" value="assembler"/>
+        <param name="careful" value="false"/>
+        <conditional name="select_kmer">
+            <param name="manual" value="@K@"/>
+        </conditional>
+        <repeat name="libraries">
+            <param name="libtype" value="paired_end"/>
+            <repeat name="files">
+                <conditional name="filetype">
+                    <param name="fwd_reads" ftype="@FILETYPE@" value="pl1.@FILEEXT@"/>
+                    <param name="rev_reads" ftype="@FILETYPE@" value="pl2.@FILEEXT@"/>
+                </conditional>
+            </repeat>
+        </repeat>
+        <section name="in_outoptions">
+            <param name="in_contigstats" value="true"/>
+            <param name="in_scaffoldstats" value="true"/>
+            <param name="in_contiggraph" value="true"/>
+            <param name="in_scaffoldgraph" value="true"/>
+        </section>
+        <output name="out_contigs">
+            <assert_contents>
+                <has_text_matching expression=">NODE_1"/>
+            </assert_contents>
+        </output>
+        <output name="out_contigstats">
+            <assert_contents>
+                <has_text_matching expression="NODE_1\t1000"/>
+            </assert_contents>
+        </output>
+        <output name="out_contiggraph">
+            <assert_contents>
+                <has_text text=">EDGE_"/>
+            </assert_contents>
+        </output>
+        <output name="out_scaffoldgraph">
+            <assert_contents>
+                <has_text text="NODE_"/>
+            </assert_contents>
+        </output>
+    </xml>
+    <xml name="test_filetypes_rna" token_filetype="fastq" token_fileext="fq" token_k="auto">
+        <param name="select_mode" value="assembler"/>
+        <repeat name="libraries">
+            <param name="libtype" value="paired_end"/>
+            <repeat name="files">
+                <conditional name="filetype">
+                    <param name="fwd_reads" ftype="@FILETYPE@" value="ecoli_1K_1.@FILEEXT@"/>
+                    <param name="rev_reads" ftype="@FILETYPE@" value="ecoli_1K_1.@FILEEXT@"/>
+                </conditional>
+            </repeat>
+        </repeat>        
+        <output name="output_transcripts" file="transcripts.fasta" ftype="fasta" compare="re_match" lines_diff="1"/>
+        <output name="output_transcripts_hard" file="hard_filtered_transcripts.fasta" ftype="fasta" compare="re_match" lines_diff="1"/>
+        <output name="output_transcripts_soft" file="soft_filtered_transcripts.fasta" ftype="fasta" compare="re_match" lines_diff="1"/>  
+    </xml>
+
+    <!-- citation & help -->
+	<xml name="citations">
+        <citations>
+            <!-- recommendation from http://cab.spbu.ru/files/release3.13.1/manual.html#sec5 -->
+            <citation type="doi">10.1089/cmb.2012.0021</citation>
+            <citation type="doi">10.1007/978-3-642-37195-0_13</citation>
+            <citation type="doi">10.1093/bioinformatics/btv688</citation>
+            <citation type="doi">10.1093/bioinformatics/btu266</citation>
+            <citation type="doi">10.1093/bioinformatics/btv337</citation>
+            <yield/>
+        </citations>
+    </xml>
+
+    <token name="@HELP_ACKNOWLEDGMENTS@">
+.. class:: infomark
+        
+**Acknowledgments**
+
+Original wrapper developed by Lionel Guy and Philip Mabon. Anton Korobeynikov greatlty helped understanding how SPAdes work, and integrated handy features into SPAdes. Nicola Soranzo fixed various bugs. Simon Gladman added fastg optional outputs.
     </token>
 </macros>
