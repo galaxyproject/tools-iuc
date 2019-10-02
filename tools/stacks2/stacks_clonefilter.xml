@@ -1,0 +1,162 @@
+<tool id="stacks2_clonefilter" name="Stacks2: clone filter" profile="@PROFILE@" version="@STACKS_VERSION@+galaxy@WRAPPER_VERSION@">
+<description>Identify PCR clones</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_cmd"/>
+    <command detect_errors="aggressive"><![CDATA[
+@FASTQ_INPUT_FUNCTIONS@
+
+mkdir stacks_inputs stacks_outputs &&
+
+#set ($link_command, $fwd_path, $rev_path, $inputype) = $fastq_input_batch($input_type.fqinputs, $input_type.input_type_select)
+$link_command
+
+clone_filter
+#if $input_type.input_type_select == 'single':
+    -f '$fwd_path'
+#else
+    -1 '$fwd_path'
+    -2 '$rev_path'
+#end if
+
+-i $inputype
+
+-o stacks_outputs
+$capture
+$input_type.barcode_encoding
+#if $oligo_len_1
+    --oligo_len_1 $oligo_len_1
+#end if
+#if $oligo_len_2
+    --oligo_len_2 $oligo_len_2
+#end if
+$retain_oligo
+## only supports fastq.gz output since the
+## the program outputs empty files for fasta/fastq
+-y gzfastq
+@TEE_APPEND_LOG@
+@CAT_LOG_TO_STDERR@
+
+## move outputs such that Galaxy can find them
+#if $capture:
+    #if $input_type.input_type_select == "single"
+        && mv stacks_outputs/*.discards.fq.gz '$discarded'
+    #else
+        && mv stacks_outputs/*.discards.1.fq.gz '$discarded_pair.forward'
+        && mv stacks_outputs/*.discards.2.fq.gz '$discarded_pair.reverse'
+    #end if
+#end if
+#if $input_type.input_type_select == "single"
+    && mv stacks_outputs/*.fq.gz '$clean'
+#else
+    && mv stacks_outputs/*.1.fq.gz '$clean_pair.forward'
+    && mv stacks_outputs/*.2.fq.gz '$clean_pair.reverse'
+#end if
+]]></command>
+    <inputs>
+        <expand macro="fastq_input_bc"/>
+        <param name="capture" type="boolean" checked="false" truevalue="-D" falsevalue="" argument="-D" label="Capture discarded reads to a file" />
+        <param name="oligo_len_1" type="integer" value="0" label="Length of the single-end oligo sequence in dataset"/>
+        <param name="oligo_len_2" optional="true" type="integer" label="Length of the paired-end oligo sequence in dataset"/>
+        <param argument="--retain_oligo" type="boolean" checked="false" truevalue="--retain_oligo" falsevalue="" label="Do not trim off the random oligo sequence (if oligo is inline)" />
+        <expand macro="in_log"/>
+    </inputs>
+    <outputs>
+        <expand macro="out_log"/>
+        <data format="fastqsanger.gz" name="clean" from_work_dir="outputs/R1.fq.gz" label="${tool.name} on ${on_string}">
+            <filter>input_type['input_type_select'] == 'single'</filter>
+        </data>
+        <collection name="clean_pair" type="paired" label="${tool.name} on ${on_string}">
+            <filter>input_type['input_type_select'] == 'paired'</filter>
+        </collection>
+        <data name="discarded" format="fastqsanger" label="${tool.name} on ${on_string}: discarded reads">
+            <filter>capture and input_type['input_type_select'] == 'single' and not options_kmer_char['k_dist']</filter>
+        </data>
+        <collection name="discarded_pair" type="paired" label="${tool.name} on ${on_string}: discarded reads">
+            <filter>capture and input_type['input_type_select'] == 'paired' and not options_kmer_char['k_dist']</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- single end, defaults-->
+        <test>
+            <conditional name="input_type">
+                <param name="input_type_select" value="single" />
+                <param name="fqinputs" ftype="fastqsanger.gz" value="clonefilter/R1_0001.1.fq.gz" />
+            </conditional>
+            <param name="oligo_len_1" value="6" />
+            <param name="add_log" value="yes" />
+            <output name="output_log" ftype="txt" file="clonefilter/clonefilter.log" lines_diff="8"/>
+            <output name="clean" compare="sim_size" file="clonefilter/Removed1_0001.1.1.fq.single.gz"/>
+        </test>
+        <!-- single end, alt BCencoding, capture-->
+        <test>
+            <conditional name="input_type">
+                <param name="input_type_select" value="single" />
+                <param name="fqinputs" ftype="fastqsanger.gz" value="clonefilter/R1_0001.1.fq.gz" />
+                <param name="barcode_encoding" value="--index_null" />
+            </conditional>
+            <param name="capture" value="-D" />
+            <param name="oligo_len_1" value="6" />
+            <assert_command>
+                <has_text text="-D" />
+            </assert_command>
+            <output name="clean" compare="sim_size" file="clonefilter/Removed1_0001.1.1.fq.gz"/>
+            <output name="discarded" compare="sim_size" file="clonefilter/Removed1_0001.1.1.fq.gz"/>
+        </test>
+        <!-- paired end, defaults-->
+        <test>
+            <conditional name="input_type">
+                <param name="input_type_select" value="paired" />
+                <param name="fqinputs">
+                    <collection type="paired">
+                        <element name="forward" value="clonefilter/R1_0001.1.fq.gz" />
+                        <element name="reverse" value="clonefilter/R2_0001.2.fq.gz" />
+                    </collection>
+                </param>
+            </conditional>
+            <param name="oligo_len_1" value="6" />
+            <output_collection name="clean_pair" type="paired">
+                <element name="forward" compare="sim_size" file="clonefilter/Removed1_0001.1.1.fq.gz" />
+                <element name="reverse" compare="sim_size" file="clonefilter/Removed2_0001.2.2.fq.gz" />
+            </output_collection>
+        </test>
+        <!-- paired end, non defaults -->
+        <test>
+            <conditional name="input_type">
+                <param name="input_type_select" value="paired" />
+                <param name="fqinputs">
+                    <collection type="paired">
+                        <element name="forward" value="clonefilter/R1_0001.1.fq.gz" />
+                        <element name="reverse" value="clonefilter/R2_0001.2.fq.gz" />
+                    </collection>
+                </param>
+            </conditional>
+            <param name="oligo_len_1" value="6" />
+            <param name="capture" value="-D" />
+            <param name="retain_oligo" value="--retain_oligo" />
+            <assert_command>
+                <has_text text="--retain_oligo" />
+            </assert_command>
+            <output_collection name="clean_pair" type="paired">
+                <element name="forward" compare="sim_size" file="clonefilter/Removed1_0001.1.1.fq.gz" />
+                <element name="reverse" compare="sim_size" file="clonefilter/Removed2_0001.2.2.fq.gz" />
+            </output_collection>
+            <output_collection name="discarded_pair" type="paired">
+                <element name="forward" compare="sim_size" file="clonefilter/Removed1_0001.1.1.fq.gz" />
+                <element name="reverse" compare="sim_size" file="clonefilter/Removed2_0001.2.2.fq.gz" />
+            </output_collection>
+        </test>
+    </tests>
+    <help>
+<![CDATA[
+.. class:: infomark
+
+The clone_filter program is designed to identify PCR clones.
+
+@STACKS_INFOS@
+]]>
+    </help>
+    <expand macro="citation" />
+</tool>

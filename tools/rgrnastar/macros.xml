@@ -1,10 +1,39 @@
 <macros>
+    <!-- REMEMBER to bump the version of rna_star_index_builder_data_manager
+    whenever you make changes to the following two version tokens!
+    The data manager uses a symlink to this macro file to keep the versions in
+    sync. -->
+    <!-- STAR version to be used -->
+    <token name="@VERSION@">2.7.2b</token>
+    <!-- STAR index version compatible with this version of STAR
+    This is the STAR version that introduced the index structure expected
+    by the current version.
+    It can be found for any specific version of STAR with:
+    STAR -h | grep versionGenome
+    or by looking for the versionGenome parameter in source/parametersDefault
+    of STAR's source code -->
+    <token name="@IDX_VERSION@">2.7.1a</token>
+
     <xml name="requirements">
         <requirements>
-            <requirement type="package" version="2.6.0b">star</requirement>
-            <requirement type="package" version="1.8">samtools</requirement>
+            <requirement type="package" version="@VERSION@">star</requirement>
+            <requirement type="package" version="1.9">samtools</requirement>
         </requirements>
     </xml>
+
+    <xml name="index_selection" token_with_gene_model="0">
+        <param argument="--genomeDir" name="genomeDir" type="select"
+        label="Select reference genome"
+        help="If your genome of interest is not listed, contact the Galaxy team">
+            <options from_data_table="rnastar_index2_versioned">
+                <filter type="static_value" column="4" value="@WITH_GENE_MODEL@" />
+                <filter type="static_value" column="5" value="@IDX_VERSION@" />
+                <filter type="sort_by" column="2" />
+                <validator type="no_options" message="No indexes are available for the selected input dataset" />
+            </options>
+        </param>
+    </xml>
+
     <token name="@FASTQ_GZ_OPTION@">
         --readFilesCommand zcat
     </token>
@@ -13,8 +42,8 @@
             <citation type="doi">10.1093/bioinformatics/bts635</citation>
         </citations>
     </xml>
-    <xml name="@SJDBOPTIONS@">
-         <param argument="--sjdbGTFfile" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions" optional="true" help="Exon junction information for mapping splices"/>
+    <xml name="@SJDBOPTIONS@" token_optional="true">
+         <param argument="--sjdbGTFfile" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions" optional="@OPTIONAL@" help="Exon junction information for mapping splices"/>
          <param argument="--sjdbOverhang" type="integer" min="1" value="100" label="Length of the genomic sequence around annotated junctions" help="Used in constructing the splice junctions database. Ideal value is ReadLength-1"/>
     </xml>
     <xml name="dbKeyActions">
@@ -22,7 +51,7 @@
             <conditional name="refGenomeSource.geneSource">
                 <when value="indexed">
                     <action type="metadata" name="dbkey">
-                        <option type="from_data_table" name="rnastar_index2" column="1" offset="0">
+                        <option type="from_data_table" name="rnastar_index2_versioned" column="1" offset="0">
                             <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
                             <filter type="param_value" ref="refGenomeSource.GTFconditional.genomeDir" column="0"/>
                         </option>
@@ -35,5 +64,101 @@
                 </when>
             </conditional>
         </actions>
+    </xml>
+    <token name="@TEMPINDEX@"><![CDATA[
+    ## Create temporary index for custom reference
+    #if str($refGenomeSource.geneSource) == 'history':
+        mkdir -p tempstargenomedir &&
+        STAR
+            --runMode genomeGenerate
+            --genomeDir 'tempstargenomedir'
+            --genomeFastaFiles '${refGenomeSource.genomeFastaFiles}'
+            ## Handle difference between indices with/without annotations
+            #if str($refGenomeSource.GTFconditional.GTFselect) == 'with-gtf':
+                --sjdbOverhang '${refGenomeSource.GTFconditional.sjdbOverhang}'
+                --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
+                #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
+                    --sjdbGTFtagExonParentTranscript Parent
+                #end if
+            #end if
+            #if str($refGenomeSource.genomeSAindexNbases):
+                --genomeSAindexNbases ${refGenomeSource.genomeSAindexNbases}
+            #end if
+            --runThreadN \${GALAXY_SLOTS:-4}
+        &&
+    #end if
+    ]]></token>
+    <token name="@REFGENOMEHANDLING@" ><![CDATA[
+    --runThreadN \${GALAXY_SLOTS:-4}
+    --genomeLoad NoSharedMemory
+    --genomeDir
+    #if str($refGenomeSource.geneSource) == 'history':
+        tempstargenomedir
+    #else:
+        '${refGenomeSource.GTFconditional.genomeDir.fields.path}'
+        ## Handle difference between indices with/without annotations
+        #if str($refGenomeSource.GTFconditional.GTFselect) == 'without-gtf':
+            #if $refGenomeSource.GTFconditional.sjdbGTFfile:
+                --sjdbOverhang $refGenomeSource.GTFconditional.sjdbOverhang
+                --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
+                #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
+                    --sjdbGTFtagExonParentTranscript Parent
+                #end if
+            #end if
+        #end if
+        #end if
+        ]]></token>
+    <xml name="stdio" >
+        <stdio>
+            <regex match="FATAL error" source="both" level="fatal"/>
+            <regex match="EXITING: FATAL INPUT ERROR:" source="both" level="fatal"/>
+            <regex match="EXITING: fatal error trying to allocate genome arrays, exception thrown: std::bad_alloc" source="both" level="fatal"/>
+            <regex match="\[sam_read1\] missing header\? Abort!" source="both" level="fatal"/>
+            <yield />
+        </stdio>
+    </xml>
+    <xml name="refgenomehandling" >
+        <conditional name="refGenomeSource">
+            <param name="geneSource" type="select" label="Custom or built-in reference genome" help="Built-ins were indexed using default options">
+                <option value="indexed" selected="true">Use a built-in index</option>
+                <option value="history">Use reference genome from history and create temporary index</option>
+            </param>
+            <when value="indexed">
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" type="select"
+                           label="Reference genome with or without an annotation"
+                           help="Select the '... with builtin gene-model' option to select from the list of available indexes that were built with splice junction information. Select the '... without builtin gene-model' option to select from the list of available indexes without annotated splice junctions.">
+                        <option value="without-gtf" selected='true'>use genome reference without builtin gene-model</option>
+                        <option value="with-gtf">use genome reference with builtin gene-model</option>
+                    </param>
+                    <when value="with-gtf">
+                        <expand macro="index_selection" with_gene_model="1" />
+                    </when>
+                    <when value="without-gtf">
+                        <expand macro="index_selection" with_gene_model="0" />
+                        <expand macro="@SJDBOPTIONS@" />
+                    </when>
+                </conditional>
+            </when>
+            <when value="history">
+                <param argument="--genomeFastaFiles" type="data" format="fasta" label="Select a reference genome" />
+                <!-- Currently, this parameter is not exposed in the wrapper,
+                     but used only in the tests to avoid excessive index sizes for
+                     the tiny test genomes. -->
+                <param name="genomeSAindexNbases" type="hidden" value="" />
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" type="select"
+                           label="Build index with our without known splice junctions annotation"
+                           help="To build an index with known splice junctions annotated, you will have to provide a GTF or GFF3 dataset that describes the gene models (the location of genes, transcripts and exons) known for the reference genome.">
+                        <option value="without-gtf">build index without gene-model</option>
+                        <option value="with-gtf">build index with gene-model</option>
+                    </param>
+                    <when value="with-gtf">
+                        <expand macro="@SJDBOPTIONS@" optional="false"/>
+                    </when>
+                    <when value="without-gtf" />
+                </conditional>
+            </when>
+        </conditional>
     </xml>
 </macros>

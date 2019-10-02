@@ -1,0 +1,248 @@
+<tool id="stacks2_denovomap" name="Stacks2: de novo map" profile="@PROFILE@" version="@STACKS_VERSION@+galaxy@WRAPPER_VERSION@">
+    <description>the Stacks pipeline without a reference genome (denovo_map.pl)</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_cmd"/>
+    <command detect_errors="aggressive"><![CDATA[
+@FASTQ_INPUT_FUNCTIONS@
+mkdir stacks_inputs stacks_outputs &&
+
+#if $output_log
+    ln -s '$output_log' stacks_outputs/denovo_map.log &&
+#end if
+
+#set ($link_command, $inputype) = $fastq_input_nonbatch( $input_type.fqinputs, $input_type.input_type_select, ".%d" )
+$link_command
+
+denovo_map.pl
+--samples stacks_inputs
+#if str($popmap) != 'None':
+    --popmap '$popmap'
+#end if
+-o stacks_outputs
+-T \${GALAXY_SLOTS:-1}
+
+-M $assembly_options.M
+-n $assembly_options.n
+--var-alpha $model_options.var_alpha
+--gt-alpha $model_options.gt_alpha
+#if $input_type.input_type_select == "paired"
+    --paired
+#end if
+$pe_options.rm_pcr_duplicates
+--min-samples-per-pop $popfilter_options.min_samples_per_pop
+--min-populations $popfilter_options.min_populations
+
+## the catalog.calls output is a gzip-ed vcf extract it
+## to make it usable in Galaxy (with the downside that we
+## need to gzip it again for downstream calls like populations)
+&& gunzip -c stacks_outputs/catalog.calls > stacks_outputs/catalog.calls.vcf
+    ]]></command>
+
+    <inputs>
+        <expand macro="fastq_input"/>
+        <param argument="--popmap" type="data" optional="true" format="tabular,txt" label="Population map" />
+        <section name="assembly_options" title="Assembly options" expanded="true">
+            <param name="M" argument="-M" type="integer" value="2" label="Number of mismatches allowed between loci when processing a single individual" help="used in ustacks"/>
+            <param name="n" argument="-n" type="integer" value="1" label="Number of mismatches allowed between loci when building the catalog" help="used in cstacks; suggested: set to -M"/>
+        </section>
+        <section name="model_options" title="SNP model options" expanded="true">
+            <expand macro="variant_calling_options_vg" varalpha_default="0.01"/>
+        </section>
+		<section name="pe_options" title="Paired-end options" expanded="true">
+            <param argument="--rm-pcr-duplicates" name="rm_pcr_duplicates" type="boolean" checked="false" truevalue="--rm-pcr-duplicates" falsevalue="" label="remove all but one set of read pairs of the same sample that have the same insert length" help="" />
+        </section>
+		<section name="popfilter_options" title="Population filtering options" expanded="true">
+            <param argument="--min-samples-per-pop" name="min_samples_per_pop" type="integer" value="0" label="minimum percentage of individuals in a population required to process a locus for that population" help="(for populations; default: 0)"/>
+            <param argument="--min-populations" name="min_populations" type="integer" value="1" label="minimum number of populations a locus must be present in to process a locus" help="(for populations; default: 1)" />
+        </section>
+        <expand macro="in_log"/>
+    </inputs>
+    <outputs>
+        <expand macro="out_log"/> <!-- pipeline also writes tsv2bam.log, gstacks.log, populations.log .. could be a collection -->
+        <expand macro="ustacks_outputs_macro" tooladd="(ustacks)"/>
+        <expand macro="cstacks_outputs_macro" tooladd="(cstacks)"/>
+        <expand macro="sstacks_outputs_macro" tooladd="(sstacks)"/>
+        <expand macro="tsv2bam_outputs_macro" tooladd="(tsv2bam)"/>
+        <expand macro="gstacks_outputs_macro" tooladd="(gstacks)"/>
+        <expand macro="populations_output_light" tooladd="(populations)"/>
+    </outputs>
+
+    <tests>
+       <!-- paired input using also reverse reads,
+            the results are tested for equality, the tools corresponding the the programs
+            used in the pipeline have also a test (should be the first) that test for
+            equality thereby it is "ensured" that the pipeline w defaults is doing the same
+            as the components w defaults. -->
+        <test>
+            <param name="input_type|input_type_select" value="paired"/>
+            <param name="input_type|fqinputs">
+                <collection type="list:paired">
+                    <element name="PopA_01">
+                        <collection type="paired">
+                            <element name="forward" value="demultiplexed/PopA_01.1.fq" ftype="fastqsanger" />
+                            <element name="reverse" value="demultiplexed/PopA_01.2.fq" ftype="fastqsanger"/>
+                        </collection>
+                    </element>
+                    <element name="PopA_02">
+                        <collection type="paired">
+                            <element name="forward" value="demultiplexed/PopA_02.1.fq" ftype="fastqsanger" />
+                            <element name="reverse" value="demultiplexed/PopA_02.2.fq" ftype="fastqsanger"/>
+                        </collection>
+                    </element>
+                </collection>
+            </param>
+            <param name="popmap" ftype="tabular" value="denovo_map/popmap_cstacks.tsv" />
+            <output_collection name="tabs" count="6">
+                <element name="PopA_01.tags" file="ustacks/PopA_01.tags.tsv" ftype="tabular" lines_diff="2"/>
+                <element name="PopA_01.snps" file="ustacks/PopA_01.snps.tsv" ftype="tabular" lines_diff="2"/>
+                <element name="PopA_01.alleles" file="ustacks/PopA_01.alleles.tsv" ftype="tabular" lines_diff="2"/>
+                <element name="PopA_02.tags" file="ustacks/PopA_02.tags.tsv" ftype="tabular" lines_diff="2"/>
+                <element name="PopA_02.snps" file="ustacks/PopA_02.snps.tsv" ftype="tabular" lines_diff="2"/>
+                <element name="PopA_02.alleles" file="ustacks/PopA_02.alleles.tsv" ftype="tabular" lines_diff="2"/>
+            </output_collection>
+            <output_collection name="catalog" type="list" count="3">
+                <element name="catalog.alleles" file="cstacks/catalog.alleles.tsv" ftype="tabular" lines_diff="2"/>
+                <element name="catalog.snps" file="cstacks/catalog.snps.tsv" ftype="tabular" lines_diff="2" />
+                <element name="catalog.tags" file="cstacks/catalog.tags.tsv" ftype="tabular" lines_diff="2" />
+            </output_collection>
+            <output_collection name="matches" type="list" count="2">
+                <element name="PopA_01.matches" file="sstacks/PopA_01.matches.tsv" ftype="tabular" lines_diff="2"/>
+                <element name="PopA_02.matches" file="sstacks/PopA_02.matches.tsv" ftype="tabular" lines_diff="2"/>
+            </output_collection>
+            <output_collection name="bams" type="list" count="2">
+                <element name="PopA_01.matches" file="tsv2bam/PopA_01.matches.bam" ftype="bam" compare="sim_size"/>
+                <element name="PopA_02.matches" file="tsv2bam/PopA_02.matches.bam" ftype="bam" compare="sim_size"  />
+            </output_collection>
+            <output_collection name="gstacks_out" type="list" count="2">
+                <element name="catalog.calls.vcf" file="gstacks/catalog.calls.vcf" ftype="vcf" lines_diff="2"/>
+                <element name="catalog.fa.gz" file="gstacks/catalog.fa.gz" ftype="fasta.gz" compare="sim_size"/>
+            </output_collection>
+            <output ftype="tabular" name="out_haplotypes" value="populations/populations.haplotypes.tsv"/>
+            <output ftype="tabular" name="out_hapstats" value="populations/populations.hapstats.tsv" compare="sim_size"/>
+            <output ftype="txt" name="out_populations_log_distribs" value="populations/populations.log.distribs" compare="sim_size"/>
+            <output ftype="tabular" name="out_sumstats_sum" value="populations/populations.sumstats_summary.tsv"/>
+            <output ftype="tabular" name="out_sumstats" value="populations/populations.sumstats.tsv" compare="sim_size"/>
+            <output ftype="tabular" name="out_sql" value="populations/populations.markers.tsv"/>
+        </test>
+        <!-- SE input as multi selection, defaults testing against the output of the pipeline components -->
+        <test>
+            <param name="input_type|input_type_select" value="single"/>
+            <param name="input_type|fqinputs" value="demultiplexed/PopA_01.1.fq,demultiplexed/PopA_02.1.fq" ftype="fastqsanger" />
+            <param name="popmap" ftype="tabular" value="denovo_map/popmap_cstacks.tsv" />
+            <output_collection name="tabs" count="6"/>
+            <output_collection name="catalog" type="list" count="3"/>
+            <output_collection name="matches" type="list" count="2"/>
+            <output_collection name="bams" type="list" count="2"/>
+            <output_collection name="gstacks_out" type="list" count="2"/>
+            <output ftype="tabular" name="out_haplotypes"><assert_contents><has_text text="#"/></assert_contents></output>
+            <output ftype="tabular" name="out_hapstats"><assert_contents><has_text text="#"/></assert_contents></output>
+            <output ftype="txt" name="out_populations_log_distribs"><assert_contents><has_text text="#"/></assert_contents></output>
+            <output ftype="tabular" name="out_sumstats_sum"><assert_contents><has_text text="#"/></assert_contents></output>
+            <output ftype="tabular" name="out_sumstats"><assert_contents><has_text text="#"/></assert_contents></output>
+            <output ftype="tabular" name="out_sql"><assert_contents><has_text text="#"/></assert_contents></output>
+        </test>
+        <!-- SE input as list, non-defaults, testing only correct size of the collections -->
+        <test>
+            <param name="input_type|input_type_select" value="paired"/>
+            <param name="input_type|fqinputs">
+                <collection type="list">
+                    <element name="PopA_01" value="demultiplexed/PopA_01.1.fq" ftype="fastqsanger" />
+                    <element name="PopA_02" value="demultiplexed/PopA_02.1.fq" ftype="fastqsanger"/>
+                </collection>
+            </param>
+            <param name="popmap" ftype="tabular" value="denovo_map/popmap_cstacks.tsv" />
+            <param name="assembly_options|M" value="3" />
+            <param name="assembly_options|n" value="3" />
+            <param name="model_options|var_alpha" value="0.1" />
+            <param name="model_options|gt_alpha" value="0.1" />
+            <param name="pe_options|rm_pcr_duplicates" value="--rm-pcr-duplicates" />
+            <param name="popfilter_options|min_samples_per_pop" value="1"/>
+            <param name="popfilter_options|min_populations" value="0" />
+            <assert_command>
+                <has_text text="-M 3" />
+                <has_text text="-n 3" />
+                <has_text text="--var-alpha 0.1" />
+                <has_text text="--gt-alpha 0.1" />
+                <has_text text="--rm-pcr-duplicates" />
+                <has_text text="--min-samples-per-pop 1" />
+                <has_text text="--min-populations 0" />
+            </assert_command>
+            <output_collection name="tabs" count="6"/>
+            <output_collection name="catalog" type="list" count="3"/>
+            <output_collection name="matches" type="list" count="2"/>
+            <output_collection name="bams" type="list" count="2"/>
+            <output_collection name="gstacks_out" type="list" count="2"/>
+            <output ftype="tabular" name="out_haplotypes"><assert_contents><has_text text="#"/></assert_contents></output>
+            <output ftype="tabular" name="out_hapstats"><assert_contents><has_text text="#"/></assert_contents></output>
+            <output ftype="txt" name="out_populations_log_distribs"><assert_contents><has_text text="#"/></assert_contents></output>
+            <output ftype="tabular" name="out_sumstats_sum"><assert_contents><has_text text="#"/></assert_contents></output>
+            <output ftype="tabular" name="out_sumstats"><assert_contents><has_text text="#"/></assert_contents></output>
+            <output ftype="tabular" name="out_sql"><assert_contents><has_text text="#"/></assert_contents></output>
+        </test>
+    </tests>
+
+    <help>
+<![CDATA[
+.. class:: infomark
+
+**What it does**
+
+This program will run each of the Stacks components: first, running ustacks on each of the samples specified, building loci and calling SNPs in each. Second, cstacks will be run to create a catalog of all loci that were marked as 'parents' or 'samples' on the command line, and finally, sstacks will be executed to match each sample against the catalog. A bit more detail on this process can be found in the FAQ. The denovo_map.pl program will also load the results of each stage of the analysis: individual loci, the catalog, and matches against the catalog into the database (although this can be disabled). After matching, the program will build a database index to speed up access (index_radtags.pl) and enable web-based filtering.
+
+--------
+
+**Input files**
+
+FASTQ, FASTA
+
+- Population map::
+
+    indv_01    1
+    indv_02    1
+    indv_03    1
+    indv_04    2
+    indv_05    2
+    indv_06    2
+
+
+**Output files**
+
+
+- XXX.tags.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: For the tags file, each stack will start in the file with a consensus sequence for the entire stack followed by the flags for that stack. Then, each individual read that was merged into that stack will follow. The next stack will start with another consensus sequence.
+
+
+- XXX.snps.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: If a stack has two SNPs called within it, then there will be two lines in this file listing each one.
+
+
+- XXX.alleles.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+
+- XXX.matches.tsv file:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+Notes: Each line in this file records a match between a catalog locus and a locus in an individual, for a particular haplotype. The Batch ID plus the Catalog ID together represent a unique locus in the entire population, while the Sample ID and the Stack ID together represent a unique locus in an individual sample.
+
+
+- other files:
+
+See `Stacks output description <http://catchenlab.life.illinois.edu/stacks/manual/#files>`_
+
+@STACKS_INFOS@
+]]>
+    </help>
+    <expand macro="citation" />
+</tool>

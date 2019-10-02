@@ -1,0 +1,149 @@
+## Load in data
+args = commandArgs(trailingOnly = T)
+if (length(args) != 1){
+    stop("Please provide the config file")
+}
+
+suppressWarnings(suppressPackageStartupMessages(require(DropletUtils)))
+suppressWarnings(suppressPackageStartupMessages(require(Matrix)))
+suppressWarnings(suppressPackageStartupMessages(require(scater)))
+
+source(args[1])
+
+## Helper functions
+setSparse <- function(obj){
+    return(as(obj, "dgCMatrix"))
+}
+
+writeTSV <- function(fileout, obj){
+    write.table(as.matrix(obj), file=fileout, col.names=NA, sep='\t', quote=FALSE)
+}
+
+writeOut <- function(counts, fileout, typeout){
+    if (typeout == "tsv"){
+        writeTSV(fileout, counts)
+    }
+    else if (typeout == "h5ad"){
+        write10xCounts(fileout, counts, type="HDF5", overwrite=TRUE)
+    }
+    else if (typeout == "directory"){
+        write10xCounts(fileout, counts, type="sparse", overwrite=TRUE)
+    }
+}
+
+
+read10xFiles <- function(filein, typein){
+    sce <- NULL
+    if (typein == "tsv"){
+        ## Exploding memory problems occured here
+        ## - solution is to use the readSparseCounts function from scater
+        sce <- SingleCellExperiment(assays = list(counts = readSparseCounts(filein)))
+    }
+    else if (typein == "h5ad"){
+        sce <- read10xCounts(filein, col.names=T, type="HDF5")   # use barcodes.tsv as column names
+    }
+    else if (typein == "directory"){
+        sce <- read10xCounts(filein, col.names=T, type="sparse")
+    }
+    counts(sce) <- setSparse(counts(sce))
+    return(sce)
+}
+
+
+## Methods
+
+
+doEmptyDrops <- function(files, eparams, in.type="directory", out.type="h5ad", fdr_threshold = 0.01){
+    sce <- read10xFiles(files$infile, in.type)
+
+    eparams$... <- NULL ## hack
+    eparams$m = Matrix(counts(sce), sparse=TRUE)
+
+    e.out <- do.call(emptyDrops, c(eparams))
+
+    bar.names <- colnames(sce)
+    if (length(bar.names) != nrow(e.out)){
+        stop("Length of barcodes and output metrics don't match.")
+    }
+    e.out <- cbind(bar.names, e.out)
+    e.out$is.Cell <- e.out$FDR <= fdr_threshold
+    e.out$is.CellAndLimited <- e.out$is.Cell & e.out$Limited
+
+    ## Write to Plot
+    e.out$is.Cell[is.na(e.out$is.Cell)] <- FALSE
+    xlim.dat <- e.out[complete.cases(e.out),]$Total
+
+    ## Write to table
+    writeTSV(files$table, e.out[complete.cases(e.out),])
+
+    png(files$plot)
+    plot(e.out$Total, -e.out$LogProb, col=ifelse(e.out$is.Cell, "red", "black"),
+         xlab="Total UMI count", ylab="-Log Probability",
+         xlim=c(min(xlim.dat),max(xlim.dat)))
+    dev.off()
+
+    ## Filtered
+    called <- NULL
+    if (fdr_threshold != 0){
+        called <- e.out$is.CellAndLimited
+    } else {
+        called <- e.out$is.Cell
+    }
+    called[is.na(called)] <- FALSE    # replace NA's with FALSE
+    sce.filtered <- sce[,called]
+
+    writeOut(counts(sce.filtered), files$out, out.type)
+
+    message(paste("Cells:", sum(na.omit(e.out$is.Cell))))
+    message(paste("Cells and Limited:", sum(na.omit(e.out$is.CellAndLimited))))
+}
+
+
+doDefaultDrops <- function(files, dparams, in.type="directory", out.type="h5ad"){
+    sce <- read10xFiles(files$infile, in.type)
+
+    dparams$m = counts(sce)
+    called <- do.call(defaultDrops, c(dparams))
+
+    # Filtered
+    sce.filtered <- sce[,called]
+
+    writeOut(Matrix(counts(sce.filtered),sparse=TRUE), files$out, out.type)
+
+    message(paste("Cells:", sum(called)))
+}
+
+
+doBarcodeRankings <- function(files, bparams, in.type="directory"){
+    sce <- read10xFiles(files$infile, in.type)
+
+    bparams$... <- NULL ## hack
+    bparams$m = counts(sce)
+
+    br.out <- do.call(barcodeRanks, c(bparams))
+
+    png(files$plot)
+    plot(br.out$rank, br.out$total, log="xy", xlab="(log) Rank", ylab="(log) Total Number of Barcodes")
+    o <- order(br.out$rank)
+    lines(br.out$rank[o], br.out$fitted[o], col="red")
+
+    abline(h=br.out$knee, col="dodgerblue", lty=2)
+    abline(h=br.out$inflection, col="forestgreen", lty=2)
+    legend("bottomleft", lty=2, col=c("dodgerblue", "forestgreen"), legend=c("knee", "inflection"))
+    dev.off()
+
+    print(paste("knee =", br.out$knee, ", inflection = ", br.out$inflection))
+}
+
+## Main
+set.seed(seed.val)
+
+if (do.method == "barcodeRankings") {
+    doBarcodeRankings(files, bparams, in.type)
+
+} else if (do.method == "defaultDrops") {
+    doDefaultDrops(files, dparams, in.type, out.type)
+
+} else if (do.method == "emptyDrops") {
+    doEmptyDrops(files, eparams, in.type, out.type, empty.fdr_threshold)
+}
