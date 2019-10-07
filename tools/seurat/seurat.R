@@ -8,109 +8,72 @@ suppressPackageStartupMessages({
     library(SingleCellExperiment)
     library(dplyr)
     library(optparse)
+    library(rmarkdown)
+    library(ggplot2)
 })
 
-option_list <- list(
-    make_option(c("-counts","--counts"), type="character", help="Counts file"),
-    make_option(c("-numPCs","--numPCs"), type="integer", help="Number of PCs to use in plots"),
-    make_option(c("-min.cells","--min.cells"), type="integer", help="Minimum cells to include"),
-    make_option(c("-min.genes","--min.genes"), type="integer", help="Minimum genes to include"),
-    make_option(c("-low.thresholds","--low.thresholds"), type="double", help="Low threshold for filtering cells"),
-    make_option(c("-high.thresholds","--high.thresholds"), type="double", help="High threshold for filtering cells"),
-    make_option(c("-x.low.cutoff","--x.low.cutoff"), type="double", help="X-axis low cutoff for variable genes"),
-    make_option(c("-x.high.cutoff","--x.high.cutoff"), type="double", help="X-axis high cutoff for variable genes"),
-    make_option(c("-y.cutoff","--y.cutoff"), type="double", help="Y-axis cutoff for variable genes"),
-    make_option(c("-cells.use","--cells.use"), type="integer", help="Cells to use for PCHeatmap"),
-    make_option(c("-resolution","--resolution"), type="double", help="Resolution in FindClusters"),
-    make_option(c("-min.pct","--min.pct"), type="double", help="Minimum percent cells in FindClusters"),
-    make_option(c("-logfc.threshold","--logfc.threshold"), type="double", help="LogFC threshold in FindClusters"),
-    make_option(c("-rds","--rds"), type="logical", help="Output Seurat RDS object")
-  )
+min_cells <- 3
+min_genes <- 200
+low_thresholds <- 1
+high_thresholds <- 20000000
+x_low_cutoff <- 0.0125
+x_high_cutoff <- 3
+y_cutoff <- 0.5
+numPCs <- 10
+cells_use <- 500
+resolution <- 0.6
+min_pct <- 0.25
+logfc_threshold <- 0.25
 
-parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
-args = parse_args(parser)
 
-counts <- read.delim(args$counts, row.names=1)
-seuset <- CreateSeuratObject(raw.data = counts, min.cells = args$min.cells, min.genes = args$min.cells)
+# *Read in Data, generate inital Seurat object*
 
-# Open PDF for plots
-pdf("out.pdf")
+counts <- read.delim("~/Downloads/deng_small.tab.gz", row.names=1)
+seuset <- CreateSeuratObject(counts = counts, min.cells = min_cells, min.features = min_genes)
 
-VlnPlot(object = seuset, features.plot = c("nGene", "nUMI"), nCol = 2)
-GenePlot(object = seuset, gene1 = "nUMI", gene2 = "nGene")
 
-print("Filtering cells")
-if (!is.null(args$low.thresholds)){
-    lowthresh <- args$low.thresholds
-} else {
-    lowthresh <- "-Inf"
-}
-if (!is.null(args$high.thresholds)){
-    highthresh <- args$high.thresholds
-} else {
-    highthresh <- "Inf"
-}
-seuset <- FilterCells(object = seuset, subset.names = c("nUMI"), 
-    low.thresholds=c(lowthresh), high.thresholds = c(highthresh))
+# Raw data vizualization
+VlnPlot(object = seuset, features = c("nFeature_RNA", "nCount_RNA"), axis="v")
+FeatureScatter(object = seuset, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
 
-print("Normalizing the data")
-seuset <- NormalizeData(object = seuset, normalization.method = "LogNormalize", 
-    scale.factor = 10000)
 
-print("Finding variable genes")
-seuset <- FindVariableGenes(object = seuset, mean.function = ExpMean, 
-    dispersion.function = LogVMR, 
-    x.low.cutoff = args$x.low.cutoff, 
-    x.high.cutoff = args$x.high.cutoff,,
-    y.cutoff = args$y.cutoff
-)
+# Filter and normalize for UMI counts
 
-print("Scaling the data and removing unwanted sources of variation")
-seuset <- ScaleData(object = seuset, vars.to.regress = c("nUMI"))
+seuset <- subset(seuset, subset = `nCount_RNA` > low_thresholds & `nCount_RNA` < high_thresholds)
+seuset <- NormalizeData(seuset, normalizeation.method = "LogNormalize", scale.factor = 10000)
 
-print("Performing PCA analysis")
-seuset <- RunPCA(object = seuset, pc.genes = seuset@var.genes)
-VizPCA(object = seuset, pcs.use = 1:2)
-PCAPlot(object = seuset, dim.1 = 1, dim.2 = 2)
-PCHeatmap(
-    object = seuset, 
-    pc.use = 1:args$numPCs, 
-    cells.use = args$cell.use, 
-    do.balanced = TRUE, 
-    label.columns = FALSE,
-    use.full = FALSE
-)
+# Variable Genes
 
-print("Determining statistically significant principal components")
-seuset <- JackStraw(object = seuset, num.replicate = 100, display.progress= FALSE)
-JackStrawPlot(object = seuset, PCs = 1:args$numPCs)
-PCElbowPlot(object = seuset)
+seuset <- FindVariableFeatures(seuset,selection.method = "mvp",
+                               x.low.cutoff = x_low_cutoff,
+                               x.high.cutoff = x_high_cutoff,
+                               y.cutoff = y_cutoff
+                               )
 
-print("Clustering the cells")
-seuset <- FindClusters(
-    object = seuset, 
-    reduction.type = "pca", 
-    dims.use = 1:args$numPCs, 
-    resolution = args$resolution,
-    print.output = 0, 
-    save.SNN = TRUE
-)
+VariableFeaturePlot(seuset, cols = c("black", "red"), selection.method = "disp")
 
-print("Running non-linear dimensional reduction (tSNE)")
-seuset <- RunTSNE(object = seuset, dims.use = 1:args$numPCs, do.fast = TRUE)
-TSNEPlot(object = seuset)
 
-print("Finding differentially expressed genes (cluster biomarkers)")
-markers <- FindAllMarkers(object = seuset, only.pos = TRUE, min.pct = args$min.pct,
-    logfc.threshold = args$logfc.threshold)
+seuset <- ScaleData(object = seuset, vars.to.regress = "nCount_RNA")
+
+# PCA vizualization
+seuset <- RunPCA(seuset, npcs=10)
+VizDimLoadings(seuset, dims = 1:2)
+PCAPlot(seuset, dims = c(1,2))
+DimHeatmap(seuset, dims=1:10, nfeatures=30, reduction="pca")
+seuset <- JackStraw(seuset, dims=10, reduction = "pca", num.replicate = 100)
+seuset <- ScoreJackStraw(seuset, dims = 1:10)
+JackStrawPlot(seuset, dims = 1:10)
+ElbowPlot(seuset, ndims = 20, reduction = "pca")
+
+# tSNE
+seuset <- FindNeighbors(object = seuset)
+seuset <- FindClusters(object = seuset)
+seuset <- RunTSNE(seuset, dims = 1:10, resolution =0.6)
+TSNEPlot(seuset)
+
+# Marker Genes
+markers <- FindAllMarkers(seuset, only.pos = TRUE, min.pct = min_pct, logfc.threshold = logfc_threshold)
 top10 <- markers %>% group_by(cluster) %>% top_n(10, avg_logFC)
-DoHeatmap(object = seuset, genes.use = top10$gene, slim.col.label = TRUE, remove.key = TRUE)
+DoHeatmap(seuset, features = top10$gene)
 
-# Close PDF for plots
-dev.off()
-
-if (!is.null(args$rds) ) {
-  saveRDS(seuset, "Seurat.rds")
-}
-
-sessionInfo()
+rmarkdown::render('/Users/alexanderostrovsky/Desktop/galaxy/tools/myTools/seurat/Seurat.R')
