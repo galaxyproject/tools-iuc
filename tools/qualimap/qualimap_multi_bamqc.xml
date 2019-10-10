@@ -1,0 +1,198 @@
+<tool id="qualimap_multi_bamqc" name="QualiMap Multi-Sample BamQC" version="@VERSION@">
+    <macros>
+        <import>qualimap_macros.xml</import>
+        <xml name="test_collection">
+            <collection type="list">
+                <element name="genome_results" value="genome_results_inside_features.txt" />
+                <element name="coverage_across_reference" value="coverage_across_reference.txt" />
+                <element name="coverage_histogram" value="coverage_histogram.txt" />
+                <element name="genome_fraction_coverage" value="genome_fraction_coverage.txt" />
+                <element name="duplication_rate_histogram" value="duplication_rate_histogram.txt" />
+                <element name="mapped_reads_clipping_profile" value="mapped_reads_clipping_profile.txt" />
+                <element name="mapped_reads_gc-content_distribution" value="mapped_reads_gc-content_distribution.txt" />
+                <element name="mapped_reads_nucleotide_content" value="mapped_reads_nucleotide_content.txt" />
+                <element name="mapping_quality_across_reference" value="mapping_quality_across_reference.txt" />
+                <element name="mapping_quality_histogram" value="mapping_quality_histogram.txt" />
+            </collection>
+        </xml>
+    </macros>
+    <expand macro="version_command" />
+    <command detect_errors="exit_code"><![CDATA[
+        #if str($input.mode) == 'grouped':
+          #set $n = 0
+          #for group in $input.groups:
+            #set $n = $n + 1
+            #for $n, $data in enumerate($group.bam_qc_data, $n):
+              #set $coll = $data.bam_qc_input
+              #set $sample_name = str($coll.name).replace(' ', '_')
+              printf '%s\tbam_qc_data%d\t%s\n' '${sample_name}' ${n} '${group.name}' >> data_spec.txt &&
+              mkdir -p bam_qc_data$n/raw_data_qualimapReport &&
+              #for $dataset in $coll:
+                #if str($dataset.element_identifier) == 'genome_results':
+                  ln -s '$dataset' 'bam_qc_data$n/${dataset.element_identifier}.txt' &&
+                #else:
+                  ln -s '$dataset' 'bam_qc_data$n/raw_data_qualimapReport/${dataset.element_identifier}.txt' &&
+                #end if
+              #end for
+            #end for
+          #end for
+          #if all(len($group.bam_qc_data) == 1 for group in $input.groups):
+            ## Warn about an inconsistency in the behavior of the current
+            ## version of Qualimap.
+            ## When each group consists of exactly one BAM QC input,
+            ## Qualimap will ignore the group names and use the sample names
+            ## in the plot legends instead.
+            printf "Warning: Only a single sample was assigned to each sample group!\nQualimap will use sample names, not group names in plot legends.\nYou may want to  report samples individually to be able to specify custom sample names.\n\n" &&
+          #end if
+        #else:
+          #for $n, $data in enumerate($input.bam_qc_data):
+            #set $coll = $data.bam_qc_input
+            #set $sample_name = (str($data.sample_name).strip() or str($coll.name)).replace(' ', '_')
+            printf '%s\tbam_qc_data%d\t%d\n' '${sample_name}' '${n}' '${n}' >> data_spec.txt &&
+            mkdir -p bam_qc_data$n/raw_data_qualimapReport &&
+            #for $dataset in $coll:
+                #if str($dataset.element_identifier) == 'genome_results':
+                  ln -s '$dataset' 'bam_qc_data$n/${dataset.element_identifier}.txt' &&
+                #else:
+                  ln -s '$dataset' 'bam_qc_data$n/raw_data_qualimapReport/${dataset.element_identifier}.txt' &&
+                #end if
+            #end for
+          #end for
+        #end if
+
+        @SET_JAVA_OPTS@ &&
+        qualimap multi-bamqc
+        --data data_spec.txt
+        -outdir results -outformat html &&
+
+        #set $report_name = 'multisampleBamQcReport'
+        #set $summary_report = None
+        @MASSAGE_OUTPUT@
+    ]]></command>
+
+    <inputs>
+        <conditional name="input">
+            <param name="mode" type="select"
+            label="Report samples"
+            help="">
+                <option value="individual">Individually</option>
+                <option value="grouped">In groups</option>
+            </param>
+            <when value="individual">
+                <repeat name="bam_qc_data" default="2" min="2"
+                title="BAM QC data to combine">
+                    <param name="bam_qc_input" type="data_collection" collection_type="list" format="txt"
+                    label="Single-sample BAM QC data"
+                    help="" />
+                    <param name="sample_name" type="text"
+                    label="Name to use for this dataset"
+                    help="This is the name that will be used for this dataset throughout the Qualimap report. Default: Name of the raw data collection in the history" />
+                </repeat>
+            </when>
+            <when value="grouped">
+                <repeat name="groups" default="1" min="1" title="Groups">
+                    <param name="name" type="text" label="Name of the group">
+                        <validator type="expression" message="A name is required for every group">value.strip()</validator>
+                    </param>
+                    <repeat name="bam_qc_data" default="1" min="1"
+                    title="Data associated with this group">
+                        <param name="bam_qc_input" type="data_collection" collection_type="list" format="txt" multiple="true"
+                        label="Single-sample BAM QC data"
+                        help="" />
+                    </repeat>
+                </repeat>
+            </when>
+        </conditional>
+    </inputs>
+
+    <outputs>
+        <data name="output_html" format="html" />
+    </outputs>
+    <tests>
+        <test>
+            <conditional name="input">
+                <param name="mode" value="individual" />
+                <repeat name="bam_qc_data">
+                    <param name="bam_qc_input">
+                        <expand macro="test_collection" />
+                    </param>
+                </repeat>
+                <repeat name="bam_qc_data">
+                    <param name="bam_qc_input">
+                        <expand macro="test_collection" />
+                    </param>
+                </repeat>
+            </conditional>
+            <output name="output_html" ftype="html">
+                <assert_contents>
+                    <has_text text="Qualimap report: Multi-sample BAM QC" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+This tool lets you combine the summary statistics, obtained through multiple
+runs of the *Qualimap BamQC* tool, of several aligned reads datasets into a
+single report.
+
+This makes it easy to visualize the degree of similarities between the
+different inputs and to spot differences between them.
+
+Input
+=====
+
+Several *Raw Data* collections obtained from previous runs of *Qualimap BamQC*.
+
+Options
+-------
+
+*Report samples* -> ``Individually`` / ``In groups``
+
+You may decide to group the input data for reporting, in which case you will
+need to provide a name for each group that will be used in the plot legends.
+
+Output
+======
+
+The single HTML report generated by this tool contains the following:
+
+*Input data and parameters*
+
+This section lists the names of the BamQC Raw Data collections that served as
+input along with the names of the groups (if any) each input got assigned to.
+
+*Summary*
+
+The summary table contains comparison of selected critical alignment metrics for all samples. The metrics include mean and standard deviation of coverage, mean GC content, mean insert size and mean mapping qualities. If the sample groups are provided, they are also shown for each sample.
+
+*PCA plot*
+
+The alignment features presented in the Summary section undergo Principal Component Analysis. Afterwards the biplot presenting first and second principal component is constructed. It allows to detect if any samples group together and if there are any outliers among the analyzed samples.
+
+*Other plots*
+
+Here you will find plots of:
+
+- Coverage Across Reference,
+- Coverage Histogram,
+- Genome Fraction Coverage,
+- Duplication Rate Histogram,
+- Mapped Reads GC Content,
+- Mapped Reads GC Content Distribution,
+- Mapped Reads Clipping Profile,
+- Mapping Quality Across Reference,
+- Mapping Quality Histogram
+
+and, if applicable,
+
+- Insert Size Across Reference,
+- Insert Size Histogram
+
+Essentially, these are overlays of the plots of the individual inputs (or of
+the groups they have been assigned to) and that are explained in the help of
+the *Qualimap BamQC* tool.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

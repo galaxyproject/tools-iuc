@@ -1,0 +1,382 @@
+<tool id="qualimap_rnaseq" name="QualiMap RNA-Seq QC" version="@VERSION@">
+    <macros>
+        <import>qualimap_macros.xml</import>
+    </macros>
+    <expand macro="version_command" />
+    <command detect_errors="exit_code"><![CDATA[
+        @SET_JAVA_OPTS@ &&
+
+        qualimap rnaseq
+        -bam '${seq_info.input}'
+        -gtf '$features'
+        ${seq_info.treat_as_pe}
+        ${seq_info.sorted}
+        ${counts_out.report_counts}
+        --sequencing-protocol ${read_filtering.library_type}
+        --algorithm ${read_filtering.treat_multimappers}
+        -outdir results -outformat html &&
+
+        #set $report_name = 'qualimapReport'
+        #set $summary_report = 'rnaseq_qc_results.txt'
+        #if str($counts_out.report_counts):
+            #set $ccol_name = str($counts_out.ccol_name).strip() or str($seq_info.input.name).replace(' ', '_')
+            printf '#GeneID\t%s\n' '$ccol_name' > '$output_counts' &&
+            cat results/counts.txt >> '$output_counts' &&
+        #end if
+        @MASSAGE_OUTPUT@
+    ]]></command>
+    <inputs>
+        <conditional name="seq_info">
+            <param argument="-pe" name="treat_as_pe" type="select"
+            label="Counting mode"
+            help="You will usually want to choose 'Count fragments' for paired-end data. For single-end data, choose 'Count reads'. See tool help below.">
+                <option value="">Count reads</option>
+                <option value="--paired">Count fragments</option>
+            </param>
+            <when value="">
+                <param argument="-bam" name="input" type="data" format="bam"
+                label="Mapped reads input dataset" />
+                <param name="sorted" type="hidden" value="" />
+            </when>
+            <when value="--paired">
+                <param argument="-bam" name="input" type="data" format="qname_sorted.bam"
+                label="Mapped reads input dataset" />
+                <param name="sorted" type="hidden" value="--sorted" />
+            </when>
+        </conditional>
+        <param argument="-gtf" name="features" type="data" format="gtf"
+        label="Genome annotation data" />
+        <conditional name="counts_out">
+            <param argument="-oc" name="report_counts" type="select"
+            label="Keep the per-gene counts data?"
+            help="The resulting dataset can, for example, serve as input to QualiMap Counts QC for further assessment.">
+                <option value="">No, just report statistics</option>
+                <option value="-oc counts.txt">Yes, generate separate counts output</option>
+            </param>
+            <when value="" />
+            <when value="-oc counts.txt">
+                <param name="ccol_name" type="text"
+                label="Name to use for the counts column"
+                help="Consider using the name of the analyzed sample here. Default: Name of the mapped reads input dataset in the history" />
+            </when>
+        </conditional>
+        <section name="read_filtering" title="Read selection for counting" expanded="true">
+            <param argument="-p" name="library_type" type="select" display="radio"
+            label="Strandedness">
+                <option value="non-strand-specific">Count reads/fragments independent of strandedness</option>
+                <option value="strand-specific-forward">Count only reads/fragments expected in forward-stranded data</option>
+                <option value="strand-specific-reverse">Count only reads/fragments expected in reverse-stranded data</option>
+            </param>
+            <param argument="-a" name="treat_multimappers" type="select" display="radio"
+            label="Multimapping reads">
+                <option value="uniquely-mapped-reads">Count uniquely mapped reads only</option>
+                <option value="proportional">Count also multimapping reads</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_html" format="html"
+        label="${tool.name} report on ${on_string}" />
+        <data name="output_counts" format="tsv"
+        label="${tool.name} counts on ${on_string}">
+            <filter>str(counts_out['report_counts'])</filter>
+        </data>
+        <collection name="raw_data" type="list"
+        label="Raw data for ${tool.name} on ${on_string}">
+            <data name="rnaseq_qc_results" format="txt" from_work_dir="results/summary_report.txt" />
+            <data name="coverage_profile_along_genes_high" format="tsv" from_work_dir="results/coverage_profile_along_genes_high.txt" />
+            <data name="coverage_profile_along_genes_low" format="tsv" from_work_dir="results/coverage_profile_along_genes_low.txt" />
+            <data name="coverage_profile_along_genes_total" format="tsv" from_work_dir="results/coverage_profile_along_genes_total.txt" />
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="6">
+            <conditional name="seq_info">
+                <param name="treat_as_pe" value="" />
+                <param name="input" value="test_mapped_reads.bam" />
+            </conditional>
+            <param name="features" value="features.gtf" />
+            <output name="output_html" ftype="html">
+                <assert_contents>
+                    <has_text text="Qualimap report: RNA Seq QC" />
+                </assert_contents>
+            </output>
+            <output_collection name="raw_data" type="list">
+                <element name="rnaseq_qc_results" file="rnaseq_qc_results_default.txt" ftype="txt" compare="diff" lines_diff="4" />
+            </output_collection>
+        </test>
+        <test expect_num_outputs="7">
+            <conditional name="seq_info">
+                <param name="treat_as_pe" value="--paired" />
+                <param name="input" value="test_mapped_reads.bam" />
+            </conditional>
+            <param name="features" value="features.gtf" />
+            <conditional name="counts_out">
+                <param name="report_counts" value="-oc counts.txt" />
+                <param name="ccol_name" value="try_this" />
+            </conditional>
+            <section name="read_filtering">
+                <param name="library_type" value="strand-specific-forward" />
+                <param name="treat_multimappers" value="proportional" />
+            </section>
+            <output name="output_html" ftype="html">
+                <assert_contents>
+                    <has_text text="Qualimap report: RNA Seq QC" />
+                </assert_contents>
+            </output>
+            <output name="output_counts" file="rnaseq_qc_counts_custom.txt" ftype="tsv" />
+            <output_collection name="raw_data" type="list">
+                <element name="rnaseq_qc_results" file="rnaseq_qc_results_custom.txt" ftype="txt" compare="diff" lines_diff="4" />
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+**Qualimap RNA-Seq QC** reports quality control metrics and bias estimations
+which are specific for whole transcriptome sequencing, including reads genomic
+origin, junction analysis, transcript coverage and 5’-3’ bias computation.
+As such, the tool complements the more general analysis with QualiMap BamQC,
+and its (optional) gene counts output can be analyzed further with QualiMap
+Counts QC.
+
+
+Input
+=====
+
+*Mapped reads input dataset*
+
+The dataset holding the mapped reads to carry out the analysis with. Typically,
+this will have been produced by a splicing-aware aligner like *HISAT2* or *RNA
+STAR*.
+
+*Genome annotation data*
+
+A GTF dataset of genomic features that mapped reads should be counted for.
+
+
+Parameters
+----------
+
+*Counting mode*
+
+Determines whether reads should be counted individually, or whether multiple
+reads originating from the same sequencing template (*i.e.*, the read and its
+mate in paired-end sequencing) should be counted as one.
+
+You will usually want to choose ``Count fragments`` for paired-end data. For
+single-end data, choose ``Count reads``.
+
+*Keep the per-gene counts data?*
+
+Controls whether the optional Counts output dataset should be produced, or not.
+
+If you choose to produce this dataset, you can use:
+
+*Name to use for the counts column* to specify the name of the second column in
+that output.
+
+Using, for example, the name of the analyzed sample here can help you keep
+track of your data, especially when joining several counts datasets into a
+count matrix later on. In addition, *Qualimap Counts QC* will reuse the
+names of counts columns as sample names.
+
+**Read selection for counting** section
+
+*Strandedness*
+
+Choose here the option that fits the strand-specificity of your sequencing
+library.
+
+The Galaxy Training Material has an excellent discussion of sequencing
+data strandedness included in the
+`Reference-based RNA-Seq data analysis <https://galaxyproject.github.io/training-material/topics/transcriptomics/tutorials/ref-based/tutorial.html#count-the-number-of-reads-per-annotated-gene>`__
+tutorial.
+
+*Multimapping reads*
+
+Choose here how to treat reads that are mapped ambiguously to several genome locations.
+
+- *Count uniquely mapped reads only* excludes multi-mapping reads
+
+- *Count also multimapping reads* activates *proportional* counting of
+  multi-mapping reads.
+
+  In this mode, each read is weighted according to the number of mapped
+  locations. For example, a read mapped to 4 different locations will add 0.25
+  to the "counts" of each of the locations it maps to. The final calculated
+  counts per feature will be converted to integer numbers.
+
+Note: Detection of multi-mapping reads by the tool relies on the ``NH`` tag of
+reads in the BAM input, so make sure the aligner used to produce the dataset is
+configured to write this tag.
+
+
+Outputs
+=======
+
+HTML Report
+-----------
+
+**Summary Section**
+
+*Reads alignment*
+
+Summarizes the mapping characteristics of the reads in the input:
+
+- total number of mapped reads
+
+  reported as left/right read mates in case of paired-end reads; excludes
+  secondary alignments
+
+  If you accidentally selected `Count fragments` as the *Counting mode* for
+  single-end data these and the following count of *Number of aligned pairs*
+  will be zero.
+
+- total number of alignments
+
+  reports all alignment records found, including secondary alignments
+
+- number of secondary alignments
+
+- number of non-unique alignments
+
+  reports the number of alignment records with an ``NH`` tag greater than one;
+  corresponds to the number of alignments that will have been skipped during
+  counting when *Count uniquely mapped reads only* is selected
+
+- number of reads aligned to genes
+
+- number of ambiguous alignments
+
+  This is the number of mapped reads that span multiple annotated genes.
+  Such reads are always skipped during counting.
+
+- no feature assigned
+
+  reports the number of alignments that are not overlapping any annotated
+  feature; these may represent alignments to introns or intergenic regions, or,
+  if the number is really high, may indicate a problem with your genome
+  annotations
+
+- not aligned
+
+  number of reads not mapped by the aligner (but included in the BAM input)
+
+- strand specificity estimation (fwd/rev)
+
+  computed if *Count reads/fragments independent of strandedness* is selected;
+  estimate of the proportion of alignments in line with forward- and reverse-
+  strand-specificitiy of the sequencing library
+
+  Balanced proportions (*i.e.* ~ 0.5 forward- and ~ 0.5 reverse-strand support)
+  can be interpreted as likely non-strand-specificity of the sequencing library,
+  while a strand-specific library would manifest itself in a large fraction of
+  reads supporting that specific strand-specificity.
+
+*Reads genomic origin*
+
+Lists how many alignments (absolute number/fraction) fall into
+
+- exonic,
+- intronic,
+- intergenic
+
+regions, or are at least
+
+- overlapping an exon.
+
+*Transcript coverage profile*
+
+The profile provides ratios between mean coverage of 5’ regions, 3’ regions and whole transcripts.
+
+- 5’ bias
+
+  the ratio of coverage median of 5’ regions (defined as the first 100 nts) to whole transcripts
+
+- 3' bias
+
+  the ratio of coverage median of 3’ regions (defined as the last 100 nts) to whole transcripts
+
+- 5’-3’ bias
+
+  the ratio of 5' bias to 3' bias.
+
+*Junction analysis*
+
+Lists the total number of reads with splice junctions and the relative
+frequency of the (up to) 10 most frequent junction sequences.
+
+
+**Plots**
+
+*Reads Genomic Origin*
+
+A pie chart showing how many read alignments fall into exonic, intronic and
+intergenic regions.
+
+*Coverage Profile Along Genes (Total)*
+
+This plot shows the mean coverage profile of all genes with non-zero
+overall coverage.
+
+*Coverage Profile Along Genes (Low)*
+
+The plot shows the mean coverage profile of the 500 genes with the lowest, but non-zero overall coverage.
+
+*Coverage Profile Along Genes (High)*
+
+The plot shows the mean coverage profile of the 500 genes with the highest
+overall coverage.
+
+*Coverage Histogram (0-50x)*
+
+Coverage of genes from 0 to 50x. Genes with >50x coverage are added to the 50x
+bin.
+
+*Junction Analysis*
+
+This pie chart shows an analysis of the splice junctions observed in the
+alignments. It consists of three categories:
+
+- Known
+
+  observed splice junctions both sides of which are in line with the genome
+  annotation data
+
+- Partly known
+
+  observed splice junctions for which only one junction side can be deduced
+  from the genome annotation data
+
+- Novel
+
+  observed splice junctions not predicted on either side by the genome
+  annotation data
+
+
+Raw data
+--------
+
+This is a *Collection* of 4 individual datasets.
+
+Of these, the *rnaseq_qc_results* dataset provides a plain-text version of the
+*HTML report* *Summary* section.
+
+The other 3 datasets hold the tabular raw data underlying the three coverage
+profile plots in the *HTML Report*.
+
+
+Counts data
+-----------
+
+Optional. This is a 2-column tabular dataset of read or fragment counts
+(depending on the chosen *Counting mode*) per annotated gene. The first column
+lists the gene identifiers found in the *Genome annotation data*, the second
+the associated counts.
+
+This dataset represents valid (single-sample) input for the QualiMap Counts QC
+tool.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

@@ -1,0 +1,441 @@
+<tool id="qualimap_counts" name="QualiMap Counts QC" version="@VERSION@">
+    <macros>
+        <import>qualimap_macros.xml</import>
+        <xml name="gene_info">
+            <conditional name="gene_info">
+                <param name="source" type="select"
+                label="Additional information about genes">
+                    <option value="">None</option>
+                    <option value="builtin">Built-in gene information for supported species</option>
+                    <option value="custom">Custom gene information</option>
+                </param>
+                <when value="" />
+                <when value="builtin">
+                    <param argument="-s" name="species" type="select"
+                    label="Select species">
+                        <option value="HUMAN">Human</option>
+                        <option value="MOUSE">Mouse</option>
+                    </param>
+                </when>
+                <when value="custom">
+                    <param argument="-i" name="info" type="data" format="tsv"
+                    label="Qualimap compatible gene annotation data" />
+                </when>
+            </conditional>
+        </xml>
+    </macros>
+    <expand macro="version_command" />
+    <command detect_errors="exit_code"><![CDATA[
+        @SET_JAVA_OPTS@ &&
+
+        ## Inconveniently, metadata.column_names is a long string of
+        ## comma-separated, sanitized column name representations.
+        ## The following turns this string into a list of the actual names.
+        #set $sample_names = [
+          s.strip().replace(' ', '_')
+          for s in $input.metadata.column_names
+          .replace('__ob__','')
+          .replace('u__sq__','')
+          .replace('__sq__','')
+          .replace('__cb__','')
+          .split(',')
+        ][1:]
+        #if str($analysis.groups).strip():
+          #set $groups = [
+            v.strip().replace(' ', '_')
+            for v in str($analysis.groups).split(',')
+          ]
+        #else:
+          #set $groups = ['.'] * (int($input.metadata.columns) - 1)
+        #end if
+        #for $col, $sample, $group in zip(range(2, int($input.metadata.columns) + 1), $sample_names, $groups):
+          printf '%s\t%s\tcounts_data\t%d\n' '${sample}' '${group}' ${col} >> data_spec.txt &&
+        #end for
+
+        ln -s '$input' counts_data &&
+
+        qualimap counts
+        --data data_spec.txt
+        #if str($analysis.mode) == 'comparison':
+          --compare
+        #end if
+        #if str($analysis.mode) != 'multi_sample':
+          #if str($analysis.gene_info.source) == 'builtin':
+            --species ${analysis.gene_info.species}
+          #elif str($analysis.gene_info.source) == 'custom':
+            --info ${analysis.info}
+          #end if
+        #end if
+        --threshold $threshold
+        -outdir results -outformat html &&
+
+        #if str($analysis.mode) == 'comparison':
+            #set $report_name = 'ComparisonReport'
+        #elif str($analysis.mode) == 'multi_sample':
+            #set $report_name = 'GlobalReport'
+        #else:
+            #set $sample = $sample_names[int($analysis.sample_number) - 1]
+            ## Qualimap replaces '-' in sample names with '_' for
+            ## determining file names
+            #set $report_name = str($sample).replace('-', '_') + 'Report'
+        #end if
+        #set $summary_report = None
+        @MASSAGE_OUTPUT@
+    ]]></command>
+
+    <inputs>
+        <param name="input" type="data" format="tsv" label="Input counts data" />
+        <conditional name="analysis">
+            <param name="mode" type="select" label="Type of analysis to perform">
+                <option value="multi_sample">Report overview stats for all samples</option>
+                <option value="single_sample">Report feature count stats of a single sample</option>
+                <option value="comparison">Compare two groups of samples</option>
+            </param>
+            <when value="multi_sample">
+                <param name="groups" type="hidden" value="" />
+            </when>
+            <when value="single_sample">
+                <param name="groups" type="hidden" value="" />
+                <param name="sample_number" type="integer" value="1" min="1"
+                label="Which sample in the input would you like to analyze?" />
+                <expand macro="gene_info" />
+            </when>
+            <when value="comparison">
+                <param name="groups" type="text"
+                label="Assign each sample to one of two groups"
+                help="The 'Comparison' mode currently works for exactly two groups of samples. Enter comma-separated group names - one for each sample. The group names will be assigned to the samples in the order of the sample columns of the counts data.">
+                    <validator type="expression" message="Please specify a comma-separated list of group names. No group name in the list may be blank.">all(v.strip() for v in value.split(','))</validator>
+                    <validator type="expression" message="Please specify a comma-separated list of group names. Only two different group names are allowed.">len(set(v.strip() for v in value.split(','))) == 2</validator>
+                </param>
+                <expand macro="gene_info" />
+            </when>
+        </conditional>
+        <param argument="-k" name="threshold" type="integer" value="5" min="1"
+        label="Counts threshold" />
+    </inputs>
+    <outputs>
+        <data name="output_html" format="html" />
+    </outputs>
+    <tests>
+        <test>
+            <param name="input" value="mouse_counts_ensemble_1000_6.tsv" ftype="tsv" />
+            <conditional name="analysis">
+                <param name="mode" value="single_sample" />
+                <param name="sample_number" value="3" />
+            </conditional>
+            <assert_command>
+                <has_text text="results/_GlcN03Report.html" />
+            </assert_command>
+            <output name="output_html">
+                <assert_contents>
+                    <has_text text="Qualimap Report: Counts QC" />
+                    <not_has_text text="#Counts Distribution" />
+                    <not_has_text text="#Features With Low Counts" />
+                    <not_has_text text="#Bio Detection" />
+                    <not_has_text text="#Counts Per Biotype" />
+                    <not_has_text text="#Length Bias" />
+                    <not_has_text text="#GC Bias" />
+                    <not_has_text text="#Counts Density" />
+                    <not_has_text text="#Scatterplot Matrix" />
+                    <has_text text="#Saturation" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input" value="mouse_counts_ensemble_1000_6.tsv" ftype="tsv" />
+            <conditional name="analysis">
+                <param name="mode" value="single_sample" />
+                <param name="sample_number" value="3" />
+                <conditional name="gene_info">
+                    <param name="source" value="builtin" />
+                    <param name="species" value="MOUSE" />
+                </conditional>
+            </conditional>
+            <assert_command>
+                <has_text text="results/_GlcN03Report.html" />
+            </assert_command>
+            <output name="output_html">
+                <assert_contents>
+                    <has_text text="Qualimap Report: Counts QC" />
+                    <not_has_text text="#Counts Distribution" />
+                    <not_has_text text="#Features With Low Counts" />
+                    <has_text text="#Bio Detection" />
+                    <has_text text="#Counts Per Biotype" />
+                    <has_text text="#Length Bias" />
+                    <has_text text="#GC Bias" />
+                    <not_has_text text="#Counts Density" />
+                    <not_has_text text="#Scatterplot Matrix" />
+                    <has_text text="#Saturation" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input" value="mouse_counts_ensemble_1000_6.tsv" ftype="tsv" />
+            <conditional name="analysis">
+                <param name="mode" value="comparison" />
+                <param name="groups" value="minus,minus,minus,plus,plus,plus" />
+            </conditional>
+            <output name="output_html">
+                <assert_contents>
+                    <has_text text="Qualimap Report: Counts QC" />
+                    <has_text text="#Counts Distribution" />
+                    <has_text text="#Features With Low Counts" />
+                    <not_has_text text="#Bio Detection" />
+                    <not_has_text text="#Counts Per Biotype" />
+                    <not_has_text text="#Length Bias" />
+                    <not_has_text text="#GC Bias" />
+                    <not_has_text text="#Counts Density" />
+                    <not_has_text text="#Scatterplot Matrix" />
+                    <not_has_text text="#Saturation" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input" value="mouse_counts_ensemble_1000_6.tsv" ftype="tsv" />
+            <conditional name="analysis">
+                <param name="mode" value="comparison" />
+                <param name="groups" value="minus,minus,minus,plus,plus,plus" />
+                <conditional name="gene_info">
+                    <param name="source" value="builtin" />
+                    <param name="species" value="MOUSE" />
+                </conditional>
+            </conditional>
+            <output name="output_html">
+                <assert_contents>
+                    <has_text text="Qualimap Report: Counts QC" />
+                    <has_text text="#Counts Distribution" />
+                    <has_text text="#Features With Low Counts" />
+                    <has_text text="#Bio Detection" />
+                    <not_has_text text="#Counts Per Biotype" />
+                    <has_text text="#Length Bias" />
+                    <has_text text="#GC Bias" />
+                    <not_has_text text="#Counts Density" />
+                    <not_has_text text="#Scatterplot Matrix" />
+                    <not_has_text text="#Saturation" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input" value="mouse_counts_ensemble_1000_6.tsv" ftype="tsv" />
+            <conditional name="analysis">
+                <param name="mode" value="multi_sample" />
+            </conditional>
+            <output name="output_html">
+                <assert_contents>
+                    <has_text text="Qualimap Report: Counts QC" />
+                    <has_text text="_GlcN01 ." />
+                    <has_text text="_GlcN02 ." />
+                    <has_text text="_GlcN03 ." />
+                    <has_text text="+GlcN01 ." />
+                    <has_text text="+GlcN02 ." />
+                    <has_text text="+GlcN03 ." />
+                    <has_text text="#input" />
+                    <has_text text="#Counts Density" />
+                    <has_text text="#Scatterplot Matrix" />
+                    <has_text text="#Saturation" />
+                    <has_text text="#Counts Distribution" />
+                    <has_text text="#Features With Low Counts" />
+                    <not_has_text text="#Bio Detection" />
+                    <not_has_text text="#Counts Per Biotype" />
+                    <not_has_text text="#Length Bias" />
+                    <not_has_text text="#GC Bias" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+In RNA-seq experiments, the reads are usually first mapped to a reference genome. It is assumed that if the number of reads mapping to a certain biological feature of interest (gene, transcript, exon, ...) is sufficient, it can be used as an estimation of the abundance of that feature in the sample and interpreted as the quantification of the expression level of the corresponding region.
+
+These count data can be utilized for example to assess differential expression between two or more experimental conditions. Before assessing differential expression analysis, researchers should be aware of some potential limitations of RNA-seq data, as for example:
+
+- Has saturation been reached, or could more features be detected by
+  increasing the sequencing depth?
+
+- Which type of features are being detected in the experiment?
+
+- How good is the quantification of expression in the sample?
+
+All of these questions can be answered by interpreting the plots generated by
+**Qualimap Counts QC**.
+
+
+Input
+=====
+
+The tool accepts tabular input of type `tsv`. It expects gene identifiers in
+the first and the counts for different samples in the following column(s).
+The first line of the input needs to be a header line starting with `#`,
+immediately followed by the name of the gene identifier column, then the sample
+names separated by tabs.
+So, for example::
+
+  #GeneID    Sample1    Sample2
+
+would be a valid header line.
+
+.. class:: infomark
+
+    The *Counts* output of featureCounts represents nearly valid input for the
+    tool, but you will have to **replace** the header line to add a leading `#`
+    and to provide more telling sample names.
+
+    You can **join** the outputs of several featureCounts runs to obtain
+    multi-sample counts data.
+
+
+Analysis/Report types
+---------------------
+
+*Report overview stats for all samples* - Generates overview plots of the
+counts data across all samples.
+
+*Report feature count stats of a single sample* - Generates plots with detailed
+information about a single sample.
+
+*Compare two groups of samples* - Lets you compare groups of samples representing different conditions.
+This version of Qualimap requires all samples to belong to one of two groups.
+
+
+Parameters
+----------
+
+*Additional information about genes* (optional)
+
+Qualimap requires gene annotation data to generate plots (see *Output* section
+below) of
+
+- counts across classes of features
+- feature length and GC content bias in the counts data
+
+, which are available for the single-sample and group comparison reports.
+
+You can provide the annotation data in the form of:
+
+- Built-in gene information for supported species
+
+  For convenience, Qualimap provides the Ensembl annotations for certain species (currently Human and Mouse). In order to use these annotations, Ensembl Gene IDs should be used as the feature IDs on the count files (e.g. ENSG00000251282).
+
+- Custom gene information
+
+  A tabular dataset holding annotations of the features in the counts dataset is
+  required. It must be in a four-column tab-delimited (`tsv`) format, with the
+  feature names or IDs in the first column, the group (*e.g.* the biotype from
+  Ensembl database) in the second column, feature length in the third and feature
+  GC-content in the last column (see this
+  `example <http://kokonech.github.io/qualimap/samples/human.ens68.txt>`__).
+
+  **Make sure to use the same feature IDs in the annotation and in the counts dataset!**
+
+  To generate a Qualimap-compatible info file based on an arbitrary GTF annotation and a genome FASTA file, the developers of Qualimap offer a `Python script for the command line <https://bitbucket.org/kokonech/qualimap/src/master/util/createQualimapInfoFile.py?at=master>`__.
+
+*Counts threshold*
+
+In order to remove the influence of spurious reads, a feature is considered as
+detected if its corresponding number of counts is greater than this threshold.
+
+By default, the threshold value is set to 5 counts, meaning that features having
+less than 5 counts will not be taken into account.
+
+
+Output
+======
+
+Many of the plots that this tool can produce are created using the NOISeq package. The `NOISeq vignette <http://www.bioconductor.org/packages/release/bioc/vignettes/NOISeq/inst/doc/NOISeq.pdf>`__ contains a lot of useful information about the plots and how to interpret them. Here we provide a short explanation:
+
+
+Plots of overview stats for all samples
+---------------------------------------
+
+*Counts Density*
+
+This plot shows density of counts computed from the histogram of log-transformed counts. In order to avoid infinite values in case of zero counts the transformation `log2(expr + 0.5)` is applied, where `expr` is the number of read counts for a given feature. Only log-transformed counts having value greater than 1 are plotted.
+
+*Scatterplot Matrix*
+
+The panel shows a scatterplot along with smoothed line (lower panel) and Pearson correlation coefficients (upper panel) for each pair of samples. Plots are generated using log-transformed counts.
+
+*Saturation*
+
+This plot provides information about the level of saturation in the samples, so it helps the user to decide if more sequencing is needed and more features could be detected when increasing the number of reads.
+
+Sequencing depth of each sample (on the x-axis) is plotted against the number of  detected features (on the y-axis). Here, “detected features” refers to features with more than k counts, where k is the *Counts threshold* selected by the user.
+
+The highlighted value is the real sequencing depth of the sample(s). The
+expected results at other sequencing depths are simulated based on random
+sampling of the original data.
+
+*Counts Distribution*
+
+This box plot shows the overall counts distribution of each sample.
+
+*Features With Low Counts*
+
+This plot shows the proportion of features with low counts in each sample. Such features are usually less reliable and could be filtered out. In this plot, the bars show the percentage of features within each sample having more than 0 counts per million (CPM), or more than 1, 2, 5 and 10 CPM.
+
+
+Plots of single-sample count statistics
+---------------------------------------
+
+.. class:: infomark
+
+    Note that most single-sample plots require built-in or custom *additional
+    information about genes* to be generated. The *Saturation* plot is the only
+    exception.
+
+*Saturation*
+
+Similar to the same plot in the overview of all samples.
+The single-sample plot, however, has an additional y-axis (on the right)
+showing the number of features expected to be newly detected when increasing
+the sequencing depth by one million reads from each indicated sequencing depth
+value.
+
+*Bio Detection*
+
+This barplot allows the user to know which **kind** of features are being
+detected in the chosen sample. The x-axis shows all feature categories listed
+in the annotations file. The gray bars are the percentage of features of each group within the reference genome (or transcriptome, etc.). The striped color bars are the percentages of features of each group detected in the sample with regard to the genome. The solid color bars are the percentages that each group represents in the total detected features in the sample.
+
+*Counts Per Biotype*
+
+This boxplot shows the distribution of counts of features from each detected
+feature clas.
+
+*Length Bias*
+
+The plot describes the relationship between the length of the features and
+their expression values.
+
+Feature lengths are divided into bins, and mean expression of features falling into a particular length interval is computed and plotted. A cubic spline regression model is fitted to explain the relation between length and expression. Coefficient of determination (`R^2`) and p-value are shown together with the regression curve.
+
+*GC Bias*
+
+The plot describes the relantionship between the GC-content of the features and the expression values. The data for the plot is generated similar to the
+*Length Bias* plot. The GC content is divided into bins and the mean expression
+of features falling into any given GC interval is computed. The relation between GC-content and expression is investigated using a cubic spline regression model.
+
+
+Plots for comparing two groups of samples
+-----------------------------------------
+
+This mode can generate side-by-side plots of
+
+- *Counts Distribution*,
+- *Features With Low Counts*
+- *Bio Detection*,
+- *Length Bias* and
+- *GC Bias*
+
+for two groups of samples.
+
+.. class:: infomark
+
+    Note that the *Bio Detection*, *Length Bias* and *GC Bias* plots can only be
+    generated when built-in or custom *additional information about genes* is
+    available.
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
