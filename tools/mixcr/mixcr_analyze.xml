@@ -1,0 +1,271 @@
+<tool id="mixcr_analyze" name="MiXCR Analyze" version="@VERSION@.0">
+    <description>immuno clonotyes from sequence data</description>
+    <macros>
+        <import>mixcr_macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <command detect_errors="exit_code"><![CDATA[
+        #import os.path
+        #import re
+        #def clean(name)
+            #set $base_name = $os.path.basename($name)
+            #set $name_clean = re.sub('[^\w\-_\.]', '_', $base_name)
+            #return $name_clean
+        #end def
+        #if $imgt.library_selector == 'history':
+            #set $libname = $re.sub('.gz$','',$clean($imgt.library.name))
+            ln -s -f $imgt.library $libname &&
+        #end if
+        #if str( $fastq_input.fastq_input_selector ) == "paired":
+          #set $fq1 = $clean($fastq_input.fastq_input1.name)
+          ln -s -f $fastq_input.fastq_input1 $fq1 &&
+          #set $fq2 = $clean($fastq_input.fastq_input2.name)
+          ln -s -f $fastq_input.fastq_input2 $fq2 &&
+        #else:
+          #set $fq1 = $clean($fastq_input.fastq_input1.name)
+          ln -s -f $fastq_input.fastq_input1 $fq1 &&
+        #end if
+        mixcr analyze $analyze.pipeline --starting-material $starting_material
+        #if $analyze.pipeline == 'amplicon':
+            --5-end $analyze.primers5end
+            --3-end $analyze.primers3end
+            --adapters $analyze.adapters
+        #end if
+        #if $imgt.library_selector == 'history':
+            --align "--library $libname"
+            #set $taxonId = str($imgt.species).split(':')[0]
+            --species $taxonId
+        ## #elif $imgt.library_selector == 'cached':
+        #else
+            --species $imgt.species
+        #end if
+        $contig_assembly $impute_germline_on_export $only_productive 
+        --receptor-type $receptor_type
+        #if str( $fastq_input.fastq_input_selector ) == "paired":
+          $fq1 $fq2
+        #else:
+          $fq1
+        #end if
+        mixcr_analysis
+    ]]></command>
+    <inputs>
+        <conditional name="analyze">
+            <param name="pipeline" type="select" label="amplicon or shotgun data" help="">
+                <option value="amplicon">amplicon: enriched targeted TCR/IG libraries (5’RACE, Amplicon, Multiplex, etc)</option>
+                <option value="shotgun">shotgun: non-enriched RNA-seq or non-targeted genomic data</option>
+            </param>
+            <when value="amplicon">
+                <param name="primers5end" type="select" label="5’-end of the library.">
+                    <help>
+                        There are two possible values: 
+                            no-v-primers — no V gene primers (e.g. 5’RACE with template switch oligo or a like), 
+                            v-primers — V gene single primer / multiple.
+                    </help>
+                    <option value="no-v-primers">no-v-primers</option>
+                    <option value="v-primers">v-primers</option>
+                </param>
+                <param name="primers3end" type="select" label="3’-end of the library.">
+                    <help>
+                        There are three possible values: 
+                            j-primers — J gene single primer / multiplex, 
+                            j-c-intron-primers — J-C intron single primer / multiplex, 
+                            c-primers — C gene single primer / multiplex (e.g. IGHC primers specific to different immunoglobulin isotypes).
+                    </help>
+                    <option value="j-primers">j-primers</option>
+                    <option value="j-c-intron-primers">j-c-intron-primers</option>
+                    <option value="c-primers">c-primers</option>
+                </param>
+                <param name="adapters" type="select" label="Presence of PCR primers and/or adapter sequences">
+                    <help>
+                        If sequences of primers used for PCR or adapters are present in sequencing data, 
+                        it may influence the accuracy of V, J and C gene segments identification and CDR3 mapping. 
+                    </help>
+                    <option value="adapters-present">adapters-present</option>
+                    <option value="no-adapters">no-adapters</option>
+                </param>
+            </when>
+            <when value="shotgun"/>
+        </conditional>
+        <param name="starting_material" type="select" label="Type of starting material: RNA or DNA" help="">
+            <option value="rna">RNA</option>
+            <option value="dna">DNA</option>
+        </param>
+        <conditional name="fastq_input">
+            <param name="fastq_input_selector" type="select" label="Single or Paired-end reads" help="Select between paired and single end data">
+                <option value="single">single-end fastq</option>
+                <option value="paired">paired-end fastq</option>
+            </param>
+            <when value="paired">
+                <param name="fastq_input1" type="data" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2" label="Select first set of reads" help="Specify dataset with forward reads"/>
+                <param name="fastq_input2" type="data" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2" label="Select second set of reads" help="Specify dataset with reverse reads"/>
+            </when>
+            <when value="single">
+                <param name="fastq_input1" type="data" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2,fasta" label="Select sequence dataset" help="Specify dataset with single reads"/>
+            </when>
+        </conditional>
+        <conditional name="imgt">
+            <param name="library_selector" type="select" label="Library selector" help="Select between paired and single end data">
+                <option value="builtin">MiXCR builtin library</option>
+                <!-- <option value="cached">repseqio IMGT library</option> -->
+                <option value="history">history repseqio IMGT library</option>
+            </param>
+            <when value="builtin">
+                <param name="species" type="text" label="Species">
+                    <option value="9606">HomoSapiens</option>
+                    <option value="MusMusculus">MusMusculus</option>
+                    <option value="rat">rat</option>
+                </param>
+            </when>
+            <!--
+            <when value="cached">
+                <param name="library" type="select" label="repseqio IMGT library">
+                    <options from_data_table="imgt_library">
+                        <column name="name" index="1"/>
+                        <column name="value" index="2"/>
+                    </options>
+                </param>
+                <param name="species" type="select" label="Species">
+                    <options from_data_table="imgt_library">
+                        <column name="name" index="3"/>
+                        <column name="value" index="3"/>
+                        <filter type="param_value" ref="library" column="2" />
+                        <filter type="multiple_splitter" column="3" separator=","/>
+                    </options>
+                </param>
+            </when>
+            -->
+            <when value="history">
+                <param name="library" type="data" format="imgt.json" label="repseqio IMGT library">
+                    <help><![CDATA[
+Data coming from IMGT server may be used for academic research only, 
+provided that it is referred to IMGT®, and cited as:MiXCR is a universal framework that processes big immunome data from raw sequences to quantitated clonotypes. MiXCR efficiently handles paired- and single-end reads, considers sequence quality, corrects PCR errors and identifies germline hypermutations. The software supports both partial- and full-length profiling and employs all available RNA or DNA information, including sequences upstream of V and downstream of J gene segments.
+
+MiXCR is free for academic and non-profit use (see License). 
+"IMGT®, the international ImMunoGeneTics information system® http://www.imgt.org (founder and director: Marie-Paule Lefranc, Montpellier, France)."
+                    ]]></help>
+                </param>
+                <param name="species" type="select" label="Species">
+                    <options>
+                        <filter type="data_meta" ref="library" key="taxon_names" />
+                    </options>
+                </param>
+            </when>
+        </conditional>
+        <param name="contig_assembly" type="boolean" truevalue="--contig-assembly" falsevalue="" checked="false" label="Assemble full receptor sequences." help="This option may slow down the computation."/>
+        <param name="impute_germline_on_export" type="boolean" truevalue="--impute-germline-on-export" falsevalue="" checked="false" label="Use germline segments (printed with lowercase letters) for uncovered gene features"/>
+        <param name="only_productive" type="boolean" truevalue="--only-productive" falsevalue="" checked="false" label="Filter out-of-frame and stop-codons in export"/>
+        <param name="receptor_type" type="select" label="Dedicated receptor type for analysis">
+            <option value="xcr" selected="true">xcr (all T- and B-cell receptor chains are analyzed)</option>
+            <option value="tcr">tcr</option>
+            <option value="bcr">bcr</option>
+            <option value="tra">tra</option>
+            <option value="trb">trb</option>
+            <option value="trg">trg</option>
+            <option value="trd">trd</option>
+            <option value="igh">igh</option>
+            <option value="igk">igk</option>
+            <option value="igl">igl</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="report" format="txt" label="${tool.name} on ${on_string}: report" from_work_dir="mixcr_analysis.report"/>
+        <data name="clonotypes" format="tabular" label="${tool.name} on ${on_string}: clonotypes.ALL" from_work_dir="mixcr_analysis.clonotypes.ALL.txt">
+            <actions>
+                <action name="comment_lines" type="metadata" default="1" />
+                <action name="column_names" type="metadata" default="cloneId,cloneCount,cloneFraction,targetSequences,targetQualities,allVHitsWithScore,allDHitsWithScore,allJHitsWithScore,allCHitsWithScore,allVAlignments,allDAlignments,allJAlignments,allCAlignments,nSeqFR1,minQualFR1,nSeqCDR1,minQualCDR1,nSeqFR2,minQualFR2,nSeqCDR2,minQualCDR2,nSeqFR3,minQualFR3,nSeqCDR3,minQualCDR3,nSeqFR4,minQualFR4,aaSeqFR1,aaSeqCDR1,aaSeqFR2,aaSeqCDR2,aaSeqFR3,aaSeqCDR3,aaSeqFR4,refPoints" />
+            </actions>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <conditional name="analyze">
+                <param name="pipeline" value="shotgun"/>
+            </conditional>
+            <param name="starting_material" value="rna"/>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired"/>
+                <param name="fastq_input1" value="sample_IGH_R1.fastq" ftype="fastqsanger"/>
+                <param name="fastq_input2" value="sample_IGH_R2.fastq" ftype="fastqsanger"/>
+            </conditional>
+            <conditional name="imgt">
+                <param name="library_selector" value="builtin"/>
+                <param name="species" value="9606"/> 
+            </conditional>
+            <param name="contig_assembly" value="True"/>
+            <param name="impute_germline_on_export" value="True"/>
+            <param name="only_productive" value="False"/>
+            <param name="receptor_type" value="xcr"/>
+            <output name="report">
+                <assert_contents>
+                    <has_text text="Final clonotype count" />
+                </assert_contents>
+            </output>
+            <output name="clonotypes">
+                <assert_contents>
+                    <has_text text="CARDDGGGKGDYGRLW" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <conditional name="analyze">
+                <param name="pipeline" value="amplicon"/>
+                <param name="primers5end" value="v-primers"/>
+                <param name="primers3end" value="j-primers"/>
+                <param name="adapters" value="no-adapters"/>
+            </conditional>
+            <param name="starting_material" value="rna"/>
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired"/>
+                <param name="fastq_input1" value="sample_IGH_R1.fastq" ftype="fastqsanger"/>
+                <param name="fastq_input2" value="sample_IGH_R2.fastq" ftype="fastqsanger"/>
+            </conditional>
+            <conditional name="imgt">
+                <param name="library_selector" value="builtin"/>
+                <param name="species" value="9606"/> 
+            </conditional>
+            <param name="contig_assembly" value="True"/>
+            <param name="impute_germline_on_export" value="True"/>
+            <param name="only_productive" value="False"/>
+            <param name="receptor_type" value="xcr"/>
+            <output name="report">
+                <assert_contents>
+                    <has_text text="Final clonotype count" />
+                </assert_contents>
+            </output>
+            <output name="clonotypes">
+                <assert_contents>
+                    <has_text text="CARDDGGGKGDYGRLW" />
+                </assert_contents>
+            </output>
+        </test>
+
+    </tests>
+    <help><![CDATA[
+**MiXCR** **a universal tool for fast and accurate analysis of T- and B- cell receptor repertoire sequencing data**
+
+MiXCR_ is a universal framework that processes big immunome data from raw sequences to quantitated clonotypes. MiXCR_ efficiently handles paired- and single-end reads, considers sequence quality, corrects PCR errors and identifies germline hypermutations. The software supports both partial- and full-length profiling and employs all available RNA or DNA information, including sequences upstream of V and downstream of J gene segments.
+
+**MiXCR is free for academic and non-profit use** (see License_).
+
+This tool runs the MiXCR_ analyze_ pipeline.  
+Generally, there two distinct types of library preparation which correspond to the two analyze pipelines:
+
+      - analyze_ amplicon_ for analysis of targeted TCR/IG library amplification (5’RACE, Amplicon, Multiplex, etc).
+      - analyze_ shotgun_ for analysis of random fragments (RNA-Seq, Exome-Seq, etc).
+
+
+MiXCR_ has builtin libraries for human, mouse and rat.  Additional compiled IMGT_ libraries can be imported into your Galaxy history as datatype: *imgt.json* from: https://github.com/repseqio/library-imgt/releases
+
+NOTE:  The imgt.201822-5.sv4.json.gz release has the rattus genus taxonId:10114 for rat, whereas the mixcr builtin library has the rattus norvegicus species taxId:10116 for rat.  If you encounter imgt library loading errors from mixcr, you may have to substitute 10116 for 10114 in the imgt.201822-5.sv4.json.gz file.
+
+**Data coming from IMGT server may be used for academic research only**, provided that it is referred to IMGT®, and cited as "IMGT®, the international ImMunoGeneTics information system® http://www.imgt.org (founder and director: Marie-Paule Lefranc, Montpellier, France)."
+
+.. _MiXCR: https://mixcr.readthedocs.io/en/latest/index.html
+.. _analyze: https://mixcr.readthedocs.io/en/latest/analyze.html
+.. _amplicon: https://mixcr.readthedocs.io/en/latest/analyze.html#analysis-of-targeted-tcr-ig-libraries
+.. _shotgun: https://mixcr.readthedocs.io/en/latest/analyze.html#analysis-of-non-enriched-or-random-fragments
+.. _License: https://mixcr.readthedocs.io/en/latest/license.html#license
+.. _IMGT: https://github.com/repseqio/library-imgt/releases
+    ]]></help>
+    <expand macro="citations" />
+</tool>
