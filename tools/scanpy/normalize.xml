@@ -13,17 +13,26 @@
 @CMD_imports@
 @CMD_read_inputs@
 
-#if $method.method == "pp.normalize_per_cell"
-sc.pp.normalize_per_cell(
-    data=adata,
-    #if $method.counts_per_cell_after
-    counts_per_cell_after=$method.counts_per_cell_after,
+#if $method.method == "pp.normalize_total"
+sc.pp.normalize_total(
+    adata,
+    #if str($method.target_sum)!= ''
+    target_sum=$method.target_sum,
     #end if
-    #if $method.counts_per_cell
-    counts_per_cell=np.loadtxt('$method.counts_per_cell'),
+    exclude_highly_expressed=$method.exclude_highly_expressed.exclude_highly_expressed,
+    #if $method.exclude_highly_expressed.exclude_highly_expressed == "True"
+    max_fraction=$method.exclude_highly_expressed.max_fraction,
     #end if
-    key_n_counts='$method.key_n_counts',
-    copy=False)
+    key_added='$method.key_added',
+    #if str($method.layers) != 'all'
+    layers[str(x.strip()) for x in str($method.layers).split(',')],
+    #else
+    layers='$method.layers',
+    #end if
+    #if str($method.layer_norm) != "None"
+        layer_norm='$method.layer_norm',
+    #end if
+    inplace=True)
 #else if $method.method == "pp.recipe_zheng17"
 sc.pp.recipe_zheng17(
     adata=adata,
@@ -66,8 +75,14 @@ sc.pp.sqrt(
 #else if $method.method == "pp.downsample_counts"
 sc.pp.downsample_counts(
     adata=adata,
-    target_counts=$method.target_counts,
+    #if str($method.counts_per_cell) != ''
+    counts_per_cell=$method.counts_per_cell,
+    #end if
+    #if str($method.total_counts) != ''
+    total_counts=$method.total_counts,
+    #end if
     random_state=$method.random_state,
+    replace=$method.replace,
     copy=False)
 #end if
 
@@ -78,20 +93,35 @@ sc.pp.downsample_counts(
     <inputs>
         <expand macro="inputs_anndata"/>
         <conditional name="method">
-            <param argument="method" type="select" label="Method used for plotting">
-                <option value="pp.normalize_per_cell">Normalize total counts per cell, using `pp.normalize_per_cell`</option>
+            <param argument="method" type="select" label="Method used for normalization">
+                <option value="pp.normalize_total">Normalize total counts per cell, using `pp.normalize_total`</option>
                 <option value="pp.recipe_zheng17">Normalization and filtering as of Zheng et al. (2017), using `pp.recipe_zheng17`</option>
                 <option value="pp.recipe_weinreb17">Normalization and filtering as of Weinreb et al (2017), using `pp.recipe_weinreb17`</option>
                 <option value="pp.recipe_seurat">Normalization and filtering as of Seurat et al (2015), using `pp.recipe_seurat`</option>
                 <option value="pp.log1p">Logarithmize the data matrix, using `pp.log1p`</option>
                 <option value="pp.scale">Scale data to unit variance and zero mean, using `pp.scale`</option>
                 <option value="pp.sqrt">Square root the data matrix, using `pp.sqrt`</option>
-                <option value="pp.downsample_counts">Downsample counts, using `pp.downsample_counts`</option>
+                <option value="pp.downsample_counts">Downsample counts from count matrix, using `pp.downsample_counts`</option>
             </param>
-            <when value="pp.normalize_per_cell">
-                <param argument="counts_per_cell_after" type="float" value="" optional="true" label="Counts per cell after" help="If not provided, after normalization, each cell has a total count equal to the median of the *counts_per_cell* before normalization."/>
-                <param argument="counts_per_cell" type="data" format="tabular,txt" optional="true" label="Precomputed counts per cell" help=""/>
-                <param argument="key_n_counts" type="text" value="n_counts" label="Name of the field in `adata.obs` where the total counts per cell will be stored" help=""/>
+            <when value="pp.normalize_total">
+                <param argument="target_sum" type="float" value="" optional="true" label="Target sum" help="If not provided, after normalization, each observation (cell) has a total count equal to the median of the total counts (cells) before normalization."/>
+                <conditional name="exclude_highly_expressed">
+                    <param argument="exclude_highly_expressed" type="select" label="Exclude (very) highly expressed genes for the computation of the normalization factor (size factor) for each cell" help=" A gene is considered highly expressed, if it has more than max_fraction of the total counts in at least one cell. The not-excluded genes will sum up to target_sum">
+                        <option value="True">Yes</option>
+                        <option value="False" selected="true">No</option>
+                    </param>
+                    <when value="True">
+                        <param argument="max_fraction" type="float" value="0.05" label="Target sum" help="If not provided, after normalization, each observation (cell) has a total count equal to the median of the total counts (cells) before normalization."/>
+                    </when>
+                    <when value="False"/>
+                </conditional>
+                <param argument="key_added" type="text" value="n_counts" label="Name of the field in `adata.obs` where the normalization factor is stored" help=""/>
+                <param argument="layers" type="text" value="all" label="List of layers to normalize" help="'All' will normalize all layers. The list should be comma-separated."/>
+                <param argument="layer_norm" type="select" label="How to normalize layers?">
+                    <option value="None">None: after normalization, for each layer in layers each cell has a total count equal to the median of the median of the total counts (cells) before normalization of the layer.</option>
+                    <option value="after">After: for each layer in layers each cell has a total count equal to target_sum.</option>
+                    <option value="X">X: for each layer in layers each cell has a total count equal to the median of total counts for observations (cells) of adata.X before normalization.</option>
+                </param>
             </when>
             <when value="pp.recipe_zheng17">
                 <param argument="n_top_genes" type="integer" min="0" value="1000" label="Number of genes to keep" help=""/>
@@ -117,9 +147,10 @@ sc.pp.downsample_counts(
             </when>
             <when value="pp.sqrt"/>
             <when value="pp.downsample_counts">
-                <param argument="target_counts" type="integer" min="0" value="20000"
-                    label="Target number of counts for downsampling" help="Cells with more counts than 'target_counts' will be downsampled to have 'target_counts' counts."/>
+                <param argument="counts_per_cell" type="integer" min="0" optional="true" label="Target total counts per cell" help="If a cell has more than ‘counts_per_cell’, it will be downsampled to this number. Resulting counts can be specified on a per cell basis by passing an array."/>
+                <param argument="total_counts" type="integer" min="0" optional="true" label="Target total counts" help="If the count matrix has more than total_counts it will be downsampled to have this number."/>
                 <param argument="random_state" type="integer" value="0" label="Random seed to change subsampling" help=""/>
+                <param argument="replace" type="boolean" truevalue="True" falsevalue="False" checked="false" label="Sample the counts with replacement?"/>
             </when>
         </conditional>
     </inputs>
@@ -128,22 +159,27 @@ sc.pp.downsample_counts(
     </outputs>
     <tests>
         <test>
+            <!-- test 1 -->
             <param name="adata" value="krumsiek11.h5ad" />
             <conditional name="method">
-                <param name="method" value="pp.normalize_per_cell"/>
-                <param name="counts_per_cell_after" value="2"/>
-                <param name="counts_per_cell" value="krumsiek11_counts_per_cell"/>
-                <param name="key_n_counts" value="n_counts"/>
+                <param name="method" value="pp.normalize_total"/>
+                <conditional name="exclude_highly_expressed">
+                    <param name="exclude_highly_expressed" value="False"/>
+                </conditional>
+                <param name="key_added" value="n_counts"/>
+                <param name="layers" value="all"/>
+                <param name="layer_norm" value="None"/>
             </conditional>
             <assert_stdout>
-                <has_text_matching expression="sc.pp.normalize_per_cell"/>
-                <has_text_matching expression="counts_per_cell_after=2.0"/>
-                <has_text_matching expression="counts_per_cell=np.loadtxt"/>
-                <has_text_matching expression="key_n_counts='n_counts'"/>
+                <has_text_matching expression="sc.pp.normalize_total"/>
+                <has_text_matching expression="exclude_highly_expressed=False"/>
+                <has_text_matching expression="key_added='n_counts'"/>
+                <has_text_matching expression="layers='all'"/>
             </assert_stdout>
-            <output name="anndata_out" file="pp.normalize_per_cell.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata_out" file="pp.normalize_total.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 2 -->
             <param name="adata" value="random-randint.h5ad"/>
             <conditional name="method">
                 <param name="method" value="pp.recipe_zheng17"/>
@@ -158,6 +194,7 @@ sc.pp.downsample_counts(
             <output name="anndata_out" file="pp.recipe_zheng17.random-randint.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 3 -->
             <param name="adata" value="paul15_subsample.h5ad" />
             <conditional name="method">
                 <param name="method" value="pp.recipe_weinreb17"/>
@@ -177,9 +214,10 @@ sc.pp.downsample_counts(
                 <has_text_matching expression="svd_solver='randomized'"/>
                 <has_text_matching expression="random_state=0"/>
             </assert_stdout>
-            <output name="anndata_out" file="pp.recipe_weinreb17.paul15_subsample.h5ad" ftype="h5ad" compare="sim_size"/>
+            <output name="anndata_out" file="pp.recipe_weinreb17.paul15_subsample.updated.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 4 -->
             <param name="adata" value="pp.recipe_zheng17.random-randint.h5ad" />
             <conditional name="method">
                 <param name="method" value="pp.recipe_seurat"/>
@@ -192,6 +230,7 @@ sc.pp.downsample_counts(
             <output name="anndata_out" file="pp.recipe_seurat.recipe_zheng17.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 5 -->
             <param name="adata" value="krumsiek11.h5ad" />
             <conditional name="method">
                 <param name="method" value="pp.log1p"/>
@@ -202,6 +241,7 @@ sc.pp.downsample_counts(
             <output name="anndata_out" file="pp.log1p.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 6 -->
             <param name="adata" value="krumsiek11.h5ad" />
             <conditional name="method">
                 <param name="method" value="pp.scale"/>
@@ -214,6 +254,7 @@ sc.pp.downsample_counts(
             <output name="anndata_out" file="pp.scale.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 7 -->
             <param name="adata" value="krumsiek11.h5ad" />
             <conditional name="method">
                 <param name="method" value="pp.scale"/>
@@ -228,6 +269,7 @@ sc.pp.downsample_counts(
             <output name="anndata_out" file="pp.scale_max_value.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 8 -->
             <param name="adata" value="krumsiek11.h5ad" />
             <conditional name="method">
                 <param name="method" value="pp.sqrt"/>
@@ -238,16 +280,19 @@ sc.pp.downsample_counts(
             <output name="anndata_out" file="pp.sqrt.krumsiek11.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 9 -->
             <param name="adata" value="random-randint.h5ad" />
             <conditional name="method">
                 <param name="method" value="pp.downsample_counts"/>
-                <param name="target_counts" value="20000"/>
+                <param name="total_counts" value="20000"/>
                 <param name="random_state" value="0"/>
+                <param argument="replace" value="false"/>
             </conditional>
             <assert_stdout>
                 <has_text_matching expression="sc.pp.downsample_counts"/>
-                <has_text_matching expression="target_counts=20000"/>
+                <has_text_matching expression="total_counts=20000"/>
                 <has_text_matching expression="random_state=0"/>
+                <has_text_matching expression="replace=False"/>
             </assert_stdout>
             <output name="anndata_out" file="pp.downsample_counts.random-randint.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
