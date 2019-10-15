@@ -10,15 +10,10 @@ Scanpy
     `tl.score_genes` | Score a set of genes
     `tl.score_genes_cell_cycle` | Score cell cycle gene
     `tl.rank_genes_groups` | Rank genes for characterizing groups
+    `tl.marker_gene_overlap` | Calculate an overlap score between data-deriven marker genes and provided markers (**not working for now**)
     `pp.log1p` | Logarithmize the data matrix.
     `pp.scale` | Scale data to unit variance and zero mean
     `pp.sqrt` | Square root the data matrix
-
-    to add
-
-    Methods | Description
-    --- | ---
-    `tl.marker_gene_overlap` |
 
 2. Filter (`filter.xml`)
 
@@ -26,15 +21,10 @@ Scanpy
     --- | ---
     `pp.filter_cells` | Filter cell outliers based on counts and numbers of genes expressed.
     `pp.filter_genes` | Filter genes based on number of cells or counts.
+    `tl.filter_rank_genes_groups` | Filters out genes based on fold change and fraction of genes expressing the gene within and outside the groupby categories (**to fix**)
     `pp.highly_variable_genes` | Extract highly variable genes
     `pp.subsample` | Subsample to a fraction of the number of observations
     `pp.downsample_counts` | Downsample counts so that each cell has no more than target_counts
-
-    to add
-
-    Methods | Description
-    --- | ---
-    `tl.filter_rank_genes_groups` |
 
 3. Normalize (`normalize.xml`)
 
@@ -51,32 +41,22 @@ Scanpy
     --- | ---
    `pp.regress_out` | Regress out unwanted sources of variation
    `pp.mnn_correct` | Correct batch effects by matching mutual nearest neighbors
-
-   to add
-
-    Methods | Description
-    --- | ---
-   `pp.combat` | ComBat function for batch effect correction [Johnson07] [Leek12] [Pedersen12].
+   `pp.combat` | ComBat function for batch effect correction
 
 5. Clustering, embedding and trajectory inference (`cluster_reduce_dimension.xml`)
 
     Methods | Description
     --- | ---
-    `tl.louvain` | Cluster cells into subgroups [Blondel08] [Levine15] [Traag17]
+    `tl.louvain` | Cluster cells into subgroups
+    `tl.leiden` | Cluster cells into subgroups
     `tl.pca` | Principal component analysis
     `pp.pca` | Principal component analysis (appears to be the same func...)
     `tl.diffmap` | Diffusion Maps
     `tl.tsne` | t-SNE
     `tl.umap` | Embed the neighborhood graph using UMAP
     `tl.draw_graph` | Force-directed graph drawing
-    `tl.dpt` | Infer progression of cells through geodesic distance along the graph [Haghverdi16] [Wolf17i]
-    `tl.paga` | Mapping out the coarse-grained connectivity structures of complex manifolds [Wolf19]
-
-    to add
-
-    Methods | Description
-    --- | ---
-   `tl.leiden` | 
+    `tl.dpt` | Infer progression of cells through geodesic distance along the graph
+    `tl.paga` | Mapping out the coarse-grained connectivity structures of complex manifolds
 
 6. Plot (`plot.xml`)
 
