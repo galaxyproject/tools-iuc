@@ -3,14 +3,10 @@
 from __future__ import print_function
 
 import argparse
-import datetime
 import errno
 import json
 import os
-import shutil
-import string
 import subprocess
-import sys
 import uuid
 
 
@@ -19,14 +15,11 @@ DATA_TABLE_NAME = "bracken_databases"
 
 def bracken_build_database(target_directory, bracken_build_args, database_name, data_table_name=DATA_TABLE_NAME):
 
-    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
-
     database_value = str(uuid.uuid4())
 
     database_name = database_name
 
-    database_path = os.path.join(bracken_build_args['kraken_database'], 'database' + str(bracken_build_args['read_len']) + 'mers.kmer_distrib') 
-
+    database_path = os.path.join(bracken_build_args['kraken_database'], 'database' + str(bracken_build_args['read_len']) + 'mers.kmer_distrib')
 
     bracken_build_args_list = [
         '-t', bracken_build_args['threads'],
@@ -37,7 +30,6 @@ def bracken_build_database(target_directory, bracken_build_args, database_name, 
 
     subprocess.check_call(['bracken-build'] + bracken_build_args_list)
 
-    
     data_table_entry = {
         "data_tables": {
             data_table_name: [
