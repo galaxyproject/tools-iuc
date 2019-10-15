@@ -45,8 +45,11 @@ def exec_before_job(app, inp_data, out_data, param_dict, tool=None, **kwd):
     tdtm = None
     data_manager = app.data_managers.get_manager(tool.data_manager_id, None)
     for data_table_param in data_tables_param:
-        data_table_name = str(data_table_param.get('data_table_name'))
+        data_table_name = data_table_param.get('data_table_name')
         if data_table_name:
+            # the 'data_table_name' value in data_table_param is a SelectToolParameter,
+            # to get the selected value we need to cast data_table_name to string
+            data_table_name = str(data_table_name)
             # get data table managed by this data Manager
             data_table = app.tool_data_tables.get_tables().get(data_table_name)
             if data_table:
