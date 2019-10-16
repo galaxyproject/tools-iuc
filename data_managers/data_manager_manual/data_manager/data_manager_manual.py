@@ -168,8 +168,8 @@ def main():
     data_table_entries = get_data_table_entries(params['param_dict'], options.galaxy_data_manager_data_path)
 
     # save info to json file
-    with open(filename, 'wb') as fh:
-        fh.write(json.dumps({"data_tables": data_table_entries}))
+    with open(filename, 'w') as fh:
+        fh.write(json.dumps({"data_tables": data_table_entries}, sort_keys=True))
 
     get_file_content(params['param_dict'], target_directory)
 
