@@ -1,5 +1,5 @@
 #!/usr/bin/env R
-VERSION = "0.1"
+VERSION = "0.3"
 
 args = commandArgs(trailingOnly = T)
 
@@ -9,6 +9,8 @@ if (length(args) != 1){
 }
 
 source(args[1])
+
+## debug in debug dir
 source(file.path(script.dir, "config_assertions.R"))
 source(file.path(script.dir, "batch_plotting_functions.R"))
 source(file.path(script.dir, "reorder_matrix_headers.R"))
@@ -28,46 +30,29 @@ num.barcodes <- sc$barc.n
 num.batches <- sc$batch.n
 num.plates <- sc$plates.n
 
-real.indexes = calculateRealBarcodeIndexes(spec$format, num.barcodes)
-plate.indexes = calculatePlateIndexes(spec$plates, num.barcodes, num.plates)
-plate.indexes.real = calculateRealPlateIndexes(spec$plates, real.indexes$batches, num.plates)
+barcode.data <- calculateBarcodePositions(spec$format, num.barcodes)
+plate.data <- calculatePlatePositions(spec$plates, num.barcodes, barcode.data)
 
-ordering <- reorderMatrixHeaders(barcodes, colnames(input_matrix), spec$format)
+ordering <- reorderMatrixHeaders(barcodes, input_matrix, spec$format, spec$plates, sort.cells)
 
-## Unfiltered
+## Unfiltered, but sorted matrix
 nmatrix <- input_matrix[,ordering$all]
+plot.prefilter <- contaminationPlot("Pre-Filter", colSums(nmatrix),
+                                    barcode.data, plate.data, RAW=TRUE)
 
-plot.prefilter <- contaminationPlot(
-    colSums(nmatrix),
-    title="Pre-Filter",
-    plate.indexes,
-    calculateFullBarcodeIndexes(num.batches, num.barcodes),
-    real.indexes$unfiltered
-)
+## Filtered, but sorted matrix
+cmatrix <- input_matrix[,ordering$filtered]
+plot.postfilter <- contaminationPlot("Post-Filter", colSums(cmatrix),
+                                     barcode.data, plate.data, RAW=FALSE)
 
-
-## Filtered
-cmatrix <- input_matrix[,ordering$correct]
-
-plot.postfilter <- contaminationPlot(
-    colSums(cmatrix),
-    title="Post-Filter",
-    plate.indexes.real,
-    calculateFullBarcodeIndexes(num.batches, num.barcodes),
-    real.indexes$filtered,
-    filtered = T
-)
-
-plot.histogram <- log10histoPlot(
-    colSums(cmatrix),
-    "Histogram of Post-Filter Matrix Counts"
-)
+plot.histogram.pre <- log10histoPlot("Histogram of Pre-Filter Matrix Counts", colSums(nmatrix))
+plot.histogram.post <- log10histoPlot("Histogram of Post-Filter Matrix Counts", colSums(cmatrix))
 
 pdf(out.pdf)
 plot.prefilter
 plot.postfilter
-plot.histogram
+plot.histogram.pre
+plot.histogram.post
 dev.off()
-
 
 write.table(cmatrix, file=out.table, quote=FALSE, na="0", sep="\t")

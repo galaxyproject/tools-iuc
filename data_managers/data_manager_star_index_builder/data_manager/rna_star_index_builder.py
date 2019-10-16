@@ -1,29 +1,47 @@
 #!/usr/bin/env python
 
+import argparse
 import json
-import optparse
 
 
 def main():
-    parser = optparse.OptionParser()
-    parser.add_option( '--config-file', dest='config_file', action='store', type="string")
-    parser.add_option( '--value', dest='value', action='store', type="string" )
-    parser.add_option( '--dbkey', dest='dbkey', action='store', type="string" )
-    parser.add_option( '--name', dest='name', action='store', type="string" )
-    parser.add_option( '--subdir', dest='subdir', action='store', type="string" )
-    parser.add_option( '--data-table', dest='data_table', action='store', type="string" )
-    parser.add_option( '--withGTF', dest='withGTF', action='store_true' )
-    (options, args) = parser.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument( '--config-file' )
+    parser.add_argument( '--value' )
+    parser.add_argument( '--dbkey' )
+    parser.add_argument( '--name' )
+    parser.add_argument( '--subdir' )
+    parser.add_argument( '--data-table' )
+    parser.add_argument( '--with-gene-model', action='store_true' )
+    parser.add_argument( '--index-version' )
 
-    if options.dbkey in [ None, '', '?' ]:
-        raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( options.dbkey ) )
+    args = parser.parse_args()
 
-    withGTF = "0"
-    if options.withGTF:
-        withGTF = "1"
+    if args.dbkey in [ None, '', '?' ]:
+        raise Exception(
+            '"%s" is not a valid dbkey. You must specify a valid dbkey.'
+            % ( args.dbkey )
+        )
 
-    data_manager_dict = {'data_tables': {options.data_table: [dict({"value": options.value, "dbkey": options.dbkey, "name": options.name, "path": options.subdir, "with-gtf": withGTF} )]}}
-    open( options.config_file, 'wb' ).write( json.dumps( data_manager_dict ) )
+    with_gene_model = "0"
+    if args.with_gene_model:
+        with_gene_model = "1"
+
+    data_manager_dict = {
+        'data_tables': {
+            args.data_table: [
+                {
+                    "value": args.value,
+                    "dbkey": args.dbkey,
+                    "name": args.name,
+                    "path": args.subdir,
+                    "with_gene_model": with_gene_model,
+                    "version": args.index_version
+                }
+            ]
+        }
+    }
+    open( args.config_file, 'w' ).write( json.dumps( data_manager_dict ) )
 
 
 if __name__ == "__main__":
