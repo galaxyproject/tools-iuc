@@ -5,6 +5,10 @@
 kraken2-build --db test_db --download_taxonomy
 mv test_db/taxonomy/nucl_gb.accession2taxid test_db/taxonomy/nucl_gb.accession2taxid_full
 grep -e 'NC_003198.1' -e 'NC_011750.1' test_db/taxonomy/nucl_gb.accession2taxid_full > test_db/taxonomy/nucl_gb.accession2taxid
+mv test_db/taxonomy/nodes.dmp test_db/taxonomy/nodes.dmp_full
+grep -f node_patterns.txt test_db/taxonomy/nodes.dmp_full > test_db/taxonomy/nodes.dmp
+mv test_db/taxonomy/names.dmp test_db/taxonomy/names.dmp_full
+grep -e '^220341\s' -e '^585057\s' test_db/taxonomy/names.dmp_full > test_db/taxonomy/names.dmp
 esearch -db nucleotide -query "NC_003198.1" | efetch -format fasta > NC_003198.1.fasta
 esearch -db nucleotide -query "NC_011750.1" | efetch -format fasta > NC_011750.1.fasta
 head -n 14 NC_003198.1.fasta > NC_003198.1_1kb.fasta
