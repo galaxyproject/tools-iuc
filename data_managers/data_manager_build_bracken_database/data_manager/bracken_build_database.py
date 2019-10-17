@@ -67,7 +67,7 @@ def main():
     }
 
     try:
-        os.mkdir( target_directory )
+        os.mkdir(target_directory)
     except OSError as exc:
         if exc.errno == errno.EEXIST and os.path.isdir( target_directory ):
             pass
