@@ -82,7 +82,8 @@ def main():
         args.database_name,
     )
 
-    open(args.data_manager_json, 'wb').write(json.dumps(data_manager_output))
+    with open(args.data_manager_json, 'w') as out:
+        out.write(json.dumps(data_manager_output, sort_keys=True))
 
 
 if __name__ == "__main__":
