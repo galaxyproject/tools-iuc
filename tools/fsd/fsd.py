@@ -15,7 +15,6 @@
 
 import argparse
 import sys
-import os
 
 import matplotlib.pyplot as plt
 import numpy
@@ -121,8 +120,7 @@ def compare_read_families(argv):
             fig2.text(0.45, 0.11, legend3b, size=10, transform=plt.gcf().transFigure)
 
             legend4 = "family size > 20:\nnr. of tags\n{:,} ({:.3f})".format(len(integers[integers > 20]),
-                                                                             float(len(integers[integers > 20]))
-                                                                             / len(integers))
+                                                                             float(len(integers[integers > 20])) / len(integers))
             fig.text(0.58, 0.11, legend4, size=10, transform=plt.gcf().transFigure)
             fig2.text(0.58, 0.11, legend4, size=10, transform=plt.gcf().transFigure)
 
@@ -281,8 +279,8 @@ def compare_read_families(argv):
             fig.text(0.89, 0.05, legend6b, size=10, transform=plt.gcf().transFigure)
             fig2.text(0.89, 0.05, legend6b, size=10, transform=plt.gcf().transFigure)
 
-        maximumX = numpy.amax(numpy.concatenate(list_to_plot))
-        minimumX = numpy.amin(numpy.concatenate(list_to_plot))
+        # maximumX = numpy.amax(numpy.concatenate(list_to_plot))
+        # minimumX = numpy.amin(numpy.concatenate(list_to_plot))
         list_to_plot2 = list_to_plot
 
         if rel_freq:
@@ -299,13 +297,10 @@ def compare_read_families(argv):
         ax.set_xticks([], [])
         if rel_freq:
             w = [numpy.zeros_like(data) + 1. / len(data) for data in list_to_plot2]
-            counts = ax.hist(list_to_plot2, weights=w,
-                                 bins=numpy.arange(1, 23), stacked=False, edgecolor="black", color=colors,
-                                 linewidth=1, label=label, align="left", alpha=0.7, rwidth=0.8)
+            counts = ax.hist(list_to_plot2, weights=w, bins=numpy.arange(1, 23), stacked=False, edgecolor="black", color=colors, linewidth=1, label=label, align="left", alpha=0.7, rwidth=0.8)
             ax.set_ylim(0, 1.07)
         else:
-            counts = ax.hist(list_to_plot2, bins=numpy.arange(1, 23), stacked=False, edgecolor="black", linewidth=1,
-                             label=label, align="left", alpha=0.7, rwidth=0.8, color=colors)
+            counts = ax.hist(list_to_plot2, bins=numpy.arange(1, 23), stacked=False, edgecolor="black", linewidth=1, label=label, align="left", alpha=0.7, rwidth=0.8, color=colors)
         ax.set_xticks(numpy.array(ticks))
         ax.set_xticklabels(ticks1)
         ax.legend(loc='upper right', fontsize=14, frameon=True, bbox_to_anchor=(0.9, 1))
@@ -317,7 +312,7 @@ def compare_read_families(argv):
         ax.grid(b=True, which="major", color="#424242", linestyle=":")
         ax.margins(0.01, None)
         pdf.savefig(fig)
-        #plt.close()
+        # plt.close()
 
         # PLOT FSD based on PE reads
         fig2.suptitle('Family Size Distribution (FSD) based on PE reads', fontsize=14)
@@ -348,13 +343,10 @@ def compare_read_families(argv):
                 x = [xi + barWidth for xi in x]
                 w = 1. / (len(list_to_plot) + 1)
             if rel_freq:
-                counts2_rel = ax2.bar(x, list(numpy.float_(y)) / numpy.sum(y), align="edge", width=w,
-                                     edgecolor="black", label=label[i], linewidth=1, alpha=0.7, color=colors[i])
+                ax2.bar(x, list(numpy.float_(y)) / numpy.sum(y), align="edge", width=w, edgecolor="black", label=label[i], linewidth=1, alpha=0.7, color=colors[i])
                 ax2.set_ylim(0, 1.07)
             else:
-                counts2 = ax2.bar(x, y, align="edge", width=w, edgecolor="black", label=label[i], linewidth=1,
-                                 alpha=0.7, color=colors[i])
-
+                ax2.bar(x, y, align="edge", width=w, edgecolor="black", label=label[i], linewidth=1, alpha=0.7, color=colors[i])
             if i == len(list_to_plot2) - 1:
                 barWidth += 1. / (len(list_to_plot) + 1) + 1. / (len(list_to_plot) + 1)
             else:
@@ -378,7 +370,7 @@ def compare_read_families(argv):
         plt.close()
 
         # write data to CSV file tags
-        counts = [numpy.bincount(d, minlength=22)[1:] for d in list_to_plot2]  # original counts of family sizes
+        counts = [numpy.bincount(di, minlength=22)[1:] for di in list_to_plot2]  # original counts of family sizes
         output_file.write("Values from family size distribution with all datasets based on families\n")
         output_file.write("\nFamily size")
         for i in label:
@@ -430,8 +422,8 @@ def compare_read_families(argv):
 
         # Family size distribution after DCS and SSCS
         for dataset, data_o, name_file in zip(list_to_plot, data_array_list, label):
-            maximumX = numpy.amax(dataset)
-            minimumX = numpy.amin(dataset)
+            # maximumX = numpy.amax(dataset)
+            # minimumX = numpy.amin(dataset)
 
             tags = numpy.array(data_o[:, 2])
             seq = numpy.array(data_o[:, 1])
@@ -497,13 +489,13 @@ def compare_read_families(argv):
             plt.subplots_adjust(left=0.12, right=0.97, bottom=0.3, top=0.94, hspace=0)
 
             if rel_freq:
-                w = [numpy.zeros_like(d) + 1. / len(numpy.concatenate(list1)) for d in list1]
-                counts = plt.hist(list1, bins=numpy.arange(1, 23), stacked=True, label=["duplex", "ab", "ba"], weights=w,
+                w = [numpy.zeros_like(dj) + 1. / len(numpy.concatenate(list1)) for dj in list1]
+                plt.hist(list1, bins=numpy.arange(1, 23), stacked=True, label=["duplex", "ab", "ba"], weights=w,
                                   edgecolor="black", linewidth=1, align="left", color=["#FF0000", "#5FB404", "#FFBF00"],
                                   rwidth=0.8)
                 plt.ylim(0, 1.07)
             else:
-                counts = plt.hist(list1, bins=numpy.arange(1, 23), stacked=True, label=["duplex", "ab", "ba"],
+                plt.hist(list1, bins=numpy.arange(1, 23), stacked=True, label=["duplex", "ab", "ba"],
                                   edgecolor="black", linewidth=1, align="left", color=["#FF0000", "#5FB404", "#FFBF00"],
                                   rwidth=0.8)
 
@@ -512,7 +504,7 @@ def compare_read_families(argv):
             ticks1 = map(str, ticks)
             ticks1[len(ticks1) - 1] = ">20"
             plt.xticks(numpy.array(ticks), ticks1)
-           # singl = counts[0][2][0]  # singletons
+            # singl = counts[0][2][0]  # singletons
             singl = len(data_o[data_o == 1])
             last = len(data_o[data_o > 20])  # large families
             if log_axis:
@@ -529,16 +521,13 @@ def compare_read_families(argv):
             plt.text(0.1, 0.09, legend, size=10, transform=plt.gcf().transFigure)
 
             legend = "nr. of tags\n\n{:,}\n{:,}\n{:,} ({:,})\n{:,} ({:,})".format(len(dataAB), len(dataBA),
-                                                                                  len(duplTags), len(duplTags_double), (
-                                                                                              len(dataAB) + len(
-                                                                                          dataBA) + len(duplTags)),
+                                                                                  len(duplTags), len(duplTags_double), (len(dataAB) + len(dataBA) + len(duplTags)),
                                                                                   (len(ab) + len(ba)))
             plt.text(0.23, 0.09, legend, size=10, transform=plt.gcf().transFigure)
 
             legend5 = "PE reads\n\n{:,}\n{:,}\n{:,} ({:,})\n{:,} ({:,})".format(sum(dataAB_o), sum(dataBA_o),
                                                                                 sum(duplTags_o), sum(duplTags_double_o),
-                                                                                (sum(dataAB_o) + sum(dataBA_o) + sum(
-                                                                                    duplTags_o)),
+                                                                                (sum(dataAB_o) + sum(dataBA_o) + sum(duplTags_o)),
                                                                                 (sum(ab_o) + sum(ba_o)))
             plt.text(0.38, 0.09, legend5, size=10, transform=plt.gcf().transFigure)
 
@@ -552,8 +541,7 @@ def compare_read_families(argv):
             legend = "total\n{:.3f}\n{:.3f}\n{:.3f} ({:.3f})\n{:,}".format(float(len(dataAB)) / (len(ab) + len(ba)),
                                                                            float(len(dataBA)) / (len(ab) + len(ba)),
                                                                            float(len(duplTags)) / (len(ab) + len(ba)),
-                                                                           float(len(duplTags_double)) / (
-                                                                                       len(ab) + len(ba)),
+                                                                           float(len(duplTags_double)) / (len(ab) + len(ba)),
                                                                            (len(ab) + len(ba)))
             plt.text(0.64, 0.09, legend, size=10, transform=plt.gcf().transFigure)
 
@@ -600,7 +588,7 @@ def compare_read_families(argv):
             reads = []
             reads_rel = []
 
-            #barWidth = 0 - (len(list_to_plot) + 1) / 2 * 1. / (len(list_to_plot) + 1)
+            # barWidth = 0 - (len(list_to_plot) + 1) / 2 * 1. / (len(list_to_plot) + 1)
             ax2.set_xticks([], [])
 
             list_y = []
@@ -624,19 +612,12 @@ def compare_read_families(argv):
 
                 list_y.append(y)
                 if i == 0:
-                    counts2 = ax2.bar(x, y, align="center", width=0.8,
-                                          edgecolor="black", label=label[0],
-                                          linewidth=1, alpha=1, color=col[0])
+                    ax2.bar(x, y, align="center", width=0.8, edgecolor="black", label=label[0], linewidth=1, alpha=1, color=col[0])
                 elif i == 1:
-                    counts2 = ax2.bar(x, y, bottom=list_y[i-1], align="center", width=0.8,
-                                          edgecolor="black", label=label[1],
-                                          linewidth=1, alpha=1, color=col[1])
+                    ax2.bar(x, y, bottom=list_y[i - 1], align="center", width=0.8, edgecolor="black", label=label[1], linewidth=1, alpha=1, color=col[1])
                 elif i == 2:
                     bars = numpy.add(list_y[0], list_y[1]).tolist()
-
-                    counts2 = ax2.bar(x, y, bottom=bars, align="center", width=0.8,
-                                      edgecolor="black", label=label[2],
-                                      linewidth=1, alpha=1, color=col[2])
+                    ax2.bar(x, y, bottom=bars, align="center", width=0.8, edgecolor="black", label=label[2], linewidth=1, alpha=1, color=col[2])
 
             ax2.legend(loc='upper right', fontsize=14, frameon=True, bbox_to_anchor=(0.9, 1))
 
@@ -657,16 +638,13 @@ def compare_read_families(argv):
             plt.text(0.1, 0.09, legend, size=10, transform=plt.gcf().transFigure)
 
             legend = "nr. of tags\n\n{:,}\n{:,}\n{:,} ({:,})\n{:,} ({:,})".format(len(dataAB), len(dataBA),
-                                                                                  len(duplTags), len(duplTags_double), (
-                                                                                          len(dataAB) + len(
-                                                                                      dataBA) + len(duplTags)),
+                                                                                  len(duplTags), len(duplTags_double), (len(dataAB) + len(dataBA) + len(duplTags)),
                                                                                   (len(ab) + len(ba)))
             plt.text(0.23, 0.09, legend, size=10, transform=plt.gcf().transFigure)
 
             legend5 = "PE reads\n\n{:,}\n{:,}\n{:,} ({:,})\n{:,} ({:,})".format(sum(dataAB_o), sum(dataBA_o),
                                                                                 sum(duplTags_o), sum(duplTags_double_o),
-                                                                                (sum(dataAB_o) + sum(dataBA_o) + sum(
-                                                                                    duplTags_o)),
+                                                                                (sum(dataAB_o) + sum(dataBA_o) + sum(duplTags_o)),
                                                                                 (sum(ab_o) + sum(ba_o)))
             plt.text(0.38, 0.09, legend5, size=10, transform=plt.gcf().transFigure)
 
@@ -680,8 +658,7 @@ def compare_read_families(argv):
             legend = "total\n{:.3f}\n{:.3f}\n{:.3f} ({:.3f})\n{:,}".format(float(len(dataAB)) / (len(ab) + len(ba)),
                                                                            float(len(dataBA)) / (len(ab) + len(ba)),
                                                                            float(len(duplTags)) / (len(ab) + len(ba)),
-                                                                           float(len(duplTags_double)) / (
-                                                                                   len(ab) + len(ba)),
+                                                                           float(len(duplTags_double)) / (len(ab) + len(ba)),
                                                                            (len(ab) + len(ba)))
             plt.text(0.64, 0.09, legend, size=10, transform=plt.gcf().transFigure)
 
@@ -755,7 +732,7 @@ def compare_read_families(argv):
             output_file.write("SSCS ba{}{}{}{}{}{:.3f}{}{:.3f}{}{:.3f}{}{:.3f}\n".format(
                 sep, len(dataBA), sep, sum(dataBA_o), sep,
                 float(len(dataBA)) / (len(dataAB) + len(dataBA) + len(duplTags)),
-                sep, float(len(dataBA)) / (len(ab) + len(ba)), sep, 
+                sep, float(len(dataBA)) / (len(ab) + len(ba)), sep,
                 float(sum(dataBA_o)) / (sum(dataAB_o) + sum(dataBA_o) + sum(duplTags_o)),
                 sep, float(sum(dataBA_o)) / (sum(ab_o) + sum(ba_o))))
             output_file.write(
