@@ -50,7 +50,7 @@ def main():
     parser.add_argument('data_manager_json')
     parser.add_argument('--threads', dest='threads', default=1, help='threads' )
     parser.add_argument('--kmer-len', dest='kmer_len', help='K-mer length')
-    parser.add_argument('--read-len', dest='read_len', help='Read length' )
+    parser.add_argument('--read-len', dest='read_len', help='Read length')
     parser.add_argument('--kraken-db', dest='kraken_database', help='Kraken Database')
     parser.add_argument('--database-name', dest='database_name', help='Database Name')
     args = parser.parse_args()
