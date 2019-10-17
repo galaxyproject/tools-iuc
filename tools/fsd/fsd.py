@@ -490,14 +490,10 @@ def compare_read_families(argv):
 
             if rel_freq:
                 w = [numpy.zeros_like(dj) + 1. / len(numpy.concatenate(list1)) for dj in list1]
-                plt.hist(list1, bins=numpy.arange(1, 23), stacked=True, label=["duplex", "ab", "ba"], weights=w,
-                                  edgecolor="black", linewidth=1, align="left", color=["#FF0000", "#5FB404", "#FFBF00"],
-                                  rwidth=0.8)
+                plt.hist(list1, bins=numpy.arange(1, 23), stacked=True, label=["duplex", "ab", "ba"], weights=w, edgecolor="black", linewidth=1, align="left", color=["#FF0000", "#5FB404", "#FFBF00"], rwidth=0.8)
                 plt.ylim(0, 1.07)
             else:
-                plt.hist(list1, bins=numpy.arange(1, 23), stacked=True, label=["duplex", "ab", "ba"],
-                                  edgecolor="black", linewidth=1, align="left", color=["#FF0000", "#5FB404", "#FFBF00"],
-                                  rwidth=0.8)
+                plt.hist(list1, bins=numpy.arange(1, 23), stacked=True, label=["duplex", "ab", "ba"], edgecolor="black", linewidth=1, align="left", color=["#FF0000", "#5FB404", "#FFBF00"], rwidth=0.8)
 
             # tick labels of x axis
             ticks = numpy.arange(1, 22, 1)
@@ -786,7 +782,7 @@ def compare_read_families(argv):
                 sep, (sum(dataAB_FS3_o) + sum(dataBA_FS3_o) + sum(duplTags_FS3_o)), sep,
                 (sum(dataAB_FS3_o) + sum(dataBA_FS3_o) + duplTags_double_FS3_o)))
 
-            counts = [numpy.bincount(d, minlength=22)[1:] for d in list1]  # original counts of family sizes
+            counts = [numpy.bincount(dk, minlength=22)[1:] for dk in list1]  # original counts of family sizes
             output_file.write("\nValues from family size distribution based on families\n")
             output_file.write("{}duplex{}ab{}ba{}sum\n".format(sep, sep, sep, sep))
 
