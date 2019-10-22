@@ -64,7 +64,7 @@ def exec_before_job(app, inp_data, out_data, param_dict, tool=None, **kwd):
                     repo_info = tdtm.generate_repository_info_elem_from_repository(tool_shed_repository, parent_elem=None)
                     if repo_info is not None:
                         repo_info = tostring(repo_info)
-                    tmp_file = tempfile.NamedTemporaryFile()
+                    tmp_file = tempfile.NamedTemporaryFile(mode="w")
                     tmp_file.write(__get_new_xml_definition(app, data_table, data_manager, repo_info, target_dir))
                     tmp_file.flush()
                     app.tool_data_tables.add_new_entries_from_config_file(tmp_file.name, None, app.config.shed_tool_data_table_config, persist=True)
