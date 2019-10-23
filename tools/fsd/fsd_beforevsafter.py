@@ -254,7 +254,7 @@ def compare_read_families_read_loss(argv):
         if afterTrimming is None and ref_genome is None:
             if afterTrimming is None:
                 output_file.write("{}before SSCS building{}after DCS building\n".format(sep, sep))
-            elif ref_genome == str(None):
+            elif ref_genome is None:
                 output_file.write("{}before SSCS building{}atfer DCS building\n".format(sep, sep))
 
             for fs, sscs, dcs in zip(counts[1][2:len(counts[1])], counts[0][0][2:len(counts[0][0])], counts[0][1][2:len(counts[0][1])]):
