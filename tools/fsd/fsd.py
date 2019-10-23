@@ -87,7 +87,7 @@ def compare_read_families(argv):
         fig2.subplots_adjust(left=0.12, right=0.97, bottom=0.23, top=0.94, hspace=0)
 
         # plt.subplots_adjust(bottom=0.25)
-        if firstFile != str(None):
+        if firstFile is not None:
             file1 = readFileReferenceFree(firstFile)
             integers = numpy.array(file1[:, 0]).astype(int)  # keep original family sizes
             list_to_plot_original.append(integers)
