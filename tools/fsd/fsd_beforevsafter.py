@@ -207,7 +207,7 @@ def compare_read_families_read_loss(argv):
         ticks1 = map(str, ticks)
         ticks1[len(ticks1) - 1] = ">20"
         plt.xticks(numpy.array(ticks), ticks1)
-        if ref_genome != str(None):
+        if ref_genome is not None:
             count = numpy.array([v for k, v in sorted(Counter(quant_ab_ref).iteritems())])  # count all family sizes from all ab strands
 
             legend = "max. family size:\nabsolute frequency:\nrelative frequency:\n\ntotal nr. of reads:\n(before SSCS building)"
