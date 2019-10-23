@@ -252,7 +252,7 @@ def compare_read_families_read_loss(argv):
         output_file.write("\n\nValues from family size distribution\n")
 
         if afterTrimming is None and ref_genome is None:
-            if afterTrimming == str(None):
+            if afterTrimming is None:
                 output_file.write("{}before SSCS building{}after DCS building\n".format(sep, sep))
             elif ref_genome == str(None):
                 output_file.write("{}before SSCS building{}atfer DCS building\n".format(sep, sep))
