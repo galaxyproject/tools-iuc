@@ -251,7 +251,7 @@ def compare_read_families_read_loss(argv):
         output_file.write("\ntotal nr. of reads before SSCS building{}{}\n".format(sep, sum(numpy.array(data_array[:, 0]).astype(int))))
         output_file.write("\n\nValues from family size distribution\n")
 
-        if afterTrimming == str(None) and ref_genome == str(None):
+        if afterTrimming is None and ref_genome is None:
             if afterTrimming == str(None):
                 output_file.write("{}before SSCS building{}after DCS building\n".format(sep, sep))
             elif ref_genome == str(None):
