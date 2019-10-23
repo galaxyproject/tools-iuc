@@ -137,7 +137,7 @@ def compare_read_families(argv):
             fig.text(0.89, 0.11, legend6b, size=10, transform=plt.gcf().transFigure)
             fig2.text(0.89, 0.11, legend6b, size=10, transform=plt.gcf().transFigure)
 
-        if secondFile != str(None):
+        if secondFile is not None:
             file2 = readFileReferenceFree(secondFile)
             integers2 = numpy.array(file2[:, 0]).astype(int)  # keep original family sizes
             list_to_plot_original.append(integers2)
