@@ -141,7 +141,6 @@ def range2tag(argv):
         # ref_name_next.append(np.array(ref_chr_next)[only_aligned_tags])
         ind.append(index)
         lst.append(mut_tags)
-        # ref_name_next = np.concatenate((ref_name_next))
     index = np.concatenate((ind))
     tags = np.concatenate((lst))
     # mut_tags = np.column_stack((index, tags, ref_name_next))
