@@ -295,7 +295,7 @@ def compare_read_families_read_loss(argv):
         output_file.write("total nr. of tags (unique, FS>=3){}{}\n".format(sep, len(seq_unique_FS3)))
         output_file.write("DCS (before SSCS building, FS>=3){}{}\n".format(sep, len(d2)))
         output_file.write("after DCS building{}{}\n".format(sep, len(tag_consensus)))
-        if afterTrimming != str(None):
+        if afterTrimming is not None:
             output_file.write("after trimming{}{}\n".format(sep, len(tag_trimming)))
         if ref_genome is not None:
             output_file.write("after alignment to reference{}{}\n".format(sep, length_DCS_ref))
