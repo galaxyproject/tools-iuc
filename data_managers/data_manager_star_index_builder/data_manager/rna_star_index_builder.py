@@ -18,13 +18,29 @@ def main():
     args = parser.parse_args()
 
     if args.dbkey in [ None, '', '?' ]:
-        raise Exception( '"%s" is not a valid dbkey. You must specify a valid dbkey.' % ( args.dbkey ) )
+        raise Exception(
+            '"%s" is not a valid dbkey. You must specify a valid dbkey.'
+            % ( args.dbkey )
+        )
 
     with_gene_model = "0"
     if args.with_gene_model:
         with_gene_model = "1"
 
-    data_manager_dict = {'data_tables': {args.data_table: [dict({"value": args.value, "dbkey": args.dbkey, "name": args.name, "path": args.subdir, "with_gene_model": with_gene_model, "version": args.index_version} )]}}
+    data_manager_dict = {
+        'data_tables': {
+            args.data_table: [
+                {
+                    "value": args.value,
+                    "dbkey": args.dbkey,
+                    "name": args.name,
+                    "path": args.subdir,
+                    "with_gene_model": with_gene_model,
+                    "version": args.index_version
+                }
+            ]
+        }
+    }
     open( args.config_file, 'w' ).write( json.dumps( data_manager_dict ) )
 
 

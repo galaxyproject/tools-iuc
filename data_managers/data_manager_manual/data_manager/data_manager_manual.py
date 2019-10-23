@@ -47,6 +47,9 @@ def exec_before_job(app, inp_data, out_data, param_dict, tool=None, **kwd):
     for data_table_param in data_tables_param:
         data_table_name = data_table_param.get('data_table_name')
         if data_table_name:
+            # the 'data_table_name' value in data_table_param is a SelectToolParameter,
+            # to get the selected value we need to cast data_table_name to string
+            data_table_name = str(data_table_name)
             # get data table managed by this data Manager
             data_table = app.tool_data_tables.get_tables().get(data_table_name)
             if data_table:
@@ -61,7 +64,7 @@ def exec_before_job(app, inp_data, out_data, param_dict, tool=None, **kwd):
                     repo_info = tdtm.generate_repository_info_elem_from_repository(tool_shed_repository, parent_elem=None)
                     if repo_info is not None:
                         repo_info = tostring(repo_info)
-                    tmp_file = tempfile.NamedTemporaryFile()
+                    tmp_file = tempfile.NamedTemporaryFile(mode="w")
                     tmp_file.write(__get_new_xml_definition(app, data_table, data_manager, repo_info, target_dir))
                     tmp_file.flush()
                     app.tool_data_tables.add_new_entries_from_config_file(tmp_file.name, None, app.config.shed_tool_data_table_config, persist=True)
@@ -165,8 +168,8 @@ def main():
     data_table_entries = get_data_table_entries(params['param_dict'], options.galaxy_data_manager_data_path)
 
     # save info to json file
-    with open(filename, 'wb') as fh:
-        fh.write(json.dumps({"data_tables": data_table_entries}))
+    with open(filename, 'w') as fh:
+        fh.write(json.dumps({"data_tables": data_table_entries}, sort_keys=True))
 
     get_file_content(params['param_dict'], target_directory)
 

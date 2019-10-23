@@ -3,6 +3,7 @@
 
 import bz2
 import gzip
+import json
 import optparse
 import os
 import shutil
@@ -11,7 +12,6 @@ import tarfile
 import tempfile
 import zipfile
 from ftplib import FTP
-from json import dumps, loads
 
 try:
     # For Python 3.0 and later
@@ -118,20 +118,16 @@ def _move_and_index_fasta_for_sorting(fasta_filename):
 
 
 def _write_sorted_fasta(sorted_names, fasta_offsets, sorted_fasta_filename, unsorted_fasta_filename):
-    unsorted_fh = open(unsorted_fasta_filename)
-    sorted_fh = open(sorted_fasta_filename, 'wb+')
-
-    for name in sorted_names:
-        offset = fasta_offsets[name]
-        unsorted_fh.seek(offset)
-        sorted_fh.write(unsorted_fh.readline())
-        while True:
-            line = unsorted_fh.readline()
-            if not line or line.startswith(">"):
-                break
-            sorted_fh.write(line)
-    unsorted_fh.close()
-    sorted_fh.close()
+    with open(unsorted_fasta_filename, 'rb') as unsorted_fh, open(sorted_fasta_filename, 'wb+') as sorted_fh:
+        for name in sorted_names:
+            offset = fasta_offsets[name]
+            unsorted_fh.seek(offset)
+            sorted_fh.write(unsorted_fh.readline())
+            while True:
+                line = unsorted_fh.readline()
+                if not line or line.startswith(b">"):
+                    break
+                sorted_fh.write(line)
 
 
 def _sort_fasta_as_is(fasta_filename, params):
@@ -316,27 +312,15 @@ def download_from_url(params, tmp_dir, **kwds):
     """
     Download a file from a URL and return a list of filehandles from which to read the data.
 
-    >>> url = 'https://github.com/mvdbeek/tools-devteam/raw/data_manager/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/test.tar'
-    >>> params = {'param_dict': {'reference_source': {'user_url': url}}}
     >>> tmp_dir = tempfile.mkdtemp()
-    >>> fh = download_from_url(params=params, tmp_dir=tmp_dir)[0][0]
-    >>> assert fh.readline().startswith('>FBtr0304171')
-    >>> url = 'https://github.com/mvdbeek/tools-devteam/raw/data_manager/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/test.tar.bz2'
+    >>> url = 'https://github.com/galaxyproject/tools-iuc/raw/master/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/test.tar.bz2'
     >>> params = {'param_dict': {'reference_source': {'user_url': url}}}
     >>> fh = download_from_url(params=params, tmp_dir=tmp_dir)[0][0]
-    >>> assert fh.readline().startswith('>FBtr0304171')
-    >>> url = 'https://github.com/mvdbeek/tools-devteam/raw/data_manager/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/test.tar.gz'
+    >>> assert fh.readline().startswith('b>FBtr0304171')
+    >>> url = 'https://github.com/galaxyproject/tools-iuc/raw/master/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/phiX174.fasta'
     >>> params = {'param_dict': {'reference_source': {'user_url': url}}}
     >>> fh = download_from_url(params=params, tmp_dir=tmp_dir)[0][0]
-    >>> assert fh.readline().startswith('>FBtr0304171')
-    >>> url = 'https://github.com/mvdbeek/tools-devteam/raw/data_manager/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/test.zip'
-    >>> params = {'param_dict': {'reference_source': {'user_url': url}}}
-    >>> fh = download_from_url(params=params, tmp_dir=tmp_dir)[0][0]
-    >>> assert fh.readline().startswith('>FBtr0304171')
-    >>> url = 'https://raw.githubusercontent.com/galaxyproject/tools-devteam/master/data_managers/data_manager_fetch_genome_dbkeys_all_fasta/test-data/phiX174.fasta'
-    >>> params = {'param_dict': {'reference_source': {'user_url': url}}}
-    >>> fh = download_from_url(params=params, tmp_dir=tmp_dir)[0][0]
-    >>> assert fh.readline().startswith('>phiX174')
+    >>> assert fh.readline().startswith('b>phiX174')
     """
     urls = filter(bool, [x.strip() for x in params['param_dict']['reference_source']['user_url'].split('\n')])
     return [get_stream_reader(urlopen(url), tmp_dir) for url in urls]
@@ -348,7 +332,7 @@ def download_from_history(params, tmp_dir, **kwds):
     if isinstance(input_filename, list):
         fasta_readers = [get_stream_reader(open(filename, 'rb'), tmp_dir) for filename in input_filename]
     else:
-        fasta_readers = get_stream_reader(open(input_filename), tmp_dir)
+        fasta_readers = get_stream_reader(open(input_filename, 'rb'), tmp_dir)
     return fasta_readers
 
 
@@ -468,7 +452,8 @@ def main():
 
     filename = args[0]
 
-    params = loads(open(filename).read())
+    with open(filename) as fh:
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
     data_manager_dict = {}
@@ -504,7 +489,8 @@ def main():
     finally:
         cleanup_before_exit(tmp_dir)
     # save info to json file
-    open(filename, 'wb').write(dumps(data_manager_dict).encode())
+    with open(filename, 'w') as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":
