@@ -47,7 +47,6 @@ def make_argparser():
 
 
 def compare_read_families(argv):
-
     parser = make_argparser()
     args = parser.parse_args(argv[1:])
 
@@ -86,7 +85,6 @@ def compare_read_families(argv):
         fig2 = plt.figure()
         fig2.subplots_adjust(left=0.12, right=0.97, bottom=0.23, top=0.94, hspace=0)
 
-        # plt.subplots_adjust(bottom=0.25)
         if firstFile is not None:
             file1 = readFileReferenceFree(firstFile)
             integers = numpy.array(file1[:, 0]).astype(int)  # keep original family sizes
@@ -94,9 +92,6 @@ def compare_read_families(argv):
             colors.append("#0000FF")
 
             # for plot: replace all big family sizes by 22
-            # data1 = numpy.array(file1[:, 0]).astype(int)
-            # bigFamilies = numpy.where(data1 > 20)[0]
-            # data1[bigFamilies] = 22
             data1 = numpy.clip(integers, bins[0], bins[-1])
             name1 = name1.split(".tabular")[0]
             if len(name1) > 40:
@@ -143,10 +138,6 @@ def compare_read_families(argv):
             list_to_plot_original.append(integers2)
             colors.append("#298A08")
 
-            # data2 = numpy.asarray(file2[:, 0]).astype(int)
-            # bigFamilies2 = numpy.where(data2 > 20)[0]
-            # data2[bigFamilies2] = 22
-
             data2 = numpy.clip(integers2, bins[0], bins[-1])
             list_to_plot.append(data2)
             name2 = name2.split(".tabular")[0]
@@ -189,10 +180,6 @@ def compare_read_families(argv):
             integers3 = numpy.array(file3[:, 0]).astype(int)  # keep original family sizes
             list_to_plot_original.append(integers3)
             colors.append("#DF0101")
-
-            # data3 = numpy.asarray(file3[:, 0]).astype(int)
-            # bigFamilies3 = numpy.where(data3 > 20)[0]
-            # data3[bigFamilies3] = 22
 
             data3 = numpy.clip(integers3, bins[0], bins[-1])
             list_to_plot.append(data3)
@@ -238,9 +225,6 @@ def compare_read_families(argv):
             list_to_plot_original.append(integers4)
             colors.append("#04cec7")
 
-            # data4 = numpy.asarray(file4[:, 0]).astype(int)
-            # bigFamilies4 = numpy.where(data4 > 20)[0]
-            # data4[bigFamilies4] = 22
             data4 = numpy.clip(integers4, bins[0], bins[-1])
             list_to_plot.append(data4)
             name4 = name4.split(".tabular")[0]
@@ -279,8 +263,6 @@ def compare_read_families(argv):
             fig.text(0.89, 0.05, legend6b, size=10, transform=plt.gcf().transFigure)
             fig2.text(0.89, 0.05, legend6b, size=10, transform=plt.gcf().transFigure)
 
-        # maximumX = numpy.amax(numpy.concatenate(list_to_plot))
-        # minimumX = numpy.amin(numpy.concatenate(list_to_plot))
         list_to_plot2 = list_to_plot
 
         if rel_freq:
@@ -421,9 +403,6 @@ def compare_read_families(argv):
 
         # Family size distribution after DCS and SSCS
         for dataset, data_o, name_file in zip(list_to_plot, data_array_list, label):
-            # maximumX = numpy.amax(dataset)
-            # minimumX = numpy.amin(dataset)
-
             tags = numpy.array(data_o[:, 2])
             seq = numpy.array(data_o[:, 1])
             data = numpy.array(dataset)
@@ -441,9 +420,6 @@ def compare_read_families(argv):
 
             duplTagsBA = duplTags_double[1::2]  # ba of DCS
             duplTagsBA_o = duplTags_double_o[1::2]  # ba of DCS
-
-            # duplTags_double_tag = tags[numpy.in1d(seq, d)]
-            # duplTags_double_seq = seq[numpy.in1d(seq, d)]
 
             # get family sizes for SSCS with no partner
             ab = numpy.where(tags == "ab")[0]
@@ -470,10 +446,6 @@ def compare_read_families(argv):
             dataAB_FS3_o = dataAB_o[dataAB_o >= 3]
             dataBA_FS3 = dataBA[dataBA >= 3]
             dataBA_FS3_o = dataBA_o[dataBA_o >= 3]
-            # ab_FS3 = ab[ab >= 3]
-            # ba_FS3 = ba[ba >= 3]
-            # ab_FS3_o = ab_o[ab_o >= 3]
-            # ba_FS3_o = ba_o[ba_o >= 3]
 
             duplTags_FS3 = duplTags[(duplTags >= 3) & (duplTagsBA >= 3)]  # ab+ba with FS>=3
             duplTags_FS3_BA = duplTagsBA[(duplTags >= 3) & (duplTagsBA >= 3)]  # ba+ab with FS>=3
@@ -499,7 +471,6 @@ def compare_read_families(argv):
             ticks1 = map(str, ticks)
             ticks1[len(ticks1) - 1] = ">20"
             plt.xticks(numpy.array(ticks), ticks1)
-            # singl = counts[0][2][0]  # singletons
             singl = len(data_o[data_o == 1])
             last = len(data_o[data_o > 20])  # large families
             if log_axis:

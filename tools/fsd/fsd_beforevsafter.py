@@ -13,7 +13,6 @@
 # --output_tabular outputfile_name_tabular --output_pdf outputfile_name_pdf
 
 import argparse
-import re
 import sys
 from collections import Counter
 
@@ -43,7 +42,7 @@ def readFasta(file):
             fs1, fs2 = b.split("-")
             fs_consensus.extend([fs1, fs2])
     fs_consensus = numpy.array(fs_consensus).astype(int)
-    return(tag_consensus, fs_consensus)
+    return (tag_consensus, fs_consensus)
 
 
 def make_argparser():
@@ -163,7 +162,7 @@ def compare_read_families_read_loss(argv):
             plt.text(0.55, 0.09, legend5, size=11, transform=plt.gcf().transFigure)
             plt.text(0.88, 0.09, legend6, size=11, transform=plt.gcf().transFigure)
 
-# data of tags aligned to reference genome
+        # data of tags aligned to reference genome
         if ref_genome is not None:
             pysam.index(ref_genome)
             bam = pysam.AlignmentFile(ref_genome, "rb")
@@ -201,15 +200,13 @@ def compare_read_families_read_loss(argv):
             plt.text(0.55, 0.07, legend7, size=11, transform=plt.gcf().transFigure)
             plt.text(0.88, 0.07, legend8, size=11, transform=plt.gcf().transFigure)
 
-        counts = plt.hist(list1, bins=range(-1, maximumX + 1), stacked=False, label=labels, color=colors,
-                          align="left", alpha=1, edgecolor="black", linewidth=1)
+        counts = plt.hist(list1, bins=range(-1, maximumX + 1), stacked=False, label=labels, color=colors, align="left", alpha=1, edgecolor="black", linewidth=1)
         ticks = numpy.arange(0, maximumX, 1)
         ticks1 = map(str, ticks)
         ticks1[len(ticks1) - 1] = ">20"
         plt.xticks(numpy.array(ticks), ticks1)
         if ref_genome is not None:
             count = numpy.array([v for k, v in sorted(Counter(quant_ab_ref).iteritems())])  # count all family sizes from all ab strands
-
             legend = "max. family size:\nabsolute frequency:\nrelative frequency:\n\ntotal nr. of reads:\n(before SSCS building)"
             plt.text(0.1, 0.085, legend, size=11, transform=plt.gcf().transFigure)
 
@@ -237,9 +234,9 @@ def compare_read_families_read_loss(argv):
         pdf.savefig(fig, bbox_inch="tight")
         plt.close()
 
-    # write information about plot into a csv file
+        # write information about plot into a csv file
         output_file.write("Dataset:{}{}\n".format(sep, SSCS_file_name))
-        if ref_genome != str(None):
+        if ref_genome is not None:
             output_file.write("{}AB{}BA\n".format(sep, sep))
             output_file.write("max. family size:{}{}{}{}\n".format(sep, max(quant_ab_ref), sep, max(quant_ba_ref)))
             output_file.write(

@@ -136,7 +136,6 @@ def plotHDwithFSD(list1, maximumX, minimumX, subtitle, lenTags, pdf, xlabel, rel
     plt.xlabel(xlabel, fontsize=14)
     plt.grid(b=True, which='major', color='#424242', linestyle=':')
     plt.xlim((minimumX - step, maximumX + step))
-    # plt.axis((minimumX - step, maximumX + step, 0, numpy.amax(counts) + sum(counts) * 0.1))
     plt.xticks(numpy.arange(0, maximumX + step, step))
 
     if nr_above_bars:
@@ -205,7 +204,6 @@ def plotHDwithDCS(list1, maximumX, minimumX, subtitle, lenTags, pdf, xlabel, rel
     plt.xlabel(xlabel, fontsize=14)
     plt.grid(b=True, which='major', color='#424242', linestyle=':')
     plt.xlim((minimumX - step, maximumX + step))
-    # plt.axis((minimumX - step, maximumX + step, 0, numpy.amax(counts) + sum(counts) * 0.1))
     plt.xticks(numpy.arange(0, maximumX + step, step))
 
     if nr_above_bars:
@@ -254,7 +252,6 @@ def plotHDwithinSeq(sum1, sum1min, sum2, sum2min, min_value, lenTags, pdf, len_s
     ham_partial = [sum1, sum1min, sum2, sum2min, numpy.array(min_value)]  # new hd within tags
     maximumX = numpy.amax(numpy.concatenate(ham_partial))
     minimumX = numpy.amin(numpy.concatenate(ham_partial))
-    # maximumY = numpy.amax(numpy.array(numpy.concatenate(map(lambda x: numpy.bincount(x), ham_partial))))
 
     if len(range(minimumX, maximumX)) == 0:
         range1 = minimumX
@@ -281,7 +278,6 @@ def plotHDwithinSeq(sum1, sum1min, sum2, sum2min, min_value, lenTags, pdf, len_s
     plt.xlabel("TD", fontsize=14)
     plt.grid(b=True, which='major', color='#424242', linestyle=':')
     plt.xlim((minimumX - 1, maximumX + 1))
-    # plt.axis((minimumX - 1, maximumX + 1, 0, maximumY * 1.2))
     plt.xticks(numpy.arange(0, maximumX + 1, 1.0))
     legend = "nr. of tags = {:,}\nsample size = {:,}\nnr. of data points = {:,}".format(
         lenTags, len_sample, len(numpy.concatenate(ham_partial)))
@@ -598,15 +594,6 @@ def hamming_difference(array1, array2, mate_b):
     array2_half = numpy.array([i[0:(len(i)) / 2] for i in array2])  # mate2 part1
     array2_half2 = numpy.array([i[len(i) / 2:len(i)] for i in array2])  # mate2 part2
 
-    # diff11 = 999 * numpy.ones(len(array2))
-    # relativeDiffList = 999 * numpy.ones(len(array2))
-    # ham1 = 999 * numpy.ones(len(array2))
-    # ham2 = 999 * numpy.ones(len(array2))
-    # min_valueList = 999 * numpy.ones(len(array2))
-    # min_tagsList = 999 * numpy.ones(len(array2))
-    # diff11_zeros = 999 * numpy.ones(len(array2))
-    # min_tagsList_zeros = 999 * numpy.ones(len(array2))
-
     diff11 = []
     relativeDiffList = []
     ham1 = []
@@ -630,11 +617,6 @@ def hamming_difference(array1, array2, mate_b):
         half1_mate2 = array2_half2
         half2_mate2 = array2_half
 
-    # half1_mate1, index_halves = numpy.unique(half1_mate1, return_index=True)
-    # print(len(half1_mate1))
-    # half2_mate1 = half2_mate1[index_halves]
-    # array1 = array1[index_halves]
-
     for a, b, tag in zip(half1_mate1, half2_mate1, array1):
         # exclude identical tag from array2, to prevent comparison to itself
         sameTag = numpy.where(array2 == tag)[0]
@@ -650,7 +632,6 @@ def hamming_difference(array1, array2, mate_b):
                             array2_half_withoutSame])
         min_index = numpy.where(dist == dist.min())[0]  # get index of min HD
         min_value = dist.min()
-        # min_value = dist[min_index]  # get minimum HDs
         # get all "b's" of the tag or all "a's" of the tag with minimum HD
         min_tag_half2 = array2_half2_withoutSame[min_index]
         min_tag_array2 = array2_withoutSame[min_index]  # get whole tag with min HD
@@ -687,16 +668,6 @@ def hamming_difference(array1, array2, mate_b):
             diff11_zeros.append(None)
             max_tag_list.append(None)
         i += 1
-
-    # print(i)
-    # diff11 = [st for st in diff11 if st != 999]
-    # ham1 = [st for st in ham1 if st != 999]
-    # ham2 = [st for st in ham2 if st != 999]
-    # min_valueList = [st for st in min_valueList if st != 999]
-    # min_tagsList = [st for st in min_tagsList if st != 999]
-    # relativeDiffList = [st for st in relativeDiffList if st != 999]
-    # diff11_zeros = [st for st in diff11_zeros if st != 999]
-    # min_tagsList_zeros = [st for st in min_tagsList_zeros if st != 999]
     return ([diff11, ham1, ham2, min_valueList, min_tagsList, relativeDiffList, diff11_zeros,
              min_tagsList_zeros, ham1min, ham2min, max_tag_list])
 
@@ -705,7 +676,7 @@ def readFileReferenceFree(file):
     with open(file, 'r') as dest_f:
         data_array = numpy.genfromtxt(dest_f, skip_header=0, delimiter='\t', comments='#', dtype='string')
         integers = numpy.array(data_array[:, 0]).astype(int)
-        return(integers, data_array)
+        return (integers, data_array)
 
 
 def hammingDistanceWithFS(fs, ham):
@@ -733,7 +704,7 @@ def hammingDistanceWithFS(fs, ham):
     data6 = ham[hd6]
 
     list1 = [data, data2, data3, data4, data5, data6]
-    return(list1, maximum, minimum)
+    return (list1, maximum, minimum)
 
 
 def familySizeDistributionWithHD(fs, ham, diff=False, rel=True):
@@ -790,7 +761,7 @@ def familySizeDistributionWithHD(fs, ham, diff=False, rel=True):
     else:
         list1 = [data, data2, data3, data4, data5, data6]
 
-    return(list1, hammingDistances, maximum, minimum)
+    return (list1, hammingDistances, maximum, minimum)
 
 
 def hammingDistanceWithDCS(minHD_tags_zeros, diff_zeros, data_array):
@@ -837,7 +808,7 @@ def hammingDistanceWithDCS(minHD_tags_zeros, diff_zeros, data_array):
     if len(ba_SSCS) != 0:
         ba_SSCS = numpy.concatenate(ba_SSCS)
     list1 = [hd_DCS, ab_SSCS, ba_SSCS]  # list for plotting
-    return(list1, maximum, minimum)
+    return (list1, maximum, minimum)
 
 
 def make_argparser():
@@ -1006,29 +977,6 @@ def Hamming_Distance_Analysis(argv):
             result = numpy.random.choice(unique_indices, size=index_size,
                                          replace=False)  # array of random sequences of size=index.size
 
-            # result = numpy.random.choice(len(integers), size=index_size,
-            #                             replace=False)  # array of random sequences of size=index.size
-            # result = numpy.where(numpy.array(random_tags) == numpy.array(data_array[:,1]))[0]
-
-        # with open("index_result.pkl", "wb") as o:
-        #     pickle.dump(result, o, pickle.HIGHEST_PROTOCOL)
-
-        # save counts
-        # with open(data_folder + "index_sampleTags1000_Barcode3_DCS.pkl", "wb") as f:
-        #     pickle.dump(result, f, pickle.HIGHEST_PROTOCOL)
-        # with open(data_folder + "dataArray_sampleTags1000_Barcode3_DCS.pkl", "wb") as f1:
-        #     pickle.dump(data_array, f1, pickle.HIGHEST_PROTOCOL)
-        #
-        # with open(data_folder + "index_sampleTags100.pkl", "rb") as f:
-        #     result = pickle.load(f)
-        #
-        # with open(data_folder + "dataArray_sampleTags100.pkl", "rb") as f1:
-        #     data_array = pickle.load(f1)
-
-        # with open(data_folder + "index_result.txt", "w") as t:
-        #     for text in result:
-        #         t.write("{}\n".format(text))
-
         # comparison random tags to whole dataset
         result1 = data_array[result, 1]  # random tags
         result2 = data_array[:, 1]  # all tags
@@ -1044,9 +992,6 @@ def Hamming_Distance_Analysis(argv):
         # with open("HD_whole dataset_{}.txt".format(app_f), "w") as output_file1:
         # for h, tag in zip(ham, result1):
         #     output_file1.write("{}\t{}\n".format(tag, h))
-
-        # # HD analysis for chimeric reads
-        # result2 = data_array_whole_dataset[:,1]
 
         proc_pool_b = Pool(nproc)
         diff_list_a = proc_pool_b.map(partial(hamming_difference, array2=result2, mate_b=False), chunks_sample)
@@ -1108,12 +1053,6 @@ def Hamming_Distance_Analysis(argv):
 
         chimera_tags_new = chimera_tags
         data_chimeraAnalysis = numpy.column_stack((minHD_tags_zeros, chimera_tags_new))
-        # chimeras_dic = defaultdict(list)
-        #
-        # for t1, t2 in zip(minHD_tags_zeros, chimera_tags_new):
-        #     if len(t2) >1 and type(t2) is not numpy.ndarray:
-        #         t2 = numpy.concatenate(t2)
-        #     chimeras_dic[t1].append(t2)
 
         checked_tags = []
         stat_maxTags = []
@@ -1158,7 +1097,6 @@ def Hamming_Distance_Analysis(argv):
 
                 sample_tag = "{} {}\t{}".format(sample_half_a, sample_half_b, ", ".join(fs_tag1))
                 output_file1.write("{}\t{}\n".format(sample_tag, ", ".join(new_format)))
-
                 checked_tags.append(tag1)
 
             output_file1.write(
@@ -1214,8 +1152,7 @@ def Hamming_Distance_Analysis(argv):
                                                 [item_b[1] for item_b in lst_minHD_tags])).astype(int)
         # histogram with absolute and relative difference between HDs of both parts of the tag
         listDifference1, maximumXDifference, minimumXDifference = hammingDistanceWithFS(lst_minHD_tags, diff)
-        listRelDifference1, maximumXRelDifference, minimumXRelDifference = hammingDistanceWithFS(lst_minHD_tags,
-                                                                                                 rel_Diff)
+        listRelDifference1, maximumXRelDifference, minimumXRelDifference = hammingDistanceWithFS(lst_minHD_tags, rel_Diff)
         # chimeric read analysis: tags which have TD=0 in one of the halfs
         if len(minHD_tags_zeros) != 0:
             lst_minHD_tags_zeros = []
@@ -1230,8 +1167,7 @@ def Hamming_Distance_Analysis(argv):
                 lst_minHD_tags_zeros, diff_zeros)
 
             if onlyDuplicates is False:
-                listDCS_zeros, maximumXDCS_zeros, minimumXDCS_zeros = hammingDistanceWithDCS(minHD_tags_zeros,
-                                                                                             diff_zeros, data_array)
+                listDCS_zeros, maximumXDCS_zeros, minimumXDCS_zeros = hammingDistanceWithDCS(minHD_tags_zeros, diff_zeros, data_array)
 
         # plot Hamming Distance with Family size distribution
         plotHDwithFSD(list1=list1, maximumX=maximumX, minimumX=minimumX, pdf=pdf, rel_freq=rel_freq,

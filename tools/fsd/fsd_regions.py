@@ -138,7 +138,7 @@ def compare_read_families_refGenome(argv):
             lst_ab_r = []
             lst_ba_r = []
             seq_mut = qname_dict[i]
-            if rangesFile == str(None):
+            if rangesFile is None:
                 seq_mut, seqMut_index = np.unique(np.array(seq_mut), return_index=True)
             length_regions = length_regions + len(seq_mut) * 2
             for r in seq_mut:
