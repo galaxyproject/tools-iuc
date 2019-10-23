@@ -151,7 +151,7 @@ def compare_read_families_read_loss(argv):
         plt.text(0.88, 0.11, legend4, size=11, transform=plt.gcf().transFigure)
 
         # data after trimming
-        if afterTrimming != str(None):
+        if afterTrimming is not None:
             tag_trimming, fs_trimming = readFasta(afterTrimming)
             bigFamilies = numpy.where(fs_trimming > 20)[0]
             fs_trimming[bigFamilies] = 22
