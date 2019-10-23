@@ -312,7 +312,6 @@ def compare_read_families(argv):
         ax.grid(b=True, which="major", color="#424242", linestyle=":")
         ax.margins(0.01, None)
         pdf.savefig(fig)
-        # plt.close()
 
         # PLOT FSD based on PE reads
         fig2.suptitle('Family Size Distribution (FSD) based on PE reads', fontsize=14)
