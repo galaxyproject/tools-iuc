@@ -297,7 +297,7 @@ def compare_read_families_read_loss(argv):
         output_file.write("after DCS building{}{}\n".format(sep, len(tag_consensus)))
         if afterTrimming != str(None):
             output_file.write("after trimming{}{}\n".format(sep, len(tag_trimming)))
-        if ref_genome != str(None):
+        if ref_genome is not None:
             output_file.write("after alignment to reference{}{}\n".format(sep, length_DCS_ref))
 
         print("Files successfully created!")
