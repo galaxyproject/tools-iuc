@@ -137,7 +137,7 @@ def compare_read_families_read_loss(argv):
         plt.text(0.55, 0.14, legend1, size=11, transform=plt.gcf().transFigure)
         plt.text(0.88, 0.14, legend2, size=11, transform=plt.gcf().transFigure)
 
-# data make DCS
+        # data make DCS
         tag_consensus, fs_consensus = readFasta(makeConsensus)
         # group large family sizes in the plot of fasta files
         bigFamilies = numpy.where(fs_consensus > 20)[0]
