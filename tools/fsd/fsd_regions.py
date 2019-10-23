@@ -66,7 +66,7 @@ def compare_read_families_refGenome(argv):
         bam = pysam.AlignmentFile(bamFile, "rb")
         qname_dict = collections.OrderedDict()
 
-        if rangesFile != str(None):
+        if rangesFile is not None:
             with open(rangesFile, 'r') as regs:
                 range_array = np.genfromtxt(regs, skip_header=0, delimiter='\t', comments='#', dtype='string')
 
