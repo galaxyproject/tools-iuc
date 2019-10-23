@@ -232,7 +232,7 @@ def compare_read_families(argv):
             fig.text(0.89, 0.07, legend6b, size=10, transform=plt.gcf().transFigure)
             fig2.text(0.89, 0.07, legend6b, size=10, transform=plt.gcf().transFigure)
 
-        if fourthFile != str(None):
+        if fourthFile is not None:
             file4 = readFileReferenceFree(fourthFile)
             integers4 = numpy.array(file4[:, 0]).astype(int)  # keep original family sizes
             list_to_plot_original.append(integers4)
