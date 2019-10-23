@@ -2,7 +2,7 @@
     <description>mapping, demultiplexing and gene quantification for single cell RNA-seq</description>
     <macros>
         <import>macros.xml</import>
-        <token name="@WRAPPER@"></token>
+        <token name="@WRAPPER@">1</token>
     </macros>
     <expand macro="requirements"/>
     <expand macro="stdio" >
@@ -14,13 +14,52 @@
     STAR
     @REFGENOMEHANDLING@
 
-    ## cDNA sequence always goes first, then barcode
+    ## Check that the input pairs are of the same type
+    ## otherwise STARsolo will run for a long time and then error out.
+    ## We consume either repeats of two inputs R1 + R2
+    ## or a collection of paired reads.
+
+    #try
+        #set $last = None
+        #for $x in $input_types.input_repeats:
+            #if str($input_types.use) == "repeat":
+                #set $r1 = $x.input1
+                #set $r2 = $x.input2
+            #elif str($input_types.use) == "list_paired":
+                #set $r1 = $x.forward
+                #set $r2 = $x.reverse
+            #else
+                Wrong Type
+                #stop
+            #end if
+
+            #assert $r1.datatype == $r2.datatype
+
+            ## Test that all pairs are of the same type
+            #if $last:
+                #assert $last.datatype == $r1.datatype
+            #end if
+            #set $last = $r1
+        #end for
+    #except AssertionError
+        Input types are not the same!
+        #stop
+    #end try
+
+    ## cDNA sequence(s) [R2] always go first, then barcode(s) [R1]
+    ## see: Section 3.1 of STAR manual for multiple inputs, and Section 13 for STARsolo inputs
+    #if str($input_types.use) == "repeat":
+        #set $reads2 = ','.join([ '%s' % $x.input2 for $i,$x in enumerate($input_types.input_repeats)])
+        #set $reads1 = ','.join([ '%s' % $x.input1 for $i,$x in enumerate($input_types.input_repeats)])
+    #else if str($input_types.use) == "list_paired"
+        #set $reads2 = ','.join([ '%s' % $x.reverse for $i,$x in enumerate($input_types.input_repeats)])
+        #set $reads1 = ','.join([ '%s' % $x.forward for $i,$x in enumerate($input_types.input_repeats)])
+    #end if
+
     --readFilesIn
-    #set $reads2 = ','.join([ '%s' % $x.input2 for $i,$x in enumerate($input_repeats)])
-    #set $reads1 = ','.join([ '%s' % $x.input1 for $i,$x in enumerate($input_repeats)])
     $reads2 $reads1
 
-    #if $input_repeats[0].input1.is_of_type('fastq.gz', 'fastqsanger.gz'):
+    #if $last.is_of_type('fastq.gz', 'fastqsanger.gz'):
         @FASTQ_GZ_OPTION@
     #end if
 
@@ -29,8 +68,8 @@
 
     ## 1 - check length of barcode, 0 - do not check
     ## Good for checking custom chemistries
-    --soloBarcodeReadLength 1
     --soloCBwhitelist '$soloCBwhitelist'
+    --soloBarcodeReadLength '$solo.soloBarcodeReadLength'
 
     #if str($solo.params.chemistry) == "CR2":
     --soloCBstart 1
@@ -54,10 +93,21 @@
     --soloUMIdedup '$solo.soloUMIdedup'
     ]]></command>
     <inputs>
-        <repeat name="input_repeats" title="Input Pairs" min="1" >
-            <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data" label="RNA-Seq FASTQ/FASTA file, Barcode reads"/>
-            <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input2" type="data" label="RNA-Seq FASTQ/FASTA file, cDNA reads"/>
-        </repeat>
+        <conditional name="input_types" >
+            <param name="use" type="select" label="Input Type" >
+                <option value="repeat" >Single files</option>
+                <option value="list_paired" >List of Pairs</option>
+            </param>
+            <when value="repeat">
+                <repeat name="input_repeats" title="Input Pairs" min="1" >
+                    <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data" label="RNA-Seq FASTQ/FASTA file, Barcode reads"/>
+                    <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input2" type="data" label="RNA-Seq FASTQ/FASTA file, cDNA reads"/>
+                </repeat>
+            </when>
+            <when value="list_paired">
+                <param name="input_repeats" collection_type="paired" type="data_collection" format="fastq,fasta,fastq.gz,fastqsanger.gz" label="Collection of Pairs" />
+            </when>
+        </conditional>
         <param format="txt,tsv" argument="--soloCBwhitelist" type="data" label="RNA-Seq Cell Barcode Whitelist" />
         <expand macro="refgenomehandling" />
         <section name="solo" title="Advanced Settings" expanded="true">
@@ -91,6 +141,7 @@
                 <option value="1MM_Directional" >Directional</option>
                 <option value="1MM_NotCollapsed" >None</option>
             </param>
+            <param argument="--soloBarcodeReadLength" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Barcode Size is same size of the Read" help="Disable this if your R1 barcodes contain poly-T bases after the barcode sequence." />
         </section>
     </inputs>
     <outputs>
@@ -112,10 +163,13 @@
     </outputs>
     <tests>
         <test expect_num_outputs="5">
-            <repeat name="input_repeats" >
-                <param name="input1" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
-                <param name="input2" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
-            </repeat>
+            <conditional name="input_types">
+                <param name="use" value="repeat" />
+                <repeat name="input_repeats" >
+                    <param name="input1" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                </repeat>
+            </conditional>
             <param name="soloCBwhitelist" value="737K-august-2016.small.txt.gz" />
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
@@ -153,10 +207,13 @@
             </output>
         </test>
         <test expect_num_outputs="5">
-            <repeat name="input_repeats" >
-                <param name="input1" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
-                <param name="input2" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
-            </repeat>
+            <conditional name="input_types">
+                <param name="use" value="repeat" />
+                <repeat name="input_repeats" >
+                    <param name="input1" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                </repeat>
+            </conditional>
             <param name="soloCBwhitelist" value="737K-august-2016.small.txt.gz" />
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
@@ -188,18 +245,78 @@
             </output>
         </test>
         <test expect_num_outputs="5">
-            <repeat name="input_repeats" >
-                <param name="input1" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
-                <param name="input2" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
-            </repeat>
-            <repeat name="input_repeats" >
-                <param name="input1" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
-                <param name="input2" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
-            </repeat>
-            <repeat name="input_repeats" >
-                <param name="input1" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
-                <param name="input2" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
-            </repeat>
+            <!-- Multiple repeats test -->
+            <conditional name="input_types">
+                <param name="use" value="repeat" />
+                <repeat name="input_repeats" >
+                    <param name="input1" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                </repeat>
+                <repeat name="input_repeats" >
+                    <param name="input1" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                </repeat>
+                <repeat name="input_repeats" >
+                    <param name="input1" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                </repeat>
+            </conditional>
+            <param name="soloCBwhitelist" value="737K-august-2016.small.txt.gz" />
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="SNORD83B.22.fa" />
+                <param name="genomeSAindexNbases" value="4" />
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" value="with-gtf" />
+                    <param name="sjdbOverhang" value="75" />
+                    <param name="sjdbGTFfile" value="SNORD83B.22.gtf" ftype="gtf"/>
+                </conditional>
+            </conditional>
+            <section name="solo" >
+                <conditional name="params">
+                    <param name="chemistry" value="custom" />
+                    <param name="soloCBstart" value="1" />
+                    <param name="soloCBlen" value="16" />
+                    <param name="soloUMIstart" value="17" />
+                    <param name="soloUMIlen" value="10" />
+                </conditional>
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="GeneFull" />
+                <param name="soloUMIdedup" value="1MM_Directional" />
+            </section>
+            <output name="output_barcodes" >
+                <assert_contents>
+                    <has_line line="TTTGTCATCTTAGAGC" />
+                    <has_line line="TTTGTCATCTTTCCTC" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="5">
+            <!-- Same as the test before but with a collection of pairs -->
+            <conditional name="input_types">
+                <param name="use" value="list_paired" />
+                <param name="input_repeats" >
+                    <collection type="list:paired">
+                        <element name="Pair1">
+                            <collection type="paired">
+                                <element name="forward" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                                <element name="reverse" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                            </collection>
+                        </element>
+                        <element name="Pair2">
+                            <collection type="paired">
+                                <element name="forward" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                                <element name="reverse" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" />
+                            </collection>
+                        </element>
+                        <!-- Planemo does not support more than 2 elements in a list of pairs -->
+                        <!-- <element name="Pair3"> -->
+                        <!--     <element name="forward" value="41737_R1_sub240k.fastq.gz" ftype="fastqsanger.gz" /> -->
+                        <!--     <element name="reverse" value="41737_R2_sub240k.fastq.gz" ftype="fastqsanger.gz" /> -->
+                        <!-- </element> -->
+                    </collection>
+                </param>
+            </conditional>
             <param name="soloCBwhitelist" value="737K-august-2016.small.txt.gz" />
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />

@@ -50,11 +50,76 @@ adata.rename_categories(
     key='$manipulate.key',
     categories=$categories)
 
-#else if $manipulate.function == 'transpose'
-adata.transpose()
-
 #else if $manipulate.function == 'strings_to_categoricals'
 adata.strings_to_categoricals()
+
+#else if $manipulate.function == 'transpose'
+adata = adata.transpose()
+
+#else if $manipulate.function == 'add_annotation'
+import pandas as pd
+extra_annot_t = pd.read_csv('$manipulate.new_annot', sep='\t').reset_index(drop=True)
+    #if $manipulate.var_obs == 'var'
+var_index = adata.var_names
+var = pd.concat([adata.var.reset_index(drop=True), extra_annot_t], axis=1)
+var.index = var_index
+adata.var = var
+    #else if $manipulate.var_obs == 'obs'
+obs_index = adata.obs.index
+obs = pd.concat([adata.obs.reset_index(drop=True), extra_annot_t], axis=1)
+obs.index = obs_index
+adata.obs = obs
+    #end if
+
+#else if $manipulate.function == 'filter'
+    #if $manipulate.filter.filter == 'key'
+        #if $manipulate.var_obs == 'var'
+filtered = adata.var['$manipulate.filter.key']
+        #else if $manipulate.var_obs == 'obs'
+filtered = adata.obs['$manipulate.filter.key']
+        #end if
+
+        #if $manipulate.filter.filter_key.type == 'number'
+            #if $manipulate.filter.filter_key.filter == 'equal'
+filtered = filtered == $manipulate.filter.filter_key.value
+            #else if $manipulate.filter.filter_key.filter == 'equal'
+filtered = filtered != $manipulate.filter.filter_key.value
+            #else if $manipulate.filter.filter_key.filter == 'less'
+filtered = filtered < $manipulate.filter.filter_key.value
+            #else if $manipulate.filter.filter_key.filter == 'less_or_equal'
+filtered = filtered <= $manipulate.filter.filter_key.value
+            #else if $manipulate.filter.filter_key.filter == 'greater'
+filtered = filtered > $manipulate.filter.filter_key.value
+            #else if $manipulate.filter.filter_key.filter == 'greater_or_equal'
+filtered = filtered >= $manipulate.filter.filter_key.value
+            #end if
+        #else if $manipulate.filter.filter_key.type == 'text'
+            #if $manipulate.filter.filter_key.filter == 'equal'
+filtered = filtered == '$manipulate.filter.filter_key.value'
+            #else
+filtered = filtered != '$manipulate.filter.filter_key.value'
+            #end if
+        #else if $manipulate.filter.filter_key.type == 'boolean'
+filtered = filtered == $manipulate.filter.filter_key.value
+        #end if
+
+    #else if $manipulate.filter.filter == 'index'
+        #if str($manipulate.filter.index.format) == 'file'
+with open('$manipulate.filter.index.file', 'r') as filter_f:
+    filters = [str(x.strip()) for x in filter_f.readlines()]
+filtered = filters
+        #else
+            #set $filters = [str(x.strip()) for x in $manipulate.filter.index.text.split(',')]
+filtered = $filters
+        #end if
+    #end if
+print(filtered)
+
+    #if $manipulate.var_obs == 'var'
+adata = adata[:,filtered]
+    #else if $manipulate.var_obs == 'obs'
+adata = adata[filtered, :]
+    #end if
 #end if
 
 adata.write('anndata.h5ad')
@@ -70,6 +135,8 @@ adata.write('anndata.h5ad')
                 <option value="rename_categories">Rename categories of annotation</option>
                 <option value="strings_to_categoricals">Transform string annotations to categoricals</option>
                 <option value="transpose">Transpose the data matrix, leaving observations and variables interchanged</option>
+                <option value="add_annotation">Add new annotation(s) for observations or variables</option>
+                <option value="filter">Filter observations or variables</option>
             </param>
             <when value="concatenate">
                 <param name="other_adatas" type="data" format="h5ad" multiple="true" label="Annotated data matrix to add"/>
@@ -97,13 +164,78 @@ adata.write('anndata.h5ad')
             </when>
             <when value="strings_to_categoricals"/>
             <when value="transpose"/>
+            <when value="add_annotation">
+                <param name="var_obs" type="select" label="What to annotate?">
+                    <option value="var">Variables (var)</option>
+                    <option value="obs">Observations (obs)</option>
+                </param>
+                <param name="new_annot" type="data" format="tabular" label="Table with new annotations" 
+                    help="The new table should have the same number of rows and same order than obs or var. The key names should be in the header (1st line)"/>
+            </when>
+            <when value="filter">
+                <param name="var_obs" type="select" label="What to annotate?">
+                    <option value="var">Variables (var)</option>
+                    <option value="obs">Observations (obs)</option>
+                </param>
+                <conditional name="filter">
+                    <param name="filter" type="select" label="Type of filtering?">
+                        <option value="key">By key (column) values</option>
+                        <option value="index">By index (row)</option>
+                    </param>
+                    <when value="key">
+                        <param name="key" type="text" value="n_genes" label="Key to filter"/>
+                        <conditional name="filter_key">
+                            <param name="type" type="select" label="Type of value to filter">
+                                <option value="number">Number</option>
+                                <option value="text">Text</option>
+                                <option value="boolean">Boolean</option>
+                            </param>
+                            <when value="number">
+                                <param name="filter" type="select" label="Filter">
+                                    <option value="equal">equal to</option>
+                                    <option value="not_equal">not equal to</option>
+                                    <option value="less">less than</option>
+                                    <option value="less_or_equal">less than or equal to</option>
+                                    <option value="greater">greater than</option>
+                                    <option value="greater_or_equal">greater than or equal to</option>
+                                </param>
+                                <param name="value" type="float" value="2500" label="Value"/>
+                            </when>
+                            <when value="text">
+                                <param name="filter" type="select" label="Filter">
+                                    <option value="equal">equal to</option>
+                                    <option value="not_equal">not equal to</option></param>
+                                <param name="value" type="text" value="2500" label="Value"/>
+                            </when>
+                            <when value="boolean">
+                                <param name="value" type="boolean" truevalue="True" falsevalue="False" checked="true" label="Value to keep"/>
+                            </when>
+                        </conditional>
+                    </when>
+                    <when value="index">
+                        <conditional name="index">
+                            <param name="format" type="select" label="Format for the filter by index">
+                                <option value="file">File</option>
+                                <option value="text" selected="true">Text</option>
+                            </param>
+                            <when value="text">
+                                <param name="text" type="text" value="" label="List of index to keep" help="Indexes separated by a comma"/>
+                            </when>
+                            <when value="file">
+                                <param name="file" type="data" format="txt" label="File with the list of index to keep" help="One index per line"/>
+                            </when>
+                        </conditional>
+                    </when>
+                </conditional>
+            </when>
         </conditional>
     </inputs>
     <outputs>
-        <data name="anndata" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} on ${on_string}"/>
+        <data name="anndata" format="h5ad" from_work_dir="anndata.h5ad" label="${tool.name} (${manipulate.function}) on ${on_string}"/>
     </outputs>
     <tests>
         <test>
+            <!-- test 1 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="concatenate"/>
@@ -122,6 +254,7 @@ adata.write('anndata.h5ad')
             <output name="anndata" value="manipulate.concatenate.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 2 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="obs_names_make_unique"/>
@@ -133,6 +266,7 @@ adata.write('anndata.h5ad')
             <output name="anndata" value="manipulate.obs_names_make_unique.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 3 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="var_names_make_unique"/>
@@ -144,6 +278,7 @@ adata.write('anndata.h5ad')
             <output name="anndata" value="manipulate.var_names_make_unique.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 4 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="rename_categories"/>
@@ -158,6 +293,7 @@ adata.write('anndata.h5ad')
             <output name="anndata" value="manipulate.rename_categories.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 5 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="strings_to_categoricals"/>
@@ -168,6 +304,7 @@ adata.write('anndata.h5ad')
             <output name="anndata" value="manipulate.strings_to_categoricals.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
         <test>
+            <!-- test 6 -->
             <param name="input" value="krumsiek11.h5ad"/>
             <conditional name="manipulate">
                 <param name="function" value="transpose"/>
@@ -176,6 +313,60 @@ adata.write('anndata.h5ad')
                 <has_text_matching expression="adata.transpose"/>
             </assert_stdout>
             <output name="anndata" value="manipulate.transpose.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <!-- test 7 -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="add_annotation"/>
+                <param name="var_obs" value="var"/>
+                <param name="new_annot" value="var_add_annotation.tabular"/>
+            </conditional>
+            <output name="anndata" value="manipulate.add_annotation_var.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <!-- test 8 -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="add_annotation"/>
+                <param name="var_obs" value="obs"/>
+                <param name="new_annot" value="obs_add_annotation.tabular"/>
+            </conditional>
+            <output name="anndata" value="manipulate.add_annotation_obs.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <!-- test 9 -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="filter"/>
+                <param name="var_obs" value="var"/>
+                <conditional name="filter">
+                    <param name="filter" value="index"/>
+                    <conditional name="index">
+                        <param name="format" value="text"/>
+                        <param name="text" value="Gata2,EKLF"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="anndata" value="manipulate.filter_var_index.h5ad" ftype="h5ad" compare="sim_size"/>
+        </test>
+        <test>
+            <!-- test 10 -->
+            <param name="input" value="krumsiek11.h5ad"/>
+            <conditional name="manipulate">
+                <param name="function" value="filter"/>
+                <param name="var_obs" value="obs"/>
+                <conditional name="filter">
+                    <param name="filter" value="key"/>
+                    <param name="key" value="cell_type"/>
+                    <conditional name="filter_key">
+                        <param name="type" value="text"/>
+                        <param name="filter" value="equal"/>
+                        <param name="value" value="progenitor"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="anndata" value="manipulate.filter_obs_key.h5ad" ftype="h5ad" compare="sim_size"/>
         </test>
     </tests>
     <help><![CDATA[
@@ -210,6 +401,10 @@ The possible manipulations are:
 - Transpose the data matrix, leaving observations and variables interchanged (`transpose method <https://anndata.readthedocs.io/en/latest/anndata.AnnData.transpose.html>`__)
 
     Data matrix is transposed, observations and variables are interchanged.
+
+- Add annotation for variables or observations 
+
+- Filter data variables or observations, by index or key
 
 @HELP@
     ]]></help>
