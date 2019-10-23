@@ -164,7 +164,7 @@ def compare_read_families_read_loss(argv):
             plt.text(0.88, 0.09, legend6, size=11, transform=plt.gcf().transFigure)
 
 # data of tags aligned to reference genome
-        if ref_genome != str(None):
+        if ref_genome is not None:
             pysam.index(ref_genome)
             bam = pysam.AlignmentFile(ref_genome, "rb")
             seq_mut = []
