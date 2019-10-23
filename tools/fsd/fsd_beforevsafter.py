@@ -170,7 +170,7 @@ def compare_read_families_read_loss(argv):
             seq_mut = []
             for read in bam.fetch():
                 if not read.is_unmapped:
-                    if re.search('_', read.query_name):
+                    if '_' in read.query_name:
                         tags = re.split('_', read.query_name)[0]
                     else:
                         tags = read.query_name
