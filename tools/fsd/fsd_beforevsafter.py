@@ -67,7 +67,6 @@ def make_argparser():
 def compare_read_families_read_loss(argv):
     parser = make_argparser()
     args = parser.parse_args(argv[1:])
-    #
     SSCS_file = args.inputFile_SSCS
     SSCS_file_name = args.inputName1
     makeConsensus = args.makeDCS
