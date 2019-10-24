@@ -29,7 +29,7 @@ This checklist is based on the IUC's [Best Practices](https://galaxy-iuc-standar
 * [ ] Are the categories appropriate?
 * [ ] Does the `name` match the folder name and, in the case of a single tool, the tool `.xml` file name?
     - [ ] Alphanumeric and underscore `_` only, no `-`
-* [ ] Is the owner set to `iuc`? If not, is the owner set to a current wrapper?
+* [ ] Is the owner set to `iuc`? If this is an existing tool being migrated to tools-iuc, the previous `owner` can be maintained in order to preserve the tool lineage, but the owner need to grant authority to make changes to `iuc` in the main Tool Shed repository page and add `Intergalactic Utilities Commission` to the admin groups in "Manager repository administrators" **before** the PR is merged.
 * [ ] Is there a `description`?
 * [ ] Are there `homepage_url` and `remote_repository_url` fields? Do they point somewhere sensible?
 
