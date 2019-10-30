@@ -1,0 +1,710 @@
+<?xml version="1.0"?>
+<macros>
+    <token name="@VERSION@">4.1.4.0</token>
+    <token name="@WRAPPER_VERSION@">@VERSION@+galaxy</token>
+
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@VERSION@">gatk4</requirement>
+            <requirement type="package" version="0.2.5">tabix</requirement>
+            <requirement type="package" version="1.9">samtools</requirement>
+            <yield />
+        </requirements>
+    </xml>
+
+    <!--Hacky way to determine GATK version, for display in tool info-->
+    <xml name="version_cmd">
+        <version_command>gatk SortSam --version 2>&amp;1 | grep Version | cut -d ':' -f 2</version_command>
+    </xml>
+
+    <!--Command token, java options should not be hard coded here.-->
+    <token name="@CMD_BEGIN@">[[ -z \$_JAVA_OPTIONS ]] &amp;&amp; export JAVA_OPTS=\$_JAVA_OPTIONS &amp;&amp; gatk</token>
+
+    <!--Define sections that parameters could exist within.-->
+    <template name="set_sections">
+        #set global $sections = ['', 'optional.', 'advanced.', 'common.', 'deprecated.']
+    </template>
+
+    <!--Reference genome handling-->
+    <!--One template each for the different reference genome parameter names.-->
+    <!--TODO: Can the reference parameters all be the same?-->
+    <xml name="ref_sel">
+        <conditional name="reference_source">
+            <param name="reference_source_selector" type="select" label="Choose the source for the reference list">
+                <option value="cached">Locally cached</option>
+                <option value="history">History</option>
+                <option value="no_ref" selected="true">Do not pass</option>
+            </param>
+            <when value="cached">
+                <param name="reference_sequence" type="select" label="Reference" help="Reference sequence file." >
+                    <options from_data_table="all_fasta" >
+                        <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file" />
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="reference_sequence" type="data" format="fasta" label="Reference" help="Reference sequence file." />
+            </when>
+            <when value="no_ref" />
+        </conditional>
+    </xml>
+
+    <template name="ref_opts">
+    #for $sect in $sections
+        #if $varExists($sect + "reference_source.reference_source_selector")
+            #if $getVar($sect + "reference_source.reference_source_selector") != "no_ref"
+                #if $getVar($sect + "reference_source.reference_source_selector") != "history"
+                    --reference $getVar($sect + "reference_source.reference_sequence.fields.path")
+                #else
+                    --reference reference.fa
+                #end if
+            #end if
+        #end if
+    #end for
+    </template>
+
+    <template name="picard_ref_opts">
+    #for $sect in $sections
+        #if $varExists($sect + "reference_source.reference_source_selector")
+            #if $getVar($sect + "reference_source.reference_source_selector") != "no_ref"
+                #if $getVar($sect + "reference_source.reference_source_selector") != "history"
+                    --REFERENCE_SEQUENCE $getVar($sect + "reference_source.reference_sequence.fields.path")
+                #else
+                    --REFERENCE_SEQUENCE $getVar($sect + "reference_source.reference_sequence")
+                #end if
+            #end if
+        #end if
+    #end for
+    </template>
+
+    <template name="picard_ref_opts_plain">
+    #for $sect in $sections
+        #if $varExists($sect + "reference_source.reference_source_selector")
+            #if $getVar($sect + "reference_source.reference_source_selector") != "no_ref"
+                #if $getVar($sect + "reference_source.reference_source_selector") != "history"
+                    --REFERENCE $getVar($sect + "reference_source.reference_sequence.fields.path")
+                #else
+                    --REFERENCE $getVar($sect + "reference_source.reference_sequence")
+                #end if
+            #end if
+        #end if
+    #end for
+    </template>
+
+    <template name="ref_opts_input">
+    #for $sect in $sections
+        #if $varExists($sect + "reference_source.reference_source_selector")
+            #if $getVar($sect + "reference_source.reference_source_selector") != "no_ref"
+                #if $getVar($sect + "reference_source.reference_source_selector") != "history"
+                    --input $getVar($sect + "reference_source.reference_sequence.fields.path")
+                #else
+                    --input $getVar($sect + "reference_source.reference_sequence")
+                #end if
+            #end if
+        #end if
+    #end for
+    </template>
+
+
+    <!--Interval Macros-->
+    <template name="gatk_ints_chth">
+    #for $sect in $sections
+        #if $varExists($sect + "ival_type.ival_type_sel")
+            #if $getVar($sect + "ival_type.ival_type_sel") == "ival_file"
+                #if $varExists($sect + "ival_type.intervals")
+                    #if $getVar($sect + "ival_type.intervals").is_of_type("gatk_interval")
+                        --intervals intervals.interval_list
+                    #end if
+                    #if $getVar($sect + "ival_type.intervals").is_of_type("bed")
+                        --intervals intervals.bed
+                    #end if
+                    #if $getVar($sect + "ival_type.intervals").is_of_type("vcf")
+                        --intervals intervals.vcf
+                    #end if
+                #end if
+            #else
+                #if $varExists($sect + "ival_type.intervals")
+                    --intervals $getVar($sect + "ival_type.intervals")
+                #end if
+            #end if
+            #if $varExists($sect + "ival_type.interval_padding")
+                --interval-padding $getVar($sect + "ival_type.interval_padding")
+            #end if
+        #end if
+    #end for
+    </template>
+
+
+    <template name="pre_gatk_ints_chth"><![CDATA[
+    #for $sect in $sections
+        #if $varExists($sect + "ival_type.ival_type_sel")
+            #if $getVar($sect + "ival_type.ival_type_sel") == "ival_file"
+                #if $varExists($sect + "ival_type.intervals")
+                    #if $getVar($sect + "ival_type.intervals").is_of_type("gatk_interval")
+                        ln -s $getVar($sect + "ival_type.intervals") intervals.interval_list &&
+                    #end if
+                    #if $getVar($sect + "ival_type.intervals").is_of_type("bed")
+                        ln -s $getVar($sect + "ival_type.intervals") intervals.bed &&
+                    #end if
+                    #if $getVar($sect + "ival_type.intervals").is_of_type("vcf")
+                        ln -s $getVar($sect + "ival_type.intervals") intervals.vcf &&
+                    #end if
+                 #end if
+            #end if
+        #end if
+    #end for
+    ]]></template>
+
+    <xml name="gatk_ints">
+        <conditional name="ival_type">
+            <param name="ival_type_sel" type="select" label="Choose Genomic Interval Source">
+                <option value="ival_file" selected="true">Interval File</option>
+                <option value="ival_text" selected="false">Interval Text Input</option>
+            </param>
+            <when value="ival_file">
+                <param name="intervals" argument="--intervals" type="data" optional="true" format="bed,vcf,gatk_interval" label="Intervals File" help="One or more genomic intervals over which to operate"/>
+                <param name="interval_padding" argument="--interval-padding" type="integer" optional="true" value="0" label="Interval Padding" help="Amount of padding (in bp) to add to each interval you are including."/>
+            </when>
+            <when value="ival_text">
+                <param name="intervals" argument="--intervals" type="text" optional="true" label="Intervals Text Input" help="One or more genomic intervals over which to operate.  Enter in chrom:start-stop format."/>
+                <param name="interval_padding" argument="--interval-padding" type="integer" optional="true" value="0" label="Interval Padding" help="Amount of padding (in bp) to add to each interval you are including."/>
+            </when>
+        </conditional>
+    </xml>
+
+
+    <!--Exclude Intervals-->
+    <xml name="gatk_excl_ints">
+        <conditional name="excl_ival_type">
+            <param name="excl_ival_type_sel" type="select" label="Choose Genomic Interval Exclusion Source">
+                <option value="excl_ival_file" selected="true">Exclude Interval File</option>
+                <option value="excl_ival_text" selected="false">Exclude Interval Text Input</option>
+            </param>
+            <when value="excl_ival_file">
+                <param name="exclude_intervals" argument="--exclude-intervals" type="data" optional="true" format="bed,vcf,gatk_interval" label="Exclude Intervals File" help="One or more genomic intervals to exclude from processing"/>
+                <param name="interval_exclusion_padding" argument="--interval-exclusion-padding" type="integer" optional="true" value="0" label="Interval Exclusion Padding" help="Amount of padding (in bp) to add to each interval you are excluding."/>
+            </when>
+            <when value="excl_ival_text">
+                <param name="exclude_intervals" argument="--exclude-intervals" type="text" optional="true" label="Exclude Intervals Text Input" help="One or more genomic intervals to exclude from processing.  Enter in chrom:start-stop format."/>
+                <param name="interval_exclusion_padding" argument="--interval-exclusion-padding" type="integer" optional="true" value="0" label="Interval Exclusion Padding" help="Amount of padding (in bp) to add to each interval you are excluding."/>
+            </when>
+        </conditional>
+    </xml>
+
+    <template name="gatk_excl_ints_chth">
+    #for $sect in $sections
+        #if $varExists($sect + "excl_ival_type.excl_ival_type_sel")
+            #if $getVar($sect + "excl_ival_type.excl_ival_type_sel") == "ival_file"
+                #if $varExists($sect + "excl_ival_type.exclude_intervals")
+                    #if $getVar($sect + "excl_ival_type.exclude_intervals").is_of_type("gatk_interval")
+                        --exclude-intervals excl_intervals.interval_list
+                    #end if
+                    #if $getVar($sect + "excl_ival_type.exclude_intervals").is_of_type("bed")
+                        --exclude-intervals excl_intervals.bed
+                    #end if
+                    #if $getVar($sect + "excl_ival_type.exclude_intervals").is_of_type("vcf")
+                        --exclude-intervals excl_intervals.vcf
+                    #end if
+                #end if
+            #elif $getVar($sect + "excl_ival_type.excl_ival_type_sel") == "excl_ival_text"
+                #if $varExists($sect + "excl_ival_type.exclude_intervals")
+                    --exclude-intervals $getVar($sect + "excl_ival_type.exclude_intervals")
+                #end if
+            #else
+                #pass
+            #end if
+            #if $varExists($sect + "excl_ival_type.interval_exclusion_padding")
+                --interval-exclusion-padding $getVar($sect + "excl_ival_type.interval_exclusion_padding")
+            #end if
+        #end if
+    #end for
+    </template>
+
+    <template name="pre_gatk_excl_ints_chth"><![CDATA[
+    #for $sect in $sections
+        #if $varExists($sect + "excl_ival_type.excl_ival_type_sel")
+            #if $getVar($sect + "excl_ival_type.excl_ival_type_sel") == "excl_ival_file"
+                #if $varExists($sect + "excl_ival_type.exclude_intervals")
+                    #if $getVar($sect + "excl_ival_type.exclude_intervals").is_of_type("gatk_interval")
+                        ln -s $getVar($sect + "excl_ival_type.exclude_intervals") excl_intervals.interval_list &&
+                    #end if
+                    #if $getVar($sect + "excl_ival_type.exclude_intervals").is_of_type("bed")
+                        ln -s $getVar($sect + "excl_ival_type.exclude_intervals") excl_intervals.bed &&
+                    #end if
+                    #if $getVar($sect + "excl_ival_type.exclude_intervals").is_of_type("vcf")
+                        ln -s $getVar($sect + "excl_ival_type.exclude_intervals") excl_intervals.vcf &&
+                    #end if
+                 #end if
+            #end if
+        #end if
+    #end for
+    ]]></template>
+
+    <!--Sequence dictionary selection options for Picard type tools-->
+    <template name="picard_seqdict_opts">
+    #for $sect in $sections
+        #if $varExists($sect + "seqdict_source.seqdict_source_selector")
+            #if $getVar($sect + "seqdict_source.seqdict_source_selector") != "no_seq_dict"
+                #if $getVar($sect + "seqdict_source.seqdict_source_selector") != "history"
+                    #set seq_dict_loc = ''.join($getVar($sect + seqdict_source.seqdict_sequence).fields.path.split('.')[:-1]) + '.dict'
+                    --SEQUENCE_DICTIONARY $seq_dict_loc
+                #else
+                    --SEQUENCE_DICTIONARY $getVar($sect + "seqdict_source.seqdict_sequence")
+                #end if
+            #end if
+        #end if
+    #end for
+    </template>
+
+    <template name="gatk_seqdict">
+    #for $sect in $sections
+        #if $varExists($sect + "seqdict_source.seqdict_source_selector")
+            #if $getVar($sect + "seqdict_source.seqdict_source_selector") != "no_seq_dict"
+                #if $getVar($sect + "seqdict_source.seqdict_source_selector") != "history"
+                    #set $seq_dict_loc = ''.join($getVar($sect + "seqdict_source.seqdict_sequence").fields.path.split('.')[:-1]) + '.dict'
+                    --sequence-dictionary $seq_dict_loc
+                #else
+                    --sequence-dictionary $getVar($sect + "seqdict_source.seqdict_sequence")
+                #end if
+            #end if
+        #end if
+    #end for
+    </template>
+
+    <xml name="seq_dict_sel">
+        <conditional name="seqdict_source">
+            <param name="seqdict_source_selector" type="select" label="Choose the source for the sequence dictionary">
+                <option value="cached">Locally cached</option>
+                <option value="history">History</option>
+                <option value="no_seq_dict" selected="true">Do not pass</option>
+            </param>
+            <when value="cached">
+                <param name="seqdict_sequence" type="select" label="Sequence Dictionary" help="Sequence dictionary file." >
+                    <options from_data_table="all_fasta" >
+                        <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file" />
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="seqdict_sequence" type="data" format="txt" label="Sequence Dictionary" help="Sequence dictionary file. Must be in dict format." />
+            </when>
+            <when value="no_seq_dict" />
+        </conditional>
+    </xml>
+
+    <!--BAM input-->
+    <template name="picard_bam_input">
+        --INPUT input.bam
+    </template>
+
+    <template name="gatk_bam_input">
+        --input input.bam
+    </template>
+
+    <template name="bam_index_pre_chth"><![CDATA[
+    #for $sect in $sections
+        #if $varExists($sect + "input")
+            #if $getVar($sect + "input").is_of_type("bam")
+                ln -s $getVar($sect + "input") input.bam &&
+                samtools index input.bam &&
+            #else
+                ln -s $getVar($sect + "input") input.sam &&
+                samtools view -bS input.sam -o input.bam &&
+                samtools index input.bam &&
+            #end if
+        #end if
+    #end for
+    ]]></template>
+
+    <xml name="gatk_bam_req_params">
+        <param argument="--input" type="data" format="bam,sam" label="Input BAM/SAM/CRAM file" />
+    </xml>
+
+    <template name="picard_bam_index"><![CDATA[
+        #if $input.is_of_type("bam")
+            ln -s $INPUT input.bam &&
+            samtools index input.bam &&
+        #else
+            ln -s $INPUT input.sam &&
+            samtools view -bS input.sam -o input.bam &&
+            samtools index input.bam &&
+        #end if
+    ]]></template>
+
+
+    <!--Output goes to stdout, no output parameter exists.-->
+    <template name="stdout_to_output">
+        > output.txt
+    </template>
+
+    <xml name="stdout_to_output_params">
+        <data format="txt" name="output" label="${tool.name} on ${on_string}: txt" from_work_dir="output.txt" />
+    </xml>
+
+    <!--Multiple input files, true for List[File] types, and sometimes List[String] types    -->
+    <template name="gatk_input_multi"><![CDATA[
+        #for $num, $file in enumerate($variant)
+            #if $file.is_of_type("vcf_bgzip")
+                --variant input${num}.vcf.gz
+            #elif $file.is_of_type("txt")
+                --variant input${num}.list
+            #else
+                --variant input${num}.vcf
+            #end if
+        #end for
+    ]]></template>
+
+    <!--Multiple input files, true for List[File] types, and sometimes List[String] types    -->
+    <template name="gatk_input_single"><![CDATA[
+            #if $variant.is_of_type("vcf_bgzip")
+                --variant input${num}.vcf.gz
+            #elif $variant.is_of_type("txt")
+                --variant input${num}.list
+            #else
+                --variant input${num}.vcf
+            #end if
+    ]]></template>
+
+    <template name="gatk_tabix_multi"><![CDATA[
+        #for $num, $file in enumerate($variant)
+            #set datatype = $file.datatype
+            #if $file.is_of_type("vcf_bgzip")
+                ln -s $file input${num}.vcf.gz &&
+                tabix input${num}.vcf.gz &&
+            #elif $file.is_of_type("txt")
+                ln -s $file input${num}.list &&
+            #else
+                ln -s $file input${num}.vcf &&
+            #end if
+        #end for
+    ]]></template>
+
+    <xml name="vcf_input_params_multi">
+        <param name="input" type="data" multiple="true" format="vcf,vcf_bgzip" label="Input VCF file" help="Input VCF(s) to be sorted. Multiple inputs must have the same sample names (in order)"/>
+    </xml>
+
+
+
+    <!--ABOVE HAS BEEN REVIEWED-->
+
+
+
+
+
+
+
+
+
+
+    <!--{-->
+      <!--"summary": "BAM/SAM/CRAM file containing reads",-->
+      <!--"name": "&#45;&#45;input",-->
+      <!--"synonyms": "-I",-->
+      <!--"type": "List[String]",-->
+      <!--"required": "yes",-->
+      <!--"fulltext": "",-->
+      <!--"defaultValue": "[]",-->
+      <!--"minValue": "NA",-->
+      <!--"maxValue": "NA",-->
+      <!--"minRecValue": "NA",-->
+      <!--"maxRecValue": "NA",-->
+      <!--"kind": "required",-->
+      <!--"options": []-->
+    <!--},-->
+    <!--Required BAM input, GATK tool, may be specified multiple times.-->
+    <!--BAM should be indexed on the fly.-->
+    <!--Parameter is required, so is not contained within a section.-->
+    <!--Only decriptor that makes this unique for all input parameters is the summary field.-->
+     <!--{'pre_chth': ['bam_index_pre_chth'],-->
+                                                 <!--'main_chth': ['picard_bam_input'],-->
+                                                 <!--'main_xml': ['gatk_bam_req_params']}},-->
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <!--Macros for multiple input tools.  List[File] in GATK json.-->
+    <template name="vcf_tabix_multi"><![CDATA[
+        #for $num, $file in enumerate($input)
+            #set datatype = $file.datatype
+            #if $file.is_of_type("vcf_bgzip")
+                ln -s $file input${num}.vcf.gz &&
+                tabix input${num}.vcf.gz &&
+            #else
+                ln -s $file input${num}.vcf &&
+            #end if
+        #end for
+    ]]></template>
+
+    <template name="vcf_input_multi_picard"><![CDATA[
+        #for $num, $file in enumerate($input)
+            #if $file.is_of_type("vcf_bgzip")
+                --INPUT input${num}.vcf.gz
+            #else
+                --INPUT input${num}.vcf
+            #end if
+        #end for
+    ]]></template>
+
+    <template name="vcf_input_multi"><![CDATA[
+        #for $num, $file in enumerate($input)
+            #if $file.is_of_type("vcf_bgzip")
+                --input input${num}.vcf.gz
+            #else
+                --input input${num}.vcf
+            #end if
+        #end for
+    ]]></template>
+
+
+    <!--Picard single input tools-->
+    <template name="vcf_tabix"><![CDATA[
+        #set datatype = $input.datatype
+        #if $input.is_of_type("vcf_bgzip")
+            ln -s $input input.vcf.gz &&
+            tabix input.vcf.gz &&
+        #else
+            ln -s $input input.vcf &&
+        #end if
+    ]]></template>
+
+    <template name="gatk_tabix"><![CDATA[
+        #set datatype = $variant.datatype
+        #if $variant.is_of_type("vcf_bgzip")
+            ln -s $variant input.vcf.gz &&
+            tabix input.vcf.gz &&
+        #else
+            ln -s $variant input.vcf &&
+            gatk IndexFeatureFile -F input.vcf &&
+        #end if
+    ]]></template>
+
+    <template name="vcf_input_picard"><![CDATA[
+        #if $input.is_of_type("vcf_bgzip")
+            --INPUT input.vcf.gz
+        #else
+            --INPUT input.vcf
+        #end if
+    ]]></template>
+
+    <template name="vcf_input"><![CDATA[
+        #if $input.is_of_type("vcf_bgzip")
+            --input input.vcf.gz
+        #else
+            --input input.vcf
+        #end if
+    ]]></template>
+
+    <template name="gatk_input"><![CDATA[
+        #if $variant.is_of_type("vcf_bgzip")
+            --variant input.vcf.gz
+        #else
+            --variant input.vcf
+        #end if
+    ]]></template>
+
+    <template name="gatk_gvcf_tabix"><![CDATA[
+        #if $variant
+            ln -s $variant input.g.vcf &&
+        #end if
+    ]]></template>
+
+    <template name="gatk_gvcf_input"><![CDATA[
+        --variant input.g.vcf
+    ]]></template>
+
+    <xml name="gatk_gvcf_input_params">
+	    <param name="variant" type="data" multiple="false" format="vcf" label="Input gVCF file" help=""/>
+    </xml>
+
+    <xml name="vcf_input_params">
+        <param name="input" type="data" multiple="false" format="vcf,vcf_bgzip" label="Input VCF file" help="Input VCF(s) to be sorted. Multiple inputs must have the same sample names (in order)"/>
+    </xml>
+
+    <xml name="gatk_vcf_input_params">
+        <param name="variant" type="data" multiple="false" format="vcf,vcf_bgzip" label="Input VCF file" help="A VCF file containing variants."/>
+    </xml>
+
+    <xml name="gatk_vcf_input_params_multi">
+        <param name="variant" type="data" multiple="true" format="vcf,vcf_bgzip,txt" label="Input VCF file(s)" help="A VCF file containing variants or a list of VCFs. Can be specified multiple times."/>
+    </xml>
+
+    <xml name="gatk_req_params">
+        <param name="input" type="data" format="bam,sam,cram" label="Input BAM/SAM/CRAM file" />
+    </xml>
+
+    <!--HDF5 Inputs-->
+
+    <xml name="hdf5_input">
+        <param name="input" type="data" format="h5,tabular" label="Input TSV or HDF5" help="Input TSV or HDF5 file containing integer read counts in genomic intervals for a single case sample (output of CollectReadCounts)." />
+    </xml>
+
+    <template name="hdf5_input_chth"><![CDATA[
+        --input "${input}"
+    ]]></template>
+
+    <template name="hdf5_output_chth">
+        --output "${output}"
+    </template>
+
+    <xml name="hdf5_output">
+        <data format="h5" name="output" label="${tool.name} on ${on_string}: HDF5" help="Output file for read counts." />
+    </xml>
+
+    <!--Output specific to ModelSegments.  Files created based on prefix, so force that to be what we want, then pull important files with from_work_dir.-->
+    <!--${SAMPLE}.cr.seg-->
+    <!--${SAMPLE}.modelFinal.seg-->
+    <template name="modelsegments_chth"><![CDATA[
+        --output "."
+        --output-prefix "modelsegments"
+    ]]></template>
+
+    <xml name="modelsegments_output">
+        <data format="tabular" name="cr_seg" label="${tool.name} on ${on_string}: cr.seg" help="Copy-ratio segments." from_work_dir="modelsegments.cr.seg"/>
+        <data format="tabular" name="modelfinal_seg" label="${tool.name} on ${on_string}: modelFinal.seg" help="Modeled Segments" from_work_dir="modelsegments.modelFinal.seg"/>
+    </xml>
+
+    <!--deltaMAD.txt-->
+    <!--denoisedLimit4.png-->
+    <!--denoisedMAD.txt-->
+    <!--denoised.png-->
+    <!--scaledDeltaMAD.txt-->
+    <!--modeled.png-->
+    <!--standardizedMAD.txt-->
+
+    <template name="plotmodeledsegments_chth"><![CDATA[
+        --output "."
+        --output-prefix "plotmodeledsegments"
+    ]]></template>
+
+    <xml name="plotmodeledsegments_output">
+        <data format="png" name="modeled_png" label="${tool.name} on ${on_string}: modeled.png" help="Copy-Ratio Plot" from_work_dir="plotmodeledsegments.modeled.png"/>
+    </xml>
+
+    <!--Common Picard options-->
+    <template name="picard_opts">
+        #if $picard_adv.arguments_file
+            --arguments_file ${picard_adv.arguments_file}
+        #end if
+        --COMPRESSION_LEVEL ${picard_adv.COMPRESSION_LEVEL}
+        #if $picard_adv.GA4GH_CLIENT_SECRETS
+            --GA4GH_CLIENT_SECRETS ${picard_adv.GA4GH_CLIENT_SECRETS}
+        #end if
+        --MAX_RECORDS_IN_RAM ${picard_adv.MAX_RECORDS_IN_RAM}
+        --VALIDATION_STRINGENCY ${picard_adv.VALIDATION_STRINGENCY}
+        --VERBOSITY ${picard_adv.VERBOSITY}
+        ${picard_adv.CREATE_MD5_FILE}
+        ${picard_adv.USE_JDK_DEFLATER}
+        ${picard_adv.USE_JDK_INFLATER}
+    </template>
+
+    <xml name="picard_params">
+        <section name="picard_adv" title="Advanced Picard Options (Only change these if you know what you're doing.)" expanded="False">
+            <param argument="--arguments_file" type="data" optional="true" format="txt" label="Arguments File" help="read one or more arguments files and add them to the command line" />
+            <param argument="--COMPRESSION_LEVEL" type="integer" optional="true" value="5" min="1" max="9" label="Compression Level" help="Compression level for all compressed files created (e.g. BAM and VCF)." />
+            <param argument="--CREATE_MD5_FILE" truevalue="--CREATE_MD5_FILE" falsevalue="" type="boolean" optional="true" checked="false" label="Create MD5 File" help="Whether to create an MD5 digest for any BAM or FASTQ files created." />
+            <param argument="--GA4GH_CLIENT_SECRETS" type="data" format="json" optional="true" label="Ga4Gh Client Secrets" help="Google Genomics API client_secrets.json file path." />
+            <param argument="--MAX_RECORDS_IN_RAM" type="integer" optional="true" value="500000" label="Max Records In Ram" help="When writing files that need to be sorted, this will specify the number of records stored in RAM before spilling to disk. Increasing this number reduces the number of file handles needed to sort the file, and increases the amount of RAM needed." />
+            <param argument="--TMP_DIR" type="text" optional="true" label="Tmp Dir" help="One or more directories with space available to be used by this program for temporary storage of working files.  Keep in mind, you must be able to access this directory from either your user, or from the Galaxy user, depending on your configuration." />
+            <param argument="--USE_JDK_DEFLATER" truevalue="--USE_JDK_DEFLATER" falsevalue="" type="boolean" optional="true" checked="false" label="Use Jdk Deflater" help="Use the JDK Deflater instead of the Intel Deflater for writing compressed output" />
+            <param argument="--USE_JDK_INFLATER" truevalue="--USE_JDK_INFLATER" falsevalue="" type="boolean" optional="true" checked="false" label="Use Jdk Inflater" help="Use the JDK Inflater instead of the Intel Inflater for reading compressed input" />
+            <param argument="--VALIDATION_STRINGENCY" type="select" optional="true" label="Validation Stringency" help="Validation stringency for all SAM files read by this program.  Setting stringency to SILENT can improve performance when processing a BAM file in which variable-length data (read, qualities, tags) do not otherwise need to be decoded." >
+                <option value="STRICT" selected="true">STRICT</option>
+                <option value="LENIENT" selected="false">LENIENT</option>
+                <option value="SILENT" selected="false">SILENT</option>
+            </param>
+            <param argument="--VERBOSITY" type="select" optional="true" label="Verbosity" help="Control verbosity of logging." >
+                <option value="ERROR" selected="false">ERROR</option>
+                <option value="WARNING" selected="false">WARNING</option>
+                <option value="INFO" selected="true">INFO</option>
+                <option value="DEBUG" selected="false">DEBUG</option>
+            </param>
+        </section>
+    </xml>
+
+    <!--Provides option to create gzipped output for VCF files-->
+    <xml name="gzip_vcf_params">
+        <param name="gzipped_output" type="boolean" checked="true" label="GZIP Output?" help="If you would like gzipped output, check this box.  In general, it would be preferable to do this, unless your downstream tool does not support handling of gzipped files." />
+    </xml>
+
+    <!--Output related Picard options-->
+    <xml name="gzip_vcf_output_params">
+        <data format="vcf" name="output_vcf" label="${tool.name} on ${on_string}: vcf" from_work_dir="output.vcf" >
+			<filter>not gzipped_output</filter>
+		</data>
+		<data format="vcf_bgzip" name="output_vcf_bgzip" label="${tool.name} on ${on_string}: vcf_bgzip" from_work_dir="output.vcf.gz" >
+			<filter>gzipped_output</filter>
+		</data>
+    </xml>
+
+
+    <!--These are the same, other than the capitalization of output, so maybe a better way to do this.-->
+    <template name="picard_vcf_output_opts">
+        #if $gzipped_output
+			--OUTPUT output.vcf.gz
+		#else
+			--OUTPUT output.vcf
+		#end if
+    </template>
+
+    <template name="vcf_output_opts">
+        #if $gzipped_output
+			--output output.vcf.gz
+		#else
+			--output output.vcf
+		#end if
+    </template>
+
+    <xml name="picard_output_params">
+        <data format="txt" name="output_md5" label="${tool.name} on ${on_string}: md5sum(txt)" from_work_dir="output.bam.md5" >
+			<filter>picard_adv['CREATE_MD5_FILE']</filter>
+		</data>
+    </xml>
+
+
+    <!--<template name="ref_opts">-->
+        <!--#set $sections = ['optional','advanced','common','deprecated','']-->
+        <!--#silent $sys.stderr.write("I WOULD LIKE TO SHOW THE SECTION VARIABLE: '${sections}'\n")-->
+        <!--#for $sect in $sections-->
+            <!--#if $varExists('$sect.reference_source.reference_source_selector')-->
+                <!--#if $sect.reference_source.reference_source_selector != "no_ref"-->
+                    <!--#if $sect.reference_source.reference_source_selector != "history"-->
+                        <!--&#45;&#45;reference ${sect.reference_source.reference_sequence.fields.path}-->
+                    <!--#else-->
+                        <!--&#45;&#45;reference ${sect.reference_source.reference_sequence}-->
+                    <!--#end if-->
+                <!--#end if-->
+            <!--#end if-->
+        <!--#end for-->
+    <!--</template>-->
+
+
+    <!--<template name="ref_opts_opt">-->
+        <!--#if $optional.reference_source.reference_source_selector != "no_ref"-->
+            <!--#if $optional.reference_source.reference_source_selector != "history"-->
+                <!--&#45;&#45;reference ${optional.reference_source.reference_sequence.fields.path}-->
+            <!--#else-->
+                <!--&#45;&#45;reference ${optional.reference_source.reference_sequence}-->
+            <!--#end if-->
+        <!--#end if-->
+    <!--</template>-->
+
+
+    <!--Citations-->
+    <xml name="citations">
+        <citation type="doi">10.1101/gr.107524.110</citation>
+        <citation type="doi">10.1038/ng.806</citation>
+        <citation type="doi">10.1002/0471250953.bi1110s43</citation>
+        <citation type="doi">10.1101/201178</citation>
+        <yield />
+    </xml>
+
+</macros>
