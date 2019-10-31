@@ -1,0 +1,354 @@
+<tool id="breseq" name="breseq" version="@PACKAGE_VERSION@+@GALAXY_VERSION@">
+
+    <description>find mutations in haploid microbial genomes</description>
+
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+
+    <requirements>
+        <requirement type="package" version="0.34.0">breseq</requirement>
+    </requirements>
+
+    <version_command>breseq --version</version_command>
+
+    <command detect_errors="aggressive">
+        <![CDATA[
+            #set $ref_opts = ""
+            #for $i, $r in enumerate( $references ):
+                #if str($references[$i].reference.source) == "history":
+                    #for $ref in $references[$i].reference.own_genome:
+                        #if $ref
+                            #set $ref_opts = $ref_opts + " --reference '" + str($ref) + "'"
+                        #end if
+                    #end for
+                #else:
+                    #set $ref_opts = $ref_opts + " --reference '" + $references[$i].reference.fixed_genome.fields.path + "'"
+                #end if
+            #end for
+
+            #if str($run.mode) == 'detect'
+                breseq
+
+                --num-processors \${GALAXY_SLOTS:-4}
+
+                -o results
+
+                $ref_opts
+
+                #for $s in $run.fastqs:
+                    ${s}
+                #end for
+
+                #if $run.name
+                    --name '$run.name'
+                #end if
+
+                $run.polymorphism_prediction
+                $run.predict_junctions
+
+                #if 'gd' in str($run.output_options.formats).split(','):
+                    && cp results/output/output.gd '$output'
+                #end if
+
+                #if 'html' in str($run.output_options.formats).split(','):
+                    && cp results/output/index.html '$report'
+                    && mkdir $report.extra_files_path
+                    && cp -R results/output/* $report.extra_files_path
+                #end if
+
+                #if 'zip' in str($run.output_options.formats).split(','):
+                    && tar -zcf '$zip_output' results
+                #end if
+
+                #if 'log' in str($run.output_options.formats).split(','):
+                    && cp results/output/log.txt '$log'
+                #end if
+            #else
+                #set $first = 1
+                #for $o in str($run.output_options.formats).split(','):
+
+                    #if $first == 0
+                        &&
+                    #end if
+                    #set $first = 0
+
+                    gdtools ANNOTATE
+
+                    --format '$o'
+
+                    -o
+                    #if $o == 'html':
+                        '$annreport'
+                    #else if $o == 'gd':
+                        '$genomediff'
+                    #else if $o == 'tsv':
+                        '$tabdelim'
+                    #else if $o == 'phylip':
+                        '$phylipout'
+                    #else if $o == 'json':
+                        '$jsonout'
+                    #end if
+
+                    $ref_opts
+
+                    #for $s in $run.gds:
+                        ${s}
+                    #end for
+                #end for
+            #end if
+        ]]>
+    </command>
+
+    <inputs>
+        <repeat name="references" title="Reference Genome" min="1">
+            <conditional name="reference">
+                <param name="source" type="select" label="Reference source" >
+                    <option value="builtin">built-in</option>
+                    <option value="history" selected="true">history</option>
+                </param>
+                <when value="builtin">
+                    <param name="fixed_genome" argument="--reference" type="select" optional="false" label="Galaxy Built-in Reference(s)">
+                        <options from_data_table="genbank_files">
+                            <filter type="sort_by" column="3"/>
+                            <validator type="no_options" message="No built-in genbank records have been configured"/>
+                        </options>
+                    </param>
+                </when>
+                <when value="history">
+                    <param name="own_genome" argument="--reference" type="data" format="fasta,genbank" multiple="true" optional="false" label="Fasta or Genbank Reference(s)" />
+                </when>
+            </conditional>
+        </repeat>
+
+        <conditional name="run">
+            <param name="mode" type="select" label="Run Mode" help="Detect, annotate, or compare variants.">
+                <option value="detect" selected="true">Detect</option>
+                <option value="annotate">Annotate</option>
+                <option value="compare">Compare</option>
+            </param>
+            <when value="detect">
+
+                <param name="fastqs" type="data" format="fastq" multiple="true" label="Fastq Read Files" />
+
+                <param argument="--polymorphism-prediction" name="polymorphism_prediction" type="select" label="Detection Mode" help="**Polymorphism mode**: Detect variants with frequencies between 0% and 100% if a mixture model is well-supported by the read alignment evidence. Use to analyze a mixed population of genomes evolved from a common ancestor. **Consensus mode**: Detect variants present in 100% of the sample. Use when re-sequencing a clonal haploid genome. This mode is the default.">
+                    <option value="" selected="true">Consensus</option>
+                    <option value="--polymorphism-prediction">Polymorphism</option>
+                </param>
+
+                <param name="name" argument="--name" type="text" value="" label="Analysis Name" help="Human-readable name of the analysis run for output (DEFAULT=none)." />
+
+                <param name="predict_junctions" type="boolean" truevalue="" falsevalue="--no-junction-prediction" checked="true" label="Predict Junctions" help="Predict new sequence junctions (default).  --no-junction-prediction is supplied if 'No' is selected.  Otherwise, there is no flag." />
+
+                <section name="output_options" title="Output Options" expanded="false">
+                    <param name="formats" type="select" multiple="true" optional="false" display="checkboxes" label="Output Formats">
+                        <option value="gd" selected="true">Variants (GenomeDiff)</option>
+                        <option value="html">Variant Report (Webpage)</option>
+                        <option value="zip">All Variant Results (Gzip)</option>
+                        <option value="log">Log (Text)</option>
+                    </param>
+                </section>
+
+            </when>
+            <when value="annotate">
+
+                <param name="gds" type="data" format="tabular" multiple="true" optional="false" label="GenomeDiff (gd) Files" help="Files as produced by breseq" />
+
+                <expand macro="annotate_format_opts">
+                    <option value="gd" selected="true">Annotated Variants (GenomeDiff)</option>
+                </expand>
+
+            </when>
+            <when value="compare">
+
+                <param name="gds" type="data" format="tabular" multiple="true" optional="false" label="GenomeDiff (gd) Files" help="Files as produced by breseq" min="2" />
+
+                <expand macro="annotate_format_opts">
+                    <option value="phylip" selected="true">Variant Comparison (Phylip)</option>
+                    <option value="gd">Annotated Variants (GenomeDiff)</option>
+                </expand>
+
+            </when>
+        </conditional>
+
+    </inputs>
+
+    <outputs>
+        <data format="html" name="report" label="${tool.name} on ${on_string}: Variants (Webpage)">
+            <filter>run['mode'] == 'detect' and 'html' in run['output_options']['formats']</filter>
+        </data>
+        <data format="html" name="annreport" label="${tool.name} on ${on_string}: Annotated Variants Report (Webpage)">
+            <filter>run['mode'] != 'detect' and 'html' in run['output_options']['formats']</filter>
+        </data>
+
+        <data format="tabular" name="output" label="${tool.name} on ${on_string}: Variants (GenomeDiff)">
+            <filter>run['mode'] == 'detect' and 'gd' in run['output_options']['formats']</filter>
+        </data>
+        <data format="tabular" name="genomediff" label="${tool.name} on ${on_string}: Annotated Variants (GenomeDiff)">
+            <filter>run['mode'] != 'detect' and 'gd' in run['output_options']['formats']</filter>
+        </data>
+
+        <data format="zip" name="zip_output" label="${tool.name} on ${on_string}: All Variant Results (Gzip)">
+            <filter>'zip' in run['output_options']['formats']</filter>
+        </data>
+        <data format="txt" name="log" label="${tool.name} on ${on_string}: Breseq Log">
+            <filter>'log' in run['output_options']['formats']</filter>
+        </data>
+        <data format="tabular" name="tabdelim" label="${tool.name} on ${on_string}: Annotated Variants (Tabular)">
+            <filter>'tsv' in run['output_options']['formats']</filter>
+        </data>
+        <data format="phylip" name="phylipout" label="${tool.name} on ${on_string}: Variant Comparison (Phylip)">
+            <filter>'phylip' in run['output_options']['formats']</filter>
+        </data>
+        <data format="txt" name="jsonout" label="${tool.name} on ${on_string}: Annotated Variants (JSON)">
+            <filter>'json' in run['output_options']['formats']</filter>
+        </data>
+    </outputs>
+
+    <tests>
+        <test>
+            <repeat name="references">
+                <conditional name="reference">
+                    <param name="source" value="history" />
+                    <param name="own_genome" value="lambda.gbk" />
+                </conditional>
+            </repeat>
+            <conditional name="run">
+                <param name="mode" value="detect" />
+                <param name="fastqs" value="lambda.short_sequence_repeats.fastq" />
+                <param name="polymorphism_prediction" value="" />
+                <param name="name" value="smallest" />
+                <param name="predict_junctions" value="" />
+                <section name="output_options">
+                    <param name="formats" value="html,log,gd,zip" />
+                </section>
+            </conditional>
+
+            <output name="report" file="report.html" compare="sim_size" delta="100" />
+            <output name="log" file="log.txt" lines_diff="4">
+                <assert_contents>
+                    <has_text text="breseq --num-processors" />
+                </assert_contents>
+            </output>
+            <output name="output" file="gdout.txt" lines_diff="8" />
+            <output name="zip_output">
+                <assert_contents>
+                    <has_archive_member path="results/output/output.gd" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <repeat name="references">
+                <conditional name="reference">
+                    <param name="source" value="builtin" />
+                    <param name="fixed_genome" value="lambda1" />
+                </conditional>
+            </repeat>
+            <conditional name="run">
+                <param name="mode" value="detect" />
+                <param name="fastqs" value="lambda.short_sequence_repeats.fastq" />
+                <param name="polymorphism_prediction" value="" />
+                <param name="name" value="smallest" />
+                <param name="predict_junctions" value="" />
+                <section name="output_options">
+                    <param name="formats" value="gd" />
+                </section>
+            </conditional>
+
+            <output name="output" file="gdout.txt" lines_diff="8" />
+        </test>
+        <test>
+            <repeat name="references">
+                <conditional name="reference">
+                    <param name="source" value="history" />
+                    <param name="own_genome" value="lambda.gbk" />
+                </conditional>
+            </repeat>
+            <conditional name="run">
+                <param name="mode" value="annotate" />
+                <param name="gds" value="gdout.txt" />
+                <section name="output_options">
+                    <param name="formats" value="html" />
+                </section>
+            </conditional>
+
+            <output name="annreport" file="gdtoolsout.html" compare="sim_size" delta="100" />
+        </test>
+    </tests>
+
+    <help>
+        <![CDATA[
+**Detect Variants**
+
+breseq (pronounced: \\brēz-ˈsēk\\ or breeze-seq) is a computational pipeline for
+the analysis of short-read re-sequencing data (e.g. Illumina, 454, IonTorrent,
+etc.). It uses reference-based alignment approaches to predict mutations in a
+sample relative to an already sequenced genome. breseq is intended for microbial
+genomes (<10 Mb) and re-sequenced samples that are only slightly diverged from
+the reference sequence (<1 mutation per 1000 bp).
+
+breseq's primary advantages over other software programs are that it can:
+
+- Accurately predict new sequence junctions, such as those associated with mobile element insertions.
+- Integrate multiple sources of evidence for genetic changes into mutation predictions.
+- Produce annotated output describing biologically relevant mutational events.
+
+breseq was initially developed to analyze data from the Lenski long-term
+evolution experiment with `E. coli`_. References: barrick2009a_ barrick2009b_.
+
+.. _`E. coli`: http://myxo.css.msu.edu/ecoli/
+.. _barrick2009a: http://barricklab.org/twiki/pub/Lab/ToolsBacterialGenomeResequencing/documentation/references.html#barrick2009a
+.. _barrick2009b: http://barricklab.org/twiki/pub/Lab/ToolsBacterialGenomeResequencing/documentation/references.html#barrick2009b
+
+However, breseq may be generally useful to researchers who are:
+
+- Tracking mutations over time in microbial evolution experiments.
+- Checking strains for unwanted second-site mutations after genetic manipulations.
+- Identifying mutations that occur during strain improvement or after long-term culture of engineered strains.
+- Discovering what mutations arise in pathogens during infection or cause antibiotic resistance.
+
+
+*Inputs*
+
+Breseq accepts files in FASTQ format. It does not take pair-end information into
+account.
+
+You can either run in clonal (consensus) mode or search for polymorphisms in a
+population.
+
+You can also select an external sequence (eg. a transposon) to detect for
+insertions or horizontal transfer.
+
+
+*Outputs*
+
+Breseq outputs a number of files. These are all condensed in a single zipped
+file.
+
+It contains output files with the final results, accessible through
+``output/index.html``
+
+It also contains data files with accessory data, including:
+
+- ``data/reference.fasta`` (file with reference genome: can be used in eg. IGV browser)
+- ``data/reference.gff`` (file with genomic annotations: can be used in eg. IGV browser)
+- ``data/areference.bam`` (file with read alignments: can be used in eg. IGV browser)
+- ``data/unmatched.*`` (files with read that failed to align: can be used to build an assembly or to eg. blast against NCBI)
+
+
+----
+
+**Annotate Variants**
+
+Annotate a GenomeDiff file (generated by breseq) with information about
+mutations (what genes they affect, amino acid substitutions, etc.) If multiple
+input files are provided, then also COMPARE the frequencies for identical
+mutations across samples.
+        ]]>
+    </help>
+
+    <citations>
+        <citation type="doi">10.1007/978-1-4939-0554-6_12</citation>
+    </citations>
+
+</tool>
