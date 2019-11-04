@@ -339,7 +339,8 @@ def read2mut(argv):
                             lowq2 = mut_dict[key1][key2[:-5] + '.ab.2']['lowQ']
                             # lowq2f = lowq2 / total2
                         else:
-                            lowq2 = lowq2f = 0
+                            # lowq2 = lowq2f = 0
+                            lowq2 = 0
                         if ref in mut_dict[key1][key2[:-5] + '.ab.2'].keys():
                             ref2 = mut_dict[key1][key2[:-5] + '.ab.2'][ref]
                             ref2f = ref2 / (total2 - na2 - lowq2)
@@ -559,7 +560,7 @@ def read2mut(argv):
                 array1_half = sample_tag[0:int(len(sample_tag) / 2)]  # mate1 part1
                 array1_half2 = sample_tag[int(len(sample_tag) / 2):int(len(sample_tag))]  # mate1 part 2
                 array2_half = np.array([ii[0:int(len(ii) / 2)] for ii in array2])  # mate2 part1
-                array2_half2 = np.array([i[int(len(i) / 2):int(len(i))] for i in array2])  # mate2 part2
+                array2_half2 = np.array([ii[int(len(ii) / 2):int(len(ii))] for ii in array2])  # mate2 part2
 
                 min_tags_list_zeros = []
                 chimera_tags = []
@@ -682,8 +683,7 @@ def read2mut(argv):
                         cum = 0
                     cum_af.append(cum)
             lst.extend(cum_af)
-            lst.extend([ref_count + sum(used_tiers), sum(used_tiers), sum(used_tiers) / (ref_count + sum(used_tiers)),
-                      alt_count, alt_count / (ref_count + alt_count), ref_count])
+            lst.extend([ref_count + sum(used_tiers), sum(used_tiers), sum(used_tiers) / (ref_count + sum(used_tiers)), alt_count, alt_count / (ref_count + alt_count), ref_count])
 
             lst = tuple(lst)
             ws2.write_row(row + 1, 0, lst)
@@ -722,53 +722,53 @@ def read2mut(argv):
                        ("AAAAAGATGCCGACTACCTT", "ab2.ba1", "Chr5:5-20000", "11068", "None", "None", "None", "None",
                         "289", "C", "G", "0", "0", "0", "0", "0", "0", "3", "6", "None", "None", "None", "None",
                         "0", "0", "0", "0", "4081", "4098", "5", "10", "", "", "", "")],
-                        [("AAAAATGCGTAGAAATATGC", "ab1.ba2", "Chr5:5-20000", "11068", "254", "228", "287", "288", "289",
+                       [("AAAAATGCGTAGAAATATGC", "ab1.ba2", "Chr5:5-20000", "11068", "254", "228", "287", "288", "289",
                           "C", "G", "33", "43", "33", "43", "0", "0", "33", "43", "0", "0", "1", "1", "0", "0", "0",
                           "0", "4081", "4098", "5", "10", "", "1.1", "", "Chr5:5-20000-11068-C-G"),
-                         ("AAAAATGCGTAGAAATATGC", "ab2.ba1", "Chr5:5-20000", "11068", "268", "268", "270", "288", "289",
+                        ("AAAAATGCGTAGAAATATGC", "ab2.ba1", "Chr5:5-20000", "11068", "268", "268", "270", "288", "289",
                           "C", "G", "11", "34", "10", "27", "0", "0", "10", "27", "0", "0", "1", "1", "0", "0", "1",
                           "7", "4081", "4098", "5", "10", "", "", "", "")],
-                        [("CTATGACCCGTGAGCCCATG", "ab1.ba2", "Chr5:5-20000", "10776", "132", "132", "287", "288", "290",
+                       [("CTATGACCCGTGAGCCCATG", "ab1.ba2", "Chr5:5-20000", "10776", "132", "132", "287", "288", "290",
                           "G", "T", "4", "1", "4", "1", "0", "0", "4", "1", "0", "0", "1", "1", "0", "0", "0", "0", "1",
                           "6", "47170", "41149", "", "1.2", "", "Chr5:5-20000-10776-G-T"),
-                         ("CTATGACCCGTGAGCCCATG", "ab2.ba1", "Chr5:5-20000", "10776", "77", "132", "233", "200", "290",
+                        ("CTATGACCCGTGAGCCCATG", "ab2.ba1", "Chr5:5-20000", "10776", "77", "132", "233", "200", "290",
                           "G", "T", "4", "1", "4", "1", "0", "0", "4", "1", "0", "0", "1", "1", "0", "0", "0", "0", "1",
                           "6", "47170", "41149", "", "", "", "")],
-                        [("AAAAAAACATCATACACCCA", "ab1.ba2", "Chr5:5-20000", "11068", "246", "244", "287", "288", "289",
+                       [("AAAAAAACATCATACACCCA", "ab1.ba2", "Chr5:5-20000", "11068", "246", "244", "287", "288", "289",
                           "C", "G", "2", "8", "2", "8", "0", "0", "2", "8", "0", "0", "1", "1", "0", "0", "0", "0",
                           "4081", "4098", "5", "10", "", "2.1", "", "Chr5:5-20000-11068-C-G"),
-                         ("AAAAAAACATCATACACCCA", "ab2.ba1", "Chr5:5-20000", "11068", "None", "None", "None", "None",
+                        ("AAAAAAACATCATACACCCA", "ab2.ba1", "Chr5:5-20000", "11068", "None", "None", "None", "None",
                           "289", "C", "G", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "None", "None", "0", "0",
                           "0", "0", "4081", "4098", "5", "10", "", "", "", "")],
-                        [("ATCAGCCATGGCTATTATTG", "ab1.ba2", "chrom5:5-20000", "11068", "72", "72", "217", "288", "289",
+                       [("ATCAGCCATGGCTATTATTG", "ab1.ba2", "chrom5:5-20000", "11068", "72", "72", "217", "288", "289",
                           "C", "G", "1", "1", "1", "1", "0", "0", "1", "1", "0", "0", "1", "1", "0", "0", "0", "0",
                           "4081", "4098", "5", "10", "", "2.2", "", "Chr5:5-20000-11068-C-G"),
-                         ("ATCAGCCATGGCTATTATTG", "ab2.ba1", "Chr5:5-20000", "11068", "153", "164", "217", "260", "289",
+                        ("ATCAGCCATGGCTATTATTG", "ab2.ba1", "Chr5:5-20000", "11068", "153", "164", "217", "260", "289",
                           "C", "G", "1", "1", "1", "1", "0", "0", "1", "1", "0", "0", "1", "1", "0", "0", "0", "0",
                           "4081", "4098", "5", "10", "", "", "", "")],
-                        [("ATCAATATGGCCTCGCCACG", "ab1.ba2", "Chr5:5-20000", "11068", "None", "None", "None", "None",
+                       [("ATCAATATGGCCTCGCCACG", "ab1.ba2", "Chr5:5-20000", "11068", "None", "None", "None", "None",
                           "289", "C", "G", "0", "5", "0", "5", "0", "0", "0", "5", "None", "None", "None", "1", "0",
                           "0", "0", "0", "4081", "4098", "5", "10", "", "2.3", "", "Chr5:5-20000-11068-C-G"),
-                         ("ATCAATATGGCCTCGCCACG", "ab2.ba1", "Chr5:5-20000", "11068", "202", "255", "277", "290", "289",
+                        ("ATCAATATGGCCTCGCCACG", "ab2.ba1", "Chr5:5-20000", "11068", "202", "255", "277", "290", "289",
                           "C", "G", "1", "3", "1", "3", "0", "0", "1", "3", "0", "0", "1", "1", "0", "0", "1", "7",
                           "4081", "4098", "5", "10", "", "", "", "")],
-                        [("ATGCCTACCTCATTTGTCGT", "ab1.ba2", "Chr5:5-20000", "10776", "46", "15", "287", "288", "290",
+                       [("ATGCCTACCTCATTTGTCGT", "ab1.ba2", "Chr5:5-20000", "10776", "46", "15", "287", "288", "290",
                           "G", "T", "3", "3", "3", "2", "3", "1", "0", "1", "1", "0.5", "0", "0.5", "0", "0", "0", "1",
                           "3", "3", "47170", "41149", "", "2.4", "", "Chr5:5-20000-10776-G-T"),
-                         ("ATGCCTACCTCATTTGTCGT", "ab2.ba1", "Chr5:5-20000", "10776", "None", "274", "None",
+                        ("ATGCCTACCTCATTTGTCGT", "ab2.ba1", "Chr5:5-20000", "10776", "None", "274", "None",
                           "288", "290", "G", "T", "0", "3", "0", "2", "0", "1", "0", "1", "None", "0.5", "None", "0.5",
                           "0", "0", "0", "1", "3", "3", "47170", "41149", "", "", "", "")],
-                        [("ACAACATCACGTATTCAGGT", "ab1.ba2", "Chr5:5-20000", "11315", "197", "197", "240", "255", "271",
+                       [("ACAACATCACGTATTCAGGT", "ab1.ba2", "Chr5:5-20000", "11315", "197", "197", "240", "255", "271",
                           "C", "T", "2", "3", "2", "3", "0", "1", "2", "2", "0", "0.333333333333333", "1",
                           "0.666666666666667", "0", "0", "0", "0", "1", "1", "6584", "6482", "", "3.1", "",
                           "Chr5:5-20000-11315-C-T"),
-                         ("ACAACATCACGTATTCAGGT", "ab2.ba1", "Chr5:5-20000", "11315", "35", "35", "240", "258", "271",
+                        ("ACAACATCACGTATTCAGGT", "ab2.ba1", "Chr5:5-20000", "11315", "35", "35", "240", "258", "271",
                           "C", "T", "2", "3", "2", "3", "0", "1", "2", "2", "0", "0.333333333333333", "1",
                           "0.666666666666667", "0", "0", "0", "0", "1", "1", "6584", "6482", "", "", "", "")],
-                        [("ATGTTGTGAATAACCCACAC", "ab1.ba2", "Chr5:5-20000", "13983", "209", "186", "255", "276", "269",
+                       [("ATGTTGTGAATAACCCACAC", "ab1.ba2", "Chr5:5-20000", "13983", "209", "186", "255", "276", "269",
                           "G", "C", "0", "6", "0", "6", "0", "0", "0", "6", "0", "0", "0", "1", "0", "0", "0", "0", "1",
                           "1", "5348", "5350", "", "4", "", "Chr5:5-20000-13983-G-C"),
-                         ("ATGTTGTGAATAACCCACAC", "ab2.ba1", "Chr5:5-20000", "13983", "None", "None", "None", "None",
+                        ("ATGTTGTGAATAACCCACAC", "ab2.ba1", "Chr5:5-20000", "13983", "None", "None", "None", "None",
                           "269", "G", "C", "0", "0", "0", "0", "0", "0", "0", "0", "None", "None", "None", "None", "0",
                           "0", "0", "0", "1", "1", "5348", "5350", "", "", "", "")]]
 
@@ -783,8 +783,8 @@ def read2mut(argv):
         ws3.conditional_format('N{}:O{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3), {'type': 'formula', 'criteria': '=OR($AG${}="1.1", $AG${}="1.2")'.format(12 + row + i + k + 2, 12 + row + i + k + 2), 'format': format1, 'multi_range': 'N{}:O{} V{}:W{} AG{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3)})
         ws3.conditional_format('N{}:O{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3),
                                {'type': 'formula', 'criteria': '=OR($AG${}="2.1",$AG${}="2.2", $AG${}="2.3", $AG${}="2.4")'.format(12 + row + i + k + 2, 12 + row + i + k + 2, 12 + row + i + k + 2, 12 + row + i + k + 2),
-                               'format': format3,
-                               'multi_range': 'N{}:O{} V{}:W{} AG{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3)})
+                                'format': format3,
+                                'multi_range': 'N{}:O{} V{}:W{} AG{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3)})
         ws3.conditional_format('N{}:O{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3),
                                {'type': 'formula',
                                 'criteria': '=$AG${}>="3"'.format(12 + row + i + k + 2),
