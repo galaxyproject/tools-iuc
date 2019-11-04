@@ -25,10 +25,10 @@ from __future__ import division
 import argparse
 import itertools
 import json
-import os
 import operator
-import sys
+import os
 import re
+import sys
 
 import numpy as np
 import pysam
@@ -292,12 +292,14 @@ def read2mut(argv):
                             na1 = mut_dict[key1][key2[:-5] + '.ab.1']['na']
                             # na1f = na1/total1
                         else:
-                            na1 = na1f = 0
+                            # na1 = na1f = 0
+                            na1 = 0
                         if 'lowQ' in mut_dict[key1][key2[:-5] + '.ab.1'].keys():
                             lowq1 = mut_dict[key1][key2[:-5] + '.ab.1']['lowQ']
                             # lowq1f = lowq1 / total1
                         else:
-                            lowq1 = lowq1f = 0
+                            # lowq1 = lowq1f = 0
+                            lowq1 = 0
                         if ref in mut_dict[key1][key2[:-5] + '.ab.1'].keys():
                             ref1 = mut_dict[key1][key2[:-5] + '.ab.1'][ref]
                             ref1f = ref1 / (total1 - na1 - lowq1)
@@ -331,7 +333,8 @@ def read2mut(argv):
                             na2 = mut_dict[key1][key2[:-5] + '.ab.2']['na']
                             # na2f = na2 / total2
                         else:
-                            na2 = na2f = 0
+                            # na2 = na2f = 0
+                            na2 = 0
                         if 'lowQ' in mut_dict[key1][key2[:-5] + '.ab.2'].keys():
                             lowq2 = mut_dict[key1][key2[:-5] + '.ab.2']['lowQ']
                             # lowq2f = lowq2 / total2
@@ -370,12 +373,14 @@ def read2mut(argv):
                             na3 = mut_dict[key1][key2[:-5] + '.ba.1']['na']
                             # na3f = na3 / total3
                         else:
-                            na3 = na3f = 0
+                            # na3 = na3f = 0
+                            na3 = 0
                         if 'lowQ' in mut_dict[key1][key2[:-5] + '.ba.1'].keys():
                             lowq3 = mut_dict[key1][key2[:-5] + '.ba.1']['lowQ']
                             # lowq3f = lowq3 / total3
                         else:
-                            lowq3 = lowq3f = 0
+                            # lowq3 = lowq3f = 0
+                            lowq3 = 0
                         if ref in mut_dict[key1][key2[:-5] + '.ba.1'].keys():
                             ref3 = mut_dict[key1][key2[:-5] + '.ba.1'][ref]
                             ref3f = ref3 / (total3 - na3 - lowq3)
@@ -406,12 +411,14 @@ def read2mut(argv):
                             na4 = mut_dict[key1][key2[:-5] + '.ba.2']['na']
                             # na4f = na4 / total4
                         else:
-                            na4 = na4f = 0
+                            # na4 = na4f = 0
+                            na4 = 0
                         if 'lowQ' in mut_dict[key1][key2[:-5] + '.ba.2'].keys():
                             lowq4 = mut_dict[key1][key2[:-5] + '.ba.2']['lowQ']
                             # lowq4f = lowq4 / total4
                         else:
-                            lowq4 = lowq4f = 0
+                            # lowq4 = lowq4f = 0
+                            lowq4 = 0
                         if ref in mut_dict[key1][key2[:-5] + '.ba.2'].keys():
                             ref4 = mut_dict[key1][key2[:-5] + '.ba.2'][ref]
                             ref4f = ref4 / (total4 - na4 - lowq4)
@@ -477,61 +484,61 @@ def read2mut(argv):
                             alt4ff = alt4f
                         chrom, pos = re.split(r'\#', key1)
                         # assign tiers
-                        if ((all(int(i) >= 3 for i in [total1new, total4new]) &
-                             all(float(i) >= 0.75 for i in [alt1ff, alt4ff])) |
-                                (all(int(i) >= 3 for i in [total2new, total3new]) &
-                                 all(float(i) >= 0.75 for i in [alt2ff, alt3ff]))):
+                        if ((all(int(ij) >= 3 for ij in [total1new, total4new]) &
+                             all(float(ij) >= 0.75 for ij in [alt1ff, alt4ff])) |
+                                (all(int(ij) >= 3 for ij in [total2new, total3new]) &
+                                 all(float(ij) >= 0.75 for ij in [alt2ff, alt3ff]))):
                             tier = "1.1"
                             counter_tier11 += 1
                             tier_dict[key1]["tier 1.1"] += 1
 
-                        elif (all(int(i) >= 1 for i in [total1new, total2new, total3new, total4new]) &
-                              any(int(i) >= 3 for i in [total1new, total4new]) &
-                              any(int(i) >= 3 for i in [total2new, total3new]) &
-                              all(float(i) >= 0.75 for i in [alt1ff, alt2ff, alt3ff, alt4ff])):
+                        elif (all(int(ij) >= 1 for ij in [total1new, total2new, total3new, total4new]) &
+                              any(int(ij) >= 3 for ij in [total1new, total4new]) &
+                              any(int(ij) >= 3 for ij in [total2new, total3new]) &
+                              all(float(ij) >= 0.75 for ij in [alt1ff, alt2ff, alt3ff, alt4ff])):
                             tier = "1.2"
                             counter_tier12 += 1
                             tier_dict[key1]["tier 1.2"] += 1
 
-                        elif ((all(int(i) >= 1 for i in [total1new, total4new]) &
-                               any(int(i) >= 3 for i in [total1new, total4new]) &
-                               all(float(i) >= 0.75 for i in [alt1ff, alt4ff])) |
-                              (all(int(i) >= 1 for i in [total2new, total3new]) &
-                               any(int(i) >= 3 for i in [total2new, total3new]) &
-                               all(float(i) >= 0.75 for i in [alt2ff, alt3ff]))):
+                        elif ((all(int(ij) >= 1 for ij in [total1new, total4new]) &
+                               any(int(ij) >= 3 for ij in [total1new, total4new]) &
+                               all(float(ij) >= 0.75 for ij in [alt1ff, alt4ff])) |
+                              (all(int(ij) >= 1 for ij in [total2new, total3new]) &
+                               any(int(ij) >= 3 for ij in [total2new, total3new]) &
+                               all(float(ij) >= 0.75 for ij in [alt2ff, alt3ff]))):
                             tier = "2.1"
                             counter_tier21 += 1
                             tier_dict[key1]["tier 2.1"] += 1
 
-                        elif (all(int(i) >= 1 for i in [total1new, total2new, total3new, total4new]) &
-                              all(float(i) >= 0.75 for i in [alt1ff, alt2ff, alt3ff, alt4ff])):
+                        elif (all(int(ij) >= 1 for ij in [total1new, total2new, total3new, total4new]) &
+                              all(float(ij) >= 0.75 for ij in [alt1ff, alt2ff, alt3ff, alt4ff])):
                             tier = "2.2"
                             counter_tier22 += 1
                             tier_dict[key1]["tier 2.2"] += 1
 
-                        elif ((all(int(i) >= 1 for i in [total1new, total4new]) &
-                               any(int(i) >= 3 for i in [total2new, total3new]) &
-                               all(float(i) >= 0.75 for i in [alt1ff, alt4ff]) &
-                               any(float(i) >= 0.75 for i in [alt2ff, alt3ff])) |
-                              (all(int(i) >= 1 for i in [total2new, total3new]) &
-                               any(int(i) >= 3 for i in [total1new, total4new]) &
-                               all(float(i) >= 0.75 for i in [alt2ff, alt3ff]) &
-                               any(float(i) >= 0.75 for i in [alt1ff, alt4ff]))):
+                        elif ((all(int(ij) >= 1 for ij in [total1new, total4new]) &
+                               any(int(ij) >= 3 for ij in [total2new, total3new]) &
+                               all(float(ij) >= 0.75 for ij in [alt1ff, alt4ff]) &
+                               any(float(ij) >= 0.75 for ij in [alt2ff, alt3ff])) |
+                              (all(int(ij) >= 1 for ij in [total2new, total3new]) &
+                               any(int(ij) >= 3 for ij in [total1new, total4new]) &
+                               all(float(ij) >= 0.75 for ij in [alt2ff, alt3ff]) &
+                               any(float(ij) >= 0.75 for ij in [alt1ff, alt4ff]))):
                             tier = "2.3"
                             counter_tier23 += 1
                             tier_dict[key1]["tier 2.3"] += 1
 
                         elif ((len(pure_tags_dict_short[key1]) > 1) &
-                              (all(float(i) >= 0.5 for i in [alt1ff, alt4ff]) |
-                               all(float(i) >= 0.5 for i in [alt2ff, alt3ff]))):
+                              (all(float(ij) >= 0.5 for ij in [alt1ff, alt4ff]) |
+                               all(float(ij) >= 0.5 for ij in [alt2ff, alt3ff]))):
                             tier = "2.4"
                             counter_tier24 += 1
                             tier_dict[key1]["tier 2.4"] += 1
 
-                        elif ((all(int(i) >= 1 for i in [total1new, total4new]) &
-                               all(float(i) >= 0.5 for i in [alt1ff, alt4ff])) |
-                              (all(int(i) >= 1 for i in [total2new, total3new]) &
-                               all(float(i) >= 0.5 for i in [alt2ff, alt3ff]))):
+                        elif ((all(int(ij) >= 1 for ij in [total1new, total4new]) &
+                               all(float(ij) >= 0.5 for ij in [alt1ff, alt4ff])) |
+                              (all(int(ij) >= 1 for ij in [total2new, total3new]) &
+                               all(float(ij) >= 0.5 for ij in [alt2ff, alt3ff]))):
                             tier = "3.1"
                             counter_tier31 += 1
                             tier_dict[key1]["tier 3.1"] += 1
@@ -587,9 +594,9 @@ def read2mut(argv):
                     if min_value == 0 or dist2 == 0:
                         min_tags_list_zeros.append(tag)
                         chimera_tags.append(max_tag)
-                        chimeric = True
-                    else:
-                        chimeric = False
+                        # chimeric = True
+                    # else:
+                        # chimeric = False
 
                     # if mate_b is False:
                     #    text = "pos {}: sample tag: {}; HD a = {}; HD b' = {}; similar tag(s): {}; chimeric = {}".format(pos, sample_tag, min_value, dist2, list(max_tag), chimeric)
@@ -609,21 +616,9 @@ def read2mut(argv):
             else:
                 chimera = ""
 
-            line = (key2[:-5], 'ab1.ba2', chrom, pos, read_pos1, read_pos4, read_len_median1,
-                 read_len_median4, dcs_median, ref, alt,
-                 total1, total4, total1new, total4new,
-                 ref1, ref4, alt1, alt4, ref1f, ref4f, alt1f, alt4f,
-                 na1, na4, lowq1, lowq4,
-                 sscs_mut_ab, sscs_mut_ba, sscs_ref_ab, sscs_ref_ba,
-                 add_mut14, tier, chimera, var_id)
-            ws1.write_row(row, 0, l)
-            line = (key2[:-5], 'ab2.ba1', chrom, pos, read_pos2, read_pos3, read_len_median2,
-                 read_len_median3, dcs_median, ref, alt,
-                 total2, total3, total2new, total3new,
-                 ref2, ref3, alt2, alt3, ref2f, ref3f, alt2f, alt3f,
-                 na2, na3, lowq2, lowq3,
-                 sscs_mut_ab, sscs_mut_ba, sscs_ref_ab, sscs_ref_ba,
-                 add_mut23, "", chimera, "")
+            line = (key2[:-5], 'ab1.ba2', chrom, pos, read_pos1, read_pos4, read_len_median1, read_len_median4, dcs_median, ref, alt, total1, total4, total1new, total4new, ref1, ref4, alt1, alt4, ref1f, ref4f, alt1f, alt4f, na1, na4, lowq1, lowq4, sscs_mut_ab, sscs_mut_ba, sscs_ref_ab, sscs_ref_ba, add_mut14, tier, chimera, var_id)
+            ws1.write_row(row, 0, line)
+            line = (key2[:-5], 'ab2.ba1', chrom, pos, read_pos2, read_pos3, read_len_median2, read_len_median3, dcs_median, ref, alt, total2, total3, total2new, total3new, ref2, ref3, alt2, alt3, ref2f, ref3f, alt2f, alt3f, na2, na3, lowq2, lowq3, sscs_mut_ab, sscs_mut_ba, sscs_ref_ab, sscs_ref_ba, add_mut23, "", chimera, "")
             ws1.write_row(row + 1, 0, line)
 
             ws1.conditional_format('N{}:O{}'.format(row + 1, row + 2),
@@ -645,8 +640,8 @@ def read2mut(argv):
                                                                                  row + 2, row + 1, row + 2)})
 
             row += 3
-  
-    # sheet 2 
+
+    # sheet 2
     header_line2 = ('variant ID', 'cvrg (Du Novo)', 'tier 1.1', 'AF 1.1', 'tier 1.2', 'AF 1.2',
                     'tier 2.1', 'AF 2.1', 'tier 2.2', 'AF 2.2', 'tier 2.3', 'AF 2.3', 'tier 2.4', 'AF 2.4',
                     'tier 3.1', 'AF 3.1', 'tier 4', 'AF 4', 'AF 1.1-1.2', 'AF 1.1-2.1', 'AF 1.1-2.2',
@@ -706,7 +701,7 @@ def read2mut(argv):
     ws3.write_row(0, 0, header)
 
     for i in range(len(sheet3)):
-        ws3.write_row(i+1, 0, sheet3[i])
+        ws3.write_row(i + 1, 0, sheet3[i])
         ws3.conditional_format('A{}:B{}'.format(i + 2, i + 2),
                                {'type': 'formula',
                                 'criteria': '=OR($A${}="tier 1.1", $A${}="tier 1.2")'.format(i + 2, i + 2),
@@ -720,15 +715,7 @@ def read2mut(argv):
                                 'criteria': '=OR($A${}="tier 3.1", $A${}="tier 4")'.format(i + 2, i + 2),
                                 'format': format2})
 
-    description_tiers = [("Tier 1.1", "both ab and ba SSCS present (>75% of the sites with alternative base) and minimal FS>=3 for both SSCS in at least one mate"),
-                        ("", ""),
-                        ("Tier 1.2", "both ab and ba SSCS present (>75% of the sites with alt. base) and mate pair validation (min. FS=1) and minimal FS>=3 for at least one of the SSCS"),
-                        ("Tier 2.1", "both ab and ba SSCS present (>75% of the sites with alt. base) and minimal FS>=3 for at least one of the SSCS in at least one mate"),
-                        ("Tier 2.2", "both ab and ba SSCS present (>75% of the sites with alt. base) and mate pair validation (min. FS=1)"),
-                        ("Tier 2.3", "both ab and ba SSCS present (>75% of the sites with alt. base) and minimal FS=1 for both SSCS in one mate and minimal FS>=3 for at least one of the SSCS in the other mate"),
-                        ("Tier 2.4", "both ab and ba SSCS present (>50% of the sites with alt. base) and recurring mutation on this position"),
-                        ("Tier 3.1", "both ab and ba SSCS present (>50% of the sites with alt. base) and minimal FS>=1 for both SSCS in at least one mate"),
-                        ("Tier 4", "remaining variants")]
+    description_tiers = [("Tier 1.1", "both ab and ba SSCS present (>75% of the sites with alternative base) and minimal FS>=3 for both SSCS in at least one mate"), ("", ""), ("Tier 1.2", "both ab and ba SSCS present (>75% of the sites with alt. base) and mate pair validation (min. FS=1) and minimal FS>=3 for at least one of the SSCS"), ("Tier 2.1", "both ab and ba SSCS present (>75% of the sites with alt. base) and minimal FS>=3 for at least one of the SSCS in at least one mate"), ("Tier 2.2", "both ab and ba SSCS present (>75% of the sites with alt. base) and mate pair validation (min. FS=1)"), ("Tier 2.3", "both ab and ba SSCS present (>75% of the sites with alt. base) and minimal FS=1 for both SSCS in one mate and minimal FS>=3 for at least one of the SSCS in the other mate"), ("Tier 2.4", "both ab and ba SSCS present (>50% of the sites with alt. base) and recurring mutation on this position"), ("Tier 3.1", "both ab and ba SSCS present (>50% of the sites with alt. base) and minimal FS>=1 for both SSCS in at least one mate"), ("Tier 4", "remaining variants")]
     examples_tiers = [[("AAAAAGATGCCGACTACCTT", "ab1.ba2", "Chr5:5-20000", "11068", "254", "228", "287", "288", "289",
                         "C", "G", "3", "6", "3", "6", "0", "0", "3", "6", "0", "0", "1", "1", "0", "0", "0", "0",
                         "4081", "4098", "5", "10", "", "1.1", "", "Chr5:5-20000-11068-C-G"),
@@ -795,10 +782,10 @@ def read2mut(argv):
         ws3.write_row(12 + row + i + k + 2, 0, ex[k])
         ws3.conditional_format('N{}:O{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3), {'type': 'formula', 'criteria': '=OR($AG${}="1.1", $AG${}="1.2")'.format(12 + row + i + k + 2, 12 + row + i + k + 2), 'format': format1, 'multi_range': 'N{}:O{} V{}:W{} AG{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3)})
         ws3.conditional_format('N{}:O{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3),
-                              {'type': 'formula', 'criteria': '=OR($AG${}="2.1",$AG${}="2.2", $AG${}="2.3", $AG${}="2.4")'.format(12 + row + i + k + 2, 12 + row + i + k + 2, 12 + row + i + k + 2, 12 + row + i + k + 2),
+                               {'type': 'formula', 'criteria': '=OR($AG${}="2.1",$AG${}="2.2", $AG${}="2.3", $AG${}="2.4")'.format(12 + row + i + k + 2, 12 + row + i + k + 2, 12 + row + i + k + 2, 12 + row + i + k + 2),
                                'format': format3,
                                'multi_range': 'N{}:O{} V{}:W{} AG{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3)})
-        ws3.conditional_format('N{}:O{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3), 
+        ws3.conditional_format('N{}:O{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3),
                                {'type': 'formula',
                                 'criteria': '=$AG${}>="3"'.format(12 + row + i + k + 2),
                                 'format': format2,
