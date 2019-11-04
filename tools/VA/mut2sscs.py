@@ -6,7 +6,7 @@ Author -- Gundula Povysil
 Contact -- povysil@bioinf.jku.at
 
 Takes a tabular file with mutations from DCS and a BAM file of SSCS as input
-and extracts all tags of reads that carry the mutation. 
+and extracts all tags of reads that carry the mutation.
 Calculates statistics about number of ab/ba/duplex per mutation.
 
 =======  ==========  =================  ================================
@@ -18,12 +18,13 @@ USAGE: python mut2sscs.py DCS_Mutations.tabular SSCS.bam SSCS_counts.json
 
 """
 
-import argparse
-import sys
-import os
-
 from __future__ import division
+
+import argparse
 import json
+import os
+import sys
+
 import numpy as np
 import pysam
 
@@ -83,7 +84,7 @@ def mut2sscs(argv):
                 count_ref = 0
                 count_indel = 0
                 print("unfiltered reads=", pileupcolumn.n, "filtered reads=", len(pileupcolumn.pileups),
-                      "difference= ", len(pileupcolumn.pileups)-pileupcolumn.n)
+                      "difference= ", len(pileupcolumn.pileups) - pileupcolumn.n)
                 for pileupread in pileupcolumn.pileups:
                     if not pileupread.is_del and not pileupread.is_refskip:
                         tag = pileupread.alignment.query_name
@@ -110,7 +111,7 @@ def mut2sscs(argv):
                                 ref_pos_dict[chrom_stop_pos] = {}
                                 ref_pos_dict[chrom_stop_pos][abba] = 1
                         else:
-                                count_indel += 1
+                            count_indel += 1
 
                 print("coverage at pos %s = %s, ref = %s, alt = %s, indel = %s,\n" %
                       (pileupcolumn.pos, count_ref + count_alt, count_ref, count_alt, count_indel))

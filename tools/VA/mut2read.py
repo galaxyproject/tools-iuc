@@ -19,10 +19,10 @@ USAGE: python mut2read.py DCS_Mutations.tabular DCS.bam Aligned_Families.tabular
 """
 
 import argparse
-import sys
-import os
-
 import json
+import os
+import sys
+
 import numpy as np
 import pysam
 
@@ -79,9 +79,9 @@ def mut2read(argv):
 
     if len(mut_array) == 13:
         mut_array = mut_array.reshape((1, len(mut_array)))
-    
+
     for m in range(len(mut_array[:, 0])):
-        print(str(m+1) + " of " + str(len(mut_array[:, 0])))
+        print(str(m + 1) + " of " + str(len(mut_array[:, 0])))
         chrom = mut_array[m, 1]
         stop_pos = mut_array[m, 2].astype(int)
         chrom_stop_pos = str(chrom) + "#" + str(stop_pos)
@@ -90,9 +90,9 @@ def mut2read(argv):
 
         dcs_len = []
 
-        for pileupcolumn in bam.pileup(chrom.tobytes(), stop_pos-2, stop_pos, max_depth=100000000):
+        for pileupcolumn in bam.pileup(chrom.tobytes(), stop_pos - 2, stop_pos, max_depth=100000000):
 
-            if pileupcolumn.reference_pos == stop_pos-1:
+            if pileupcolumn.reference_pos == stop_pos - 1:
                 count_alt = 0
                 count_ref = 0
                 count_indel = 0
@@ -100,7 +100,7 @@ def mut2read(argv):
                 count_other = 0
                 count_lowq = 0
                 print("unfiltered reads=", pileupcolumn.n, "filtered reads=", len(pileupcolumn.pileups),
-                      "difference= ", len(pileupcolumn.pileups)-pileupcolumn.n)
+                      "difference= ", len(pileupcolumn.pileups) - pileupcolumn.n)
                 for pileupread in pileupcolumn.pileups:
                     if not pileupread.is_del and not pileupread.is_refskip:
                         # query position is None if is_del or is_refskip is set.
@@ -124,15 +124,15 @@ def mut2read(argv):
                         else:
                             count_other += 1
                     else:
-                            count_indel += 1
+                        count_indel += 1
                 dcs_median = np.median(np.array(dcs_len))
                 cvrg_dict[chrom_stop_pos] = (count_ref, count_alt, dcs_median)
-                           
-                print("coverage at pos %s = %s, ref = %s, alt = %s, other bases = %s, N = %s, indel = %s, low quality = %s, median length of DCS = %s\n" % 
+
+                print("coverage at pos %s = %s, ref = %s, alt = %s, other bases = %s, N = %s, indel = %s, low quality = %s, median length of DCS = %s\n" %
                       (pileupcolumn.pos, count_ref + count_alt, count_ref, count_alt, count_other, count_n,
                        count_indel, count_lowq, dcs_median))
-    bam.close()    
-    
+    bam.close()
+
     with open(json_file, "wb") as f:
         json.dump((tag_dict, cvrg_dict), f)
 
@@ -154,7 +154,7 @@ def mut2read(argv):
                     out.write(curr_seq + "\n")
                     out.write("+" + "\n")
                     out.write(curr_qual + "\n")
-                    
+
 
 if __name__ == '__main__':
     sys.exit(mut2read(sys.argv))
