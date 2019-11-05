@@ -66,20 +66,15 @@ def read2mut(argv):
     phred_score = args.phred
 
     if os.path.isfile(file1) is False:
-        print("Error: Could not find '{}'".format(file1))
-        exit(0)
+        sys.exit("Error: Could not find '{}'".format(file1))
     if os.path.isfile(file2) is False:
-        print("Error: Could not find '{}'".format(file2))
-        exit(1)
+        sys.exit("Error: Could not find '{}'".format(file2))
     if os.path.isfile(json_file) is False:
-        print("Error: Could not find '{}'".format(json_file))
-        exit(2)
+        sys.exit("Error: Could not find '{}'".format(json_file))
     if thresh < 0:
-        print("Error: Thresh is '{}', but only non-negative integers allowed".format(thresh))
-        exit(3)
+        sys.exit("Error: Thresh is '{}', but only non-negative integers allowed".format(thresh))
     if phred_score < 0:
-        print("Error: Phred is '{}', but only non-negative integers allowed".format(phred_score))
-        exit(4)
+        sys.exit("Error: Phred is '{}', but only non-negative integers allowed".format(phred_score))
 
     # 1. read mut file
     with open(file1, 'r') as mut:

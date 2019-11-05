@@ -53,16 +53,13 @@ def mut2read(argv):
     json_file = args.outputJson
 
     if os.path.isfile(file1) is False:
-        print("Error: Could not find '{}'".format(file1))
-        exit(0)
+        sys.exit("Error: Could not find '{}'".format(file1))
 
     if os.path.isfile(file2) is False:
-        print("Error: Could not find '{}'".format(file2))
-        exit(1)
+        sys.exit("Error: Could not find '{}'".format(file2))
 
     if os.path.isfile(file3) is False:
-        print("Error: Could not find '{}'".format(file3))
-        exit(2)
+        sys.exit("Error: Could not find '{}'".format(file3))
 
     # read mut file
     with open(file1, 'r') as mut:
@@ -133,7 +130,7 @@ def mut2read(argv):
                        count_indel, count_lowq, dcs_median))
     bam.close()
 
-    with open(json_file, "wb") as f:
+    with open(json_file, "w") as f:
         json.dump((tag_dict, cvrg_dict), f)
 
     # create fastq from aligned reads
