@@ -778,8 +778,8 @@ def read2mut(argv):
     for i in range(len(description_tiers)):
         ws3.write_row(12 + row + i + 1, 0, description_tiers[i])
         ex = examples_tiers[i]
-    for k in range(len(ex)):
-        ws3.write_row(12 + row + i + k + 2, 0, ex[k])
+        for k in range(len(ex)):
+            ws3.write_row(12 + row + i + k + 2, 0, ex[k])
         ws3.conditional_format('N{}:O{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3), {'type': 'formula', 'criteria': '=OR($AG${}="1.1", $AG${}="1.2")'.format(12 + row + i + k + 2, 12 + row + i + k + 2), 'format': format1, 'multi_range': 'N{}:O{} V{}:W{} AG{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3, 12 + row + i + k + 2, 12 + row + i + k + 3)})
         ws3.conditional_format('N{}:O{}'.format(12 + row + i + k + 2, 12 + row + i + k + 3),
                                {'type': 'formula', 'criteria': '=OR($AG${}="2.1",$AG${}="2.2", $AG${}="2.3", $AG${}="2.4")'.format(12 + row + i + k + 2, 12 + row + i + k + 2, 12 + row + i + k + 2, 12 + row + i + k + 2),
