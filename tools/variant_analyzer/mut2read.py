@@ -66,11 +66,10 @@ def mut2read(argv):
         mut_array = np.genfromtxt(mut, skip_header=1, delimiter='\t', comments='#', dtype='string')
 
     # read dcs bam file
-    pysam.index(file2)
+    # pysam.index(file2)
     bam = pysam.AlignmentFile(file2, "rb")
 
     # get tags
-    mut_tags = []
     tag_dict = {}
     cvrg_dict = {}
 
@@ -106,7 +105,6 @@ def mut2read(argv):
                         if nuc == alt:
                             count_alt += 1
                             tag = pileupread.alignment.query_name
-                            mut_tags.append(tag)
                             if tag in tag_dict:
                                 tag_dict[tag][chrom_stop_pos] = alt
                             else:
@@ -141,7 +139,7 @@ def mut2read(argv):
                 splits = line.split('\t')
                 tag = splits[0]
 
-                if tag in mut_tags:
+                if tag in tag_dict:
                     str1 = splits[4]
                     curr_seq = str1.replace("-", "")
                     str2 = splits[5]

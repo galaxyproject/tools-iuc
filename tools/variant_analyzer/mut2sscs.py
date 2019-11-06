@@ -59,7 +59,7 @@ def mut2sscs(argv):
         mut_array = np.genfromtxt(mut, skip_header=1, delimiter='\t', comments='#', dtype='string')
 
     # 2 read SSCS bam file
-    pysam.index(file2)
+    # pysam.index(file2)
     bam = pysam.AlignmentFile(file2, "rb")
 
     # get tags

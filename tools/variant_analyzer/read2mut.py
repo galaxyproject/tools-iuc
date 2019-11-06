@@ -88,7 +88,7 @@ def read2mut(argv):
         (mut_pos_dict, ref_pos_dict) = json.load(f)
 
     # 3. read bam file
-    pysam.index(file2)
+    # pysam.index(file2)
     bam = pysam.AlignmentFile(file2, "rb")
 
     # 4. create mut_dict
