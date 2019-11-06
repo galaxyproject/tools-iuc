@@ -128,17 +128,21 @@ MOTHUR_REFERENCE_DATA = {
         ["http://www.mothur.org/w/images/2/21/Greengenes.gold.alignment.zip", ],
     },
     # UNITE https://unite.ut.ee/repository.php
-    "UNITE_2017-12-01": {
-        "UNITE v7.2 (2017-12-01)":
-        ["https://files.plutof.ut.ee/doi/C8/1E/C81E1C1A9F079B0DD7F92998A62F1B83CA89BA38CD163FC5A0D77CFE9CADB02E.zip", #sh_mothur_release_01.12.2017.zip
-         "https://files.plutof.ut.ee/doi/83/28/83282057C187FCC4B252A47F0913533C1D718DF1E665E0FD66A69B43815421C2.zip", #sh_mothur_release_s_01.12.2017.zip
-        ],
+    "UNITE_2018-11-18_fungi": {
+        "UNITE Fungi v8 singletons set as RefS (in dynamic files) (2018-11-18)":
+        ["https://files.plutof.ut.ee/public/orig/56/25/5625BDC830DC246F5B8C7004220089E032CC33EEF515C76CD0D92F25BDFA9F78.zip"],
     },
-    "UNITE_ISND_2017-12-01": {
-        "UNITE + ISND v7.2 (2017-12-01)":
-        ["https://files.plutof.ut.ee/doi/84/FD/84FD2F2E3AFE74A4EA860B4BED6103A67C4DC3FDBC1741EDD7AABC7877B1C145.zip", #UNITE_public_mothur_01.12.2017.zip
-         "https://files.plutof.ut.ee/doi/48/79/48796E247ADB91C98D784E5C2CB52173A0584A686B7AA7253080E9BAAF4268F6.zip", #UNITE_public_mothur_full_01.12.2017.zip
-        ],
+    "UNITE_2018-11-18_fungi_s": {
+        "UNITE Fungi v8 global and 97% singletons (2018-11-18)":
+        ["https://files.plutof.ut.ee/doi/7B/05/7B05C7CFD5F16459EDCC5A897C26A725C3CFC3AD3FDA1314CA56020681D993BD.zip"],
+    },
+    "UNITE_2018-11-18_euk": {
+        "UNITE Eukaryotes v8 singletons set as RefS (in dynamic files) (2018-11-18)":
+        ["https://files.plutof.ut.ee/public/orig/B3/9B/B39B0C26364A56759FBAE9A488E22C712BC4627A8C16601C4A5268BD044656B3.zip"],
+    },
+    "UNITE_2018-11-18_euk_s": {
+        "UNITE Eukaryotes v8 global and 97% singletons (2018-11-18)":
+        ["https://files.plutof.ut.ee/doi/DC/92/DC92B7C050E9DEE3D0611D4327C71534363135C66FECAC94EE9236A5D0223FB1.zip"],
     },
     # Secondary structure maps
     # http://www.mothur.org/wiki/Secondary_structure_map
@@ -416,6 +420,18 @@ def is_aligned(filen):
     else:
         return "align"
 
+def is_aligned(filen):
+    """Return seq/1 depending if the data is
+    - unaligned (extension is fasta)
+    - aligned (otherwise)
+    """
+    ext = os.path.splitext(filen)[1]
+    if ext == ".fasta":
+        return "seq"
+    else:
+        return "align"
+
+
 def get_name(filen):
     """Generate a descriptive name based on the file name
     """
@@ -537,8 +553,10 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
             shutil.copyfile(f, target_file)
         # Add entry to data table
         table_name = "mothur_%s" % type_
-        add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
-
+        if type_ == "aligndb":
+            add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file, aligned=is_aligned(f)))
+        else:
+            add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
 
 if __name__ == "__main__":
     print("Starting...")
