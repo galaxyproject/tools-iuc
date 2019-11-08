@@ -1,0 +1,115 @@
+<tool id="dada2_removeBimeraDenovo" name="dada2: removeBimeraDenovo" version="@DADA2_VERSION@+galaxy@WRAPPER_VERSION@" profile="19.09">
+    <description>Remove bimeras from collections of unique sequences</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+Rscript '$dada2_script'
+    ]]></command>
+    <configfiles>
+        <configfile name="dada2_script"><![CDATA[
+library(dada2, quietly=T)
+@READ_FOO@
+@WRITE_FOO@
+
+unqs <- $read_data($unqs)
+
+seqtab.nochim <- removeBimeraDenovo(unqs, method = "$method")
+
+## - output is data.frame (mergepairs) or sequencetable (if this was the input)
+##   in the former case the (multi item) list is stored as RDS
+##   in the latter case the named int matrix is stored as tabular (rows=samples, columns=ASVs)
+## - otherwise uniques-vector, i.e. a named integer vector
+
+#if $unqs.is_of_type('dada2_dada')
+    write.data( seqtab.nochim, '$stable_uniques', "dada2_uniques" )
+#else if $unqs.is_of_type('dada2_sequencetable')
+    write.data( seqtab.nochim, '$stable_sequencetable', "dada2_sequencetable" )
+#else if $unqs.is_of_type('dada2_mergepairs')
+    write.data( seqtab.nochim, '$stable_mergepairs', "dada2_mergepairs" )
+#end if
+
+## dada input
+if(class(unqs)=="list"){
+    unqssum<-lapply(lapply(unqs, getUniques),sum)
+    outsum<-lapply(seqtab.nochim,sum)
+    mapply(function(X,Y) { 100*X/Y }, X=nonchimsum, Y=unqssum)
+    cat("remaining nonchimeric: ", mapply(function(X,Y) { 100*X/Y }, X=nonchimsum, Y=unqssum), "%")
+}else{
+    cat("remaining nonchimeric: ", 100*sum(getUniques(seqtab.nochim))/sum(getUniques(unqs)), "%")
+}
+    ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="unqs" type="data" format="@DADA_UNIQUES@,dada2_sequencetable" label="sequence table" help=""/>
+        <param argument="method" type="select" label="Method">
+            <option value="consensus">check samples independently for bimeras and make a consensus decision on each sequence variant</option>
+            <option value="pooled">pool samples for bimera identification</option>
+            <option value="per-sample">check samples independently for bimeras and remove (0-out) sequence variants from samples independently</option>
+        </param>
+   </inputs>
+   <outputs>
+        <!-- fix output filters in a later release https://github.com/galaxyproject/galaxy/issues/7464 -->
+        <data name="stable_uniques" format="dada2_uniques" label="${tool.name} on ${on_string}" from_work_dir="nonchim.uniques">
+            <filter>unqs.ext == "dada2_dada"</filter>
+        </data>
+        <data name="stable_mergepairs" format="dada2_mergepairs" label="${tool.name} on ${on_string}" from_work_dir="nonchim.mergepairs">
+            <filter>unqs.ext == "dada2_mergepairs"</filter>
+        </data>
+        <data name="stable_sequencetable" format="dada2_sequencetable" label="${tool.name} on ${on_string}" from_work_dir="nonchim.mergepairs">
+            <filter>unqs.ext == "dada2_sequencetable"</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="unqs" ftype="dada2_sequencetable" value="makeSequenceTable_F3D0.tab"/>
+            <output name="stable_sequencetable" value="removeBimeraDenovo_F3D0.tab" ftype="dada2_sequencetable" />
+        </test>
+        <!-- dada input -->
+        <test expect_num_outputs="1">
+            <param name="unqs" ftype="dada2_dada" value="dada_F3D0_R1.Rdata"/>
+            <output name="stable_uniques" value="removeBimeraDenovo_F3D0_dada_uniques.tab" ftype="dada2_uniques" />
+        </test>
+        <!-- mergepairs input + non default-->
+        <test expect_num_outputs="1">
+            <param name="unqs" ftype="dada2_mergepairs" value="mergePairs_F3D0.Rdata"/>
+            <param name="method" value="pooled"/>
+            <output name="stable_mergepairs" value="removeBimeraDenovo_F3D0_mergepairs.Rdata" ftype="dada2_mergepairs" />
+        </test>
+    </tests>
+    <help><![CDATA[
+Description
+...........
+
+This tool can be used to remove chimeric sequences, i.e. sequences that can be constructed by combining a left-segment and a right-segment from two more abundant “parent” sequences.. Two methods to identify chimeras are supported: Identification from pooled sequences and identification by consensus across samples.
+
+- from **pooled** sequences: Each sequence is evaluated against a set of "parents" drawn from the sequence collection that are sufficiently more abundant than the sequence being evaluated. Sequences that are bimera are removed, i.e. a two-parent chimera, in which the left side is made up of one parent sequence, and the right-side made up of a second parent sequence.
+- by **consensus**: In short, bimeric sequences are flagged on a sample-by-sample basis. Then, a vote is performed for each sequence across all samples in which it appeared. If the sequence is flagged in a sufficiently high fraction of samples, it is identified as a bimera. A logical vector is returned, with an entry for each sequence in the table indicating whether it was identified as bimeric by this consensus procedure.
+
+Usage
+.....
+
+**Input**
+
+- the results of makeSequenceTable (note that also the results of dada, and mergePairs are accepted)
+
+**Output**
+
+A data set of type:
+- dada2_sequenceTable (resp. dada2_mergepairs) if the input is of type dada2_sequenceTable (resp. dada2_mergepairs)
+- dada2_uniques otherwise
+
+Details
+.......
+
+The frequency of chimeric sequences varies substantially from dataset to dataset, and depends on on factors including experimental procedures and sample complexity. Here chimeras make up about 21% of the merged sequence variants, but when we account for the abundances of those variants we see they account for only about 4% of the merged sequence reads.
+
+Considerations for your own data: Most of your reads should remain after chimera removal (it is not uncommon for a majority of sequence variants to be removed though). If most of your reads were removed as chimeric, upstream processing may need to be revisited. In almost all cases this is caused by primer sequences with ambiguous nucleotides that were not removed prior to beginning the DADA2 pipeline.
+
+@HELP_OVERVIEW@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

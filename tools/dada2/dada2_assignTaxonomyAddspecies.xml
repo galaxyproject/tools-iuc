@@ -1,0 +1,232 @@
+<tool id="dada2_assignTaxonomyAddspecies" name="dada2: assignTaxonomy and addSpecies" version="@DADA2_VERSION@+galaxy@WRAPPER_VERSION@" profile="19.09">
+    <description>Learn Error rates</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+    Rscript '$dada2_script' \${GALAXY_SLOTS:-1}
+    ]]></command>
+    <configfiles>
+        <configfile name="dada2_script"><![CDATA[
+@READ_FOO@
+
+library(dada2, quietly=T)
+
+args <- commandArgs(trailingOnly = TRUE)
+nthreads <- as.integer(args[1])
+
+seqs <- $read_data($seqs)
+
+#if $reference_cond.reference_select == "history"
+ref <- '$reference_cond.refFasta'
+tl <- '$reference_cond.taxLevels'
+#else
+ref <- '$reference_cond.refFasta.fields.path'
+tl <- '$reference_cond.refFasta.fields.taxlevels'
+#end if
+tl <- strsplit(tl, ",")[[1]]
+
+taxa <- assignTaxonomy(seqs, ref, minBoot = $minBoot, tryRC = $tryRC,
+    outputBootstraps = $outputBootstraps,
+    taxLevels = tl, multithread = nthreads, verbose=T)
+
+#if $outputBootstraps
+    boot <- taxa\$boot
+    taxa <- taxa\$tax
+#end if
+
+#if $addSpecies_cond.addSpecies_select == "TRUE"
+    #if $addSpecies_cond.allowMultiple_cond.allowMultiple == "num"
+    aM <- $addSpecies_cond.allowMultiple_cond.num
+    #else
+    aM <- $addSpecies_cond.allowMultiple_cond.allowMultiple
+    #end if
+    #if $addSpecies_cond.speciesreference_cond.speciesreference_select == "history"
+    ref <- '$addSpecies_cond.speciesreference_cond.speciesrefFasta'
+    #else
+    ref <- '$addSpecies_cond.speciesreference_cond.speciesrefFasta.fields.path'
+    #end if
+    taxa <- addSpecies(taxa, ref, allowMultiple = aM, tryRC = $addSpecies_cond.tryRC)
+#end if
+write.table(taxa, file = '$output', quote = F, sep = "\t", row.names = T, col.names = NA)
+
+#if $outputBootstraps
+    write.table(boot, file = '$bootstraps', quote = F, sep = "\t", row.names = T, col.names = NA)
+#end if
+    ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="seqs" type="data" format="@DADA_UNIQUES@,dada2_sequencetable,dada2_uniques" label="sequences to be assigned" help=""/>
+        <conditional name="reference_cond">
+          <param name="reference_select" type="select" label="Select a reference dataset your history or use a built-in?">
+            <option value="builtin">Use a built-in reference</option>
+            <option value="history">Use reference data from the history</option>
+          </param>
+          <when value="builtin">
+            <param name="refFasta" type="select" label="Select reference data set" help="If a reference data set of interest is not listed, contact the Galaxy administrators">
+              <options from_data_table="dada2_taxonomy">
+                <filter type="sort_by" column="2"/>
+                <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+              </options>
+            </param>
+          </when>
+          <when value="history">
+            <param name="refFasta" type="data" format="fasta,fasta.gz" label="Reference data set" />
+            <param argument="taxLevels" type="text" label="Names of the taxonomic levels in the data set" help="comma separated list" />
+          </when>
+        </conditional>
+        <param argument="minBoot" type="integer" value="50" min="0" label="Minimum bootstrap confidence" help="for assigning a
+taxonomic level"/>
+        <param argument="tryRC" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Try reverse complement" help="the reverse-complement of each sequence will be used for classification if it is a better match to the reference sequences than the forward sequence"/>
+        <param argument="outputBootstraps" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Output bootstrap values"/>
+
+        <conditional name="addSpecies_cond">
+            <param name="addSpecies_select" type="select" label="Add genus-species binomials to the taxonomic table">
+                <option value="FALSE">No</option>
+                <option value="TRUE">Yes</option>
+            </param>
+            <when value="FALSE"/>
+            <when value="TRUE">
+                <conditional name="speciesreference_cond">
+                  <param name="speciesreference_select" type="select" label="Select a reference dataset your history or use a built-in?">
+                    <option value="builtin">Use a built-in reference</option>
+                    <option value="history">Use reference data from the history</option>
+                  </param>
+                  <when value="builtin">
+                    <param name="speciesrefFasta" argument="refFasta" type="select" label="Select reference data set" help="If a reference data set of interest is not listed, contact the Galaxy administrators">
+                      <options from_data_table="dada2_species">
+                        <filter type="sort_by" column="2"/>
+                        <validator type="no_options" message="No indexes are available for the selected input dataset"/>
+                      </options>
+                    </param>
+                  </when>
+                  <when value="history">
+                    <param name="speciesrefFasta" argument="refFasta" type="data" format="fasta,fasta.gz" label="Reference data set" />
+                  </when>
+                </conditional>
+                <conditional name="allowMultiple_cond">
+                    <param argument="allowMultiple" type="select" label="reporting options">
+                        <option value="FALSE">only unambiguous identifications</option>
+                        <option value="TRUE">all exactly matched species</option>
+                        <option value="num">specify the maximal number of reported exactly matched species</option>
+                    </param>
+                    <when value="FALSE"/>
+                    <when value="TRUE"/>
+                    <when value="num">
+                        <param name="num" type="integer" value="" min="1" label="Number of matched species"/>
+                    </when>
+                </conditional>
+                <param argument="tryRC" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Try reverse complement" help="the reverse-complement of each sequence will be used for classification if it is a better match to the reference sequences than the forward sequence"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" label="${tool.name} on ${on_string}"/>
+        <data name="bootstraps" format="tabular" label="${tool.name} on ${on_string}: bootstraps">
+            <filter>outputBootstraps</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test w default params -->
+        <test expect_num_outputs="1">
+            <param name="seqs" ftype="dada2_sequencetable" value="removeBimeraDenovo_F3D0.tab"/>
+            <param name="reference_cond|reference_select" value="history"/>
+            <param name="reference_cond|refFasta" ftype="fasta" value="reference.fa"/>
+            <param name="reference_cond|taxLevels" value="Level1,Level2,Level3,Level4,Level5" />
+            <param name="addSpecies_cond|addSpecies_select" value="TRUE"/>
+            <param name="addSpecies_cond|speciesreference_cond|speciesreference_select" value="history"/>
+            <param name="addSpecies_cond|speciesreference_cond|speciesrefFasta" ftype="fasta" value="reference_species.fa" />
+            <output name="output" value="assignTaxonomyAddspecies_F3D0.tab" ftype="tabular" />
+        </test>
+         <!-- test w default params, bulit in reference -->
+        <test expect_num_outputs="1">
+            <param name="seqs" ftype="dada2_sequencetable" value="removeBimeraDenovo_F3D0.tab"/>
+            <param name="reference_cond|reference_select" value="builtin"/>
+            <param name="reference_cond|refFasta" value="test_buildid"/>
+            <param name="addSpecies_cond|addSpecies_select" value="TRUE"/>
+            <param name="addSpecies_cond|speciesreference_cond|speciesreference_select" value="builtin"/>
+            <param name="addSpecies_cond|speciesreference_cond|speciesrefFasta" value="test_buildid" />
+            <output name="output" value="assignTaxonomyAddspecies_F3D0.tab" ftype="tabular" />
+        </test>
+        <!-- test w output bootstraps, minRC, note: sim_size for bootstraps output due to the probabilistics -->
+        <test expect_num_outputs="2">
+            <param name="seqs" ftype="dada2_sequencetable" value="removeBimeraDenovo_F3D0.tab"/>
+            <param name="reference_cond|reference_select" value="history"/>
+            <param name="reference_cond|refFasta" ftype="fasta" value="reference.fa"/>
+            <param name="reference_cond|taxLevels" value="Level1,Level2,Level3,Level4,Level5" />
+            <param name="minBoot" value="42" />
+            <param name="tryRC" value="TRUE" />
+            <param name="outputBootstraps" value="TRUE" />
+            <param name="addSpecies_cond|addSpecies_select" value="TRUE"/>
+            <param name="addSpecies_cond|speciesreference_cond|speciesreference_select" value="history"/>
+            <param name="addSpecies_cond|speciesreference_cond|speciesrefFasta" ftype="fasta" value="reference_species.fa" />
+            <param name="addSpecies_cond|allowMultiple" value="TRUE"/>
+            <param name="addSpecies_cond|tryRC" value="TRUE" />
+            <output name="output" value="assignTaxonomyAddspecies_F3D0.tab" ftype="tabular" compare="sim_size" />
+            <output name="bootstraps" value="assignTaxonomyAddspecies_F3D0_boot.tab" ftype="tabular" compare="sim_size" />
+        </test>
+    </tests>
+    <help><![CDATA[
+Description
+...........
+
+This tool implements dada2's assignTaxonomy and assignSpecies functions.
+
+- assignTaxonomy assigns taxonomy to the sequence variants. The DADA2 package provides a native implementation of the naive Bayesian classifier method for this purpose (see Wang et al. 2007, kmer size 8 and 100 bootstrap replicates). The assignTaxonomy function takes as input a set of sequences to be classified and a training set of reference sequences with known taxonomy, and outputs taxonomic assignments with at least minBoot bootstrap confidence. Properly formatted reference files for several popular taxonomic databases are available http://benjjneb.github.io/dada2/training.html
+- assignSpecies makes species level assignments based on exact matching between ASVs and sequenced reference strains. Recent analysis suggests that exact matching (or 100% identity) is the only appropriate way to assign species to 16S gene fragments. Currently, species-assignment training fastas are available for the Silva and RDP 16S databases.
+
+Usage
+.....
+
+**Input**
+
+- A list of sequences contained in the results of removeBimeraDenovo or sequenceTable (note that also the results of dada, and mergePairs are accepted).
+- Reference data bases for taxonomic and species/genus level assignment. Several cached data bases can be chosen (ask your Galaxy admin if they are missing). For using custom data bases see below.
+
+**Output**
+
+- A table containing the assigned taxonomies exceeding the minBoot level of bootstrapping confidence. Rows correspond to the provided sequences, columns to the taxonomic levels. NA indicates that the sequence was not consistently classified at that level at the minBoot threshold.
+- Optionally two columns for the genus and species taxonomic levels can be added. NA indicates that the sequence was not classified at that level.
+- If outputBootstraps checked, a table containing the assigned taxonomies (named "taxa") and the bootstrap values (named "boot") will be returned.
+
+@HELP_OVERVIEW@
+
+Custom Reference data sets
+..........................
+
+For ** taxonomy assignment ** the following is needed:
+
+- a reference fasta data base
+- a comma separated list of taxonomic ranks present in the reference data base
+
+The reference fasta data base for taxonomic assignment (fasta or compressed fasta) needs to encode the taxonomy corresponding to each sequence in the fasta header lines in the following fashion (note, the second sequence is not assigned down to level 6):
+
+::
+
+    >Level1;Level2;Level3;Level4;Level5;Level6;
+    ACCTAGAAAGTCGTAGATCGAAGTTGAAGCATCGCCCGATGATCGTCTGAAGCTGTAGCATGAGTCGATTTTCACATTCAGGGATACCATAGGATAC
+    >Level1;Level2;Level3;Level4;Level5;
+    CGCTAGAAAGTCGTAGAAGGCTCGGAGGTTTGAAGCATCGCCCGATGGGATCTCGTTGCTGTAGCATGAGTACGGACATTCAGGGATCATAGGATAC
+
+The list of required taxonomic ranks could be for instance: "Kingdom,Phylum,Class,Order,Family,Genus"
+
+The reference data base for ** species assignment ** is a fasta file (or compressed fasta file), with the id line formatted as follows:
+
+::
+
+    >ID Genus species
+    ACCTAGAAAGTCGTAGATCGAAGTTGAAGCATCGCCCGATGATCGTCTGAAGCTGTAGCATGAGTCGATTTTCACATTCAGGGATACCATAGGATAC
+    >ID Genus species
+    CGCTAGAAAGTCGTAGAAGGCTCGGAGGTTTGAAGCATCGCCCGATGGGATCTCGTTGCTGTAGCATGAGTACGGACATTCAGGGATCATAGGATAC
+
+
+    ]]></help>
+    <expand macro="citations">
+        <citation type="doi">10.1128/AEM.00062-07</citation>
+    </expand>
+</tool>
+
+
