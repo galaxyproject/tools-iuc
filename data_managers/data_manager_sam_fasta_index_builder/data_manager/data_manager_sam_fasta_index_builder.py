@@ -93,7 +93,7 @@ def main():
     )
 
     # save info to json file
-    open(filename, 'wb').write(json.dumps(data_manager_dict))
+    open(filename, 'w').write(json.dumps(data_manager_dict, sort_keys=True))
 
 
 if __name__ == "__main__":
