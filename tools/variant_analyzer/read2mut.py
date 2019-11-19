@@ -107,7 +107,7 @@ def read2mut(argv):
     mut_read_pos_dict = {}
     mut_read_dict = {}
     reads_dict = {}
-    if len(mut_array) == 13:
+    if mut_array.shape == (13, ):
         mut_array = mut_array.reshape((1, len(mut_array)))
 
     for m in range(0, len(mut_array[:, 0])):
@@ -577,9 +577,9 @@ def read2mut(argv):
                             tier_dict[key1]["tier 3.1"] += 1
 
                         elif ((all(int(ij) >= 1 for ij in [total1new, total4new]) &
-                               all(float(ij) >= 0.5 and float(ij) < 0.75 for ij in [alt1ff, alt4ff])) |
+                               all(float(ij) >= 0.5 for ij in [alt1ff, alt4ff])) |
                               (all(int(ij) >= 1 for ij in [total2new, total3new]) &
-                               all(float(ij) >= 0.5 and float(ij) < 0.75 for ij in [alt2ff, alt3ff]))):
+                               all(float(ij) >= 0.5 for ij in [alt2ff, alt3ff]))):
                             tier = "3.2"
                             counter_tier32 += 1
                             tier_dict[key1]["tier 3.2"] += 1
@@ -697,7 +697,7 @@ def read2mut(argv):
     # sheet 2
     header_line2 = ('variant ID', 'cvrg', 'AC alt (all tiers)', 'AF  (all tiers)', 'cvrg (tiers 1.1-2.4)', 'AC alt (tiers 1.1-2.4)', 'AF (tiers 1.1-2.4)', 'AC alt (Du Novo)', 'AF (Du Novo)',
                     'tier 1.1', 'tier 1.2', 'tier 2.1', 'tier 2.2', 'tier 2.3', 'tier 2.4',
-                    'tier 3.1', 'tier 3.2', 'tier 4.1', 'tier 4.2', 'AF 1.1-1.2', 'AF 1.1-2.1', 'AF 1.1-2.2',
+                    'tier 3.1', 'tier 3.2', 'tier 4.1', 'tier 4.2',  'AF 1.1-1.2', 'AF 1.1-2.1', 'AF 1.1-2.2',
                     'AF 1.1-2.3', 'AF 1.1-2.4', 'AF 1.1-3.1', 'AF 1.1-3.2', 'AF 1.1-4.1', 'AF 1.1-4.2')
 
     ws2.write_row(0, 0, header_line2)
