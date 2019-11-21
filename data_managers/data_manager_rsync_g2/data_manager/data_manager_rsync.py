@@ -2,6 +2,7 @@
 # Dan Blankenberg
 from __future__ import print_function
 
+import base64
 import datetime
 import logging
 import optparse
@@ -75,9 +76,9 @@ def exec_before_job( app, inp_data, out_data, param_dict, tool=None, **kwd ):
     data_manager = app.data_managers.get_manager( tool.data_manager_id, None )
     data_table_entries = get_data_table_entries( param_dict )
     data_tables = load_data_tables_from_url( data_table_class=app.tool_data_tables.__class__ ).get( 'data_tables' )
-    for data_table_name, entries in data_table_entries.items():
+    for data_table_name, entries in list(data_table_entries.items()):
         # get data table managed by this data Manager
-        has_data_table = app.tool_data_tables.get_tables().get( data_table_name )
+        has_data_table = app.tool_data_tables.get_tables().get( str(data_table_name) )
         if has_data_table:
             has_data_table = bool( has_data_table.get_filename_for_source( data_manager, None ) )
         if not has_data_table:
@@ -91,7 +92,7 @@ def exec_before_job( app, inp_data, out_data, param_dict, tool=None, **kwd ):
             repo_info = tdtm.generate_repository_info_elem_from_repository( tool_shed_repository, parent_elem=None )
             if repo_info is not None:
                 repo_info = tostring( repo_info )
-            tmp_file = tempfile.NamedTemporaryFile()
+            tmp_file = tempfile.NamedTemporaryFile(mode="w")
             tmp_file.write( get_new_xml_definition( app, data_table, data_manager, repo_info, target_dir ) )
             tmp_file.flush()
             app.tool_data_tables.add_new_entries_from_config_file( tmp_file.name, None, app.config.shed_tool_data_table_config, persist=True )
@@ -113,7 +114,7 @@ def galaxy_code_get_available_data_tables_entries( trans, dbkey, data_table_name
         data_table_names = None
     found_tables = get_available_tables_for_dbkey( trans, dbkey, data_table_names )
     dbkey_text = '(%s) ' % ( dbkey ) if dbkey else ''
-    rval = [( "%s%s" % ( dbkey_text, x[0] ), dumps( dict( name=x[0].split( ': ' )[0], entry=x[1] ) ).encode( 'base64' ).rstrip(), DEFAULT_SELECTED ) for x in found_tables.items()]
+    rval = [( "%s%s" % ( dbkey_text, x[0] ), base64.b64encode(dumps( dict( name=x[0].split( ': ' )[0], entry=x[1] ), sort_keys=True ).rstrip().encode('utf-8')).decode('utf-8'), DEFAULT_SELECTED ) for x in list(found_tables.items())]
     return rval
 
 # --- End Galaxy called Methods ---
@@ -121,7 +122,7 @@ def galaxy_code_get_available_data_tables_entries( trans, dbkey, data_table_name
 
 def rsync_urljoin( base, url ):
     # urlparse.urljoin doesn't work correctly for our use-case
-    # probably because it doesn't recognize the rsync scheme
+    # probably because it doesn't recognize rhe rsync scheme
     base = base.rstrip( '/' )
     url = url.lstrip( '/' )
     return "%s/%s" % ( base, url )
@@ -188,7 +189,7 @@ def data_table_needs_refresh( cached_data_table, url ):
     if cached_data_table is None:
         return True, {}
     if datetime.datetime.now() - cached_data_table.get( 'time_loaded' ) > CACHE_TIME:
-        data_table_text = urlopen( url ).read()
+        data_table_text = urlopen( url ).read().decode('utf-8')
         if cached_data_table.get( 'data_table_text', None ) != data_table_text:
             return True, {'data_table_text': data_table_text}
         loc_file_attrs = rsync_list_dir( RSYNC_SERVER, LOCATION_DIR )
@@ -205,7 +206,7 @@ def load_data_tables_from_url( url=None, site='main', data_table_class=None  ):
     cached_data_table = TOOL_DATA_TABLES_LOADED_BY_URL.get( url, None )
     refresh, attribs = data_table_needs_refresh( cached_data_table, url )
     if refresh:
-        data_table_text = attribs.get( 'data_table_text' )or urlopen( url ).read()
+        data_table_text = attribs.get( 'data_table_text' ) or urlopen( url ).read().decode('utf-8')
         loc_file_attrs = attribs.get( 'loc_file_attrs' ) or rsync_list_dir( RSYNC_SERVER, LOCATION_DIR )
 
         tmp_dir = tempfile.mkdtemp( prefix='rsync_g2_' )
@@ -214,7 +215,7 @@ def load_data_tables_from_url( url=None, site='main', data_table_class=None  ):
         rsync_sync_to_dir( rsync_urljoin( RSYNC_SERVER, LOCATION_DIR ), os.path.abspath( tmp_loc_dir ) )
 
         new_data_table_text = data_table_text.replace( TOOL_DATA_TABLE_CONF_XML_REPLACE_SOURCE, TOOL_DATA_TABLE_CONF_XML_REPLACE_TARGET % ( tmp_loc_dir ) )
-        data_table_fh = tempfile.NamedTemporaryFile( dir=tmp_dir, prefix='rysnc_data_manager_data_table_conf_' )
+        data_table_fh = tempfile.NamedTemporaryFile( dir=tmp_dir, prefix='rysnc_data_manager_data_table_conf_', mode="w" )
         data_table_fh.write( new_data_table_text )
         data_table_fh.flush()
         tmp_data_dir = os.path.join( tmp_dir, 'tool-data' )
@@ -255,7 +256,7 @@ def get_new_xml_definition( app, data_table, data_manager, repo_info=None, locat
         if name is not None:
             sub_dict['columns'] = "%s\n%s" % ( sub_dict['columns'], '<column name="%s" index="%s" />' % ( name, i ) )
     location_file_dir = location_file_dir or app.config.galaxy_data_manager_data_path
-    for filename in data_table.filenames.keys():
+    for filename in list(data_table.filenames.keys()):
         sub_dict['file_path'] = basename( filename )
         sub_dict['file_path'] = os.path.join( location_file_dir, sub_dict['file_path'] )  # os.path.abspath?
         if not os.path.exists( sub_dict['file_path'] ):
@@ -275,7 +276,7 @@ def get_new_xml_definition( app, data_table, data_manager, repo_info=None, locat
 def get_available_tables_for_dbkey( trans, dbkey, data_table_names ):
     data_tables = load_data_tables_from_url( data_table_class=trans.app.tool_data_tables.__class__ )
     rval = {}
-    for name, data_table in data_tables.get( 'data_tables' ).get_tables().items():
+    for name, data_table in list(data_tables.get( 'data_tables' ).get_tables().items()):
         if ( not data_table_names or name in data_table_names ):
             # TODO: check that columns are similiar
             if not dbkey:
@@ -341,7 +342,7 @@ def get_data_for_path( path, data_root_dir ):
 
 def get_data_and_munge_path( data_table_name, data_table_entry, data_root_dir ):
     path_cols = []
-    for key, value in data_table_entry.items():
+    for key, value in list(data_table_entry.items()):
         if key in PATH_COLUMN_NAMES:
             path_cols.append( ( key, value ) )
     if path_cols:
@@ -354,7 +355,7 @@ def get_data_and_munge_path( data_table_name, data_table_entry, data_root_dir ):
 
 
 def fulfill_data_table_entries( data_table_entries, data_manager_dict, data_root_dir ):
-    for data_table_name, entries in data_table_entries.items():
+    for data_table_name, entries in list(data_table_entries.items()):
         for entry in entries:
             entry = get_data_and_munge_path( data_table_name, entry, data_root_dir )
             _add_data_table_entry( data_manager_dict, data_table_name, entry )
@@ -378,7 +379,7 @@ def get_data_table_entries( params ):
     data_table_entries = params.get( 'data_table_entries', None )
     if data_table_entries:
         for entry_text in data_table_entries.split( ',' ):
-            entry_text = entry_text.strip().decode( 'base64' )
+            entry_text = base64.b64decode(entry_text.strip().encode('utf-8'))
             entry_dict = loads( entry_text )
             data_table_name = entry_dict['name']
             data_table_entry = entry_dict['entry']
@@ -404,7 +405,7 @@ def main():
     data_manager_dict = fulfill_data_table_entries( data_table_entries, data_manager_dict, target_directory )
 
     # save info to json file
-    open( filename, 'wb' ).write( dumps( data_manager_dict ) )
+    open( filename, 'w' ).write( dumps( data_manager_dict, sort_keys=True ) )
 
 
 if __name__ == "__main__":
