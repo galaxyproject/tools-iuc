@@ -1,19 +1,26 @@
-<tool id="lofreq_call" name="Call variants" version="@VERSION@0" python_template_version="3.5">
+<tool id="lofreq_call" name="Call variants" version="@TOOL_VERSION@">
     <description>with LoFreq</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements" />
     <command detect_errors="exit_code"><![CDATA[
-        #if str($reference_source.ref_selector) == 'history'
-            ln -s '$reference_source.ref' reference.fa &&
-        #else
-            ln -s '$reference_source.ref.fields.path' reference.fa &&
-        #end if
+        ## prepare reference genome and mapped reads input
+        @PREPARE_REF@
         ln -s '$alignments' alignments.bam &&
-        samtools index alignments.bam &&
-        samtools faidx reference.fa &&
-        lofreq call-parallel --ref reference.fa --out variants.vcf --pp-threads \${GALAXY_SLOTS:-1}
+        ln -s -f '${alignments.metadata.bam_index}' alignments.bam.bai &&
+
+        ## call variants with lofreq
+
+        ## make lofreq stick to tool contract by
+        ## generating tmp output inside job working dir
+        mkdir pp-tmp &&
+        export TMPDIR=pp-tmp &&
+
+        lofreq call-parallel
+
+        --ref reference.fa --out variants.vcf --pp-threads \${GALAXY_SLOTS:-1}
+
             #if $advanced_options.option_selector == 'yes'
                 #if $advanced_options.regions.bed
                     --bed '$advanced_options.regions.bed'
@@ -53,26 +60,15 @@
                 $advanced_options.misc.plp_summary_only
                 $advanced_options.misc.no_default_filter
             #end if
-        alignments.bam
+        alignments.bam 2>&1
+
+        ## in case of errors add the log files produced
+        ## by the parallel workers to stderr
+        || (tool_exit_code=\$? && cat pp-tmp/lofreq2_call_parallel*/*.log 1>&2 && exit \$tool_exit_code)
     ]]></command>
     <inputs>
         <param type="data" name="alignments" format="bam" label="Input reads in BAM format" />
-        <conditional name="reference_source">
-            <param name="ref_selector" type="select" label="Choose the source for the reference list">
-                <option value="cached">Locally cached</option>
-                <option value="history">History</option>
-            </param>
-            <when value="cached">
-                <param argument="--ref" type="select" label="Reference" help="Reference sequence" >
-                    <options from_data_table="all_fasta" >
-                        <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file" />
-                    </options>
-                </param>
-            </when>
-            <when value="history">
-                <param argument="--ref" type="data" format="fasta" label="Reference" help="Reference sequence" />
-            </when>
-        </conditional>
+        <expand macro="reference_interface" />
         <conditional name="advanced_options">
             <param name="option_selector" type="select" label="Advanced options">
                 <option value="no" selected="true">Use defaults</option>
