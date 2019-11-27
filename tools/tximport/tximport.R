@@ -72,8 +72,6 @@ rownames(samples_df) <- NULL
 # Prepare char vector with files and sample names 
 files <- file.path(samples_df[,"path"])
 names(files) <- samples_df[,"id"]
-#files
-#all(file.exists(files))
 
 
 
@@ -102,7 +100,6 @@ if (!is.null(opt$gff_file)) {
 ##
 if (is.null(opt$geneIdCol)) { ## there is a tx2gene table
     if (opt$format == 'none'){  #predefined format 
-        cat("here i am too\n")  
         txi_out <- tximport(files, type="none",txIdCol=opt$txIdCol,abundanceCol=opt$abundanceCol,countsCol=opt$countsCol,lengthCol=opt$lengthCol,tx2gene=tx2gene,countsFromAbundance=opt$countsFromAbundance)
     } else {
         txi_out <- tximport(files, type=opt$format, tx2gene=tx2gene,countsFromAbundance=opt$countsFromAbundance)
