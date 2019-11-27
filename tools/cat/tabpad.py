@@ -9,18 +9,20 @@ def padfile(infile, outfile, fieldcnt=None):
         out = open(outfile, 'w')
         commentlines = []
         tabs = '\t' * fieldcnt if fieldcnt is not None else None
+
         def pad_line(txtline, tabs=None):
             line = txtline.rstrip('\r\n')
             fields = line.split('\t')
             if not tabs:
                 tabs = '\t' * len(fields)
             out.write('%s%s\n' % (line, tabs[len(fields):]))
+
         for i, txtline in enumerate(fh):
             if txtline.lstrip().startswith('#'):
                 commentlines.append(txtline)
             else:
                 if commentlines:
-                    for i in range(len(commentlines)-1):
+                    for i in range(len(commentlines) - 1):
                         out.write(commentlines[i])
                     pad_line(commentlines[-1], tabs=tabs)
                     commentlines = []
@@ -37,7 +39,7 @@ def fieldcount(infile):
 
 
 def tsvname(infile):
-    return re.sub('\.txt$', '', infile) + '.tsv'
+    return re.sub('.txt$', '', infile) + '.tsv'
 
 
 def __main__():
