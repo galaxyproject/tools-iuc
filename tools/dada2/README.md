@@ -1,14 +1,20 @@
 Wrappers for the core functionality of the dada2 package https://benjjneb.github.io/dada2/index.html. 
 
+- assignTaxonomyAddspecies
 - filterAndTrim
 - learnErrors
 - dada
 - mergePairs
 - makeSequenceTable
+- plotComplexity
+- plotQualityProfile
 - removeBimeraDenovo
+- seqCounts
 
 Installation
 ============
+
+A conda release >=4.6 is needed so that the bioconductor-dada2 conda environment can be installed correctly.
 
 The dada2 wrappers can be installed via the toolshed. Since they use datatypes that have been introduced with Galaxy release 19.09 they won't work out of the box for older Galaxy releases. 
 In order to run the tools you may either upgrade Galaxy or execute the following two steps: 
