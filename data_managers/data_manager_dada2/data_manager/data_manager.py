@@ -121,7 +121,7 @@ def remote_dataset(dataset, outjson):
         data_manager_json["data_tables"]["dada2_species"] = data_manager_entry
 
     with open(outjson, 'w') as jf:
-        jf.write(json.dumps(data_manager_json))
+        jf.write(json.dumps(data_manager_json, sort_keys=True))
 
 
 if __name__ == '__main__':
