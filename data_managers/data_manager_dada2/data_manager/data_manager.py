@@ -56,8 +56,6 @@ def url_download(url, fname, workdir):
     """
     download url to workdir/fname
     """
-    import logging
-    logging.error("DL %s"%url)
     file_path = os.path.join(workdir, fname)
     if not os.path.exists(workdir):
         os.makedirs(workdir)
