@@ -56,6 +56,8 @@ def url_download(url, fname, workdir):
     """
     download url to workdir/fname
     """
+    import logging
+    logging.error("DL %s"%url)
     file_path = os.path.join(workdir, fname)
     if not os.path.exists(workdir):
         os.makedirs(workdir)
@@ -120,7 +122,7 @@ def remote_dataset(dataset, outjson):
         data_manager_entry['path'] = dataset + ".species"
         data_manager_json["data_tables"]["dada2_species"] = data_manager_entry
 
-    with file(outjson, 'w') as jf:
+    with open(outjson, 'w') as jf:
         jf.write(json.dumps(data_manager_json))
 
 
