@@ -49,8 +49,8 @@ def cat_prepare(install_dir):
     return_code = subprocess.call(cmd, shell=True, cwd=install_dir,
                                   stdout=cmd_stdout, stderr=cmd_stderr)
     if return_code:
-        msg = "stdout:\n%s\nstderr:\n%s" % (cmd_stdout.read(),
-                                            cmd_stderr.read())
+        msg = "stdout:\n%s\nstderr:\n%s" % (cmd_stdout.read().decode('utf-8'),
+                                            cmd_stderr.read().decode('utf-8'))
         cmd_stdout.close()
         cmd_stderr.close()
         raise Exception('Error: (%s), returncode=%s %s'
@@ -85,7 +85,6 @@ def main():
             break
 
     cat_dir = os.path.basename(cat_path)
-    # params = json.loads(open(args.config_file).read())
     dm_dict = {}
     dm_dict['data_tables'] = dm_dict.get('data_tables', {})
     data_table = 'cat_database'
