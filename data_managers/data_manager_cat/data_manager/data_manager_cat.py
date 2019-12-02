@@ -95,7 +95,7 @@ def main():
                             taxonomy_folder=os.path.join(cat_dir, tax_db))
     dm_dict['data_tables'][data_table].append(data_table_entry)
     # save info to json file
-    open(args.config_file, 'wb').write(json.dumps(dm_dict))
+    open(args.config_file, 'w').write(json.dumps(dm_dict))
 
 
 if __name__ == "__main__":
