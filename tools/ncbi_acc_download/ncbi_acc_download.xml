@@ -8,23 +8,37 @@
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
         #if $query_source.select == "accession_file":
-            grep -v "^[ \t]*$" $query_source.accession_file > accessions &&
+            { grep -v "^[ \t]*$" $query_source.accession_file > accessions ||
+            { echo "No accession numbers in input. Aborting." 1>&2; exit 1; } } &&
         #else if $query_source.select == "accession_list":
             echo '$query_source.accession_list' | sed -r 's/(\,|__cn__)/\n/g' | grep -v "^[ \t]*$" > accessions &&
         #end if
         mkdir outdir &&
         cd outdir &&
+        ignore_errors=$ignore_failed &&
         while read accession; do
-        sleep 2;
-        echo "Downloading accession number: " \$accession &&
+        echo "Downloading accession number: " \$accession " ..." >> ../error.log &&
         ncbi-acc-download
             --molecule '${molecule.select}'
             --format '${molecule.format}'
             #if $molecule.format != 'featuretable' and $molecule.format != 'gff3':
                 --extended-validation all
             #end if
-            \${accession} || echo \$accession >> ../failed.txt;
-        done < ../accessions 2> >(tee -a ../error.log >&2)
+            \${accession};
+        failure=\$?;
+        if [ \$failure -ne 0 ]; then
+            echo " failed." >> ../error.log;
+            if [ \$ignore_errors -ne 0 ]; then
+                echo \$accession >> ../failed.txt;
+            else
+                sleep 2;
+                exit 1;
+            fi;
+        else
+            echo " done." >> ../error.log;
+        fi;
+        sleep 2;
+        done < ../accessions 2> >(tee -a ../error.log >&2);
     ]]></command>
     <inputs>
         <conditional name="query_source">
@@ -36,7 +50,9 @@
                 <param label="Accession File" name="accession_file" type="data" format="txt,tabular"/>
             </when>
             <when value="accession_list">
-                <param label="ID List" name="accession_list" type="text" area="true" help="Newline/Comma separated list of IDs"/>
+                <param label="ID List" name="accession_list" type="text" area="true" help="Newline/Comma separated list of IDs">
+                    <validator type="expression" message="ID list cannot be empty">value.strip()</validator>
+                </param>
             </when>
         </conditional>
         <conditional name="molecule">
@@ -58,6 +74,11 @@
                 </param>
             </when>
         </conditional>
+        <param name="ignore_failed" type="select" display="radio"
+        label="How to handle download failures">
+            <option value="0">Abort with error on first failure</option>
+            <option value="1">Add accession to failed list and continue</option>
+        </param>
     </inputs>
     <outputs>
         <collection name="output" type="list" label="${tool.name} on ${on_string}: Downloaded Files">
@@ -66,8 +87,10 @@
             <discover_datasets pattern="(?P&lt;name&gt;.+)\.gff$" directory="outdir" format="gff"/>
             <discover_datasets pattern="(?P&lt;name&gt;.+)\.ft$" directory="outdir" format="txt"/>
         </collection>
-        <data name="error_log" from_work_dir="error.log" label="${tool.name} on ${on_string}: Error Log" format="txt"/>
-        <data name="failed_accessions" from_work_dir="failed.txt" label="${tool.name} on ${on_string}: Failed accessions" format="txt"/>
+        <data name="error_log" from_work_dir="error.log" label="${tool.name} on ${on_string}: Log" format="txt"/>
+        <data name="failed_accessions" from_work_dir="failed.txt" label="${tool.name} on ${on_string}: Failed accessions" format="txt">
+            <filter>str(ignore_failed)=='1'</filter>
+        </data>
     </outputs>
     <tests>
         <test>
@@ -189,6 +212,7 @@
                 <param name="select" value="accession_list" />
                 <param name="accession_list" value="CP011064,CP0XXXXX,CP021680"/>
             </conditional>
+            <param name="ignore_failed" value="1" />
             <output_collection name="output" type="list">
                 <element name="CP011064" ftype="fasta">
                     <assert_contents>
@@ -214,28 +238,25 @@
             </conditional>
             <conditional name="query_source">
                 <param name="select" value="accession_list" />
-                <param name="accession_list" value=""/>
+                <param name="accession_list" value="CP0XXXXX"/>
             </conditional>
+            <param name="ignore_failed" value="1" />
             <output name="failed_accessions">
                 <assert_contents>
-                    <has_size value="0" />
+                    <has_line line="CP0XXXXX" />
                 </assert_contents>
             </output>
         </test>
-        <test>
+        <test expect_failure="true">
             <conditional name="molecule">
                 <param name="select" value="nucleotide"/>
                 <param name="format" value="fasta"/>
             </conditional>
             <conditional name="query_source">
                 <param name="select" value="accession_list" />
-                <param name="accession_list" value="CP0XXXXX"/>
+                <param name="accession_list" value="CP011064,CP0XXXXX,CP021680"/>
             </conditional>
-            <output name="failed_accessions">
-                <assert_contents>
-                    <has_line line="CP0XXXXX" />
-                </assert_contents>
-            </output>
+            <param name="ignore_failed" value="0" />
         </test>
         <test>
             <conditional name="molecule">
