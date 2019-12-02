@@ -39,8 +39,6 @@ def __main__():
                 for filename in runfiles:
                     if fnmatch.fnmatch(filename, 'RAxML_log.galaxy.RUN.*'):
                         with open(filename, 'r') as infile:
-                            filename_line = "%s\n" % filename
-                            outfile.write(filename_line)
                             for line in infile:
                                 outfile.write(line)
             # Parsimony Trees
@@ -48,8 +46,6 @@ def __main__():
                 for filename in runfiles:
                     if fnmatch.fnmatch(filename, 'RAxML_parsimonyTree.galaxy.RUN.*'):
                         with open(filename, 'r') as infile:
-                            filename_line = "%s\n" % filename
-                            outfile.write(filename_line)
                             for line in infile:
                                 outfile.write(line)
             # Results
@@ -57,8 +53,6 @@ def __main__():
                 for filename in runfiles:
                     if fnmatch.fnmatch(filename, 'RAxML_result.galaxy.RUN.*'):
                         with open(filename, 'r') as infile:
-                            filename_line = "%s\n" % filename
-                            outfile.write(filename_line)
                             for line in infile:
                                 outfile.write(line)
     # Multiple Model Partition Files
@@ -71,8 +65,6 @@ def __main__():
                 for filename in files:
                     if fnmatch.fnmatch(filename, 'RAxML_bestTree.galaxy.PARTITION.*'):
                         with open(filename, 'r') as infile:
-                            filename_line = "%s\n" % filename
-                            outfile.write(filename_line)
                             for line in infile:
                                 outfile.write(line)
         else:
@@ -87,8 +79,6 @@ def __main__():
                 for filename in files:
                     if fnmatch.fnmatch(filename, 'RAxML_result.galaxy.PARTITION.*'):
                         with open(filename, 'r') as infile:
-                            filename_line = "%s\n" % filename
-                            outfile.write(filename_line)
                             for line in infile:
                                 outfile.write(line)
         else:
