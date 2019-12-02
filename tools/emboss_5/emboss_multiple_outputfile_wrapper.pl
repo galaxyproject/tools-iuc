@@ -1,5 +1,6 @@
-#! /usr/bin/perl -w
+#!/usr/local/bin/env perl
 use strict;
+use warnings;
 
 my $cmd_string = join (" ",@ARGV);
 my $results = `$cmd_string`;
