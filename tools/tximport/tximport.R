@@ -5,7 +5,6 @@ options( show.error.messages=F, error = function () { cat( geterrmessage(), file
 loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
 library("getopt")
-#library("tools")
 options(stringAsFactors = FALSE, useFancyQuotes = FALSE)
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -13,7 +12,6 @@ args <- commandArgs(trailingOnly = TRUE)
 # we read the options from the default: commandArgs(TRUE).
 spec <- matrix(c(
   "help", "h", 0, "logical",
-  "base_dir", "w", 1, "character",
   "out_file", "o", 1, "character",
   "countsFiles", "n", 1, "character",
   "countsFromAbundance", "r", 1, "character",
