@@ -1,0 +1,502 @@
+<tool id="gffread" name="gffread" version="@VERSION@.0">
+    <description>Filters and/or converts GFF3/GTF2 records</description>
+    <macros>
+        <token name="@VERSION@">0.11.6</token>
+        <xml name="fasta_output_select">
+            <param name="fa_outputs" type="select" display="checkboxes" multiple="true" label="Select fasta outputs">
+                <option value="-w exons.fa">fasta file with spliced exons for each GFF transcript (-w exons.fa)</option>
+                <option value="-x cds.fa">fasta file with spliced CDS for each GFF transcript (-x cds.fa)</option>
+                <option value="-y pep.fa">protein fasta file with the translation of CDS for each record (-y pep.fa)</option>
+                <option value="-W">for each fasta: record the exon coordinates projected onto the spliced sequence (-W)</option>
+            </param>
+        </xml>
+        <xml name="ref_filtering_select">
+            <param name="ref_filtering" type="select" display="checkboxes" multiple="true" label="reference based filters">
+                <option value="-N">discard multi-exon mRNAs that have any intron with a non-canonical splice site consensus, i.e. not GT-AG, GC-AG or AT-AC (-N)</option>
+                <option value="-J">discard any mRNAs that either lack initial START codon or the terminal STOP codon, or have an in-frame stop codon (-J)</option>
+                <option value="-V">discard any mRNAs with CDS having in-frame stop codons (-V)</option>
+                <option value="-H">check and adjust the starting CDS phase if the original phase leads to a translation with an in-frame stop codon (-H with -V)</option>
+                <!-- gffread bug: B not in  missing from param to the arg parser
+                <option value="-B">single-exon transcripts are also checked on the opposite strand (-B with -V)</option>
+                -->
+            </param>
+        </xml>
+        <xml name="trackname">
+            <param name="tname" type="text" value="" optional="true" label="Trackname to use in the second column of each GFF output line" help="(-t track_name}">
+                <validator type="regex">\w+</validator>
+            </param>
+        </xml>
+        <xml name="merge_opts">
+             <option value="-K">also collapse shorter, fully contained transcripts with fewer introns than the container (-K)</option>
+             <option value="-Q">remove the containment restriction: multi-exon transcripts will be collapsed if just their introns match, while single-exon transcripts can partially overlap 80% (-Q)</option>
+             <option value="-d dupinfo">output collapsing info (-d dupinfo)</option>
+        </xml>
+        <xml name="cluster_opts">
+             <option value="--force-exons"> make sure that the lowest level GFF features are printed as 'exon' features (--force-exons)</option>
+             <option value="-Z">merge close exons into a single exon (for intron size &lt; 4) (-Z)</option>
+        </xml>
+        <xml name="merge_opt_sel">
+            <param name="merge_options" type="select" display="checkboxes" multiple="true" label="Merge options">
+                <expand macro="cluster_opts" />
+                <expand macro="merge_opts" />
+            </param>
+        </xml>
+        <xml name="cluster_opt_sel">
+            <param name="merge_options" type="select" display="checkboxes" multiple="true" label="Cluster options">
+                <expand macro="cluster_opts" />
+            </param>
+        </xml>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@VERSION@">gffread</requirement>
+    </requirements>
+    <command detect_errors="aggressive">
+<![CDATA[
+    #if $reference_genome.source == 'history':
+        ln -s '$reference_genome.genome_fasta' genomeref.fa &&
+    #end if
+    gffread '$input'
+    #if $reference_genome.source == 'cached':
+        -g '${reference_genome.fasta_indexes.fields.path}'
+        #if $reference_genome.ref_filtering and str($reference_genome.ref_filtering) != '':
+            #echo ' '.join(str($reference_genome.ref_filtering).split(','))
+        #end if
+    #elif $reference_genome.source == 'history':
+        -g genomeref.fa
+        #if $reference_genome.ref_filtering and str($reference_genome.ref_filtering) != '':
+            #echo ' '.join(str($reference_genome.ref_filtering).split(','))
+        #end if
+    #end if
+    #if $filtering and str($filtering) != '':
+        #echo " "
+        #echo ' '.join(str($filtering).split(','))
+    #end if
+    #if $maxintron and $maxintron > 0:
+        -i $maxintron
+    #end if
+    #if $region.region_filter == 'filter':
+        -r '$region.range' $region.discard_partial
+    #end if
+    #if $merging.merge_sel != 'none':
+        $merging.merge_cmd
+        #if $merging.merge_options:
+            #echo ' '.join(str($merging.merge_options).split(','))
+        #end if
+    #end if
+    #if $chr_replace:
+        -m '$chr_replace'
+    #end if
+
+    $full_gff_attribute_preservation
+    $decode_url
+    $expose
+
+    ##
+    ## Although documented, does not appear to be used in the gffread code
+    ## #if $seq_info:
+    ##     -A -s "$seq_info"
+    ## #end if
+    ##
+    ## outputs
+    #if $reference_genome.source != 'none':
+        #if $reference_genome.fa_outputs and str($reference_genome.fa_outputs) != '':
+            #echo ' ' + ' '.join(str($reference_genome.fa_outputs).split(','))
+        #end if
+    #end if
+    #if $gffs.gff_fmt != 'none':
+        #if $gffs.tname:
+            -t '$gffs.tname'
+        #end if
+        #if $gffs.gff_fmt == 'gff':
+            #if $input.datatype.file_ext == 'gft':
+                $gffs.ensembl
+            #end if
+            $gffs.output_cmd
+        #elif $gffs.gff_fmt == 'gtf':
+            $gffs.output_cmd
+        #end if
+    #end if
+]]>
+    </command>
+    <inputs>
+        <param name="input" type="data" format="gff3,gtf" label="Input GFF3 or GTF feature file"/>
+        <!-- filtering -->
+        <param name="filtering" type="select" display="checkboxes" multiple="true" label="filters">
+            <option value="-U">discard single-exon transcripts (-U)</option>
+            <option value="-C">coding only: discard mRNAs that have no CDS feature (-C)</option>
+            <option value="-G">only parse additional exon attributes from the first exon and move them to the mRNA level (useful for GTF input) (-G)</option>
+            <option value="-O">process also non-transcript GFF records (by default non-transcript records are ignored) (-O)</option>
+            <option value="--no-pseudo">filter out records matching the 'pseudo' keyword (--no-pseudo)</option>
+        </param>
+        <conditional name="region">
+            <param name="region_filter" type="select" label="Filter by genome region">
+                <option value="none">No</option>
+                <option value="filter">Yes</option>
+            </param>
+            <when value="none"/>
+            <when value="filter">
+                <param name="range" type="text" value="" label="Only show transcripts overlapping coordinate range">
+                    <help><![CDATA[
+                    (-r [['strand']'chr':]'start'..'end') <br>
+                    examples: <br>
+                    1000..500000 <br>
+                    chr1:1000..500000 <br>
+                    +chr1:1000..500000 <br>
+                    -chr1:1000..500000
+                    ]]>
+                    </help>
+                    <validator type="regex">(([+-])?(\w+:))?\d+\.\.\d+</validator>
+                </param>
+                <param name="discard_partial" type="boolean" truevalue="-R" falsevalue="" checked="false"
+                       label="Discard all transcripts that are not fully contained within the given range" help="(-R)"/>
+            </when>
+        </conditional>
+        <param name="maxintron" type="integer" value="" optional="true" min="0" label="Filter out transcipts with large introns"
+               help="If set, discard transcripts having an intron larger (-i max_intron)"/>
+        <param name="chr_replace" type="data" format="tabular" optional="true" label="Replace reference sequence names" >
+            <help><![CDATA[(-m chr_replace) <br>
+                chr_replace is a reference sequence replacement table consisting of 2 columns: "original_ref_ID"  "new_ref_ID"<br>
+                It is useful for switching between Ensembl and UCSC naming conventions <br>
+                NOTE: GFF records on reference sequences that are not found among the "original_ref_ID" entries in this file will be filtered out
+                ]]>
+            </help>
+        </param>
+
+        <!-- Although documented, does not appear to be used in the gffread code
+        <param name="seq_info" type="data" format="tabular" optional="true" label="Use the description field as the value for a 'descr' attribute to the GFF record">
+            <help>
+                   (-s seq_info.fsize -A)  useful with mRNA/EST/protein mappings &lt;br&gt;
+                  seq_info input file is a 3 column tab-delimited file providing this info for each of the mapped sequences: &lt;br&gt;
+                  "seq-name" "seq-length" "seq-description" &lt;br&gt;
+            </help>
+        </param>
+        -->
+
+        <!-- merging -->
+        <conditional name="merging">
+            <param name="merge_sel" type="select" label="Transcript merging" help="(-M/--merge or --cluster-only)">
+                <option value="none">none</option>
+                <option value="merge">merge: cluster the input transcripts into loci, collapsing matching transcripts</option>
+                <option value="cluster">cluster-only: merge but without collapsing matching transcripts</option>
+            </param>
+            <when value="none"/>
+            <when value="merge">
+                <param name="merge_cmd" type="hidden" value="--merge"/>
+                <expand macro="merge_opt_sel" />
+            </when>
+            <when value="cluster">
+                <param name="merge_cmd" type="hidden" value="--cluster-only"/>
+                <expand macro="cluster_opt_sel" />
+            </when>
+        </conditional>
+        <!-- reference sequence file -->
+        <!-- Error: -g option is required for options -w, -x, -y, -V, -N, -M -->
+        <conditional name="reference_genome">
+            <param name="source" type="select" label="Reference Genome" help="(-g genome.fasta) NOTE: Required for fasta outputs">
+                <option value="none">none</option>
+                <option value="cached"></option>
+                <option value="history">From your history</option>
+            </param>
+            <when value="none">
+            </when>
+            <when value="cached">
+                <param name="fasta_indexes" type="select" label="Source FASTA Sequence">
+                    <options from_data_table="all_fasta"/>
+                </param>
+                <expand macro="ref_filtering_select" />
+                <expand macro="fasta_output_select" />
+            </when>
+            <when value="history">
+                <param name="genome_fasta" type="data" format="fasta" label="Genome Reference Fasta"/>
+                <expand macro="ref_filtering_select" />
+                <expand macro="fasta_output_select" />
+            </when>
+        </conditional>
+
+        <!-- outputs -->
+        <conditional name="gffs">
+            <param name="gff_fmt" type="select" label="Feature File Output" help="(-o output.gff3|output.gtf)">
+                <option value="none">none</option>
+                <option value="gff">GFF</option>
+                <option value="gtf">GTF</option>
+            </param>
+            <when value="none">
+            </when>
+            <when value="gff">
+                <param name="output_cmd" type="hidden" value="-o output.gff3"/>
+                <param name="ensembl" type="boolean" truevalue="-L" falsevalue="" checked="false" label="Ensembl GTF to GFF3 conversion" help="(-L)"/>
+                <expand macro="trackname" />
+            </when>
+            <when value="gtf">
+                <param name="output_cmd" type="hidden" value="-T -o output.gtf"/>
+                <expand macro="trackname" />
+            </when>
+        </conditional>
+
+        <param name="full_gff_attribute_preservation" type="boolean" truevalue="-F" falsevalue="" checked="false"
+                       label="full GFF attribute preservation (all attributes are shown)" help="(-F)"/>
+        <param name="decode_url" type="boolean" truevalue="-D" falsevalue="" checked="false"
+                       label="decode url encoded characters within attributes" help="(-D)"/>
+        <param name="expose" type="boolean" truevalue="-E" falsevalue="" checked="false"
+                       label="warn about duplicate transcript IDs and other potential problems with the given GFF/GTF records" help="(-E)"/>
+
+    </inputs>
+    <outputs>
+        <data name="output_gff" format="gff3" metadata_source="input" label="${tool.name} on ${on_string}: gff3" from_work_dir="output.gff3">
+            <filter>gffs['gff_fmt'] == 'gff'</filter>
+        </data>
+        <data name="output_gtf" format="gtf" metadata_source="input" label="${tool.name} on ${on_string}: gtf" from_work_dir="output.gtf">
+            <filter>gffs['gff_fmt'] == 'gtf'</filter>
+        </data>
+        <data name="output_exons" format="fasta" label="${tool.name} on ${on_string}: exons.fa" from_work_dir="exons.fa">
+            <filter>'fa_outputs' in reference_genome and str(reference_genome['fa_outputs']).find('exons.fa') > 0 </filter>
+        </data>
+        <data name="output_cds" format="fasta"  label="${tool.name} on ${on_string}: cds.fa" from_work_dir="cds.fa">
+            <filter>'fa_outputs' in reference_genome and str(reference_genome['fa_outputs']).find('cds.fa')  > 0</filter>
+        </data>
+        <data name="output_pep" format="fasta" label="${tool.name} on ${on_string}: pep.fa" from_work_dir="pep.fa">
+            <filter>'fa_outputs' in reference_genome and str(reference_genome['fa_outputs']).find('pep.fa')  > 0</filter>
+        </data>
+        <data name="output_dupinfo" format="txt" label="${tool.name} on ${on_string}: dupinfo" from_work_dir="dupinfo">
+            <filter>'merge_options' in merging and merging['merge_options'].find('dupinfo') > 0</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
+            <param name="gff_fmt" value="gff"/>
+            <output name="output_gff" file="Homo_sapiens.GRCh37_19.71.gff3" ftype="gff3" lines_diff="2" />
+        </test>
+        <test>
+            <param name="input" ftype="gtf" value="ecoli-k12.gff3"/>
+            <param name="gff_fmt" value="gff"/>
+            <param name="full_gff_attribute_preservation" value="-F"/>
+            <output name="output_gff" file="ecoli-k12.processed.gff3" ftype="gff3" lines_diff="2" />
+        </test>
+        <test>
+            <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
+            <param name="filtering" value="--no-pseudo"/>
+            <param name="gff_fmt" value="gtf"/>
+            <output name="output_gtf">
+                <assert_contents>
+                    <not_has_text text="pseudo" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
+            <param name="region_filter" value="filter"/>
+            <param name="range" value="19:496500..504965"/>
+            <param name="gff_fmt" value="gtf"/>
+            <output name="output_gtf">
+                <assert_contents>
+                    <has_text text="ENST00000587541" />
+                    <has_text text="ENST00000382683" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
+            <param name="region_filter" value="filter"/>
+            <param name="range" value="19:496500..504965"/>
+            <param name="discard_partial" value="true"/>
+            <param name="gff_fmt" value="gtf"/>
+            <output name="output_gtf">
+                <assert_contents>
+                    <not_has_text text="ENST00000587541" />
+                    <has_text text="ENST00000382683" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
+            <param name="filtering" value="-C"/>
+            <param name="region_filter" value="filter"/>
+            <param name="range" value="19:496500..504965"/>
+            <param name="gff_fmt" value="gtf"/>
+            <output name="output_gtf">
+                <assert_contents>
+                    <not_has_text text="ENST00000587541" />
+                    <has_text text="ENST00000382683" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
+            <param name="source" value="history"/>
+            <param name="genome_fasta" ftype="fasta" value="Homo_sapiens.GRCh37.71.dna.chromosome.19.fa"/>
+            <param name="fa_outputs" value="-w exons.fa,-x cds.fa,-y pep.fa"/>
+            <param name="region_filter" value="filter"/>
+            <param name="range" value="19:496500..504965"/>
+            <param name="gff_fmt" value="gtf"/>
+            <output name="output_gtf">
+                <assert_contents>
+                    <has_text text="ENST00000587541" />
+                    <has_text text="ENST00000382683" />
+                </assert_contents>
+            </output>
+            <output name="output_exons">
+                <assert_contents>
+                    <has_text text="ENST00000346144 CDS=47-934" />
+                    <has_text text="CTATTTAAGCGGCTTCCCCGCGGCCTCGGGACAGAGGGGACTGAGCATGGATTTCGGACTGGCCCTCCTG" />
+                </assert_contents>
+            </output>
+            <output name="output_cds">
+                <assert_contents>
+                    <has_text text="ENST00000346144" />
+                    <has_text text="ATGGATTTCGGACTGGCCCTCCTGCTGGCGGGGCTTCTGGGGCTCCTCCTCGGCCAGTCCCTCCAGGTGA" />
+                </assert_contents>
+            </output>
+            <output name="output_pep">
+                <assert_contents>
+                    <has_text text="ENST00000346144" />
+                    <has_text text="MDFGLALLLAGLLGLLLGQSLQVKPLQVEPPEPVVAVALGASRQLTCRLACADRGASVQWRGLDTSLGAV" />
+                </assert_contents>
+            </output>
+        </test>
+
+    </tests>
+    <help>
+<![CDATA[
+**gffread   Filters and/or converts GFF3/GTF2 records**
+
+The gffread command is documented with the stringtie_ package.
+
+.. _stringtie: http://ccb.jhu.edu/software/stringtie/gff.shtml#gffread
+
+
+gffread v0.11.4. Usage: ::
+
+    gffread <input_gff> [-g <genomic_seqs_fasta> | <dir>][-s <seq_info.fsize>] 
+     [-o <outfile>] [-t <trackname>] [-r [[<strand>]<chr>:]<start>..<end> [-R]]
+     [-CTVNJMKQAFPGUBHZWTOLE] [-w <exons.fa>] [-x <cds.fa>] [-y <tr_cds.fa>]
+     [-i <maxintron>] [--bed] [--table <attrlist>] [--sort-by <refseq_list.txt>]
+     
+     Filter, convert or cluster GFF/GTF/BED records, extract the sequence of
+     transcripts (exon or CDS) and more.
+     By default (i.e. without -O) only transcripts are processed, discarding any
+     other non-transcript features. Default output is a simplified GFF3 with only
+     the basic attributes.
+     
+     <input_gff> is a GFF file, use '-' for stdin
+ 
+    Options:
+
+     -i   discard transcripts having an intron larger than <maxintron>
+     -l   discard transcripts shorter than <minlen> bases
+     -r   only show transcripts overlapping coordinate range <start>..<end>
+          (on chromosome/contig <chr>, strand <strand> if provided)
+     -R   for -r option, discard all transcripts that are not fully 
+          contained within the given range
+     -U   discard single-exon transcripts
+     -C   coding only: discard mRNAs that have no CDS features
+     --nc non-coding only: discard mRNAs that have CDS features
+     --ignore-locus : discard locus features and attributes found in the input
+     -A   use the description field from <seq_info.fsize> and add it
+          as the value for a 'descr' attribute to the GFF record
+     -s   <seq_info.fsize> is a tab-delimited file providing this info
+          for each of the mapped sequences:
+          <seq-name> <seq-length> <seq-description>
+          (useful for -A option with mRNA/EST/protein mappings)
+      
+     Sorting: (by default, chromosomes are kept in the order they were found)
+     --sort-alpha : chromosomes (reference sequences) are sorted alphabetically
+     --sort-by : sort the reference sequences by the order in which their
+          names are given in the <refseq.lst> file
+              
+    Misc options: 
+     -F   preserve all GFF attributes (for non-exon features)
+     --keep-exon-attrs : for -F option, do not attempt to reduce redundant
+          exon/CDS attributes
+     -G   do not keep exon attributes, move them to the transcript feature
+          (for GFF3 output)
+     --keep-genes : in transcript-only mode (default), also preserve gene records
+     --keep-comments: for GFF3 input/output, try to preserve comments
+     -O   process other non-transcript GFF records (by default non-transcript
+          records are ignored)
+     -V   discard any mRNAs with CDS having in-frame stop codons (requires -g)
+     -H   for -V option, check and adjust the starting CDS phase
+          if the original phase leads to a translation with an 
+          in-frame stop codon
+     -B   for -V option, single-exon transcripts are also checked on the
+          opposite strand (requires -g)
+     -P   add transcript level GFF attributes about the coding status of each
+          transcript, including partialness or in-frame stop codons (requires -g)
+     --add-hasCDS : add a "hasCDS" attribute with value "true" for transcripts
+          that have CDS features
+     --adj-stop stop codon adjustment: enables -P and performs automatic
+          adjustment of the CDS stop coordinate if premature or downstream
+     -N   discard multi-exon mRNAs that have any intron with a non-canonical
+          splice site consensus (i.e. not GT-AG, GC-AG or AT-AC)
+     -J   discard any mRNAs that either lack initial START codon
+          or the terminal STOP codon, or have an in-frame stop codon
+          (i.e. only print mRNAs with a complete CDS)
+     --no-pseudo: filter out records matching the 'pseudo' keyword
+     --in-bed: input should be parsed as BED format (automatic if the input
+               filename ends with .bed*)
+     --in-tlf: input GFF-like one-line-per-transcript format without exon/CDS
+               features (see --tlf option below); automatic if the input
+               filename ends with .tlf)
+               
+    Clustering:
+     -M/--merge : cluster the input transcripts into loci, discarding
+          "duplicated" transcripts (those with the same exact introns
+          and fully contained or equal boundaries)
+     -d <dupinfo> : for -M option, write duplication info to file <dupinfo>
+     --cluster-only: same as -M/--merge but without discarding any of the
+          "duplicate" transcripts, only create "locus" features
+     -K   for -M option: also discard as redundant the shorter, fully contained
+           transcripts (intron chains matching a part of the container)
+     -Q   for -M option, no longer require boundary containment when assessing
+          redundancy (can be combined with -K); only introns have to match for
+          multi-exon transcripts, and >=80% overlap for single-exon transcripts
+     -Y   for -M option, enforce -Q but also discard overlapping single-exon 
+          transcripts, even on the opposite strand (can be combined with -K)
+          
+    Output options:
+     --force-exons: make sure that the lowest level GFF features are considered
+           "exon" features
+     --gene2exon: for single-line genes not parenting any transcripts, add an
+           exon feature spanning the entire gene (treat it as a transcript)
+     --t-adopt:  try to find a parent gene overlapping/containing a transcript
+           that does not have any explicit gene Parent
+     -D    decode url encoded characters within attributes
+     -Z    merge very close exons into a single exon (when intron size<4)
+     -g   full path to a multi-fasta file with the genomic sequences
+          for all input mappings, OR a directory with single-fasta files
+          (one per genomic sequence, with file names matching sequence names)
+     -w    write a fasta file with spliced exons for each GFF transcript
+     -x    write a fasta file with spliced CDS for each GFF transcript
+     -y    write a protein fasta file with the translation of CDS for each record
+     -W    for -w and -x options, write in the FASTA defline the exon
+           coordinates projected onto the spliced sequence;
+           for -y option, write transcript attributes in the FASTA defline
+     -S    for -y option, use '*' instead of '.' as stop codon translation
+     -L    Ensembl GTF to GFF3 conversion (implies -F; should be used with -m)
+     -m    <chr_replace> is a name mapping table for converting reference 
+           sequence names, having this 2-column format:
+           <original_ref_ID> <new_ref_ID>
+           WARNING: all GFF records on reference sequences whose original IDs
+           are not found in the 1st column of this table will be discarded!
+     -t    use <trackname> in the 2nd column of each GFF/GTF output line
+     -o    write the records into <outfile> instead of stdout
+     -T    main output will be GTF instead of GFF3
+     --bed output records in BED format instead of default GFF3
+     --tlf output "transcript line format" which is like GFF
+           but exons, CDS features and related data are stored as GFF 
+           attributes in the transcript feature line, like this:
+             exoncount=N;exons=<exons>;CDSphase=<N>;CDS=<CDScoords> 
+           <exons> is a comma-delimited list of exon_start-exon_end coordinates;
+           <CDScoords> is CDS_start:CDS_end coordinates or a list like <exons>
+     --table output a simple tab delimited format instead of GFF, with columns
+           having the values of GFF attributes given in <attrlist>; special
+           pseudo-attributes (prefixed by @) are recognized:
+           @chr, @start, @end, @strand, @numexons, @exons, @cds, @covlen, @cdslen
+     -v,-E expose (warn about) duplicate transcript IDs and other potential
+           problems with the given GFF/GTF records
+]]>
+    </help>
+    <citations>
+        <citation type="doi">10.1038/nbt.1621</citation>
+    </citations>
+</tool>

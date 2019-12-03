@@ -1,0 +1,264 @@
+<tool id="dada2_filterAndTrim" name="dada2: filterAndTrim" version="@DADA2_VERSION@+galaxy@WRAPPER_VERSION@" profile="19.09">
+    <description>Filter and trim short read data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+Rscript '$dada2_script'
+    ]]></command>
+    <configfiles>
+        <configfile name="dada2_script"><![CDATA[
+truncQ <- c($trim.truncQ)
+truncLen <- c($trim.truncLen)
+trimLeft <- c($trim.trimLeft)
+trimRight <- c($trim.trimRight)
+#if str($filter.maxLen) == ""
+    maxLen <- c(Inf)
+#else:
+    maxLen <- c($filter.maxLen)
+#end if
+minLen <- c($filter.minLen)
+maxN <- c($filter.maxN)
+minQ <- c($filter.minQ)
+#if str($filter.maxEE) == ""
+    maxEE <- c(Inf)
+#else:
+    maxEE <- c($filter.maxEE)
+#end if
+#if $paired_cond.paired_select != "single" and $seprev_cond.seprev_select == "yes"
+    truncQ <- c(truncQ,$seprev_cond.trim.truncQ)
+    truncLen <- c(truncLen,$seprev_cond.trim.truncLen)
+    trimLeft <- c(trimLeft,$seprev_cond.trim.trimLeft)
+    trimRight <- c(trimRight,$seprev_cond.trim.trimRight)
+    #if str($seprev_cond.filter.maxLen) == ""
+        maxLen <- c(maxLen,Inf)
+    #else:
+        maxLen <- c(maxLen,$seprev_cond.filter.maxLen)
+    #end if
+    minLen <- c(minLen,$seprev_cond.filter.minLen)
+    maxN <- c(maxN,$seprev_cond.filter.maxN)
+    minQ <- c(minQ,$seprev_cond.filter.minQ)
+    #if str($seprev_cond.filter.maxEE) == ""
+        maxEE <- c(maxEE,Inf)
+    #else:
+        maxEE <- c(maxEE,$seprev_cond.filter.maxEE)
+    #end if
+#end if
+
+fwd <- NULL
+rev <- NULL
+filt.fwd <- NULL
+filt.rev <- NULL
+#if $paired_cond.paired_select == "paired"
+    fwd <- c(fwd, '$paired_cond.reads.forward')
+    rev <- c(rev, '$paired_cond.reads.reverse')
+    filt.fwd <- c(filt.fwd, '$paired_output.forward')
+    filt.rev <- c(filt.rev, '$paired_output.reverse')
+#else if $paired_cond.paired_select == "separate"
+    fwd <- c(fwd, '$paired_cond.reads')
+    rev <- c(rev, '$paired_cond.sdaer')
+    filt.fwd <- c(filt.fwd, '$output_fwd')
+    filt.rev <- c(filt.rev, '$output_rev')
+#else
+    fwd <- c(fwd, '$paired_cond.reads')
+    filt.fwd <- c(filt.fwd, '$output_single')
+#end if
+
+#if str($orientFwd) == ""
+    orientFwd <- NULL
+#else
+    orientFwd <- "$orientFwd"
+#end if
+
+library(dada2, quietly=T)
+
+ftout <- filterAndTrim(fwd, filt.fwd, rev, filt.rev,  compress = TRUE,
+    truncQ = truncQ, truncLen = truncLen, trimLeft = trimLeft, trimRight = trimRight, maxLen = maxLen,
+    minLen = minLen, maxN = maxN, minQ = minQ, maxEE = maxEE, rm.lowcomplex = $rmlowcomplex,
+    rm.phix = $rmPhiX, orient.fwd = orientFwd)
+
+rownames(ftout) <- c( '$paired_cond.reads.element_identifier' )
+write.table(ftout, "$outtab", quote=F, sep="\t", col.names=NA)
+    ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="fastq_input" multiple="False" collection_type="paired" argument_fwd="fwd" argument_rev="rev"/>
+        <expand macro="trimmers"/>
+        <expand macro="filters"/>
+        <conditional name="seprev_cond">
+            <param name="seprev_select" type="select" label="Separate filters and trimmers for reverse reads" help="only applies to paired end data">
+                <option value="no">no</option>
+                <option value="yes">yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <expand macro="trimmers"/>
+                <expand macro="filters"/>
+            </when>
+        </conditional>
+        <param argument="rmPhiX" truevalue="TRUE" falsevalue="FALSE" type="boolean" checked="true" label="Discard reads matching the PhiX genome" />
+        <param name="rmlowcomplex" argument="rm.lowcomplex" type="integer" value="0" min="0" label="Low complexity filter kmer threshold" help="see below"/>
+        <param name="orientFwd" argument="orient.fwd" type="text" value="" optional="true" label="String present at the start of valid reads" help="see below"/>
+        <param name="output_statistics" truevalue="TRUE" falsevalue="FALSE" type="boolean" checked="true" label="Output statistics" help="Create extra table with the number of reads pre and post filtering" />
+    </inputs>
+    <outputs>
+        <collection name="paired_output" type="paired" format_source="reads['forward']">
+            <filter>paired_cond['paired_select'] == "paired"</filter>
+        </collection>
+        <data name="output_single" format_source="reads" >
+            <filter>paired_cond['paired_select'] == "single"</filter>
+        </data>
+        <data name="output_fwd" format_source="reads" label="${tool.name} on ${on_string}: Forward reads" >
+            <filter>paired_cond['paired_select'] == "separate"</filter>
+        </data>
+        <data name="output_rev" format_source="sdaer" label="${tool.name} on ${on_string}: Reverse reads" >
+            <filter>paired_cond['paired_select'] == "separate"</filter>
+        </data>
+        <data name="outtab" format="tabular" label="${tool.name} on ${on_string}: Statistics">
+            <filter>output_statistics</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- paired data in paired collection -->
+        <test expect_num_outputs="4">
+            <conditional name="paired_cond">
+                <param name="paired_select" value="paired"/>
+                <param name="reads">
+                    <collection type="paired">
+                        <element name="forward" value="F3D0_S188_L001_R1_001.fastq.gz" ftype="fastqsanger.gz"/>
+                        <element name="reverse" value="F3D0_S188_L001_R2_001.fastq.gz" ftype="fastqsanger.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <output_collection name="paired_output" type="paired" count="2">
+                <element name="forward" value="filterAndTrim_F3D0_R1.fq.gz" ftype="fastqsanger.gz" />
+                <element name="reverse" value="filterAndTrim_F3D0_R2.fq.gz" ftype="fastqsanger.gz" />
+            </output_collection>
+            <output name="outtab" value="filterAndTrim_F3D0.tab" ftype="tabular"/>
+        </test>
+        <!-- paired data given separately -->
+        <test expect_num_outputs="3">
+            <conditional name="paired_cond">
+                <param name="paired_select" value="separate"/>
+                <param name="reads" value="F3D0_S188_L001_R1_001.fastq.gz" ftype="fastqsanger.gz"/>
+                <param name="sdaer" value="F3D0_S188_L001_R2_001.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <output name="output_fwd" value="filterAndTrim_F3D0_R1.fq.gz" ftype="fastqsanger.gz" />
+            <output name="output_rev" value="filterAndTrim_F3D0_R2.fq.gz" ftype="fastqsanger.gz" />
+            <output name="outtab" value="filterAndTrim_F3D0.tab" ftype="tabular" compare="sim_size"/>
+        </test>
+        <!-- single end data -->
+        <test expect_num_outputs="1">
+            <conditional name="paired_cond">
+                <param name="paired_select" value="single"/>
+                <param name="reads" value="F3D0_S188_L001_R1_001.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <param name="rmPhiX" value="TRUE" />
+            <param name="rmlowcomplex" value="2" />
+            <param name="orientFwd" value="TACGG" />
+            <param name="output_statistics" value="FALSE" />
+            <output name="output_fwd" value="filterAndTrim_single_F3D0_R1.fq.gz" ftype="fastqsanger.gz" />
+        </test>
+        <!-- single end data trimming -->
+        <test expect_num_outputs="1">
+            <conditional name="paired_cond">
+                <param name="paired_select" value="single"/>
+                <param name="reads" value="F3D0_S188_L001_R1_001.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <param name="trim|truncQ" value="30" />
+            <param name="trim|trimLeft" value="150" />
+            <param name="trim|trimRight" value="2" />
+            <param name="trim|truncLen" value="2" />
+            <param name="output_statistics" value="FALSE" />
+            <output name="output_fwd" value="filterAndTrim_single_trimmers_F3D0_R1.fq.gz" ftype="fastqsanger.gz" />
+        </test>
+        <!-- single end data filtering -->
+        <test expect_num_outputs="1">
+            <conditional name="paired_cond">
+                <param name="paired_select" value="single"/>
+                <param name="reads" value="F3D0_S188_L001_R1_001.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <param name="filter|maxLen" value="255" />
+            <param name="filter|minLen" value="60" />
+            <param name="filter|maxN" value="100" />
+            <param name="filter|minQ" value="13" />
+            <param name="filter|maxEE" value="1" />
+            <param name="output_statistics" value="FALSE" />
+            <output name="output_fwd" value="filterAndTrim_single_filters_F3D0_R1.fq.gz" ftype="fastqsanger.gz" />
+        </test>
+        <!-- paired data w separate filters and trimmers for reverse -->
+        <test expect_num_outputs="3">
+            <conditional name="paired_cond" >
+                <param name="paired_select" value="paired"/>
+                <param name="reads">
+                    <collection type="paired">
+                        <element name="forward" value="F3D0_S188_L001_R1_001.fastq.gz" ftype="fastqsanger.gz"/>
+                        <element name="reverse" value="F3D0_S188_L001_R2_001.fastq.gz" ftype="fastqsanger.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <param name="seprev_cond|seprev_select" value="yes"/>
+            <param name="seprev_cond|trim|truncQ" value="30" />
+            <param name="seprev_cond|trim|trimLeft" value="150" />
+            <param name="seprev_cond|trim|trimRight" value="2" />
+            <param name="seprev_cond|trim|truncLen" value="2" />
+            <param name="seprev_cond|filter|maxLen" value="255" />
+            <param name="seprev_cond|filter|minLen" value="60" />
+            <param name="seprev_cond|filter|maxN" value="100" />
+            <param name="seprev_cond|filter|minQ" value="13" />
+            <param name="seprev_cond|filter|maxEE" value="1" />
+            <param name="output_statistics" value="FALSE" />
+            <output_collection name="paired_output" type="paired" count="2"/>
+        </test>
+    </tests>
+
+    <help><![CDATA[
+Description
+...........
+
+Filters and trims a FASTQ dataset (can be compressed) based on several user-definable criteria, and outputs a compressed FASTQ data set containing those trimmed reads which passed the filters. For paired end data forward and reverse FASTQ datasets can be provided as pair of FASTQ datasets (or two separate data sets), in which case filtering is performed on the forward and reverse reads independently, and both reads must pass for the read pair to be in the output.
+
+Usage
+.....
+
+**Input** is a FASTQ dataset (or a pair in case of paired end data) containing all reads of a sample. It is suggested to organize them in a (paired) collection (in particular if you have multiple samples).
+
+**Output** is a (paired) collection of filtered and trimmed paired FASTQ datasets (again one data set or pair per sample).
+
+Upstream dada2 tools are *dada2: learnErrorRates* and *dada2: dada*. Note that these tools do not work on paired end data. So, if you have paired end data you need to split the generated paired collection into one containing the forward reads and one containing the reverse reads. This can be done by the *unzip collection* tool.
+
+An additional tabular output gives the number of reads before and after trimming. This can data set can be used as input for *dada2: sequence counts* to track the sequence counts for each sample through all dada2 pipeline step.
+
+Details
+.......
+
+*Trimming and filtering*:
+
+- Truncation of the read length is enforced after trimming of the right end.
+- The long read filter is applied before trimming and the short read filter after trimming.
+- For details on the calculation of the number of expected errors see also https://doi.org/10.1093/bioinformatics/btv401
+
+
+*String present at the start of valid reads* (orient.fwd):
+
+This string is compared to the start of each read, and the reverse complement of each read. If it exactly matches the start of the read, the read is kept. If it exactly matches the start of the reverse complement read, the read is reverse-complemented and kept. Otherwise the read if filtered out. For paired reads, the string is compared to the start of the forward and reverse reads, and if it matches the start of the reverse read the reads are swapped and kept. The primary use of this parameter is to unify the orientation of amplicon sequencing libraries that are a mixture of forward and reverse orientations, and that include the forward primer on the reads.
+
+*Low complexity filter kmer threshold"*
+
+If greater than 0, reads with an effective number of kmers less than this value will be removed.  The effective number of kmers is determined as a  Shannon  information  approximation.   The default kmer-size is 2, and therefore perfectly random sequences will approachan effective kmer number of 16 = 4 (nucleotides) ^ 2 (kmer size).
+
+Notes
+.....
+
+This step may be replaced by alternative tools to filter and trim short read data if the following is ensured:
+
+- For paired end data unpaired reads must be removed.
+- There must not be a read containing a non-canonical nucleotide (N).
+
+@HELP_OVERVIEW@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

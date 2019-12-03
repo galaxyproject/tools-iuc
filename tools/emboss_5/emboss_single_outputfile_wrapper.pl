@@ -1,5 +1,5 @@
-#! /usr/bin/perl -w
 use strict;
+use warnings;
 use File::Copy;
 
 my $cmd_string = join (" ",@ARGV);
