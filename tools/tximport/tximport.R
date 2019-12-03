@@ -29,9 +29,6 @@ spec <- matrix(c(
 
 opt <- getopt(spec)
 
-
-writeLines(readLines(opt$countsFiles))
-
 # if help was asked for print a friendly message
 # and exit with a non-zero error code
 if (!is.null(opt$help)) {
@@ -68,9 +65,6 @@ names(files) <- samples_df[,"id"]
 
 
 library(tximport)
-
-
-
 
 ### if the input is a gff/gtf file first need to create the tx2gene table
 if (!is.null(opt$gff_file)) {
