@@ -18,7 +18,6 @@
 #        --nr_above_bars True/False --output_tabular outptufile_name_tabular
 
 import argparse
-import itertools
 import operator
 import sys
 from collections import Counter, defaultdict

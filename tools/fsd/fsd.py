@@ -468,7 +468,7 @@ def compare_read_families(argv):
 
             # tick labels of x axis
             ticks = numpy.arange(1, 22, 1)
-            ticks1 = [str(_) for _ in  ticks]
+            ticks1 = [str(_) for _ in ticks]
             ticks1[len(ticks1) - 1] = ">20"
             plt.xticks(numpy.array(ticks), ticks1)
             singl = len(data_o[data_o == 1])

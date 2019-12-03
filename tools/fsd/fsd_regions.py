@@ -195,7 +195,7 @@ def compare_read_families_refGenome(argv):
         legend = "AB\n{}\n{}\n{:.5f}\n\n{:,}".format(max(map(int, quant_ab)), count[len(count) - 1], float(count[len(count) - 1]) / sum(count), sum(np.array(data_array[:, 0]).astype(int)))
         plt.text(0.35, 0.105, legend, size=11, transform=plt.gcf().transFigure)
 
-        count2 = np.bincount([int(_) for _ in  quant_ba])  # original counts
+        count2 = np.bincount([int(_) for _ in quant_ba])  # original counts
 
         legend = "BA\n{}\n{}\n{:.5f}" \
             .format(max(map(int, quant_ba)), count2[len(count2) - 1], float(count2[len(count2) - 1]) / sum(count2))

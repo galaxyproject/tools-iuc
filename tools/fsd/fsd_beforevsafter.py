@@ -202,7 +202,7 @@ def compare_read_families_read_loss(argv):
 
         counts = plt.hist(list1, bins=range(-1, maximumX + 1), stacked=False, label=labels, color=colors, align="left", alpha=1, edgecolor="black", linewidth=1)
         ticks = numpy.arange(0, maximumX, 1)
-        ticks1 = [str(_)  for _ in ticks]
+        ticks1 = [str(_) for _ in ticks]
         ticks1[len(ticks1) - 1] = ">20"
         plt.xticks(numpy.array(ticks), ticks1)
         if ref_genome is not None:
