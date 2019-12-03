@@ -27,7 +27,7 @@ plt.switch_backend('agg')
 
 def readFileReferenceFree(file, delim):
     with open(file, 'r') as dest_f:
-        data_array = numpy.genfromtxt(dest_f, skip_header=0, delimiter=delim, comments='#', dtype='string')
+        data_array = numpy.genfromtxt(dest_f, skip_header=0, delimiter=delim, comments='#', dtype=str)
         return data_array
 
 
@@ -202,11 +202,11 @@ def compare_read_families_read_loss(argv):
 
         counts = plt.hist(list1, bins=range(-1, maximumX + 1), stacked=False, label=labels, color=colors, align="left", alpha=1, edgecolor="black", linewidth=1)
         ticks = numpy.arange(0, maximumX, 1)
-        ticks1 = map(str, ticks)
+        ticks1 = [str(_)  for _ in ticks]
         ticks1[len(ticks1) - 1] = ">20"
         plt.xticks(numpy.array(ticks), ticks1)
         if ref_genome is not None:
-            count = numpy.array([v for k, v in sorted(Counter(quant_ab_ref).iteritems())])  # count all family sizes from all ab strands
+            count = numpy.array([v for k, v in sorted(Counter(quant_ab_ref).items())])  # count all family sizes from all ab strands
             legend = "max. family size:\nabsolute frequency:\nrelative frequency:\n\ntotal nr. of reads:\n(before SSCS building)"
             plt.text(0.1, 0.085, legend, size=11, transform=plt.gcf().transFigure)
 
@@ -216,7 +216,7 @@ def compare_read_families_read_loss(argv):
             plt.text(0.35, 0.105, legend, size=11, transform=plt.gcf().transFigure)
 
             count2 = numpy.array(
-                [v for k, v in sorted(Counter(quant_ba_ref).iteritems())])  # count all family sizes from all ba strands
+                [v for k, v in sorted(Counter(quant_ba_ref).items())])  # count all family sizes from all ba strands
             legend = "BA\n{}\n{}\n{:.5f}" \
                 .format(max(quant_ba_ref), count2[len(count2) - 1], float(count2[len(count2) - 1]) / sum(count2))
             plt.text(0.45, 0.1475, legend, size=11, transform=plt.gcf().transFigure)

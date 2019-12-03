@@ -30,7 +30,7 @@ plt.switch_backend('agg')
 
 def readFileReferenceFree(file, delim):
     with open(file, 'r') as dest_f:
-        data_array = np.genfromtxt(dest_f, skip_header=0, delimiter=delim, comments='#', dtype='string')
+        data_array = np.genfromtxt(dest_f, skip_header=0, delimiter=delim, comments='#', dtype=str)
         return data_array
 
 
@@ -68,7 +68,7 @@ def compare_read_families_refGenome(argv):
 
         if rangesFile is not None:
             with open(rangesFile, 'r') as regs:
-                range_array = np.genfromtxt(regs, skip_header=0, delimiter='\t', comments='#', dtype='string')
+                range_array = np.genfromtxt(regs, skip_header=0, delimiter='\t', comments='#', dtype=str)
 
             if range_array.ndim == 0:
                 print("Error: file has 0 lines")
@@ -96,7 +96,7 @@ def compare_read_families_refGenome(argv):
             for chr, start_pos, stop_pos in zip(chrList, start_posList, stop_posList):
                 chr_start_stop = "{}_{}_{}".format(chr, start_pos, stop_pos)
                 qname_dict[chr_start_stop] = []
-                for read in bam.fetch(chr.tobytes(), start_pos, stop_pos):
+                for read in bam.fetch(chr, start_pos, stop_pos):
                     if not read.is_unmapped:
                         if re.search('_', read.query_name):
                             tags = re.split('_', read.query_name)[0]
@@ -112,7 +112,7 @@ def compare_read_families_refGenome(argv):
                     else:
                         tags = read.query_name
 
-                    if read.reference_name not in qname_dict.keys():
+                    if read.reference_name not in qname_dict:
                         qname_dict[read.reference_name] = [tags]
                     else:
                         qname_dict[read.reference_name].append(tags)
@@ -120,7 +120,7 @@ def compare_read_families_refGenome(argv):
         seq = np.array(data_array[:, 1])
         tags = np.array(data_array[:, 2])
         quant = np.array(data_array[:, 0]).astype(int)
-        group = np.array(qname_dict.keys())
+        group = np.array(list(qname_dict.keys()))
 
         all_ab = seq[np.where(tags == "ab")[0]]
         all_ba = seq[np.where(tags == "ba")[0]]
@@ -184,10 +184,10 @@ def compare_read_families_refGenome(argv):
                           align="left", alpha=1, color=col, edgecolor="black", linewidth=1)
         ticks = np.arange(minimumX - 1, maximumX, 1)
 
-        ticks1 = map(str, ticks)
+        ticks1 = [str(_) for _ in ticks]
         ticks1[len(ticks1) - 1] = ">20"
         plt.xticks(np.array(ticks), ticks1)
-        count = np.bincount(map(int, quant_ab))  # original counts
+        count = np.bincount([int(_) for _ in quant_ab])  # original counts
 
         legend = "max. family size:\nabsolute frequency:\nrelative frequency:\n\ntotal nr. of reads:\n(before SSCS building)"
         plt.text(0.15, 0.085, legend, size=11, transform=plt.gcf().transFigure)
@@ -195,7 +195,7 @@ def compare_read_families_refGenome(argv):
         legend = "AB\n{}\n{}\n{:.5f}\n\n{:,}".format(max(map(int, quant_ab)), count[len(count) - 1], float(count[len(count) - 1]) / sum(count), sum(np.array(data_array[:, 0]).astype(int)))
         plt.text(0.35, 0.105, legend, size=11, transform=plt.gcf().transFigure)
 
-        count2 = np.bincount(map(int, quant_ba))  # original counts
+        count2 = np.bincount([int(_) for _ in  quant_ba])  # original counts
 
         legend = "BA\n{}\n{}\n{:.5f}" \
             .format(max(map(int, quant_ba)), count2[len(count2) - 1], float(count2[len(count2) - 1]) / sum(count2))

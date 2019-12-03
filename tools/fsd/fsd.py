@@ -25,7 +25,7 @@ plt.switch_backend('agg')
 
 def readFileReferenceFree(file):
     with open(file, 'r') as dest_f:
-        data_array = numpy.genfromtxt(dest_f, skip_header=0, delimiter='\t', comments='#', dtype='string')
+        data_array = numpy.genfromtxt(dest_f, skip_header=0, delimiter='\t', comments='#', dtype=str)
         return(data_array)
 
 
@@ -274,7 +274,7 @@ def compare_read_families(argv):
         fig.suptitle('Family Size Distribution (FSD) based on families', fontsize=14)
         ax = fig.add_subplot(1, 1, 1)
         ticks = numpy.arange(1, 22, 1)
-        ticks1 = map(str, ticks)
+        ticks1 = [str(_) for _ in ticks]
         ticks1[len(ticks1) - 1] = ">20"
         ax.set_xticks([], [])
         if rel_freq:
@@ -299,7 +299,7 @@ def compare_read_families(argv):
         fig2.suptitle('Family Size Distribution (FSD) based on PE reads', fontsize=14)
         ax2 = fig2.add_subplot(1, 1, 1)
         ticks = numpy.arange(1, 22)
-        ticks1 = map(str, ticks)
+        ticks1 = [str(_) for _ in ticks]
         ticks1[len(ticks1) - 1] = ">20"
         reads = []
         reads_rel = []
@@ -468,7 +468,7 @@ def compare_read_families(argv):
 
             # tick labels of x axis
             ticks = numpy.arange(1, 22, 1)
-            ticks1 = map(str, ticks)
+            ticks1 = [str(_) for _ in  ticks]
             ticks1[len(ticks1) - 1] = ">20"
             plt.xticks(numpy.array(ticks), ticks1)
             singl = len(data_o[data_o == 1])
@@ -549,7 +549,7 @@ def compare_read_families(argv):
             fig3.suptitle("{}: FSD based on PE reads".format(name_file), fontsize=14)
             ax2 = fig3.add_subplot(1, 1, 1)
             ticks = numpy.arange(1, 22)
-            ticks1 = map(str, ticks)
+            ticks1 = [str(_) for _ in ticks]
             ticks1[len(ticks1) - 1] = ">20"
             reads = []
             reads_rel = []
