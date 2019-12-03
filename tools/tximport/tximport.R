@@ -30,7 +30,7 @@ spec <- matrix(c(
 opt <- getopt(spec)
 
 
-
+writeLines(readLines(opt$countsFiles))
 
 # if help was asked for print a friendly message
 # and exit with a non-zero error code
@@ -56,19 +56,11 @@ if (is.null(opt$countsFiles)) {
   q(status=1)
 }
 
-## parse counts files
-library(rjson)
-dat <- fromJSON(opt$countsFiles)
-samples_df <- lapply(dat, function(samples) # Loop through each "sample"
-{
-  # Convert each group to a data frame.
-  # This assumes you have 6 elements each time
-  data.frame(matrix(unlist(samples), ncol=2, byrow=T))
-})
-samples_df <- do.call(rbind, samples_df)
-colnames(samples_df) <- c("path","id")
-rownames(samples_df) <- NULL
 
+# load samples from tab file
+samples_df <- read.table(opt$countsFiles, sep="\t", header=TRUE)
+colnames(samples_df) <- c("id","path")
+rownames(samples_df) <- NULL
 # Prepare char vector with files and sample names 
 files <- file.path(samples_df[,"path"])
 names(files) <- samples_df[,"id"]
