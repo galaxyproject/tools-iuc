@@ -129,7 +129,7 @@ def plotHDwithFSD(list1, maximumX, minimumX, subtitle, lenTags, pdf, xlabel, rel
         plt.ylim((0, maximumY * 1.2))
         plt.ylabel("Absolute Frequency", fontsize=14)
         bins = counts[1]  # width of bins
-        counts = numpy.array(map(int, counts[0][5]))
+        counts = numpy.array([int(_) for _ in counts[0][5]])
 
     plt.legend(loc='upper right', fontsize=14, frameon=True, bbox_to_anchor=(1.45, 1))
     plt.suptitle(subtitle, y=1, x=0.5, fontsize=14)
@@ -188,7 +188,7 @@ def plotHDwithDCS(list1, maximumX, minimumX, subtitle, lenTags, pdf, xlabel, rel
         plt.ylim((0, 1.07))
         plt.ylabel("Relative Frequency", fontsize=14)
         bins = counts[1]  # width of bins
-        counts = numpy.array(map(float, counts[0][2]))
+        counts = numpy.array([float(_) for _ in counts[0][2]])
 
     else:
         counts = plt.hist(list1, bins=bin1, edgecolor='black', linewidth=1,
@@ -197,7 +197,7 @@ def plotHDwithDCS(list1, maximumX, minimumX, subtitle, lenTags, pdf, xlabel, rel
         plt.ylim((0, maximumY * 1.2))
         plt.ylabel("Absolute Frequency", fontsize=14)
         bins = counts[1]  # width of bins
-        counts = numpy.array(map(int, counts[0][2]))
+        counts = numpy.array([int(_) for _ in counts[0][2]])
 
     plt.legend(loc='upper right', fontsize=14, frameon=True, bbox_to_anchor=(1.45, 1))
     plt.suptitle(subtitle, y=1, x=0.5, fontsize=14)
@@ -589,10 +589,10 @@ def hamming(array1, array2):
 
 def hamming_difference(array1, array2, mate_b):
     array2 = numpy.unique(array2)  # remove duplicate sequences to decrease running time
-    array1_half = numpy.array([i[0:(len(i)) / 2] for i in array1])  # mate1 part1
-    array1_half2 = numpy.array([i[len(i) / 2:len(i)] for i in array1])  # mate1 part 2
-    array2_half = numpy.array([i[0:(len(i)) / 2] for i in array2])  # mate2 part1
-    array2_half2 = numpy.array([i[len(i) / 2:len(i)] for i in array2])  # mate2 part2
+    array1_half = numpy.array([i[0:int(len(i) / 2)] for i in array1])  # mate1 part1
+    array1_half2 = numpy.array([i[int(len(i) / 2):len(i)] for i in array1])  # mate1 part 2
+    array2_half = numpy.array([i[0:int(len(i) / 2)] for i in array2])  # mate2 part1
+    array2_half2 = numpy.array([i[int(len(i) / 2):len(i)] for i in array2])  # mate2 part2
 
     diff11 = []
     relativeDiffList = []
@@ -948,8 +948,8 @@ def Hamming_Distance_Analysis(argv):
 
         # HD analysis for a subset of the tag
         if subset > 0:
-            tag1 = numpy.array([i[0:(len(i)) / 2] for i in data_array[:, 1]])
-            tag2 = numpy.array([i[len(i) / 2:len(i)] for i in data_array[:, 1]])
+            tag1 = numpy.array([i[0:int(len(i) / 2)] for i in data_array[:, 1]])
+            tag2 = numpy.array([i[int(len(i) / 2):len(i)] for i in data_array[:, 1]])
 
             flanking_region_float = float((len(tag1[0]) - subset)) / 2
             flanking_region = int(flanking_region_float)
@@ -1068,8 +1068,8 @@ def Hamming_Distance_Analysis(argv):
                 if tag1 in checked_tags:  # skip tag if already written to file
                     continue
 
-                sample_half_a = tag1[0:(len(tag1)) / 2]
-                sample_half_b = tag1[len(tag1) / 2:len(tag1)]
+                sample_half_a = tag1[0:int(len(tag1) / 2)]
+                sample_half_b = tag1[int(len(tag1) / 2):len(tag1)]
 
                 max_tags = data_chimeraAnalysis[i, 1]
                 if len(max_tags) > 1 and len(max_tags) != len(data_array[0, 1]) and type(max_tags) is not numpy.ndarray:
@@ -1079,8 +1079,8 @@ def Hamming_Distance_Analysis(argv):
 
                 info_maxTags = [data_array[data_array[:, 1] == t, :] for t in max_tags]
 
-                chimera_half_a = numpy.array([t[0:(len(t)) / 2] for t in max_tags])  # mate1 part1
-                chimera_half_b = numpy.array([t[len(t) / 2:len(t)] for t in max_tags])  # mate1 part 2
+                chimera_half_a = numpy.array([t[0:int(len(t) / 2)] for t in max_tags])  # mate1 part1
+                chimera_half_b = numpy.array([t[int(len(t) / 2):len(t)] for t in max_tags])  # mate1 part 2
 
                 new_format = []
                 for j in range(len(max_tags)):
@@ -1268,7 +1268,7 @@ def Hamming_Distance_Analysis(argv):
             "For simplicity, we used the maximum value of the relative differences and the respective delta HD.\n"
             "Note that when only tags that can form a DCS are included in the analysis, the family sizes for both directions (ab and ba) of the strand will be included in the plots.\n")
 
-        output_file.write("\nlength of one half of the tag{}{}\n\n".format(sep, len(data_array[0, 1]) / 2))
+        output_file.write("\nlength of one half of the tag{}{}\n\n".format(sep, int(len(data_array[0, 1]) / 2)))
 
         createFileHDwithinTag(summary9, sumCol9, overallSum9, output_file,
                               "Tag distance of each half in the tag", sep)
