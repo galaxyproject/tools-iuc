@@ -120,7 +120,7 @@ def read2mut(argv):
         mut_dict[chrom_stop_pos] = {}
         mut_read_pos_dict[chrom_stop_pos] = {}
         reads_dict[chrom_stop_pos] = {}
-        
+
         for pileupcolumn in bam.pileup(chrom, stop_pos - 2, stop_pos, max_depth=1000000000):
             if pileupcolumn.reference_pos == stop_pos - 1:
                 count_alt = 0
