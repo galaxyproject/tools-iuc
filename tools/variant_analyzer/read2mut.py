@@ -23,7 +23,6 @@ USAGE: python read2mut.py --mutFile DCS_Mutations.tabular --bamFile Interesting_
 from __future__ import division
 
 import argparse
-import itertools
 import json
 import operator
 import os
@@ -89,7 +88,7 @@ def read2mut(argv):
 
     # 1. read mut file
     with open(file1, 'r') as mut:
-        mut_array = np.genfromtxt(mut, skip_header=1, delimiter='\t', comments='#', dtype='string')
+        mut_array = np.genfromtxt(mut, skip_header=1, delimiter='\t', comments='#', dtype=str)
 
     # 2. load dicts
     with open(json_file, "r") as f:
@@ -121,8 +120,8 @@ def read2mut(argv):
         mut_dict[chrom_stop_pos] = {}
         mut_read_pos_dict[chrom_stop_pos] = {}
         reads_dict[chrom_stop_pos] = {}
-
-        for pileupcolumn in bam.pileup(chrom.tobytes(), stop_pos - 2, stop_pos, max_depth=1000000000):
+        
+        for pileupcolumn in bam.pileup(chrom, stop_pos - 2, stop_pos, max_depth=1000000000):
             if pileupcolumn.reference_pos == stop_pos - 1:
                 count_alt = 0
                 count_ref = 0
@@ -225,7 +224,7 @@ def read2mut(argv):
                 for k1 in keys:
                     whole_array.append(k1)
             else:
-                whole_array.append(keys[0])
+                whole_array.append(list(keys)[0])
 
     # 7. output summary with threshold
     workbook = xlsxwriter.Workbook(outfile)
@@ -623,14 +622,14 @@ def read2mut(argv):
                                     half1_mate2 = array2_half2
                                     half2_mate2 = array2_half
                                 # calculate HD of "a" in the tag to all "a's" or "b" in the tag to all "b's"
-                                dist = np.array([sum(itertools.imap(operator.ne, half1_mate1, c)) for c in half1_mate2])
+                                dist = np.array([sum(map(operator.ne, half1_mate1, c)) for c in half1_mate2])
                                 min_index = np.where(dist == dist.min())  # get index of min HD
                                 # get all "b's" of the tag or all "a's" of the tag with minimum HD
                                 min_tag_half2 = half2_mate2[min_index]
                                 min_tag_array2 = array2[min_index]  # get whole tag with min HD
                                 min_value = dist.min()
                                 # calculate HD of "b" to all "b's" or "a" to all "a's"
-                                dist_second_half = np.array([sum(itertools.imap(operator.ne, half2_mate1, e))
+                                dist_second_half = np.array([sum(map(operator.ne, half2_mate1, e))
                                                              for e in min_tag_half2])
 
                                 dist2 = dist_second_half.max()

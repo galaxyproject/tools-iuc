@@ -56,7 +56,7 @@ def mut2sscs(argv):
 
     # 1. read mut file
     with open(file1, 'r') as mut:
-        mut_array = np.genfromtxt(mut, skip_header=1, delimiter='\t', comments='#', dtype='string')
+        mut_array = np.genfromtxt(mut, skip_header=1, delimiter='\t', comments='#', dtype=str)
 
     # 2 read SSCS bam file
     # pysam.index(file2)
@@ -76,7 +76,7 @@ def mut2sscs(argv):
         ref = mut_array[m, 9]
         alt = mut_array[m, 10]
 
-        for pileupcolumn in bam.pileup(chrom.tobytes(), stop_pos - 2, stop_pos, max_depth=1000000000):
+        for pileupcolumn in bam.pileup(chrom, stop_pos - 2, stop_pos, max_depth=1000000000):
             if pileupcolumn.reference_pos == stop_pos - 1:
                 count_alt = 0
                 count_ref = 0
