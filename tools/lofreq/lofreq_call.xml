@@ -17,49 +17,48 @@
         mkdir pp-tmp &&
         export TMPDIR=pp-tmp &&
 
-        lofreq call-parallel
+        lofreq call-parallel --pp-threads \${GALAXY_SLOTS:-1} --verbose
 
-        --ref '$reference_fasta_fn' --out variants.vcf --pp-threads \${GALAXY_SLOTS:-1}
+        --ref '$reference_fasta_fn' --out variants.vcf $variant_types
 
-        #if $advanced_options.option_selector == 'yes'
-            #if $advanced_options.regions.bed
-                --bed '$advanced_options.regions.bed'
-            #end if
-            #if $advanced_options.source_qual.ign_vcf
-                --ign-vcf '$advanced_options.source_qual.ign_vcf'
-            #end if
-            #if $advanced_options.regions.region
-                --region $advanced_options.regions.region
-            #end if
-            #if $advanced_options.pval.bonf
-                --bonf $advanced_options.pval.bonf
-            #else
-                --bonf dynamic
-            #end if
-            --min-bq $advanced_options.bc_quals.min_bq
-            --min-alt-bq $advanced_options.bc_quals.min_alt_bq
-            --def-alt-bq $advanced_options.bc_quals.def_alt_bq
-            --min-jq $advanced_options.bc_quals.min_jq
-            --min-alt-jq $advanced_options.bc_quals.min_alt_jq
-            --def-alt-jq $advanced_options.bc_quals.def_alt_jq
-            --min-mq $advanced_options.map_quals.min_mq
-            --max-mq $advanced_options.map_quals.max_mq
-            --def-nm-q $advanced_options.source_qual.def_nm_q
-            --sig $advanced_options.pval.sig
-            --min-cov $advanced_options.misc.min_cov
-            --max-depth $advanced_options.misc.max_depth
-            $advanced_options.align_quals.no_baq
-            $advanced_options.align_quals.no_idaq
-            $advanced_options.align_quals.del_baq
-            $advanced_options.align_quals.no_ext_baq
-            $advanced_options.map_quals.no_mq
-            $advanced_options.indels.call_indels
-            $advanced_options.indels.only_indels
-            $advanced_options.source_qual.src_qual
-            $advanced_options.misc.use_orphan
-            $advanced_options.misc.plp_summary_only
-            $advanced_options.misc.no_default_filter
+        #if str($regions.restrict_to_region) == 'one_region':
+            --region $regions.region
+        #elif str($regions.restrict_to_region) == 'regions_from_file':
+            --bed '$regions.bed'
         #end if
+
+        #if str($call_control.set_call_options) == 'yes':
+            --min-cov $call_control.coverage.min_cov
+            --max-depth $call_control.coverage.max_depth
+            $call_control.pe.use_orphan
+            --min-bq $call_control.bc_quals.min_bq
+            --min-alt-bq $call_control.bc_quals.min_alt_bq
+            --def-alt-bq $call_control.bc_quals.def_alt_bq
+            --min-jq $call_control.bc_quals.min_jq
+            --min-alt-jq $call_control.bc_quals.min_alt_jq
+            --def-alt-jq $call_control.bc_quals.def_alt_jq
+            $call_control.align_quals.no_baq
+            $call_control.align_quals.no_idaq
+            $call_control.align_quals.del_baq
+            $call_control.align_quals.no_ext_baq
+            --min-mq $call_control.map_quals.min_mq
+            --max-mq $call_control.map_quals.max_mq
+            $call_control.map_quals.no_mq
+            #if str($call_control.source_qual.use_src_qual.src_qual):
+                $call_control.source_qual.use_src_qual.src_qual
+                #set $ign_vcfs = ','.join([str($ign_vcf) for $ign_vcf in $call_control.source_qual.use_src_qual.ign_vcf if $ign_vcf])
+                #if $ign_vcfs:
+                    --ign-vcf "$ign_vcfs"
+                #end if
+                --def-nm-q $call_control.source_qual.use_src_qual.def_nm_q
+            #end if
+        #end if
+
+        --sig $filter_control.sig
+        --bonf $filter_control.bonf
+        $filter_control.others
+
+        $misc.plp_summary_only
 
         reads.bam 2>&1
 
@@ -70,18 +69,51 @@
     <inputs>
         <param type="data" name="reads" format="bam" label="Input reads in BAM format" />
         <expand macro="reference_interface" />
-        <conditional name="advanced_options">
-            <param name="option_selector" type="select" label="Advanced options">
-                <option value="no" selected="true">Use defaults</option>
-                <option value="yes">Specify parameters</option>
+        <conditional name="regions">
+            <param name="restrict_to_region" type="select"
+            label="Call variants across">
+                <option value="genome">Whole reference</option>
+                <option value="one_region">One specific region</option>
+                <option value="regions_from_file">Regions specified in BED</option>
+            </param>
+            <when value="genome" />
+            <when value="one_region">
+                <param argument="--region" type="text"
+                label="Limit calls to this region"
+                help="Specify a whole chromosome or a region in the format chr:start-end" />
+            </when>
+            <when value="regions_from_file">
+                <param argument="--bed" type="data" format="bed"
+                label="BED dataset with regions to examine" />
+            </when>
+        </conditional>
+        <param name="variant_types" type="select"
+        label="Types of variants to call"
+        help="Note: When including indels in the called variants you should preprocess your input data to include indel alignment qualities">
+            <option value="--call-indels">SNVs and indels</option>
+            <option value="" selected="True">Only SNVs</option>
+            <option value="--only-indels">Only indels</option>
+        </param>
+        <conditional name="call_control">
+            <param name="set_call_options" type="select"
+            label="Variant calling parameters">
+                <option value="no">Use default settings</option>
+                <option value="yes">Configure settings</option>
             </param>
             <when value="no" />
             <when value="yes">
-                <section name="regions" title="Regions" expanded="false">
-                    <param argument="--bed" type="data" format="bed" optional="true" label="BED file with regions to examine" />
-                    <param argument="--region" type="text" label="Limit calls to this region" />
+                <section name="coverage" title="Coverage" expanded="true">
+                    <param name="min_cov" argument="--min-cov" type="integer" value="1" min="1"
+                    label="Minimal coverage" />
+                    <param name="max_depth" argument="--max-depth" type="integer" value="1000000" min="1"
+                    label="Coverage cap" />
                 </section>
-                <section name="bc_quals" title="Base-calling quality" expanded="false">
+                <section name="pe" title="Paired reads" expanded="true">
+                    <param name="use_orphan" argument="--use-orphan" type="boolean" truevalue="--use-orphan" falsevalue="" checked="False"
+                    label="Use reads from anomalously mapped pairs"
+                    help="Applies to paired-end reads only. If set to true, reads from pairs that are flagged as non-proper pairs (SAM/BAM FLAG field 2) will be used in variant calling. The default is to ignore such reads." />
+                </section>
+                <section name="bc_quals" title="Base-calling quality" expanded="true">
                     <param name="min_bq" argument="--min-bq" type="integer" value="6" label="Mimimum baseQ" />
                     <param name="min_alt_bq" argument="--min-alt-bq" type="integer" value="6" label="Mimimum baseQ for alternate bases" />
                     <param name="def_alt_bq" argument="--def-alt-bq" type="integer" value="0" label="Overwrite baseQs of alternate bases with this value" />
@@ -89,39 +121,71 @@
                     <param name="min_alt_jq" argument="--min-alt-jq" type="integer" value="0" label="Minimum joinedQ for alternate bases" />
                     <param name="def_alt_jq" argument="--def-alt-jq" type="integer" value="0" label="Overwrite joinedQs of alternate bases with this value" />
                 </section>
-                <section name="align_quals" title="Base alignment quality" expanded="false">
+                <section name="align_quals" title="Base alignment quality" expanded="true">
                     <param name="no_baq" argument="--no-baq" type="boolean" truevalue="--no-baq" falsevalue="" label="Disable use of base-alignment quality" />
                     <param name="no_idaq" argument="--no-idaq" type="boolean" truevalue="--no-idaq" falsevalue="" label="Don't use IDAQ values" />
                     <param name="del_baq" argument="--del-baq" type="boolean" truevalue="--del-baq" falsevalue="" label="Delete pre-existing BAQ values" help="Computes BAQ values regardless of their presence in the input BAM" />
                     <param name="no_ext_baq" argument="--no-ext-baq" type="boolean" truevalue="--no-ext-baq" falsevalue="" label="Do not use external BAQ" help="Use 'normal' BAQ (samtools default) instead of extended BAQ (both computed on the fly if not already present in lb tag)" />
                 </section>
-                <section name="map_quals" title="Mapping quality" expanded="false">
+                <section name="map_quals" title="Mapping quality" expanded="true">
                     <param name="min_mq" argument="--min-mq" type="integer" value="0" label="Minimum mapping quality" />
                     <param name="max_mq" argument="--max-mq" type="integer" value="255" label="Maximum mapping quality" />
                     <param name="no_mq" argument="--no-mq" type="boolean" truevalue="--src-qua" falsevalue="" label="Don't merge mapping quality" />
                 </section>
-                <section name="indels" title="Indels" expanded="false">
-                    <param name="call_indels" argument="--call-indels" type="boolean" truevalue="--call-indels" falsevalue="" label="Enable indel calls" help="Note: This adds a preprocessing step to include indel alignment qualities" />
-                    <param name="only_indels" argument="--only-indels" type="boolean" truevalue="--only-indels" falsevalue="" label="Only call indels; no SNVs" />
-                </section>
-                <section name="source_qual" title="Source quality" expanded="false">
-                    <param name="ign_vcf" argument="--ign-vcf" type="data" format="vcf" optional="true" label="Ignore variants in this vcf file for source quality computation. Multiple files can be given separated by commas" />
-                    <param name="src_qual" argument="--src-qual" type="boolean" truevalue="--src-qua" falsevalue="" label="Enable computation of source quality" />
-                    <param name="def_nm_q" argument="--def-nm-q" type="integer" value="-1" label="Replace non-match base qualities with this value" />
-                </section>
-                <section name="pval" title="P-values" expanded="false">
-                    <param argument="--sig" type="float" value="0.01" label="P-Value cutoff" />
-                    <param argument="--bonf" type="integer" optional="true" label="Bonferroni factor" help="Leave unset to increase the factor per performed test or specify a factor here" />
-                </section>
-                <section name="misc" title="Other options" expanded="false">
-                    <param name="min_cov" argument="--min-cov" type="integer" value="1" label="Test only positions having at least this coverage" />
-                    <param name="max_depth" argument="--max-depth" type="integer" value="1000000" label="Cap coverage at this depth" />
-                    <param name="use_orphan" argument="--use-orphan" type="boolean" truevalue="--use-orphan" falsevalue="" label="Count anomalous read pairs" />
-                    <param name="plp_summary_only" argument="--plp-summary-only" type="boolean" truevalue="--plp-summary-only" falsevalue="" label="No variant calling, just output pileup summary per column" />
-                    <param name="no_default_filter" argument="--no-default-filter" type="boolean" truevalue="--no-default-filter" falsevalue="" label="Don't run default 'lofreq filter' automatically after calling variants" />
+                <section name="source_qual" title="Source quality" expanded="true">
+                    <conditional name="use_src_qual">
+                        <param argument="--src-qual" name="src_qual" type="select"
+                        label="Enable computation of source quality">
+                            <option value="">No</option>
+                            <option value="--src-qual">Yes, compute source quality</option>
+                        </param>
+                        <when value="" />
+                        <when value="--src-qual">
+                            <param name="def_nm_q" argument="--def-nm-q" type="integer" min="-1" value="-1"
+                            label="Replace non-match base qualities with this value"
+                            help="Leave at -1 (the default) to use original base qualities also at non-matching positions." />
+                            <param name="ign_vcf" argument="--ign-vcf" type="data" format="vcf" optional="true" multiple="true" label="VCF input(s) with variants to ignore for source quality computation" />
+                        </when>
+                    </conditional>
                 </section>
             </when>
         </conditional>
+        <conditional name="filter_control">
+            <param name="filter_type" type="select" label="Variant filter parameters">
+                <option value="set_all_off">Strictly no filtering</option>
+                <option value="set_no_default">Preset QUAL score-based filtering</option>
+                <option value="set_lofreq_standard" selected="true">Preset filtering on QUAL score + coverage + strand bias (lofreq call default)</option>
+                <option value="set_custom">Custom filter settings/combinations</option>
+            </param>
+            <when value="set_all_off">
+                <param name="sig" type="hidden" value="1" />
+                <param name="bonf" type="hidden" value="1" />
+                <param name="others" type="hidden" value="--no-default-filter" />
+            </when>
+            <when value="set_no_default">
+                <param name="sig" type="hidden" value="0.01" />
+                <param name="bonf" type="hidden" value="dynamic" />
+                <param name="others" type="hidden" value="--no-default-filter" />
+            </when>
+            <when value="set_lofreq_standard">
+                <param name="sig" type="hidden" value="0.01" />
+                <param name="bonf" type="hidden" value="dynamic" />
+                <param name="others" type="hidden" value="" />
+            </when>
+            <when value="set_custom">
+                <param name="sig" type="float" value="0.01" min="0" max="1"
+                label="Significance threshold for calls"/>
+                <param name="bonf" type="integer" value="0" min="0"
+                label="Bonferroni correction factor for multiple testing"
+                help="Set to zero to determine dynamically from actual number of variant tests performed. Dynamic detection will calculate separate correction factors for SNVs and indels" />
+                <param name="others" type="boolean" truevalue="" falsevalue="--no-default-filter" checked="true"
+                label="Apply default coverage and strand-bias filter?"
+                help="" />
+            </when>
+        </conditional>
+        <section name="misc" title="Other options" expanded="false">
+            <param name="plp_summary_only" argument="--plp-summary-only" type="boolean" truevalue="--plp-summary-only" falsevalue="" label="No variant calling, just output pileup summary per column" />
+        </section>
     </inputs>
     <outputs>
         <data name="variants" from_work_dir="variants.vcf" format="vcf" />
@@ -137,19 +201,8 @@
     <help><![CDATA[
 lofreq call: call variants from BAM file
 
-Usage: lofreq call [options] in.bam
-
 Options:
 
-- Reference:
-    -f | --ref FILE              Indexed reference fasta file (gzip supported) [null]
-
-- Output:
-    -o | --out FILE              Vcf output file [- = stdout]
-
-- Regions:
-    -r | --region STR            Limit calls to this region (chrom:start-end) [null]
-    -l | --bed FILE              List of positions (chr pos) or regions (BED) [null]
 
 - Base-call quality:
     -q | --min-bq INT            Skip any base with baseQ smaller than INT [6]
@@ -170,31 +223,18 @@ Options:
     -M | --max-mq INT            Cap mapping quality at INT [255]
     -N | --no-mq                 Don't merge mapping quality in LoFreq's model
 
-- Indels:
-    --call-indels           Enable indel calls (note: preprocess your file to include indel alignment qualities!)
-    --only-indels           Only call indels; no SNVs
-
 - Source quality:
     -s | --src-qual              Enable computation of source quality
     -S | --ign-vcf FILE          Ignore variants in this vcf file for source quality computation. Multiple files can be given separated by commas
     -T | --def-nm-q INT          If >= 0, then replace non-match base qualities with this default value [-1]
 
-- P-values:
-    -a | --sig                   P-Value cutoff / significance level [0.010000]
-    -b | --bonf                  Bonferroni factor. 'dynamic' (increase per actually performed test) or INT ['dynamic']
-
 - Misc.:
     -C | --min-cov INT           Test only positions having at least this coverage [1]
                                 (note: without --no-default-filter default filters (incl. coverage) kick in after predictions are done)
     -d | --max-depth INT         Cap coverage at this depth [1000000]
-         --illumina-1.3          Assume the quality is Illumina-1.3-1.7/ASCII+64 encoded
          --use-orphan            Count anomalous read pairs (i.e. where mate is not aligned properly)
          --plp-summary-only      No variant calling. Just output pileup summary per column
          --no-default-filter     Don't run default 'lofreq filter' automatically after calling variants
-         --force-overwrite       Overwrite any existing output
-         --verbose               Be verbose
-         --debug                 Enable debugging
-
 ]]></help>
     <expand macro="citations" />
 </tool>
