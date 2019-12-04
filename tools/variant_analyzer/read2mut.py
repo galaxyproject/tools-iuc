@@ -218,13 +218,7 @@ def read2mut(argv):
 
     whole_array = []
     for k in pure_tags_dict.values():
-        if len(k) != 0:
-            keys = k.keys()
-            if len(keys) > 1:
-                for k1 in keys:
-                    whole_array.append(k1)
-            else:
-                whole_array.append(list(keys)[0])
+        whole_array.extend(k.keys())
 
     # 7. output summary with threshold
     workbook = xlsxwriter.Workbook(outfile)
