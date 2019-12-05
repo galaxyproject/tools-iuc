@@ -53,8 +53,8 @@ print(paste0("Umi low threshold: ", low_thresholds))
 print(paste0("Umi high threshold: ", high_thresholds))
 print(paste0("Number of principal components: ", numPCs))
 print(paste0("Resolution: ", resolution))
-print(paste0("Minimum percent of cells: ", min_pct))
-print(paste0("Logfold change threshold: ", logfc_threshold))
+print(paste0("Minimum percent of cells", min_pct))
+print(paste0("Logfold change threshold", logfc_threshold))
 
 #+ echo = FALSE
 if(showcode == TRUE){print("Read in data, generate inital Seurat object")}
@@ -63,7 +63,7 @@ counts <- read.delim(params$counts, row.names=1)
 seuset <- Seurat::CreateSeuratObject(counts = counts, min.cells = min_cells, min.features = min_genes)
 
 #+ echo = FALSE
-if(showcode == TRUE){print("Raw data vizualization")}
+if(showcode == TRUE && vlnfeat == TRUE){print("Raw data vizualization")}
 #+ echo = `showcode`, warning = `warn`, include=`vlnfeat` 
 Seurat::VlnPlot(object = seuset, features = c("nFeature_RNA", "nCount_RNA"), axis="v")
 Seurat::FeatureScatter(object = seuset, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
@@ -75,14 +75,14 @@ seuset <- subset(seuset, subset = `nCount_RNA` > low_thresholds & `nCount_RNA` <
 seuset <- Seurat::NormalizeData(seuset, normalizeation.method = "LogNormalize", scale.factor = 10000)
 
 #+ echo = FALSE
-if(showcode == TRUE){print("Variable Genes")}
+if(showcode == TRUE && featplot == TRUE){print("Variable Genes")}
 #+ echo = `showcode`, warning = `warn`, include = `featplot`
 seuset <- Seurat::FindVariableFeatures(object = seuset, selection.method = "mvp")
 Seurat::VariableFeaturePlot(seuset, cols = c("black", "red"), selection.method = "disp")
 seuset <- Seurat::ScaleData(object = seuset, vars.to.regress = "nCount_RNA")
 
 #+ echo = FALSE
-if(showcode == TRUE){print("PCA Visualization")}
+if(showcode == TRUE && PCplots == TRUE){print("PCA Visualization")}
 #+ echo = `showcode`, warning = `warn`, include = `PCplots`
 seuset <- Seurat::RunPCA(seuset, npcs=numPCs)
 Seurat::VizDimLoadings(seuset, dims = 1:2)
@@ -94,7 +94,7 @@ Seurat::JackStrawPlot(seuset, dims = 1:numPCs)
 Seurat::ElbowPlot(seuset, ndims = numPCs, reduction = "pca")
 
 #+ echo = FALSE
-if(showcode == TRUE){print("tSNE")}
+if(showcode == TRUE && tsne == TRUE){print("tSNE")}
 #+ echo = `showcode`, warning = `warn`, include = `tsne`
 seuset <- Seurat::FindNeighbors(object = seuset)
 seuset <- Seurat::FindClusters(object = seuset)
@@ -102,7 +102,7 @@ seuset <- Seurat::RunTSNE(seuset, dims = 1:numPCs, resolution = resolution)
 Seurat::DimPlot(seuset, reduction="tsne")
 
 #+ echo = FALSE
-if(showcode == TRUE){print("Marker Genes")}
+if(showcode == TRUE && heatmaps == TRUE){print("Marker Genes")}
 #+ echo = `showcode`, warning = `warn`, include = `heatmaps`
 markers <- Seurat::FindAllMarkers(seuset, only.pos = TRUE, min.pct = min_pct, logfc.threshold = logfc_threshold)
 top10 <- dplyr::group_by(markers, cluster)
