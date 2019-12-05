@@ -53,8 +53,8 @@ print(paste0("Umi low threshold: ", low_thresholds))
 print(paste0("Umi high threshold: ", high_thresholds))
 print(paste0("Number of principal components: ", numPCs))
 print(paste0("Resolution: ", resolution))
-print(paste0("Minimum percent of cells", min_pct))
-print(paste0("Logfold change threshold", logfc_threshold))
+print(paste0("Minimum percent of cells: ", min_pct))
+print(paste0("Logfold change threshold: ", logfc_threshold))
 
 #+ echo = FALSE
 if(showcode == TRUE){print("Read in data, generate inital Seurat object")}
