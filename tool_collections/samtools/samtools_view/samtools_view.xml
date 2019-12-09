@@ -71,6 +71,47 @@
                 #set $with_non_selected_reads_output = True
             #else:
                 #set $with_non_selected_reads_output = False
+	    #end if
+
+            #if $with_filtering:
+                ## build string of all user-configured filter options
+                #set $std_filters = ''
+                #set $reg_filters = ''
+                #if $mode.filter_config.cond_region.select_region == 'bed' and str($mode.filter_config.cond_region.bedfile) != 'None':
+                    #set std_filters = $std_filters + " -L '%s'" % str($mode.filter_config.cond_region.bedfile)
+                #elif $with_filtering and str($mode.filter_config.cond_region.select_region) == 'text':
+                    #set $reg_filters = "'%s'" % str($mode.filter_config.cond_region.regions).strip()
+                #end if
+
+               #if $mode.filter_config.cond_rg.select_rg == 'text':
+                    #set $std_filters = $std_filters + " -r '%s'" % str($mode.filter_config.cond_rg.readgr)
+                #else if $mode.filter_config.cond_rg.select_rg == 'file':
+                    #set $std_filters = $std_filters + " -R '%s'" % str($mode.filter_config.cond_rg.rgfile)
+                #end if
+                #if str($mode.filter_config.quality) != '' and int($mode.filter_config.quality) > 0:
+                    #set $std_filters = $std_filters + " -q %s" % str($mode.filter_config.quality)
+                #end if
+                #if str($mode.filter_config.library):
+                    #set $std_filters = $std_filters + " -l '%s'" % str($mode.filter_config.library)
+                #end if
+                #if str($mode.filter_config.cigarcons):
+                    #set $std_filters = $std_filters + " -m %s" % str($mode.filter_config.cigarcons)
+                #end if
+                #if str($mode.filter_config.inclusive_filter) != 'None':
+                    #set $filter = str($mode.filter_config.inclusive_filter)
+                    @FLAGS@
+                    #set $std_filters = $std_filters + " -f %s" % str($flags)
+                #end if
+                #if str($mode.filter_config.exclusive_filter) != 'None':
+                    #set $filter = str($mode.filter_config.exclusive_filter)
+                    @FLAGS@
+                    #set $std_filters = $std_filters + " -F %s" % str($flags)
+                #end if
+                #if str($mode.filter_config.exclusive_filter_all) != 'None':
+                    #set $filter = str($mode.filter_config.exclusive_filter_all)
+                    @FLAGS@
+                    #set $std_filters = $std_filters + " -G %s" % str($flags)
+                #end if
             #end if
 
             #if $with_subsampling:
@@ -84,9 +125,15 @@
 
                 #if $mode.subsample_config.subsampling_mode.select_subsample == 'target':
                     ##this must be done before the main command because we don't know the total # reads until execution time
-                    #if $input.is_of_type('sam'):
-                        sample_fragment=`samtools view -c infile | awk '{s=\$1} END {frac=${mode.subsample_config.subsampling_mode.target}/s; print(frac < 1 ? $seed+frac : ".0")}'` &&
-                    #else
+                    #if $input.is_of_type('sam') or $std_filters or $reg_filters:
+                        ## There is no index or we cannot use it because we are
+                        ## not dealing with all of the reads in the indexed
+                        ## file. We have to do an extra pass over the input to
+                        ## count the reads to subsample.
+                        sample_fragment=`samtools view -c $std_filters infile $reg_filters | awk '{s=\$1} END {frac=${mode.subsample_config.subsampling_mode.target}/s; print(frac < 1 ? $seed+frac : ".0")}'` &&
+                    #else:
+                        ## We can get the count of reads to subsample using
+                        ## an inexpensive call to idxstats.
                         sample_fragment=`samtools idxstats infile | awk '{s+=\$4+\$3} END {frac=${mode.subsample_config.subsampling_mode.target}/s; print(frac < 1 ? $seed+frac : ".0")}'` &&
                     #end if
                 #end if
@@ -104,39 +151,8 @@
 
             ## filter options (except regions filter, which is the last parameter)
             #if $with_filtering:
-                #if $mode.filter_config.cond_region.select_region == 'bed' and str($mode.filter_config.cond_region.bedfile) != 'None':
-                    -L '${mode.filter_config.cond_region.bedfile}'
-                #end if
-                #if $mode.filter_config.cond_rg.select_rg == 'text':
-                    -r '${mode.filter_config.cond_rg.readgr}'
-                #else if $mode.filter_config.cond_rg.select_rg == 'file':
-                    -R '${mode.filter_config.cond_rg.rgfile}'
-                #end if
-                #if str($mode.filter_config.quality) != '' and int($mode.filter_config.quality) > 0:
-                    -q ${mode.filter_config.quality}
-                #end if
-                #if str($mode.filter_config.library):
-                    -l '${mode.filter_config.library}'
-                #end if
-                #if str($mode.filter_config.cigarcons):
-                    -m ${mode.filter_config.cigarcons}
-                #end if
-                #if str($mode.filter_config.inclusive_filter) != 'None':
-                    #set $filter = str($mode.filter_config.inclusive_filter)
-                    @FLAGS@
-                    -f $flags
-                #end if
-                #if str($mode.filter_config.exclusive_filter) != 'None':
-                    #set $filter = str($mode.filter_config.exclusive_filter)
-                    @FLAGS@
-                    -F $flags
-                #end if
-                #if str($mode.filter_config.exclusive_filter_all) != 'None':
-                    #set $filter = str($mode.filter_config.exclusive_filter_all)
-                    @FLAGS@
-                    -G $flags
-                #end if
-            #end if
+                $std_filters
+	    #end if
             #if $with_subsampling:
                 #if str($mode.subsample_config.subsampling_mode.select_subsample) == "target":
                     ##this is calculated at execution time before the main samtools command
@@ -183,9 +199,9 @@
 
             infile
 
-            ## region filter need to be at the end
-            #if $with_filtering and str($mode.filter_config.cond_region.select_region) == 'text':
-                '${mode.filter_config.cond_region.regions}'
+            ## region filter needs to be at the end
+            #if $with_filtering:
+                $reg_filters
             #end if
 
             #if str($mode.output_options.reads_report_type) != 'count':
