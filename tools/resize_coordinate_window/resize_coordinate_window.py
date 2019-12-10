@@ -9,8 +9,7 @@ MAX_CHROM_LEN = 2147483647
 
 
 def stop_err(msg):
-    sys.stderr.write(msg)
-    sys.exit(1)
+    sys.exit(msg)
 
 
 parser = argparse.ArgumentParser()
