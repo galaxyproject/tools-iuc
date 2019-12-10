@@ -1,4 +1,4 @@
-from __future__ import print_function
+
 
 import argparse
 import fileinput
@@ -25,7 +25,7 @@ parser.add_argument('--output', dest='output', help="Output dataset")
 args = parser.parse_args()
 
 extend_existing = args.extend_existing == 'existing'
-out = open(args.output, 'wb')
+out = open(args.output, 'w')
 
 chrom_start = int(args.start_coordinate)
 chrom_lens = dict()
