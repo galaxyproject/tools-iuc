@@ -12,30 +12,39 @@
 
     <command detect_errors="exit_code"><![CDATA[
         ## initialize
-        mkdir -p input/binary &&
-        mkdir -p input/segments &&
+        ## segment files need to be in specific subfolders with specific name patterns
+        #set $suffix = 'segments'
+        ## folder, suffix, chr, extension
+        #set $template = ['','_segments','','bed'] 
+        #if $segments_sel == 'post'
+            #set $template = ['POSTERIOR/','_posterior','','txt']
+        #else if $segments_sel == 'state'
+            #set $template = ['STATEBYLINE/','_statebyline','','txt']
+        #end if
+        mkdir -p input/${template[0]}] &&
         #set $available_marks = []
-        ln -s '${inputmodel}' input/model.txt &&
         
         ## numstates is the first value in the header of the model file
         ## and will be used for the name pattern of '_segments' files
         #set $numstates = [next(open(str($inputmodel))) for x in range(1)][0].split("\t")[0].strip()
+        ln -s '${inputmodel}' input/model.txt &&
         
-        ## '_binary.txt' and '_segments.bed' files must have a matching name pattern
+        ## '_binary.txt', '_segments.bed' 'POSTERIOR/_posterior.txt' and 
+        ## 'STATEBYLINE/_statebyline.txt' filenames must match
         #for $i, $s in enumerate($input_rep)
-            ## use dataset names for output files
             #set $name = ''
             #set $chr = ''
-
             ## '_binary' file
             #set $name = [next(open(str($s.inputdir))) for x in range(1)][0].split("\t")[0].strip()
             #set $chr = [next(open(str($s.inputdir))) for x in range(1)][0].split("\t")[1].strip()
-            ln -s '${s.inputdir}' input/binary/${name}_${chr}_binary.txt &&
+            #unless $segments_sel == 'seg'
+                #set $template[2] = '_' + $chr
+            #end unless
+            ln -s '${s.inputdir}' input/${name}_${chr}_binary.txt &&
             ## marks can be found in the second (== 1) line of every '_binary.txt' file
             #set $available_marks = [x for j, x in enumerate(open(str($s.inputdir))) if j == 1][0].strip().split()
-
-            ## '_segments.bed' file
-            ln -s '${s.segmentdir_cond.segmentdir}' input/segments/${name}_${numstates}_segments.bed &&
+            ## '_segments.bed', '_posterior.txt' or '_statebyline.txt' file
+            ln -s '${s.segments}' input/${template[0]}${name}_${numstates}${template[2]}${template[1]}.${template[3]} &&
         #end for
 
         ## create bit string with "1" for a mark selected by user, and "0" else
@@ -54,9 +63,16 @@
             $ap.many
             $ap.scalebeta
             ## required parameters
+            ## readposterior, readstatesbyline not required per se,
+            ## but to important to hide them in ap section
+            #if $segments_sel == 'post'
+                -readposterior
+            #else if $segments_sel == 'state'
+                -readstatesbyline
+            #end if
             input/model.txt ## inputmodel
-            input/binary ## inputdir
-            input/segments ## segmentdir
+            input ##/binary ## inputdir
+            input ##/segments ## segmentdir, required, even if empty
             matrix ## outconfusionfileprefix
             $bit_marks ##includemarks
         ]]></command>
@@ -64,27 +80,17 @@
         <!-- excluded: -->
         <!-- imitated with additional output options: -noimage -->
         <param argument="inputmodel" type="data" format="txt" multiple="false" label="Select file with model parameters." help="Usually a textfile with the prefix 'model_'."/>      
+        <param name="segments_sel" type="select" label="Select input file type." help="EvalSubSet can use four column segmentation bed files, a posterior probability or single states per line. If the posterior is used the confusion matrix is based on soft assignments as described in Ernst and Kellis, Nature Biotech 2010. (segmentdir, -readposterior, readstatesbyline)">
+            <option value="seg">Segmentation</option>
+            <option value="post">Posterior</option>
+            <option value="state">StateByLine</option>
+        </param>
         <repeat name="input_rep" title="Dataset" min="1" help="Only group '_binary.txt' and '_segements.bed' files of the same dataset together, e.g. GM12878.">
             <param argument="inputdir" type="data" format="txt" label="Select binary input file(s)." help="Usually text files with suffix '_binary'."/>      
-            <conditional name="segmentdir_cond">
-                <param name="segmentdir_sel" type="select" label="" help="">
-                    <option value="seg">Segmentation</option>
-                    <option value="post">Posterior</option>
-                    <option value="state">StateByLine</option>
-                </param>
-                <when value="seg">
-                    <param name="segmentdir" type="data" format="bed" label="Select segmentation file(s)" help=""/>
-                </when>
-                <when value="post">
-                    <param name="segmentdir" type="data" format="bed" label="Select posterior segmentation file(s)" help=""/>
-                </when>
-                <when value="state">
-                    <param name="segmentdir" type="data" format="bed" label="Select statebyline segmentation file(s)" help=""/>
-                </when>
-            </conditional>
+            <param name="segments" type="data" format="bed,txt" label="Select segmentation, posterior or statebyline file(s)" help="Only one file type is accepted per run."/>            
         </repeat>
-        <param argument="includemarks" type="text" value="" optional="false" multiple="true" label="Set mark(s) to be inlcuded." help="Comma separated list, e.g. H3K9ac,H4K20me1,WCE">
-            <validator type="empty_field"/> <!-- todo -->
+        <param argument="includemarks" type="text" value="" label="Set mark(s) to be included." help="Comma separated list, e.g. H3K9ac,H4K20me1,WCE">
+            <validator type="empty_field"/>
         </param>
         <!-- advanced parameters -->
         <section name="ap" title="Advanced parameters">
@@ -92,7 +98,7 @@
             <param argument="-many" type="boolean" truevalue="-many" falsevalue="" checked="false" label="Activate many features procedure?" help="Use a slower, but more numerically stable procedure for evaluating the emission parameters. Should be used if there are several hundreds of features."/>
             <param argument="-scalebeta" type="boolean" truevalue="-scalebeta" falsevalue="" checked="false" label="Set scale beta." help="Change the internal numerical procedure for computing the backward variables that can prevent numerical overflow observed in specialized settings. Specifically the backward variables are rescaled based on the sum of their values at a position opposed to reusing the scaling of the forward variables. Numerical underflow is prevented by setting the beta values to 10^(-300) if they fall below that, and likewise for the forward variables with the added condition that emission must evaluate greater than 0 at the position."/>
         </section>
-
+        <!-- output options -->
         <section name="oo" title="Output options">
             <param name="matrix" type="select" multiple="true" label="Confusion matrix: Which files should be created?" help="">
                 <!-- txt is always generated-->
@@ -120,26 +126,79 @@
     <tests> 
         <!-- #1 only required parameters, all outputs -->
         <test>
-            <param name="inputmodel" value="model_2.txt"/>      
+            <param name="inputmodel" value="model_2.txt"/>
+            <param name="segments_sel" value="seg"/>
             <repeat name="input_rep">
-                <param name="inputdir" value="GM12878_chr11_binary.txt.gz"/>      
-                <conditional name="segmentdir_cond">
-                    <param name="segmentdir_sel" value="seg"/>
-                    <param name="segmentdir" value="GM12878_2_segments.bed.gz"/>
-                </conditional>
+                <param name="inputdir" value="GM12878_chr11_binary.txt.gz"/>
+                <param name="segments" value="GM12878_2_segments.bed.gz"/>
             </repeat>
             <repeat name="input_rep">
-                <param name="inputdir" value="K562_chr11_binary.txt.gz"/>      
-                <conditional name="segmentdir_cond">
-                    <param name="segmentdir_sel" value="seg"/>
-                    <param name="segmentdir" value="K562_2_segments.bed.gz"/>
-                </conditional>
+                <param name="inputdir" value="K562_chr11_binary.txt.gz"/>
+                <param name="segments" value="K562_2_segments.bed.gz"/>
             </repeat>
             <param name="includemarks" value="CTCF,H3K27ac"/>
             <section name="oo">
                 <param name="matrix" value="png,svg"/>
             </section>
-            <output name="out_matrix_png" file="evalsubset.png"/>            
+            <output name="out_matrix_png" file="evalsubset_test1.png"/>
+            <output name="out_matrix_svg" file="evalsubset_test1.svg"/>
+            <output name="out_matrix_txt">
+                <assert_contents>
+                    <has_line_matching expression="EvalSubset&#009;1100000000.+"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #2 posterior, no defaults -->
+        <test>
+            <param name="inputmodel" value="model_2.txt"/>
+            <param name="segments_sel" value="post"/>
+            <repeat name="input_rep">
+                <param name="inputdir" value="GM12878_chr11_binary.txt.gz"/>
+                <param name="segments" value="GM12878_2_chr11_posterior.txt.gz"/>
+            </repeat>
+            <repeat name="input_rep">
+                <param name="inputdir" value="K562_chr11_binary.txt.gz"/>
+                <param name="segments" value="K562_2_chr11_posterior.txt.gz"/>
+            </repeat>
+            <param name="includemarks" value="CTCF,H3K27ac,H3K27me3,H3K36me3,H3K4me1,H3K4me2,H3K4me3,H3K9ac,H4K20me1,WCE"/>
+            <section name="ap">
+                <param name="b" value="180"/>
+                <param name="many" value="true"/>
+                <param name="scalebeta" value="true"/>
+            </section>
+            <section name="oo">
+                <param name="matrix" value="png"/>
+                <param name="append" value="append"/>
+                <param name="color" value="180,10,200"/>
+            </section>
+            <output name="out_matrix_txt">
+                <assert_contents>
+                    <has_line_matching expression="EvalSubset&#009;1111111111.+"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
+            <output name="out_matrix_png" file="evalsubset_test2.png"/>
+        </test>
+        <!-- #3 statebyline, no defaults -->
+        <test>
+            <param name="inputmodel" value="model_2.txt"/>
+            <param name="segments_sel" value="state"/>
+            <repeat name="input_rep">
+                <param name="inputdir" value="GM12878_chr11_binary.txt.gz"/>
+                <param name="segments" value="GM12878_2_chr11_statebyline.txt.gz"/>
+            </repeat>
+            <repeat name="input_rep">
+                <param name="inputdir" value="K562_chr11_binary.txt.gz"/>
+                <param name="segments" value="K562_2_chr11_statebyline.txt.gz"/>
+            </repeat>
+            <param name="includemarks" value="CTCF,H3K27ac,H3K27me3,H3K36me3,H3K4me1,H3K4me2,H3K4me3,H3K9ac,H4K20me1,WCE"/>
+            <output name="out_matrix_txt">
+                <assert_contents>
+                    <has_line_matching expression="EvalSubset&#009;1111111111.+"/>
+                    <has_n_lines n="4"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -149,15 +208,19 @@
 
 EvalSubset @HELP_WID@
 
-EvalSubset evaluates the extent to which an existing segmentation can be recovered using only a subset of marks.
+EvalSubset evaluates the extent to which an existing segmentation can be recovered using only a subset of marks. The method takes an input the model used to generate an existing segmentation, the data used to generate the segmentation, the existing segmentation, an output file prefix, and which subset of marks to include. The output is a confusion matrix comparing the state assignments based on the full set of marks and those based on using the model learned on the full data but with the state assignments generated based only on a subset of inputs. Each row of the confusion matrix indicates the proportion of state assignments based on the full marks assigned to each state using a subset of marks (columns).
 
 **Input**
 
-The method takes an input the model used to generate an existing segmentation, the data used to generate the segmentation, the existing segmentation, an output file prefix, and which subset of marks to include.
+@HELP_FILETYPE_MODEL@
+@HELP_FILETYPE_BINARY@
+@HELP_FILETYPE_SEGMENTS@
+@HELP_FILETYPE_POSTERIOR@
+@HELP_FILETYPE_STATEBYLINE@
 
 **Output**
 
-The output is a confusion matrix comparing the state assignments based on the full set of marks and those based on using the model learned on the full data but with the state assignments generated based only on a subset of inputs. Each row of the confusion matrix indicates the proportion of state assignments based on the full marks assigned to each state using a subset of marks (columns).
+@HELP_FILETYPE_CONFUSION@
 
 .. class:: infomark
 
