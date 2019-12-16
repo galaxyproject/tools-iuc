@@ -1,0 +1,782 @@
+<?xml version="1.0"?>
+<tool id="chromhmm_learnmodel" name="chromHMM LearnModel" version="@TOOL_VERSION@+@WRAPPER_VERSION@">
+    <description>of chromatin states</description>
+
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+
+    <expand macro="requirements"/>
+
+    <stdio></stdio>  
+
+    <command detect_errors="exit_code"><![CDATA[
+        ## initialization
+        ## Output filenames depend on input filenames
+        ## Requirements: suffix '_binary', extension *.txt, located in one folder
+        mkdir input &&
+        #for $file in $inputdir
+            ## Remove additional extensions like .gz,
+            ## add suffix _binary if not present and 
+            ## add file extension .txt
+            #set $filename = $file.name[:$file.name.index('.')]
+            #unless '_binary' in $filename
+                #set $filename = $filename + '_binary'
+            #end unless            
+            #set $filename = $filename + '.txt'
+            ln -s '${file}' input/${filename} &&
+        #end for
+
+        ## run
+        ## only required parameters have a specific order
+        @RUN@
+            LearnModel
+            ## optional parameters
+            -u ${__tool_directory__}/tool-data/COORDS/
+            -v ${__tool_directory__}/tool-data/ANCHORFILES/
+            -l ${__tool_directory__}/tool-data/CHROMSIZES/${assembly}.txt
+            ## activating parallel computing changes the training algorithm
+            #if $ap.p == 'bw'
+                -p \${GALAXY_SLOTS:-8}
+            #end if
+            -b $ap.b
+            -d $ap.d
+            -init $ap.init_cond.init_sel
+            #if $ap.init_cond.init_sel == 'information'
+                -h $ap.init_cond.h
+            #else if $ap.init_cond.init_sel == 'load'
+                -h $ap.init_cond.h
+                -m $ap.init_cond.m
+                -e $ap.init_cond.e
+                -t $ap.init_cond.t
+            #end if
+            $ap.pseudo
+            $ap.many
+            -r $ap.r
+            $ap.scalebeta
+            -z $ap.z
+            -color $oo.color
+            $oo.holdcolumnorder
+            $oo.holdroworder
+            $oo.printposterior
+            $oo.printstatebyline
+            -stateordering $oo.stateordering    
+            ## required parameters
+            @RUN_IO@
+            $numstates
+            $assembly
+        ]]></command>
+    <inputs>
+        <!-- excluded: -f, -i, -n, -gzip, -x, -s, -splitorws -->
+        <!-- imitated with additional output options: -nobed, -nobrowser, -noenrich, -noimage -->
+
+        <!-- required parameters -->
+        <param argument="inputdir" type="data" format="txt" multiple="true" label="Select binary input file(s)." help="File names need the suffix '_binary' in filename and file extensions needs to be *.txt"/>      
+        <param argument="assembly" type="select" label="Specify assembly." help="">
+            <options from_data_table="chromhmm_assemblies">
+                <validator message="No assembly is available" type="no_options"/>
+            </options>
+        </param>
+        <param argument="numstates" type="integer" value="10" label="Set number of states to include in the model." help=""/>
+        <!-- advanced parameters -->
+        <section name="ap" title="Advanced parameters">
+            <!-- activating multiprocessor support changes the training method to Baum-Welch -->
+            <param argument="-p" type="select" label="Select training algorithm." help="Baum-Welch uses multiple processors in parallel.">
+                <option value="iema">Incremental expectation-maximization algorithm</option>
+                <option value="bw">Baum-Welch</option>
+            </param>
+            <param argument="-b" type="integer" value="200" min="0" label="Set binsize." help="The number of base pairs in a bin determining the resolution of the model learning and segmentation."/>
+            <param argument="-d" type="float" value="0.001" label="Set converge delta." help="The threshold on the change on the estimated log likelihood that if it falls below this value, then parameter training will terminate. If this value is less than 0 then it is not used as part of the stopping criteria."/>
+            <conditional name="init_cond" label="">
+                <param name="init_sel" type="select" multiple="false" label="Set parameter initialization method." help="information is the default method described in (Ernst and Kellis, Nature Methods 2012); random initializes the parameters from a uniform distribution; load uses parameters that are specified in -m (model initial file) and smooths them based on the value of the parameter -e (load smooth emission) and -t (load smooth transition).">
+                    <option value="information">information</option>
+                    <option value="random">random</option>
+                    <option value="load">load</option>
+                </param>
+                <when value="information">
+                    <param argument="-h" type="float" value="0.02" label="Set smoothing constant." help="A smoothing constant away from 0 for all parameters in the information based initialization."/>
+                </when>
+                <when value="random"/>
+                <when value="load">
+                    <param argument="-h" type="float" value="0.02" label="Set a value for a smoothing constant away from 0 for all parameters in the information based initialization." help=""/>
+                    <param argument="-m" type="data" format="data" multiple="false" label="File containing the initial parameters." help=""/>
+                    <param argument="-e" type="float" value="0.02" min="0.0" max="1.0" label="Set a value for smooth emission." help="This parameter controls the smoothing away from 0 when loading a model. The emission value used in the model initialization is a weighted average of the value in the file and a uniform probability over the two possible emissions. The value in the file gets weight (1-value) while uniform gets weight value."/>
+                    <param argument="-t" type="float" value="0.05" min="0.0" max="1.0" label="Set smooth transition value." help="Controls the smoothing away from 0 when loading a model. The transition value used in the model initialization is a weighted average of the value in the file and a uniform probability over the transitions. The valuein the file gets weight (1-loadsmoothtransition) while uniform gets weight loadsmoothtransition. The default value is 0.5."/>
+                </when>
+            </conditional>
+            <param argument="-many" type="boolean" truevalue="-many" falsevalue="" checked="false" label="Activate many features procedure?" help="Use a slower, but more numerically stable procedure for evaluating the emission parameters. Should be used if there are several hundreds of features."/>
+            <param argument="-pseudo" type="boolean" truevalue="-pseudo" falsevalue="" checked="false" label="Activate pseudo count?" help="A value of 1 is used to smooth away from zero values. These pseudo counts can provide numerical stability in the situation when some features have very few present occurrences."/>
+            <param argument="-r" type="integer" value="200" min="1" label="Set max iterations over input data in the training." help=""/>
+            <param argument="-scalebeta" type="boolean" truevalue="-scalebeta" falsevalue="" checked="false" label="Set scale beta." help="Change the internal numerical procedure for computing the backward variables that can prevent numerical overflow observed in specialized settings. Specifically the backward variables are rescaled based on the sum of their values at a position opposed to reusing the scaling of the forward variables. Numerical underflow is prevented by setting the beta values to 10^(-300) if they fall below that, and likewise for the forward variables with the added condition that emission must evaluate greater than 0 at the position."/>
+            <param argument="-z" type="integer" value="8" label="Set zero transition power." help="Determine the threshold at which to set extremely low transition probabilities to 0 during training. Setting extremely low transition probabilities makes model learning more efficient with essentially no impact on the final results. If a transition probability falls below 10^-(this value) during training it is set to 0. Making this parameter too low and thus the cutoff too high can potentially cause some numerical instability."/>
+        </section>
+        <!-- output options -->
+        <section name="oo" title="Output options">
+            <param argument="-color" type="text" value="0,0,255" label="Set heatmap colors." help="Integer values between 0 and 255, separated by commas."/>
+            <param argument="-holdcolumnorder" type="boolean" truevalue="-holdcolumnorder" falsevalue="" checked="false" label="Suppress the reordering of the mark columns in the emission parameter table display." help=""/>
+            <param argument="-holdroworder" type="boolean" truevalue="-holdroworder" falsevalue="" checked="false" label="Suppress reordering the states." help=""/>
+            <param name="emissions" type="select" multiple="true" label="Emissions: Which files should be created?" help="">
+                <option value="txt">txt</option>
+                <option value="png">png</option>
+                <option value="svg">svg</option>
+            </param>
+            <param name="transitions" type="select" multiple="true" label="Transitions: Which files should be created?" help="">
+                <option value="txt">txt</option>
+                <option value="png">png</option>
+                <option value="svg">svg</option>
+            </param>
+            <param name="overlap" type="select" multiple="true" label="Overlap: Which files should be created?" help="">
+                <option value="txt">txt</option>
+                <option value="png">png</option>
+                <option value="svg">svg</option>
+            </param>
+            <param name="tes" type="select" multiple="true" label="TES: Which files should be created?" help="">
+                <option value="txt">txt</option>
+                <option value="png">png</option>
+                <option value="svg">svg</option>
+            </param>
+            <param name="tss" type="select" multiple="true" label="TSS: Which files should be created?" help="">
+                <option value="txt">txt</option>
+                <option value="png">png</option>
+                <option value="svg">svg</option>
+            </param>
+            <param name="dense" type="boolean" truevalue="" falsevalue="" checked="false" label="Dense: Should files be created?" help=""/>
+            <param name="expanded" type="boolean" truevalue="" falsevalue="" checked="false" label="Expanded: Should files be created?" help=""/>
+            <param name="segments" type="boolean" truevalue="" falsevalue="" checked="false" label="Segments: Should files be created?" help=""/>
+            <param argument="-printposterior" type="boolean" truevalue="-printposterior" falsevalue="" checked="false" label="Posterior probabilities: Should files be created?" help="One file per chromosome."/>
+            <param argument="-printstatebyline" type="boolean" truevalue="-printstatebyline" falsevalue="" checked="false" label="State assignments: Should files be created?" help="One file per celltype and chromosome. The first line specifies the cell type and chromosome and the second line says MaxState and the state ordering methods. The remaining lines have the state assignments."/>
+            <param argument="-stateordering" type="select" multiple="false" label="State ordering should be based on:" help="See Ernst and Kellis, Nature Methods, 2012 for details.">
+                <option value="emission">Emission</option>
+                <option value="transition">Transition</option>
+            </param>
+        </section>
+    </inputs>
+
+    <outputs>
+        <!-- single file; * represents numstates -->
+        <data name="out_model" format="txt" from_work_dir="output/model_*.txt" label="${tool.name} on $(on_string) Model, ${numstates}, txt"/>
+        <!-- emissions; single file in txt, svg, png; * represents numstates -->
+        <data name="out_emissions_txt" format="txt" from_work_dir="output/emissions_*.txt" label="${tool.name} on $(on_string) Emissions, ${numstates}, txt">
+            <filter>'txt' in str(oo['emissions'])</filter>
+        </data>
+        <data name="out_emissions_png" format="png" from_work_dir="output/emissions_*.png" label="${tool.name} on $(on_string) Emissions, ${numstates}, png">
+            <filter>'png' in str(oo['emissions'])</filter>
+        </data>
+        <data name="out_emissions_svg" format="svg" from_work_dir="output/emissions_*.svg" label="${tool.name} on $(on_string) Emissions, ${numstates}, svg">
+            <filter>'svg' in str(oo['emissions'])</filter>
+        </data>
+        <!-- transitions; single file in txt, svg, png; * represents numstates -->
+        <data name="out_transitions_txt" format="txt" from_work_dir="output/transitions_*.txt" label="${tool.name} on $(on_string) Transitions, ${numstates}, txt">
+            <filter>'txt' in str(oo['transitions'])</filter>
+        </data>
+        <data name="out_transitions_png" format="png" from_work_dir="output/transitions_*.png" label="${tool.name} on $(on_string) Transitions, ${numstates}, png">
+            <filter>'png' in str(oo['transitions'])</filter>
+        </data>
+        <data name="out_transitions_svg" format="svg" from_work_dir="output/transitions_*.svg" label="${tool.name} on $(on_string) Transitions, ${numstates}, svg">
+            <filter>'svg' in str(oo['transitions'])</filter>
+        </data>
+        <!-- overlap; one file in txt, svg, png per input _binary; \d* represents numstates -->
+        <data name="out_overlap_txt" format="txt" label="${tool.name} on $(on_string) Overlap, ${numstates}, txt" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_overlap.txt" ext="txt" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>'txt' in str(oo['overlap'])</filter>
+        </data>
+        <data name="out_overlap_png" format="png" label="${tool.name} on $(on_string) Overlap, ${numstates}, png" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_overlap.png" ext="png" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>'png' in str(oo['overlap'])</filter>
+        </data>
+        <data name="out_overlap_svg" format="svg" label="${tool.name} on $(on_string) Overlap, ${numstates}, svg" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_overlap.svg" ext="svg" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>'svg' in str(oo['overlap'])</filter>
+        </data>
+        <!-- TSS; one file in txt, svg, png per input _binary; \d* represents numstates -->
+        <data name="out_tss_txt" format="txt" label="${tool.name} on $(on_string) TSS, ${numstates}, txt" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_RefSeqTSS_neighborhood.txt" ext="txt" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>'txt' in str(oo['tss'])</filter>
+        </data>
+        <data name="out_tss_png" format="png" label="${tool.name} on $(on_string) TSS, ${numstates}, png" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_RefSeqTSS_neighborhood.png" ext="png" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>'png' in str(oo['tss'])</filter>
+        </data>
+        <data name="out_tss_svg" format="svg" label="${tool.name} on $(on_string) TSS, ${numstates}, svg" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_RefSeqTSS_neighborhood.svg" ext="svg" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>'svg' in str(oo['tss'])</filter>
+        </data>
+        <!-- TES; one file in txt, svg, png per input _binary; \d* represents numstates -->
+        <data name="out_tes_txt" format="txt" label="${tool.name} on $(on_string) TES, ${numstates}, txt" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_RefSeqTES_neighborhood.txt" ext="txt" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>'txt' in str(oo['tes'])</filter>
+        </data>
+        <data name="out_tes_png" format="png" label="${tool.name} on $(on_string) TES, ${numstates}, png" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_RefSeqTES_neighborhood.png" ext="png" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>'png' in str(oo['tes'])</filter>
+        </data>
+        <data name="out_tes_svg" format="svg" label="${tool.name} on $(on_string) TES, ${numstates}, svg" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_RefSeqTES_neighborhood.svg" ext="svg" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>'svg' in str(oo['tes'])</filter>
+        </data>
+        <!-- other; one file in bed per input _binary; \d* represents numstates -->
+        <data name="out_dense" format="bed" label="${tool.name} on $(on_string) Dense, ${numstates}, bed" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_dense.bed" ext="bed" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>oo['dense']</filter>
+        </data>
+        <data name="out_expanded" format="bed" label="${tool.name} on $(on_string) Expanded, ${numstates}, bed" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_expanded.bed" ext="bed" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>oo['expanded']</filter>
+        </data>
+        <data name="out_segments" format="bed" label="${tool.name} on $(on_string) Segments, ${numstates}, bed" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_segments.bed" ext="bed" directory="output" visible="true" assign_primary_output="false"/>
+            <filter>oo['segments']</filter>
+        </data>
+        <!-- other; one file in txt per input _binary; \d* represents numstates; \S* represents chromosome; located in subfolder POSTERIOR -->
+        <data name="out_printposterior" format="txt" label="${tool.name} on $(on_string) Posterior, ${numstates}, txt" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*\_\S*\_posterior.txt" ext="txt" directory="output/POSTERIOR" visible="true" assign_primary_output="false"/>
+            <filter>oo['posterior']</filter>
+        </data>
+        <!-- other; one file in txt per input _binary; \d* represents numstates; \S* represents chromosome; located in subfolder STATYBYLINE -->
+        <data name="out_printstatebyline" format="txt" label="${tool.name} on $(on_string) StateByLine, ${numstates}, txt" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*\_\S*\_statebyline.txt" ext="txt" directory="output/STATEBYLINE" visible="true" assign_primary_output="false"/>
+            <filter>oo['statebyline']</filter>
+        </data>
+    </outputs>
+    <tests> 
+        <!-- #0 required parameters -->
+        <test expect_num_outputs="21">
+            <param name="inputdir" value="GM12878_chr11_binary.txt.gz,K562_chr11_binary.txt.gz"/>
+            <param name="assembly" value="hg18"/>        
+            <param name="numstates" value="2"/>
+            <section name="oo">
+                <param name="emissions" value="txt,png,svg"/>
+                <param name="transitions" value="txt,png,svg"/>
+                <param name="overlap" value="txt,png,svg"/>
+                <param name="tes" value="txt,png,svg"/>
+                <param name="tss" value="txt,png,svg"/>
+                <param name="dense" value="true"/>
+                <param name="expanded" value="true"/> 
+                <param name="segments" value="true"/> 
+            </section>
+            <output name="out_model">
+                <assert_contents>
+                    <has_n_lines n="47"/>
+                    <has_line_matching expression="probinit&#009;\d*&#009;\S*"/>
+                </assert_contents>
+            </output>
+            <!-- optional outputs: emissions -->
+            <output name="out_emissions_txt">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="state \(Emission order\).+"/>
+                </assert_contents>
+            </output>
+            <output name="out_emissions_png" file="emissions_test0.png"/>
+            <output name="out_emissions_svg">
+                <assert_contents>
+                    <has_n_lines n="62"/>
+                </assert_contents>
+            </output>
+            <!-- optional outputs: transitions -->
+            <output name="out_transitions_txt">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="state \(from\\to\) \(Emission order\).+"/>
+                    <has_line_matching expression="2.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_transitions_png" file="transitions_test0.png" />
+            <output name="out_transitions_svg">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                </assert_contents>
+            </output>
+            <!-- optional outputs: overlap -->
+            <output name="out_overlap_txt">
+                <discovered_dataset designation="GM12878" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_line_matching expression="state \(Emission order\).+"/>
+                        <has_line_matching expression="Base.+"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_line_matching expression="state \(Emission order\).+"/>
+                        <has_line_matching expression="Base.+"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_overlap_png">
+                <discovered_dataset designation="GM12878" ftype="png" file="GM12878_overlap_test0.png"/>
+                <discovered_dataset designation="K562" ftype="png" file="K562_overlap_test0.png"/>
+            </output>
+            <output name="out_overlap_svg">
+                <discovered_dataset designation="GM12878" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="56"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="56"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <!-- optional outputs: TSS -->
+            <output name="out_tss_txt">
+                <discovered_dataset designation="GM12878" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_line_matching expression="State \(Emission order\).+"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_line_matching expression="State \(Emission order\).+"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_tss_png">
+                <discovered_dataset designation="GM12878" ftype="png" file="GM12878_RefSeqTSS_test0.png"/>
+                <discovered_dataset designation="K562" ftype="png" file="K562_RefSeqTSS_test0.png"/>
+            </output>
+            <output name="out_tss_svg">
+                <discovered_dataset designation="GM12878" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="97" />
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="97" />
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <!-- optional outputs: TES -->
+            <output name="out_tes_txt">
+                <discovered_dataset designation="GM12878" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_line_matching expression="State \(Emission order\).+"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_line_matching expression="State \(Emission order\).+"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_tes_png">
+                <discovered_dataset designation="GM12878" ftype="png" file="GM12878_RefSeqTES_test0.png"/>
+                <discovered_dataset designation="K562" ftype="png" file="K562_RefSeqTES_test0.png"/>
+            </output>
+            <output name="out_tes_svg">
+                <discovered_dataset designation="GM12878" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="97" />
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="97" />
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <!-- optional outputs: others -->
+            <output name="out_dense">
+                <discovered_dataset designation="GM12878" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="7943"/>
+                        <has_line line="track name=&quot;GM12878_2&quot; description=&quot; GM12878_2 (Emission ordered)&quot; visibility=1 itemRgb=&quot;On&quot;"/>
+                        <has_line line="chr11&#009;134451600&#009;134452200&#009;2&#009;0&#009;.&#009;134451600&#009;134452200&#009;255,255,0"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="9585"/>
+                        <has_line line="track name=&quot;K562_2&quot; description=&quot; K562_2 (Emission ordered)&quot; visibility=1 itemRgb=&quot;On&quot;"/>
+                        <has_line line="chr11&#009;134451600&#009;134452200&#009;2&#009;0&#009;.&#009;134451600&#009;134452200&#009;255,255,0"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_expanded">
+                <discovered_dataset designation="GM12878" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_line line="track name=&quot;Expanded_GM12878_2&quot; description=&quot; GM12878_2 (Emission ordered)&quot; visibility=2 itemRgb=&quot;On&quot;"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_line line="track name=&quot;Expanded_K562_2&quot; description=&quot; K562_2 (Emission ordered)&quot; visibility=2 itemRgb=&quot;On&quot;"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_segments">
+                <discovered_dataset designation="GM12878" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="7942"/>
+                        <has_line line="chr11&#009;134451600&#009;134452200&#009;E2"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="9584"/>
+                        <has_line line="chr11&#009;134451600&#009;134452200&#009;E2"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+        </test>
+        <!-- #1 parameter -init random -->
+        <test expect_num_outputs="21">
+            <param name="inputdir" value="GM12878_chr11_binary.txt.gz,K562_chr11_binary.txt.gz"/>
+            <param name="assembly" value="hg18"/>        
+            <param name="numstates" value="2"/>
+            <section name="ap">
+                <conditional name="init_cond">
+                    <param name="init_sel" value="random"/>
+                </conditional>
+            </section>
+            <section name="oo">
+                <param name="emissions" value="txt,png,svg"/>
+                <param name="transitions" value="txt,png,svg"/>
+                <param name="overlap" value="txt,png,svg"/>
+                <param name="tes" value="txt,png,svg"/>
+                <param name="tss" value="txt,png,svg"/>
+                <param name="dense" value="true"/>
+                <param name="expanded" value="true"/> 
+                <param name="segments" value="true"/> 
+            </section>
+            <output name="out_model">
+                <assert_contents>
+                    <has_n_lines n="47"/>
+                    <has_line_matching expression="probinit&#009;\d*&#009;\S*"/>
+                </assert_contents>
+            </output>            
+        </test>
+        <!-- #2 parameter -init load -->
+        <test expect_num_outputs="21">
+            <param name="inputdir" value="GM12878_chr11_binary.txt.gz,K562_chr11_binary.txt.gz"/>
+            <param name="assembly" value="hg18"/>        
+            <param name="numstates" value="2"/>
+            <section name="ap">
+                <conditional name="init_cond">
+                    <param name="init_sel" value="load"/>
+                    <param name="h" value="0.02"/>
+                    <param name="e" value="0.02"/>
+                    <param name="t" value="0.05"/>
+                    <param name="m" value="model_2.txt"/>
+                </conditional>
+            </section>
+            <section name="oo">
+                <param name="emissions" value="txt,png,svg"/>
+                <param name="transitions" value="txt,png,svg"/>
+                <param name="overlap" value="txt,png,svg"/>
+                <param name="tes" value="txt,png,svg"/>
+                <param name="tss" value="txt,png,svg"/>
+                <param name="dense" value="true"/>
+                <param name="expanded" value="true"/> 
+                <param name="segments" value="true"/> 
+            </section>
+            <output name="out_model">
+                <assert_contents>
+                    <has_n_lines n="47"/>
+                    <has_line_matching expression="probinit&#009;\d*&#009;\S*"/>
+                </assert_contents>
+            </output>            
+        </test>
+        <!-- #3 no default values -->
+        <test expect_num_outputs="21">
+            <param name="inputdir" value="GM12878_chr11_binary.txt.gz,K562_chr11_binary.txt.gz"/>
+            <param name="assembly" value="hg18"/>        
+            <param name="numstates" value="2"/>
+            <section name="ap">
+                <param name="b" value="180"/>
+                <param name="d" value="0.002"/>
+                <conditional name="init_cond">
+                    <param name="init_sel" value="load"/>
+                    <param name="h" value="0.01"/>
+                    <param name="e" value="0.01"/>
+                    <param name="t" value="0.06"/>
+                    <param name="m" value="model_2.txt"/>
+                </conditional>
+                <param name="many" value="true"/>
+                <param name="pseudo" value="true"/>
+                <param name="r" value="190"/>
+                <param name="scalebeta" value="true"/>
+            </section>
+            <section name="oo">
+                <param name="color" value="100,40,180"/>
+                <param name="holdcolumnorder" value="true"/>
+                <param name="holdroworder" value="true"/>
+                <param name="emissions" value="txt,png,svg"/>
+                <param name="transitions" value="txt,png,svg"/>
+                <param name="overlap" value="txt,png,svg"/>
+                <param name="tes" value="txt,png,svg"/>
+                <param name="tss" value="txt,png,svg"/>
+                <param name="dense" value="true"/>
+                <param name="expanded" value="true"/> 
+                <param name="segments" value="true"/> 
+                <param name="printposterior" value="true"/>
+                <param name="printstatebyline" value="true"/>
+                <param name="stateordering" value="emission"/>
+            </section>
+            <output name="out_model">
+                <assert_contents>
+                    <has_n_lines n="47"/>
+                    <has_line_matching expression="probinit&#009;\d*&#009;\S*"/>
+                </assert_contents>
+            </output>  
+            <!-- optional outputs: emissions -->
+            <output name="out_emissions_txt">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="state \(Emission order\).+"/>
+                </assert_contents>
+            </output>
+            <output name="out_emissions_png" file="emissions_test3.png"/>
+            <output name="out_emissions_svg">
+                <assert_contents>
+                    <has_n_lines n="63"/>
+                </assert_contents>
+            </output>
+            <!-- optional outputs: transitions -->
+            <output name="out_transitions_txt">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line_matching expression="state \(from\\to\) \(Emission order\).+"/>
+                    <has_line_matching expression="2.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_transitions_png" file="transitions_test3.png" />
+            <output name="out_transitions_svg">
+                <assert_contents>
+                    <has_n_lines n="37"/>
+                </assert_contents>
+            </output>
+            <!-- optional outputs: overlap -->
+            <output name="out_overlap_txt">
+                <discovered_dataset designation="GM12878" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_line_matching expression="state \(Emission order\).+"/>
+                        <has_line_matching expression="Base.+"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_line_matching expression="state \(Emission order\).+"/>
+                        <has_line_matching expression="Base.+"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_overlap_png">
+                <discovered_dataset designation="GM12878" ftype="png" file="GM12878_overlap_test3.png"/>
+                <discovered_dataset designation="K562" ftype="png" file="K562_overlap_test3.png"/>
+            </output>
+            <output name="out_overlap_svg">
+                <discovered_dataset designation="GM12878" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="56"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="56"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <!-- optional outputs: TSS -->
+            <output name="out_tss_txt">
+                <discovered_dataset designation="GM12878" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_line_matching expression="State \(Emission order\).+"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_line_matching expression="State \(Emission order\).+"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_tss_png">
+                <discovered_dataset designation="GM12878" ftype="png" file="GM12878_RefSeqTSS_test3.png"/>
+                <discovered_dataset designation="K562" ftype="png" file="K562_RefSeqTSS_test3.png"/>
+            </output>
+            <output name="out_tss_svg">
+                <discovered_dataset designation="GM12878" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="98" />
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="98" />
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <!-- optional outputs: TES -->
+            <output name="out_tes_txt">
+                <discovered_dataset designation="GM12878" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_line_matching expression="State \(Emission order\).+"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_line_matching expression="State \(Emission order\).+"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_tes_png">
+                <discovered_dataset designation="GM12878" ftype="png" file="GM12878_RefSeqTES_test3.png"/>
+                <discovered_dataset designation="K562" ftype="png" file="K562_RefSeqTES_test3.png"/>
+            </output>
+            <output name="out_tes_svg">
+                <discovered_dataset designation="GM12878" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="98" />
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="svg">
+                    <assert_contents>
+                        <has_n_lines n="98" />
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <!-- optional outputs: others -->
+            <output name="out_dense">
+                <discovered_dataset designation="GM12878" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="7939"/>
+                        <has_line line="track name=&quot;GM12878_2&quot; description=&quot; GM12878_2 (Emission ordered)&quot; visibility=1 itemRgb=&quot;On&quot;"/>
+                        <has_line line="chr11&#009;121006440&#009;121006980&#009;1&#009;0&#009;.&#009;121006440&#009;121006980&#009;0,0,255"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="9585"/>
+                        <has_line line="track name=&quot;K562_2&quot; description=&quot; K562_2 (Emission ordered)&quot; visibility=1 itemRgb=&quot;On&quot;"/>
+                        <has_line line="chr11&#009;121006440&#009;121006980&#009;1&#009;0&#009;.&#009;121006440&#009;121006980&#009;0,0,255"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_expanded">
+                <discovered_dataset designation="GM12878" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_line line="track name=&quot;Expanded_GM12878_2&quot; description=&quot; GM12878_2 (Emission ordered)&quot; visibility=2 itemRgb=&quot;On&quot;"/>
+                        <has_line_matching expression="chr11.+"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_line line="track name=&quot;Expanded_K562_2&quot; description=&quot; K562_2 (Emission ordered)&quot; visibility=2 itemRgb=&quot;On&quot;"/>
+                        <has_line_matching expression="chr11.+"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_segments">
+                <discovered_dataset designation="GM12878" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="7938"/>
+                        <has_line line="chr11&#009;121006440&#009;121006980&#009;E1"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="9584"/>
+                        <has_line line="chr11&#009;121006440&#009;121006980&#009;E1"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_printposterior">
+                <discovered_dataset designation="GM12878" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="672263"/>
+                        <has_line line="0&#009;1"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="672263"/>
+                        <has_line line="0&#009;1"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_printstatebyline">
+                <discovered_dataset designation="GM12878" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="672263"/>
+                        <has_line line="GM12878&#009;chr11"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="txt">
+                    <assert_contents>
+                        <has_n_lines n="672263"/>
+                        <has_line line="K562&#009;chr11"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+        </test>
+        <!-- #4 parameter -p -->
+        <test expect_num_outputs="3">
+            <param name="inputdir" value="GM12878_chr11_binary.txt.gz,K562_chr11_binary.txt.gz"/>
+            <param name="assembly" value="hg18"/>        
+            <param name="numstates" value="2"/>
+            <section name="ap">
+                <param name="p" value="bw"/>
+            </section>
+            <output name="out_model">
+                <assert_contents>
+                    <has_n_lines n="47"/>
+                    <has_line_matching expression="probinit&#009;\d*&#009;\S*"/>
+                </assert_contents>
+            </output>            
+        </test> 
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+LearnModel @HELP_WID@
+
+LearnModel takes a set of binarized data files and learns a chromatin state model. At the termination of the learning process, LearnModel effectively calls MakeSegmentation to produce segmentation files, MakeBrowserFiles, OverlapEnrichments, and NeighborhoodEnrichments with all the files corresponding to the specified assembly. The current search progress in terms of estimated log likelihood and change after each iteration is printed to the terminal. If one terminates the search early, a segmentation can still be produced by applying MakeSegmentation to the current model file.
+
+**Input**
+
+@HELP_FILETYPE_BINARY@
+
+**Output**
+
+@HELP_FILETYPE_MODEL@
+@HELP_FILETYPE_EMISSION@
+@HELP_FILETYPE_DENSE@
+@HELP_FILETYPE_EXPANDED@
+@HELP_FILETYPE_OVERLAP@
+@HELP_FILETYPE_TES@
+@HELP_FILETYPE_TSS@
+@HELP_FILETYPE_SEGMENTS@
+@HELP_FILETYPE_TRANSITIONS@
+@HELP_FILETYPE_POSTERIOR@"
+@HELP_FILETYPE_STATEBYLINE@
+
+.. class:: infomark
+
+**References**
+
+@HELP_REFERENCES@
+    ]]></help>
+    <citations>
+        <expand macro="citations"/>
+    </citations>
+</tool>
