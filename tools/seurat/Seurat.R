@@ -23,7 +23,7 @@
 #' ---
 
 #+ echo=F, warning = F, message=F
-options( show.error.messages=F, error = function () { cat( geterrmessage(), file=stderr() ); q( "no", 1, F ) } )
+options(show.error.messages = F, error = function(){cat(geterrmessage(), file = stderr()); q("no", 1, F)})
 showcode <- as.logical(params$showcode)
 warn <-  as.logical(params$warn)
 varstate <- as.logical(params$varstate)
@@ -33,7 +33,7 @@ PCplots <- as.logical(params$PCplots)
 tsne <- as.logical(params$tsne)
 heatmaps <- as.logical(params$heatmaps)
 
-# we need that to not crash galaxy with an UTF8 error on German LC settings.
+# we need that to not crash Galaxy with an UTF-8 error on German LC settings.
 loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
 
@@ -57,52 +57,52 @@ print(paste0("Minimum percent of cells", min_pct))
 print(paste0("Logfold change threshold", logfc_threshold))
 
 #+ echo = FALSE
-if(showcode == TRUE){print("Read in data, generate inital Seurat object")}
+if(showcode == TRUE) print("Read in data, generate inital Seurat object")
 #+ echo = `showcode`, warning = `warn`, message = F
-counts <- read.delim(params$counts, row.names=1)
+counts <- read.delim(params$counts, row.names = 1)
 seuset <- Seurat::CreateSeuratObject(counts = counts, min.cells = min_cells, min.features = min_genes)
 
 #+ echo = FALSE
-if(showcode == TRUE && vlnfeat == TRUE){print("Raw data vizualization")}
+if(showcode == TRUE && vlnfeat == TRUE) print("Raw data vizualization")
 #+ echo = `showcode`, warning = `warn`, include=`vlnfeat` 
-Seurat::VlnPlot(object = seuset, features = c("nFeature_RNA", "nCount_RNA"), axis="v")
+Seurat::VlnPlot(object = seuset, features = c("nFeature_RNA", "nCount_RNA"))
 Seurat::FeatureScatter(object = seuset, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
 
 #+ echo = FALSE
-if(showcode == TRUE){print("Filter and normalize for UMI counts")}
+if(showcode == TRUE) print("Filter and normalize for UMI counts")
 #+ echo = `showcode`, warning = `warn`
 seuset <- subset(seuset, subset = `nCount_RNA` > low_thresholds & `nCount_RNA` < high_thresholds)
-seuset <- Seurat::NormalizeData(seuset, normalizeation.method = "LogNormalize", scale.factor = 10000)
+seuset <- Seurat::NormalizeData(seuset, normalization.method = "LogNormalize", scale.factor = 10000)
 
 #+ echo = FALSE
-if(showcode == TRUE && featplot == TRUE){print("Variable Genes")}
+if(showcode == TRUE && featplot == TRUE) print("Variable Genes")
 #+ echo = `showcode`, warning = `warn`, include = `featplot`
 seuset <- Seurat::FindVariableFeatures(object = seuset, selection.method = "mvp")
 Seurat::VariableFeaturePlot(seuset, cols = c("black", "red"), selection.method = "disp")
 seuset <- Seurat::ScaleData(object = seuset, vars.to.regress = "nCount_RNA")
 
 #+ echo = FALSE
-if(showcode == TRUE && PCplots == TRUE){print("PCA Visualization")}
+if(showcode == TRUE && PCplots == TRUE) print("PCA Visualization")
 #+ echo = `showcode`, warning = `warn`, include = `PCplots`
-seuset <- Seurat::RunPCA(seuset, npcs=numPCs)
+seuset <- Seurat::RunPCA(seuset, npcs = numPCs)
 Seurat::VizDimLoadings(seuset, dims = 1:2)
-Seurat::DimPlot(seuset, dims = c(1,2), reduction="pca")
-Seurat::DimHeatmap(seuset, dims=1:numPCs, nfeatures=30, reduction="pca")
+Seurat::DimPlot(seuset, dims = c(1,2), reduction = "pca")
+Seurat::DimHeatmap(seuset, dims = 1:numPCs, nfeatures = 30, reduction = "pca")
 seuset <- Seurat::JackStraw(seuset, dims=numPCs, reduction = "pca", num.replicate = 100)
 seuset <- Seurat::ScoreJackStraw(seuset, dims = 1:numPCs)
 Seurat::JackStrawPlot(seuset, dims = 1:numPCs)
 Seurat::ElbowPlot(seuset, ndims = numPCs, reduction = "pca")
 
 #+ echo = FALSE
-if(showcode == TRUE && tsne == TRUE){print("tSNE")}
+if(showcode == TRUE && tsne == TRUE) print("tSNE")
 #+ echo = `showcode`, warning = `warn`, include = `tsne`
 seuset <- Seurat::FindNeighbors(object = seuset)
 seuset <- Seurat::FindClusters(object = seuset)
 seuset <- Seurat::RunTSNE(seuset, dims = 1:numPCs, resolution = resolution)
-Seurat::DimPlot(seuset, reduction="tsne")
+Seurat::DimPlot(seuset, reduction = "tsne")
 
 #+ echo = FALSE
-if(showcode == TRUE && heatmaps == TRUE){print("Marker Genes")}
+if(showcode == TRUE && heatmaps == TRUE) print("Marker Genes")
 #+ echo = `showcode`, warning = `warn`, include = `heatmaps`
 markers <- Seurat::FindAllMarkers(seuset, only.pos = TRUE, min.pct = min_pct, logfc.threshold = logfc_threshold)
 top10 <- dplyr::group_by(markers, cluster)
