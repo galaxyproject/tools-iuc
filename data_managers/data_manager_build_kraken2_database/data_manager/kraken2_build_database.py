@@ -354,7 +354,7 @@ def main():
     else:
         sys.exit("Invalid database type")
 
-    open(args.data_manager_json, 'w').write(json.dumps(data_manager_output))
+    open(args.data_manager_json, 'w').write(json.dumps(data_manager_output, sort_keys=True))
 
 
 if __name__ == "__main__":
