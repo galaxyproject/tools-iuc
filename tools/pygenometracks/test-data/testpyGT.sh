@@ -10,5 +10,6 @@ pgt --tracks test-data/test8.ini --region chrX:3300000-3500000 -o test-data/test
 pgt --tracks test-data/test9.ini --region X:3133000-3138000 -o test-data/test_arrowhead_zoom.png
 pgt --tracks test-data/test10.ini --region X:3340000-3380000 -o test-data/test_middle_triangle.png
 pgt --tracks test-data/test11.ini --region chrX:3250000-3400000 -o test-data/test_TADs_bdgm.png
+pgt --tracks test-data/test12.ini --region chrX:3000000-3300000 -o test-data/test_link.png
 
 conda_env_deactivate
