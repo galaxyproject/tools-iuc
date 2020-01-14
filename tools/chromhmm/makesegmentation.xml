@@ -1,0 +1,204 @@
+<?xml version="1.0"?>
+<tool id="chromhmm_makesegmentation" name="chromHMM MakeSegmentation" version="@TOOL_VERSION@+@WRAPPER_VERSION@">
+    <description>from model and binarized data</description>
+
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+
+    <expand macro="requirements"/>
+
+    <stdio></stdio>  
+
+    <command detect_errors="exit_code"><![CDATA[
+        ## initialization
+        @DEF@
+        mkdir input &&
+        mkdir output &&
+        mkdir output/STATEBYLINE &&
+
+        ## model file, prefix 'model_', suffix numstates, extension *.txt
+        ## e.g. model_10.txt
+        #set $numstates = $fetchHeader($modelfile)[0]
+        ln -s '${modelfile}' model_${numstates}.txt &&
+
+        ## binarized data, suffix '_binary', extension *.txt, all located in one folder
+        ## e.g. input/GM12878_chr11_binary.txt
+        #for $file in $inputdir
+            #set $listHeader = $fetchHeader($file)
+            #set $filename = $listHeader[0] + '_' + $listHeader[1] + '_binary' + '.txt'
+            ln -s '${file}' 'input/$filename' &&
+        #end for
+
+        ## run
+        @RUN@
+            MakeSegmentation
+            ## optional parameters
+            -l ${__tool_directory__}/tool-data/CHROMSIZES/${assembly}.txt
+            -b $ap.b
+            $ap.many
+            $ap.scalebeta
+            $oo.printposterior
+            $oo.printstatesbyline
+            ## required parameters
+            'model_${numstates}.txt'
+            input
+            output
+
+        && ls -lisa
+        && ls output -lisa
+        ]]></command>
+    <inputs>
+        <!-- excluded: -f, -gzip, -i, -nobed, splitrows -->
+        <!-- included via wrapper: -->
+
+        <param argument="modelfile" type="data" format="txt" multiple="false" label="Select file with model parameters." help="Usually a textfile with the prefix 'model_'."/>
+        <param argument="inputdir" type="data" format="txt" multiple="true" label="Select binary input file(s)." help="Usually text files with suffix '_binary'"/>
+        <param argument="assembly" type="select" label="Specify assembly." help="">
+            <options from_data_table="chromhmm_assemblies">
+                <validator message="No assembly is available" type="no_options"/>
+            </options>
+        </param>
+
+        <section name="ap" title="Advanced parameters">
+            <param argument="-b" type="integer" value="200" min="0" label="Set binsize." help="The number of base pairs in a bin determining the resolution of the model learning and segmentation."/>
+            <param argument="-many" type="boolean" truevalue="-many" falsevalue="" checked="false" label="Activate many features procedure?" help="Use a slower, but more numerically stable procedure for evaluating the emission parameters. Should be used if there are several hundreds of features."/>
+            <param argument="-scalebeta" type="boolean" truevalue="-scalebeta" falsevalue="" checked="false" label="Set scale beta." help="Change the internal numerical procedure for computing the backward variables that can prevent numerical overflow observed in specialized settings. Specifically the backward variables are rescaled based on the sum of their values at a position opposed to reusing the scaling of the forward variables. Numerical underflow is prevented by setting the beta values to 10^(-300) if they fall below that, and likewise for the forward variables with the added condition that emission must evaluate greater than 0 at the position."/>
+        </section>
+        
+        <section name="oo" title="Output options">
+            <param argument="-printposterior" type="boolean" truevalue="-printposterior" falsevalue="" checked="false" label="Posterior probabilities: Should files be created?" help="One file per chromosome."/>
+            <param argument="-printstatesbyline" type="boolean" truevalue="-printstatesbyline" falsevalue="" checked="false" label="State assignments: Should files be created?" help="One file per celltype and chromosome. The first line specifies the cell type and chromosome and the second line says MaxState and the state ordering methods. The remaining lines have the state assignments."/>
+        </section>
+    </inputs>
+
+    <outputs>
+        <!-- one text file per input _binary; designation: cell identifier, \d*: numstates; e.g. GM12878_2_segments.bed -->
+        <data name="out_segments" format="bed" label="${tool.name} on ${on_string}: Segments, bed" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*_segments.bed" ext="bed" directory="output" visible="true" assign_primary_output="false"/>
+        </data>
+        <!-- one text file per input _binary; designation: cell identifier, \d*: numstates; \S*: chromosome; located in subfolder POSTERIOR; e.g. GM12878_2_chr11_posterior.txt -->
+        <data name="out_printposterior" format="tabular" label="${tool.name} on $(on_string) Posterior, tabular" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*\_\S*\_posterior\.txt" ext="tabular" directory="output/POSTERIOR" visible="true" assign_primary_output="false"/>
+            <filter>oo['printposterior']</filter>
+        </data>
+        <!-- one txt file per input _binary; designation: cell identifier, \d*: numstates; \S*: chromosome; located in subfolder STATEBYLINE; e.g. GM12878_2_chr11_posterior.txt -->
+        <data name="out_printstatesbyline" format="tabular" label="${tool.name} on ${on_string}: StatesByLine, tabular" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_\d*\_\S*\_statebyline.txt" ext="tabular" directory="output/STATEBYLINE" visible="true" assign_primary_output="false"/>
+            <filter>oo['printstatesbyline']</filter>
+        </data>
+    </outputs> 
+
+    <tests> 
+        <!-- #1; required parameters -->
+        <test expect_num_outputs="1">
+            <param name="modelfile" value="model_2.txt"/>
+            <param name="inputdir" value="K562_chr11_binary.txt.gz,GM12878_chr11_binary.txt.gz"/>
+            <param name="assembly" value="hg18"/>
+            <output name="out_segments">
+                <discovered_dataset designation="GM12878" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="7944"/>
+                        <has_line line="chr11&#009;0&#009;66800&#009;E2"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="9588"/>
+                        <has_line line="chr11&#009;0&#009;57800&#009;E2"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+        </test>
+        <!-- #2; advanced parameters -->
+        <test expect_num_outputs="3">
+            <param name="modelfile" value="model_2.txt"/>
+            <param name="inputdir" value="K562_chr11_binary.txt.gz,GM12878_chr11_binary.txt.gz"/>
+            <param name="assembly" value="hg18"/>
+            <section name="ao">
+                <param name="b" value="190"/>
+                <param name="many" value="true"/>
+                <param name="scalebeta" value="true"/>                
+            </section>
+            <section name="oo">
+                <param name="printposterior" value="true"/>
+                <param name="printstatesbyline" value="true"/>
+            </section>
+            <output name="out_segments">
+                <discovered_dataset designation="GM12878" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="7944"/>
+                        <has_line line="chr11&#009;0&#009;66800&#009;E2"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="bed">
+                    <assert_contents>
+                        <has_n_lines n="9588"/>
+                        <has_line line="chr11&#009;0&#009;57800&#009;E2"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_printposterior">
+                <discovered_dataset designation="GM12878" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="672263"/>
+                        <has_line line="GM12878&#009;chr11"/>
+                        <has_line line="0&#009;1"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="672263"/>
+                        <has_line line="K562&#009;chr11"/>
+                        <has_line line="0&#009;1"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_printstatesbyline">
+                <discovered_dataset designation="GM12878" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="672263"/>
+                        <has_line line="GM12878&#009;chr11"/>
+                        <has_line line="2"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="K562" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="672263"/>
+                        <has_line line="K562&#009;chr11"/>
+                        <has_line line="2"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>            
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+MakeSegmentation @HELP_WID@
+
+MakeSegmentation command takes a saved model file and binarized data and outputs files with the segmentation state assignments and/or the posterior state probabilities. These files can also be outputted by LearnModel, but this command enables producing the segmentations without the need to relearn the model. The columns of the binarized data should match the column ordering in the model file, which by defaultis the order of columns in the binarized data used to learn the model.
+
+**Input**
+
+@HELP_FILETYPE_MODEL@
+@HELP_FILETYPE_BINARY@
+
+**Output**
+
+@HELP_FILETYPE_SEGMENTS@
+@HELP_FILETYPE_POSTERIOR@
+@HELP_FILETYPE_STATEBYLINE@
+
+.. class:: infomark
+
+**References**
+
+@HELP_REFERENCES@
+    ]]></help>
+    <citations>
+        <expand macro="citations"/>
+    </citations>
+</tool>
