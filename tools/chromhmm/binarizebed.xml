@@ -1,0 +1,223 @@
+<?xml version="1.0"?>
+<tool id="chromhmm_binarizebed" name="chromHMM BinarizeBed" version="@TOOL_VERSION@+@WRAPPER_VERSION@">
+    <description>create binary from bed</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <stdio></stdio>
+    <command detect_errors="exit_code"><![CDATA[
+        ## initialize
+        mkdir -p {input,output}/{data,control} output/signal &&
+
+        ## data, keep name referenced in '$cellmarkfiletable', all located in one folder
+        #for $file in $inputbeddir
+            ln -s '${file}' 'input/data/${file.name}' &&
+        #end for
+        ## control, keep name referenced in '$cellmarkfiletable', all located in one folder
+        #for $file in $ap.control_cond.c
+            ln -s '${file}' 'input/control/${file.name}' &&
+        #end for
+
+        ## run
+        @RUN@
+            BinarizeBed
+            ## optional parameters
+            #if $oo.t
+                -t output/signal
+            #end if
+            #if $ap.assign_cond.assign_sel == 'shift'
+                -n $ap.assign_cond.n
+            #else
+                -center
+            #end if
+            -b $ap.b
+            -e $ap.e
+            -f $ap.f
+            -g $ap.g
+            -p $ap.p
+            $ap.peaks
+            -s $ap.s
+            $ap.strictthresh
+            -u $ap.u
+            ## required parameters (specific order)
+            ${__tool_directory__}/tool-data/CHROMSIZES/${assembly}.txt ## chromosomelengthfile
+            input/data ## inputbeddir
+            '$cellmarkfiletable' ## cellmarkfiletable
+            output/data ## outputbinarydir
+        ]]></command>
+    <inputs>
+        <!-- excluded: -colfields, -gzip, -i, -j, -splitrows -->
+        <!-- included via wrapper:  -->
+
+        <param argument="inputbeddir" type="data" format="bed" multiple="true" label="Select bed input file(s)." help="Filenames have to match entries in cellmarkfiletable."/>
+        <param argument="cellmarkfiletable" type="data" format="txt" multiple="false" label="Select file with cell and mark identifiers." help=""/>
+        <expand macro="assembly"/>
+
+        <section name="ap" title="Advanced parameters">
+            <expand macro="binsize"/>
+            <conditional name="assign_cond" label="">
+                <param name="assign_sel" type="select" multiple="false" label="Select mode to determine the bin to assign a read." help="Center can make sense to use if the coordinates are based on already extended reads. If this option is selected, then the strand information of a read and the shift parameter are ignored. By default reads are assigned to a bin based on the position of its 5' end as determined from the strand of the read after shifting an amount determined by the -n option with respect to the strand orientation.. The number of bases a read should be shifted to determine a bin assignment. (-center, -n)">
+                    <option value="shift">Shift</option>
+                    <option value="center">Center</option>
+                </param>
+                <when value="shift">
+                    <param argument="-n" type="integer" value="100" label="Set number of bases a read should be shifted to determine a bin assignment." help="Bin assignment is based on the 5' end of a read shifted this amount with respect to the strand orientation."/>
+                </when>
+                <when value="center"/>
+            </conditional>
+            <expand macro="offsetend"/>
+            <param argument="-f" type="float" value="0.0" label="Set threshold for the fold enrichment over expected." help="This value must be met or exceeded by the observed count in a bin for a present call. The expectation is determined in the same way as the mean parameter for the poission distribution in terms of being based on a uniform background unless control data is specified. This parameter can be useful when dealing with very deeply and/or unevenly sequenced data."/>
+            <param argument="-g" type="float" value="0.0" label="Set a threshold for the signal." help="This value must be met or exceeded by the observed count in a bin for a present call. This parameter can be useful when desiring to directly place a threshold on the signal."/>
+            <param argument="-p" type="float" value="0.0001" min="0.0" max="1.0" label="Set tail probability of the poisson distribution." help="Binarization threshold should correspond to this value."/>
+            <param argument="-peaks" type="boolean" truevalue="-peaks" falsevalue="" checked="false" label="Should bed files treated as peak calls?" help="Give a '1' call to any bin overlapping a peak call. Not recommend for broad peak calls."/>
+            <param argument="-s" type="integer" value="0" min="0" label="Set amount that should be subtracted from the interval start coordinate." help="So that the interval is inclusive and 0 based."/>
+            <param argument="-strictthresh" type="boolean" truevalue="-strictthresh" falsevalue="" checked="false" label="Should poisson threshold must be strictly greater than the tail probability?" help="Otherwise by default the largest integer count for which the tail includes the poisson threshold probability is used."/>
+            <param argument="-u" type="integer" value="1" label="Set pseudocount." help="Value is uniformly added to every bin in the control data in order to smooth the control data from 0."/>
+        </section>
+        
+        <section name="oo" title="Output options">
+            <param argument="-t" type="boolean" truevalue="-t" falsevalue="" checked="false" label="Should signal files be created?" help="These files could later be binarized directly at different thresholds with the BinarizeSignal command."/>
+        </section>
+    </inputs>
+    <outputs>
+        <!-- one text file per cell identifier and chromosome; designation: <cellidentifier>_<chromosome>; e.g. GM12878_chr11_binary.txt -->
+        <data name="out_binary" format="tabular" label="${tool.name} on ${on_string}: binary, tabular" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_binary.txt" ext="tabular" directory="output/data" visible="true" assign_primary_output="false"/>
+        </data>
+        <!-- one text file per cell identifier and chromosome; designation: <cellidentifier>_<chromosome>; e.g. GM12878_chr11_signal.txt -->
+        <data name="out_signal" format="tabular" label="${tool.name} on ${on_string}: signal, tabular" hidden="true">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_signal.txt" ext="tabular" directory="output/signal" visible="true" assign_primary_output="false"/>
+            <filter>oo['t']</filter>
+        </data>
+    </outputs>
+    <tests> 
+        <!-- #1; required parameters -->
+        <test>
+            <param name="inputbeddir" value="binarizebed_test_1.bed,binarizebed_test_2.bed,binarizebed_test_3.bed,binarizebed_test_4.bed"/>
+            <param name="cellmarkfiletable" value="binarizebed_cellmark.txt"/>
+            <param name="assembly" value="hg18"/>
+            <output name="out_binary">
+                <discovered_dataset designation="cell1_chr7" ftype="">
+                    <assert_contents>
+                        <has_n_lines n="794109"/>
+                        <has_line line="cell1&#009;chr7"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="cell1_chr11" ftype="">
+                    <assert_contents>
+                        <has_n_lines n="672263"/>
+                        <has_line line="cell1&#009;chr11"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="cell2_chr7" ftype="">
+                    <assert_contents>
+                        <has_n_lines n="794109"/>
+                        <has_line line="cell2&#009;chr7"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>            
+        </test>
+        <!-- #2; advanced parameters -->
+        <test>
+            <param name="inputbeddir" value="binarizebed_test_1.bed,binarizebed_test_2.bed,binarizebed_test_3.bed,binarizebed_test_4.bed"/>
+            <param name="cellmarkfiletable" value="binarizebed_cellmark.txt"/>
+            <param name="assembly" value="hg18"/>
+            <section name="ap">
+                <param name="b" value="201"/>
+                <param name="e" value="2"/>
+                <param name="f" value="0.1"/>
+                <param name="g" value="0.1"/>
+                <param name="p" value="0.0002"/>
+                <param name="peaks" value="true"/>
+                <param name="s" value="1"/>
+                <param name="strictthresh" value="true"/>
+                <param name="u" value="2"/>
+                <conditional name="assign_cond" label="">
+                    <param name="assign_sel" value="shift"/>
+                    <param name="n" value="80"/>
+                </conditional>
+            </section>
+            <section name="oo">
+                <param name="t" value="true"/>
+            </section>
+            <output name="out_binary">
+                <discovered_dataset designation="cell1_chr7" ftype="">
+                    <assert_contents>
+                        <has_n_lines n="790158"/>
+                        <has_line line="cell1&#009;chr7"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="cell1_chr11" ftype="">
+                    <assert_contents>
+                        <has_n_lines n="668919"/>
+                        <has_line line="cell1&#009;chr11"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="cell2_chr7" ftype="">
+                    <assert_contents>
+                        <has_n_lines n="790158"/>
+                        <has_line line="cell2&#009;chr7"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>
+            <output name="out_signal">
+                <discovered_dataset designation="cell1_chr7" ftype="">
+                    <assert_contents>
+                        <has_n_lines n="790158"/>
+                        <has_line line="cell1&#009;chr7"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="cell1_chr11" ftype="">
+                    <assert_contents>
+                        <has_n_lines n="668919"/>
+                        <has_line line="cell1&#009;chr11"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </discovered_dataset>
+                <discovered_dataset designation="cell2_chr7" ftype="">
+                    <assert_contents>
+                        <has_n_lines n="790158"/>
+                        <has_line line="cell2&#009;chr7"/>
+                        <has_line line="0"/>
+                    </assert_contents>
+                </discovered_dataset>
+            </output>           
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+BinarizeBed @HELP_WID@
+
+This command converts coordinates of aligned reads into binarized data form from which a chromatin state model can be learned. The binarization is based on a poisson background model. If no control data is specified the parameter to the poisson distribution is the global average number of reads per bin. If control data is specified the global average number of reads is multiplied by the local enrichment for control reads as determined by the specified parameters. Optionally intermediate signal files can also be outputted and these signal files can later be directly converted into binary form using the BinarizeSignal command. 
+
+**Input**
+
+@HELP_FILETYPE_BED@
+@HELP_FILETYPE_CELLMARKFILETABLE@
+
+**Output**
+
+@HELP_FILETYPE_BINARY@
+@HELP_FILETYPE_SIGNAL@
+
+.. class:: infomark
+
+**References**
+
+@HELP_REFERENCES@
+    ]]></help>
+    <citations>
+        <expand macro="citations"/>
+    </citations>
+</tool>
