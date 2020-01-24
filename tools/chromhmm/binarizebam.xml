@@ -8,11 +8,10 @@
     <stdio></stdio>
     <command detect_errors="exit_code"><![CDATA[
         ## initialize
-        mkdir -p {input,output}/{data,control} output/signal &&
-
-        ## data, keep name referenced in '$cellmarkfiletable', all located in one folder
-        #for $file in $inputbeddir
-            ln -s '${file}' 'input/data/${file.name}' &&
+        mkdir -p input/bam {input,output}/control output/{binary,signal} &&
+        ## bam files, filenames need to match entries in '$cellmarkfiletable', one folder
+        #for $file in $inputbamdir
+            ln -s '${file}' 'input/bam/${file.name}' &&
         #end for
 
         ## run
@@ -22,14 +21,20 @@
             #if $oo.t
                 -t output/signal
             #end if
-            #if $ap.assign_cond.assign_sel == 'shift'
-                -n $ap.assign_cond.n
-            #else if $ap.assign_cond.assign_sel == 'center'
-                -center
-            #else if $ap.assign_cond.assign_sel == 'paired'
+            #if $ap.paired_cond.paired_sel == 'yes'
                 -paired
-            #else if $ap.assign_cond.assign_sel == 'peak'
-                -peak
+            #else if $ap.paired_cond.paired_sel == 'no'
+                #if $ap.paired_cond.assign_cond.assign_sel == 'shift'
+                    -n $ap.paired_cond.assign_cond.n
+                #else if $ap.paired_cond.assign_cond.assign_sel == 'center'
+                    -center
+                #end if
+                #if $ap.paired_cond.peaks_cond.peaks_sel == 'yes'
+                    -peaks
+                    #unless $ap.paired_cond.peaks_cond.i == ''
+                        -i '$ap.paired_cond.peaks_cond.i'
+                    #end unless
+                #end if
             #end if
             -b $ap.b
             -e $ap.e
@@ -38,18 +43,14 @@
             -p $ap.p
             -s $ap.s
             $ap.strictthresh
-            -u $ap.u
             ## required parameters (specific order)
             ${__tool_directory__}/tool-data/CHROMSIZES/${assembly}.txt ## chromosomelengthfile
-            input/data ## inputbeddir
+            input/bam ## inputbeddir
             '$cellmarkfiletable' ## cellmarkfiletable
-            output/data ## outputbinarydir
+            output/binary ## outputbinarydir
         ]]></command>
     <inputs>
-        <!-- excluded: -colfields, -gzip, -i, -j, -splitrows -->
-        <!-- included via wrapper:  -->
-
-        <param argument="inputbeddir" type="data" format="bam" multiple="true" label="Select bed input file(s)." help="Filenames have to match entries in cellmarkfiletable."/>
+        <param argument="inputbamdir" type="data" format="bam" multiple="true" label="Select bam input file(s)." help="Filenames have to match entries in cellmarkfiletable."/>
         <expand macro="cellmarkfiletable"/>
         <expand macro="assembly"/>
 
@@ -61,20 +62,34 @@
             <expand macro="p"/>
             <expand macro="s"/>
             <expand macro="strictthresh"/>
-            <expand macro="u"/>
-            <conditional name="assign_cond">
-                <param name="assign_sel" type="select" multiple="false" label="Select mode to determine the bin to assign a read." help="Center can make sense to use if the coordinates are based on already extended reads. If this option is selected, then the strand information of a read and the shift parameter are ignored. By default reads are assigned to a bin based on the position of its 5' end as determined from the strand of the read after shifting an amount determined by the -n option with respect to the strand orientation.. The number of bases a read should be shifted to determine a bin assignment. If bam files should be treated as peak calls, a '1' is called to any bin overlapping, which is not recommend for broad peak calls. If paired is present then reads in the BAM file are treated as pairs, and each pair is counted once with bin assignment is based on shifting half the insert size. (-center, -n, -peaks, -paired)">
-                    <option value="shift">Shift</option>
-                    <option value="center">Center</option>
-                    <option value="peaks">Peaks</option>
-                    <option value="paired">Paired</option>
+            <conditional name="paired_cond">
+                <param name="paired_sel" type="select" label="Should BAM files be treated as pairs?" help="Each pair is counted once with bin assignment is based on shifting half the insert size.">
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
                 </param>
-                <when value="shift">
-                    <param argument="-n" type="integer" value="100" label="Set number of bases a read should be shifted to determine a bin assignment." help="Bin assignment is based on the 5' end of a read shifted this amount with respect to the strand orientation."/>
+                <when value="no">
+                    <conditional name="assign_cond">
+                        <param name="assign_sel" type="select" multiple="false" label="Select mode to determine the bin to assign a read." help="Center can make sense to use if the coordinates are based on already extended reads. If this option is selected, then the strand information of a read and the shift parameter are ignored. By default reads are assigned to a bin based on the position of its 5' end as determined from the strand of the read after shifting an amount determined by the -n option with respect to the strand orientation.. The number of bases a read should be shifted to determine a bin assignment. If bam files should be treated as peak calls, a '1' is called to any bin overlapping, which is not recommend for broad peak calls. If paired is present then reads in the BAM file are treated as pairs, and each pair is counted once with bin assignment is based on shifting half the insert size. (-center, -n, -peaks, -paired)">
+                            <option value="shift">Shift</option>
+                            <option value="center">Center</option>
+                        </param>
+                        <when value="shift">
+                            <param argument="-n" type="integer" value="100" label="Set number of bases a read should be shifted to determine a bin assignment." help="Bin assignment is based on the 5' end of a read shifted this amount with respect to the strand orientation."/>
+                        </when>
+                        <when value="center"/>
+                    </conditional>
+                    <conditional name="peaks_cond">
+                        <param name="peaks_sel" type="select" label="Should bed files treated as peak calls?" help="Give a '1' call to any bin overlapping a peak call. Not recommend for broad peak calls. (-peaks)">
+                            <option value="no">No</option>
+                            <option value="yes">Yes</option>
+                        </param>
+                        <when value="no"/>
+                        <when value="yes">
+                            <param argument="-i" type="integer" value="" optional="true" label="Set splitindex." help="Generates row split files for each chromosome only for positions corresponding to rows in the interval [splitindex*numsplitbins, (splitindex+1)*numsplitbins]. This option enables greater parallel processing and reduced memory usage when binarizing based on peak files to generate. If using this option BinarizeBed should be run once for each value of splitindex between 0 and ceil(max(chromosome size)/(binsize*numsplitbins))-1. When using this option output is provided for all chromosomes in chromosomelengthfile opposed to just those that contain peaks."/>
+                        </when>
+                    </conditional>
                 </when>
-                <when value="center"/>
-                <when value="peaks"/>
-                <when value="paired"/>
+                <when value="yes"/>
             </conditional>
         </section>
         
@@ -82,16 +97,14 @@
             <expand macro="t"/>
         </section>
     </inputs>
-    <outputs>
-        <!-- one text file per cell identifier and chromosome; designation: <cellidentifier>_<chromosome>; e.g. GM12878_chr11_binary.txt -->
-        <expand macro="out_binary"/>
-        <!-- one text file per cell identifier and chromosome; designation: <cellidentifier>_<chromosome>; e.g. GM12878_chr11_signal.txt -->
+    <outputs>        
+        <expand macro="out_binary"/>        
         <expand macro="out_signal"/>
     </outputs>
-    <tests> 
+    <tests>
         <!-- #1; required parameters -->
-        <test>
-            <param name="inputbeddir" value="binarizebam_test_1.bam,binarizebam_test_2.bam"/>
+        <test expect_num_outputs="1">
+            <param name="inputbamdir" value="binarizebam_test_1.bam,binarizebam_test_2.bam"/>
             <param name="cellmarkfiletable" value="binarizebam_cellmark.txt"/>
             <param name="assembly" value="hg18"/>
             <output name="out_binary">
@@ -109,11 +122,11 @@
                         <has_line line="0"/>
                     </assert_contents>
                 </discovered_dataset>
-            </output>            
+            </output>
         </test>
         <!-- #2; advanced parameters, paired -->
-        <test>
-            <param name="inputbeddir" value="binarizebam_test_1.bam,binarizebam_test_2.bam"/>
+        <test expect_num_outputs="2">
+            <param name="inputbamdir" value="binarizebam_test_1.bam,binarizebam_test_2.bam"/>
             <param name="cellmarkfiletable" value="binarizebam_cellmark.txt"/>
             <param name="assembly" value="hg18"/>
             <section name="ap">
@@ -124,9 +137,15 @@
                 <param name="p" value="0.0002"/>
                 <param name="s" value="1"/>
                 <param name="strictthresh" value="true"/>
-                <param name="u" value="2"/>
-                <conditional name="assign_cond">
-                    <param name="assign_sel" value="center"/>
+                <conditional name="paired_cond">
+                    <param name="paired_sel" value="no"/>
+                    <conditional name="assign_cond">
+                        <param name="assign_sel" value="shift"/>
+                        <param name="n" value="110"/>
+                    </conditional>
+                    <conditional name="peaks_cond">
+                        <param name="peaks_sel" value="yes"/>
+                    </conditional>
                 </conditional>
             </section>
             <section name="oo">
@@ -163,8 +182,8 @@
                         <has_line line="0"/>
                     </assert_contents>
                 </discovered_dataset>
-            </output>           
-        </test>       
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 .. class:: infomark
@@ -173,7 +192,9 @@
 
 BinarizeBam @HELP_WID@
 
-This command converts coordinates of aligned reads into binarized data form from which a chromatin state model can be learned. The binarization is based on a poisson background model. If no control data is specified the parameter to the poisson distribution is the global average number of reads per bin. If control data is specified the global average number of reads is multiplied by the local enrichment for control reads as determined by the specified parameters. Optionally intermediate signal files can also be outputted and these signal files can later be directly converted into binary form using the BinarizeSignal command. 
+@HELP_CHROMHMM@
+
+BinarizeBam converts coordinates of aligned reads into binarized data form from which a chromatin state model can be learned. The binarization is based on a poisson background model. If no control data is specified the parameter to the poisson distribution is the global average number of reads per bin. If control data is specified the global average number of reads is multiplied by the local enrichment for control reads as determined by the specified parameters. Optionally intermediate signal files can also be outputted and these signal files can later be directly converted into binary form using the BinarizeSignal command. 
 
 **Input**
 

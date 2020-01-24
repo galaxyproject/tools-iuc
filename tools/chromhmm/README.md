@@ -1,6 +1,6 @@
 **Add assemblies**
 
-Additional assemblies provided by [ChromHMM](http://compbio.mit.edu/ChromHMM/ChromHMM_manual.pdf) can be used within this wrapper by adding the corresponding assembly files of the ChromHMM package to the tool-data directory and editing` tool-data/chromhmm_assemblies.loc` as follows: 
+Additional assemblies provided by [ChromHMM](http://compbio.mit.edu/ChromHMM/ChromHMM_manual.pdf) can be used within this wrapper by adding the corresponding assembly files of the ChromHMM package to the tool-data directory and editing `tool-data/chromhmm_assemblies.loc` as follows:
 
 	ce10	ce10	c10
 	ce11	ce11	ce11

@@ -1,55 +1,50 @@
 <?xml version="1.0"?>
 <tool id="chromhmm_evalsubset" name="chromHMM EvalSubset" version="@TOOL_VERSION@+@WRAPPER_VERSION@">
     <description>of chromatin states</description>
-
     <macros>
         <import>macros.xml</import>
     </macros>
-
     <expand macro="requirements"/>
-
-    <stdio></stdio>  
-
+    <stdio></stdio>
     <command detect_errors="exit_code"><![CDATA[
         ## initialize
-        ## segment files need to be in specific subfolders with specific name patterns
-        #set $suffix = 'segments'
-        ## folder, suffix, chr, extension
-        #set $template = ['','_segments','','bed'] 
-        #if $segments_sel == 'post'
-            #set $template = ['POSTERIOR/','_posterior','','txt']
-        #else if $segments_sel == 'state'
-            #set $template = ['STATEBYLINE/','_statebyline','','txt']
-        #end if
-        mkdir -p input/${template[0]}] &&
-        #set $available_marks = []
-        
-        ## numstates is the first value in the header of the model file
-        ## and will be used for the name pattern of '_segments' files
-        #set $numstates = [next(open(str($inputmodel))) for x in range(1)][0].split("\t")[0].strip()
-        ln -s '${inputmodel}' input/model.txt &&
-        
-        ## '_binary.txt', '_segments.bed' 'POSTERIOR/_posterior.txt' and 
-        ## 'STATEBYLINE/_statebyline.txt' filenames must match
+        @FUNCTIONS@
+        mkdir -p input/{POSTERIOR,STATEBYLINE} &&
+        @IN_MODEL@
+
+        #set $marks_available = []
+
+        ## binary, segments, posterior and statebyline filenames must match
         #for $i, $s in enumerate($input_rep)
-            #set $name = ''
-            #set $chr = ''
-            ## '_binary' file
-            #set $name = [next(open(str($s.inputdir))) for x in range(1)][0].split("\t")[0].strip()
-            #set $chr = [next(open(str($s.inputdir))) for x in range(1)][0].split("\t")[1].strip()
-            #unless $segments_sel == 'seg'
-                #set $template[2] = '_' + $chr
-            #end unless
-            ln -s '${s.inputdir}' input/${name}_${chr}_binary.txt &&
+            ## 0: cell; 1: chr
+            #set $listHeader = $fetchHeader($s.in_binary)
+
+            ## binary
+            ## <cell>_<chr>_binary.txt, e.g. GM12878_chr11_binary.txt
+            echo $listHeader &&
+            ln -s '${s.in_binary}' 'input/${listHeader[0]}_${listHeader[1]}_binary.txt' &&
+
+            ## segments
+            ## <cell>_<numstates>_segments.bed, e.g. GM12878_2_segments.bed
+            #if $inputtype == 'seg'
+                ln -s '${s.seg_post_state}' 'input/${listHeader[0]}_${numstates}_segments.bed' &&
+            ## posterior
+            ## POSTERIOR/<cell>_<numstates>_<chr>_posterior.txt, e.g. GM12878_2_chr11_posterior.txt
+            #else if $inputtype == 'post'
+                ln -s '${s.seg_post_state}' 'input/POSTERIOR/${listHeader[0]}_${numstates}_${listHeader[1]}_posterior.txt' &&
+            ## statebyline
+            ## STATEBYLINE/<cell>_<numstates>_<chr>_statebyline.txt, e.g. GM12878_2_chr11_statebyline.txt
+            #else if $inputtype == 'state'
+                ln -s '${s.seg_post_state}' 'input/STATEBYLINE/${listHeader[0]}_${numstates}_${listHeader[1]}_statebyline.txt' &&
+            #end if
+
             ## marks can be found in the second (== 1) line of every '_binary.txt' file
-            #set $available_marks = [x for j, x in enumerate(open(str($s.inputdir))) if j == 1][0].strip().split()
-            ## '_segments.bed', '_posterior.txt' or '_statebyline.txt' file
-            ln -s '${s.segments}' input/${template[0]}${name}_${numstates}${template[2]}${template[1]}.${template[3]} &&
+            #set $marks_available = [x for j, x in enumerate(open(str($s.in_binary))) if j == 1][0].strip().split()
         #end for
 
-        ## create bit string with "1" for a mark selected by user, and "0" else
-        #set $selected_marks = str($includemarks).strip().split(',')
-        #set $bit_marks = "".join(["1" if j in $selected_marks else "0" for j in $available_marks])
+        ## create bit string with '1' for a mark selected by user, and '0' else
+        #set $marks_selected = str($includemarks).strip().split(',')
+        #set $marks_bit = ''.join(['1' if j in $marks_selected else '0' for j in $marks_available])
 
         ## run
         @RUN@
@@ -59,89 +54,89 @@
                 -append
             #end if
             -b $ap.b
-            -color $oo.color
             $ap.many
             $ap.scalebeta
-            ## required parameters
-            ## readposterior, readstatesbyline not required per se,
-            ## but to important to hide them in ap section
-            #if $segments_sel == 'post'
+            -color '$oo.color'
+            ## required parameters (specific order)
+            #if $inputtype == 'post'
                 -readposterior
-            #else if $segments_sel == 'state'
+            #else if $inputtype == 'state'
                 -readstatesbyline
             #end if
-            input/model.txt ## inputmodel
-            input ##/binary ## inputdir
-            input ##/segments ## segmentdir, required, even if empty
-            matrix ## outconfusionfileprefix
-            $bit_marks ##includemarks
+            'model_${numstates}.txt' ## inputmodel
+            input ## inputdir
+            input ## segmentdir, required, even if empty
+            evalsubset ## outconfusionfileprefix
+            '$marks_bit' ## includemarks    
         ]]></command>
     <inputs>
-        <!-- excluded: -->
-        <!-- imitated with additional output options: -noimage -->
-        <param argument="inputmodel" type="data" format="txt" multiple="false" label="Select file with model parameters." help="Usually a textfile with the prefix 'model_'."/>      
-        <param name="segments_sel" type="select" label="Select input file type." help="EvalSubSet can use four column segmentation bed files, a posterior probability or single states per line. If the posterior is used the confusion matrix is based on soft assignments as described in Ernst and Kellis, Nature Biotech 2010. (segmentdir, -readposterior, readstatesbyline)">
+        <expand macro="in_model" argument="(inputmodel)"/>
+        <param name="inputtype" type="select" label="Select input file type." help="EvalSubSet can use four column segmentation bed files, a posterior probability or single states per line. If the posterior is used the confusion matrix is based on soft assignments. Only one file type is accepted per run. (segmentdir, -readposterior, -readstatesbyline)">
             <option value="seg">Segmentation</option>
             <option value="post">Posterior</option>
             <option value="state">StateByLine</option>
         </param>
-        <repeat name="input_rep" title="Dataset" min="1" help="Only group '_binary.txt' and '_segements.bed' files of the same dataset together, e.g. GM12878.">
-            <param argument="inputdir" type="data" format="txt" label="Select binary input file(s)." help="Usually text files with suffix '_binary'."/>      
-            <param name="segments" type="data" format="bed,txt" label="Select segmentation, posterior or statebyline file(s)" help="Only one file type is accepted per run."/>            
+        <repeat name="input_rep" title="Dataset" min="1" help="Per celltype and chromosome only one binary and corresponding posterior/statebyline/segment file allowed.">
+            <expand macro="in_binary" multiple="false" label="Select binary input file."/>
+            <param name="seg_post_state" type="data" format="bed,txt" label="Select segmentation, posterior or statebyline file" help="Only one file type is accepted per run."/>
         </repeat>
         <param argument="includemarks" type="text" value="" label="Set mark(s) to be included." help="Comma separated list, e.g. H3K9ac,H4K20me1,WCE">
             <validator type="empty_field"/>
         </param>
-        <!-- advanced parameters -->
+
         <section name="ap" title="Advanced parameters">
-            <param argument="-b" type="integer" value="200" min="0" label="Set binsize." help="The number of base pairs in a bin determining the resolution of the model learning and segmentation."/>
-            <param argument="-many" type="boolean" truevalue="-many" falsevalue="" checked="false" label="Activate many features procedure?" help="Use a slower, but more numerically stable procedure for evaluating the emission parameters. Should be used if there are several hundreds of features."/>
-            <param argument="-scalebeta" type="boolean" truevalue="-scalebeta" falsevalue="" checked="false" label="Set scale beta." help="Change the internal numerical procedure for computing the backward variables that can prevent numerical overflow observed in specialized settings. Specifically the backward variables are rescaled based on the sum of their values at a position opposed to reusing the scaling of the forward variables. Numerical underflow is prevented by setting the beta values to 10^(-300) if they fall below that, and likewise for the forward variables with the added condition that emission must evaluate greater than 0 at the position."/>
+            <expand macro="b"/>
+            <expand macro="many"/>
+            <expand macro="scalebeta"/>
         </section>
-        <!-- output options -->
+
         <section name="oo" title="Output options">
-            <param name="matrix" type="select" multiple="true" label="Confusion matrix: Which files should be created?" help="">
-                <!-- txt is always generated-->
-                <option value="png">png</option>
-                <option value="svg">svg</option>
-            </param>
+            <expand macro="color"/>
             <param argument="-append" type="select" label="Append output to result or overwrite it? " help="">
                 <option value="overwritten">Overwrite</option>
                 <option value="append">Append</option>
             </param>
-            <param argument="-color" type="text" value="0,0,255" label="Set heatmap colors." help="Integer values between 0 and 255, separated by commas."/>
+            <param name="matrix" type="select" multiple="true" label="Confusion matrix: Which files should be created?" help="">
+                <option value="txt" selected="true">txt</option>
+                <option value="png">png</option>
+                <option value="svg">svg</option>
+            </param>
         </section>
     </inputs>
-
     <outputs>
-        <data name="out_matrix_txt" format="txt" from_work_dir="matrix.txt" label="${tool.name} on $(on_string) Confusion Matrix, txt"/>
-        <data name="out_matrix_png" format="png" from_work_dir="matrix.png" label="${tool.name} on $(on_string) Confusion Matrix, png">
+        <data name="out_matrix_txt" format="txt" from_work_dir="evalsubset.txt" label="${tool.name} on $(on_string) Confusion Matrix, txt">
+            <filter>'txt' in str(oo['matrix'])</filter>
+        </data>
+        <data name="out_matrix_png" format="png" from_work_dir="evalsubset.png" label="${tool.name} on $(on_string) Confusion Matrix, png">
             <filter>'png' in str(oo['matrix'])</filter>
         </data>
-        <data name="out_matrix_svg" format="svg" from_work_dir="matrix.svg" label="${tool.name} on $(on_string) Confusion Matrix, svg">
+        <data name="out_matrix_svg" format="svg" from_work_dir="evalsubset.svg" label="${tool.name} on $(on_string) Confusion Matrix, svg">
             <filter>'svg' in str(oo['matrix'])</filter>
         </data>
-    </outputs> 
-
-    <tests> 
-        <!-- #1 only required parameters, all outputs -->
-        <test>
-            <param name="inputmodel" value="model_2.txt"/>
-            <param name="segments_sel" value="seg"/>
+    </outputs>
+    <tests>
+        <!-- #1; required parameters; all outputs -->
+        <test expect_num_outputs="3">
+            <param name="in_model" value="model_2.txt"/>
+            <param name="inputtype" value="seg"/>
             <repeat name="input_rep">
-                <param name="inputdir" value="GM12878_chr11_binary.txt.gz"/>
-                <param name="segments" value="GM12878_2_segments.bed.gz"/>
+                <param name="in_binary" value="GM12878_chr11_binary.txt.gz"/>
+                <param name="seg_post_state" value="GM12878_2_segments.bed.gz"/>
             </repeat>
             <repeat name="input_rep">
-                <param name="inputdir" value="K562_chr11_binary.txt.gz"/>
-                <param name="segments" value="K562_2_segments.bed.gz"/>
+                <param name="in_binary" value="K562_chr11_binary.txt.gz"/>
+                <param name="seg_post_state" value="K562_2_segments.bed.gz"/>
             </repeat>
             <param name="includemarks" value="CTCF,H3K27ac"/>
             <section name="oo">
-                <param name="matrix" value="png,svg"/>
+                <param name="matrix" value="png,svg,txt"/>
             </section>
             <output name="out_matrix_png" file="evalsubset_test1.png"/>
-            <output name="out_matrix_svg" file="evalsubset_test1.svg"/>
+            <output name="out_matrix_svg">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                </assert_contents>
+            </output>
             <output name="out_matrix_txt">
                 <assert_contents>
                     <has_line_matching expression="EvalSubset&#009;1100000000.+"/>
@@ -149,17 +144,17 @@
                 </assert_contents>
             </output>
         </test>
-        <!-- #2 posterior, no defaults -->
-        <test>
-            <param name="inputmodel" value="model_2.txt"/>
-            <param name="segments_sel" value="post"/>
+        <!-- #2; advanced parameters; posterior, no defaults -->
+        <test expect_num_outputs="2">
+            <param name="in_model" value="model_2.txt"/>
+            <param name="inputtype" value="post"/>
             <repeat name="input_rep">
-                <param name="inputdir" value="GM12878_chr11_binary.txt.gz"/>
-                <param name="segments" value="GM12878_2_chr11_posterior.txt.gz"/>
+                <param name="in_binary" value="GM12878_chr11_binary.txt.gz"/>
+                <param name="seg_post_state" value="GM12878_2_chr11_posterior.txt.gz"/>
             </repeat>
             <repeat name="input_rep">
-                <param name="inputdir" value="K562_chr11_binary.txt.gz"/>
-                <param name="segments" value="K562_2_chr11_posterior.txt.gz"/>
+                <param name="in_binary" value="K562_chr11_binary.txt.gz"/>
+                <param name="seg_post_state" value="K562_2_chr11_posterior.txt.gz"/>
             </repeat>
             <param name="includemarks" value="CTCF,H3K27ac,H3K27me3,H3K36me3,H3K4me1,H3K4me2,H3K4me3,H3K9ac,H4K20me1,WCE"/>
             <section name="ap">
@@ -168,7 +163,7 @@
                 <param name="scalebeta" value="true"/>
             </section>
             <section name="oo">
-                <param name="matrix" value="png"/>
+                <param name="matrix" value="txt,png"/>
                 <param name="append" value="append"/>
                 <param name="color" value="180,10,200"/>
             </section>
@@ -180,26 +175,6 @@
             </output>
             <output name="out_matrix_png" file="evalsubset_test2.png"/>
         </test>
-        <!-- #3 statebyline, no defaults -->
-        <test>
-            <param name="inputmodel" value="model_2.txt"/>
-            <param name="segments_sel" value="state"/>
-            <repeat name="input_rep">
-                <param name="inputdir" value="GM12878_chr11_binary.txt.gz"/>
-                <param name="segments" value="GM12878_2_chr11_statebyline.txt.gz"/>
-            </repeat>
-            <repeat name="input_rep">
-                <param name="inputdir" value="K562_chr11_binary.txt.gz"/>
-                <param name="segments" value="K562_2_chr11_statebyline.txt.gz"/>
-            </repeat>
-            <param name="includemarks" value="CTCF,H3K27ac,H3K27me3,H3K36me3,H3K4me1,H3K4me2,H3K4me3,H3K9ac,H4K20me1,WCE"/>
-            <output name="out_matrix_txt">
-                <assert_contents>
-                    <has_line_matching expression="EvalSubset&#009;1111111111.+"/>
-                    <has_n_lines n="4"/>
-                </assert_contents>
-            </output>
-        </test>
     </tests>
     <help><![CDATA[
 .. class:: infomark
@@ -207,6 +182,8 @@
 **What it does**
 
 EvalSubset @HELP_WID@
+
+@HELP_CHROMHMM@
 
 EvalSubset evaluates the extent to which an existing segmentation can be recovered using only a subset of marks. The method takes an input the model used to generate an existing segmentation, the data used to generate the segmentation, the existing segmentation, an output file prefix, and which subset of marks to include. The output is a confusion matrix comparing the state assignments based on the full set of marks and those based on using the model learned on the full data but with the state assignments generated based only on a subset of inputs. Each row of the confusion matrix indicates the proportion of state assignments based on the full marks assigned to each state using a subset of marks (columns).
 
