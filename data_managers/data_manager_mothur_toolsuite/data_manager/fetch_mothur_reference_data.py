@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 import urllib2
 import zipfile
+from functools import reduce
 
 # When extracting files from archives, skip names that
 # start with the following strings

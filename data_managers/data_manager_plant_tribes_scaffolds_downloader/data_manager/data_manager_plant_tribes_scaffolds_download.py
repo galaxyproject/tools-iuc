@@ -62,7 +62,7 @@ def url_download(url, work_directory):
             else:
                 break
     except Exception as e:
-        print >>sys.stderr, str(e)
+        print(str(e), file=sys.stderr)
     finally:
         if src:
             src.close()
