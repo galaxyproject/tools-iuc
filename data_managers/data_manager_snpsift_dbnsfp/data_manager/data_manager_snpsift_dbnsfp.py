@@ -120,7 +120,7 @@ def download_dbnsfp_database(url, output_file):
                         tfh.close()
                         tempfiles.append(file + "_%d" % len(tempfiles))
                         tfh = open(tempfiles[-1], 'w')
-                        print( "%s [%d] pos: %d < %d" % (file, i, pos, lastpos), file=sys.stderr)
+                        print("%s [%d] pos: %d < %d" % (file, i, pos, lastpos), file=sys.stderr)
                     lastpos = pos
                 tfh.write(line)
             tfh.close()
