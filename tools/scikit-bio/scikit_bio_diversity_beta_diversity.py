@@ -4,7 +4,7 @@
 # using scikit-bio
 # Daniel Blankenberg
 
-import codecs
+import io
 import optparse
 import sys
 
@@ -55,7 +55,7 @@ def __main__():
     counts = [[] for x in columns]
     sample_names = []
     otu_names = []
-    with codecs.open(options.input, 'r', encoding="utf-8") as fh:
+    with io.open(options.input, 'r', encoding="utf-8") as fh:
         if options.header:
             header = fh.readline().rstrip('\n\r').split(DELIMITER)
             sample_names = [header[i] for i in columns]
@@ -78,7 +78,7 @@ def __main__():
         extra_kwds['otu_ids'] = otu_names
     if options.distance_metric in NEEDS_TREE:
         assert options.tree, Exception("You must provide a newick tree when using '%s'" % options.distance_metric)
-        with codecs.open(options.tree, 'r', 'utf-8') as fh:
+        with io.open(options.tree, 'r', 'utf-8') as fh:
             extra_kwds['tree'] = TreeNode.read(fh)
 
     bd_dm = beta_diversity(options.distance_metric, counts, ids=sample_names, **extra_kwds)
