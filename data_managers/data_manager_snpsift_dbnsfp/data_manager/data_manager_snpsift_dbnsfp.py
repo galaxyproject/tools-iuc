@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 
 import gzip
 import json
@@ -82,7 +83,7 @@ def get_annotations(gzip_path):
 
 
 def tabix_file(input_fname, output_fname):
-    print >> sys.stdout, "tabix_file: %s -> %s" % (input_fname, output_fname)
+    print("tabix_file: %s -> %s" % (input_fname, output_fname))
     ctabix.tabix_compress(input_fname, output_fname, force=True)
     # Column indices are 0-based.
     ctabix.tabix_index(output_fname, seq_col=0, start_col=1, end_col=1)
@@ -119,7 +120,7 @@ def download_dbnsfp_database(url, output_file):
                         tfh.close()
                         tempfiles.append(file + "_%d" % len(tempfiles))
                         tfh = open(tempfiles[-1], 'w')
-                        print >> sys.stderr, "%s [%d] pos: %d < %d" % (file, i, pos, lastpos)
+                        print("%s [%d] pos: %d < %d" % (file, i, pos, lastpos), file=sys.stderr)
                     lastpos = pos
                 tfh.write(line)
             tfh.close()
