@@ -1,0 +1,481 @@
+<tool id="qualimap_bamqc" name="QualiMap BamQC" version="@VERSION@+galaxy1">
+    <macros>
+        <import>qualimap_macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <expand macro="version_command" />
+    <command detect_errors="exit_code"><![CDATA[
+        #import os
+        @SET_JAVA_OPTS@ &&
+
+        ## Set some default file names and paths
+        ## where we expect tool output to end up.
+        ## Note that most of these need to be overwritten if the user is
+        ## interested in regions *outside* those defined in a custom regions
+        ## file.
+        #set $out_dir = 'results'
+        #set $report_name = 'qualimapReport'
+        #set $summary_report = 'genome_results.txt'
+        #set $coverage_file = os.path.join($out_dir, 'coverage.txt')
+        ## This is the only file path that qualimap does not calculate
+        ## from $out_dir.
+        #set $per_base_coverage_target = $coverage_file
+
+        #if str($stats_regions.region_select) == 'custom_regions':
+            ## Have qualimap detect file format by suffix
+            ## since its autodetection is unreliable.
+            #set $regions_file = '.'.join(['regions', str($stats_regions.regions.ext)])
+            ln -s '${stats_regions.regions}' ${regions_file} &&
+
+            #if $stats_regions.outside_stats:
+                #set $report_name = 'qualimapReportOutsideRegions'
+                #set $summary_report = 'outside_results.txt'
+                #set $coverage_file = os.path.join(
+                    $out_dir, 'outside_coverage.txt'
+                )
+                #if $per_base_coverage:
+                    #set $per_base_coverage_target = '/dev/null'
+                #end if
+            #end if
+        #end if
+
+        qualimap bamqc
+        -bam '$input1' -outdir results -outformat html
+        --collect-overlap-pairs
+        #if str($stats_regions.region_select) == 'custom_regions':
+            -gff ${regions_file} ${stats_regions.outside_stats}
+        #end if
+        #if $per_base_coverage:
+            $per_base_coverage $per_base_coverage_target
+        #end if
+        -nw ${plot_specific.n_bins}
+        ${plot_specific.paint_chromosome_limits}
+        #if $plot_specific.genome_gc_distr:
+          --genome-gc-distr ${plot_specific.genome_gc_distr}
+        #end if
+        -hm ${plot_specific.homopolymer_size}
+
+        #if $duplicate_skipping:
+          --skip-duplicated
+          #if str($duplicate_skipping) == '0,1':
+            --skip-dup-mode 2
+          #else:
+            --skip-dup-mode ${duplicate_skipping}
+          #end if
+        #end if
+        -nt \${GALAXY_SLOTS:-1} &&
+
+        #if $per_base_coverage:
+            mv $coverage_file '$output_per_base_coverage' &&
+        #end if
+        @MASSAGE_OUTPUT@
+    ]]></command>
+    <inputs>
+        <param argument="-bam" name="input1" type="data" format="bam"
+        label="Mapped reads input dataset" />
+        <conditional name="stats_regions">
+            <param name="region_select" type="select" label="Reference genome regions to calculate mapping statistics for">
+                <option value="all">All (whole genome)</option>
+                <option value="custom_regions">Select regions</option>
+            </param>
+            <when value="all" />
+            <when value="custom_regions">
+                <param argument="-gff" name="regions" type="data" format="gff,gtf,bed"
+                label="Dataset specifying regions" />
+                <param argument="-os" name="outside_stats" type="boolean" truevalue="--outside-stats" falsevalue="" checked="false"
+                label="Invert regions"
+                help="If selected, report read statistics *outside* the regions in the regions file." />
+            </when>
+        </conditional>
+        <param argument="-oc" name="per_base_coverage" type="boolean" truevalue="--output-genome-coverage" falsevalue="" checked="false"
+        label="Generate per-base coverage output"
+        help="Produce additional tabular output listing the coverage at every site (omitting only zero-coverage positions) in the selected regions of the genome. Caution: Will generate a huge dataset for anything but small input genomes or restricted regions!" />
+        <param argument="--skip-dup-mode" name="duplicate_skipping" type="select" display="checkboxes" multiple="true" optional="true"
+        label="Skip duplicate reads">
+            <option value="0" selected="true">Reads flagged as duplicates in input</option>
+            <option value="1">Duplicates detected by Qualimap</option>
+        </param>
+        <section name="plot_specific" title="Settings affecting specific plots" expanded="false">
+            <param argument="-nw" name="n_bins" type="integer" value="400"
+            label="Number of bins to use in across-reference plots"
+            help="Affected plots: Coverage, Mapping Quality and Insert Size across reference, Mapped reads GC-content distribution; the value determines the resolution of the affected plots. Note: The lower the value, the higher the memory usage of the tool!" />
+            <param argument="-c" name="paint_chromosome_limits" type="boolean" truevalue="--paint-chromosome-limits" falsevalue="" checked="true"
+            label="Draw chromosome limits"
+            help="Affected plots: Coverage, Mapping Quality and Insert Size across reference; in across-reference plots, indicate chromosome boundaries with dotted lines and labels" />
+            <param argument="-gd" name="genome_gc_distr" type="select" optional="true"
+            label="Plot expected GC-content distribution of the following reference genome"
+            help="Affected plot: Mapped reads GC-content distribution; include a precalculated GC-content distribution for the selected (Qualimap-supported) reference genome in the plot">
+                <option value="hg19">Human genome (hg19)</option>
+                <option value="mm9">Mouse genome (mm9)</option>
+                <option value="mm10">Mouse genome (mm10)</option>
+            </param>
+            <param argument="-hm" name="homopolymer_size" type="integer" value="3" min="2"
+            label="Homopolymer size"
+            help="Affected plot: Homopolymer indels; sets the minimal number of consecutive bases that define a homopolymer" />
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_html" format="html"
+        label="${tool.name} report on ${on_string}" />
+        <data name="output_per_base_coverage" format="tsv"
+        label="${tool.name} per-base coverage on ${on_string}">
+            <filter>per_base_coverage</filter>
+        </data>
+        <collection name="raw_data" type="list"
+        label="Raw data for ${tool.name} on ${on_string}">
+            <data name="genome_results" format="txt" from_work_dir="results/summary_report.txt" />
+            <data name="coverage_across_reference" format="tsv" from_work_dir="results/coverage_across_reference.txt" />
+            <data name="coverage_histogram" format="tsv" from_work_dir="results/coverage_histogram.txt" />
+            <data name="genome_fraction_coverage" format="tsv" from_work_dir="results/genome_fraction_coverage.txt" />
+            <data name="duplication_rate_histogram" format="tsv" from_work_dir="results/duplication_rate_histogram.txt" />
+            <data name="mapped_reads_clipping_profile" format="tsv" from_work_dir="results/mapped_reads_clipping_profile.txt" />
+            <data name="mapped_reads_gc-content_distribution" format="tsv" from_work_dir="results/mapped_reads_gc-content_distribution.txt" />
+            <data name="mapped_reads_nucleotide_content" format="tsv" from_work_dir="results/mapped_reads_nucleotide_content.txt" />
+            <data name="mapping_quality_across_reference" format="tsv" from_work_dir="results/mapping_quality_across_reference.txt" />
+            <data name="mapping_quality_histogram" format="tsv" from_work_dir="results/mapping_quality_histogram.txt" />
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="12">
+            <param name="input1" value="test_mapped_reads.bam"/>
+            <output name="output_html" ftype="html">
+                <assert_contents>
+                    <has_text text="Qualimap report: BAM QC" />
+                </assert_contents>
+            </output>
+            <output_collection name="raw_data" type="list">
+                <element name="genome_results" file="genome_results_default.txt" ftype="txt" compare="diff" lines_diff="2" />
+            </output_collection>
+        </test>
+        <test expect_num_outputs="13">
+            <param name="input1" value="test_mapped_reads.bam" />
+            <param name="per_base_coverage" value="true" />
+            <output name="output_html" ftype="html">
+                <assert_contents>
+                    <has_text text="Qualimap report: BAM QC" />
+                </assert_contents>
+            </output>
+            <output name="output_per_base_coverage" file="per_base_coverage_default.txt" ftype="tsv" />
+            <output_collection name="raw_data" type="list">
+                <element name="genome_results" file="genome_results_default.txt" ftype="txt" compare="diff" lines_diff="2" />
+            </output_collection>
+        </test>
+        <test expect_num_outputs="12">
+            <param name="input1" value="test_mapped_reads.bam"/>
+            <conditional name="stats_regions">
+                <param name="region_select" value="custom_regions" />
+                <param name="regions" value="features.gtf" />
+            </conditional>
+            <output name="output_html" ftype="html">
+                <assert_contents>
+                    <has_text text="Qualimap report: BAM QC" />
+                </assert_contents>
+            </output>
+            <output_collection name="raw_data" type="list">
+                <element name="genome_results" file="genome_results_inside_features.txt" ftype="txt" compare="diff" lines_diff="2" />
+            </output_collection>
+        </test>
+        <test expect_num_outputs="13">
+            <param name="input1" value="test_mapped_reads.bam" />
+            <conditional name="stats_regions">
+                <param name="region_select" value="custom_regions" />
+                <param name="regions" value="features.gtf" />
+            </conditional>
+            <param name="per_base_coverage" value="true" />
+            <output name="output_html" ftype="html">
+                <assert_contents>
+                    <has_text text="Qualimap report: BAM QC" />
+                </assert_contents>
+            </output>
+            <output name="output_per_base_coverage" file="per_base_coverage_inside_features.txt" ftype="tsv" />
+            <output_collection name="raw_data" type="list">
+                <element name="genome_results" file="genome_results_inside_features.txt" ftype="txt" compare="diff" lines_diff="2" />
+            </output_collection>
+        </test>
+        <test expect_num_outputs="13">
+            <param name="input1" value="test_mapped_reads.bam" />
+            <conditional name="stats_regions">
+                <param name="region_select" value="custom_regions" />
+                <param name="regions" value="features.gtf" />
+                <param name="outside_stats" value="true" />
+            </conditional>
+            <param name="per_base_coverage" value="true" />
+            <output name="output_html" ftype="html">
+                <assert_contents>
+                    <has_text text="Qualimap report: BAM QC" />
+                </assert_contents>
+            </output>
+            <output name="output_per_base_coverage" file="per_base_coverage_outside_features.txt" ftype="tsv" />
+            <output_collection name="raw_data" type="list">
+                <element name="genome_results" file="genome_results_outside_features.txt" ftype="txt" compare="diff" lines_diff="2" />
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+**Qualimap BAM QC** lets you evaluate the quality of aligned reads data in BAM
+format. The tool summarizes basic statistics of the alignment (number of reads,
+coverage, GC-content, etc.) and produces a number of useful graphs for their
+interpretation.
+
+The analysis can be performed with any kind of sequencing data, such as
+whole-genome sequencing, exome sequencing, RNA-seq or ChIP-seq data.
+
+In addition, it is possible to provide an annotation file so the results are
+computed for the reads mapping inside (and optionally outside) of the
+corresponding genomic regions, which can be especially useful for evaluating
+target-enrichment sequencing studies.
+
+Input
+=====
+
+*Mapped reads input dataset*
+
+The dataset holding the mapped reads to carry out the analysis with.
+
+*Dataset specifying regions*
+
+If you decide to calculate mapping statistics for selected regions of the
+reference genome (instead of for the whole genome), you need to specify the
+regions through this additional dataset in gtf, gff or bed format.
+
+.. class:: infomark
+
+   A typical problem when working with regions (and genome annotation data, in general) is potential inconsistency between the chromosome names used in the mapped reads input versus those used to define the regions. In the case of the human genome, for example, UCSC data has chromosomes starting with a 'chr' prefix, which is lacking from Ensemble data. This simple form of the problem is handled by Qualimap: if chromosome names in the regions input have a 'chr' prefix, Qualimap will add that prefix to the mapped reads chromosome names as needed. For more complex cases you will have to adjust your inputs manually.
+
+
+Parameters
+----------
+
+*Reference genome regions to calculate mapping statistics for*
+
+Choose whether you would like to have mapping statistics reported across
+
+- the entire reference genome
+  (as specified in the header of the mapped reads input)
+
+- specific regions of the reference
+
+In the second case, you need to select a *Dataset specifying regions* (see
+above). Using the *Invert regions* switch you can then indicate whether you
+want to select or exclude the regions in this dataset.
+
+*Generate per-base coverage output*
+
+*Skip duplicate reads*
+
+The tool lets you skip alignments of duplicate reads from the analysis.
+Depending on whether you select none, either one, or both of the available
+options, you can decide to:
+
+- not correct for duplicate reads at all (*e.g.* because you have removed them
+  at an earlier step with some dedicated tool)
+- identify and flag duplicate reads with a dedicated tool (like ``Picard
+  MarkDuplicates`` or ``samtools markdup``), then have Qualimap ignore the
+  duplicate-flagged reads (recommended, most flexible option since other tools
+  can be told to ignore the same reads)
+- have Qualimap identify potential duplicates by itself and ignore them
+- combine external and Qualimap-internal duplicate detection for extra
+  stringency
+
+Independent of your selection, the HTML report will always list (in the
+`Globals` section of the `Summary`) the number of duplicated reads estimated by
+Qualimap. If you choose to skip duplicates, you will also be informed about the
+number of skipped reads in that same section and, if you instruct Qualimap to
+look for the duplicate flag on reads, the number of reads flagged as duplicates
+will also be reported here.
+
+**Section: Settings affecting specific plots**
+
+Parameters in this section only affect some (or even only one) of the plots
+contained in the HTML report (and the corresponding part of the *Raw Data*
+output collection).
+
+For most of these options, the parameter help above should be descriptive
+enough. Just a few more words on two of them:
+
+*Number of bins to use in across-reference plots*
+
+This value is used for computing the various graphs that plot information
+across the reference. Basically, the reference genome gets split into the given
+number of bins, and reads falling in the same bin are aggregated in the
+statistics of that bin.
+
+Thus, the higher the number of bins, the higher the resolution of the plots,
+but more bins also require longer time for their statistics to be computed.
+Less bins, on the other hand, mean more reads will have to be aggregated per
+bin and this comes with higher memory requirements. Hence, if the tool fails
+with an ``Out Of Memory`` error, you may want to rerun it with a higher bin
+number.
+
+*Plot expected GC-content distribution of the following reference genome*
+
+The choice of reference genomes with pre-calculated GC distributions is built
+into Qualimap.
+
+Future releases of Qualimap may include more choices, but the current version
+is limited to those offered here.
+
+
+Outputs
+=======
+
+HTML Report
+-----------
+
+**Summary Section**
+
+*Globals*
+
+This section contains information about the total number of reads, number of mapped reads, paired-end mapping performance, read length distribution,
+number of clipped reads and duplication rate (estimated from the start positions of read alignments).
+
+*ACGT Content*
+
+Nucleotide content and GC percentage in the mapped reads.
+
+*Coverage*
+
+Mean and standard deviation of the coverage depth.
+
+*Mapping quality*
+
+Mean mapping quality of the mapped reads.
+
+*Insert size*
+
+Mean, standard deviation and percentiles of the insert size distribution if applicable. The features are computed based on the TLEN field of the SAM file.
+
+*Mismatches and indels*
+
+The section reports general alignment error rate (computed as a ratio of total collected edit distance to the number of mapped bases), total number of mismatches and total number of indels (computed from the CIGAR values). Additionally fraction of the homopolymer indels among total indels is provided. Note, the error rate and mismatches metrics are based on optional fields of a SAM record (NM for edit distance, MD for mismatches). The features are not reported if these fields are missing in the SAM file.
+
+*Chromosome stats*
+
+Number of mapped bases, mean and standard deviation of the coverage depth for each chromosome as defined by the header of the SAM file.
+
+For region-based analysis the information is given inside of regions, including some additional information like, for example, number of correct strand reads.
+
+
+**Plots**
+
+*Coverage Across Reference*
+
+This plot consists of two figures.
+The upper figure provides the coverage distribution (red line) and coverage
+deviation across the reference sequence.
+The lower figure shows GC content across reference (black line) together with
+its average value (red dotted line).
+
+*Coverage Histogram*
+
+Histogram of the number of genomic locations having a given coverage rate.
+The bins of the x-axis are conveniently scaled by aggregating some coverage
+values in order to produce a representative histogram also in presence of the
+usual NGS peaks of coverage.
+
+*Coverage Histogram (0-50X)*
+
+Similar to the previous plot, but in this graph genome locations with a
+coverage greater than 50X are grouped into the last bin.
+By doing so a higher resolution of the most common values for the coverage rate
+is obtained.
+
+*Genome Fraction Coverage*
+
+Provides a visual way of knowing how much reference has been sequenced to at
+least a given coverage rate.
+This graph should be interpreted as in this example:
+If one aims for a coverage rate of at least 25X (x-axis), how much of the
+reference (y-axis) will be considered?
+
+*Duplication Rate Histogram*
+
+This plot shows the distribution of duplicated reads.
+Due to several factors (*e.g.* amount of starting material, sample preparation,
+*etc.*) it is possible that the same fragments are sequenced several times.
+For some experiments where enrichment is used (*e.g.* ChIP-seq ) this is
+expected to some degree.
+For most experiments, however, a high duplication level of the reads indicates
+some unwanted bias.
+
+*Mapped Reads Nucleotide Content*
+
+This plot shows the nucleotide content per position of the mapped reads.
+
+*Mapped Reads GC Content Distribution*
+
+This graph shows the distribution of GC-content per mapped read.
+If compared with a precomputed genome distribution, this plot allows to check
+if there is a shift in the GC content.
+
+*Mapped Reads Clipping Profile*
+
+Represents the percentage of clipped bases across the reads.
+Technically, the clipping is detected via SAM format CIGAR codes ‘H’
+(hard clipping) and ‘S’ (soft clipping).
+In addition, the total number of clipped reads can be found in the report
+`Summary` section.
+
+This plot is not shown if no clipped reads are found.
+
+*Homopolymer Indels*
+
+This bar plot shows the number of indels that are located within A, C, G and T
+homopolymers, respectively, as well as the number of indels that are not within
+any homopolymer. Large numbers of homopolymer indels may indicate a problem in
+the sequencing process.
+Technically, Qualimap identifies indels from the CIGAR code of the aligned
+reads. Indel statistics can also be found in a dedicated section of the report
+`Summary`.
+
+This graph is not shown if the sample doesn’t contain any indels.
+
+*Mapping Quality Across Reference*
+
+This plot provides the mapping quality distribution across the reference.
+To construct the plot, the mean mapping quality is computed for each bin.
+
+*Mapping Quality Histogram*
+
+Histogram of the number of genomic locations having a given mapping quality.
+To construct the histogram the mean mapping quality is computed at each genome
+position with non-zero coverage and collected.
+According to the SAM/BAM format specifications, the range for the mapping
+quality score is [0-255].
+
+*Insert Size Across Reference*
+
+This plot provides the insert size distribution across the reference.
+Technically, the insert size of each pair of aligned reads is collected from
+the SAM alignment field `TLEN`. Only positive values are taken into account.
+To construct the plot, the mean insert size is computed for each bin.
+
+*Insert Size Histogram*
+
+Histogram of insert size distribution.
+
+
+Raw Data
+--------
+
+This is a *Collection* of 10 individual datasets.
+
+The *genome_results* dataset provides a plain-text summary of key statistics,
+most of which can also be found in the *Summary* section of the *HTML Report*.
+
+The remaining 9 datasets hold the tabular raw data underlying the plots of the corresponding names in the *HTML Report*.
+
+
+Per-base coverage
+-----------------
+
+Optional. This is a tabular dataset listing the coverage of every base in the
+reference genome unless that coverage is zero. Since its content is
+uncompressed text, this dataset can easily become huge, and it is recommended
+that you generate this dataset only for very small genomes or very limited
+regions of larger genomes.
+    ]]>    </help>
+    <expand macro="citations"/>
+</tool>

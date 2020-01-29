@@ -23,10 +23,7 @@ Features
 
          -  [x] Complex colouring rules
 
-   -  [ ] Heatmaps
-
-      -  [ ] Bugs here.
-
+   -  [x] Heatmaps
    -  [x] Tiles
    -  [x] Scatter Plots
    -  [x] Line Plots
@@ -34,10 +31,6 @@ Features
 -  [x] Links
 -  [x] Axes
 -  [x] Backgrounds
--  [ ] Highlights
-
-   -  [ ] Wedge
-
+-  [x] Highlights
 -  [x] Test cases
--  [ ] Grids?
--  [ ] Fine grained Z-depth control
+-  [x] Fine grained Z-depth control

@@ -6,6 +6,7 @@ if (length(args) != 1){
 
 suppressWarnings(suppressPackageStartupMessages(require(DropletUtils)))
 suppressWarnings(suppressPackageStartupMessages(require(Matrix)))
+suppressWarnings(suppressPackageStartupMessages(require(scater)))
 
 source(args[1])
 
@@ -18,24 +19,41 @@ writeTSV <- function(fileout, obj){
     write.table(as.matrix(obj), file=fileout, col.names=NA, sep='\t', quote=FALSE)
 }
 
-writeOut <- function(counts, fileout, typeout){
-    if (typeout == "tsv"){
-        writeTSV(fileout, counts)
+determineGeneIDs <- function(object){
+    if (!is.null(rowData(object)$Symbol)){
+        return(rowData(object)$Symbol)
     }
-    else if (typeout == "h5ad"){
-        write10xCounts(fileout, counts, type="HDF5", overwrite=TRUE)
-    }
-    else if (typeout == "directory"){
-        write10xCounts(fileout, counts, type="sparse", overwrite=TRUE)
-    }
+    return(rownames(object))
 }
 
+getCounts <- function(object){
+    return(Matrix(counts(object), sparse=TRUE))
+}
+
+writeOut <- function(object, fileout, typeout){
+    if (typeout == "tsv"){
+        writeTSV(fileout, getCounts(object))
+    }
+    else if (typeout == "h5ad"){
+        write10xCounts(fileout, getCounts(object),
+                       type="HDF5",
+                       gene.symbol=determineGeneIDs(object),
+                       overwrite=TRUE)
+    }
+    else if (typeout == "directory"){
+        write10xCounts(fileout, getCounts(object),
+                       type="sparse",
+                       gene.symbol=determineGeneIDs(object),
+                       overwrite=TRUE)
+    }
+}
 
 read10xFiles <- function(filein, typein){
     sce <- NULL
     if (typein == "tsv"){
-        dat <- read.table(filein, header = TRUE,  sep='\t', stringsAsFactors=FALSE, quote="", row.names=1)
-        sce <- SingleCellExperiment(assays = list(counts = as.matrix(dat)))
+        ## Exploding memory problems occured here
+        ## - solution is to use the readSparseCounts function from scater
+        sce <- SingleCellExperiment(assays = list(counts = readSparseCounts(filein)))
     }
     else if (typein == "h5ad"){
         sce <- read10xCounts(filein, col.names=T, type="HDF5")   # use barcodes.tsv as column names
@@ -56,49 +74,59 @@ doEmptyDrops <- function(files, eparams, in.type="directory", out.type="h5ad", f
 
     eparams$... <- NULL ## hack
     eparams$m = Matrix(counts(sce), sparse=TRUE)
-    
+
     e.out <- do.call(emptyDrops, c(eparams))
-    
+
     bar.names <- colnames(sce)
-    if (length(bar.names) != nrow(e.out)){    
+    if (length(bar.names) != nrow(e.out)){
         stop("Length of barcodes and output metrics don't match.")
     }
     e.out <- cbind(bar.names, e.out)
     e.out$is.Cell <- e.out$FDR <= fdr_threshold
     e.out$is.CellAndLimited <- e.out$is.Cell & e.out$Limited
-    
-    # Write to table
-    writeTSV(files$table, e.out)
-    
-    # Print to log
-    print(table(Limited=e.out$Limited, Significant=e.out$is.Cell))
-    
-    # Write to Plot
+
+    ## Write to Plot
+    e.out$is.Cell[is.na(e.out$is.Cell)] <- FALSE
+    xlim.dat <- e.out[complete.cases(e.out),]$Total
+
+    ## Write to table
+    writeTSV(files$table, e.out[complete.cases(e.out),])
+
     png(files$plot)
     plot(e.out$Total, -e.out$LogProb, col=ifelse(e.out$is.Cell, "red", "black"),
-    xlab="Total UMI count", ylab="-Log Probability")
+         xlab="Total UMI count", ylab="-Log Probability",
+         xlim=c(min(xlim.dat),max(xlim.dat)))
     dev.off()
-    
-    # Filtered
-    called <- e.out$is.CellAndLimited
+
+    ## Filtered
+    called <- NULL
+    if (fdr_threshold != 0){
+        called <- e.out$is.CellAndLimited
+    } else {
+        called <- e.out$is.Cell
+    }
     called[is.na(called)] <- FALSE    # replace NA's with FALSE
     sce.filtered <- sce[,called]
-    
-    writeOut(counts(sce.filtered), files$out, out.type)
+
+    writeOut(sce.filtered, files$out, out.type)
+
+    message(paste("Cells:", sum(na.omit(e.out$is.Cell))))
+    message(paste("Cells and Limited:", sum(na.omit(e.out$is.CellAndLimited))))
 }
 
 
 doDefaultDrops <- function(files, dparams, in.type="directory", out.type="h5ad"){
     sce <- read10xFiles(files$infile, in.type)
 
-    dparams$m = as.matrix(counts(sce))
+    dparams$m = counts(sce)
     called <- do.call(defaultDrops, c(dparams))
-    print(table(called))
-        
+
     # Filtered
     sce.filtered <- sce[,called]
-    
-    writeOut(Matrix(counts(sce.filtered),sparse=TRUE), files$out, out.type)
+
+    writeOut(sce.filtered, files$out, out.type)
+
+    message(paste("Cells:", sum(called)))
 }
 
 
@@ -106,10 +134,10 @@ doBarcodeRankings <- function(files, bparams, in.type="directory"){
     sce <- read10xFiles(files$infile, in.type)
 
     bparams$... <- NULL ## hack
-    bparams$m = as.matrix(counts(sce))
+    bparams$m = counts(sce)
 
     br.out <- do.call(barcodeRanks, c(bparams))
-    
+
     png(files$plot)
     plot(br.out$rank, br.out$total, log="xy", xlab="(log) Rank", ylab="(log) Total Number of Barcodes")
     o <- order(br.out$rank)
@@ -119,7 +147,7 @@ doBarcodeRankings <- function(files, bparams, in.type="directory"){
     abline(h=br.out$inflection, col="forestgreen", lty=2)
     legend("bottomleft", lty=2, col=c("dodgerblue", "forestgreen"), legend=c("knee", "inflection"))
     dev.off()
-    
+
     print(paste("knee =", br.out$knee, ", inflection = ", br.out$inflection))
 }
 
