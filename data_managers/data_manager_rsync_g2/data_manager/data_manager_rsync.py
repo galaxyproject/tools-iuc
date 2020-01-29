@@ -40,7 +40,7 @@ TOOL_DATA_TABLE_CONF_XML_URLS = {'main': "https://raw.githubusercontent.com/gala
                                  'test': "https://raw.githubusercontent.com/galaxyproject/usegalaxy-playbook/master/env/test/files/galaxy/config/tool_data_table_conf.xml"}
 
 # Replace data table source entries with local temporary location
-GALAXY_DATA_CANONICAL_PATH = "/galaxy/data/"
+GALAXY_DATA_CANONICAL_PATH = "/cvmfs/data.galaxyproject.org/"
 TOOL_DATA_TABLE_CONF_XML_REPLACE_SOURCE = '<file path="%slocation/' % (GALAXY_DATA_CANONICAL_PATH)
 TOOL_DATA_TABLE_CONF_XML_REPLACE_TARGET = '<file path="%s/'
 
