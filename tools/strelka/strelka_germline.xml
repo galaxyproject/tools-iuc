@@ -4,7 +4,7 @@
     <macros>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements" />
+    <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
         ## initialize
         #for $i, $s in enumerate($bam)
@@ -46,6 +46,18 @@
 
         ## run workflow
         @RUN@
+
+        && ls ./results/results/variants/ -lisa
+
+        ## decompress results
+        #if $oo.type == "decompressed"
+            && bgzip -d './results/results/variants/variants.vcf.gz'
+            #for $i in range(1, len($bam)+1)
+                && bgzip -d './results/results/variants/genome.S${i}.vcf.gz'
+            #end for
+        #end if
+
+        && ls ./results/results/variants/ -lisa
     ]]></command>
     
     <configfiles>
@@ -58,13 +70,13 @@ minMapq = $strelka.minMapq
     </configfiles>
 
     <inputs>
-        <param argument="--bam" type="data" format="bam,cram" multiple="true" label="Select sample file(s)" help="" />
-        <expand macro="input_required" />  
+        <param argument="--bam" type="data" format="bam,cram" multiple="true" label="Select sample file(s)" help=""/>
+        <expand macro="input_required" ref="bam"/>
 
         <section name="ap" title="Advanced parameters" expanded="false">
-            <param argument="--ploidy" type="data" format="vcf" optional="true" label="Select ploidy file" help="Provide ploidy file in VCF. The VCF should include one sample column per input sample labeled with the same sample names found in the input BAM/CRAM RG header sections. Ploidy should be provided in records using the FORMAT/CN field, which are interpreted to span the range [POS+1, INFO/END]. Any CN value besides 1 or 0 will be treated as 2. File must be tabix indexed." />
-            <param argument="--noCompress" type="data" format="bgzip" optional="true" label="Select file of regions where gVCF block compression is not allowed" help="Provide BED file of regions where gVCF block compression is not allowed. File must be bgzip-compressed/tabix-indexed." />
-            <param argument="--callContinuousVf" type="select" label="Select chromosome to call variants on" help="Call variants on CHROM without a ploidy prior assumption, issuing calls with continuous variant frequencies.">    
+            <param argument="--ploidy" type="data" format="vcf" optional="true" label="Select ploidy file" help="Provide ploidy file in VCF. The VCF should include one sample column per input sample labeled with the same sample names found in the input BAM/CRAM RG header sections. Ploidy should be provided in records using the FORMAT/CN field, which are interpreted to span the range [POS+1, INFO/END]. Any CN value besides 1 or 0 will be treated as 2. File must be tabix indexed."/>
+            <param argument="--noCompress" type="data" format="bgzip" optional="true" label="Select file of regions where gVCF block compression is not allowed" help="Provide BED file of regions where gVCF block compression is not allowed. File must be bgzip-compressed/tabix-indexed."/>
+            <param argument="--callContinuousVf" type="select" label="Select chromosome to call variants on" help="Call variants on CHROM without a ploidy prior assumption, issuing calls with continuous variant frequencies.">
                 <option value="none" selected="true">None</option>
                 <option value="Chr1">Chr1</option>
                 <option value="Chr2">Chr2</option>
@@ -95,46 +107,85 @@ minMapq = $strelka.minMapq
             <expand macro="input_advanced"/>
         </section>
 
-        <section name="strelka" title="Strelka configuration" expanded="false">            
+        <section name="oo" title="Output options" expanded="false">
+            <expand macro="input_output"/>
+        </section>
+
+        <section name="strelka" title="Strelka configuration" expanded="false">
             <param argument="minMapq" name="minMapq" type="integer" value="20" label="Set minMapq" help="Don't use reads with MAPQ less than this value for variant calling."/>
             <expand macro="input_strelka"/>
         </section>
     </inputs>
     <outputs>
-        <data name="out_variants" format="vcf" from_work_dir="results/results/variants/variants.vcf.gz"/>      
-        <collection name="out_genome" type="list" label="${tool.name} on ${on_string}: Genome">
-            <discover_datasets pattern="genome\.(?P&lt;designation&gt;.+)\.vcf\.gz&#36;" format="vcf" directory="results/results/variants/"/>
+        <data name="out_variants_decompressed" format="vcf" from_work_dir="results/results/variants/variants.vcf" label="${tool.name} on ${on_string}, Variants, vcf">
+            <filter>'decompressed' == str(oo['type'])</filter>
+        </data>
+        <data name="out_variants_compressed" format="vcf_bgzip" from_work_dir="results/results/variants/variants.vcf.gz" label="${tool.name} on ${on_string}, Variants, vcf_bgzip">
+            <filter>'compressed' == str(oo['type'])</filter>
+        </data>
+
+        <collection name="out_genome_decompressed" type="list" label="${tool.name} on ${on_string}: Genome, vcf">
+            <discover_datasets pattern="genome\.(?P&lt;designation&gt;.+)\.vcf&#36;" format="vcf" directory="results/results/variants/"/>
+            <filter>'decompressed' == str(oo['type'])</filter>
+        </collection>
+
+        <collection name="out_genome_compressed" type="list" label="${tool.name} on ${on_string}: Genome, vcf_bgzip">
+            <discover_datasets pattern="genome\.(?P&lt;designation&gt;.+)\.vcf\.gz&#36;" format="vcf_bgzip" directory="results/results/variants/"/>
+            <filter>'compressed' == str(oo['type'])</filter>
         </collection>
    </outputs>
     <tests>
-        <!-- #1; input bam -->
-        <test expect_num_outputs="1">
-            <param name="bam" value="sample1.bam,sample2.bam"/>
-            <param name="referenceFasta" value="hg98.fa"/>
-            <output name="out_variants">
+        <!-- #1; input bam, decompressed -->
+        <test expect_num_outputs="2">
+            <param name="bam" value="sample1.bam,sample2.bam,sample3.bam"/>
+            <conditional name="ref_cond">
+                <param name="ref_sel" value="history"/>
+                <param name="ref" value="hg98.fa" ftype="fasta"/>
+            </conditional>
+            <section name="oo">
+                <param name="type" value="decompressed"/>
+            </section>
+            <output name="out_variants_decompressed">
                 <assert_contents>
-                    <has_n_lines n="63"/>
+                    <has_n_lines n="62"/>
                     <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
                     <has_line_matching expression="demo20&#009;3664&#009;.+"/>
                 </assert_contents>
             </output>
+            <output_collection name="out_genome_decompressed" type="list" count="3">
+                <element name="S1" ftype="vcf">
+                    <assert_contents>
+                        <has_n_lines n="95"/>
+                        <has_line_matching expression="demo20&#009;4101&#009;.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
-        <!-- #2; input cram -->
-        <test expect_num_outputs="1">
+        <!-- #2; input cram, compressed -->
+        <test expect_num_outputs="2">
             <param name="bam" value="sample1.cram,sample2.cram"/>
-            <param name="referenceFasta" value="hg98.fa"/>
-            <output name="out_variants">
-                <assert_contents>
-                    <has_n_lines n="63"/>
-                    <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
-                    <has_line_matching expression="demo20&#009;3664&#009;.+"/>
-                </assert_contents>
-            </output>
-        </test>        
+            <conditional name="ref_cond">
+                <param name="ref_sel" value="history"/>
+                <param name="ref" value="hg98.fa" ftype="fasta"/>
+            </conditional>
+            <section name="oo">
+                <param name="type" value="compressed"/>
+            </section>
+            <output name="out_variants_compressed" file="variants_test2.vcf.gz" compare="sim_size"/>
+            <output_collection name="out_genome_compressed" type="list" count="2">
+                <element name="S1" value="genome_test2.vcf.gz" compare="sim_size"/>
+            </output_collection>
+        </test>
         <!-- #3; input bam, no defaults -->
         <test expect_num_outputs="2">
             <param name="bam" value="sample1.cram,sample2.cram"/>
-            <param name="referenceFasta" value="hg98.fa"/>
+            <conditional name="ref_cond">
+                <param name="ref_sel" value="history"/>
+                <param name="ref" value="hg98.fa" ftype="fasta"/>
+            </conditional>
+            <section name="oo">
+                <param name="type" value="decompressed"/>
+            </section>
             <section name="ap">
                 <param name="callContinuousVf" value="Chr1"/>
                 <param name="rna" value="true"/>
@@ -146,17 +197,17 @@ minMapq = $strelka.minMapq
                 <param name="minMapq" value="21"/>
                 <param name="maxIndelSize" value="51"/>
             </section>
-            <output name="out_variants">
+            <output name="out_variants_decompressed">
                 <assert_contents>
-                    <has_n_lines n="63"/>
+                    <has_n_lines n="81"/>
                     <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
                     <has_line_matching expression="demo20&#009;3664&#009;.+"/>
                 </assert_contents>
             </output>
-            <output_collection name="out_genome" type="list" count="3">
+            <output_collection name="out_genome_decompressed" type="list" count="2">
                 <element name="S1" ftype="vcf">
                     <assert_contents>
-                        <has_n_lines n="95"/>
+                        <has_n_lines n="219"/>
                         <has_line_matching expression="demo20&#009;4101&#009;.+"/>
                     </assert_contents>
                 </element>
@@ -192,5 +243,5 @@ This is the genome VCF output for sample N, which includes both variant records 
 
 @HELP_REFERENCES@
     ]]></help>
-    <expand macro="citations" />
+    <expand macro="citations"/>
 </tool>

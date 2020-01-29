@@ -6,13 +6,6 @@
     </macros>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-        
-
-        @PREPARE_REF@
-
-
-
-
         ## initialize
         #if $normalBam.is_of_type('bam')
             ln -s '$normalBam' './input_normal.bam' &&
@@ -46,14 +39,17 @@
             @CREATE@
 
         ## run workflow
-        @RUN@ 
+        @RUN@
 
         ## decompress results
-        && bgzip -d results/results/variants/somatic.indels.vcf.gz
-        && bgzip -d results/results/variants/somatic.snvs.vcf.gz
-        #if $ap.outputCallableRegions
-            && bgzip -d results/results/regions/somatic.callable.regions.bed.gz
+        #if $oo.type == "decompressed"
+            && bgzip -d results/results/variants/somatic.indels.vcf.gz
+            && bgzip -d results/results/variants/somatic.snvs.vcf.gz
+            #if $ap.outputCallableRegions
+                && bgzip -d results/results/regions/somatic.callable.regions.bed.gz
+            #end if
         #end if
+
     ]]></command>
     <configfiles>
         <configfile name="config_file">
@@ -80,16 +76,15 @@ indelContamTolerance = $strelka.indelContamTolerance
     <inputs>
         <param argument="--normalBam" type="data" format="bam,cram" multiple="false" label="Select normal sample file" help="In bam or cram format."/>
         <param argument="--tumorBam" type="data" format="bam,cram" multiple="false" label="Select tumor sample file" help="In bam or cram format."/>
-        
-        <expand macro="reference_interface" />
-
-
-
         <expand macro="input_required"/>
 
         <section name="ap" title="Advanced parameters" expanded="false">
             <param argument="--outputCallableRegions" type="boolean" checked="false" truevalue="--outputCallableRegions" falsevalue="" label="Generate bed file describing somatic callable regions of the genome" help=""/>
             <expand macro="input_advanced"/>
+        </section>
+
+        <section name="oo" title="Output options" expanded="false">
+            <expand macro="input_output"/>
         </section>
 
         <section name="strelka" title="Strelka configuration" expanded="false">
@@ -112,26 +107,45 @@ indelContamTolerance = $strelka.indelContamTolerance
         </section>
     </inputs>
     <outputs>
-        <data name="out_indels" format="vcf" from_work_dir="results/results/variants/somatic.indels.vcf" label="Indels"/>
-        <data name="out_snvs" format="vcf" from_work_dir="results/results/variants/somatic.snvs.vcf" label="SNVS"/>
-        <data name="out_callable" format="bed" from_work_dir="results/results/regions/somatic.callable.regions.bed" label="Callable regions">
-            <filter>ap['outputCallableRegions']</filter>
+        <data name="out_indels_decompressed" format="vcf" from_work_dir="results/results/variants/somatic.indels.vcf" label="${tool.name} on ${on_string}, Indels, vcf">
+            <filter>'decompressed' == str(oo['type'])</filter>
+        </data>
+        <data name="out_indels_compressed" format="vcf_bgzip" from_work_dir="results/results/variants/somatic.indels.vcf.gz" label="${tool.name} on ${on_string}, Indels, vcf_bgzip">
+            <filter>'compressed' == str(oo['type'])</filter>
+        </data>
+        <data name="out_snvs_decompressed" format="vcf" from_work_dir="results/results/variants/somatic.snvs.vcf" label="${tool.name} on ${on_string}, SNVS, vcf">
+            <filter>'decompressed' == str(oo['type'])</filter>
+        </data>
+        <data name="out_snvs_compressed" format="vcf_bgzip" from_work_dir="results/results/variants/somatic.snvs.vcf.gz" label="${tool.name} on ${on_string}, SNVS, vcf_bgzip">
+            <filter>'compressed' == str(oo['type'])</filter>
+        </data>
+        <data name="out_callable_decompressed" format="bed" from_work_dir="results/results/regions/somatic.callable.regions.bed" label="${tool.name} on ${on_string}, Callable regions, bed">
+            <filter>ap['outputCallableRegions'] and 'decompressed' == str(oo['type'])</filter>
+        </data>
+        <data name="out_callable_compressed" format="bed" from_work_dir="results/results/regions/somatic.callable.regions.bed.gz" label="${tool.name} on ${on_string}, Callable regions, bed.gz">
+            <filter>ap['outputCallableRegions'] and 'compressed' == str(oo['type'])</filter>
         </data>
     </outputs>
     <tests>
-        <!-- #1; input bam -->
+        <!-- #1; input bam, decompressed -->
         <test expect_num_outputs="2">
             <param name="normalBam" value="sample1.bam" ftype="bam"/>
             <param name="tumorBam" value="sample2.bam" ftype="bam"/>
-            <param name="referenceFasta" value="hg98.fa" ftype="fasta"/>
-            <output name="out_indels">
+            <conditional name="ref_cond">
+                <param name="ref_sel" value="history"/>
+                <param name="ref" value="hg98.fa" ftype="fasta"/>
+            </conditional>
+            <section name="oo">
+                <param name="type" value="decompressed"/>
+            </section>
+            <output name="out_indels_decompressed">
                 <assert_contents>
                     <has_n_lines n="41"/>
                     <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
                     <has_line_matching expression="demo20&#009;3664&#009;.+"/>
                 </assert_contents>
             </output>
-            <output name="out_snvs">
+            <output name="out_snvs_decompressed">
                 <assert_contents>
                     <has_n_lines n="52"/>
                     <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
@@ -139,31 +153,31 @@ indelContamTolerance = $strelka.indelContamTolerance
                 </assert_contents>
             </output>
         </test>
-        <!-- #2; input cram -->
+        <!-- #2; input cram, compressed -->
         <test expect_num_outputs="2">
             <param name="normalBam" value="sample1.cram" ftype="cram"/>
             <param name="tumorBam" value="sample2.cram" ftype="cram"/>
-            <param name="referenceFasta" value="hg98.fa" ftype="fasta"/>
-            <output name="out_indels">
-                <assert_contents>
-                    <has_n_lines n="41"/>
-                    <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
-                    <has_line_matching expression="demo20&#009;3664&#009;.+"/>
-                </assert_contents>
-            </output>
-            <output name="out_snvs">
-                <assert_contents>
-                    <has_n_lines n="52"/>
-                    <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
-                    <has_line_matching expression="demo20&#009;3537&#009;.+"/>
-                </assert_contents>
-            </output>
+            <conditional name="ref_cond">
+                <param name="ref_sel" value="history"/>
+                <param name="ref" value="hg98.fa" ftype="fasta"/>
+            </conditional>
+            <section name="oo">
+                <param name="type" value="compressed"/>
+            </section>
+            <output name="out_indels_compressed" file="indels_test2.vcf.gz" compare="sim_size"/>
+            <output name="out_snvs_compressed" file="snvs_test2.vcf.gz" compare="sim_size"/>
         </test>
-        <!-- #3; input bam, no defaults -->
+        <!-- #3; input bam, decompressed, no defaults -->
         <test expect_num_outputs="3">
             <param name="normalBam" value="sample1.bam" ftype="bam"/>
             <param name="tumorBam" value="sample2.bam" ftype="bam"/>
-            <param name="referenceFasta" value="hg98.fa" ftype="fasta"/>
+            <conditional name="ref_cond">
+                <param name="ref_sel" value="history"/>
+                <param name="ref" value="hg98.fa" ftype="fasta"/>
+            </conditional>
+            <section name="oo">
+                <param name="type" value="decompressed"/>
+            </section>
             <section name="ap">
                 <param name="outputCallableRegions" value="true"/>
                 <param name="rna" value="true"/>
@@ -188,24 +202,50 @@ indelContamTolerance = $strelka.indelContamTolerance
                 <param name="indelContamTolerance" value="0.16"/>
                 <param name="maxIndelSize" value="50"/>
             </section>
-            <output name="out_indels">
+            <output name="out_indels_decompressed">
                 <assert_contents>
                     <has_n_lines n="39"/>
                     <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
                     <has_line_matching expression="demo20&#009;3664&#009;.+"/>
                 </assert_contents>
             </output>
-            <output name="out_snvs">
+            <output name="out_snvs_decompressed">
                 <assert_contents>
                     <has_n_lines n="51"/>
                     <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
                     <has_line_matching expression="demo20&#009;3537&#009;.+"/>
                 </assert_contents>
             </output>
-            <output name="out_callable">
+            <output name="out_callable_decompressed">
                 <assert_contents>
                     <has_n_lines n="136"/>
                     <has_line_matching expression="demo20&#009;3971&#009;.+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #4; bam, reference cached -->
+        <test expect_num_outputs="2">
+            <param name="normalBam" dbkey="hg19" value="sample1.bam" ftype="bam"/>
+            <param name="tumorBam" value="sample2.bam" ftype="bam"/>
+            <conditional name="ref_cond">
+                <param name="ref_sel" value="cached"/>
+                <param name="ref" value="hg19"/>
+            </conditional>
+            <section name="oo">
+                <param name="type" value="decompressed"/>
+            </section>
+            <output name="out_indels_decompressed">
+                <assert_contents>
+                    <has_n_lines n="41"/>
+                    <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
+                    <has_line_matching expression="demo20&#009;3664&#009;.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_snvs_decompressed">
+                <assert_contents>
+                    <has_n_lines n="52"/>
+                    <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
+                    <has_line_matching expression="demo20&#009;3537&#009;.+"/>
                 </assert_contents>
             </output>
         </test>
@@ -243,5 +283,5 @@ The somatic variant caller can be configured with the option --outputCallableReg
 
 @HELP_REFERENCES@
     ]]></help>
-    <expand macro="citations" />
+    <expand macro="citations"/>
 </tool>
