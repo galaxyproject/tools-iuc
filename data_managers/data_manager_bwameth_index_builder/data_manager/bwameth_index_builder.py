@@ -57,7 +57,7 @@ def main():
     build_bwameth_index(data_manager_dict, params, args)
 
     # save info to json file
-    open(filename, 'wb').write(dumps(data_manager_dict))
+    open(filename, 'w').write(dumps(data_manager_dict, sort_keys=True))
 
 
 if __name__ == "__main__":
