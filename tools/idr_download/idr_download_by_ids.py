@@ -48,7 +48,7 @@ def download_plane_as_tiff(image, tile, z, c, t):
     # save the region as TIFF
     filename, file_extension = os.path.splitext(image.getName())
     # Name to be adjusted
-    name = filename + "_" + str(image.getId()) + '_'.join(tile) + ".tiff"
+    name = filename + "_" + str(image.getId()) + '_'.join([str(x) for x in tile]) + ".tiff"
     plt.imsave(name, selection)
 
 
