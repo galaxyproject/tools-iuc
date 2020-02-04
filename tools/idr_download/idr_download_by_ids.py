@@ -4,6 +4,52 @@ import sys
 
 from matplotlib import pyplot as plt
 from omero.gateway import BlitzGateway
+from omero.constants.namespaces import NSBULKANNOTATIONS
+
+
+def find_channel_index(image, channel_name):
+    found = False
+    index = 0
+    count = 0
+    for channel in image.getChannels():
+        name = channel.getLabel()
+        if channel_name in name:
+            index = count
+            found = True
+            break
+        count = count + 1
+    # Check map annotation for information (this is necessary for some images)
+    if not found:
+        for ann in image.listAnnotations(NSBULKANNOTATIONS):
+            pairs = ann.getValue()
+            for p in pairs:
+                if p[0] == "Channels":
+                    channels = p[1].replace(" ", "").split(";")
+                    count = 0
+                    for c in channels:
+                        values = c.split(":")
+                        if channel_name in values:
+                            index = count
+                            found = True
+                            break
+                        count = count + 1
+
+    return found, index
+
+
+def download_plane_as_tiff(image, tile, z, c, t):
+    if z < 0 or z >= image.getSizeZ():
+        z = 0
+    if t < 0 or t >= image.getSizeT():
+        t = 0
+    pixels = image.getPrimaryPixels()
+    selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
+
+    # save the region as TIFF
+    filename, file_extension = os.path.splitext(image.getName())
+    # Name to be adjusted
+    name = filename + "_" + str(image.getId()) + '_'.join(tile) + ".tiff"
+    plt.imsave(name, selection)
 
 
 def download_image_data(
@@ -20,34 +66,24 @@ def download_image_data(
 
     prefix = 'image-'
     for image_id in image_ids:
-        # get the image
-        #image_id = 1884807
         if image_id[:len(prefix)] == prefix:
             image_id = image_id[len(prefix):]
         image_id = int(image_id)
         image = conn.getObject("Image", image_id)
-        image_name = image.getName()
-        print(image_name)
-
-        # example loading one single plane and saving it 
-        pixels = image.getPrimaryPixels()
 
         if ul_coord is None and width is None and height is None:
             tile = None
         else:
             tile = list(ul_coord) + [width, height]
+            # TODO check that it is a valid region
             assert all(isinstance(d, int) for d in tile)
-        # TO DO:
-        # Get the channel information
-        # Check if it is the channel metadata if not in the map annotation
 
-        selection = pixels.getTile(theZ=z_stack, theT=frame, theC=0, tile=tile)
+        # Get the channel index. If the index is not valid, skip the image
+        found, channel_index = find_channel_index(image, channel)
+        if found:
+            download_plane_as_tiff(image, tile, z_stack, channel_index, frame)
 
-        # save the crop image as TIFF
-        filename, file_extension = os.path.splitext(image_name)
-        name = filename + "_" + str(image.getId()) + '_'.join(str(x) for x in tile) + ".tiff"
-        plt.imsave(name, selection)
-
+    # Close the connection
     conn.close()
 
 
