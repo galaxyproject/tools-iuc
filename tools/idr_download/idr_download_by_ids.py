@@ -11,8 +11,9 @@ def find_channel_index(image, channel_name):
     found = False
     index = 0
     count = 0
+    channel_name = channel_name.lower()
     for channel in image.getChannels():
-        name = channel.getLabel()
+        name = channel.getLabel().lower()
         if channel_name in name:
             index = count
             found = True
@@ -28,6 +29,7 @@ def find_channel_index(image, channel_name):
                     count = 0
                     for c in channels:
                         values = c.split(":")
+                        values = [x.lower() for x in values]
                         if channel_name in values:
                             index = count
                             found = True
