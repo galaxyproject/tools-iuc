@@ -39,13 +39,33 @@ def find_channel_index(image, channel_name):
     return found, index
 
 
+def get_valid_region(image, tile):
+    x, y, w, h = tile
+    size_x = image.getSizeX()
+    size_y = image.getSizeY()
+    if x < 0 or x >= size_x:
+        return None
+    if y < 0 or y >= size_y:
+        return None
+    if w < 0 or w > size_x:
+        return None
+    if h < 0 or h > size_y:
+        return None
+    if x + w > size_x:
+        return None
+    if y + h > size_y:
+        return None
+    return [x, y, w, h]
+
+
 def download_plane_as_tiff(image, tile, z, c, t):
     if z < 0 or z >= image.getSizeZ():
         z = 0
     if t < 0 or t >= image.getSizeT():
         t = 0
     pixels = image.getPrimaryPixels()
-    selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
+    region = get_valid_region(tile)
+    selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=region)
 
     # save the region as TIFF
     filename, file_extension = os.path.splitext(image.getName())
