@@ -8,35 +8,24 @@ from omero.constants.namespaces import NSBULKANNOTATIONS
 
 
 def find_channel_index(image, channel_name):
-    found = False
-    index = 0
-    count = 0
+    index = -1
     channel_name = channel_name.lower()
-    for channel in image.getChannels():
-        name = channel.getLabel().lower()
-        if channel_name in name:
-            index = count
-            found = True
+    for n, channel in enumerate(image.getChannels()):
+        if channel_name == channel.getLabel().lower():
+            index = n
             break
-        count = count + 1
     # Check map annotation for information (this is necessary for some images)
-    if not found:
+    if index == -1:
         for ann in image.listAnnotations(NSBULKANNOTATIONS):
             pairs = ann.getValue()
             for p in pairs:
                 if p[0] == "Channels":
                     channels = p[1].replace(" ", "").split(";")
-                    count = 0
-                    for c in channels:
-                        values = c.split(":")
-                        values = [x.lower() for x in values]
-                        if channel_name in values:
-                            index = count
-                            found = True
-                            break
-                        count = count + 1
-
-    return found, index
+                    for n, c in enumerate(channels):
+                        for value in c.split(':'):
+                            if channel_name == value.lower():
+                                index = n
+    return index
 
 
 def get_valid_region(image, tile):
@@ -76,37 +65,45 @@ def download_plane_as_tiff(image, tile, z, c, t):
 
 def download_image_data(
     image_ids,
-    channel, z_stack=0, frame=0,
+    channel=None, z_stack=0, frame=0,
     ul_coord=None, width=None, height=None
 ):
 
     # connect to idr
     conn = BlitzGateway('public', 'public',
-                        host='ws://idr.openmicroscopy.org/omero-ws',
+                        host='idr.openmicroscopy.org',
                         secure=True)
     conn.connect()
 
-    prefix = 'image-'
-    for image_id in image_ids:
-        if image_id[:len(prefix)] == prefix:
-            image_id = image_id[len(prefix):]
-        image_id = int(image_id)
-        image = conn.getObject("Image", image_id)
+    try:
+        prefix = 'image-'
+        for image_id in image_ids:
+            if image_id[:len(prefix)] == prefix:
+                image_id = image_id[len(prefix):]
+            image_id = int(image_id)
+            image = conn.getObject("Image", image_id)
 
-        if ul_coord is None and width is None and height is None:
-            tile = None
-        else:
-            tile = list(ul_coord) + [width, height]
-            # TODO check that it is a valid region
-            assert all(isinstance(d, int) for d in tile)
+            if ul_coord is None and width is None and height is None:
+                tile = None
+            else:
+                tile = list(ul_coord) + [width, height]
+                # TODO check that it is a valid region
+                assert all(isinstance(d, int) for d in tile)
 
-        # Get the channel index. If the index is not valid, skip the image
-        found, channel_index = find_channel_index(image, channel)
-        if found:
+            # Get the channel index. If the index is not valid, skip the image
+            if channel is None:
+                channel_index = 0
+            else:
+                channel_index = find_channel_index(image, channel)
+                if channel_index == -1:
+                    raise ValueError(
+                        '"{0}" is not a known channel name for image {1}'
+                        .format(channel, image.getName())
+                    )
             download_plane_as_tiff(image, tile, z_stack, channel_index, frame)
-
-    # Close the connection
-    conn.close()
+    finally:
+        # Close the connection
+        conn.close()
 
 
 def center_to_ul(c_coord, width, height):
@@ -123,8 +120,10 @@ if __name__ == "__main__":
              'read ids from stdin).'
     )
     p.add_argument(
-        '-c', '--channel', required=True,
-        help='name of the channel to retrieve data for'
+        '-c', '--channel',
+        help='name of the channel to retrieve data for '
+             '(note: the first channel of each image will be downloaded if '
+             'left unspecified)'
     )
     region = p.add_mutually_exclusive_group()
     region.add_argument(
