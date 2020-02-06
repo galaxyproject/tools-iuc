@@ -212,15 +212,13 @@ if __name__ == "__main__":
     if not args.image_ids:
         args.image_ids = sys.stdin.read().split()
     if 'center' in args:
-        ul_coord, width, height = center_to_ul(
+        args.ul_coord, args.width, args.height = center_to_ul(
             args.center[:2], args.center[2], args.center[3]
         )
         del args.center
     elif 'rectangle' in args:
-        ul_coord, width, height = (
+        args.ul_coord, args.width, args.height = (
             args.rectangle[:2], args.rectangle[2], args.rectangle[3]
         )
         del args.rectangle
-    download_image_data(
-        ul_coord=ul_coord, width=width, height=height, **vars(args)
-    )
+    download_image_data(**vars(args))
