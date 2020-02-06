@@ -9,7 +9,7 @@ from omero.constants.namespaces import NSBULKANNOTATIONS
 
 def warn(message, image_identifier):
     print(
-            'ImageSpecWarning for {0}: {1}'
+        'ImageSpecWarning for {0}: {1}'
         .format(image_identifier, message),
         file=sys.stderr
     )
