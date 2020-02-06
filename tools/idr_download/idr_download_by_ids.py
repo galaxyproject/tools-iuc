@@ -7,66 +7,92 @@ from omero.gateway import BlitzGateway
 from omero.constants.namespaces import NSBULKANNOTATIONS
 
 
+def warn(message, image_identifier):
+    print(
+            'ImageSpecWarning for {0}: {1}'
+        .format(image_identifier, message),
+        file=sys.stderr
+    )
+
+
 def find_channel_index(image, channel_name):
-    index = -1
     channel_name = channel_name.lower()
     for n, channel in enumerate(image.getChannels()):
         if channel_name == channel.getLabel().lower():
-            index = n
-            break
+            return n
     # Check map annotation for information (this is necessary for some images)
-    if index == -1:
-        for ann in image.listAnnotations(NSBULKANNOTATIONS):
-            pairs = ann.getValue()
-            for p in pairs:
-                if p[0] == "Channels":
-                    channels = p[1].replace(" ", "").split(";")
-                    for n, c in enumerate(channels):
-                        for value in c.split(':'):
-                            if channel_name == value.lower():
-                                index = n
-    return index
+    for ann in image.listAnnotations(NSBULKANNOTATIONS):
+        pairs = ann.getValue()
+        for p in pairs:
+            if p[0] == "Channels":
+                channels = p[1].replace(" ", "").split(";")
+                for n, c in enumerate(channels):
+                    for value in c.split(':'):
+                        if channel_name == value.lower():
+                            return n
+    return -1
 
 
-def get_valid_region(image, tile):
-    x, y, w, h = tile
+def get_clipping_region(image, x, y, w, h):
+    # If the (x, y) coordinate falls outside the image boundaries, we
+    # cannot just shift it because that would render the meaning of
+    # w and h undefined (should width and height be decreased or the whole
+    # region be shifted to keep them fixed?).
+    # It may be better to abort in this situation.
+    if x < 0 or y < 0:
+        raise ValueError(
+            'Too small upper left coordinate ({0}, {1}) for clipping region.'
+            .format(x, y)
+        )
     size_x = image.getSizeX()
     size_y = image.getSizeY()
-    if x < 0 or x >= size_x:
-        return None
-    if y < 0 or y >= size_y:
-        return None
-    if w < 0 or w > size_x:
-        return None
-    if h < 0 or h > size_y:
-        return None
-    if x + w > size_x:
-        return None
-    if y + h > size_y:
-        return None
+    if x >= size_x or y >= size_y:
+        raise ValueError(
+            'Upper left coordinate ({0}, {1}) of clipping region lies '
+            'outside of image.'
+            .format(x, y)
+        )
+    # adjust width and height to the image dimensions
+    if w <= 0 or x + w > size_x:
+        w = size_x - x
+    if h <= 0 or y + h > size_y:
+        h = size_y - y
     return [x, y, w, h]
 
 
-def download_plane_as_tiff(image, tile, z, c, t):
-    if z < 0 or z >= image.getSizeZ():
+def confine_plane(image, z):
+    if z < 0:
         z = 0
-    if t < 0 or t >= image.getSizeT():
-        t = 0
-    pixels = image.getPrimaryPixels()
-    region = get_valid_region(tile)
-    selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=region)
+    else:
+        max_z = image.getSizeZ() - 1
+        if z > max_z:
+            z = max_z
+    return z
 
-    # save the region as TIFF
-    filename, file_extension = os.path.splitext(image.getName())
-    # Name to be adjusted
-    name = filename + "_" + str(image.getId()) + '_'.join([str(x) for x in tile]) + ".tiff"
-    plt.imsave(name, selection)
+
+def confine_frame(image, t):
+    if t < 0:
+        t = 0
+    else:
+        max_t = image.getSizeT() - 1
+        if t > max_t:
+            t = max_t
+    return t
+
+
+def download_plane_as_tiff(image, tile, z, c, t, fname):
+    pixels = image.getPrimaryPixels()
+    selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
+
+    if fname[-5:] != '.tiff':
+        fname += '.tiff'
+    plt.imsave(fname, selection)
 
 
 def download_image_data(
     image_ids,
     channel=None, z_stack=0, frame=0,
-    ul_coord=None, width=None, height=None
+    ul_coord=(0,0), width=0, height=0
 ):
 
     # connect to idr
@@ -83,16 +109,50 @@ def download_image_data(
             image_id = int(image_id)
             image = conn.getObject("Image", image_id)
 
-            if ul_coord is None and width is None and height is None:
-                tile = None
-            else:
-                tile = list(ul_coord) + [width, height]
-                # TODO check that it is a valid region
-                assert all(isinstance(d, int) for d in tile)
+            image_name = os.path.splitext(image.getName())[0]
+            image_warning_id = '{0} (ID: {1})'.format(
+                image_name, image_id
+            )
 
+            tile = get_clipping_region(image, *ul_coord, width, height)
+            if tile[2] < width or tile[3] < height:
+                # The downloaded image region will have smaller dimensions
+                # than the specified width x height.
+                warn(
+                    'Downloaded image dimensions ({0} x {1}) will be smaller '
+                    'than the specified width and height ({2} x {3}).'
+                    .format(tile[2], tile[3], width, height),
+                    image_warning_id
+                )
+
+            ori_z, z_stack = z_stack, confine_plane(image, z_stack)
+            if z_stack != ori_z:
+                warn(
+                    'Specified image plane ({0}) is out of bounds. Using {1} '
+                    'instead.'
+                    .format(ori_z, z_stack),
+                    image_warning_id
+                )
+
+            ori_frame, frame = frame, confine_frame(image, frame)
+            if frame != ori_frame:
+                warn(
+                    'Specified image frame ({0}) is out of bounds. Using '
+                    'frame {1} instead.'
+                    .format(ori_frame, frame),
+                    image_warning_id
+                )
             # Get the channel index. If the index is not valid, skip the image
             if channel is None:
                 channel_index = 0
+                num_channels = image.getSizeC()
+                if num_channels > 1:
+                    warn(
+                        'No specific channel selected for multi-channel '
+                        'image. Using first of {0} channels.'
+                        .format(num_channels),
+                        image_warning_id
+                    )
             else:
                 channel_index = find_channel_index(image, channel)
                 if channel_index == -1:
@@ -100,7 +160,12 @@ def download_image_data(
                         '"{0}" is not a known channel name for image {1}'
                         .format(channel, image.getName())
                     )
-            download_plane_as_tiff(image, tile, z_stack, channel_index, frame)
+
+            # download and save the region as TIFF
+            fname = '_'.join(
+                [image_name, str(image_id)] + [str(x) for x in tile]
+            )
+            download_plane_as_tiff(image, tile, z_stack, channel_index, frame, fname)
     finally:
         # Close the connection
         conn.close()
@@ -127,7 +192,11 @@ if __name__ == "__main__":
     )
     region = p.add_mutually_exclusive_group()
     region.add_argument(
-        '--rectangle', nargs=4, type=int, default=argparse.SUPPRESS
+        '--rectangle', nargs=4, type=int, default=argparse.SUPPRESS,
+        help='specify a clipping region for the image as x y width height, '
+             'where x and y give the upper left coordinate of the rectangle '
+             'to clip to. Set width and height to 0 to extend the rectangle '
+             'to the actual size of the image.'
     )
     region.add_argument(
         '--center', nargs=4, type=int, default=argparse.SUPPRESS
