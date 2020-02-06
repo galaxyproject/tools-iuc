@@ -92,7 +92,7 @@ def download_plane_as_tiff(image, tile, z, c, t, fname):
 def download_image_data(
     image_ids,
     channel=None, z_stack=0, frame=0,
-    ul_coord=(0,0), width=0, height=0
+    coord=(0,0), width=0, height=0, region_spec='rectangle'
 ):
 
     # connect to idr
@@ -114,7 +114,18 @@ def download_image_data(
                 image_name, image_id
             )
 
-            tile = get_clipping_region(image, *ul_coord, width, height)
+            if region_spec == 'rectangle':
+                tile = get_clipping_region(image, *coord, width, height)
+            elif region_spec == 'center':
+                tile = get_clipping_region(
+                    image,
+                    *_center_to_ul(*coord, width, height)
+                )
+            else:
+                raise ValueError(
+                    'Got unknown value "{0}" as region_spec argument'
+                    .format(region_spec)
+                )
             if tile[2] < width or tile[3] < height:
                 # The downloaded image region will have smaller dimensions
                 # than the specified width x height.
@@ -171,10 +182,20 @@ def download_image_data(
         conn.close()
 
 
-def center_to_ul(c_coord, width, height):
-    # TO DO:
-    # implement this
-    return c_coord, width, height
+def _center_to_ul(center_x, center_y, width, height):
+    if width > 0:
+        ext_x = (width - 1) // 2
+        ul_x = max([center_x - ext_x, 0])
+        width = center_x + ext_x + 1 - ul_x
+    else:
+        ul_x = 0
+    if height > 0:
+        ext_y = (height - 1) // 2
+        ul_y = max([center_y - ext_y, 0])
+        height = center_y + ext_y + 1 - ul_y
+    else:
+        ul_y = 0
+    return ul_x, ul_y, width, height
 
 
 if __name__ == "__main__":
@@ -199,7 +220,13 @@ if __name__ == "__main__":
              'to the actual size of the image.'
     )
     region.add_argument(
-        '--center', nargs=4, type=int, default=argparse.SUPPRESS
+        '--center', nargs=4, type=int, default=argparse.SUPPRESS,
+        help='specify a clipping region for the image as x y width height, '
+             'where x and y define the center of a width x height rectangle. '
+             'Set either width or height to 0 to extend the region to the '
+             'actual size of the image along the x- or y-axis.\n'
+             'Note: Even values for width and height will be rounded down to '
+             'the nearest odd number.'
     )
     p.add_argument(
         '-f', '--frame', type=int, default=0
@@ -212,13 +239,15 @@ if __name__ == "__main__":
     if not args.image_ids:
         args.image_ids = sys.stdin.read().split()
     if 'center' in args:
-        args.ul_coord, args.width, args.height = center_to_ul(
+        args.coord, args.width, args.height = (
             args.center[:2], args.center[2], args.center[3]
         )
+        args.region_spec = 'center'
         del args.center
     elif 'rectangle' in args:
-        args.ul_coord, args.width, args.height = (
+        args.coord, args.width, args.height = (
             args.rectangle[:2], args.rectangle[2], args.rectangle[3]
         )
+        args.region_spec = 'rectangle'
         del args.rectangle
     download_image_data(**vars(args))
