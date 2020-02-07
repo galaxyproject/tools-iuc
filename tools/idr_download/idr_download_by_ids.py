@@ -92,7 +92,8 @@ def download_plane_as_tiff(image, tile, z, c, t, fname):
 def download_image_data(
     image_ids,
     channel=None, z_stack=0, frame=0,
-    coord=(0,0), width=0, height=0, region_spec='rectangle'
+    coord=(0,0), width=0, height=0, region_spec='rectangle',
+    skip_failed = False
 ):
 
     # connect to idr
@@ -108,6 +109,21 @@ def download_image_data(
                 image_id = image_id[len(prefix):]
             image_id = int(image_id)
             image = conn.getObject("Image", image_id)
+
+            if image is None:
+                image_warning_id = 'Image-ID: {0}'.format(image_id)
+                if skip_failed:
+                    warn(
+                        'Unable to find an image with this ID in the '
+                        'database. Skipping download!',
+                        image_warning_id
+                    )
+                    continue
+                raise ValueError(
+                    '{0}: Unable to find an image with this ID in the '
+                    'database. Aborting!'
+                    .format(image_warning_id)
+                )
 
             image_name = os.path.splitext(image.getName())[0]
             image_warning_id = '{0} (ID: {1})'.format(
@@ -234,7 +250,9 @@ if __name__ == "__main__":
     p.add_argument(
         '-z', '--z-stack', type=int, default=0
     )
-
+    p.add_argument(
+        '--skip-failed', action='store_true'
+    )
     args = p.parse_args()
     if not args.image_ids:
         args.image_ids = sys.stdin.read().split()
