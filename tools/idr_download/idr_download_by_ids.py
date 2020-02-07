@@ -3,8 +3,8 @@ import os
 import sys
 
 from matplotlib import pyplot as plt
-from omero.gateway import BlitzGateway
 from omero.constants.namespaces import NSBULKANNOTATIONS
+from omero.gateway import BlitzGateway
 
 
 def warn(message, image_identifier):
@@ -92,8 +92,8 @@ def download_plane_as_tiff(image, tile, z, c, t, fname):
 def download_image_data(
     image_ids,
     channel=None, z_stack=0, frame=0,
-    coord=(0,0), width=0, height=0, region_spec='rectangle',
-    skip_failed = False
+    coord=(0, 0), width=0, height=0, region_spec='rectangle',
+    skip_failed=False
 ):
 
     # connect to idr
