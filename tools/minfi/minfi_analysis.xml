@@ -1,0 +1,197 @@
+<?xml version='1.0'?>
+<tool id='minfi_analysis' name='Infinium Human Methylation BeadChip' version='2.1.0'>
+  <description>Determines differentially methylated regions and positions from Infinium Methylation Assays</description>
+  <macros>
+    <import>macros.xml</import>
+  </macros>
+  <expand macro='requirements'>
+    <requirement type='package' version='0.6.0'>bioconductor-illuminahumanmethylation450kanno.ilmn12.hg19</requirement>
+  </expand>
+  <command detect_errors='exit_code'><![CDATA[
+      #for $counter, $input in enumerate($files_red):
+        #set $redname = str( getattr( $input, 'element_identifier', 'sample' ) ).replace( '/', '-' ).replace( '\t', '-' )
+        ln -s $input ./${redname} &&
+      #end for
+      #for $counter, $input in enumerate($files_grn):
+        #set $grnname = str( getattr( $input, 'element_identifier', 'sample' ) ).replace( '/', '-' ).replace( '\t', '-' )
+        ln -s $input ./${grnname} &&
+      #end for
+      Rscript '$minfi_analysis_script'
+      ]]></command>
+  <configfiles>
+    <configfile name='minfi_analysis_script'><![CDATA[
+	require('minfi', quietly = TRUE)
+	require('IlluminaHumanMethylation27kanno.ilmn12.hg19', quietly = TRUE)
+	require('IlluminaHumanMethylation450kanno.ilmn12.hg19', quietly = TRUE)
+        require('IlluminaHumanMethylationEPICanno.ilm10b4.hg19', quietly = TRUE)
+	options(warn = -1)
+	RGSet <- read.metharray(list.files(pattern='_Red.idat')) #load .IDAT files
+
+	MSet <- preprocessRaw(RGSet) #create objects contains CpGs signals
+
+        qc <- getQC(MSet)
+        write.table(qc, '$qctab') #optional - provides a simple quality control matrix and plot
+        png('$qcpng')
+        plotQC(qc)
+	dev.off()
+
+	RSet <- ratioConvert(MSet, what = 'both', keepCN = TRUE) #store Beta values and/or M values
+	GRSet <- mapToGenome(RSet)
+
+
+	if ('$optpp' == 'na' ) {
+	GRSet <- mapToGenome(RSet) #mapping Ilumina methylation array data to the genome
+	} else if ('$optpp' == 'ppfun'  ) {
+	GRSet <- preprocessFunnorm(RGSet) #optional - implements the functional normalization algorithm
+	} else  if ('$optpp' == 'ppq' ) {
+	GRSet <- preprocessQuantile(RGSet, fixOutliers = TRUE,
+        removeBadSamples = TRUE, badSampleCutoff = 10.5,
+        quantileNormalize = TRUE, stratified = TRUE,
+        mergeManifest = FALSE, sex = NULL) #optional - implements stratified quantile normalization preprocessing
+	}  else if ('$optpp' == 'ppsnp' ) {
+	snps <- getSnpInfo(GRSet) #optional - retrieve the chromosome and the position of each SNP
+	write.table(snps, '$table')
+	GRSet <- dropLociWithSnps(GRSet, snps=c('SBE','CpG'), maf=0) #optional - drop the probes that contain either a SNP at the CpG interrogation or at the single nucleotide extensions
+	}
+	pheno <- read.table('$phenotype_table',skip = 1)
+        group <- pheno\$V2
+        pair <- factor(pheno\$V3)
+	
+	design.matrix <- model.matrix(~ group + pair)
+	
+	maxGap <- as.numeric('$maxgap_size')
+        if(is.null(GRSet\$cluster)){
+        cluster = NULL
+        maxGap = maxGap
+        } else {
+        cluster = GRSet\$cluster
+        maxGap = NULL
+        }
+        
+        dmrs <- bumphunter(GRSet,
+        design = design.matrix, 
+        cluster = cluster,
+        maxGap = maxGap,
+        cutoff = as.numeric('$cutoff_size'), 
+        nullMethod = '$null_method',
+        B = as.numeric('$number_of_resamples'))
+        dmrGR <- dmrs\$table[,c(1,2,3)] 
+        colnames(dmrGR) <- c('chr','start','end')
+	write.table(dmrGR, file= '$dmr', quote = FALSE,col.names = TRUE, row.names = FALSE, sep = '\t')
+      
+        tab <- read.table('$ucsc_genome')
+        tab <- tab[,-(11:14),drop=FALSE]
+        tab <- tab[,c(1,4,5,10)]
+        colnames(tab) <- c('chr','start','end','names')
+
+        dmp <- dmpFinder(dat = getBeta(GRSet),pheno =  read.table('$phenotype_table',skip=1)[,'V2'], type = '$phenotype', qCutoff = as.numeric('$q_cutoff'), shrinkVar = '$variance_shrinkage')
+        dmp[,'names'] <- rownames(dmp)
+        data <- merge(dmp, tab, by='names',sort = TRUE)
+        data <- data[,c(6,7,8,1,4,5)]
+        write.table(data, file= '$dmp', quote = FALSE,col.names = TRUE, row.names = FALSE, sep = '\t')
+
+	]]></configfile>
+  </configfiles>
+  <inputs>
+    <param type='data' name='files_red' multiple='true' format='idat' label='Red .IDAT files' help='Red .IDAT files extension is followed by the unmethylated signal intensity read in the red channel.'/>
+    <param type='data' name='files_grn' multiple='true' format='idat' label='Green .IDAT files' help='Green .IDAT files extension is followed by the methylated signal intensity read in the green channel.'/>
+    <param name='optpp' type='select' label='(Optional) Preprocessing Method' help='Mapping Ilumina methylation array data to the genome with or without additional preprocessing methods.'>
+      <option value='na'>No Selection (use default)</option>
+      <option value='ppfun'>Preprocess Funnorm</option>
+      <option value='ppq'>Preprocess Quantile</option>
+      <option value='ppsnp'>Remove SNPs</option>
+    </param>
+    <param type='data' name='phenotype_table' format='tabular' label='Phenotype Table' help='Phenotype Table must include the following information: sampleID, phenotype and paird or unpaired samples column.'/>
+    <param name='maxgap_size' type='integer' value='250' label='maxGap Size' help='If cluster is not provided this maximum location gap will be used to define cluster.'/>
+    <param name='cutoff_size' type='float' value='0.1' label='Cutoff Size' help='A numeric value. Values of the estimate of the genomic profile above the cutoff or below the negative of the cutoff will be used as candidate regions. It is possible to give two separate values (upper and lower bounds). If one value is given, the lower bound is minus the value.'/>
+    <param name='number_of_resamples' type='integer' value='0' label='Number of Resamples' help='An integer denoting the number of resamples to use when computing null distributions. This defaults to 0. If permutations is supplied that defines the number of permutations/bootstraps and B is ignored.'/>
+    <param name='null_method' type='select' label='null Method' help='Method used to generate null candidate regions (defaults to &#x2018;permutation&#x2019;). Note that for cases with more than one covariate the permutation approach is not generally recommended. '>
+      <option value='permutation' selected='True'>permutation</option>
+      <option value='bootstrap'>bootstrap</option>
+    </param>
+    <param type='data' name='phenotype_table' format='tabular' label='Phenotype Table' help='Table of compared samples and their characteristics, may be categorical (e.g. cancer vs. normal) or continuous (e.g. blood pressure).'/>
+    <param name='phenotype' type='select' label='Phenotype Type'>
+      <option value='categorical'>categorical</option>
+      <option value='continuous'>continuous</option>
+    </param>
+    <param name='q_cutoff' type='float' value='1' label='qCutoff Size' help='DMPs with an FDR q-value greater than this will not be returned.'/>
+    <param name='variance_shrinkage' type='boolean' truevalue='TRUE' falsevalue='FALSE' label='Variance Shrinkage' help='Enable variance shrinkage is recommended when sample sizes are small.'/>
+    <param type='data' name='ucsc_genome' format='gtf' label='Genome Table' help='Reference Sequence e.g. wgEncodeHaibMethyl450Gm12878SitesRep1.'/>
+  </inputs>
+  <outputs>
+    <data name='qctab' format='txt' label='Quality Control Report'/>
+    <data name='qcpng' format='png' label='Quality Control Plot'/>
+    <data name='table' format='txt' label='SNPInfo Table'/>
+    <data name='dmr' format='bed' label='Differentially Methylated Regions'/>
+    <data name='dmp' format='bed' label='Differentially Methylated Positions'/>
+  </outputs>
+  <tests>
+    <test>
+      <param name='files_red' value='GSM1588707_8795207119_R06C02_Red.idat,GSM1588706_8795207135_R02C02_Red.idat,GSM1588705_8795207119_R05C02_Red.idat,GSM1588704_8795207135_R01C02_Red.idat' ftype='idat'/>
+      <param name='files_grn' value='GSM1588707_8795207119_R06C02_Grn.idat,GSM1588706_8795207135_R02C02_Grn.idat,GSM1588705_8795207119_R05C02_Grn.idat,GSM1588704_8795207135_R01C02_Grn.idat' ftype='idat'/>
+      <param name='optpp' value='ppsnp'/>
+      <param name='grset' value='GRSet_without_SNPs.rdata'/>
+      <param name='phenotype_table' value='phenotypeTable.txt'/>
+      <param name='maxgap_size' value='250'/>
+      <param name='cutoff_size' value='0.1'/>
+      <param name='number_of_resamples' value='0'/>
+      <param name='null_method' value='permutation'/>
+      <param name='grset' value='GRSet_without_SNPs.rdata'/>
+      <param name='phenotype' value='categorical'/>
+      <param name='q_cutoff' value='1'/>
+      <param name='variance_shrinkage' value='FALSE'/>
+      <param name='ucsc_genome' value='ucsc.gtf'/>
+      <output name='qctab' file='Quality_Control_Report.txt'/>
+      <output name='qcpng' file='Quality_Control_Plot.png' compare='sim_size'/>
+      <output name='table' file='SNPInfo_Table.txt'/>
+      <output name='dmr' file='Differentially_Methylated_Regions.bed'/>
+      <output name='dmp' file='Differentially_Methylated_Positions.bed'/>
+    </test>
+  </tests>
+  <help><![CDATA[
+
+.. class:: infomark
+	
+**What it does**
+
+The workflow combines 5 main steps, starting with raw intensity data loading (.idat) and then optional preprocessing and normalisation of the data. The next quality control step performs an additional sample check to remove low-quality data, which normalisation cannot detect. The workflow gives the user the opportunity to perform any of these preparation and data cleaning steps, including highly recommended genetic variation annotation step resulting in single nucleotide polymorphism identification and removal. Finally, the dataset generated through all of these steps can be used to hunt (find) differentially-methylated positions (DMP)and regions (DMR) with respect to a phenotype covariate.
+
+***Inputs***    
+
+*Series of .IDAT files*: red and green .idat file for each sample on the chip intensity data.    
+
+*(optional) Preprocessing Methods*: by this step probes can be stratified by region via quantile normalization or by extended implementation of functional normalisation recommended for cases where global changes are expected such as in cancer-normal comparisons. In addition unwanted probes containing either a SNP at the CpG interrogation or at the single nucleotide extension can be removed (recommended).   
+
+*Phenotype Table*: table of compared samples and their characteristics, may be categorical (e.g. cancer vs. normal) or continuous (e.g. blood pressure).   
+
+========== ============== ===============
+Accession  Sensitivity    Treatment
+---------- -------------- ---------------
+GSM1588704 sensitive      MAPKi
+---------- -------------- ---------------
+GSM1588705 sensitive      MAPKi
+---------- -------------- ---------------
+GSM1588706 resistant      BRAFi
+---------- -------------- ---------------
+GSM1588707 resistant      BRAFi
+========== ============== ===============    
+
+*Note*: phenotype covariate table must include the following information:
+sampleID/Accession, phenotype and paird or unpaired samples column
+
+*Genome Table*: a reference genome that contains the nucleotide sequence of the chromosomes, It is representative of a specific genome build and release.   
+
+***Outputs***
+
+*Quality Control Report and Plot*: quality control (QC) outputs plot of the log median intensity in both the methylated (M) and unmethylated (U) channels. When plotting these two medians against each other the good samples cluster together, while failed samples tend to separate and have lower median intensities.
+
+*(optional) SNPInfo Table*: matrix of the chromosome and the position of each SNP on a given Affymetrix SNP Array.   
+
+*Differentially Methylated Regions*: consecutive genomic locations differentially methylated in the same direction save as multiple track lines in a single BED file.   
+
+*Differentially Methylated Positions*: single genomic position that has a different methylated level in two different groups of samples (or conditions) save as multiple track lines in a single BED file.
+  ]]></help>
+  <citations>
+    <citation type='doi'>10.18129/B9.bioc.illuminaio</citation>
+  </citations>
+</tool>
