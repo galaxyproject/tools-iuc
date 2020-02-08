@@ -3,8 +3,8 @@ import os
 import sys
 
 from matplotlib import pyplot as plt
-from omero.constants.namespaces import NSBULKANNOTATIONS
-from omero.gateway import BlitzGateway
+from omero.gateway import BlitzGateway  # noqa
+from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
 
 def warn(message, image_identifier):
