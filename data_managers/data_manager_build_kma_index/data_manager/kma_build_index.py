@@ -6,17 +6,18 @@ import argparse
 import errno
 import json
 import os
-import uuid
 import subprocess
+import uuid
 
 
 DATA_TABLE_NAME = "kma_index"
 
+
 def kma_build_index(kma_index_args, index_name, target_directory, data_table_name=DATA_TABLE_NAME):
     UUID = str(uuid.uuid4())
-    
+
     os.mkdir(os.path.join(target_directory, UUID))
-    
+
     args = [
         '-k', str(kma_index_args["k"]),
         '-k_t', str(kma_index_args["k_t"]),
