@@ -29,7 +29,7 @@ def kma_build_index(kma_index_args, index_name, target_directory, data_table_nam
         '-i', " ".join(kma_index_args["fasta"]),
     ]
 
-    subprocess.check_call(['kma'] + ['index'] + args, cwd=target_directory, shell=True)
+    subprocess.check_call(' '.join(['kma index'] + args), cwd=target_directory, shell=True)
 
     data_table_entry = {
         'data_tables': {
