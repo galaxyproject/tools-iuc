@@ -19,22 +19,15 @@ def mash_sketch(mash_sketch_args, sketch_name, target_directory, data_table_name
     sketch_path = os.path.join(UUID, "sketch"),
 
     args = [
-        '--threads', str(kraken2_args["threads"]),
         '-k', str(mash_sketch_args["kmer_size"]),
         '-s', str(mash_sketch_args["sketch_size"]),
-        '-o', sketch_path
+        '-o', sketch_path,
+        '-p', str(mash_sketch_args["threads"]),
+        str(mash_sketch_args["fasta"]),
     ]
 
     subprocess.check_call(['mash', 'sketch'] + args, cwd=target_directory)
 
-    if kraken2_args["clean"]:
-        args = [
-            '--threads', str(kraken2_args["threads"]),
-            '--clean',
-            '--db', database_path
-        ]
-
-        subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
         'data_tables': {
@@ -56,6 +49,7 @@ def main():
     parser.add_argument('data_manager_json')
     parser.add_argument('--kmer-size', dest='kmer_size', type=int, default=35, help='kmer length')
     parser.add_argument('--sketch-size', dest='sketch_size', type=int, default=31, help='minimizer length')
+    parser.add_argument('--fasta', dest='fasta', type='string', help='Fasta file to sketch')
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--sketch-name', dest='sketch_name', help='Name for sketch')
     args = parser.parse_args()
@@ -75,10 +69,17 @@ def main():
     data_manager_output = {}
 
     mash_sketch_args = {
-        "kmer_size": args.kmer_len,
-        "sketch_size": args.minimizer_len,
+        "kmer_size": args.kmer_size,
+        "sketch_size": args.sketch_size,
+        "fasta": args.fasta,
         "threads": args.threads,
     }
+
+    data_manager_output = mash_sketch(
+        mash_sketch_args,
+        sketch_name,
+        target_directory,
+    )
 
     open(args.data_manager_json, 'w').write(json.dumps(data_manager_output, sort_keys=True))
 
