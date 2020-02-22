@@ -120,21 +120,24 @@ mkgenelist <- function(sc){
     df <- c()
     options(cex = 1)
     lapply(unique(sc@cpart), function(n){
-        dg <- clustdiffgenes(sc, cl=n, pvalue=genelist.pvalue)
+        tryCatch({
+            dg <- clustdiffgenes(sc, cl=n, pvalue=genelist.pvalue)
+            dg.goi <- dg[dg$fc > genelist.foldchange,]
+            dg.goi.table <- head(dg.goi, genelist.tablelim)
+            df <<- rbind(df, cbind(n, dg.goi.table))
 
-        dg.goi <- dg[dg$fc > genelist.foldchange,]
-        dg.goi.table <- head(dg.goi, genelist.tablelim)
-        df <<- rbind(df, cbind(n, dg.goi.table))
-
-        goi <- head(rownames(dg.goi.table), genelist.plotlim)
-        print(plotmarkergenes(sc, goi))
-        buffer <- paste(rep("", 36), collapse=" ")
-        print(do.call(mtext, c(paste(buffer, "Cluster ",n), test)))  ## spacing is a hack
-        test$line=-1
-        print(do.call(mtext, c(paste(buffer, "Sig. Genes"), test)))  ## spacing is a hack
-        test$line=-2
-        print(do.call(mtext, c(paste(buffer, "(fc > ", genelist.foldchange,")"), test)))  ## spacing is a hack
-
+            goi <- head(rownames(dg.goi.table), genelist.plotlim)
+            print(plotmarkergenes(sc, goi))
+            buffer <- paste(rep("", 36), collapse=" ")
+            print(do.call(mtext, c(paste(buffer, "Cluster ",n), test)))
+            test$line=-1
+            print(do.call(mtext, c(paste(buffer, "Sig. Genes"), test)))
+            test$line=-2
+            print(do.call(mtext, c(paste(buffer, "(fc > ", genelist.foldchange,")"), test)))
+        }, error = {
+            print(paste("Could not print marker genes for cluster ", n))
+            return(NA)
+        })
     })
     write.table(df, file=out.genelist, sep="\t", quote=F)
 }
