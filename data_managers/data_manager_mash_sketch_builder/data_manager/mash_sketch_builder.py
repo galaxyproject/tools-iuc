@@ -5,7 +5,6 @@ import errno
 import json
 import os
 import subprocess
-import sys
 import uuid
 
 
@@ -30,7 +29,7 @@ def mash_sketch(mash_sketch_args, sketch_name, target_directory, data_table_name
 
     if mash_sketch_args["individual_sequences"]:
         args = args + ["-i"]
-    
+
     subprocess.check_call(['mash', 'sketch'] + args, cwd=target_directory)
 
     data_table_entry = {
@@ -61,9 +60,9 @@ def main():
     args = parser.parse_args()
 
     data_manager_input = json.loads(open(args.data_manager_json).read())
-    
+
     target_directory = data_manager_input['output_data'][0]['extra_files_path']
-    
+
     try:
         os.mkdir( target_directory )
     except OSError as exc:
