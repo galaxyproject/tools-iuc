@@ -8,7 +8,6 @@ import subprocess
 import sys
 import uuid
 
-from pprint import pprint
 
 DATA_TABLE_NAME = "mash_sketches"
 
@@ -23,6 +22,7 @@ def mash_sketch(mash_sketch_args, sketch_name, target_directory, data_table_name
     args = [
         '-k', str(mash_sketch_args["kmer_size"]),
         '-s', str(mash_sketch_args["sketch_size"]),
+        '-w', str(mash_sketch_args["probability_threshold"]),
         '-o', str(sketch_path),
         '-p', str(mash_sketch_args["threads"]),
         str(mash_sketch_args["fasta"]),
@@ -53,7 +53,8 @@ def main():
     parser.add_argument('data_manager_json')
     parser.add_argument('--kmer-size', dest='kmer_size', type=int, default=35, help='kmer length')
     parser.add_argument('--sketch-size', dest='sketch_size', type=int, default=31, help='minimizer length')
-    parser.add_argument('--individual-sequences', dest='individual_sequences', type=boolean, action='store_true' help='Sketch individual sequences (for multi-fasta files)')
+    parser.add_argument('--probability-threshold', dest='probability_threshold', type=float, default=0.01, help='Probability threshold for warning about low k-mer size')
+    parser.add_argument('--individual-sequences', dest='individual_sequences', action='store_true', default=False, help='Sketch individual sequences (for multi-fasta files)')
     parser.add_argument('--fasta', dest='fasta', help='Fasta file to sketch')
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--sketch-name', dest='sketch_name', help='Name for sketch')
@@ -76,6 +77,7 @@ def main():
     mash_sketch_args = {
         "kmer_size": args.kmer_size,
         "sketch_size": args.sketch_size,
+        "probability_threshold": args.probability_threshold,
         "fasta": args.fasta,
         "individual_sequences": args.individual_sequences,
         "threads": args.threads,
