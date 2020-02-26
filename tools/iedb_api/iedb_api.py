@@ -5,9 +5,8 @@ import os.path
 import re
 import sys
 import time
-
 from urllib.error import HTTPError
-from urllib.parse import urlencode, unquote
+from urllib.parse import unquote, urlencode
 from urllib.request import urlopen
 
 mhci_methods = ['recommended', 'consensus',
@@ -186,13 +185,13 @@ def __main__():
                             warn_err(msg, exit_code=1)
                         if line.find('eptide') > 0:
                             header = "#%s%s" %\
-                                    ("ID\t" if seqid else "", line)
+                                ("ID\t" if seqid else "", line)
                             if args.debug:
                                 print(header, file=sys.stderr)
                             continue
                         elif method == 'Bepipred' and line.find('Residue') > 0:
                             header2 = "#%s%s" %\
-                                    ("ID\t" if seqid else "", line)
+                                ("ID\t" if seqid else "", line)
                             if args.debug:
                                 print(header2, file=sys.stderr)
                             rslts = results2
