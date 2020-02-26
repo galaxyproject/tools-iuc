@@ -8,7 +8,6 @@ import argparse
 import sys
 
 from BCBio import GFF
-
 from Bio.SeqFeature import FeatureLocation, SeqFeature
 
 parser = argparse.ArgumentParser()
