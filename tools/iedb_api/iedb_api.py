@@ -36,8 +36,95 @@ prediction_lengths = {'mhci': range(8, 16),
                       'bcell': range(8, 16)}
 
 
+def parse_alleles(allelefile, lengths):
+    alleles = []
+    lengths = []
+    with open(allelefile, 'r') as fh:
+        for i, line in enumerate(fh):
+            fields = line.strip().split(',')
+            allele = fields[0].strip()
+            if allele:
+                if len(fields) > 1:
+                    for alen in fields[1:]:
+                        alleles.append(allele)
+                        lengths.append(alen)
+                elif lengths:
+                    for alen in str(lengths).split(','):
+                        alleles.append(allele)
+                        lengths.append(alen)
+                else:
+                    alleles.append(allele)
+    return (alleles, lengths)
+
+
+def query(url, prediction, seq, allele, length, results,
+          seqid=None, method='recommended', proteasome=None,
+          timeout=300, retries=3, sleep=300, debug=False):
+    params = dict()
+    if method:
+        params['method'] = method.encode()
+    if proteasome:
+        params['proteasome'] = proteasome.encode()
+    params['sequence_text'] = seq.strip().encode()
+    if allele is not None:
+        params['allele'] = allele.encode()
+    if length is not None:
+        if prediction == 'bcell':
+            params['window_size'] = str(length).encode()
+        else:
+            params['length'] = str(length).encode()
+    req_data = urlencode(params)
+    if debug:
+        print('url %s %s' % (url, unquote(req_data)), file=sys.stderr)
+    retries = max(0, retries) + 1
+    for retry in range(1, retries):
+        response = None
+        try:
+            response = urlopen(url, data=req_data.encode('utf-8'),
+                               timeout=timeout)
+            if response and response.getcode() == 200:
+                data = [line.decode() for line in response.readlines()]
+                if debug:
+                    print(data, file=sys.stderr)
+                rslts = results['prediction']['entries']
+                for ln, line in enumerate(data):
+                    if 'invalid' in line.lower() or 'tools_api.html' in line:
+                        msg = '%s %s\n%s' % (url, unquote(req_data),
+                                             ''.join(data))
+                        warn_err(msg, exit_code=1)
+                    if line.find('eptide') > 0:
+                        results['prediction']['header'] = "#%s%s" %\
+                            ("ID\t" if seqid else "", line)
+                        continue
+                    elif method == 'Bepipred' and line.find('Residue') > 0:
+                        results['detail']['header'] = "#%s%s" %\
+                            ("ID\t" if seqid else "", line)
+                        rslts = results['detail']['entries']
+                        continue
+                    if seqid:
+                        rslts.extend("%s\t%s" % (seqid, line))
+                    else:
+                        rslts.extend(line)
+                break
+            else:
+                code = response.getcode() if response else 1
+                warn_err("Error connecting to IEDB server\n",
+                         exit_code=code)
+        except HTTPError as e:
+            code = None if retry < retries else e.code
+            warn_err("%d of %d Error connecting to IEDB server %s\n" %
+                     (retry, retries, e),
+                     exit_code=code)
+            time.sleep(sleep)
+        except Exception as e:
+            warn_err("Error connecting to IEDB server %s\n" % e,
+                     exit_code=3)
+    return results
+
+
 def warn_err(msg, exit_code=1):
     sys.stderr.write(msg)
+    sys.stderr.flush()
     if exit_code:
         sys.exit(exit_code)
 
@@ -65,6 +152,9 @@ def __main__():
                         action="append",
                         default=[],
                         help='Alleles for which to make predictions')
+    parser.add_argument('-A', '--allelefile',
+                        default=None,
+                        help='File of HLA alleles')
     parser.add_argument('-l', '--length',
                         action="append",
                         default=[],
@@ -110,8 +200,9 @@ def __main__():
 
     aapat = '^[ABCDEFGHIKLMNPQRSTVWY]+$'
 
-    if not args.allele and args.prediction != 'bcell':
-        warn_err('-a allele required\n', exit_code=1)
+    if args.prediction != 'bcell':
+        if not args.allele and not args.allelefile:
+            warn_err('-a allele or -A allelefile required\n', exit_code=1)
 
     if not (args.sequence or args.input):
         warn_err('NO Sequences given: ' +
@@ -127,97 +218,36 @@ def __main__():
     else:
         outputFile = sys.stdout
 
-    url = 'http://tools-cluster-interface.iedb.org/tools_api/%s/' %\
-        args.prediction
-    len_param = 'length' if args.prediction != 'bcell' else 'window_size'
-
-    # TODO parse alleles from the args.alleles file
-    alleles = ','.join(args.allele) if args.prediction != 'bcell' else None
-    lengths = ','.join(args.length)
-    if args.prediction == 'bcell':
-        lengths = args.window_size
+    # params
+    alleles = []
+    lengths = []
+    if args.prediction == 'bcell' and args.window_size is not None:
+        lengths.append(str(args.window_size))
+    else:
+        if args.allelefile:
+            (alleles, lengths) = parse_alleles(args.allelefile, args.length)
+        if args.allele:
+            for i, allele in enumerate(args.allele):
+                alleles.append(allele)
+                alen = args.length[i] if i < len(args.length) else args.length[-1]
+                lengths.append(alen)
+    allele = ','.join(alleles) if alleles else None
+    length = ','.join(lengths) if lengths else None
     method = args.method
     proteasome = args.proteasome if args.prediction == 'processcing' else None
-    global header
-    header = None
-    results = []
-    global header2
-    header2 = None
-    results2 = []
+    url = 'http://tools-cluster-interface.iedb.org/tools_api/%s/' %\
+        args.prediction
 
-    sequence_text = []
-
-    def add_seq(seqid, seq):
-        sid = seqid if seqid else "peptide%d" % len(sequence_text)
-        sequence_text.append(">%s\n%s" % (sid, seq))
-
-    def query(url, seq, allele, length, seqid=None, method='recommended'):
-        global header
-        global header2
-        params = dict()
-        if method:
-            params['method'] = method.encode()
-        if proteasome:
-            params['proteasome'] = proteasome.encode()
-        params['sequence_text'] = seq.encode()
-        if allele is not None:
-            params['allele'] = allele.encode()
-        if length is not None:
-            params[len_param] = str(length).encode()
-        req_data = urlencode(params)
-        if args.debug:
-            print('url %s %s' % (url, unquote(req_data)), file=sys.stderr)
-        retries = max(0, args.retries) + 1
-        for retry in range(1, retries):
-            response = None
-            try:
-                response = urlopen(url, data=req_data.encode('utf-8'),
-                                   timeout=args.timeout)
-                if response and response.getcode() == 200:
-                    data = [line.decode() for line in response.readlines()]
-                    if args.debug:
-                        print(data, file=sys.stderr)
-                    rslts = results
-                    for ln, line in enumerate(data):
-                        if line.lower().find('invalid') >= 0:
-                            msg = '%s %s\n%s' % (url, unquote(req_data),
-                                                 ''.join(data))
-                            warn_err(msg, exit_code=1)
-                        if line.find('eptide') > 0:
-                            header = "#%s%s" %\
-                                ("ID\t" if seqid else "", line)
-                            if args.debug:
-                                print(header, file=sys.stderr)
-                            continue
-                        elif method == 'Bepipred' and line.find('Residue') > 0:
-                            header2 = "#%s%s" %\
-                                ("ID\t" if seqid else "", line)
-                            if args.debug:
-                                print(header2, file=sys.stderr)
-                            rslts = results2
-                            continue
-                        if seqid:
-                            rslts.extend("%s\t%s" % (seqid, line))
-                        else:
-                            rslts.extend(line)
-                    break
-                else:
-                    code = response.getcode() if response else 1
-                    warn_err("Error connecting to IEDB server\n",
-                             exit_code=code)
-            except HTTPError as e:
-                code = None if retry < args.retries else e.code
-                warn_err("%d of %d Error connecting to IEDB server %s\n" %
-                         (retry, retries, e),
-                         exit_code=code)
-                time.sleep(args.sleep)
-            except Exception as e:
-                warn_err("Error connecting to IEDB server %s\n" % e,
-                         exit_code=3)
+    # results
+    results = {'prediction': {'header': None, 'entries': []}, 'detail': {'header': None, 'entries': []}}
 
     if args.sequence:
         for i, seq in enumerate(args.sequence):
-            query(url, seq, alleles, lengths, seqid=None, method=method)
+            seqid = 'pep_%d' % i
+            query(url, args.prediction, seq, allele, length, results,
+                  seqid=seqid, method=method, proteasome=proteasome,
+                  timeout=args.timeout, retries=args.retries,
+                  sleep=args.sleep, debug=args.debug)
     if args.input:
         try:
             fh = open(args.input, 'r')
@@ -225,16 +255,19 @@ def __main__():
                 col = int(args.column)
                 idcol = int(args.id_column) if args.id_column else None
                 for i, line in enumerate(fh):
-                    fields = line.split('\t')
+                    fields = line.rstrip('\r\n').split('\t')
                     if len(fields) > col:
-                        seq = re.sub('[_*]', '', fields[col])
+                        seq = re.sub('[_*]', '', fields[col].strip())
                         if re.match(aapat, seq):
                             if idcol is not None and idcol < len(fields):
                                 seqid = fields[idcol]
                             else:
-                                seqid = None
-                            query(url, seq, alleles, lengths,
-                                  seqid=seqid, method=method)
+                                seqid = 'pep_%d' % i
+                            query(url, args.prediction, seq, allele, length,
+                                  results, seqid=seqid,
+                                  method=method, proteasome=proteasome,
+                                  timeout=args.timeout, retries=args.retries,
+                                  sleep=args.sleep, debug=args.debug)
                         else:
                             warn_err('Line %d, Not a peptide: %s\n' % (i, seq),
                                      exit_code=None)
@@ -244,24 +277,30 @@ def __main__():
                 for i, line in enumerate(fh):
                     if line.startswith('>'):
                         if seqid and len(seq) > 0:
-                            query(url, seq, alleles, lengths,
-                                  seqid=seqid, method=method)
+                            query(url, args.prediction, seq, allele, length,
+                                  results, seqid=seqid,
+                                  method=method, proteasome=proteasome,
+                                  timeout=args.timeout, retries=args.retries,
+                                  sleep=args.sleep, debug=args.debug)
                         seqid = line[1:].strip()
                         seq = ''
                     else:
                         seq += line.strip()
                 if seqid and len(seq) > 0:
-                    query(url, seq, alleles, lengths,
-                          seqid=seqid, method=method)
+                    query(url, args.prediction, seq, allele, length,
+                          results, seqid=seqid,
+                          method=method, proteasome=proteasome,
+                          timeout=args.timeout, retries=args.retries,
+                          sleep=args.sleep, debug=args.debug)
             fh.close()
         except Exception as e:
             warn_err("Unable to open input file: %s\n" % e, exit_code=1)
 
-    if header:
-        outputFile.write(header)
-    for line in results:
+    if results['prediction']['header']:
+        outputFile.write(results['prediction']['header'])
+    for line in results['prediction']['entries']:
         outputFile.write(line)
-    if results2:
+    if results['detail']['entries']:
         if args.output2:
             try:
                 outPath = os.path.abspath(args.output2)
@@ -270,9 +309,9 @@ def __main__():
                 warn_err("Unable to open output file: %s\n" % e, exit_code=1)
         else:
             outFile = sys.stdout
-        if header2:
-            outFile.write(header2)
-        for line in results2:
+        if results['detail']['header']:
+            outFile.write(results['detail']['header'])
+        for line in results['detail']['entries']:
             outFile.write(line)
 
 
