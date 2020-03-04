@@ -32,7 +32,6 @@ log = logging.getLogger(_log_name)
 RSYNC_CMD = 'rsync'
 RSYNC_SERVER = "rsync://datacache.g2.bx.psu.edu/"
 LOCATION_DIR = "location"
-INDEX_DIR = "indexes"
 
 # Pull the Tool Data Table files from github
 # FIXME: These files should be accessible from the rsync server directly.
@@ -202,7 +201,6 @@ def load_data_tables_from_url(url=None, site='main', data_table_class=None):
     if not url:
         url = TOOL_DATA_TABLE_CONF_XML_URLS.get(site, None)
     assert url, ValueError('You must provide either a URL or a site=name.')
-
     cached_data_table = TOOL_DATA_TABLES_LOADED_BY_URL.get(url, None)
     refresh, attribs = data_table_needs_refresh(cached_data_table, url)
     if refresh:
@@ -314,7 +312,7 @@ def get_data_for_path(path, data_root_dir):
     if path.startswith(GALAXY_DATA_CANONICAL_PATH):
         path = path[len(GALAXY_DATA_CANONICAL_PATH):]
     make_path = path
-    rsync_source = rsync_urljoin(rsync_urljoin(RSYNC_SERVER, INDEX_DIR), path)
+    rsync_source = rsync_urljoin(RSYNC_SERVER, path)
     if rsync_source.endswith('/'):
         rsync_source = rsync_source[:-1]
     try:
@@ -326,7 +324,7 @@ def get_data_for_path(path, data_root_dir):
         if not head:
             head = tail
         make_path = head
-        rsync_source = rsync_urljoin(rsync_urljoin(RSYNC_SERVER, INDEX_DIR), head)  # if we error here, likely due to a connection issue
+        rsync_source = rsync_urljoin(RSYNC_SERVER, head)  # if we error here, likely due to a connection issue
         if rsync_source.endswith('/'):
             rsync_source = rsync_source[:-1]
         dir_list = rsync_list_dir(rsync_source + "/")
