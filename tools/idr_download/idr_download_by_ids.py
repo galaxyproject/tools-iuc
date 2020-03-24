@@ -189,7 +189,7 @@ def download_image_data(
                     )
 
             # download and save the region as TIFF
-            fname = '#'.join(
+            fname = '__'.join(
                 [image_name, str(image_id)] + [str(x) for x in tile]
             )
             download_plane_as_tiff(image, tile, z_stack, channel_index, frame, fname)
