@@ -24,6 +24,7 @@ if __name__ == "__main__":
                 "strand": 0 if not feature.location.strand else feature.location.strand,
                 "name": feature.qualifiers.get(attr, ["None"])[0] or feature.id,
                 "value": feature.qualifiers.get("score", [0])[0],
+                "type": feature.type,
             }
 
             line = [
