@@ -1,5 +1,5 @@
-import io
 import argparse
+import io
 
 
 def Parser():
