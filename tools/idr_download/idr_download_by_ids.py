@@ -3,7 +3,6 @@ import os
 import sys
 from libtiff import TIFF
 
-from matplotlib import pyplot as plt
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
