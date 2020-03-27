@@ -90,7 +90,6 @@ def download_plane_as_tiff(image, tile, z, c, t, fname):
     tiff = TIFF.open(fname, mode = 'w')
     tiff.write_image(selection)
     tiff.close()
-    #plt.imsave(fname, selection)
 
 
 def download_image_data(
