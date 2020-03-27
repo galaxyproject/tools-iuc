@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+from libtiff import TIFF
 
 from matplotlib import pyplot as plt
 from omero.gateway import BlitzGateway  # noqa
@@ -86,7 +87,10 @@ def download_plane_as_tiff(image, tile, z, c, t, fname):
 
     if fname[-5:] != '.tiff':
         fname += '.tiff'
-    plt.imsave(fname, selection)
+    tiff = TIFF.open(fname, mode = 'w')
+    tiff.write_image(selection)
+    tiff.close()
+    #plt.imsave(fname, selection)
 
 
 def download_image_data(
