@@ -1,8 +1,8 @@
 import argparse
 import os
 import sys
-from libtiff import TIFF
 
+from libtiff import TIFF
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
@@ -86,7 +86,7 @@ def download_plane_as_tiff(image, tile, z, c, t, fname):
 
     if fname[-5:] != '.tiff':
         fname += '.tiff'
-    tiff = TIFF.open(fname, mode = 'w')
+    tiff = TIFF.open(fname, mode='w')
     tiff.write_image(selection)
     tiff.close()
 
