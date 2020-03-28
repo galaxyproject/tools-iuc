@@ -1,0 +1,242 @@
+name: Galaxy Tool Linting and Tests for push and PR
+on: [push, pull_request]
+env:
+  GALAXY_REPO: https://github.com/galaxyproject/galaxy
+  GALAXY_RELEASE: release_20.01
+jobs:
+  setup:
+    name: Cache planemo setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.7]
+    steps:
+    - uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+        architecture: 'x64' # (x64 or x86)
+    - name: setup planemo
+      run: 'pip install planemo'
+    - name: fake a planemo run to update cache
+      run: 'touch tool.xml && PIP_QUIET=1 planemo test --galaxy_python_version ${{ matrix.python-version }} --no_conda_auto_init --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE'
+    - name: Cache .cache/pip
+      uses: actions/cache@v1
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+
+  lint:
+    name: lint tools
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [3.7]
+    steps:
+    # checkout the repository to master
+    # and use it as the current working directory
+    - uses: actions/checkout@v1
+      with:
+        fetch-depth: 1
+    - uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+        architecture: 'x64' # (x64 or x86)
+    - name: Cache .cache/pip
+      uses: actions/cache@v1
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+    - name: setup planemo
+      run: 'pip install planemo'
+    - name: planemo ci_find_repos
+      run: |
+           mkdir changed_repositories
+           planemo ci_find_repos --changed_in_commit_range origin/master... --exclude packages --exclude deprecated --output changed_repositories.list
+    - name: planemo lint
+      run: |
+           set -e
+           while read -r DIR
+           do
+               planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive "$DIR";
+           done < changed_repositories.list
+
+  pylint:
+    name: lint python scripts
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [3.7]
+    steps:
+    # checkout the repository to master
+    # and use it as the current working directory
+    - uses: actions/checkout@v1
+      with:
+        fetch-depth: 1
+    - uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+        architecture: 'x64' # (x64 or x86)
+    - name: Cache .cache/pip
+      uses: actions/cache@v1
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+    - name: setup planemo
+      run: 'pip install planemo'
+    - name: planemo ci_find_repos
+      run: |
+           mkdir changed_repositories
+           planemo ci_find_repos --changed_in_commit_range origin/master... --exclude packages --exclude deprecated --output changed_repositories.list
+    - name: setup pycodestyle 
+      run: 'pip install pycodestyle'
+    - name: pycodestyle
+      run: |
+           set -e
+           while read -r DIR
+           do
+               pycodestyle --ignore E501 "$DIR";
+           done < changed_repositories.list
+
+  test:
+    name: test tools
+    # This job runs on Linux
+    runs-on: ubuntu-latest
+    needs: [lint,pylint]
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: [0,1,2,3]
+        python-version: [3.7]
+    services:
+      postgres:
+        image: postgres:11
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+    steps:
+    # checkout the repository to master
+    # and use it as the current working directory
+    - uses: actions/checkout@v1
+      with:
+        fetch-depth: 1
+    - uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+        architecture: 'x64' # (x64 or x86)
+    - name: Cache .cache/pip
+      uses: actions/cache@v1
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+    - name: setup planemo
+      run: 'pip install planemo'
+    - name: planemo ci_find_repos
+      run: |
+           mkdir changed_repositories
+           planemo ci_find_repos --changed_in_commit_range origin/master... --exclude packages --exclude deprecated --output changed_repositories.list
+    - name: planemo ci_find_tools
+      run: |
+           touch changed_repositories_chunk.list changed_tools_chunk.list
+           if [ -s changed_repositories.list ]; then
+               if [ $(wc -l < changed_repositories.list) -eq 1 ]; then
+                   planemo ci_find_tools --chunk_count 4 --chunk ${{ matrix.chunk }} \
+                                  --output changed_tools_chunk.list \
+                                  $(cat changed_repositories.list)
+               else
+                   planemo ci_find_repos --chunk_count 4 --chunk ${{ matrix.chunk }} \
+                                  --output changed_repositories_chunk.list \
+                                  $(cat changed_repositories.list)
+               fi
+            fi
+    - name: set tool list
+      id: tools
+      run: echo "::set-output name=tool_list::$(tr '\n' ' ' < changed_repositories.list)"
+    - name: show repo list
+      run: 'cat changed_repositories.list'
+    - name: show changed tools/repositories chunk list
+      run: 'cat changed_tools_chunk.list changed_repositories_chunk.list'
+    - name: planemo test tools
+      run: |
+           if [ -s changed_tools_chunk.list ]; then
+               PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy --biocontainers --no_conda_auto_init --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json tool_test_output.json $(cat changed_tools_chunk.list) || true
+               docker system prune --all --force --volumes || true
+           elif [ -s changed_repositories_chunk.list ]; then
+               while read -r DIR; do
+                   if [[ "$DIR" =~ ^data_managers.* ]]; then
+                       TESTPATH=$(planemo ci_find_tools "$DIR")
+                   else
+                       TESTPATH="$DIR"
+                   fi
+                   PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy --biocontainers --no_conda_auto_init --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$DIR"/tool_test_output.json "$TESTPATH" || true
+                   docker system prune --all --force --volumes || true
+               done < changed_repositories_chunk.list
+           else
+               echo '{"tests":[]}' > tool_test_output.json
+           fi
+    - name: Merge tool_test_output.json files
+      run: |
+        find . -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
+    - name: Create tool_test_output.html
+      run: 'planemo test_reports tool_test_output.json --test_output tool_test_output.html'
+    - name: Copy artifacts into place
+      run: mkdir upload && mv tool_test_output.json tool_test_output.html upload
+    - uses: actions/upload-artifact@v1
+      with:
+        name: 'Tool test output ${{ matrix.chunk  }}'
+        path: upload
+
+  combine_outputs:
+    name: Combine chunked test results
+    needs: test
+    # This job runs on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v1
+        with:
+          name: Tool test output 0
+      - uses: actions/download-artifact@v1
+        with:
+          name: Tool test output 1
+      - uses: actions/download-artifact@v1
+        with:
+          name: Tool test output 2
+      - uses: actions/download-artifact@v1
+        with:
+          name: Tool test output 3
+      - uses: actions/setup-python@v1
+        with:
+          python-version: '3.7'
+          architecture: 'x64'
+      - name: setup planemo
+        run: 'pip install planemo'
+      - name: setup jq
+        run: 'sudo apt-get install jq'
+      - name: combine outputs
+        run: |
+          find . -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
+      - name: Create tool_test_output.html
+        run: 'planemo test_reports tool_test_output.json --test_output tool_test_output.html'
+      - name: Copy artifacts into place
+        run: mkdir upload && mv tool_test_output.json tool_test_output.html upload
+      - uses: actions/upload-artifact@v1
+        with:
+          name: 'All tool test results'
+          path: upload
+      - name: check status of combined status
+        run: |
+             stat=$(jq '.["tests"][]["data"]["status"]' upload/tool_test_output.json | grep -v "success" || true)
+             if [[ "$(echo -n $stat | wc -l)" -gt "0" ]]; then
+                 echo "unsuccessful tests found $(sort <<<$stat | uniq -c)"
+                 exit 1
+             fi
