@@ -5,7 +5,7 @@ env:
   GALAXY_RELEASE: release_20.01
 jobs:
   setup:
-    name: Setup Planemo
+    name: Setup cache and determine changed repositories
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -19,18 +19,29 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
-    - name: Install Planemo
-      if: steps.cache-pip.outputs.cache-hit != 'true'
-      run: pip install planemo
+        key: pip_cache_python_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+    - name: debug
+      run: echo ${{ steps.cache-pip.outputs.cache-hit }}
+    - name: install Planemo and flake8
+      run: pip install planemo flake8
     - name: fake a planemo run to update cache
       if: steps.cache-pip.outputs.cache-hit != 'true'
       run: |
         touch tool.xml
         PIP_QUIET=1 planemo test --galaxy_python_version ${{ matrix.python-version }} --no_conda_auto_init --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE
+    - uses: actions/checkout@v1
+      with:
+        fetch-depth: 1
+    - name: planemo ci_find_repos
+      run: |
+           planemo ci_find_repos --changed_in_commit_range origin/master... --exclude packages --exclude deprecated --output changed_repositories.list
+    - uses: actions/upload-artifact@v1
+      with:
+        name: changed repositories
+        path: changed_repositories.list
 
   lint:
-    name: lint tools
+    name: Lint tools
     needs: setup
     runs-on: ubuntu-latest
     strategy:
@@ -46,28 +57,28 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
+    - name: cache .cache/pip
       uses: actions/cache@v1
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+        key: pip_cache_python_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
     - name: setup planemo
       run: pip install planemo
-    - name: planemo ci_find_repos
-      run: |
-           mkdir changed_repositories
-           planemo ci_find_repos --changed_in_commit_range origin/master... --exclude packages --exclude deprecated --output changed_repositories.list
+    - uses: actions/download-artifact@v1
+      with:
+        name: changed repositories
+        path: changed_repositories.list
     - name: planemo lint
       run: |
            set -e
            while read -r DIR
            do
                planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive "$DIR";
-           done < changed_repositories.list
+           done < changed_repositories.list/changed_repositories.list
 
   flake8:
-    name: lint python scripts
+    name: Lint python scripts
     needs: setup
     runs-on: ubuntu-latest
     strategy:
@@ -83,22 +94,24 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
+    - name: cache .cache/pip
       uses: actions/cache@v1
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
-    - name: setup planemo
-      run: pip install planemo
-    - name: planemo ci_find_repos
-      run: |
-        mkdir changed_repositories
-        planemo ci_find_repos --changed_in_commit_range origin/master... --exclude packages --exclude deprecated --output changed_repositories.list
+        key: pip_cache_python_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
     - name: setup flake8 
       run: pip install flake8
+    - uses: actions/download-artifact@v1
+      with:
+        name: changed repositories
+        path: changed_repositories.list
+    - name: ls
+      run: ls -la
+    - name: ls
+      run: ls -la changed_repositories.list/changed_repositories.list
     - name: flake8
-      run: flake8 $(cat changed_repositories.list)
+      run: flake8 $(cat changed_repositories.list/changed_repositories.list)
 
   test:
     name: test tools
@@ -128,37 +141,38 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
+    - name: cache .cache/pip
       uses: actions/cache@v1
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
-    - name: Install Planemo
+        key: pip_cache_python_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+    - name: install Planemo
       run: pip install planemo
-    - name: planemo ci_find_repos
-      run: |
-        mkdir changed_repositories
-        planemo ci_find_repos --changed_in_commit_range origin/master... --exclude packages --exclude deprecated --output changed_repositories.list
+
+    - uses: actions/download-artifact@v1
+      with:
+        name: changed repositories
+        path: changed_repositories.list
     - name: planemo ci_find_tools
       run: |
         touch changed_repositories_chunk.list changed_tools_chunk.list
-        if [ -s changed_repositories.list ]; then
-            if [ $(wc -l < changed_repositories.list) -eq 1 ]; then
+        if [ -s changed_repositories.list/changed_repositories.list ]; then
+            if [ $(wc -l < changed_repositories.list/changed_repositories.list) -eq 1 ]; then
                 planemo ci_find_tools --chunk_count 4 --chunk ${{ matrix.chunk }} \
                                --output changed_tools_chunk.list \
-                               $(cat changed_repositories.list)
+                               $(cat changed_repositories.list/changed_repositories.list)
             else
                 planemo ci_find_repos --chunk_count 4 --chunk ${{ matrix.chunk }} \
                                --output changed_repositories_chunk.list \
-                               $(cat changed_repositories.list)
+                               $(cat changed_repositories.list/changed_repositories.list)
             fi
         fi
     - name: set tool list
       id: tools
-      run: echo "::set-output name=tool_list::$(tr '\n' ' ' < changed_repositories.list)"
+      run: echo "::set-output name=tool_list::$(tr '\n' ' ' < changed_repositories.list/changed_repositories.list)"
     - name: show repo list
-      run: cat changed_repositories.list
+      run: cat changed_repositories.list/changed_repositories.list
     - name: show changed tools/repositories chunk list
       run: cat changed_tools_chunk.list changed_repositories_chunk.list
     - name: planemo test tools
@@ -179,12 +193,12 @@ jobs:
            else
                echo '{"tests":[]}' > tool_test_output.json
            fi
-    - name: Merge tool_test_output.json files
+    - name: merge tool_test_output.json files
       run: |
         find . -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
-    - name: Create tool_test_output.html
+    - name: create tool_test_output.html
       run: planemo test_reports tool_test_output.json --test_output tool_test_output.html
-    - name: Copy artifacts into place
+    - name: copy artifacts into place
       run: mkdir upload && mv tool_test_output.json tool_test_output.html upload
     - uses: actions/upload-artifact@v1
       with:
@@ -197,45 +211,52 @@ jobs:
     # This job runs on Linux
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v1
-        with:
-          name: Tool test output 0
-      - uses: actions/download-artifact@v1
-        with:
-          name: Tool test output 1
-      - uses: actions/download-artifact@v1
-        with:
-          name: Tool test output 2
-      - uses: actions/download-artifact@v1
-        with:
-          name: Tool test output 3
-      - uses: actions/setup-python@v1
-        with:
-          python-version: '3.7'
-      - name: setup planemo
-        run: pip install planemo
-      - name: setup jq
-        run: sudo apt-get install jq
-      - name: combine outputs
-        run: |
-          find . -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
-      - name: Create tool_test_output.html
-        run: planemo test_reports tool_test_output.json --test_output tool_test_output.html
-      - name: Copy artifacts into place
-        run: |
-          mkdir upload
-          mv tool_test_output.json tool_test_output.html upload/
-      - uses: actions/upload-artifact@v1
-        with:
-          name: 'All tool test results'
-          path: upload
-      - name: check status of combined status
-        run: |
-          stat=$(jq '.["tests"][]["data"]["status"]' upload/tool_test_output.json | grep -v "success" || true)
-          if [[ "$(echo -n $stat | wc -l)" -gt "0" ]]; then
-              echo "unsuccessful tests found $(sort <<<$stat | uniq -c)"
-              exit 1
-          fi
+    - uses: actions/download-artifact@v1
+      with:
+        name: Tool test output 0
+    - uses: actions/download-artifact@v1
+      with:
+        name: Tool test output 1
+    - uses: actions/download-artifact@v1
+      with:
+        name: Tool test output 2
+    - uses: actions/download-artifact@v1
+      with:
+        name: Tool test output 3
+    - uses: actions/setup-python@v1
+      with:
+        python-version: '3.7'
+    - name: cache .cache/pip
+      uses: actions/cache@v1
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_python_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+
+    - name: setup planemo
+      run: pip install planemo
+    - name: setup jq
+      run: sudo apt-get install jq
+    - name: combine outputs
+      run: |
+        find . -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
+    - name: create tool_test_output.html
+      run: planemo test_reports tool_test_output.json --test_output tool_test_output.html
+    - name: copy artifacts into place
+      run: |
+        mkdir upload
+        mv tool_test_output.json tool_test_output.html upload/
+    - uses: actions/upload-artifact@v1
+      with:
+        name: 'All tool test results'
+        path: upload
+    - name: check status of combined status
+      run: |
+        stat=$(jq '.["tests"][]["data"]["status"]' upload/tool_test_output.json | grep -v "success" || true)
+        if [[ "$(echo -n $stat | wc -l)" -gt "0" ]]; then
+            echo "unsuccessful tests found $(sort <<<$stat | uniq -c)"
+            exit 1
+        fi
 
   deploy:
     name: Deploy
@@ -247,18 +268,18 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: '3.7'
-    - name: Cache .cache/pip
+    - name: cache .cache/pip
       uses: actions/cache@v1
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+        key: pip_cache_python_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
     - name: setup planemo
       run: pip install planemo
-    - name: planemo ci_find_repos
-      run: |
-        mkdir changed_repositories
-        planemo ci_find_repos --changed_in_commit_range origin/master... --exclude packages --exclude deprecated --output changed_repositories.list
+    - uses: actions/download-artifact@v1
+      with:
+        name: changed repositories
+        path: changed_repositories.list
     - name: deploy on testtoolshed
       env:
         SHED_KEY: ${{ secrets.tts_api_key }}
@@ -266,11 +287,11 @@ jobs:
         while read -r DIR;
         do
             planemo shed_update --shed_target testtoolshed --shed_key "${{ env.SHED_KEY }}" --force_repository_creation "$DIR" || exit 1;
-        done < changed_repositories.list
+        done < changed_repositories.list/changed_repositories.list
     - name: deploy on toolshed
       env:
         SHED_KEY: ${{ secrets.ts_api_key }}
       run: |
         while read -r DIR;
             do planemo shed_update --shed_target toolshed --shed_key "${{ env.SHED_KEY }}" --force_repository_creation "$DIR" || exit 1;
-        done < changed_repositories.list
+        done < changed_repositories.list/changed_repositories.list
