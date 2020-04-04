@@ -27,8 +27,7 @@ prediction_methods = {'mhci': mhci_methods,
                       'processing': processing_methods,
                       'mhcnp': mhcnp_methods,
                       'bcell': bcell_methods}
-all_methods = set(mhci_methods + mhcii_methods +
-                  mhcnp_methods + bcell_methods)
+all_methods = set(mhci_methods + mhcii_methods + mhcnp_methods + bcell_methods)
 prediction_lengths = {'mhci': range(8, 16),
                       'mhcii': range(11, 31),
                       'processing': range(8, 15),
@@ -158,7 +157,7 @@ def __main__():
     parser.add_argument('-l', '--length',
                         action="append",
                         default=[],
-                        help='lengths for which to make predictions, ' +
+                        help='lengths for which to make predictions, '
                              '1 per allele')
     parser.add_argument('-w', '--window_size',
                         type=int,
@@ -166,7 +165,7 @@ def __main__():
                         help='window_size for bcell prediction')
     parser.add_argument('-i', '--input',
                         default=None,
-                        help='Input file for peptide sequences ' +
+                        help='Input file for peptide sequences '
                              '(fasta or tabular)')
     parser.add_argument('-c', '--column',
                         default=None,
@@ -205,7 +204,7 @@ def __main__():
             warn_err('-a allele or -A allelefile required\n', exit_code=1)
 
     if not (args.sequence or args.input):
-        warn_err('NO Sequences given: ' +
+        warn_err('NO Sequences given: '
                  'either -s sequence or -i input_file is required\n',
                  exit_code=1)
 
