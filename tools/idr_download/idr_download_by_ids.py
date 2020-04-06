@@ -184,7 +184,7 @@ def download_image_data(
                     )
             else:
                 channel_index = find_channel_index(image, channel)
-                if channel_index == -1:
+                if channel_index == -1 or channel_index >= image.getSizeC():
                     raise ValueError(
                         '"{0}" is not a known channel name for image {1}'
                         .format(channel, image.getName())
