@@ -23,5 +23,5 @@ if __name__ == "__main__":
     for chrom in k:
         for interval_set in zip(*[bw.intervals(chrom) for bw in bws]):
             (start, end) = interval_set[0][0:2]
-            values = ','.join(map(str,[x[2] for x in interval_set]))
+            values = ','.join(map(str, [x[2] for x in interval_set]))
             sys.stdout.write("%s\t%s\t%s\t%s\n" % (chrom, start, end, values))
