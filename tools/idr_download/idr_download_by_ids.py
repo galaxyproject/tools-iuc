@@ -18,7 +18,7 @@ def warn(message, image_identifier):
 def find_channel_index(image, channel_name):
     channel_name = channel_name.lower()
     for n, channel in enumerate(image.getChannelLabels()):
-        if channel_name == channel.getLabel().lower():
+        if channel_name == channel.lower():
             return n
     # Check map annotation for information (this is necessary for some images)
     for ann in image.listAnnotations(NSBULKANNOTATIONS):
