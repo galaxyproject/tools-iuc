@@ -82,13 +82,24 @@ def confine_frame(image, t):
 
 def download_plane_as_tiff(image, tile, z, c, t, fname):
     pixels = image.getPrimaryPixels()
-    selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
+    selection = None
+    try:
+        selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
+    except Exception:
+        warning = '{0} (ID: {1})'.format(image.getName(),
+                                         image.getId())
+        warn('Could not download the requested region', warning)
+
+    if selection is None:
+        return
 
     if fname[-5:] != '.tiff':
         fname += '.tiff'
-    tiff = TIFF.open(fname, mode='w')
-    tiff.write_image(selection)
-    tiff.close()
+    try:
+        tiff = TIFF.open(fname, mode='w')
+        tiff.write_image(selection)
+    finally:
+        tiff.close()
 
 
 def download_image_data(
