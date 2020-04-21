@@ -93,6 +93,7 @@ def download_plane_as_tiff(image, tile, z, c, t, fname):
     if fname[-5:] != '.tiff':
         fname += '.tiff'
     try:
+        fname = fname.replace(' ', '_')
         tiff = TIFF.open(fname, mode='w')
         tiff.write_image(selection)
     finally:
@@ -115,6 +116,7 @@ def download_image_data(
     try:
         prefix = 'image-'
         for image_id in image_ids:
+            image_warning_id = 'No image ID could be retrieved/converted (%s)' % (image_id)
             if image_id[:len(prefix)] == prefix:
                 image_id = image_id[len(prefix):]
             image_id = int(image_id)
@@ -139,6 +141,7 @@ def download_image_data(
             image_warning_id = '{0} (ID: {1})'.format(
                 image_name, image_id
             )
+            warn('Download', image_warning_id)
 
             if region_spec == 'rectangle':
                 tile = get_clipping_region(image, *coord, width, height)
@@ -203,6 +206,8 @@ def download_image_data(
                 [image_name, str(image_id)] + [str(x) for x in tile]
             )
             download_plane_as_tiff(image, tile, z_stack, channel_index, frame, fname)
+    except Exception:
+        warn('Some random error', image_warning_id)
     finally:
         # Close the connection
         conn.close()
