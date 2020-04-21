@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 
-from matplotlib import pyplot as plt
+from libtiff import TIFF
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
@@ -17,8 +17,8 @@ def warn(message, image_identifier):
 
 def find_channel_index(image, channel_name):
     channel_name = channel_name.lower()
-    for n, channel in enumerate(image.getChannels()):
-        if channel_name == channel.getLabel().lower():
+    for n, channel in enumerate(image.getChannelLabels()):
+        if channel_name == channel.lower():
             return n
     # Check map annotation for information (this is necessary for some images)
     for ann in image.listAnnotations(NSBULKANNOTATIONS):
@@ -82,11 +82,21 @@ def confine_frame(image, t):
 
 def download_plane_as_tiff(image, tile, z, c, t, fname):
     pixels = image.getPrimaryPixels()
-    selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
+    try:
+        selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
+    except Exception:
+        warning = '{0} (ID: {1})'.format(image.getName(),
+                                         image.getId())
+        warn('Could not download the requested region', warning)
+        return
 
     if fname[-5:] != '.tiff':
         fname += '.tiff'
-    plt.imsave(fname, selection)
+    try:
+        tiff = TIFF.open(fname, mode='w')
+        tiff.write_image(selection)
+    finally:
+        tiff.close()
 
 
 def download_image_data(
@@ -182,14 +192,14 @@ def download_image_data(
                     )
             else:
                 channel_index = find_channel_index(image, channel)
-                if channel_index == -1:
+                if channel_index == -1 or channel_index >= image.getSizeC():
                     raise ValueError(
                         '"{0}" is not a known channel name for image {1}'
                         .format(channel, image.getName())
                     )
 
             # download and save the region as TIFF
-            fname = '_'.join(
+            fname = '__'.join(
                 [image_name, str(image_id)] + [str(x) for x in tile]
             )
             download_plane_as_tiff(image, tile, z_stack, channel_index, frame, fname)
