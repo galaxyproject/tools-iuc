@@ -17,9 +17,9 @@ DATA_TABLE_NAME = "primer_scheme_bedfiles"
 
 def fetch_artic_primers(output_directory, primers):
     primer_sets = {
-        "ARTICv1": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V1/nCoV-2019.bed",
-        "ARTICv2": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V2/nCoV-2019.bed",
-        "ARTICv3": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V3/nCoV-2019.bed",
+        "SARS-CoV-2-ARTICv1": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V1/nCoV-2019.bed",
+        "SARS-CoV-2-ARTICv2": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V2/nCoV-2019.bed",
+        "SARS-CoV-2-ARTICv3": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V3/nCoV-2019.bed",
     }
 
     data = []
