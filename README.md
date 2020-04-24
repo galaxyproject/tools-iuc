@@ -1,2 +1,8 @@
-# galaxy-tools
-Galaxy tools developed or maintained by AuBi at Mesocentre core facility
+# Welcome on the open resource materials of the AuBi Platform at Clermont Auvergne Mesocentre 
+![](https://mesocentre.uca.fr/medias/photo/logoaubi-2019minus_1553844844490-jpg?ID_FICHE=41175)
+
+Galaxy tools developed and/or maintained by AuBi at Mesocentre core facility
+
+### Who are we?
+
+The [Auvergne Bioinformatic platform](https://mesocentre.uca.fr/projets-associes/plateforme-aubi/) is a local network of scientists from various research institutes (CNRS, INRAE, INSERM, UCA, ... ) gathering Bioinformatics skills based on Clermont Auvergne University (Clermont-Ferrand, France).
