@@ -245,7 +245,7 @@ def preprocess_tables(task_queue, annotation_dict, timeout):
             for line in fh:
                 line = re.sub('[:,]', '\n', line)
                 line = re.sub('[)(]', '', line)
-                line = re.sub('[0-9].*\.[0-9].*\n', '', line)
+                line = re.sub(r'[0-9].*\.[0-9].*\n', '', line)
                 line = re.sub('root\n', '', line)
         sample_order = line.split('\n')
         sample_order = list([_f for _f in sample_order if _f])
