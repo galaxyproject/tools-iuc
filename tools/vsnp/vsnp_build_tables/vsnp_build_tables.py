@@ -16,8 +16,8 @@ INPUT_NEWICK_DIR = 'input_newick_dir'
 # spreadsheet is 1024.  Excel allows for
 # 16,384 columns, but we'll set the lower
 # number as the maximum.  Some browsers
-# (e.g., Firefox) are configured to use
-# LibreOffice for Excel spreadsheets.
+# (e.g., Firefox on Linux) are configured
+# to use LibreOffice for Excel spreadsheets.
 MAXCOLS = 1024
 OUTPUT_EXCEL_DIR = 'output_excel_dir'
 
