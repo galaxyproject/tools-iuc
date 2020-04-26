@@ -15,9 +15,10 @@ INPUT_NEWICK_DIR = 'input_newick_dir'
 # Maximum columns allowed in a LibreOffice
 # spreadsheet is 1024.  Excel allows for
 # 16,384 columns, but we'll set the lower
-# number as the maximum since Galaxy is
-# mostly run on Linux.
-MAXCOLS = 10000
+# number as the maximum.  Some browsers
+# (e.g., Firefox) are configured to use
+# LibreOffice for Excel spreadsheets.
+MAXCOLS = 1024
 OUTPUT_EXCEL_DIR = 'output_excel_dir'
 
 
