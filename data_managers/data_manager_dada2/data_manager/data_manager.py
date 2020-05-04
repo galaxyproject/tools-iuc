@@ -11,6 +11,7 @@ except ImportError:
 DEFAULT_TAXLEVELS = "Kingdom,Phylum,Class,Order,Family,Genus,Species"
 
 FILE2NAME = {
+    "silva_138": "Silva version 138",
     "silva_132": "Silva version 132",
     "silva_128": "Silva version 128",
     "rdp_16": "RDP trainset 16",
@@ -26,6 +27,7 @@ FILE2NAME = {
 }
 
 FILE2TAXURL = {
+    "silva_138": "https://zenodo.org/record/3731176/files/silva_nr_v138_train_set.fa.gz?download=1",
     "silva_132": "https://zenodo.org/record/1172783/files/silva_nr_v132_train_set.fa.gz?download=1",
     "silva_128": "https://zenodo.org/record/824551/files/silva_nr_v128_train_set.fa.gz?download=1",
     "rdp_16": "https://zenodo.org/record/801828/files/rdp_train_set_16.fa.gz?download=1",
@@ -41,6 +43,7 @@ FILE2TAXURL = {
 }
 
 FILE2SPECIESURL = {
+    "silva_138": "https://zenodo.org/record/3731176/files/silva_species_assignment_v138.fa.gz?download=1",
     "silva_132": "https://zenodo.org/record/1172783/files/silva_species_assignment_v132.fa.gz?download=1",
     "silva_128": "https://zenodo.org/record/824551/files/silva_species_assignment_v128.fa.gz?download=1",
     "rdp_16": "https://zenodo.org/record/801828/files/rdp_species_assignment_16.fa.gz?download=1",
