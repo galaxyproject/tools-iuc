@@ -1,0 +1,474 @@
+<macros>
+    <token name="@VERSION@">2.5.4</token>
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@VERSION@">drep</requirement>
+            <yield/>
+        </requirements>
+    </xml>
+    <xml name="citations">
+        <citations>
+            <citation type="doi">10.1038/ismej.2017.126</citation>
+            <yield />
+        </citations>
+    </xml>
+
+
+    <xml name="genomes">
+        <param argument="--genomes" type="data" format="fasta" label="genomes fasta files" multiple="true"/>
+    </xml>
+    <token name="@PREPARE_GENOMES@"><![CDATA[
+    #import re 
+    #set $genomefiles = [] 
+    #for $genome in $genomes
+        #set $input_name = $re.sub('[^\w\-_.]', '_',str($genome.element_identifier.split('/')[-1]))
+        ln -s '${genome}' '${input_name}' &&
+        $genomefiles.append($input_name)
+    #end for
+]]></token>
+    <token name="@GENOMES@"><![CDATA[
+    -g 
+    #for $genomefile in $genomefiles
+    '${genomefile}' 
+    #end for
+]]></token>
+
+
+    <xml name="checkm_method">
+        <param argument="--checkM_method" type="select" label="checkm method" optional="true">
+           <option value="taxonomy_wf">taxonomy_wf (faster)</option>
+           <option value="lineage_wf">lineage_wf (more accurate)</option>
+        </param>
+    </xml>
+    <token name="@CHECKM_METHOD@"><![CDATA[
+    #if $checkM_method:
+    --checkM_method $checkM_method 
+    #end if
+]]></token>
+
+    <xml name="filtering_options">
+        <conditional name="filter">
+            <param name="set_options" type="select" label="set filtering options">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No (use --checkM_method taxonomy_wf)</option>
+            </param>
+            <when value="yes">
+                <param argument="--length" type="integer" value="50000" label="Minimum genome length"/>
+                <param argument="--completeness" type="integer" value="75" min="0" max="100" label="Minimum genome completeness percent"/>
+                <param argument="--contamination" type="integer" value="25" min="0" max="100" label="Maximum genome contamination percent"/>
+                 
+                <conditional name="quality">
+                    <param argument="source" type="select" label="genome quality">
+                        <help>
+                            --ignoreGenomeQuality is useful with
+                            bacteriophages or eukaryotes or things where checkM
+                            scoring does not work. Will only choose genomes based
+                            on length and N50. 
+                        </help>
+                        <option value="checkm" selected="true">Run checkM</option>
+                        <option value="genomeInfo">User supplied genomeInfo csv file</option>
+                        <option value="ignoreGenomeQuality">--ignoreGenomeQuality (NOT RECOMMENDED!)</option>
+                    </param>
+                    <when value="checkm">
+                        <param argument="--checkM_method" type="select" label="checkm method" optional="true">
+                            <help>
+                                Using the checkm method of lineage_wf can require more than 40Gb of RAM.
+                            </help>
+                            <option value="taxonomy_wf">taxonomy_wf (faster)</option>
+                            <option value="lineage_wf">lineage_wf (more accurate)</option>
+                        </param>
+                    </when>
+                    <when value="genomeInfo">
+                        <param argument="--genomeInfo" type="data" format="csv" label="genomes fasta files">
+                            <help><![CDATA[
+                            A CSV dataset that must contain: [
+                            "genome"(history dataset name of .fasta dataset of that genome), 
+                            "completeness"(0-100 value for completeness of the genome), 
+                            "contamination"(0-100 value of the contamination of the genome)] 
+                            ]]></help>
+                        </param>
+                    </when>
+                    <when value="ignoreGenomeQuality"/>
+                </conditional>
+            </when>
+            <when value="no"/>
+        </conditional>
+    </xml>
+    <token name="@FILTER_OPTIONS@"><![CDATA[
+        #if $filter.set_options == 'yes':
+            --length $filter.length
+            --completeness $filter.completeness
+            --contamination $filter.contamination
+            #if $filter.quality.source == 'checkm'
+                --checkM_method $filter.quality.checkM_method
+            #elif $filter.quality.source == 'genomeInfo'
+                --genomeInfo $filter.quality.genomeInfo 
+            #elif $filter.quality.source == 'ignoreGenomeQuality'
+                --ignoreGenomeQuality
+            #end if
+        #else
+            --checkM_method taxonomy_wf
+        #end if
+]]></token>
+
+    <xml name="genome_comparison_options">
+        <conditional name="genome_comparison">
+            <param name="set_options" type="select" label="set genome comparison options">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No</option>
+            </param>
+            <when value="yes">
+                <param argument="--MASH_sketch" type="integer" value="1000" label="MASH sketch size"/>
+                <param argument="--S_algorithm" type="select" label="Algorithm for secondary clustering comaprisons">
+                    <option value="ANImf" selected="true">ANImf = (RECOMMENDED) Align whole genomes with nucmer; filter alignment; compare aligned regions</option>
+                    <option value="ANIn">ANIn  = Align whole genomes with nucmer; compare aligned regions</option>
+                    <option value="gANI">gANI  = Identify and align ORFs; compare aligned ORFS</option>
+                </param>
+                <param argument="-n_PRESET" type="select" label="Presets to pass to nucmer">
+                    <option value="normal" selected="true">normal  = default ANIn parameters (default: normal)</option>
+                    <option value="tight">tight   = only align highly conserved regions</option>
+                </param>
+            </when>
+            <when value="no"/>
+        </conditional>
+    </xml>
+    <token name="@GENOME_COMPARISON_OPTIONS@"><![CDATA[
+        #if $genome_comparison.set_options == 'yes':
+            --MASH_sketch $genome_comparison.MASH_sketch
+            --S_algorithm $genome_comparison.S_algorithm
+            -n_PRESET $genome_comparison.n_PRESET
+        #end if
+]]></token>
+
+    <xml name="clustering_options">
+        <conditional name="clustering">
+            <param name="set_options" type="select" label="set clustering options">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No</option>
+            </param>
+            <when value="yes">
+                <param argument="--P_ani" type="float" value="0.9" min="0." max="1." label="ANI threshold to form primary (MASH) clusters"/>
+                <param argument="--S_ani" type="float" value="0.99" min="0." max="1." label="ANI threshold to form secondary clusters"/>
+
+                <param argument="--SkipMash" type="boolean" truevalue="--SkipMash" falsevalue="" checked="false" label="Skip MASH clustering, just do secondary clustering on all genomes"/>
+                <param argument="--SkipSecondary" type="boolean" truevalue="--SkipSecondary" falsevalue="" checked="false" label="Skip secondary clustering, just perform MASH clustering"/>
+                <param argument="--cov_thresh" type="float" value="0.1" min="0." max="1." label="Minmum level of overlap between genomes when doing secondary comparisons"/>
+                <param argument="--coverage_method" type="select" label="Method to calculate coverage of an alignment">
+                    <help>(for ANIn/ANImf only; gANI can only do larger method)</help>
+                    <option value="larger" selected="true">arger  = max((aligned length / genome 1), (aligned_length / genome2))</option>
+                    <option value="total">total   = 2*(aligned length) / (sum of total genome lengths)</option>
+                </param>
+                <param argument="--clusterAlg" type="select" label="Algorithm used to cluster genomes">
+                    <help>(passed to  scipy.cluster.hierarchy.linkage)</help>
+                    <option value="average" selected="true">average</option>
+                </param>
+            </when>
+            <when value="no"/>
+        </conditional>
+    </xml>
+    <token name="@CLUSTERING_OPTIONS@"><![CDATA[
+        #if $clustering.set_options == 'yes':
+            --P_ani $clustering.P_ani
+            --S_ani $clustering.S_ani
+            $clustering.SkipMash
+            $clustering.SkipSecondary
+            --cov_thresh $clustering.cov_thresh
+            --coverage_method $clustering.coverage_method
+            --clusterAlg $clustering.clusterAlg
+        #end if
+]]></token>
+
+    <xml name="scoring_options">
+        <conditional name="scoring">
+            <param name="set_options" type="select" label="set scoring options">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No</option>
+            </param>
+            <when value="yes">
+                <param argument="--completeness_weight" type="float" value="1" label="completeness weight">
+                    <help>
+Based off of the formula:
+A*Completeness - B*Contamination + C*(Contamination * (strain_heterogeneity/100)) + D*log(N50) + E*log(size)
+A = completeness_weight; B = contamination_weight; C = strain_heterogeneity_weight; D = N50_weight; E = size_weight;
+                    </help>
+                </param>
+                <param argument="--contamination_weight" type="float" value="5" label="contamination weight"/>
+                <param argument="--strain_heterogeneity_weight" type="float" value="1" min="0." max="1." label="strain heterogeneity weight"/>
+                <param argument="--N50_weight" type="float" value=".5" label="weight of log(genome N50)"/>
+                <param argument="--size_weight" type="float" value="0" label="weight of log(genome size)"/>
+            </when>
+            <when value="no"/>
+        </conditional>
+    </xml>
+    <token name="@SCORING_OPTIONS@"><![CDATA[
+        #if $scoring.set_options == 'yes':
+            --completeness_weight $scoring.completeness_weight
+            --contamination_weight $scoring.contamination_weight
+            --strain_heterogeneity_weight $scoring.strain_heterogeneity_weight
+            --N50_weight $scoring.N50_weight
+            --size_weight $scoring.size_weight
+        #end if
+]]></token>
+
+    <xml name="taxonomy_options">
+        <conditional name="taxonomy">
+            <param name="set_options" type="select" label="generate taxonomy information">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No</option>
+            </param>
+            <when value="yes">
+                <param argument="--tax_method" type="select" label="Method of determining taxonomy">
+                    <help>(for ANIn/ANImf only; gANI can only do larger method)</help>
+                    <option value="percent" selected="true">percent = The most descriptive taxonimic level with at least (per) hits</option>
+                    <option value="max">max = The centrifuge taxonomic level with the most overall hits</option>
+                </param>
+                <param argument="--percent" type="float" value="50" min="0" max="100" label="minimum percent for percent method"/>
+                <param argument="--cent_index" type="data" format="" label="centrifuge index"/>
+            </when>
+            <when value="no"/>
+        </conditional>
+    </xml>
+    <token name="@TAXONOMY_OPTIONS@"><![CDATA[
+        #if $taxonomy.set_options == 'yes':
+            --run_tax
+            --tax_method $taxonomy.tax_method
+            --percent $taxonomy.percent
+            --cent_index $taxonomy.cent_index
+        #end if
+]]></token>
+
+   <xml name="warning_options">
+        <conditional name="warning">
+            <param name="set_options" type="select" label="set warning options">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No</option>
+            </param>
+            <when value="yes">
+                <param argument="--warn_dist" type="float" value="0.25" min="0" max="1" label="How far from the threshold to throw cluster warnings"/>
+                <param argument="--warn_sim" type="float" value="0.98" min="0" max="1" label="Similarity threshold for warnings between dereplicated genomes"/>
+                <param argument="--warn_aln" type="float" value="0.25" min="0" max="1" label="Minimum aligned fraction for warnings between dereplicated genomes (ANIn)"/>
+            </when>
+            <when value="no"/>
+        </conditional>
+    </xml>
+    <token name="@WARNING_OPTIONS@"><![CDATA[
+        #if $warning.set_options == 'yes':
+            --warn_dist $warning.warn_dist
+            --warn_sim $warning.warn_sim
+            --warn_aln $warning.warn_aln
+        #end if
+]]></token>
+
+    <xml name="select_outputs">
+        <param name="select_outputs" type="select" multiple="true" optional="false" label="Select outputs">
+            <option value="log" selected="true">log</option>
+            <option value="warnings" selected="true">Warnings</option>
+            <option value="Primary_clustering_dendrogram" selected="true">Primary_clustering_dendrogram.pdf</option>
+            <option value="Secondary_clustering_dendrograms">Secondary_clustering_dendrograms.pdf</option>
+            <option value="Secondary_clustering_MDS">Secondary_clustering_MDS.pdf</option>
+            <option value="Clustering_scatterplots" selected="true">Clustering_scatterplots.pdf</option>
+            <yield/>
+        </param>
+    </xml>
+    <xml name="select_drep_outputs">
+        <expand macro="select_outputs">
+            <option value="Cluster_scoring">Cluster_scoring.pdf</option>
+            <option value="Winning_genomes">Winning_genomes.pdf</option>
+            <option value="Widb">Widb.csv</option>
+            <option value="Chdb">Chdb.tsv</option>
+        </expand>
+    </xml>
+
+   <xml name="common_outputs">
+        <data name="log" format="txt" label="${tool.name} on ${on_string}: Log" from_work_dir="outdir/log/logger.log">
+            <filter>'log' in select_outputs or not select_outputs</filter>
+        </data>
+        <data name="warnings" format="txt" label="${tool.name} on ${on_string}: Warnings" from_work_dir="outdir/log/warnings.txt">
+            <filter>'warnings' in select_outputs</filter>
+        </data>
+        <data name="Primary_clustering_dendrogram" format="pdf" label="${tool.name} on ${on_string}: Primary_clustering_dendrogram.pdf" from_work_dir="outdir/figures/Primary_clustering_dendrogram.pdf">
+            <filter>'Primary_clustering_dendrogram' in select_outputs</filter>
+        </data>
+        <data name="Secondary_clustering_dendrograms" format="pdf" label="${tool.name} on ${on_string}: Secondary_clustering_dendrograms.pdf" from_work_dir="outdir/figures/Secondary_clustering_dendrograms.pdf">
+            <filter>'Secondary_clustering_dendrograms' in select_outputs</filter>
+        </data>
+        <data name="Secondary_clustering_MDS" format="pdf" label="${tool.name} on ${on_string}: Secondary_clustering_MDS.pdf" from_work_dir="outdir/figures/Secondary_clustering_MDS.pdf">
+            <filter>'Secondary_clustering_MDS' in select_outputs</filter>
+        </data>
+        <data name="Clustering_scatterplots" format="pdf" label="${tool.name} on ${on_string}: Clustering_scatterplots.pdf" from_work_dir="outdir/figures/Clustering_scatterplots.pdf">
+            <filter>'Clustering_scatterplots' in select_outputs</filter>
+        </data>
+    </xml>
+
+
+    <xml name="drep_outputs">
+        <expand macro="common_outputs"/>
+        <data name="Cluster_scoring" format="pdf" label="${tool.name} on ${on_string}: Cluster_scoring.pdf" from_work_dir="outdir/figures/Cluster_scoring.pdf">
+            <filter>'Cluster_scoring' in select_outputs</filter>
+        </data>
+        <data name="Winning_genomes" format="pdf" label="${tool.name} on ${on_string}: Winning_genomes.pdf" from_work_dir="outdir/figures/Winning_genomes.pdf">
+            <filter>'Winning_genomes' in select_outputs</filter>
+        </data>
+        <data name="Widb" format="csv" label="${tool.name} on ${on_string}: Widb.csv" from_work_dir="outdir/data_tables/Widb.csv">
+            <filter>'Widb' in select_outputs</filter>
+        </data>
+        <data name="Chdb" format="tabular" label="${tool.name} on ${on_string}: Chdb.tsv" from_work_dir="outdir/data/checkM/checkM_outdir/Chdb.tsv">
+            <filter>'Chdb' in select_outputs</filter>
+        </data>
+    </xml>
+
+    
+    <xml name="test_defaults_log">
+        <test>
+            <param name="genomes" ftype="fasta" value="Enterococcus_casseliflavus_EC20.fasta,Enterococcus_faecalis_T2.fna,Enterococcus_faecalis_TX0104.fa"/>
+            <output name="log">
+                <assert_contents>
+                    <yield/>
+                </assert_contents>
+            </output>
+        </test>
+    </xml>
+
+    <token name="@GENOMES_HELP@"><![CDATA[
+I/O PARAMETERS:
+  -g [GENOMES [GENOMES ...]], --genomes [GENOMES [GENOMES ...]]
+                        genomes to cluster in .fasta format
+                        (default: None)
+
+
+]]></token>
+
+    <token name="@FILTERING_HELP@"><![CDATA[
+FILTERING OPTIONS:
+  -l LENGTH, --length LENGTH
+                        Minimum genome length
+                        (default: 50000)
+
+
+  -comp COMPLETENESS, --completeness COMPLETENESS
+                        Minumum genome completeness
+                        (default: 75)
+
+
+  -con CONTAMINATION, --contamination CONTAMINATION
+                        Maximum genome contamination
+                        (default: 25)
+
+
+  --ignoreGenomeQuality
+                        Don't run checkM or do any quality filtering. NOT
+                        RECOMMENDED! This is useful for use with
+                        bacteriophages or eukaryotes or things where checkM
+                        scoring does not work. Will only choose genomes based
+                        on length and N50 (default: False)
+
+
+]]></token>
+
+    <token name="@GENOME_COMPARISON_HELP@"><![CDATA[
+GENOME COMPARISON PARAMETERS:
+  -ms MASH_SKETCH, --MASH_sketch MASH_SKETCH
+                        MASH sketch size (default: 1000)
+
+  --S_algorithm {goANI,ANIn,ANImf,gANI}
+                        Algorithm for secondary clustering comaprisons:
+                        ANImf = (RECOMMENDED) Align whole genomes with nucmer; filter alignment; compare aligned regions
+                        ANIn  = Align whole genomes with nucmer; compare aligned regions
+                        gANI  = Identify and align ORFs; compare aligned ORFS
+                        (default: ANImf)
+
+  -n_PRESET {normal,tight}
+                        Presets to pass to nucmer
+                        tight   = only align highly conserved regions
+                        normal  = default ANIn parameters (default: normal)
+
+]]></token>
+
+    <token name="@CLUSTERING_HELP@"><![CDATA[
+CLUSTERING PARAMETERS:
+  -pa P_ANI, --P_ani P_ANI
+                        ANI threshold to form primary (MASH) clusters
+                        (default: 0.9)
+  -sa S_ANI, --S_ani S_ANI
+                        ANI threshold to form secondary clusters
+                        (default: 0.99)
+
+  --SkipMash            Skip MASH clustering, just do secondary clustering on
+                        all genomes (default: False)
+  --SkipSecondary       Skip secondary clustering, just perform MASH clustering
+                        (default: False)
+
+  -nc COV_THRESH, --cov_thresh COV_THRESH
+                        Minmum level of overlap between genomes when doing
+                        secondary comparisons (default: 0.1)
+  -cm {total,larger}, --coverage_method {total,larger}
+                        Method to calculate coverage of an alignment
+                        (for ANIn/ANImf only; gANI can only do larger method)
+                        total   = 2*(aligned length) / (sum of total genome lengths)
+                        larger  = max((aligned length / genome 1), (aligned_length / genome2))
+                        (default: larger)
+
+  --clusterAlg CLUSTERALG
+                        Algorithm used to cluster genomes (passed to
+                        scipy.cluster.hierarchy.linkage (default: average)
+
+]]></token>
+
+    <token name="@SCORING_HELP@"><![CDATA[
+SCORING CRITERIA
+Based off of the formula: 
+A*Completeness - B*Contamination + C*(Contamination * (strain_heterogeneity/100)) + D*log(N50) + E*log(size)
+
+A = completeness_weight; B = contamination_weight; C = strain_heterogeneity_weight; D = N50_weight; E = size_weight:
+  -comW COMPLETENESS_WEIGHT, --completeness_weight COMPLETENESS_WEIGHT
+                        completeness weight (default: 1)
+  -conW CONTAMINATION_WEIGHT, --contamination_weight CONTAMINATION_WEIGHT
+                        contamination weight (default: 5)
+  -strW STRAIN_HETEROGENEITY_WEIGHT, --strain_heterogeneity_weight STRAIN_HETEROGENEITY_WEIGHT
+                        strain heterogeneity weight (default: 1)
+  -N50W N50_WEIGHT, --N50_weight N50_WEIGHT
+                        weight of log(genome N50) (default: 0.5)
+  -sizeW SIZE_WEIGHT, --size_weight SIZE_WEIGHT
+                        weight of log(genome size) (default: 0)
+
+
+]]></token>
+
+    <token name="@TAXONOMY_HELP@"><![CDATA[
+TAXONOMY:
+  --run_tax             generate taxonomy information (Tdb)
+                        (default: False)
+
+  --tax_method {percent,max}
+                        Method of determining taxonomy
+                        percent = The most descriptive taxonimic level with at least (per) hits
+                        max     = The centrifuge taxonomic level with the most overall hits
+                        (default: percent)
+
+
+  -per PERCENT, --percent PERCENT
+                        minimum percent for percent method
+                        (default: 50)
+
+
+  --cent_index CENT_INDEX
+                        path to centrifuge index (for example,
+                        /home/mattolm/download/centrifuge/indices/b+h+v
+                        (default: None)
+
+]]></token>
+
+    <token name="@WARNINGS_HELP@"><![CDATA[
+WARNINGS:
+  --warn_dist WARN_DIST
+                        How far from the threshold to throw cluster warnings
+                        (default: 0.25)
+  --warn_sim WARN_SIM   Similarity threshold for warnings between dereplicated
+                        genomes (default: 0.98)
+  --warn_aln WARN_ALN   Minimum aligned fraction for warnings between
+                        dereplicated genomes (ANIn) (default: 0.25)
+
+]]></token>
+
+
+</macros>
