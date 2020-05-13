@@ -1,8 +1,11 @@
 import argparse
 import os
 import sys
+import tarfile
 
 from libtiff import TIFF
+from PIL import Image
+from tempfile import TemporaryFile  
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
@@ -92,7 +95,8 @@ def confine_frame(image, t):
     return t
 
 
-def download_plane_as_tiff(image, tile, z, c, t, fname):
+
+def get_image_array(image,tile, z, c, t):
     pixels = image.getPrimaryPixels()
     try:
         selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
@@ -102,21 +106,13 @@ def download_plane_as_tiff(image, tile, z, c, t, fname):
         warn('Could not download the requested region', warning)
         return
 
-    if fname[-5:] != '.tiff':
-        fname += '.tiff'
-    try:
-        fname = fname.replace(' ', '_')
-        tiff = TIFF.open(fname, mode='w')
-        tiff.write_image(selection)
-    finally:
-        tiff.close()
-
+    return selection
 
 def download_image_data(
     image_ids,
     channel=None, z_stack=0, frame=0,
     coord=(0, 0), width=0, height=0, region_spec='rectangle',
-    skip_failed=False
+    skip_failed=False, download_tar=False
 ):
     # basic argument sanity checks and adjustments
     prefix = 'image-'
@@ -139,6 +135,11 @@ def download_image_data(
     conn.connect()
 
     try:
+        if download_tar:
+            archive = tarfile.open("images.tar", mode='w')
+        else:
+            archive = None
+
         for image_id in image_ids:
             image_warning_id = 'Image-ID: {0}'.format(image_id)
             try:
@@ -263,7 +264,28 @@ def download_image_data(
                 [image_name, str(image_id)] + [str(x) for x in tile]
             )
             try:
-                download_plane_as_tiff(image, tile, z_stack, channel_index, frame, fname)
+                if fname[-5:] != '.tiff':
+                    fname += '.tiff'
+                
+                im_array = get_image_array(image, tile, z_stack, channel_index, frame)
+
+                if download_tar and archive is not None:
+                    tar_img = Image.fromarray(im_array)
+                    buf = TemporaryFile()
+                    tar_img.save(buf,format='TIFF')
+                    buf.seek(0)
+                    tarinfo = tarfile.TarInfo(name=fname)
+                    tarinfo.size = len(tar_img.tobytes())
+                    archive.addfile(tarinfo=tarinfo,fileobj=buf)
+                    buf.close()
+                else:
+                    try:
+                        fname = fname.replace(' ', '_')                        
+                        tiff = TIFF.open(fname, mode='w')
+                        tiff.write_image(im_array)
+                    finally:
+                        tiff.close()
+                # download_plane_as_tiff(image, tile, z_stack, channel_index, frame, fname)
             except Exception as e:
                 if skip_failed:
                     # respect skip_failed on unexpected errors
@@ -271,6 +293,10 @@ def download_image_data(
                     continue
                 else:
                     raise
+
+        if archive is not None:
+            archive.close()
+
     finally:
         # Close the connection
         conn.close()
@@ -330,6 +356,9 @@ if __name__ == "__main__":
     )
     p.add_argument(
         '--skip-failed', action='store_true'
+    )
+    p.add_argument(
+        '--download-tar', action= 'store_true'
     )
     args = p.parse_args()
     if not args.image_ids:
