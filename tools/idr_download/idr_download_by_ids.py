@@ -5,7 +5,7 @@ import tarfile
 
 from libtiff import TIFF
 from PIL import Image
-from tempfile import TemporaryFile  
+from tempfile import TemporaryFile
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
@@ -95,8 +95,7 @@ def confine_frame(image, t):
     return t
 
 
-
-def get_image_array(image,tile, z, c, t):
+def get_image_array(image, tile, z, c, t):
     pixels = image.getPrimaryPixels()
     try:
         selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
@@ -107,6 +106,7 @@ def get_image_array(image,tile, z, c, t):
         return
 
     return selection
+
 
 def download_image_data(
     image_ids,
@@ -266,21 +266,21 @@ def download_image_data(
             try:
                 if fname[-5:] != '.tiff':
                     fname += '.tiff'
-                
+
                 im_array = get_image_array(image, tile, z_stack, channel_index, frame)
 
                 if download_tar and archive is not None:
                     tar_img = Image.fromarray(im_array)
                     buf = TemporaryFile()
-                    tar_img.save(buf,format='TIFF')
+                    tar_img.save(buf, format='TIFF')
                     buf.seek(0)
                     tarinfo = tarfile.TarInfo(name=fname)
                     tarinfo.size = len(tar_img.tobytes())
-                    archive.addfile(tarinfo=tarinfo,fileobj=buf)
+                    archive.addfile(tarinfo=tarinfo, fileobj=buf)
                     buf.close()
                 else:
                     try:
-                        fname = fname.replace(' ', '_')                        
+                        fname = fname.replace(' ', '_')
                         tiff = TIFF.open(fname, mode='w')
                         tiff.write_image(im_array)
                     finally:
@@ -358,7 +358,7 @@ if __name__ == "__main__":
         '--skip-failed', action='store_true'
     )
     p.add_argument(
-        '--download-tar', action= 'store_true'
+        '--download-tar', action='store_true'
     )
     args = p.parse_args()
     if not args.image_ids:
