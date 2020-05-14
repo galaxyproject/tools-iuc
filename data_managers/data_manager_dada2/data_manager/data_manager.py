@@ -105,7 +105,7 @@ def remote_dataset(dataset, outjson):
 
     workdir = params['output_data'][0]['extra_files_path']
     os.mkdir(workdir)
-    url_download( FILE2TAXURL[dataset], dataset + ".taxonomy", workdir)
+    url_download(FILE2TAXURL[dataset], dataset + ".taxonomy", workdir)
 
     data_manager_json = {"data_tables": {}}
     data_manager_entry = {}
@@ -115,8 +115,8 @@ def remote_dataset(dataset, outjson):
     data_manager_entry['taxlevels'] = FILE2TAXLEVELS.get(dataset, DEFAULT_TAXLEVELS)
     data_manager_json["data_tables"]["dada2_taxonomy"] = data_manager_entry
 
-    if FILE2SPECIESURL.get(dataset, False ):
-        url_download( FILE2SPECIESURL[dataset], dataset + ".species", workdir)
+    if FILE2SPECIESURL.get(dataset, False):
+        url_download(FILE2SPECIESURL[dataset], dataset + ".species", workdir)
         data_manager_entry = {}
         data_manager_entry['value'] = dataset
         data_manager_entry['name'] = FILE2NAME[dataset]
