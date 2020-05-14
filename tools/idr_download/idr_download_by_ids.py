@@ -267,8 +267,13 @@ def download_image_data(
                 if fname[-5:] != '.tiff':
                     fname += '.tiff'
 
+                fname = fname.replace(' ', '_')
+
                 im_array = get_image_array(image, tile, z_stack, channel_index, frame)
 
+                # pack images into tarball. 
+                # I have tried to convert array to BytesIO file object and add it to tarball,
+                # but after untar the tarball, the image headers are empty 
                 if download_tar and archive is not None:
                     tar_img = Image.fromarray(im_array)
                     buf = TemporaryFile()
@@ -280,12 +285,10 @@ def download_image_data(
                     buf.close()
                 else:
                     try:
-                        fname = fname.replace(' ', '_')
                         tiff = TIFF.open(fname, mode='w')
                         tiff.write_image(im_array)
                     finally:
                         tiff.close()
-                # download_plane_as_tiff(image, tile, z_stack, channel_index, frame, fname)
             except Exception as e:
                 if skip_failed:
                     # respect skip_failed on unexpected errors
