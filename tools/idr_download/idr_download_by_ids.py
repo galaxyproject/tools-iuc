@@ -275,9 +275,10 @@ def download_image_data(
                     tar_img = Image.fromarray(im_array)
                     with SpooledTemporaryFile() as buf:
                         tar_img.save(buf, format='TIFF')
-                        buf.seek(0)
                         tarinfo = tarfile.TarInfo(name=fname)
-                        tarinfo.size = len(tar_img.tobytes())
+                        buf.seek(0,2)
+                        tarinfo.size = buf.tell()
+                        buf.seek(0)
                         archive.addfile(tarinfo=tarinfo, fileobj=buf)
                 else:  # save image as individual file
                     try:
