@@ -5,7 +5,7 @@ import tarfile
 
 from libtiff import TIFF
 from PIL import Image
-from tempfile import TemporaryFile
+from tempfile import TemporaryFile, SpooledTemporaryFile
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
@@ -138,8 +138,6 @@ def download_image_data(
         # create an archive file for write operation
         if download_tar:
             archive = tarfile.open("images.tar", mode='w')
-        else:
-            archive = None
 
         for image_id in image_ids:
             image_warning_id = 'Image-ID: {0}'.format(image_id)
@@ -272,19 +270,15 @@ def download_image_data(
 
                 im_array = get_image_array(image, tile, z_stack, channel_index, frame)
 
-                # pack images into tarball.
-                # I have tried to convert array to BytesIO file object and add it to tarball,
-                # but after untar the tarball, the image headers are empty so I'm using TemporaryFile
-                # instead. This may need to revised
-                if download_tar and archive is not None:
+                # pack images into tarball
+                if download_tar:
                     tar_img = Image.fromarray(im_array)
-                    buf = TemporaryFile()
-                    tar_img.save(buf, format='TIFF')
-                    buf.seek(0)
-                    tarinfo = tarfile.TarInfo(name=fname)
-                    tarinfo.size = len(tar_img.tobytes())
-                    archive.addfile(tarinfo=tarinfo, fileobj=buf)
-                    buf.close()
+                    with SpooledTemporaryFile() as buf:
+                        tar_img.save(buf, format='TIFF')
+                        buf.seek(0)
+                        tarinfo = tarfile.TarInfo(name=fname)
+                        tarinfo.size = len(tar_img.tobytes())
+                        archive.addfile(tarinfo=tarinfo, fileobj=buf)
                 else:  # save image as individual file
                     try:
                         tiff = TIFF.open(fname, mode='w')
@@ -299,11 +293,10 @@ def download_image_data(
                 else:
                     raise
 
-        # close the archive file,if it is created
-        if archive is not None:
-            archive.close()
-
     finally:
+        # close the archive file,if it is created
+        if download_tar:
+            archive.close()
         # Close the connection
         conn.close()
 
