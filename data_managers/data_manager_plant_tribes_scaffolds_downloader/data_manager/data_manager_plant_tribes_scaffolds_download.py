@@ -7,8 +7,13 @@ import os
 import shutil
 import sys
 import tarfile
-import urllib2
 import zipfile
+try:
+    # For Python 3.0 and later
+    from urllib.request import Request, urlopen
+except ImportError:
+    # Fall back to Python 2 imports
+    from urllib2 import Request, urlopen
 
 
 DEFAULT_DATA_TABLE_NAMES = ["plant_tribes_scaffolds"]
@@ -52,8 +57,8 @@ def url_download(url, work_directory):
     src = None
     dst = None
     try:
-        req = urllib2.Request(url)
-        src = urllib2.urlopen(req)
+        req = Request(url)
+        src = urlopen(req)
         dst = open(file_path, 'wb')
         while True:
             chunk = src.read(2**10)
