@@ -16,7 +16,7 @@ def write_gemini_config(config, config_file):
 
 def main():
     today = datetime.date.today()
-    params = json.loads(open(sys.argv[1] ).read())
+    params = json.loads(open(sys.argv[1]).read())
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
 
