@@ -135,6 +135,7 @@ def download_image_data(
     conn.connect()
 
     try:
+        # create an archive file for write operation
         if download_tar:
             archive = tarfile.open("images.tar", mode='w')
         else:
@@ -273,7 +274,8 @@ def download_image_data(
 
                 # pack images into tarball. 
                 # I have tried to convert array to BytesIO file object and add it to tarball,
-                # but after untar the tarball, the image headers are empty 
+                # but after untar the tarball, the image headers are empty so I'm using TemporaryFile
+                # instead. This may need to revised
                 if download_tar and archive is not None:
                     tar_img = Image.fromarray(im_array)
                     buf = TemporaryFile()
@@ -283,7 +285,7 @@ def download_image_data(
                     tarinfo.size = len(tar_img.tobytes())
                     archive.addfile(tarinfo=tarinfo, fileobj=buf)
                     buf.close()
-                else:
+                else: # save image as individual file
                     try:
                         tiff = TIFF.open(fname, mode='w')
                         tiff.write_image(im_array)
@@ -297,6 +299,7 @@ def download_image_data(
                 else:
                     raise
 
+        # close the archive file,if it is created
         if archive is not None:
             archive.close()
 
