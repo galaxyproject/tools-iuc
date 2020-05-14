@@ -276,7 +276,7 @@ def download_image_data(
                     with SpooledTemporaryFile() as buf:
                         tar_img.save(buf, format='TIFF')
                         tarinfo = tarfile.TarInfo(name=fname)
-                        buf.seek(0,2)
+                        buf.seek(0, 2)
                         tarinfo.size = buf.tell()
                         buf.seek(0)
                         archive.addfile(tarinfo=tarinfo, fileobj=buf)
