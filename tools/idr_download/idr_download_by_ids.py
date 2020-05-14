@@ -272,7 +272,7 @@ def download_image_data(
 
                 im_array = get_image_array(image, tile, z_stack, channel_index, frame)
 
-                # pack images into tarball. 
+                # pack images into tarball.
                 # I have tried to convert array to BytesIO file object and add it to tarball,
                 # but after untar the tarball, the image headers are empty so I'm using TemporaryFile
                 # instead. This may need to revised
@@ -285,7 +285,7 @@ def download_image_data(
                     tarinfo.size = len(tar_img.tobytes())
                     archive.addfile(tarinfo=tarinfo, fileobj=buf)
                     buf.close()
-                else: # save image as individual file
+                else:  # save image as individual file
                     try:
                         tiff = TIFF.open(fname, mode='w')
                         tiff.write_image(im_array)
