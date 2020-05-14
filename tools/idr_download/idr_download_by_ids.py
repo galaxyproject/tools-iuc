@@ -5,7 +5,7 @@ import tarfile
 
 from libtiff import TIFF
 from PIL import Image
-from tempfile import TemporaryFile, SpooledTemporaryFile
+from tempfile import SpooledTemporaryFile
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
