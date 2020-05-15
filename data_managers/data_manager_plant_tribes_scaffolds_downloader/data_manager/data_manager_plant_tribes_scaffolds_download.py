@@ -59,7 +59,7 @@ def url_download(url, work_directory):
     try:
         req = Request(url)
         src = urlopen(req)
-        dst = open(file_path, 'wb')
+        dst = open(file_path, 'w')
         while True:
             chunk = src.read(2**10)
             if chunk:
@@ -136,6 +136,6 @@ else:
 # Get the scaffolds data.
 data_manager_dict = download(target_directory, args.web_url, args.config_web_url, description)
 # Write the JSON output dataset.
-fh = open(args.out_file, 'wb')
+fh = open(args.out_file, 'w')
 fh.write(json.dumps(data_manager_dict))
 fh.close()
