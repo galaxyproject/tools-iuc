@@ -5,7 +5,7 @@ import tarfile
 
 from libtiff import TIFF
 from PIL import Image
-from tempfile import SpooledTemporaryFile
+from tempfile import TemporaryFile
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
@@ -273,7 +273,9 @@ def download_image_data(
                 # pack images into tarball
                 if download_tar:
                     tar_img = Image.fromarray(im_array)
-                    with SpooledTemporaryFile() as buf:
+                    # Used TeporaryFile() for now so everything gets store in memory
+                    # need to be improved using SpooledTemporaryFile with a max_size set
+                    with TemporaryFile() as buf:
                         tar_img.save(buf, format='TIFF')
                         tarinfo = tarfile.TarInfo(name=fname)
                         buf.seek(0, 2)
