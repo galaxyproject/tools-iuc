@@ -59,20 +59,18 @@ def url_download(url, work_directory):
     try:
         req = Request(url)
         src = urlopen(req)
-        dst = open(file_path, 'w')
-        while True:
-            chunk = src.read(2**10)
-            if chunk:
-                dst.write(chunk)
-            else:
-                break
+        with open(file_path, 'wb') as dst:
+            while True:
+                chunk = src.read(2**10)
+                if chunk:
+                    dst.write(chunk)
+                else:
+                    break
     except Exception as e:
         sys.exit(str(e))
     finally:
         if src:
             src.close()
-        if dst:
-            dst.close()
     return file_path
 
 
@@ -122,9 +120,8 @@ parser.add_argument('--config_web_url', dest='config_web_url', help='URL for dow
 
 args = parser.parse_args()
 
-# Some magic happens with tools of type "manage_data" in that the output
-# file contains some JSON data that allows us to define the target directory.
-params = json.loads(open(args.out_file).read())
+with open(args.out_file) as fh:
+    params = json.loads(fh.read())
 target_directory = params['output_data'][0]['extra_files_path']
 make_directory(target_directory)
 
@@ -136,6 +133,5 @@ else:
 # Get the scaffolds data.
 data_manager_dict = download(target_directory, args.web_url, args.config_web_url, description)
 # Write the JSON output dataset.
-fh = open(args.out_file, 'w')
-fh.write(json.dumps(data_manager_dict))
-fh.close()
+with open(args.out_file, 'w') as fh:
+    fh.write(json.dumps(data_manager_dict))
