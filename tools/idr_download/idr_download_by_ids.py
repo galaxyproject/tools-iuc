@@ -134,11 +134,11 @@ def download_image_data(
                         secure=True)
     conn.connect()
 
-    try:
-        # create an archive file for write operation
-        if download_tar:
-            archive = tarfile.open("images.tar", mode='w')
+    if download_tar:
+        # create an archive file to write images to
+        archive = tarfile.open('images.tar', mode='w')
 
+    try:
         for image_id in image_ids:
             image_warning_id = 'Image-ID: {0}'.format(image_id)
             try:
@@ -273,8 +273,9 @@ def download_image_data(
                 # pack images into tarball
                 if download_tar:
                     tar_img = Image.fromarray(im_array)
-                    # Used TeporaryFile() for now so everything gets store in memory
-                    # need to be improved using SpooledTemporaryFile with a max_size set
+                    # Use TemporaryFile() for intermediate storage of images.
+                    # TO DO: could this be improved by using
+                    # SpooledTemporaryFile with a suitable max_size?
                     with TemporaryFile() as buf:
                         tar_img.save(buf, format='TIFF')
                         tarinfo = tarfile.TarInfo(name=fname)
