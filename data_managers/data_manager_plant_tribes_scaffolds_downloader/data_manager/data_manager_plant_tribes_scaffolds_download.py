@@ -134,4 +134,4 @@ else:
 data_manager_dict = download(target_directory, args.web_url, args.config_web_url, description)
 # Write the JSON output dataset.
 with open(args.out_file, 'w') as fh:
-    fh.write(json.dumps(data_manager_dict))
+    fh.write(json.dumps(data_manager_dict, sort_keys=True))
