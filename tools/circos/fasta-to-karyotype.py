@@ -2,6 +2,7 @@
 import sys
 from Bio import SeqIO
 
+
 highest = 0
 
 # Process fasta data, extracting only headers
@@ -14,11 +15,10 @@ for idx, seq in enumerate(SeqIO.parse(sys.argv[1], "fasta")):
     highest = idx
 
 
-with open(sys.argv[2], 'w') as handle:
+with open(sys.argv[2], "w") as handle:
     for idx in range(highest):
         handle.write(
-            "chr{idx}color = lch(50, 121, {pos})\n".format(
-                idx=idx,
-                pos=int(float(idx) / highest * 360),
+            "chr{idx}color = lch(50,121,{pos})\n".format(
+                idx=idx, pos=int(float(idx) / highest * 360)
             )
         )
