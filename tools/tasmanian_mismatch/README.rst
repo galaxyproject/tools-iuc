@@ -2,7 +2,7 @@ Galaxy wrappers for tasmanian_mismatch tool
 ===========================================
 
 These wrappers are available from the Galaxy Tool Shed at:
-http://toolshed.g2.bx.psu.edu/view/devteam/tasmanian_mismatch
+http://toolshed.g2.bx.psu.edu/view/iuc/tasmanian_mismatch
 
 The tasmanian_mismatch repository:
     - Provides tasmanian-mismatch wrapper
