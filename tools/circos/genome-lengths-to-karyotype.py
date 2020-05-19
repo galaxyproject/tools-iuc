@@ -23,3 +23,13 @@ with open(sys.argv[1], "r") as csvfile:
             )
         )
         idx += 1
+
+
+with open(sys.argv[3], 'w') as handle:
+    for i in range(idx):
+        handle.write(
+            "chr{idx}color = lch(50, 121, {pos})\n".format(
+                idx=i,
+                pos=int(float(i) / idx * 360),
+            )
+        )
