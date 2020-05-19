@@ -16,7 +16,7 @@ for idx, seq in enumerate(SeqIO.parse(sys.argv[1], "fasta")):
 
 
 with open(sys.argv[2], "w") as handle:
-    for idx in range(highest):
+    for idx in range(highest + 1):
         handle.write(
             "chr{idx}color = lch(50,121,{pos})\n".format(
                 idx=idx, pos=int(float(idx) / highest * 360)
