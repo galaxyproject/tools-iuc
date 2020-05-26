@@ -1,11 +1,11 @@
-class LastDb(Text):
+class LastDb(Data):
     """Class for LAST database files."""
     file_ext = 'lastdb'
     allow_datatype_change = False
     composite_type = 'basic'
 
     def __init__(self, **kwd):
-        Text.__init__(self, **kwd)
+        Data.__init__(self, **kwd)
         self.add_composite_file('lastdb.bck', is_binary=True)
         self.add_composite_file('lastdb.des', is_binary=False)  # description file
         self.add_composite_file('lastdb.prj', is_binary=False)  # project resume
