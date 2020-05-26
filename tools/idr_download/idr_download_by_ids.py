@@ -1,8 +1,11 @@
 import argparse
 import os
 import sys
+import tarfile
 
 from libtiff import TIFF
+from PIL import Image
+from tempfile import TemporaryFile
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
@@ -92,7 +95,7 @@ def confine_frame(image, t):
     return t
 
 
-def download_plane_as_tiff(image, tile, z, c, t, fname):
+def get_image_array(image, tile, z, c, t):
     pixels = image.getPrimaryPixels()
     try:
         selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
@@ -102,21 +105,14 @@ def download_plane_as_tiff(image, tile, z, c, t, fname):
         warn('Could not download the requested region', warning)
         return
 
-    if fname[-5:] != '.tiff':
-        fname += '.tiff'
-    try:
-        fname = fname.replace(' ', '_')
-        tiff = TIFF.open(fname, mode='w')
-        tiff.write_image(selection)
-    finally:
-        tiff.close()
+    return selection
 
 
 def download_image_data(
     image_ids,
     channel=None, z_stack=0, frame=0,
     coord=(0, 0), width=0, height=0, region_spec='rectangle',
-    skip_failed=False
+    skip_failed=False, download_tar=False
 ):
     # basic argument sanity checks and adjustments
     prefix = 'image-'
@@ -137,6 +133,10 @@ def download_image_data(
                         host='idr.openmicroscopy.org',
                         secure=True)
     conn.connect()
+
+    if download_tar:
+        # create an archive file to write images to
+        archive = tarfile.open('images.tar', mode='w')
 
     try:
         for image_id in image_ids:
@@ -263,7 +263,32 @@ def download_image_data(
                 [image_name, str(image_id)] + [str(x) for x in tile]
             )
             try:
-                download_plane_as_tiff(image, tile, z_stack, channel_index, frame, fname)
+                if fname[-5:] != '.tiff':
+                    fname += '.tiff'
+
+                fname = fname.replace(' ', '_')
+
+                im_array = get_image_array(image, tile, z_stack, channel_index, frame)
+
+                # pack images into tarball
+                if download_tar:
+                    tar_img = Image.fromarray(im_array)
+                    # Use TemporaryFile() for intermediate storage of images.
+                    # TO DO: could this be improved by using
+                    # SpooledTemporaryFile with a suitable max_size?
+                    with TemporaryFile() as buf:
+                        tar_img.save(buf, format='TIFF')
+                        tarinfo = tarfile.TarInfo(name=fname)
+                        buf.seek(0, 2)
+                        tarinfo.size = buf.tell()
+                        buf.seek(0)
+                        archive.addfile(tarinfo=tarinfo, fileobj=buf)
+                else:  # save image as individual file
+                    try:
+                        tiff = TIFF.open(fname, mode='w')
+                        tiff.write_image(im_array)
+                    finally:
+                        tiff.close()
             except Exception as e:
                 if skip_failed:
                     # respect skip_failed on unexpected errors
@@ -271,7 +296,11 @@ def download_image_data(
                     continue
                 else:
                     raise
+
     finally:
+        # close the archive file,if it is created
+        if download_tar:
+            archive.close()
         # Close the connection
         conn.close()
 
@@ -330,6 +359,9 @@ if __name__ == "__main__":
     )
     p.add_argument(
         '--skip-failed', action='store_true'
+    )
+    p.add_argument(
+        '--download-tar', action='store_true'
     )
     args = p.parse_args()
     if not args.image_ids:

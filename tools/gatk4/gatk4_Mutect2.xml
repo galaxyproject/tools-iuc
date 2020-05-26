@@ -1,4 +1,4 @@
-<tool id="gatk4_mutect2" name="GATK4 Mutect2" version="@WRAPPER_VERSION@2" profile="18.05">
+<tool id="gatk4_mutect2" name="GATK4 Mutect2" version="@WRAPPER_VERSION@" profile="18.05">
     <description>- Call somatic SNVs and indels via local assembly of haplotypes</description>
     <macros>
         <import>macros.xml</import>
@@ -9,7 +9,6 @@
         <![CDATA[
         #include source=$set_sections#
         #include source=$pre_gatk_excl_ints_chth#
-        #include source=$bam_index_pre_chth#
         #include source=$pre_gatk_ints_chth#
 
         #set ref_flag='--reference="reference.fa"'
@@ -18,18 +17,25 @@
             ln -s '$reference_source.reference_sequence' reference.fa &&
             samtools faidx reference.fa &&
             gatk CreateSequenceDictionary --REFERENCE="reference.fa" --OUTPUT="reference.dict" &&
-        #else if str($reference_source.reference_source_selector) == 'history'
+        #else if str($reference_source.reference_source_selector) == 'cached'
             ln -s '$reference_source.reference_sequence.fields.path' reference.fa &&
             samtools faidx reference.fa &&
             gatk CreateSequenceDictionary --REFERENCE="reference.fa" --OUTPUT="reference.dict" &&
         #else
             #set ref_flag=''
         #end if
-
-        #if str($outputs.output_parameters) == 'yes'
-            #if str($outputs.debug_activity) == 'yes'
-                ln -s '$activity_profile_out' activity-profile.tab &&
-            #end if
+	
+        #if str($mode.mode_parameters) == 'tumor_only'
+            ln -s $mode.tumor tumor.bam &&
+            ln -s $mode.tumor.metadata.bam_index tumor.bam.bai &&
+        #else
+            ln -s $mode.tumor tumor.bam &&
+            ln -s $mode.tumor.metadata.bam_index tumor.bam.bai &&
+            ln -s $mode.normal normal.bam &&
+            ln -s $mode.normal.metadata.bam_index normal.bam.bai &&
+        #end if
+	
+	#if str($outputs.output_parameters) == 'yes'
             #if str($outputs.debug_assembly) == 'yes'
                 ln -s '$assembly_region_out' assembly-region.tab &&
             #end if
@@ -38,7 +44,7 @@
             #end if
         #end if
 
-        gatk GetSampleName --input="input.bam" --output="samplename.txt" &&
+        gatk GetSampleName --input="tumor.bam" --output="samplename.txt" &&
         sample=`cat samplename.txt | sed 's/"//g'` &&
 
         #if str($optional.optional_parameters) == 'yes'
@@ -78,7 +84,12 @@
 
         gatk Mutect2 --QUIET $ref_flag --tumor-sample "\$sample"
 
-        #include source=$gatk_bam_input#
+        #if str($mode.mode_parameters) == 'tumor_only'
+            --input tumor.bam
+        #else
+            --input tumor.bam
+            --input normal.bam
+        #end if
 
         ## OPTIONAL PARAMETERS ##
 
@@ -222,7 +233,7 @@
             #if $advanced.max_unpruned_variants
                 --max-unpruned-variants="$advanced.max_unpruned_variants"
             #end if
-
+            --allele-informative-reads-overlap-margin=="$advanced.allele_informative_reads_overlap_margin"
             --active-probability-threshold="$advanced.active_probability_threshold"
             --assembly-region-padding="$advanced.assembly_region_padding"
             --bam-writer-type="$advanced.bam_writer_type"
@@ -247,7 +258,6 @@
             $advanced.disable_tool_default_annotations
             $advanced.disable_tool_default_read_filters
             $advanced.dont_increase_kmer_sizes_for_cycles
-            $advanced.dont_trim_active_regions
             $advanced.dont_use_soft_clipped_bases
             $advanced.enable_all_annotations
             $advanced.force_active
@@ -263,9 +273,6 @@
         ## ADDITIONAL OUTPUT PARAMETERS ##
 
         #if str($outputs.output_parameters) == 'yes'
-            #if str($outputs.debug_activity) == 'yes'
-                --activity-profile-out="activity-profile.tab"
-            #end if
             #if str($outputs.debug_assembly) == 'yes'
                 --assembly-region-out="assembly-region.tab"
             #end if
@@ -281,7 +288,19 @@
         ]]>
     </command>
     <inputs>
-        <expand macro="gatk_bam_req_params"/>
+        <conditional name="mode">
+            <param name="mode_parameters" type="select" label="Type of analysis">
+                <option value="tumor_only">Tumor-only</option>
+                <option value="somatic">Somatic</option>
+            </param>
+            <when value="tumor_only">
+                <param name="tumor" argument="--tumor" type="data" format="bam" label="Input Tumor BAM file" />
+            </when>
+            <when value="somatic">
+                <param name="tumor" argument="--tumor" type="data" format="bam" label="Input Tumor BAM file" />
+                <param name="normal" argument="--normal" type="data" format="bam" label="Input Normal BAM file" />
+            </when>
+        </conditional>
         <expand macro="gzip_vcf_params"/>
         <expand macro="ref_sel"/>
         <conditional name="optional">
@@ -496,6 +515,7 @@
                 <option value="yes">Specify parameters</option>
             </param>
             <when value="yes">
+                <param name="allele_informative_reads_overlap_margin" argument="--allele-informative-reads-overlap-margin" type="integer" optional="true" value="2" label="Likelihood and read-based annotations will only take into consideration reads that overlap the variant or any base no further than this distance expressed in base pairs" help="Number of overlapping bases around the variant."/>
                 <param name="active_probability_threshold" argument="--active-probability-threshold" type="float" optional="true" value="0.002" label="Active Probability Threshold" help="Minimum probability for a locus to be considered active."/>
                 <param name="allow_non_unique_kmers_in_ref" argument="--allow-non-unique-kmers-in-ref" type="boolean" truevalue="--allow-non-unique-kmers-in-ref" falsevalue="" optional="true" checked="false" label="Allow Non Unique Kmers In Ref" help="Allow graphs that have non-unique kmers in the reference"/>
                 <param name="assembly_region_padding" argument="--assembly-region-padding" type="integer" optional="true" value="100" label="Assembly Region Padding" help="Number of additional bases of context to include around each assembly region"/>
@@ -508,7 +528,6 @@
                 <param name="disable_tool_default_annotations" argument="--disable-tool-default-annotations" type="boolean" truevalue="--disable-tool-default-annotations" falsevalue="" optional="true" checked="false" label="Disable Default Annotations" help="Disable all tool default annotations"/>
                 <param name="disable_tool_default_read_filters" argument="--disable-tool-default-read-filters" type="boolean" truevalue="--disable-tool-default-read-filters" falsevalue="" optional="true" checked="false" label="Disable default read filters" help="WARNING: many tools will not function correctly without their default read filters on"/>
                 <param name="dont_increase_kmer_sizes_for_cycles" argument="--dont-increase-kmer-sizes-for-cycles" type="boolean" truevalue="--dont-increase-kmer-sizes-for-cycles" falsevalue="" optional="true" checked="false" label="Dont Increase Kmer Sizes For Cycles" help="Disable iterating over kmer sizes when graph cycles are detected"/>
-                <param name="dont_trim_active_regions" argument="--dont-trim-active-regions" type="boolean" truevalue="--dont-trim-active-regions" falsevalue="" optional="true" checked="false" label="Dont Trim Active Regions" help="If specified, we will not trim down the active region from the full region (active + extension) to just the active interval for genotyping"/>
                 <param name="dont_use_soft_clipped_bases" argument="--dont-use-soft-clipped-bases" type="boolean" truevalue="--dont-use-soft-clipped-bases" falsevalue="" optional="true" checked="false" label="Dont Use Soft Clipped Bases" help="Do not analyze soft clipped bases in the reads"/>
                 <param name="emit_ref_confidence" argument="--emit-ref-confidence" type="select" label="Mode for emitting reference confidence scores" help="NOTE: This is a beta feature in Mutect2">
                     <option value="NONE">None</option>
@@ -575,9 +594,6 @@
     </inputs>
     <outputs>
         <expand macro="gzip_vcf_output_params"/>
-        <data format="tabular" name="activity_profile_out" label="${tool.name} on ${on_string}: Activity profile">
-            <filter>str(outputs['output_parameters']) == 'yes' and outputs['debug_activity']</filter>
-        </data>
         <data format="tabular" name="assembly_region_out" label="${tool.name} on ${on_string}: Assembly region">
             <filter>str(outputs['output_parameters']) == 'yes' and outputs['debug_assembly']</filter>
         </data>
@@ -587,7 +603,10 @@
     </outputs>
     <tests>
         <test>
-            <param name="input" ftype="bam" value="Mutect2-in1.bam" />
+            <conditional name="mode">
+                <param name="mode_parameters" value="tumor_only"/>
+                <param name="tumor" ftype="bam" value="Mutect2-in1.bam" />
+            </conditional>
             <param name="reference_sequence" ftype="fasta" value="reference.fa" />
             <param name="gzipped_output" value="false" />
             <param name="reference_source_selector" value="history" />
@@ -597,7 +616,10 @@
             <output name="output_vcf" file="Mutect2-out1.vcf" lines_diff="2" />
         </test>
         <test>
-            <param name="input" ftype="bam" value="Mutect2-in2.bam" />
+            <conditional name="mode">
+                <param name="mode_parameters" value="tumor_only"/>
+                <param name="tumor" ftype="bam" value="Mutect2-in2.bam" />
+            </conditional>
             <param name="reference_sequence" ftype="fasta" value="reference.fa" />
             <param name="gzipped_output" value="false" />
             <param name="reference_source_selector" value="history" />
@@ -610,7 +632,10 @@
             <output name="output_vcf" file="Mutect2-out2.vcf" lines_diff="2" />
         </test>
         <test>
-            <param name="input" ftype="bam" value="Mutect2-in3.bam" />
+            <conditional name="mode">
+                <param name="mode_parameters" value="tumor_only"/>
+                <param name="tumor" ftype="bam" value="Mutect2-in3.bam" />
+            </conditional>
             <param name="reference_sequence" ftype="fasta" value="reference.fa" />
             <param name="gzipped_output" value="false" />
             <param name="reference_source_selector" value="history" />
@@ -622,18 +647,24 @@
             <output name="output_vcf" file="Mutect2-out3.vcf" lines_diff="2" />
         </test>
         <test>
-            <param name="input" ftype="bam" value="Mutect2-in4.bam" />
-            <param name="reference_sequence" ftype="fasta" value="reference.fa" />
+            <conditional name="mode">
+                <param name="mode_parameters" value="tumor_only"/>
+                <param name="tumor" ftype="bam" value="Mutect2-in4.bam" />
+            </conditional>
+            <param name="reference_sequence" value="hg38"/>
             <param name="gzipped_output" value="false" />
-            <param name="reference_source_selector" value="history" />
-            <param name="optional_parameters" value="yes" />
-            <param name="advanced_parameters" value="yes" />
-            <param name="dont_trim_active_regions" value="true" />
+	    <param name="reference_source_selector" value="cached" />
+	    <param name="reference_sequence" value="hg38"/>
+            <param name="optional_parameters" value="no" />
+            <param name="advanced_parameters" value="no" />
             <param name="output_parameters" value="no" />
             <output name="output_vcf" file="Mutect2-out4.vcf" lines_diff="2" />
         </test>
         <test>
-            <param name="input" ftype="bam" value="Mutect2-in5.bam" />
+            <conditional name="mode">
+                <param name="mode_parameters" value="tumor_only"/>
+                <param name="tumor" ftype="bam" value="Mutect2-in5.bam" />
+            </conditional>
             <param name="reference_sequence" ftype="fasta" value="reference.fa" />
             <param name="gzipped_output" value="false" />
             <param name="reference_source_selector" value="history" />
@@ -644,9 +675,22 @@
             <param name="debug_assembly" value="true" />
             <param name="debug_bam" value="true" />
             <output name="output_vcf" file="Mutect2-out5.vcf" lines_diff="2" />
-            <output name="activity_profile_out" file="Mutect2-out5-1.tabular" />
-            <output name="assembly_region_out" file="Mutect2-out5-2.tabular" />
+            <output name="assembly_region_out" file="Mutect2-out5-1.tabular" />
             <output name="bam_output" file="Mutect2-out5.bam" />
+        </test>
+        <test>
+            <conditional name="mode">
+                <param name="mode_parameters" value="somatic"/>
+                <param name="tumor" ftype="bam" value="tumor.bam" />
+                <param name="normal" ftype="bam" value="normal.bam" />
+            </conditional>
+            <param name="reference_sequence" ftype="fasta" value="chr20.fa" />
+            <param name="gzipped_output" value="false" />
+            <param name="reference_source_selector" value="history" />
+            <param name="optional_parameters" value="no" />
+            <param name="advanced_parameters" value="no" />
+            <param name="output_parameters" value="no" />
+            <output name="output_vcf" file="Mutect2-out6.vcf" lines_diff="2" />
         </test>
     </tests>
     <help><![CDATA[Call somatic short variants via local assembly of haplotypes. Short
