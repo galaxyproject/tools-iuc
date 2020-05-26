@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/github/nagoue/galaxy-tools.svg?branch=master)](https://travis-ci.org/github/nagoue/galaxy-tools)
+[![Build Status](https://travis-ci.org/github/mesocentre-clermont-auvergne/galaxy-tools.svg?branch=master)](https://travis-ci.org/github/mesocentre-clermont-auvergne/galaxy-tools)
 
 ## Welcome on the open resource materials of the AuBi Platform at Clermont Auvergne Mesocentre dedicated to Galaxy tools developed and/or maintained by AuBi at Mesocentre core facility
 
