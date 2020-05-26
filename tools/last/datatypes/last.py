@@ -1,3 +1,5 @@
+from galaxy.datatypes.data import Data
+
 class LastDb(Data):
     """Class for LAST database files."""
     file_ext = 'lastdb'
