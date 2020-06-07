@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from nanocompore.SampCompDB import SampCompDB
-from nanocompore.common import *
+# from nanocompore.common import *
 import os
 # import ast
 # from tqdm import tqdm
@@ -23,7 +23,7 @@ def is_valid_directory(dir_name):
     else:
         raise NotADirectoryError(os.path.abspath(dir_name))
 
-# def doall(db, reference_fa, gene, rangeL, rangeR, outdir, annot_bed, 
+# def doall(db, reference_fa, gene, rangeL, rangeR, outdir, annot_bed,
 #           plot_signals):
 #     dict_genes = {}
 #     for g in [gene]:
@@ -71,12 +71,12 @@ def is_valid_directory(dir_name):
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='save nanocompre sampcomp ' +
-            'results as interval outputs' +
-            '\nSample call: \"python Nannocompore-plot.py --db-path ' +
-            './out_SampComp.db --ref-fasta ref.fa --annotation-bed annot.bed' +
-            '--out-dir ./plots/'
-            )
+    parser = argparse.ArgumentParser(
+        description='save nanocompre sampcomp \
+            results as interval outputs \
+            \nSample call: \"python Nannocompore-plot.py --db-path \
+            ./out_SampComp.db --ref-fasta ref.fa --annotation-bed annot.bed \
+            --out-dir ./plots/')
 
     parser.add_argument('--ref-fasta', required=True, type=is_valid_file,
                         help='The reference genome  used for read alignment.')
@@ -84,14 +84,13 @@ if __name__ == '__main__':
                         help='Path to the SampCompDB database path prefix.')
     parser.add_argument('--annotation-bed', required=False, type=is_valid_file,
                         help='BED file containing the annotation of the transcriptome used as reference when mapping')
-    parser.add_argument('--pvalue-types', type=str, 
+    parser.add_argument('--pvalue-types', type=str,
                         default='GMM_logit_pvalue,KS_dwell_pvalue,KS_intensity_pvalue',
                         help='path to the annotations')
-    parser.add_argument('--bedgraph', default=False, 
+    parser.add_argument('--bedgraph', default=False,
                         help='write output in BEDGRAPH format instead of BED')
     parser.add_argument('--pvalue-threshold', default=1.0,
                         help='Maximum reported p-value.')
-    
     parser.add_argument('--out-dir', default="./", type=is_valid_directory,
                         help='path the plotting output directory.')
 
@@ -110,15 +109,11 @@ if __name__ == '__main__':
     if args.annotation_bed:
         for pt in args.pvalue_types.split(','):
             print("bedgraph output for p-value type:", pt)
-            db.save_to_bed(output_fn=args.out_dir+'/{}.bedgraph'.format(pt),
+            db.save_to_bed(output_fn='{}/{}.bedgraph'.format(args.out_dir, pt),
                            pvalue_field=pt, pvalue_thr=args.pvalue_threshold,
                            bedgraph=args.bedgraph)
 
     # gene_name = args.gene_range.split(":")[0]
     # rangeL,rangeR = [int(i) for i in args.gene_range.split(":")[1].split("-")]
-    # doall(args.db_path, args.ref_fasta, gene_name, rangeL, rangeR, 
+    # doall(args.db_path, args.ref_fasta, gene_name, rangeL, rangeR,
     #       args.out_dir, args.annotation_bed, args.plot_signals)
-    
-
-
-
