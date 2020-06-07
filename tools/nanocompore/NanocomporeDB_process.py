@@ -10,7 +10,6 @@ from nanocompore.SampCompDB import SampCompDB
 # from matplotlib import pyplot
 
 
-
 def is_valid_file(file_name):
     if os.path.isfile(file_name):
         return os.path.abspath(file_name)
