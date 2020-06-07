@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 
+import argparse
+import os
+
 from nanocompore.SampCompDB import SampCompDB
 # from nanocompore.common import *
-import os
 # import ast
 # from tqdm import tqdm
 # from matplotlib import pyplot
 
-import argparse
 
 
 def is_valid_file(file_name):
