@@ -4,10 +4,6 @@ import argparse
 import os
 
 from nanocompore.SampCompDB import SampCompDB
-# from nanocompore.common import *
-# import ast
-# from tqdm import tqdm
-# from matplotlib import pyplot
 
 
 def is_valid_file(file_name):
@@ -22,51 +18,6 @@ def is_valid_directory(dir_name):
         return os.path.abspath(dir_name)
     else:
         raise NotADirectoryError(os.path.abspath(dir_name))
-
-# def doall(db, reference_fa, gene, rangeL, rangeR, outdir, annot_bed,
-#           plot_signals):
-#     dict_genes = {}
-#     for g in [gene]:
-#         lref = [ref for ref in db.ref_id_list if g in ref]
-#         assert(len(lref)==1)
-#         dict_genes[g]= lref[0]
-#     print("genes name map:", dict_genes)
-#     for g in dict_genes:
-#         fig, ax = db.plot_pvalue (dict_genes[g], tests="logit")
-#         fig.savefig(outdir+"/"+g+'-full-pvalue.svg')
-#         pyplot.close(fig)
-#         fig, ax = db.plot_coverage (dict_genes[g])
-#         fig.savefig(outdir+"/"+g+'-full-coverage.svg')
-#         pyplot.close(fig)
-#     db_entry = db[dict_genes['chrSCV']]
-#     for  reg in [[gene, rangeL, rangeR]]:
-#         gene, pleft, pright = reg[0], reg[1], reg[2]
-#         fig_prefix = outdir+'/{}-{}-{}'.format(gene, pleft, pright)
-#         fig, ax = db.plot_coverage (dict_genes[gene], pleft, pright)
-#         fig.savefig(fig_prefix + '-coverage.svg')
-#         pyplot.close(fig)
-#         fig, ax = db.plot_pvalue(dict_genes[gene],pleft, pright,
-#                                   tests="logit")
-#         fig.savefig(fig_prefix + '-pvalue.svg')
-#         pyplot.close(fig)
-#         if plot_signals is True:
-#             if pright-pleft>200:
-#                 pleft, pright = int((pleft+pright)/2-100),
-#                                   int((pleft+pright)/2+100)
-#                 fig_prefix += '-zoom'
-#             fig, ax = db.plot_signal (dict_genes[gene],pleft, pright,
-#                                           figsize=(60,10))
-#             fig.savefig(fig_prefix +'-signal-violin.svg',
-#                           bbox_inches="tight")
-#             pyplot.close(fig)
-#             if pright - pleft >10:
-#                 pleft, pright = int((pleft+pright)/2-2),
-#                                   int((pleft+pright)/2 + 2)
-# #                 fig_prefix += '-supzoomed'
-#             fig, ax = db.plot_signal (dict_genes[gene], pleft, pright,
-#                                           kind="swarmplot")
-#             fig.savefig(fig_prefix +'-signal-swarm.png', bbox_inches="tight")
-#             pyplot.close(fig)
 
 
 if __name__ == '__main__':
@@ -94,10 +45,6 @@ if __name__ == '__main__':
     parser.add_argument('--out-dir', default="./", type=is_valid_directory,
                         help='path the plotting output directory.')
 
-    # parser.add_argument('--gene-range', required=True,
-    #                   help='The plot gene range, e.g. SOX:1000-2000')
-    # parser.add_argument('--plot-signals', default=False,
-    #                   help='plot signal violin and swarm plots')
 
     args = parser.parse_args()
 
@@ -112,8 +59,3 @@ if __name__ == '__main__':
             db.save_to_bed(output_fn='{}/{}.bedgraph'.format(args.out_dir, pt),
                            pvalue_field=pt, pvalue_thr=args.pvalue_threshold,
                            bedgraph=args.bedgraph)
-
-    # gene_name = args.gene_range.split(":")[0]
-    # rangeL,rangeR = [int(i) for i in args.gene_range.split(":")[1].split("-")]
-    # doall(args.db_path, args.ref_fasta, gene_name, rangeL, rangeR,
-    #       args.out_dir, args.annotation_bed, args.plot_signals)
