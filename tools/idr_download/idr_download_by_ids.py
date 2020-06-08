@@ -2,10 +2,11 @@ import argparse
 import os
 import sys
 import tarfile
+import time
+from tempfile import TemporaryFile
 
 from libtiff import TIFF
 from PIL import Image
-from tempfile import TemporaryFile
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
@@ -281,6 +282,7 @@ def download_image_data(
                         tarinfo = tarfile.TarInfo(name=fname)
                         buf.seek(0, 2)
                         tarinfo.size = buf.tell()
+                        tarinfo.mtime = time.time()
                         buf.seek(0)
                         archive.addfile(tarinfo=tarinfo, fileobj=buf)
                 else:  # save image as individual file
