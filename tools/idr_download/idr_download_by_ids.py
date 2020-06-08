@@ -3,10 +3,10 @@ import os
 import sys
 import tarfile
 import time
+from tempfile import TemporaryFile
 
 from libtiff import TIFF
 from PIL import Image
-from tempfile import TemporaryFile
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
