@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 import tarfile
+import time
 
 from libtiff import TIFF
 from PIL import Image
@@ -281,6 +282,7 @@ def download_image_data(
                         tarinfo = tarfile.TarInfo(name=fname)
                         buf.seek(0, 2)
                         tarinfo.size = buf.tell()
+                        tarinfo.mtime = time.time()
                         buf.seek(0)
                         archive.addfile(tarinfo=tarinfo, fileobj=buf)
                 else:  # save image as individual file
