@@ -45,7 +45,6 @@ if __name__ == '__main__':
     parser.add_argument('--out-dir', default="./", type=is_valid_directory,
                         help='path the plotting output directory.')
 
-
     args = parser.parse_args()
 
     db = SampCompDB(args.db_path, fasta_fn=args.ref_fasta,
