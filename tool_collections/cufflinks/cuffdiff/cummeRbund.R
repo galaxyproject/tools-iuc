@@ -1,2 +1,2 @@
 library("cummeRbund")
-cuff <- readCufflinks(dir = ".", dbFile = 'cummeRbund.sqlite')
+cuff <- readCufflinks(dir = ".", dbFile = "cummeRbund.sqlite")
