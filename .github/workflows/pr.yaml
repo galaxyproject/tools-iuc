@@ -39,13 +39,13 @@ jobs:
         name: Workflow artifacts
         path: galaxy.sha
     - name: Cache .cache/pip
-      uses: actions/cache@v1.2.0
+      uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
         key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ env.GALAXY_HEAD_SHA }}
     - name: Cache .planemo
-      uses: actions/cache@v1.2.0
+      uses: actions/cache@v2
       id: cache-planemo
       with:
         path: ~/.planemo
@@ -83,17 +83,13 @@ jobs:
       if: github.event_name == 'pull_request'
       run: echo ::set-env name=COMMIT_RANGE::"HEAD~.."
     - name: Planemo ci_find_repos
-      run: planemo ci_find_repos --changed_in_commit_range ${{ env.COMMIT_RANGE }} --exclude packages --exclude deprecated --output changed_repositories.list
+      run: planemo ci_find_repos --changed_in_commit_range ${{ env.COMMIT_RANGE }} --exclude packages --exclude deprecated --exclude_from .tt_skip --exclude_from .tt_biocontainer_skip --output changed_repositories.list
     - name: Show repo list
       run: cat changed_repositories.list
     - uses: actions/upload-artifact@v2.0.1
       with:
         name: Workflow artifacts
         path: changed_repositories.list
-    - uses: actions/upload-artifact@v2.0.1
-      with:
-        name: Workflow artifacts
-        path: galaxy.sha
 
   # Planemo lint the changed repositories
   lint:
@@ -120,7 +116,7 @@ jobs:
     - name: Determine latest galaxy commit
       run: echo ::set-env name=GALAXY_HEAD_SHA::$(cat ../workflow_artifacts/galaxy.sha)
     - name: Cache .cache/pip
-      uses: actions/cache@v1.2.0
+      uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
@@ -159,7 +155,7 @@ jobs:
     - name: Determine latest galaxy commit
       run: echo ::set-env name=GALAXY_HEAD_SHA::$(cat ../workflow_artifacts/galaxy.sha)
     - name: Cache .cache/pip
-      uses: actions/cache@v1.2.0
+      uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
@@ -172,13 +168,68 @@ jobs:
             flake8 $(cat ../workflow_artifacts/changed_repositories.list)
         fi
 
+  lintr:
+    name: Lint R scripts
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        r-version: [4.0.1]
+    steps:
+    # checkout the repository to master
+    # and use it as the current working directory
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+    - uses: actions/download-artifact@v2
+      with:
+        name: Workflow artifacts
+        path: ../workflow_artifacts/
+    - uses: r-lib/actions/setup-r@master
+      with:
+        r-version: ${{ matrix.r-version }}
+    - name: Cache R packages
+      uses: actions/cache@v2
+      with:
+        path: ${{ env.R_LIBS_USER }}
+        key: r_cache_${{ matrix.r-version }}
+    - name: Install non-R lintr dependencies
+      run: sudo apt-get install libcurl4-openssl-dev 
+    - name: Install lintr
+      run: |
+        install.packages('remotes')
+        remotes::install_cran("lintr")
+      shell: Rscript {0}
+    - name: lintr
+      run: |
+        library(lintr)
+        linters <- with_defaults(line_length_linter = NULL)
+        con <- file("../workflow_artifacts/changed_repositories.list", "r")
+        status <- 0
+        while (TRUE) {
+          repo <- readLines(con, n = 1)
+          if (length(repo) == 0) {
+             break
+          }
+          lnt <- lint_dir(repo, relative_path=T, linters=linters)
+          if (length(lnt) > 0) {
+            status <- 1
+            for (l in lnt) {
+              rel_path <- paste(repo, l$filename, sep="/")
+              write(paste(paste(rel_path, l$line_number, l$column_number, sep=":"), l$message), stderr())
+            }
+          }
+        }
+        quit(status = status)
+      shell: Rscript {0}
+
   # Planemo test the changed repositories, each chunk creates an artifact
   # containing HTML and JSON reports for the executed tests
   test:
     name: Test tools
     # This job runs on Linux
     runs-on: ubuntu-latest
-    needs: [lint,flake8]
+    needs: setup
     strategy:
       fail-fast: false
       matrix:
@@ -209,13 +260,13 @@ jobs:
     - name: Determine latest galaxy commit
       run: echo ::set-env name=GALAXY_HEAD_SHA::$(cat ../workflow_artifacts/galaxy.sha)
     - name: Cache .cache/pip
-      uses: actions/cache@v1.2.0
+      uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
         key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ env.GALAXY_HEAD_SHA }}
     - name: Cache .planemo
-      uses: actions/cache@v1.2.0
+      uses: actions/cache@v2
       id: cache-planemo
       with:
         path: ~/.planemo
@@ -241,7 +292,7 @@ jobs:
     - name: Planemo test tools
       run: |
         if [ -s changed_tools_chunk.list ]; then
-            PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy --biocontainers --no_conda_auto_init --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json tool_test_output.json $(cat changed_tools_chunk.list) || true
+            PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy --biocontainers --no_dependency_resolution --no_conda_auto_init --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json tool_test_output.json $(cat changed_tools_chunk.list) || true
             docker system prune --all --force --volumes || true
         elif [ -s changed_repositories_chunk.list ]; then
             while read -r DIR; do
@@ -250,7 +301,7 @@ jobs:
                 else
                     TESTPATH="$DIR"
                 fi
-                PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy --biocontainers --no_conda_auto_init --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$DIR"/tool_test_output.json "$TESTPATH" || true
+                PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy --biocontainers --no_dependency_resolution --no_conda_auto_init --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$DIR"/tool_test_output.json "$TESTPATH" || true
                 docker system prune --all --force --volumes || true
             done < changed_repositories_chunk.list
         else
@@ -292,7 +343,7 @@ jobs:
     - name: Determine latest galaxy commit
       run: echo ::set-env name=GALAXY_HEAD_SHA::$(cat "artifacts/Workflow artifacts/galaxy.sha")
     - name: Cache .cache/pip
-      uses: actions/cache@v1.2.0
+      uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
@@ -343,7 +394,7 @@ jobs:
     - name: Determine latest galaxy commit
       run: echo ::set-env name=GALAXY_HEAD_SHA::$(cat ../workflow_artifacts/galaxy.sha)
     - name: Cache .cache/pip
-      uses: actions/cache@v1.2.0
+      uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
