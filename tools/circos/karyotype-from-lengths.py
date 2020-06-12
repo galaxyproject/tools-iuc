@@ -15,9 +15,7 @@ with open(sys.argv[1], "r") as csvfile:
 
         sys.stdout.write(
             "chr	-	{seq_id}	{seq_id}	0	{length}	chr{idx}color\n".format(
-                seq_id=seq_id,
-                idx=idx,
-                length=length,
+                seq_id=seq_id, idx=idx, length=length
             )
         )
         idx += 1
