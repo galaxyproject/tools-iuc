@@ -50,7 +50,7 @@ db_list = '''<DbName>pubmed</DbName>
 <DbName>taxonomy</DbName>
 <DbName>unigene</DbName>
 <DbName>gencoll</DbName>
-<DbName>gtr</DbName>'''.replace( "<DbName>", "").replace( "</DbName>", "").split("\n")
+<DbName>gtr</DbName>'''.replace("<DbName>", "").replace("</DbName>", "").split("\n")
 
 
 help = '''  (all)
@@ -164,8 +164,8 @@ for line in help:
         name = line.strip()
         db[name] = {}
     elif line.strip():
-        format = line[0:len("                 docsum             " ) ].strip()
-        mode = line[len("                 docsum             " ):len( "                 docsum             json     ")].strip()
+        format = line[0:len("                 docsum             ")].strip()
+        mode = line[len("                 docsum             "):len("                 docsum             json     ")].strip()
         if format not in db[name]:
             db[name][format] = []
         db[name][format].append(mode)
@@ -177,16 +177,16 @@ for name in db_list:
 db["sequences"] = db["(sequences)"]
 del db["(sequences)"]
 
-print '<conditional name="db">'
-print '    <param name="db" type="select" label="Database" argument="-db">'
-for name in sorted( db.keys()):
+print('<conditional name="db">')
+print('    <param name="db" type="select" label="Database" argument="-db">')
+for name in sorted(db.keys()):
     if name == all:
         continue
-    print '        <option value="%s">%s</option>' % ( name, name )
-print '        <option value="">Manual Entry</option>'
-print '    </param>'
+    print('        <option value="%s">%s</option>' % (name, name))
+print('        <option value="">Manual Entry</option>')
+print('    </param>')
 
-for name in sorted( db.keys()):
+for name in sorted(db.keys()):
     if name == all:
         continue
     my_dict = db[all].copy()
@@ -200,26 +200,26 @@ for name in sorted( db.keys()):
             my_dict[format] = modes
     if "" not in my_dict:
         my_dict[""] = [""]
-    print '    <when value="%s">' % name
-    print '        <conditional name="format">'
-    print '            <param name="format" type="select" label="Format" argument="-format">'
+    print('    <when value="%s">' % name)
+    print('        <conditional name="format">')
+    print('            <param name="format" type="select" label="Format" argument="-format">')
     for format in sorted(my_dict.keys()):
-        print '                <option value="%s">%s</option>' % ( format, format or "None" )
-    print '            </param>'
+        print('                <option value="%s">%s</option>' % (format, format or "None"))
+    print('            </param>')
     for format in sorted(my_dict.keys()):
-        print '            <when value="%s">' % format
-        print '                <param name="mode" type="select" label="Mode" argument="-mode">'
+        print('            <when value="%s">' % format)
+        print('                <param name="mode" type="select" label="Mode" argument="-mode">')
         if "" not in my_dict[format]:
-            my_dict[format].append( "" )
+            my_dict[format].append("")
         for mode in sorted(my_dict[format]):
-            print '                    <option value="%s">%s</option>' % ( mode, mode or "None" )
-        print '                </param>'
-        print '            </when>'
-    print '        </conditional>'
-    print '    </when>'
-print '    <when value="">'
-print '        <param name="db_manual" type="text" label="Database" argument="-db"/>'
-print '        <param name="format" type="text" label="Format" argument="-format"/>'
-print '        <param name="mode" type="text" label="Mode" argument="-mode"/>'
-print '    </when>'
-print '</conditional>'
+            print('                    <option value="%s">%s</option>' % (mode, mode or "None"))
+        print('                </param>')
+        print('            </when>')
+    print('        </conditional>')
+    print('    </when>')
+print('    <when value="">')
+print('        <param name="db_manual" type="text" label="Database" argument="-db"/>')
+print('        <param name="format" type="text" label="Format" argument="-format"/>')
+print('        <param name="mode" type="text" label="Mode" argument="-mode"/>')
+print('    </when>')
+print('</conditional>')
