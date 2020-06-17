@@ -38,7 +38,7 @@ if __name__ == '__main__':
     parser.add_argument('--pvalue-types', type=str,
                         default='GMM_logit_pvalue,KS_dwell_pvalue,KS_intensity_pvalue',
                         help='path to the annotations')
-    parser.add_argument('--bedgraph', default=False,
+    parser.add_argument('--bedgraph', action="store_true",
                         help='write output in BEDGRAPH format instead of BED')
     parser.add_argument('--pvalue-threshold', default=1.0,
                         help='Maximum reported p-value.')
