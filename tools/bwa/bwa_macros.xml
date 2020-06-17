@@ -1,0 +1,173 @@
+<macros>
+    <import>read_group_macros.xml</import>
+
+    <token name="@VERSION@">0.7.17</token>
+
+    <token name="@pipefail@"><![CDATA[set -o | grep -q pipefail && set -o pipefail;]]></token>
+
+    <token name="@set_rg_string@">
+        #set $rg_string = "@RG\\tID:" + str($rg_id)
+        #set $rg_string += $format_read_group("\\tSM:", $rg_sm)
+        #set $rg_string += $format_read_group("\\tPL:", $rg_pl)
+        #set $rg_string += $format_read_group("\\tLB:", $rg_lb)
+        #set $rg_string += $format_read_group("\\tCN:", $rg_cn)
+        #set $rg_string += $format_read_group("\\tDS:", $rg_ds)
+        #set $rg_string += $format_read_group("\\tDT:", $rg_dt)
+        #set $rg_string += $format_read_group("\\tFO:", $rg_fo)
+        #set $rg_string += $format_read_group("\\tKS:", $rg_ks)
+        #set $rg_string += $format_read_group("\\tPG:", $rg_pg)
+        #set $rg_string += $format_read_group("\\tPI:", $rg_pi)
+        #set $rg_string += $format_read_group("\\tPU:", $rg_pu)
+    </token>
+
+    <token name="@set_reference_fasta_filename@"><![CDATA[
+    #if str( $reference_source.reference_source_selector ) == "history":
+        #set $reference_fasta_filename = "localref.fa"
+        ln -s '${reference_source.ref_file}' '${reference_fasta_filename}' &&
+        bwa index
+        #if str($reference_source.index_a) != 'auto'
+            -a ${reference_source.index_a}
+        #end if
+        '${reference_fasta_filename}' &&
+    #else:
+        #set $reference_fasta_filename = str( $reference_source.ref_file.fields.path )
+    #end if
+  ]]></token>
+
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@VERSION@">bwa</requirement>
+            <requirement type="package" version="1.6">samtools</requirement>
+        </requirements>
+    </xml>
+
+    <xml name="stdio">
+        <stdio>
+            <exit_code range="1:" />
+            <exit_code range=":-1" />
+            <regex match="Error:" />
+            <regex match="Exception:" />
+            <regex match="\[bns_restore_core\] Parse error reading" />
+        </stdio>
+    </xml>
+
+    <macro name="reference_source_conditional">
+        <conditional name="reference_source">
+            <param name="reference_source_selector" type="select" label="Will you select a reference genome from your history or use a built-in index?" help="Built-ins were indexed using default options. See `Indexes` section of help below">
+                <option value="cached">Use a built-in genome index</option>
+                <option value="history">Use a genome from history and build index</option>
+            </param>
+            <when value="cached">
+                <param name="ref_file" type="select" label="Using reference genome" help="Select genome from the list">
+                    <options from_data_table="bwa_mem_indexes">
+                        <filter type="sort_by" column="2" />
+                        <validator type="no_options" message="No indexes are available" />
+                    </options>
+                    <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file"/>
+                </param>
+            </when>
+            <when value="history">
+                <param name="ref_file" type="data" format="fasta" label="Use the following dataset as the reference sequence" help="You can upload a FASTA sequence to the history and use it as reference" />
+                <param name="index_a" type="select" label="Algorithm for constructing the BWT index" help="(-a)">
+                    <option value="auto">Auto. Let BWA decide the best algorithm to use</option>
+                    <option value="is">IS linear-time algorithm for constructing suffix array. It requires 5.37N memory where N is the size of the database. IS is moderately fast, but does not work with database larger than 2GB</option>
+                    <option value="bwtsw">BWT-SW algorithm. This method works also with big genomes</option>
+                </param>
+            </when>
+        </conditional>
+    </macro>
+
+    <macro name="dbKeyActionsBwaMem">
+        <expand macro="dbKeyActions">
+            <option type="from_data_table" name="bwa_mem_indexes" column="1" offset="0">
+                <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
+                <filter type="param_value" ref="reference_source.ref_file" column="0"/>
+            </option>
+        </expand>
+    </macro>
+
+    <macro name="dbKeyActions">
+        <actions>
+            <conditional name="reference_source.reference_source_selector">
+                <when value="cached">
+                    <action type="metadata" name="dbkey">
+                        <yield />
+                    </action>
+                </when>
+                <when value="history">
+                    <action type="metadata" name="dbkey">
+                        <option type="from_param" name="reference_source.ref_file" param_attribute="dbkey" />
+                    </action>
+                </when>
+            </conditional>
+        </actions>
+    </macro>
+
+    <token name="@RG@">
+-----
+
+.. class:: warningmark
+
+**Read Groups are Important!**
+
+One of the recommended best practices in NGS analysis is adding read group information to BAM files. You can do this directly in BWA interface using the
+**Specify read group information?** widget. If you are not familiar with read groups you shold know that this is effectively a way to tag reads with an additional ID.
+This allows you to combine BAM files from, for example, multiple BWA runs into a single dataset. This significantly simplifies downstream processing as
+instead of dealing with multiple datasets you only have to handle only one. This is possible because the read group information allows you to identify
+data from different experiments even if they are combined in one file. Many downstream analysis tools such as variant callers (e.g., FreeBayes or Naive Variant Caller
+present in Galaxy) are aware of read groups and will automatically generate calls for each individual sample even if they are combined within a single file.
+
+**Description of read groups fields**
+
+(from GATK FAQ webpage):
+
+.. csv-table::
+   :header-rows: 1
+    
+    Tag,Importance,Definition,Meaning
+    "ID","Required","Read group identifier. Each @RG line must have a unique ID. The value of ID is used in the RG tags of alignment records. Must be unique among all read groups in header section. Read group IDs may be modified when merging SAM files in order to handle collisions.","Ideally, this should be a globally unique identify across all sequencing data in the world, such as the Illumina flowcell + lane name and number.  Will be referenced by each read with the RG:Z field, allowing tools to determine the read group information associated with each read, including the sample from which the read came.  Also, a read group is effectively treated as a separate run of the NGS instrument in tools like base quality score recalibration (a GATK component) -- all reads within a read group are assumed to come from the same instrument run and to therefore share the same error model."
+    "SM","Sample. Use pool name where a pool is being sequenced.","Required.  As important as ID.","The name of the sample sequenced in this read group.  GATK tools treat all read groups with the same SM value as containing sequencing data for the same sample.  Therefore it's critical that the SM field be correctly specified, especially when using multi-sample tools like the Unified Genotyper (a GATK component)."
+    "PL","Platform/technology used to produce the read. Valid values: ILLUMINA, SOLID, LS454, HELICOS and PACBIO.","Important.  Not currently used in the GATK, but was in the past, and may return.  The only way to known the sequencing technology used to generate the sequencing data","It's a good idea to use this field."
+    "LB","DNA preparation library identify","Essential for MarkDuplicates","MarkDuplicates uses the LB field to determine which read groups might contain molecular duplicates, in case the same DNA library was sequenced on multiple lanes."
+
+
+**Example of Read Group usage**
+
+Suppose we have a trio of samples: MOM, DAD, and KID.  Each has two DNA libraries prepared, one with 400 bp inserts and another with 200 bp inserts.  Each of these libraries is run on two lanes of an illumina hiseq, requiring 3 x 2 x 2 = 12 lanes of data.  When the data come off the sequencer, we would create 12 BAM files, with the following @RG fields in the header::
+
+ Dad's data:
+ @RG     ID:FLOWCELL1.LANE1      PL:illumina     LB:LIB-DAD-1 SM:DAD      PI:200
+ @RG     ID:FLOWCELL1.LANE2      PL:illumina     LB:LIB-DAD-1 SM:DAD      PI:200
+ @RG     ID:FLOWCELL1.LANE3      PL:illumina     LB:LIB-DAD-2 SM:DAD      PI:400
+ @RG     ID:FLOWCELL1.LANE4      PL:illumina     LB:LIB-DAD-2 SM:DAD      PI:400
+  
+ Mom's data:
+ @RG     ID:FLOWCELL1.LANE5      PL:illumina     LB:LIB-MOM-1 SM:MOM      PI:200
+ @RG     ID:FLOWCELL1.LANE6      PL:illumina     LB:LIB-MOM-1 SM:MOM      PI:200
+ @RG     ID:FLOWCELL1.LANE7      PL:illumina     LB:LIB-MOM-2 SM:MOM      PI:400
+ @RG     ID:FLOWCELL1.LANE8      PL:illumina     LB:LIB-MOM-2 SM:MOM      PI:400
+ 
+ Kid's data:
+ @RG     ID:FLOWCELL2.LANE1      PL:illumina     LB:LIB-KID-1 SM:KID      PI:200
+ @RG     ID:FLOWCELL2.LANE2      PL:illumina     LB:LIB-KID-1 SM:KID      PI:200
+ @RG     ID:FLOWCELL2.LANE3      PL:illumina     LB:LIB-KID-2 SM:KID      PI:400
+ @RG     ID:FLOWCELL2.LANE4      PL:illumina     LB:LIB-KID-2 SM:KID      PI:400
+
+Note the hierarchical relationship between read groups (unique for each lane) to libraries (sequenced on two lanes) and samples (across four lanes, two lanes for each library).
+    </token>
+    <token name="@info@">
+-----
+
+.. class:: infomark
+
+**More info**
+
+To obtain more information about BWA and ask questions use these resources:
+
+  1. https://biostar.usegalaxy.org/
+  2. https://www.biostars.org/
+  3. https://github.com/lh3/bwa
+  4. http://bio-bwa.sourceforge.net/
+
+    </token>
+</macros>

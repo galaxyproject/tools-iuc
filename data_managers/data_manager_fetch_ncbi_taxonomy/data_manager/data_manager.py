@@ -56,7 +56,8 @@ def main(args):
     output_path = os.path.abspath(os.path.join(os.getcwd(), 'taxonomy'))
     for filename in os.listdir(workdir):
         shutil.move(os.path.join(output_path, filename), target_directory)
-    file(args.output, 'w').write(json.dumps(data_manager_json))
+    with open(args.output, 'w') as out:
+        out.write(json.dumps(data_manager_json, sort_keys=True))
 
 
 if __name__ == '__main__':

@@ -13,8 +13,8 @@ You can fill this file by running the following command:
 
 There are 2 datamanagers to download and install prebuilt SnpEff genome databases:
 
-* data_manager_snpeff_databases: generates a list of available SnpEff genome databases into the ``tool-data/snpeff_databases.loc`` file
-* data_manager_snpeff_download: downloads a SnpEff genome database selected from ``tool-data/snpeff_databases.loc`` and adds entries to ``snpeff_genomedb.loc``, ``snpeff_regulationdb.loc`` and ``snpeff_annotations.loc``
+* data_manager_snpeff_databases: generates a list of available SnpEff genome databases into the ``tool-data/snpeffv_databases.loc`` file
+* data_manager_snpeff_download: downloads a SnpEff genome database selected from ``tool-data/snpeffv_databases.loc`` and adds entries to ``snpeffv_genomedb.loc`` and ``snpeffv_regulationdb.loc`` .
 
 SnpEff citation: |Cingolani2012program|_.
 

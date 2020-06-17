@@ -30,7 +30,7 @@ Other repositories with Galaxy tools:
  * [Greg von Kuster's repo](https://github.com/gregvonkuster/galaxy-csg)
  * [EI repo](https://github.com/TGAC/earlham-galaxytools)
  * [AAFC-MBB Canada repo](https://github.com/AAFC-MBB/Galaxy/tree/master/wrappers)
- * [Mark Einon's repo](https://github.com/einon/galaxy-tools)
+ * [Mark Einon's repo](https://gitlab.com/einonm/galaxy-tools)
  * [National Microbiology Laboratory's repo](https://github.com/phac-nml/galaxy_tools)
 
  

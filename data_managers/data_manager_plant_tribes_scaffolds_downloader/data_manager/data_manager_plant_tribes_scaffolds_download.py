@@ -61,8 +61,8 @@ def url_download(url, work_directory):
                 dst.write(chunk)
             else:
                 break
-    except Exception, e:
-        print >>sys.stderr, str(e)
+    except Exception as e:
+        print(str(e), file=sys.stderr)
     finally:
         if src:
             src.close()

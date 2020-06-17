@@ -15,9 +15,9 @@ suppressPackageStartupMessages({
 
 option_list <- list(
     make_option(c("-g","--gtf"), type="character", help="Input GTF file with gene / exon information."),
-    make_option(c("-f","--fasta"), type="character", default=FALSE, help="Fasta file that corresponds to the supplied GTF."),
-    make_option(c("-l","--length"), type="character", default=FALSE, help="Output file with gene name and length."),
-    make_option(c("-gc","--gc_content"), type="character", default=FALSE, help="Output file with gene name and GC content.")
+    make_option(c("-f","--fasta"), type="character", default=FALSE, help="FASTA file that corresponds to the supplied GTF."),
+    make_option(c("-l","--length"), type="character", default=FALSE, help="Output file with Gene ID and length."),
+    make_option(c("-gc","--gc_content"), type="character", default=FALSE, help="Output file with Gene ID and GC content.")
   )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)

@@ -83,18 +83,25 @@ def feature_test_qual_value(feature, **kwargs):
 def __get_features(child, interpro=False):
     child_features = {}
     for rec in GFF.parse(child):
+        # Only top level
         for feature in rec.features:
+            # Get the record id as parent_feature_id (since this is how it will be during remapping)
             parent_feature_id = rec.id
+            # If it's an interpro specific gff3 file
             if interpro:
+                # Then we ignore polypeptide features as they're useless
                 if feature.type == 'polypeptide':
                     continue
-                if '_' in parent_feature_id:
-                    parent_feature_id = parent_feature_id[parent_feature_id.index('_') + 1:]
+                # If there's an underscore, we strip up to that underscore?
+                # I do not know the rationale for this, removing.
+                # if '_' in parent_feature_id:
+                    # parent_feature_id = parent_feature_id[parent_feature_id.index('_') + 1:]
 
             try:
                 child_features[parent_feature_id].append(feature)
             except KeyError:
                 child_features[parent_feature_id] = [feature]
+            # Keep a list of feature objects keyed by parent record id
     return child_features
 
 
@@ -132,23 +139,29 @@ def __update_feature_location(feature, parent, protein2dna):
             __update_feature_location(subfeature, parent, protein2dna)
 
 
-def rebase(parent, child, interpro=False, protein2dna=False):
+def rebase(parent, child, interpro=False, protein2dna=False, map_by='ID'):
+    # get all of the features we will be re-mapping in a dictionary, keyed by parent feature ID
     child_features = __get_features(child, interpro=interpro)
 
     for rec in GFF.parse(parent):
         replacement_features = []
         for feature in feature_lambda(
                 rec.features,
+                # Filter features in the parent genome by those that are
+                # "interesting", i.e. have results in child_features array.
+                # Probably an unnecessary optimisation.
                 feature_test_qual_value,
                 {
-                    'qualifier': 'ID',
+                    'qualifier': map_by,
                     'attribute_list': child_features.keys(),
                 },
                 subfeatures=False):
 
-            new_subfeatures = child_features[feature.id]
-            fixed_subfeatures = []
-            for x in new_subfeatures:
+            # Features which will be re-mapped
+            to_remap = child_features[feature.id]
+            # TODO: update starts
+            fixed_features = []
+            for x in to_remap:
                 # Then update the location of the actual feature
                 __update_feature_location(x, feature, protein2dna)
 
@@ -156,11 +169,11 @@ def rebase(parent, child, interpro=False, protein2dna=False):
                     for y in ('status', 'Target'):
                         try:
                             del x.qualifiers[y]
-                        except:
+                        except Exception:
                             pass
 
-                fixed_subfeatures.append(x)
-            replacement_features.extend(fixed_subfeatures)
+                fixed_features.append(x)
+            replacement_features.extend(fixed_features)
         # We do this so we don't include the original set of features that we
         # were rebasing against in our result.
         rec.features = replacement_features
@@ -176,5 +189,6 @@ if __name__ == '__main__':
                         help='Interpro specific modifications')
     parser.add_argument('--protein2dna', action='store_true',
                         help='Map protein translated results to original DNA data')
+    parser.add_argument('--map_by', help='Map by key', default='ID')
     args = parser.parse_args()
     rebase(**vars(args))

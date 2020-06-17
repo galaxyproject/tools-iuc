@@ -56,12 +56,16 @@ def describe_tables(conn, outputFile):
     exit(0)
 
 
-def run_query(conn, query, outputFile, no_header=False):
+def run_query(conn, query, outputFile, no_header=False, comment_char='#'):
     cur = conn.cursor()
     results = cur.execute(query)
-    if not no_header:
-        outputFile.write("#%s\n" % '\t'.join(
-            [str(col[0]) for col in cur.description]))
-    for i, row in enumerate(results):
-        outputFile.write("%s\n" % '\t'.join(
-            [str(val) if val is not None else '' for val in row]))
+    if outputFile is not None:
+        if not no_header:
+            outputFile.write("%s%s\n" % (comment_char, '\t'.join(
+                [str(col[0]) for col in cur.description])))
+        for i, row in enumerate(results):
+            outputFile.write("%s\n" % '\t'.join(
+                [str(val) if val is not None else '' for val in row]))
+    else:
+        conn.commit()
+        return results

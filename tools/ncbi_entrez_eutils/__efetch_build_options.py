@@ -166,7 +166,7 @@ for db_name in db_list:
 
 section = None
 for line in help:
-    line = re.split('\s{2,}', line.strip())
+    line = re.split(r'\s{2,}', line.strip())
     # Ignore empties
     if len(line) == 0:
         continue

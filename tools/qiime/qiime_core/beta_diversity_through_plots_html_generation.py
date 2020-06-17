@@ -21,7 +21,7 @@ def generate_index_html(dir_list, args):
 
         for directory in dir_list:
             regexp_result = re.search(
-                '([a-zA-Z\_]*)_emperor_pcoa_plot',
+                r'([a-zA-Z\_]*)_emperor_pcoa_plot',
                 directory)
             metric = regexp_result.group(1)
             s += '\t\t\t\t<li>' + metric + ': '

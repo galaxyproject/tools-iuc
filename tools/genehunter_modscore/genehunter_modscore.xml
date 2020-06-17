@@ -1,0 +1,476 @@
+<tool id="genehunter_modscore" name="Genehunter-Modscore" version="@VERSION@.0" >
+    <description>Linkage and Haplotypes analysis</description>
+    <macros>
+        <token name="@VERSION@">3.0.0</token>
+        <xml name="macro_npl_opts" >
+            <param name="extra_npl_score" type="select" label="Type of NPL scoring">
+                <option value="all" selected="true" >All</option>
+                <option value="pairs" >Pairs</option>
+                <option value="hom" >Homozygous</option>
+            </param>
+        </xml>
+        <!-- Input test file collection -->
+        <xml name="test_input_files">
+            <param name="inp_ped" value="pedin_1.21" />
+            <param name="inp_dat" value="datain_1.21" />
+            <param name="inp_map" value="map_1.21" />
+        </xml>
+        <!-- End Input test file collection -->
+        <!-- Output test file(s) -->
+        <xml name="test_output_fparam">
+            <output name="fparam" >
+                <assert_contents>
+                    <has_text_matching expression="\s*\d+\.\d+\s+-\d+\.\d+(\s+\d+\.\d+){2}\s+rs17000204$" />
+                </assert_contents>
+            </output>
+        </xml>
+        <xml name="test_output_haplo">
+            <output name="ihaplo" >
+                <assert_contents>
+                    <has_text_matching expression="1\s+206006\s+206001\s+206002\s+2\s+2(\s+[0-2])+" />
+                </assert_contents>
+            </output>
+        </xml>
+        <!-- End Output test file(s) -->
+    </macros>
+    <requirements>
+        <requirement type="package" version="@VERSION@" >ghm</requirement>
+        <requirement type="package" version="2017.3" >linkage2allegro</requirement>
+    </requirements>
+    <version_command><![CDATA[
+    echo q | ghm | grep -oP "(?<=(\(version\ ))[^)]+"
+    ]]>
+    </version_command>
+    <command detect_errors='exit_code'><![CDATA[
+ghm < '$setup_file'
+
+&& linkage2allegro
+    '${inp_ped}'
+    '${inp_map}'
+    genehunter
+    -l gh.out
+#if $section_haplo.analysis_haplo.extra_haplotype
+    -h haplo.dump
+#end if
+
+&& mv linkage.allegro_lod '${fparam}'
+#if $section_haplo.analysis_haplo.extra_haplotype
+&& mv linkage.allegro_haplo '${ihaplo}'
+#end if
+    ]]>
+    </command>
+    <configfiles>
+        <configfile name="setup_file" ><![CDATA[
+photo gh.out
+
+ps off
+
+## Initiate mod score lod calculation and store IVs, off by default
+modcalc ${section_options.section_pvalues.advanced_options_modcalc.extra_modcalc}
+## global / single / off
+
+haplotype ${section_haplo.analysis_haplo.extra_haplotype}
+## on / off, generate Haplotypes
+
+#if $section_haplo.analysis_haplo.extra_haplotype
+haplotype method ${section_haplo.analysis_haplo.extra_haplotype_method}
+## [MaxProb] / Viterbi
+#end if
+
+analysis ${section_linkage.npl_scoring.extra_mod_analysis}
+## NPL / LOD / BOTH, type of linkage analysis
+
+#if $section_linkage.npl_scoring.extra_mod_analysis.value != 'LOD':
+score ${section_linkage.npl_scoring.extra_npl_score}
+## pairs / all / hom
+#else
+score all
+#end if
+
+#if $section_linkage.extra_singlepoint
+single point ${section_linkage.extra_singlepoint}
+## on / off, dont use multi-point parametric
+#end if
+
+## -- Re-enable in 3.1
+## Algebraic calculation for P-values, default on
+## #if $section_options.section_pvalues.advanced_options_alg.extra_alg
+## alg ${section_options.section_pvalues.advanced_options_alg.extra_alg}
+## Use more memory for algebraic calculations
+## algebra ${section_options.section_pvalues.advanced_options_alg.extra_alg_mem}
+## #end if
+
+## Add custom trait models
+#if $section_options.section_pvalues.advanced_options_model.extra_mod_model
+model ${section_options.section_pvalues.advanced_options_model.extra_mod_modeldisfreq} ${section_options.section_pvalues.advanced_options_model.extra_mod_modelpenet}
+#end if
+
+## Range of markers positions instead of all range
+#if $section_options.section_range.advanced_options_positions.extra_mod_positions
+##    #try
+##        #assert $section_options.section_range.advanced_options_positions.extra_mod_positions_lowest < $section_options.section_range.advanced_options_positions.extra_mod_positions_highest
+##    #except AssertionError
+##       #echo Range minimum is not less than the maximum
+##    #end try
+positions ${section_options.section_range.advanced_options_positions.extra_mod_positions_lowest} ${section_options.section_range.advanced_options_positions.extra_mod_positions_highest}
+#end if
+
+## Untyped, default on
+#if $section_haplo.analysis_haplo.extra_haplotype or $section_options.section_sample.extra_includeuntyped
+include untyped on
+#else:
+include untyped off
+#end if
+
+## Eliminate uninformative individuals, default off
+discard ${section_options.section_sample.extra_discard}
+
+## Use untyped founders, default off
+ufo ${section_options.section_sample.extra_ufo}
+
+## Restrict penetrances so that hom wildtype LEQ het LEQ hom mutant, on default
+pr ${section_options.section_allfreq.extra_mod_penetrancerestrict}
+
+## Restrict disease allele frequency to be not higher than the highest allfreq  (default 0.5)
+#if $section_options.section_allfreq.extra_mod_allfreq
+ar $section_options.section_allfreq.extra_mod_allfreq
+## Set upper disease allele freq for MOD, default 0.5 ( 0 -> 1 )
+ha $section_options.section_allfreq.extra_mod_highallele
+#end if
+
+## Number of parameters varied together in MOD, default 2 ( 1 -> 5 )
+dimensions ${section_options.section_pvalues.extra_mod_dimensions}
+
+## Normalize Allele Frequencies, default off
+naf ${section_options.section_allfreq.extra_nmaf}
+
+## off by default
+#if '${section_options.section_pvalues.advanced_options_modcalc.extra_modcalc}' == 'single':
+## Number of trait models saved in MOD score.
+## Only works if algebraic calc is off, and in single modcalc
+    #if not('${extra_alg}'):
+        #if '${extra_mod_savedmodels}'!=-1:
+saved models $extra_mod_savedmodels
+        #end if
+    #end if
+
+## Long output for modcalc single
+$section_options.section_pvalues.extra_mod_longmod
+
+## Calculate P-values only at the best position, off by default
+$section_options.section_pvalues.extra_mod_bep
+#end if
+
+
+## Calculate p-values for MOD/LOD scores
+#if $section_options.section_pvalues.advanced_options_calcpval.extra_calcpval
+cpv $section_options.section_pvalues.advanced_options_calcpval.extra_calcpval_file
+## Number of replicates in P-score evaluation, default 0
+    #if $section_options.section_pvalues.advanced_options_calcpval.extra_cpv_nor > 0
+nor $section_options.section_pvalues.advanced_options_calcpval.extra_cpv_nor
+    #end if
+#end if
+
+## Number of sequential simulations in P-score evaluation, default 0
+seq ${section_options.section_pvalues.extra_seq}
+
+## Store replicates during P-score evaluation, default off
+str ${section_options.section_pvalues.extra_storereplicates}  ## pre / both / off (default)
+
+## Simulate untyped individuals, required for haplotypes
+#if $section_haplo.analysis_haplo.extra_haplotype or $section_options.section_sample.extra_sun
+sun on
+#else
+sun off
+#end if
+
+## Set random seed for P-score evaluation, default -1
+srs ${section_options.section_pvalues.extra_srs}
+
+## Display distribution of replicates, default off
+sdi ${section_options.section_display.extra_sdi}
+
+#### General
+## Count the number of recombintions, default off
+count recs ${section_options.section_display.extra_countrec}
+
+## Do not skip fully homozygous markers when generating haplotypes, default off
+fin ${section_options.section_sample.extra_cpv_fin}
+
+## Print scores to screen, default on
+display scores on
+
+## Margin before and after marker range to compute scores, default 0 cM
+off end ${section_options.section_range.extra_offend}
+
+## Distance between adjacent scores, either in cM 'distance' irrespective of
+## map, or equal 'steps'. Default steps 2
+increment ${section_options.section_range.advanced_options_increment.extra_increment_type} ${section_options.section_range.advanced_options_increment.extra_increment_sizepavu}
+
+## Units, default haldane
+map function ${section_options.section_display.extra_mapfunc}
+## Units in scan output, default cM
+units ${section_options.section_display.extra_scan_units}
+
+## Max pedigree size  calculated by 2N - F, default 19, trim individuals beyond this
+max bits ${section_options.section_range.extra_maxbits}
+## Split pedigree larger than max ped size, default off
+skip large ${section_options.section_range.extra_maxbits_skiplarge}
+## Stores IBD matrics for linkage, default off
+cs ${section_options.section_pvalues.extra_computesharing}
+
+
+load markers ${inp_dat}
+read map ${inp_map}
+use
+
+scan ${inp_ped}
+
+## Show total scores from a scan of multiple peds
+##  - 'het' [alpha], if not given then alpha varies
+##  - 'stat'
+## default below, overridden by params
+total stat het
+
+
+## TODO:
+## Qualitative / Quantitative trait mapping of sibs, Variance component analysis, TDT
+q
+]]>
+        </configfile>
+    </configfiles>
+    <inputs>
+        <param name="inp_ped" type="data" format="linkage_pedin" label="Pedigree" />
+        <param name="inp_dat" type="data" format="linkage_datain" label="Recombination Freqs" />
+        <param name="inp_map" type="data" format="linkage_map" label="Marker Positions" />
+
+        <section name="section_haplo" title="Haplotypes" expanded="true" >
+            <conditional name="analysis_haplo" >
+                <param name="extra_haplotype" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Haplotype Analysis" />
+                <when value="on">
+                    <param name="extra_haplotype_method" type="select" label="Haplotype Reconstruction Algorithm. MaxProb is fastest, and has more global solution." >
+                        <option value="MaxProb" selected="true" >Maximisation Probability</option>
+                        <option value="Viterbi" >Viterbi</option>
+                    </param>
+                </when>
+                <when value="off" />
+            </conditional>
+        </section>
+
+        <section name="section_linkage" title="Linkage" expanded="false" >
+            <param name="extra_singlepoint" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Single-point Analysis"/>
+            <conditional name="npl_scoring" >
+                <param name="extra_mod_analysis" type="select" label="Type of linkage analysis" >
+                    <option value="BOTH" selected="true" >Both</option>
+                    <option value="NPL" >Non-paremetric Linkage</option>
+                    <option value="LOD" >Logarithm-of-the-Odds</option>
+                </param>
+                <when value="BOTH" ><expand macro="macro_npl_opts" /></when>
+                <when value="NPL" ><expand macro="macro_npl_opts" /></when>
+                <when value="LOD" />
+            </conditional>
+        </section>
+
+        <section name="section_options" expanded="false" title="Advanced Options" >
+            <!-- P-values -->
+            <section name="section_pvalues" expanded="false"
+                     title="P-value Options" >
+                <conditional name="advanced_options_alg" >
+                    <param name="extra_alg" type="boolean" truevalue="on" falsevalue="off" checked="true" label="Use Algebraic calculations for P-Values"/>
+
+                    <when value="on" >
+                        <param name="extra_alg_mem" type="boolean" truevalue="on" falsevalue="off" checked="true" label="Remove large memory restrictions for algebraic calculations" />
+                    </when>
+                    <when value="off" >
+                        <param name="extra_mod_savedmodels" type="integer" value="-1" label="Number of models to save" />
+                    </when>
+                </conditional>
+
+                <conditional name="advanced_options_model" >
+                    <param name="extra_mod_model" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Use custom trait models" />
+                    <when value="on" >
+                        <param name="extra_mod_modeldisfreq" type="float" value="" min="0" max="1" label="Disease allele frequency" />
+                        <param name="extra_mod_modelpenet" type="text" value="" label="3 or 4 penetrances" />
+                    </when>
+                    <when value="off" />
+                </conditional>
+
+                <conditional name="advanced_options_calcpval" >
+                    <param name="extra_calcpval" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Calculate P-values for MOD/LOD scores" />
+
+                    <when value="on" >
+                        <param name="extra_calcpval_file" type="data" format="txt" label="Filename to produce values" />
+                        <param name="extra_cpv_nor" type="integer" value="0" min="0" label="Number of replicates in P-value calculations" />
+                    </when>
+                    <when value="off" />
+                </conditional>
+
+                <conditional name="advanced_options_modcalc" >
+                    <param name="extra_modcalc" type="select" label="Inheritance Vector storage for LOD and P-value calculations" >
+                        <option value="global" >Global</option>
+                        <option value="single" >Single</option>
+                        <option value="off" selected="true" >Off</option>
+                    </param>
+                    <when value="single" >
+                        <param name="extra_mod_longmod" type="boolean" truevalue="lm on" falsevalue="" checked="false" label="Produce long output for scores" />
+                        <param name="extra_mod_bep" type="boolean" truevalue="bep on" falsevalue="" checked="false" label="Calculate P-values only at the best LOD positions" />
+                    </when>
+                    <when value="global" />
+                    <when value="off" />
+                </conditional>
+
+                <param name="extra_seq" type="integer" value="0" min="0" label="Number of sequential simulations in P-value calculations" />
+                <param name="extra_storereplicates" type="select" label="Store replicates during P-value calculations" >
+                    <option value="pre" >Pre</option>
+                    <option value="both" >Both</option>
+                    <option value="off" selected="true" >Off</option>
+                </param>
+                <param name="extra_srs" type="integer" value="-1" label="Set Random seed for P-value calculations" />
+                <param name="extra_computesharing" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Store IBD matrices" />
+                <param name="extra_mod_dimensions" type="integer" min="1" max="5" value="2" label="Number of parameters to vary in LOD calculations" />
+            </section>
+            <!-- End of P Values: Works -->
+
+            <!-- Display Options -->
+            <section name="section_display" expanded="false" title="Display options" >
+                <param name="extra_sdi" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Display distribution of replicates" />
+                <param name="extra_countrec" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Print the number of recombinations" />
+                <param name="extra_mapfunc" type="select" label="Genetic map function units" >
+                    <option value="haldane" selected="true">Haldane</option>
+                    <option value="kosambi" >Kosambi</option>
+                </param>
+                <param name="extra_scan_units" type="select" label="Output units" >
+                    <option value="cM" selected="true">CentiMorgans</option>
+                    <option value="rec-frac" >Recombination Fractions</option>
+                </param>
+            </section>
+            <!-- End of display: Works -->
+
+            <!-- Range section -->
+            <section name="section_range" expanded="false" title="Range options" >
+                <conditional name="advanced_options_positions" >
+                    <param name="extra_mod_positions" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Define custom position range" />
+                    <when value="off" />
+                    <when value="on" >
+                        <param name="extra_mod_positions_lowest" type="float" value="0" min="0" max="1000" label="Lowest position (cM)" />
+                        <param name="extra_mod_positions_highest" type="float" value="1" min="0" max="1000" label="Highest position (cM)" />
+                        <!-- Assert: lowest < higher -->
+                    </when>
+                </conditional>
+
+                <param name="extra_offend" type="float" value="0.0" label="Margin before and after marker range to compute scores (cM)" />
+
+                <conditional name="advanced_options_increment" >
+                    <param name="extra_increment_type" type="select" label="Increment either the genetic distance across the whole range of markers, or the number of equally-spaced steps between adjacent markers" help="Note that the total number of steps (markers * calc. per step)  must not exceed 1000." >
+                        <option value="distance" >Distance</option>
+                        <option value="steps" selected="true" >Steps</option>
+                    </param>
+                    <when value="distance" >
+                        <param name="extra_increment_sizepavu" type="float" min="1.0" value="1" max="1000" label="centiMorgan interval" />
+                    </when>
+                    <when value="steps" >
+                        <param name="extra_increment_sizepavu" type="integer" min="1" value="2" max="30" label="Number of steps between markers." />
+                    </when>
+                </conditional>
+
+                <param name="extra_maxbits" type="integer" min="3" value="19" max="30" label="Max bit-size of the pedigree, computed via '2N-F', for F founders and N non-founders" />
+                <param name="extra_maxbits_skiplarge" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Split pedigrees if larger than the max pedigree size" />
+            </section>
+            <!-- End of range:Works -->
+
+            <!-- Frequency section -->
+            <section name="section_allfreq" title="Allele Frequency Options">
+                <param name="extra_nmaf" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Normalize Allele Frequencies" />
+
+                <param name="extra_mod_allfreq" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Restrict disease allele frequency" />
+
+                <param name="extra_mod_highallele" type="float" min="0" max="1" value="0.5" label="Set maximum disease allele frequency" />
+
+                <param name="extra_mod_penetrancerestrict" type="boolean" truevalue="on" falsevalue="off" checked="true" label="Restrict Penetrances" />
+
+            </section>
+            <!-- End of Frequency section:Works -->
+
+            <!-- Sample Individuals section -->
+            <section name="section_sample" title="Sample Options" >
+                <param name="extra_sun" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Simulate untyped individuals" />
+                <param name="extra_includeuntyped" type="boolean" truevalue="on" falsevalue="off" checked="true" label="Include untyped individuals" />
+                <param name="extra_cpv_fin" type="boolean" truevalue="on" falsevalue="off" checked="true" label="Process fully homozygous (uninformative) genotypes" />
+                <param name="extra_discard" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Discard uninformative individuals"  />
+                <param name="extra_ufo" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Use untyped founders" />
+            </section>
+            <!-- End of sample individuals -->
+        </section>
+        <!-- End of advanced options -->
+    </inputs>
+
+    <outputs>
+        <!-- All outputs convert to an Allegro format -->
+        <data name="ihaplo" format="allegro_ihaplo" label="${tool.name} on ${on_string}: Haplotypes" />
+        <data name="fparam" format="allegro_fparam" label="${tool.name} on ${on_string}: MPT Linkage" />
+    </outputs>
+
+    <tests>
+        <test><!-- Defaults with haplo -->
+            <expand macro="test_input_files" />
+
+            <param name="extra_haplotype" value="on" />
+
+            <expand macro="test_output_fparam" />
+            <expand macro="test_output_haplo" />
+        </test>
+        <test><!-- Haplotypes via Viterbi resolution -->
+            <expand macro="test_input_files" />
+
+            <param name="extra_mod_analysis" value="BOTH" />
+            <param name="extra_haplotype" value="on" />
+            <param name="extra_haplotype_method" value="Viterbi" />
+            <param name="extra_increment_sizepavu" value="10" />
+
+            <expand macro="test_output_haplo" />
+            <expand macro="test_output_fparam" />
+        </test>
+        <test><!-- Parametric LOD with restricted scoring -->
+            <expand macro="test_input_files" />
+
+            <param name="extra_mod_allfreq" value="on" />
+            <param name="extra_mod_highallele" value="0.8" />
+            <param name="extra_npl_score" value="hom" />
+
+            <expand macro="test_output_fparam" />
+        </test>
+        <test><!-- Haplo + Single IBS with computed founders -->
+            <expand macro="test_input_files" />
+
+            <param name="extra_cpv_fin" value="on" />
+            <param name="extra_modcalc" value="single" />
+            <param name="extra_mod_bep" value="bep on" />
+            <param name="extra_srs" value="10" />
+
+            <expand macro="test_output_fparam" />
+        </test>
+    </tests>
+
+    <help><![CDATA[
+
+**Genehunter-MODscore** calculates a *maximized LOD* (MOD) score over a set of genotypes for use in linkage and haplotype analysis.
+
+Haplotypes are generated using either this maximum probability approach, or via slower more conventional Viterbi crawling.
+
+Untyped founders can be simulated by reconstructing their haplotypes from offspring, and points of recombination can still be accurately determined in lieu of this.
+
+Due to the stochastic nature of the analysis, a random seed can be set by the user to produce reproducible results.
+
+Many more configurable options are outlined in the the official manual_.
+
+.. _manual: https://www.helmholtz-muenchen.de/fileadmin/GENEPI/downloads/ghm-3.0.pdf
+
+]]>
+    </help>
+    <citations>
+        <citation type="doi">10.1159/000369065</citation>
+        <citation type="doi">10.1002/gepi.20264</citation>
+        <citation type="doi">10.1093/bioinformatics/btl539</citation>
+        <citation type="doi">10.1186/1471-2156-6-S1-S162</citation>
+    </citations>
+</tool>
