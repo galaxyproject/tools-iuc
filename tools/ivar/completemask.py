@@ -23,5 +23,4 @@ if __name__ == '__main__':
         print('Removing reads primed with any of:')
         print(result)
         with open(sys.argv[1], 'w') as o:
-            o.write(result)
-            o.write('\n')
+            o.write(result + '\n')
