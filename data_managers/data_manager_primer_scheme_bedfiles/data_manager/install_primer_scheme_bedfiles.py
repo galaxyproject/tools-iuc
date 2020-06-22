@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
-from __future__ import print_function, division
+from __future__ import division, print_function
 
 import argparse
+
 try:
-  from io import StringIO
+    from io import StringIO
 except ImportError:
-  from StringIO import StringIO
+    from StringIO import StringIO
 import json
 import os
 import os.path
@@ -20,18 +21,18 @@ DATA_TABLE_NAME = "primer_scheme_bedfiles"
 
 def write_good_bed(input_file, bed_output_filename):
     with open(bed_output_filename, "w") as bed_output_file:
-      for line in input_file:
-        fields = line.split('\t')
-        if len(fields) < 6:
-            # too short to encode the strand format
-            exit("invalid format in BED file: {}".format(line.rstrip()))
-        try:
-            # try and parse field 5 as a number
-            float(fields[4])
-        except ValueError:
-            # ARTIC with broken BED, set field 5 to 60
-            fields[4] = '60'
-        bed_output_file.write('\t'.join(fields))
+        for line in input_file:
+            fields = line.split("\t")
+            if len(fields) < 6:
+                # too short to encode the strand format
+                exit("invalid format in BED file: {}".format(line.rstrip()))
+            try:
+                # try and parse field 5 as a number
+                float(fields[4])
+            except ValueError:
+                # ARTIC with broken BED, set field 5 to 60
+                fields[4] = "60"
+            bed_output_file.write("\t".join(fields))
 
 
 def fetch_artic_primers(output_directory, primers):
