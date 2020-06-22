@@ -3,7 +3,10 @@
 from __future__ import print_function, division
 
 import argparse
-from io import StringIO
+try:
+  from io import StringIO
+except ImportError:
+  from StringIO import StringIO
 import json
 import os
 import os.path
