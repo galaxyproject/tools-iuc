@@ -3,16 +3,32 @@
 from __future__ import print_function, division
 
 import argparse
+from io import StringIO
 import json
 import os
 import os.path
 import re
 import sys
-import shutil
 
 import requests
 
 DATA_TABLE_NAME = "primer_scheme_bedfiles"
+
+
+def write_good_bed(input_file, bed_output_filename):
+    with open(bed_output_filename, "w") as bed_output_file:
+      for line in input_file:
+        fields = line.split('\t')
+        if len(fields) < 6:
+            # too short to encode the strand format
+            exit("invalid format in BED file: {}".format(line.rstrip()))
+        try:
+            # try and parse field 5 as a number
+            float(fields[4])
+        except ValueError:
+            # ARTIC with broken BED, set field 5 to 60
+            fields[4] = '60'
+        bed_output_file.write('\t'.join(fields))
 
 
 def fetch_artic_primers(output_directory, primers):
@@ -37,7 +53,7 @@ def fetch_artic_primers(output_directory, primers):
             )
             exit(response.status_code)
         bed_output_filename = os.path.join(output_directory, name + ".bed")
-        open(bed_output_filename, "w").write(response.text)
+        write_good_bed(StringIO(response.text), bed_output_filename)
         description = name[:-2] + " " + name[-2:] + " primer set"
         data.append(dict(value=name, path=bed_output_filename, description=description))
     return data
@@ -48,7 +64,7 @@ def install_primer_file(
 ):
     name = re.sub(r"\W", "", str(primer_name).replace(" ", "_"))
     output_filename = os.path.join(output_directory, name + ".bed")
-    shutil.copyfile(input_filename, output_filename)
+    write_good_bed(open(input_filename), output_filename)
     data = [dict(value=name, description=primer_description, path=output_filename)]
     return data
 
