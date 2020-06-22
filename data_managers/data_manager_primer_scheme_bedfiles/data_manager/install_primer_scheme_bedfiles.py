@@ -67,7 +67,8 @@ def install_primer_file(
 ):
     name = re.sub(r"\W", "", str(primer_name).replace(" ", "_"))
     output_filename = os.path.join(output_directory, name + ".bed")
-    write_good_bed(open(input_filename), output_filename)
+    with open(input_filename) as input_file:
+        write_good_bed(input_file, output_filename)
     data = [dict(value=name, description=primer_description, path=output_filename)]
     return data
 
