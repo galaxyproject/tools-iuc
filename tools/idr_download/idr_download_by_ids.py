@@ -2,11 +2,10 @@ import argparse
 import os
 import sys
 import tarfile
-import time
-from tempfile import TemporaryFile
 
+from contextlib import ExitStack
 from libtiff import TIFF
-from PIL import Image
+from tempfile import TemporaryDirectory
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
@@ -129,17 +128,25 @@ def download_image_data(
             .format(region_spec)
         )
 
-    # connect to idr
-    conn = BlitzGateway('public', 'public',
-                        host='idr.openmicroscopy.org',
-                        secure=True)
-    conn.connect()
+    with ExitStack() as exit_stack:
+        # connect to idr
+        conn = exit_stack.enter_context(
+            BlitzGateway(
+                'public', 'public',
+                host='idr.openmicroscopy.org',
+                secure=True
+            )
+        )
+        # exit_stack.callback(conn.connect().close)
+        if download_tar:
+            # create an archive file to write images to
+            archive = exit_stack.enter_context(
+                tarfile.open('images.tar', mode='w')
+            )
+            tempdir = exit_stack.enter_context(
+                TemporaryDirectory()
+            )
 
-    if download_tar:
-        # create an archive file to write images to
-        archive = tarfile.open('images.tar', mode='w')
-
-    try:
         for image_id in image_ids:
             image_warning_id = 'Image-ID: {0}'.format(image_id)
             try:
@@ -271,26 +278,17 @@ def download_image_data(
 
                 im_array = get_image_array(image, tile, z_stack, channel_index, frame)
 
-                # pack images into tarball
                 if download_tar:
-                    tar_img = Image.fromarray(im_array)
-                    # Use TemporaryFile() for intermediate storage of images.
-                    # TO DO: could this be improved by using
-                    # SpooledTemporaryFile with a suitable max_size?
-                    with TemporaryFile() as buf:
-                        tar_img.save(buf, format='TIFF')
-                        tarinfo = tarfile.TarInfo(name=fname)
-                        buf.seek(0, 2)
-                        tarinfo.size = buf.tell()
-                        tarinfo.mtime = time.time()
-                        buf.seek(0)
-                        archive.addfile(tarinfo=tarinfo, fileobj=buf)
-                else:  # save image as individual file
-                    try:
-                        tiff = TIFF.open(fname, mode='w')
-                        tiff.write_image(im_array)
-                    finally:
-                        tiff.close()
+                    fname = os.path.join(tempdir, fname)
+                try:
+                    tiff = TIFF.open(fname, mode='w')
+                    tiff.write_image(im_array)
+                finally:
+                    tiff.close()
+                # move image into tarball
+                if download_tar:
+                    archive.add(fname, os.path.basename(fname))
+                    os.remove(fname)
             except Exception as e:
                 if skip_failed:
                     # respect skip_failed on unexpected errors
@@ -298,13 +296,6 @@ def download_image_data(
                     continue
                 else:
                     raise
-
-    finally:
-        # close the archive file,if it is created
-        if download_tar:
-            archive.close()
-        # Close the connection
-        conn.close()
 
 
 def _center_to_ul(center_x, center_y, width, height):
