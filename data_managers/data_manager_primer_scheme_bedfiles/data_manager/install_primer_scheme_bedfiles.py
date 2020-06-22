@@ -3,7 +3,6 @@
 from __future__ import division, print_function
 
 import argparse
-
 try:
     from io import StringIO
 except ImportError:
