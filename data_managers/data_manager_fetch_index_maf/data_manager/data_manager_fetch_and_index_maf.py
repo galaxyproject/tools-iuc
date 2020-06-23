@@ -22,6 +22,7 @@ DEFAULT_DATA_TABLE_NAME = "indexed_maf_files"
 # Nice solution to opening compressed files (zip/bz2/gz) transparently
 # https://stackoverflow.com/a/13045892/638445
 
+
 class CompressedFile(object):
     magic = None
     file_type = None
@@ -80,6 +81,7 @@ def get_compressed_file(filename):
 
         return None
 
+
 def url_download(url, tmp=False, localpath=None):
     """Attempt to download file from a given url
     :param url: full url to file
@@ -119,12 +121,13 @@ def generate_metadata(params, options):
     species = []
     # Found to be the fastest way to strip non-alphanumeric characters
     # from a string in some post on StackOverflow
-    pattern = re.compile('[\W]+')
+    pattern = re.compile(r'[\W]+')
     uid = pattern.sub('_', uid).strip('_')
     url = options.nexus
     with open(url_download(url, True), 'r') as fh:
         species = [line.strip(' (),').split(':')[0] for line in fh.readlines()]
     return name, uid.upper(), species
+
 
 def get_maf_listing(maf_path):
     maf_files = []
@@ -155,7 +158,6 @@ def get_maf_listing(maf_path):
 
 
 def index_maf_files(maf_files, maf_path, options, params, target_directory):
-    maf_paths = []
     for maf_file in maf_files:
         maf_url = urllib.parse.urljoin(maf_path, maf_file)
         local_maf = url_download(maf_url, localpath=target_directory)
@@ -188,7 +190,7 @@ def main():
         'data_tables': {
             'indexed_maf_files': {
                 'name': display_name,
-                'dbkey': options.dbkey, # This is needed for the output path
+                'dbkey': options.dbkey,  # This is needed for the output path
                 'value': uid,
                 'indexed_for': ','.join(species_list),
                 'exists_in_maf': ','.join(species_list),
@@ -197,12 +199,11 @@ def main():
         }
     }
 
-
     # Fetch and index the MAFs
     index_maf_files(maf_files, maf_path, options, params, target_directory)
-
     with open(options.output, 'w') as fh:
         fh.write(json.dumps(data_manager_entry))
+
 
 if __name__ == "__main__":
     main()
