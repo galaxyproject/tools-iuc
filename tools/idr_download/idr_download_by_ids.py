@@ -2,10 +2,10 @@ import argparse
 import os
 import sys
 import tarfile
-
 from contextlib import ExitStack
-from libtiff import TIFF
 from tempfile import TemporaryDirectory
+
+from libtiff import TIFF
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
