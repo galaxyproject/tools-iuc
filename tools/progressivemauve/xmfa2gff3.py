@@ -16,6 +16,15 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 
+# Patch bcbio gff to work around url encoding issue. This is clearly
+# sub-optimal but we should transition to the newer library.
+def _new_format_keyvals(self, keyvals):
+    return ";".join(["%s=%s" % (k, ",".join(v)) for (k, v) in sorted(keyvals.items())])
+
+
+GFF.GFFOutput.GFF3Writer._format_keyvals = _new_format_keyvals
+
+
 def parse_xmfa(xmfa):
     """Simple XMFA parser until https://github.com/biopython/biopython/pull/544
     """
