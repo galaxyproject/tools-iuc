@@ -5,12 +5,7 @@ import os
 import shutil
 import tarfile
 import zipfile
-try:
-    # For Python 3.0 and later
-    from urllib.request import Request, urlopen
-except ImportError:
-    # Fall back to Python 2 imports
-    from urllib2 import Request, urlopen
+from urllib.request import Request, urlopen
 
 
 def url_download(url, workdir):
