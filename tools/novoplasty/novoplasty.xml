@@ -1,0 +1,290 @@
+<?xml version="1.0"?>
+<tool id="novoplasty" name="NOVOplasty14" version="@TOOL_VERSION@+galaxy0" profile="18.01">
+    <description>de novo assembler for short circular genomes</description>
+    <macros>
+        <token name="@TOOL_VERSION@">4.0</token>
+        <xml name="content" token_min="" token_max="">
+            <param name="genome_range_min" type="text" value="@MIN@" label="Set lower limit for the expected genome size range" help="(Genome Range)"> <!-- todo min -->
+            </param>
+            <param name="genome_range_max" type="text" value="@MAX@" label="Set upper limit for the expected genome size range" help="(Genome Range)"> <!-- todo min -->
+            </param>
+        </xml>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">novoplasty</requirement>
+    </requirements>
+    <version_command><![CDATA[NOVOPlasty.pl 2>&1 | grep 'Version' | awk -F' ' '{print $2}']]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
+## initialize
+ln -s '$seed_input' 'seed.fasta' &&
+#if $d1.reads_cond.reads_sel == 'combined'
+    ln -s '$d1.reads_cond.combined_reads' 'combined.${d1.reads_cond.combined_reads.datatype.file_ext}' &&                
+#else if $d1.reads_cond.reads_sel == 'separate'
+    ln -s '$d1.reads_cond.forward_reads' 'forward.${d1.reads_cond.forward_reads.datatype.file_ext}' &&
+    ln -s '$d1.reads_cond.reverse_reads' 'reverse.${d1.reads_cond.reverse_reads.datatype.file_ext}' &&
+#end if
+
+
+
+cat '$config' &&
+
+## run
+NOVOPlasty.pl -c '$config'
+
+&& ls -lisa
+        ]]></command>
+    <configfiles>
+        <configfile name="config"><![CDATA[
+Project:
+-----------------------
+Project name          = Result
+Type                  = ${type_cond.type_sel}
+Genome Range          = ${type_cond.genome_range_min}-${type_cond.genome_range_max}
+K-mer                 = ${kmer}
+Max memory            = 
+Extended log          = 1
+Save assembled reads  = #if 'ca2' in $o.out then '2' else 'yes'#
+Seed Input            = seed.fasta
+Extend seed directly  = ${extend_seed_directly}
+Reference (optional)  = 
+Variance detection    = 
+Heteroplasmy          = ${heteroplasmy}
+HP exclude list       = 
+Chloroplast sequence  = 
+
+Dataset 1:
+-----------------------
+Read Length           = ${d1.read_length}
+Insert size           = ${d1.insert_size}
+Platform              = ${d1.platform}
+Single/Paired         = ${d1.single_paired}
+Combined reads        = #if $d1.reads_cond.reads_sel == 'combined' then 'combined.fasta.gz' else ''#
+Forward reads         = #if $d1.reads_cond.reads_sel == 'separate' then 'forward.fasta.gz' else ''#
+Reverse reads         = #if $d1.reads_cond.reads_sel == 'separate' then 'reverse.fasta.gz' else ''#
+
+Optional:
+-----------------------
+Insert size auto      = ${o.insert_size_auto}
+Use Quality Scores    = ${o.use_quality_scores}
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="type_cond">
+            <param name="type_sel" type="select" label="Select assembly type" help="(Type)">
+                <option value="chloro" selected="true">Chloroplast assembly (chloro)</option>
+                <option value="mito">Mitochondrial assembly (mito)</option>
+                <option value="mito_plant">Mitochondrial assembly in plants (mito_plant)</option>
+            </param>
+            <when value="chloro">
+                <expand macro="content" min="120000" max="200000"/>
+            </when>
+            <when value="mito">
+                <expand macro="content" min="12000" max="20000"/>
+            </when>
+            <when value="mito_plant">
+                <expand macro="content" min="12000" max="20000"/>
+                <param name="chloroplast_sequence" type="data" format="fasta" label="Select chloroplast sequence" help="Chloroplast needs to be assembled before mitochondria. (Chloroplast sequence)"/>
+            </when>
+        </conditional>
+        <param name="kmer" type="integer" value="39" min="1" label="Set length of overlap between matching reads" help="If reads are shorter then 90 bp or you have low coverage data, this value should be decreased down to 23. For reads longer then 101 bp, this value can be increased, but this is not necessary."/> <!-- todo min -->
+        <param name="seed_input" type="data" format="fasta" label="Select file with seed sequence" help="(Seed Input)"/>
+        <param name="extend_seed_directly" type="boolean" truevalue="yes" falsevalue="no" checked="true" label="Extend seeds instead of finding matching reads" help="Only use this when your seed originates from the same sample and there are no possible mismatches. (Extend seed directly)"/>
+        <conditional name="ref_cond">
+            <param name="ref_sel" type="select" label="Use reference file?" help="The assembly will still be de novo, but references of the same genus can be used as a guide to resolve duplicated regions in the plant mitochondria or the inverted repeat in the chloroplast. References from different genus haven't beeen tested yet. (Reference)">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="reference" type="data" format="fasta" optional="true" label="Select reference file" help=""/>
+                <param name="variance_detection" type="boolean" truevalue="yes" falsevalue="no" label="Create file with variances compared to given reference?" help="(Variance detection)"/> <!-- todo für den output -->
+            </when>
+        </conditional>
+        <param name="heteroplasmy" type="float" value="" optional="true" label="Set value for heteroplasmy detection" help="If you want to detect heteroplasmy, first assemble the genome without this option. Then give the resulting sequence as a reference and as a seed input. And give the minimum minor allele frequency for this option (0.01 will detect heteroplasmy of >1%) (Heteroplasmy)"/> <!-- todo minmax -->
+        <section name="d1" title="Dataset 1" expanded="true">
+            <conditional name="reads_cond">
+                <param name="reads_sel" type="select" label="Select read file type" help="(Combined reads/Forward reads/Reverse reads)">
+                    <option value="combined">Combined reads</option>
+                    <option value="separate">Separate reads</option>
+                </param>
+                <when value="combined">
+                    <param name="combined_reads" type="data" format="fasta,fasta.gz" label="Select file with combined reads" help="(Combined reads)"/>
+                </when>
+                <when value="separate">
+                    <param name="forward_reads" type="data" format="fasta,fasta.gz" label="Select file with forward reads" help="(Forward reads)"/>
+                    <param name="reverse_reads" type="data" format="fasta,fasta.gz" label="Select file with reverse reads" help="(Reverse reads)"/>
+                </when>    
+            </conditional>
+            <param name="read_length" type="integer" value="151" label="Set read length" help="(Read Length)"/>
+            <param name="insert_size" type="integer" value="300" label="Set total insert size of your paired end reads" help="It doesn't have to be accurate but should be close enough. (Insert size)"/>
+            <param name="platform" type="select" label="Select platform" help="(Platform)">
+                <option value="illumina" selected="true">Illumina</option>
+                <option value="ion">ION</option>
+            </param>
+            <param name="single_paired" type="select" label="Select read type" help="(Single/Paired)">
+                <option value="PE" selected="true">Paired</option>
+                <option value="SE">Single</option>
+            </param>
+        </section>
+        <section name="o" title="Optional">
+            <param name="insert_size_auto" type="boolean" truevalue="yes" falsevalue="no" checked="true" label="Finetune your insert size automatically?" help="(Insert size auto)"/>
+            <param name="use_quality_scores" type="boolean" truevalue="yes" falsevalue="no" label="Take quality scores into account?" help="Only use this when reads have low quality, like with the 300 bp reads of Illumina. (Use Quality Scores)"/>
+            <param name="out" type="select" multiple="true" optional="false" label="Select output file(s)">
+                <!-- Assembly -->
+                <option value="c" selected="true">Contigs</option>
+                <option value="ca" selected="true">Circularized assembly</option>
+                <option value="ca2" selected="true">Circularized assembly - retain original IDs</option>
+                <option value="mc" selected="true">Merged contigs</option>
+                <option value="cc" selected="true">Contig combinations</option>
+                <option value="ct" selected="true">Contigs Tmp</option>
+                <option value="ar" selected="true">Assembled reads</option>
+
+                <!-- Variance -->
+                <option value="v">Variance</option>
+                <!-- Heteroplasmy -->
+                <option value="h">Heteroplasmy</option>
+                <option value="ha">Heteroplasmy assemblies</option>
+                <option value="lth">Linkage table heteroplasmy</option>
+                <option value="pn">Possible NUMTs</option>
+                <option value="pna">Possible NUMTs assemblies</option>
+                <option value="ltn">Linkage table NUMTs</option>
+                <option value="cmr">Circos mutations</option>
+                <option value="cl">Circos links</option>
+                <!-- Log -->
+                <option value="el" selected="true">Extended log</option>
+                <option value="l" selected="true">Log</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <!-- Assembly -->
+        <data name="out_c" format="txt" from_work_dir="Contigs_project.txt" label="${tool.name} on ${on_string}: Contigs">
+            <filter>'c' in out</filter>
+        </data>
+        <data name="out_ca" format="fasta" from_work_dir="Circularized_assembly_1_Result.fasta" label="${tool.name} on ${on_string}: Circularized assembly">
+            <filter>'ca' in out or 'ca2' in out</filter>
+        </data>
+        <data name="out_mc" format="fasta" from_work_dir="Merged_contigs_Result.txt" label="${tool.name} on ${on_string}: Merged contigs">
+            <filter>'mc' in out</filter>
+        </data>
+        <data name="out_cc" format="txt">
+            <discover_datasets pattern="Option\_(?P&lt;designation&gt;.+)\_Result\.txt" format="tabular" directory="" visible="true"/>
+            <filter>'cc' in out</filter>
+        </data>
+        <data name="out_ct" format="txt" from_work_dir="contigs_tmp_Result.txt" label="${tool.name} on ${on_string}: Contigs Tmp">
+            <filter>'ct' in out</filter>
+        </data>
+        <data name="out_ar1" format="fasta" from_work_dir="Assembled_reads_Result_R1.fasta" label="${tool.name} on ${on_string}: Assembled reads R1">
+            <filter>'ar' in out</filter>
+        </data>
+        <data name="out_ar2" format="fasta" from_work_dir="Assembled_reads_Result_R2.fasta" label="${tool.name} on ${on_string}: Assembled reads R2">
+            <filter>'ar' in out</filter>
+        </data>
+
+
+        <!-- Log -->
+        <data name="out_el" format="txt" from_work_dir="log_extended_Result.txt" label="${tool.name} on ${on_string}: Extended log">
+            <filter>'el' in out</filter>
+        </data>
+        <data name="out_l" format="txt" from_work_dir="log_Result.txt" label="${tool.name} on ${on_string}: Log">
+            <filter>'l' in out</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- #1 default, mito -->
+        <test expect_num_outputs="7">
+            <conditional name="type_cond">
+                <param name="type_sel" value="mito"/>
+            </conditional>
+            <param name="seed_input" value="seed.fasta"/>    
+            <section name="d1">
+                <conditional name="reads_cond">
+                    <param name="reads_sel" value="separate"/>
+                    <param name="forward_reads" value="reads1.fasta.gz"/>
+                    <param name="reverse_reads" value="reads1.fasta.gz"/>   
+                </conditional>            
+            </section>
+            <section name="o">
+                <param name="out" value="c,ca1,mc,cc,ct,l,el"/>
+            </section>
+            <output name="out_ca">
+                <assert_contents>
+                    <has_n_lines n="112"/>
+                    <has_line line=">Contig1"/>
+                </assert_contents>
+            </output>
+            <output name="out_mc">
+                <assert_contents>
+                    <has_n_lines n=""/>
+                </assert_contents>
+            </output>
+            <output name="out_cc">
+                <assert_contents>
+                    <has_n_lines n=""/>
+                </assert_contents>
+            </output>
+            <output name="out_ct">
+                <assert_contents>
+                    <has_n_lines n=""/>
+                </assert_contents>
+            </output>
+            <output name="out_ar1">
+                <assert_contents>
+                    <has_n_lines n=""/>
+                </assert_contents>
+            </output>
+            <output name="out_ar2">
+                <assert_contents>
+                    <has_n_lines n=""/>
+                </assert_contents>
+            </output>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression=".+finished successfully:.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_el">
+                <assert_contents>
+                    <has_text_matching expression=".+finished successfully:.+"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+*NOVOPlasty* is a de novo assembler and heteroplasmy/variance caller for short circular genomes.
+
+**Input**
+
+- suitable seed: There are different types of seed possible: A single read from the dataset that originates from the organelle genome. A organelle sequence derived from the same or a related species. A complete organelle sequence of a more distant species (recommended when there is no close related sequence available)
+- input reads: Either two separate files(forward and reverse) or a merged fastq/fasta file. Multiple libraries as input is not yet supported. There is also an Ion Torrent option, but it does not produce the best results.
+
+**Output**
+
+- Contigs: This file contains all the assembled contigs.
+- Circularized assembly: When *NOVOPlasty* is able to circularize one contig, without any additional contigs being produced, it will just output this circularized fasta file.
+- Merged contigs: When there are multiple contigs, *NOVOPlasty* will try to combine all contigs in to a complete circular genome, all the different possibilities can be found in this file.
+- Contigs: If non of the above files are outputted or are empty, you can retrieve some contigs from this file.
+- Variance: When the variance detection option is selected, an additional vcf file will be outputted.
+- Heteroplasmy: This vcf file contains all the detected heteroplasmy positions.
+- Heteroplasmy assemblies: *NOVOPlasty* will assemble around each position of the above vcf output. The resulting assemblies will be outputted in this fasta file.
+- Linkage table heteroplasmy: This file contains all the polymorphisms that are fully/partially/not linked with each detected heteroplasmic position.
+- Possible NUMTs / Possible NUMTs assemblies / Linkage table NUMTs: These are the same files as the above three, but then for all the polymorphisms that were identified as NUMT origin.
+- Circos mutations / Circos links: These files can be used to draw figures with Circos.
+- Log: This is a basic log file with the information that shows up on your terminal.
+- Extended log: A elaborate log file that can be send to me for troubleshooting, it won't provide the user additional info.
+
+.. class:: infomark
+
+**References**
+
+More information are available on `github <https://github.com/ndierckx/NOVOPlasty/>`_.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/nar/gkw955</citation>
+        <citation type="doi">10.1093/nargab/lqz011</citation>
+    </citations>
+</tool>
