@@ -3,10 +3,11 @@ import argparse
 import csv
 import sys
 
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
-from Bio.SeqFeature import SeqFeature, FeatureLocation
 from BCBio import GFF
+from Bio.Seq import Seq
+from Bio.SeqFeature import FeatureLocation
+from Bio.SeqFeature import SeqFeature
+from Bio.SeqRecord import SeqRecord
 
 
 def c(row, v, default=None):
