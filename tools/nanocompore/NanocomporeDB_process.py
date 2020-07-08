@@ -40,7 +40,7 @@ if __name__ == '__main__':
                         help='path to the annotations')
     parser.add_argument('--bedgraph', action="store_true",
                         help='write output in BEDGRAPH format instead of BED')
-    parser.add_argument('--pvalue-threshold', default=1.0,
+    parser.add_argument('--pvalue-threshold', type=float, default=1.0,
                         help='Maximum reported p-value.')
     parser.add_argument('--out-dir', default="./", type=is_valid_directory,
                         help='path the plotting output directory.')
