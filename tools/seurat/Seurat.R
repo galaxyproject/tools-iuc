@@ -45,6 +45,7 @@ high_thresholds <- as.integer(params$high_thresholds)
 numPCs <- as.integer(params$numPCs)
 cells_use <- as.integer(params$cells_use)
 resolution <- as.double(params$resolution)
+perplexity <- as.integer(params$perplexity)
 min_pct <- as.double(params$min_pct)
 logfc_threshold <- as.double(params$logfc_thresh)
 print(paste0("Minimum cells: ", min_cells))
@@ -53,6 +54,7 @@ print(paste0("Umi low threshold: ", low_thresholds))
 print(paste0("Umi high threshold: ", high_thresholds))
 print(paste0("Number of principal components: ", numPCs))
 print(paste0("Resolution: ", resolution))
+print(paste0("Perplexity: ", perplexity))
 print(paste0("Minimum percent of cells", min_pct))
 print(paste0("Logfold change threshold", logfc_threshold))
 
@@ -98,7 +100,11 @@ if(showcode == TRUE && tsne == TRUE) print("tSNE")
 #+ echo = `showcode`, warning = `warn`, include = `tsne`
 seuset <- Seurat::FindNeighbors(object = seuset)
 seuset <- Seurat::FindClusters(object = seuset)
-seuset <- Seurat::RunTSNE(seuset, dims = 1:numPCs, resolution = resolution)
+if (perplexity == -1){
+    seuset <- Seurat::RunTSNE(seuset, dims = 1:numPCs, resolution = resolution);
+} else {
+    seuset <- Seurat::RunTSNE(seuset, dims = 1:numPCs, resolution = resolution, perplexity = perplexity);
+}
 Seurat::DimPlot(seuset, reduction = "tsne")
 
 #+ echo = FALSE
