@@ -23,7 +23,7 @@
 #' ---
 
 #+ echo=F, warning = F, message=F
-options(show.error.messages = F, error = function(){
+options(show.error.messages = F, error = function() {
     cat(geterrmessage(), file = stderr()); q("no", 1, F)
 })
 showcode <- as.logical(params$showcode)
