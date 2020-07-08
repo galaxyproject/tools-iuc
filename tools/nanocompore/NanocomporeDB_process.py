@@ -52,9 +52,15 @@ if __name__ == '__main__':
     print(db)
     print("DB read ids:", db.ref_id_list)
 
+    if args.bedgraph:
+        file_ext = 'bedgraph'
+    else:
+        file_ext = 'bed'
+
     if args.annotation_bed:
         for pt in args.pvalue_types.split(','):
-            print("bedgraph output for p-value type:", pt)
-            db.save_to_bed(output_fn='{}/{}.bedgraph'.format(args.out_dir, pt),
+            out_path = '{}/{}.{}'.format(args.out_dir, pt, file_ext)
+            print("%s output for p-value type:" % out_path, pt)
+            db.save_to_bed(output_fn=out_path,
                            pvalue_field=pt, pvalue_thr=args.pvalue_threshold,
                            bedgraph=args.bedgraph)
