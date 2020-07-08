@@ -10,6 +10,7 @@
 #'     numPCs: ""
 #'     cells_use: ""
 #'     resolution: ""
+#'     perplexity: ""
 #'     min_pct: ""
 #'     logfc_threshold: ""
 #'     showcode: ""
