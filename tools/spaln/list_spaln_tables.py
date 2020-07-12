@@ -21,7 +21,7 @@ def find_distances(gnm2tab_file: TextIO, taxon: str, taxonomy_db_path: str):
         exit("Error: " + proc.stderr.strip())
     for line in gnm2tab_file:
         fields = line.split('\t')
-        other_taxon = fields[2].strip()
+        (species_code, settings, other_taxon) = map(lambda el: el.strip(), fields[:3])
         proc = find_common_ancestor_distance(taxon, other_taxon, taxonomy_db_path, True)
         ancestor_info = proc.stdout.rstrip()
         if proc.stderr != "":
@@ -29,7 +29,7 @@ def find_distances(gnm2tab_file: TextIO, taxon: str, taxonomy_db_path: str):
         else:
             proc = find_common_ancestor_distance(taxon, other_taxon, taxonomy_db_path, False)
             non_canonical_distance = proc.stdout.split('\t')[0]
-            print(non_canonical_distance, ancestor_info, other_taxon , sep='\t')
+            print(non_canonical_distance, ancestor_info, species_code, settings, other_taxon , sep='\t')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Find distance to common ancestor")
