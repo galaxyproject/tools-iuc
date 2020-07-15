@@ -5,12 +5,7 @@ import os
 import shutil
 import tarfile
 import zipfile
-try:
-    # For Python 3.0 and later
-    from urllib.request import Request, urlopen
-except ImportError:
-    # Fall back to Python 2 imports
-    from urllib2 import Request, urlopen
+from urllib.request import Request, urlopen
 
 
 def url_download(url, workdir):
@@ -56,7 +51,8 @@ def main(args):
     output_path = os.path.abspath(os.path.join(os.getcwd(), 'taxonomy'))
     for filename in os.listdir(workdir):
         shutil.move(os.path.join(output_path, filename), target_directory)
-    file(args.output, 'w').write(json.dumps(data_manager_json))
+    with open(args.output, 'w') as out:
+        out.write(json.dumps(data_manager_json, sort_keys=True))
 
 
 if __name__ == '__main__':

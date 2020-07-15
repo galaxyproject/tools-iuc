@@ -354,7 +354,7 @@ if (is.null(opt$many_contrasts)) {
       outDF <- as.data.frame(resSorted)
       outDF$geneID <- rownames(outDF)
       outDF <- outDF[,c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")]
-      filename <- paste0(opt$outfile,".",primaryFactor,"_",lvl,"_vs_",ref)
+      filename <- paste0(primaryFactor,"_",lvl,"_vs_",ref)
       write.table(outDF, file=filename, sep="\t", quote=FALSE, row.names=FALSE, col.names=FALSE)
       if (independentFiltering) {
         threshold <- unname(attr(res, "filterThreshold"))
