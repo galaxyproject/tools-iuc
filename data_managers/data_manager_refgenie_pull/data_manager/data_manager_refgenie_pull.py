@@ -3,12 +3,12 @@
 
 import argparse
 import logging
-import requests
-
-import refgenconf
 
 from base64 import urlsafe_b64encode
 from urllib.parse import urljoin
+
+import refgenconf
+import requests
 
 
 log = logging.getLogger("tools.iuc.data_managers.data_manager_refgenie_pull")
