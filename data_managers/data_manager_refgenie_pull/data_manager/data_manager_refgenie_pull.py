@@ -3,7 +3,6 @@
 
 import argparse
 import logging
-
 from base64 import urlsafe_b64encode
 from urllib.parse import urljoin
 
