@@ -3,8 +3,9 @@
 
 import argparse
 import logging
-import refgenconf
 import requests
+
+import refgenconf
 
 from base64 import urlsafe_b64encode
 from urllib.parse import urljoin
@@ -22,9 +23,9 @@ def galaxy_code_get_refgenie_assets(refgenie_config_file):
         for genome, assets in genomes.items():
             al = []
             for name in assets:
-                al.append({'name': name, 'value': '%s/%s/%s' % (urlname_64, genome, name), 'options': [], 'selected': False })
-            ul.append({'name': genome, 'value': genome, 'options': al, 'selected': False })
-        rval.append({'name': urlname, 'value': urlname_64, 'options': ul, 'selected': False })
+                al.append({'name': name, 'value': '%s/%s/%s' % (urlname_64, genome, name), 'options': [], 'selected': False})
+            ul.append({'name': genome, 'value': genome, 'options': al, 'selected': False})
+        rval.append({'name': urlname, 'value': urlname_64, 'options': ul, 'selected': False})
     return rval
 
 
