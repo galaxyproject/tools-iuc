@@ -8,13 +8,8 @@ import shutil
 import sys
 import tarfile
 import zipfile
-try:
-    # For Python 3.0 and later
-    from urllib.request import Request, urlopen
-except ImportError:
-    # Fall back to Python 2 imports
-    from urllib2 import Request, urlopen
 
+from urllib.request import Request, urlopen
 
 DEFAULT_DATA_TABLE_NAMES = ["plant_tribes_scaffolds"]
 
