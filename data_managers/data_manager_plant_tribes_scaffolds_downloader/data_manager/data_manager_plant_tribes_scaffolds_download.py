@@ -8,7 +8,6 @@ import shutil
 import sys
 import tarfile
 import zipfile
-
 from urllib.request import Request, urlopen
 
 DEFAULT_DATA_TABLE_NAMES = ["plant_tribes_scaffolds"]
