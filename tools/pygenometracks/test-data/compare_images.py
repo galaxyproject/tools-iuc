@@ -1,4 +1,5 @@
 import os
+
 from matplotlib.testing.compare import compare_images
 
 pngs = [f for f in os.listdir('test-data') if f.endswith('.png')]
