@@ -1,8 +1,7 @@
-from matplotlib.testing.compare import compare_images
-from os import listdir
 import os
+from matplotlib.testing.compare import compare_images
 
-pngs = [f for f in listdir('test-data') if f.endswith('.png')]
+pngs = [f for f in os.listdir('test-data') if f.endswith('.png')]
 
 for png in pngs:
     print(png)
