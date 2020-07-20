@@ -16,6 +16,8 @@
 # pgt --tracks test-data/test15.ini --region chrX:3300000-3500000 -o test-data/test_tssarrow.png
 # pgt --tracks test-data/test4.ini --region chrX:2700000-3100000 --decreasingXAxis -o test-data/test_alpha_dec.png
 # pgt --tracks test-data/test17.ini --region chr2:73,800,000-75,744,000 -o test-data/test_log.png
-pgt --tracks test-data/test18.ini --region chrX:2700000-3100000 -o test-data/test_operation.png
+# pgt --tracks test-data/test18.ini --region chrX:2700000-3100000 -o test-data/test_operation.png
+# pgt --tracks test-data/test19.ini --region chr2:73,800,000-75,744,000 -o test-data/test_log_grid.png
+pgt --tracks test-data/test20.ini --region chrX:3000000-3300000 -o test-data/test_arcs_use_middle.png
 
 conda_env_deactivate
