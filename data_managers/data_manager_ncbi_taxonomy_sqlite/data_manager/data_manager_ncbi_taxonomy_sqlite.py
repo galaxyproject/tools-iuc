@@ -1,16 +1,12 @@
-from __future__ import print_function, division
+from __future__ import division, print_function
 
 import argparse
 import datetime
 import json
 import os
 import os.path
-import re
-import sys
 import shlex
 import subprocess
-
-import requests
 
 DATA_TABLE_NAME = "ncbi_taxonomy_sqlite"
 
