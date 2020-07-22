@@ -72,7 +72,7 @@ if __name__ == "__main__":
         "data_tables"
     ].get(DATA_TABLE_NAME, [])
 
-    data = build_sqlite(args.taxonomy_dir, args.output_directory, args.name, args.description)
+    data = build_sqlite(args.taxonomy_dir, output_directory, args.name, args.description)
 
     data_manager_dict["data_tables"][DATA_TABLE_NAME].extend(data)
     print(json.dumps(data_manager_dict))
