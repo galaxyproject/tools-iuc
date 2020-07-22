@@ -23,6 +23,7 @@
 #'     heatmaps: ""
 #' ---
 
+# nolint start
 #+ echo=F, warning = F, message=F
 options(show.error.messages = F, error = function() {
     cat(geterrmessage(), file = stderr()); q("no", 1, F)
@@ -116,3 +117,4 @@ markers <- Seurat::FindAllMarkers(seuset, only.pos = TRUE, min.pct = min_pct, lo
 top10 <- dplyr::group_by(markers, cluster)
 top10 <- dplyr::top_n(top10, 10, avg_logFC)
 Seurat::DoHeatmap(seuset, features = top10$gene)
+# nolint end
