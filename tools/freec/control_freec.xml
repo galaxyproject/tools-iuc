@@ -1,22 +1,24 @@
 <tool id="control_freec" name="control-freec" version="11.6">
     <requirements>
     	<requirement type="package" version="11.6">control-freec</requirement>
+        <requirement type="package" version="3.7">python</requirement>
     </requirements>
     <configfiles>
     	<configfile name="script_file">
 			###For more options see: http://boevalab.com/FREEC/tutorial.html#CONFIG ###
 
 			[general]
-			chrLenFile = "$chrLenFile"
+            chrFiles = "" ### generate temp chr files from genome files via bash script
+			chrLenFile = "$chrLenFile" ### use .fa.fai file --> macros.xml
             window = "$window"
             ploidy = "$ploidy"
             outputDir = "$outputDir"
 
 			#sex=XY
 			breakPointType=4
-			chrFiles =  /pathToChromosomeFastaFiles/Human/hg19/chromosomes/
+			chrFiles =  "$chrLenFile"
 
-			maxThreads=6
+			maxThreads=6 ### controlled by Galaxy, default value 6 for the tool itself?!
 
 			breakPointThreshold=1.2
 			noisyData=TRUE
@@ -25,31 +27,78 @@
 			readCountThreshold=50
 
 			[sample]
-			mateFile = "$input_sample_file"
+			mateFile = "$input_sample_file_fn"
 			inputFormat = bam
 			mateOrientation = 0
 
 			[control]
-			mateFile = "$input_control_file"
+			mateFile = "$input_control_file_fn"
 			inputFormat = bam
 			mateOrientation = 0
 
 			[BAF]
-			SNPfile = /bioinfo/users/vboeva/Desktop/annotations/hg19_snp131.SingleDiNucl.1based.txt
+			# SNPfile = /bioinfo/users/vboeva/Desktop/annotations/hg19_snp131.SingleDiNucl.1based.txt
 			minimalCoveragePerPosition = 5
 			
 			## This is optional
-			[target]
-			captureRegions = "$input_bed_file"
+			# [target]
+			# captureRegions = "$input_bed_file"
     	</configfile>
     </configfiles>
     <command detect_errors="exit_code"><![CDATA[
-        freec 
+        #set $genome_fasta_fn = 'genome.fa'
+        #set $input_control_file_fn = 'control.bam'
+        #set $input_sample_file_fn = 'sample.bam'
+
+        ln -s '$reference_source.ref' $genome_fasta_fn &&
+
+        #if str($reference_source.ref_selector) == 'history':
+            #set $chrLenFile = $genome_fasta_fn.fai
+            samtools faidx $genome_fasta_fn 2>&1 || echo "Error running samtools faidx for indexing fasta reference for control-freec" >&2 &&
+        #else
+            #set $chrLenFile = str($reference_source.ref.index.fields.path)
+        #end if
+
+        python $__tool_directory__/split_to_chr.py -g '$genome_fasta_fn' -f 'chromosomes' -s '.fa' -p 'chr'
+
+        ln -s '$input_control_file' $input_control_file_fn &&
+        ln -s '$input_sample_file' $input_sample_file_fn &&
+
+        freec
         	-conf $script_file
     ]]></command>
     <inputs>
 		<param name="input_sample_file" type="data" format="bam" multiple="false" label="Sample File" help="Sample file in .BAM format."/>
 		<param name="input_control_file" type="data" format="bam" multiple="false" label="Control File" help="Control file in .BAM format."/>
+
+        <conditional name="reference_source">
+            <param name="ref_selector" type="select" label="Choose the source for the reference genome">
+                <option value="cached">Locally cached</option>
+                <option value="history">History</option>
+            </param>
+            <when value="cached">
+                <param argument="--ref" type="select" label="Reference genome">
+                    <options from_data_table="fasta_indexes">
+                        <filter type="data_meta" column="dbkey" key="dbkey" ref="input_sample_file" />
+                        <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file" />
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param argument="--ref" type="data" format="fasta" label="Reference" help="Reference sequence" />
+            </when>
+        </conditional>
+        <!-- general parameters -->
+		<param name="BedGraphOutput" type="boolean" checked="false" label="BedGraph Output for UCSC genome browser" help="set &quot;BedGraphOutput=TRUE&quot; if you want an additional output in BedGraph format for the UCSC genome browser"/>
+            <!-- bedtools -->
+        <param name="breakPointThreshold" type="float" label="Segmentation of normalized profiles (break point)" value="0.8" help="Positive value of threshold for segmentation of normalized profiles. Use something like 0.6 to get more segments (and thus more predicted CNVs)."/>
+        <param name="breakPointType" type="integer" label="Desired behavior in the ambiguous regions" value="2" help="Desired behavior in the ambiguous regions (poly-N or low mappability regions between two different copy number values). \n
+                                                                                                                      0: the &quot;unknown&quot; region is attached to the &quot;known&quot; region on the right \n
+                                                                                                                      1: make a separate fragment of this &quot;unknown&quot; region and then attaches it to the left or to the right region choosing the longer one \n
+                                                                                                                      2: make a separate fragment of this &quot;unknown&quot; region and then attaches it to the left or to the right region but the &quot;ploidy&quot; copy number has a priority \n
+                                                                                                                      3: make a separate fragment of this &quot;unknown&quot; region and then attaches it to the left or to the right region choosing the longer one but this &quot;known&quot; region should make at least half-size of the &quot;unknown&quot; region \n
+                                                                                                                      4: make a separate fragment of this &quot;unknown&quot; region and do not assign any copy number to this region at all "/>
+
     </inputs>
     <outputs>
     </outputs>
