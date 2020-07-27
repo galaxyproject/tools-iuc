@@ -323,7 +323,7 @@ def metadata_from_node(node):
         galaxy=GALAXY_INFRASTRUCTURE_URL,
         encoded_id=metadata['dataset_id'],
         tool_id=metadata['tool_tool_id'],
-        tool_version=metadata['tool_tool_version'],
+        # tool_version=metadata['tool_tool_version'],
     )
     return metadata
 
