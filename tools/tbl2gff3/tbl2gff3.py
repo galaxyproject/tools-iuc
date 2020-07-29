@@ -37,8 +37,6 @@ def tbl2gff3(
     records = {}
 
     for row in csv.reader(table, delimiter="\t"):
-        # print(', '.join(row))
-
         # if we haven't seen this record before, populate it.
         recid = c(row, rid)
         if recid not in records:
@@ -57,16 +55,19 @@ def tbl2gff3(
         elif strand_value is not None:
             _str = int(strand_value)
 
-        for x in a:
-            k, v = x.split(":", 1)
-            _v = c(row, v)
-            if k in q:
-                q[k].append(_v)
-            else:
-                q[k] = [_v]
+        if a:
+            for x in a:
+                k, v = x.split(":", 1)
+                _v = c(row, v)
+                if k in q:
+                    q[k].append(_v)
+                else:
+                    q[k] = [_v]
 
+        pos1 = int(c(row, begin))
+        pos2 = int(c(row, end))
         f = SeqFeature(
-            FeatureLocation(int(c(row, begin)), int(c(row, end))),
+            FeatureLocation(min(pos1, pos2), max(pos1, pos2)),
             type=c(row, type),
             strand=_str,
             qualifiers=q,
