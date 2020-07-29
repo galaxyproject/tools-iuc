@@ -1,0 +1,237 @@
+<?xml version="1.0"?>
+<tool id="delly_filter" name="delly: filter" version="@TOOL_VERSION@+galaxy0" profile="18.01">
+    <description>somatic or germline structural variants</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+## initialize 
+ln -s '${input}' 'sample.bcf' &&
+ln -s '${input.metadata.bcf_index}' 'sample.bcf.csi' &&
+
+## run
+delly filter
+## generic options
+--filter $sv.mode_cond.mode_sel
+--altaf $generic.altaf
+--minsize $generic.minsize
+--maxsize $generic.maxsize
+--ratiogeno $generic.ratiogeno
+$generic.pass
+--outfile 'result.bcf'
+## somatic options
+#if $sv.mode_cond.mode_sel == "somatic"
+    --samples '$sv.mode_cond.samples'
+    --coverage $sv.mode_cond.coverage
+    --controlcontamination $sv.mode_cond.controlcontamination
+#end if
+## genotyping options
+#if $sv.mode_cond.mode_sel == "germline"
+    --gq $sv.mode_cond.gq
+    --rddel $sv.mode_cond.rddel
+    --rddup $sv.mode_cond.rddup
+#end if
+'sample.bcf' ## input
+
+|& tee log.txt
+&& test -f result.bcf && bcftools view result.bcf > result.vcf
+    ]]></command>
+    <inputs>
+        <param name="input" type="data" format="bcf" label="Select file"/>
+
+        <section name="generic" title="Generic options">
+            <param argument="--altaf" type="float" value="0.200000003" label="Set minimum fractional ALT support"/> <!-- todo -->
+            <param argument="--minsize" type="integer" value="0" label="Set minimum SV size"/>
+            <param argument="--maxsize" type="integer" value="500000000" label="Set maximum SV size"/>      
+            <param argument="--ratiogeno" type="float" value="0.75" label="Set minimum fraction of genotyped samples"/>
+            <param argument="--pass" type="boolean" truevalue="--pass" falsevalue="" label="Filter sites for PASS?"/>
+        </section>
+
+        <section name="sv" title="SV calling options">
+            <conditional name="mode_cond">
+                <param argument="mode_sel" type="select" label="Select filter mode">
+                    <option value="somatic" selected="true">Somatic</option>
+                    <option value="germline">Germline</option>
+                </param>
+                <when value="somatic">
+                    <param argument="--samples" type="data" format="tabular" label="Select sample file" help="Two-column sample file listing sample name and tumor or control."/>
+                    <param argument="--coverage" type="integer" value="10" label="Set minimum coverage in tumor."/>
+                    <param argument="--controlcontamination" type="integer" value="0" label="Set maximum fractional ALT support in control"/>
+                </when>
+                <when value="germline">
+                    <param argument="--gq" type="integer" value="15" label="Set minimum median GQ for carriers and   non-carriers"/>
+                    <param argument="--rddel" type="float" value="0.800000012"  label="Set maximum read-depth ratio of carrier vs. non-carrier for a deletion"/>
+                    <param argument="--rddup" type="float" value="1.20000005" label="Set minimum read-depth ratio of carrier vs. non-carrier for a duplication"/>
+                </when>
+            </conditional>
+        </section>
+
+        <section name="oo" title="Output options">
+            <param name="out" type="select" multiple="true" optional="false" label="Select output file(s)">
+                <option value="vcf" selected="true">VCF</option>
+                <option value="bcf" selected="true">BCF</option>
+                <option value="log">Log</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="out_vcf" format="tabular" from_work_dir="result.vcf" label="${tool.name} on ${on_string}: Result (VCF)">
+            <filter>'vcf' in oo['out']</filter>
+        </data>
+        <data name="out_bcf" format="tabular" from_work_dir="result.bcf" label="${tool.name} on ${on_string}: Result (BCF)">
+            <filter>'bcf' in oo['out']</filter>
+        </data>
+        <data name="out_log" format="tabular" from_work_dir="log.txt" label="${tool.name} on ${on_string}: Log">
+            <filter>'log' in oo['out']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- #1 somatic, default -->
+        <test expect_num_outputs="2">
+            <param name="input" value="call_1.bcf"/>
+            <section name="sv">
+                <conditional name="mode_cond">
+                    <param name="mode_sel" value="somatic"/>
+                    <param name="samples" value="samples.tsv"/>
+                </conditional>
+            </section>
+            <output name="out_bcf">
+                <assert_contents>
+                    <has_size value="2281"/>
+                </assert_contents>
+            </output>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_n_lines n="140"/>
+                    <has_line line="##fileformat=VCFv4.2"/>
+                    <has_line line="#CHROM&#009;POS&#009;ID&#009;REF&#009;ALT&#009;QUAL&#009;FILTER&#009;INFO&#009;FORMAT&#009;NORMAL&#009;TUMOR"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #2 somatic -->
+        <test expect_num_outputs="3">
+            <param name="input" value="call_1.bcf"/>
+            <section name="generic">
+                <param name="altaf" value="0.200000004"/>
+                <param name="minsize" value="1"/>
+                <param name="maxsize" value="500000001"/>      
+                <param name="ratiogeno" value="0.76"/>
+                <param name="pass" value="true"/>
+            </section>
+            <section name="sv">
+                <conditional name="mode_cond">
+                    <param name="mode_sel" value="somatic"/>
+                    <param name="samples" value="samples.tsv"/>
+                    <param name="coverage" value="11"/>
+                    <param name="controlcontamination" value="1"/>
+                </conditional>
+            </section>
+            <section name="oo">
+                <param name="out" value="vcf,bcf,log"/>
+            </section>
+            <output name="out_bcf">
+                <assert_contents>
+                    <has_size value="2281"/>
+                </assert_contents>
+            </output>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_n_lines n="140"/>
+                    <has_line line="##fileformat=VCFv4.2"/>
+                    <has_line line="#CHROM&#009;POS&#009;ID&#009;REF&#009;ALT&#009;QUAL&#009;FILTER&#009;INFO&#009;FORMAT&#009;NORMAL&#009;TUMOR"/>
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_text_matching expression=".+Done\."/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #3 germline, default -->
+        <test expect_num_outputs="2">
+            <param name="input" value="call_1.bcf"/>
+            <section name="sv">
+                <conditional name="mode_cond">
+                    <param name="mode_sel" value="germline"/>
+                </conditional>
+            </section>
+            <output name="out_bcf">
+                <assert_contents>
+                    <has_size value="2264"/>
+                </assert_contents>
+            </output>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_n_lines n="139"/>
+                    <has_line line="##fileformat=VCFv4.2"/>
+                    <has_line line="#CHROM&#009;POS&#009;ID&#009;REF&#009;ALT&#009;QUAL&#009;FILTER&#009;INFO&#009;FORMAT&#009;NORMAL&#009;TUMOR"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #4 germline -->
+        <test expect_num_outputs="3">
+            <param name="input" value="call_1.bcf"/>
+            <section name="generic">
+                <param name="altaf" value="0.200000004"/>
+                <param name="minsize" value="1"/>
+                <param name="maxsize" value="500000001"/>      
+                <param name="ratiogeno" value="0.76"/>
+                <param name="pass" value="true"/>
+            </section>
+            <section name="sv">
+                <conditional name="mode_cond">
+                    <param name="mode_sel" value="germline"/>
+                    <param name="gq" value="14"/>
+                    <param name="rddel" value="0.800000013"/>
+                    <param name="rddup" value="1.20000006"/>
+                </conditional>
+            </section>
+            <section name="oo">
+                <param name="out" value="vcf,bcf,log"/>
+            </section>
+            <output name="out_bcf">
+                <assert_contents>
+                    <has_size value="2264"/>
+                </assert_contents>
+            </output>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_n_lines n="139"/>
+                    <has_line line="##fileformat=VCFv4.2"/>
+                    <has_line line="#CHROM&#009;POS&#009;ID&#009;REF&#009;ALT&#009;QUAL&#009;FILTER&#009;INFO&#009;FORMAT&#009;NORMAL&#009;TUMOR"/>
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_text_matching expression=".+Done\."/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+   <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+@WID@
+
+**Input**
+
+@INPUT@
+
+- sample.tsv
+
+**Output**
+
+@OUTPUT@
+
+.. class:: infomark
+
+**References**
+
+@REFERENCES@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

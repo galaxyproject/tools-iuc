@@ -1,0 +1,225 @@
+<?xml version="1.0"?>
+<tool id="delly_call" name="Delly: call" version="@TOOL_VERSION@+galaxy0" profile="18.01">
+    <description>to discover and genotype structural variants</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+## initialize
+#for $i, $current in enumerate($samples)
+    ln -s '${current}' 'sample_${i}.bam' &&
+    ln -s '${current.metadata.bam_index}' 'sample_${i}.bam.bai' &&
+#end for
+
+## run
+delly call
+## generic options
+--svtype $generic.svtype
+--genome '$generic.genome'
+#if $generic.exclude
+    --exclude '$generic.exclude'
+#end if
+--outfile 'result.bcf'
+## discovery options
+--map-qual $discovery.mapqual
+--qual-tra $discovery.qualtra
+--mad-cutoff $discovery.madcutoff
+--minclip $discovery.minclip
+--minrefsep $discovery.minrefsep
+--maxreadsep $discovery.maxreadsep
+## genotyping options
+#if $genotyping.vcffile
+    --vcffile '$genotyping.vcffile'
+#end if
+--geno-qual $genotyping.genoqual
+--dump 'dump.tsv.gz'
+## samples
+#for $i, $current in enumerate($samples)
+    'sample_${i}.bam'
+#end for
+
+|& tee log.txt
+
+&& test -f result.bcf && bcftools view result.bcf > result.vcf
+    ]]></command>
+    <inputs>
+        <expand macro="samples"/>
+        <section name="generic" title="Generic options" expanded="true">
+            <expand macro="genome"/>
+            <expand macro="svtype"/>
+            <expand macro="exclude"/>
+        </section>
+        <section name="discovery" title="Discovery options" expanded="true">
+            <param argument="--mapqual" type="integer" value="1" label="Set minimum paired-end (PE) mapping quality"/>
+            <param argument="--qualtra" type="integer" value="20" label="Set minimum PE quality for translocation"/>
+            <param argument="--madcutoff" type="integer" value="9" label="Set insert size cutoff" help="median+s*MAD, deletions only"/>
+            <expand macro="minclip"/>
+            <expand macro="minrefsep"/>
+            <expand macro="maxreadsep"/>
+        </section>
+        <section name="genotyping" title="Genotyping options" expanded="true">
+            <expand macro="vcffile"/>
+            <expand macro="genoqual"/>
+        </section>
+        <section name="oo" title="Output options" expanded="true">
+            <param name="out" type="select" multiple="true" optional="false" label="Select output file(s)">
+                <option value="vcf" selected="true">VCF</option>
+                <option value="bcf">BCF</option>
+                <option value="dump">SV-reads</option>
+                <option value="log">Log</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="out_vcf" format="tabular" from_work_dir="result.vcf" label="${tool.name} on ${on_string}: Result (VCF)">
+            <filter>'vcf' in oo['out']</filter>
+        </data>
+        <data name="out_bcf" format="tabular" from_work_dir="result.bcf" label="${tool.name} on ${on_string}: Result (BCF)">
+            <filter>'bcf' in oo['out']</filter>
+        </data>
+        <data name="out_dump" format="gz" from_work_dir="dump.tsv.gz" label="${tool.name} on ${on_string}: SV-reads">
+            <filter>'dump' in oo['out']</filter>
+        </data>
+        <data name="out_log" format="tabular" from_work_dir="log.txt" label="${tool.name} on ${on_string}: Log">
+            <filter>'log' in oo['out']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test for mltiple files is missing
+        for <param name="vcffile" value="genotyping.vcf"/>
+        also -->
+
+        <!-- #1 default, single -->
+        <test expect_num_outputs="1">
+            <param name="samples" value="normal.bam"/>
+            <section name="generic">
+                <param name="genome" value="genome.fasta"/>
+            </section>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_size value="21531" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #2 -->
+        <test expect_num_outputs="4">
+            <param name="samples" value="normal.bam"/>
+            <section name="generic">
+                <param name="svtype" value="ALL"/>
+                <param name="genome" value="genome.fasta"/>
+                <param name="exclude" value="exclude.tsv"/>
+            </section>
+            <section name="discovery">
+                <param name="mapqual" value="2"/>
+                <param name="qualtra" value="19"/>
+                <param name="madcutoff" value="8"/>
+                <param name="minclip" value="24"/>
+                <param name="minrefsep" value="24"/>
+                <param name="maxreadsep" value="39"/>
+            </section>
+            <section name="genotyping">
+                <param name="genoqual" value="4"/>
+            </section>
+            <section name="oo">
+                <param name="out" value="vcf,bcf,dump,log"/>
+            </section>
+            <output name="out_bcf">
+                <assert_contents>
+                    <has_size value="3492" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_size value="21753" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="out_dump">
+                <assert_contents>
+                    <has_size value="61" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_text_matching expression=".+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #3 -->
+        <test expect_num_outputs="1">
+            <param name="samples" value="normal.bam"/>
+            <section name="generic">
+                <param name="svtype" value="DEL"/>
+                <param name="genome" value="genome.fasta"/>
+                <param name="exclude" value="exclude.tsv"/>
+            </section>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_size value="21679" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #4 -->
+        <test expect_num_outputs="1">
+            <param name="samples" value="normal.bam"/>
+            <section name="generic">
+                <param name="svtype" value="INS"/>
+                <param name="genome" value="genome.fasta"/>
+            </section>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_size value="3667" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #5 -->
+        <test expect_num_outputs="1">
+            <param name="samples" value="normal.bam"/>
+            <section name="generic">
+                <param name="svtype" value="INV"/>
+                <param name="genome" value="genome.fasta"/>
+            </section>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_size value="3667" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #6 -->
+        <test expect_num_outputs="1">
+            <param name="samples" value="normal.bam"/>
+            <section name="generic">
+                <param name="svtype" value="BND"/>
+                <param name="genome" value="genome.fasta"/>
+            </section>
+            <output name="out_vcf">
+                <assert_contents>
+                    <has_size value="3667" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+@WID@
+
+**Input**
+
+@INPUT@
+
+**Output**
+
+@OUTPUT@
+
+.. class:: infomark
+
+**References**
+
+@REFERENCES@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
