@@ -1,9 +1,9 @@
 #!/usr/bin/env R
-VERSION = "0.2"
+VERSION <- "0.2" # nolint
 
-args = commandArgs(trailingOnly = T)
+args <- commandArgs(trailingOnly = T)
 
-if (length(args) != 1){
+if (length(args) != 1) {
      message(paste("VERSION:", VERSION))
      stop("Please provide the config file")
 }
