@@ -30,7 +30,6 @@ import sys
 
 import bx.intervals.io
 from bx.cookbook import doc_optparse
-
 from galaxy.tools.util import maf_utilities
 
 
