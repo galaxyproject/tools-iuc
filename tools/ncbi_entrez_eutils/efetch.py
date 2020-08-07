@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 import argparse
 
-import eutils
+#Test of xml parsing from Entrez
+from Bio import Entrez
 
+import eutils
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='EFetch', epilog='')
@@ -11,6 +13,7 @@ if __name__ == '__main__':
     parser.add_argument('--admin_email', help="Admin email")
 
     # ID source
+    parser.add_argument('--id_xml', help='list of ids in an xml file as returned by esearch or elink')
     parser.add_argument('--id_list', help='list of ids')
     parser.add_argument('--id', help='Comma separated individual IDs')
     parser.add_argument('--history_file', help='Fetch results from previous query')
@@ -21,7 +24,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     c = eutils.Client(history_file=args.history_file, user_email=args.user_email, admin_email=args.admin_email)
-    merged_ids = c.parse_ids(args.id_list, args.id, args.history_file)
+    merged_ids = c.parse_ids(args.id_list, args.id, args.history_file, args.id_xml)
+
+    #if args.id_xml is not None:
+    #    merged_ids += c.xmlfile2UIlist(args.id_xml)
 
     payload = {}
     if args.history_file is not None:
