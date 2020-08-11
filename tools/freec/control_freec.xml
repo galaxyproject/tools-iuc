@@ -1,0 +1,184 @@
+<tool id="control_freec" name="Control-FREEC" version="@WRAPPER_VERSION@">
+    <description>detects copy-number changes and allelic imbalances</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+        <requirement type="package" version="5.0.1">gawk</requirement>
+        <requirement type="package" version="@TOOL_VERSION@">control-freec</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        #set $genome_fasta_fn = 'genome.fa'
+        #set $chr_dn = 'chromosomes'
+        #set $out_dn = 'output'
+        #set $input_control_file_fn = 'control.bam'
+        #set $input_sample_file_fn = 'sample.bam'
+
+        ln -s '$reference_source.ref' '$genome_fasta_fn' &&
+
+        #if str($reference_source.ref_selector) == 'history':
+            #set $chrLenFile = $genome_fasta_fn + '.fai'
+            samtools faidx '$genome_fasta_fn' 2>&1 || echo 'Error running samtools faidx for indexing fasta reference for control-freec' >&2 &&
+        #else
+            #set $chrLenFile = $reference_source.ref.index.fields.path
+        #end if
+
+        mkdir '$chr_dn' &&
+        mkdir '$out_dn' &&
+
+        awk -F " " '/^>/ {close(F); F="$chr_dn/chr"substr($1,2)".fa"} {print >> F}' '$genome_fasta_fn' &&
+
+        ln -s '$WGS_WES.input_sample_file' '$input_sample_file_fn' &&
+        #if $input_control_file
+            ln -s '$WGS_WES.input_control_file' '$input_control_file_fn' &&
+        #end if
+
+        freec
+            -conf '$script_file'
+            -sample '$input_sample_file_fn'
+            #if $WGS_WES.input_control_file
+                -control $'input_control_file_fn'
+            #end if
+
+        #if $WGS_WES.advanced_settings.makeGraph
+            && R -f `which makeGraph.R` '$WGS_WES.advanced_settings.ploidy' 'output/sample.bam_ratio.txt'
+        #end if
+    ]]></command>
+    <configfiles>
+        <configfile name="script_file"><![CDATA[
+#import os
+#set galaxy_slots = os.getenv("GALAXY_SLOTS", 4)
+[general]
+chrFiles = chromosomes
+outputDir = output
+chrLenFile = genome.fa.fai
+maxThreads = $galaxy_slots
+
+#if $WGS_WES.advanced_settings.degree == "34"
+    #set $degree_val = "3&4"
+degree = $degree_val
+#else
+degree = $WGS_WES.advanced_settings.degree
+#end if
+forceGCcontentNormalization = $WGS_WES.advanced_settings.forceGCcontentNormalization
+minCNAlength = $WGS_WES.advanced_settings.minCNAlength
+minimalSubclonePresence = $WGS_WES.advanced_settings.minimalSubclonePresence
+readCountThreshold = $WGS_WES.advanced_settings.readCountThreshold
+window = $WGS_WES.advanced_settings.window_section.window
+step = $WGS_WES.advanced_settings.window_section.step
+coefficientOfVariation = $WGS_WES.advanced_settings.coefficientOfVariation
+BedGraphOutput = $WGS_WES.advanced_settings.BedGraphOutput
+breakPointThreshold = $WGS_WES.advanced_settings.breakPointThreshold
+breakPointType = $WGS_WES.advanced_settings.breakPointType
+contaminationAdjustment = $WGS_WES.advanced_settings.contaminationAdjustment
+contamination = $WGS_WES.advanced_settings.contamination
+intercept = $WGS_WES.advanced_settings.intercept
+minMappabilityPerWindow = $WGS_WES.advanced_settings.minMappabilityPerWindow
+minExpectedGC = $WGS_WES.advanced_settings.minExpectedGC
+maxExpectedGC = $WGS_WES.advanced_settings.maxExpectedGC
+noisyData = $WGS_WES.advanced_settings.noisyData
+ploidy = $WGS_WES.advanced_settings.ploidy
+printNA = $WGS_WES.advanced_settings.printNA
+sex = $WGS_WES.advanced_settings.sex
+telocentromeric = $WGS_WES.advanced_settings.telocentromeric
+
+[sample]
+mateFile = sample.bam
+inputFormat = BAM
+mateOrientation = $WGS_WES.mateOrientation_selector
+
+[control]
+mateFile = control.bam
+inputFormat = BAM
+mateOrientation = $WGS_WES.mateOrientation_selector
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <expand macro="reference_interface" />
+        <conditional name="WGS_WES">
+            <param name="WGS_WES_selector" type="select" label="Select the sequencing method of the input file(s)" help="">
+                <option value="WGS" selected="True">whole-genome sequencing (WGS)</option>
+                <option value="WES">whole-exome sequencing (WES)</option>
+                <option value="other">other method</option>
+            </param>
+            <when value="WGS">
+                <expand macro="opt_input_files" />
+                <section name="advanced_settings" title="Advanced WGS settings" expanded="false">
+                    <expand macro="WGS" />
+                    <expand macro="shared" />
+                </section>
+            </when>
+            <when value="WES">
+                <expand macro="def_input_files" />
+                <section name="advanced_settings" title="Advanced WES settings" expanded="false">
+                    <expand macro="WES" />
+                    <expand macro="shared" />
+                </section>
+            </when>
+            <when value="other">
+                <expand macro="def_input_files" />
+                <section name="advanced_settings" title="Advanced settings" expanded="true">
+                    <expand macro="other" />
+                    <expand macro="shared" />
+                </section>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="out_sample_raw" format="tabular" label="${tool.name} on ${on_string}: Raw copy number profiles (sample)" from_work_dir="output/sample.bam_sample.cpn" />
+        <data name="out_control_raw" format="tabular" label="${tool.name} on ${on_string}: Raw copy number profiles (control)" from_work_dir="output/control.bam_control.cpn" />
+        <data name="out_sample_coord" format="tabular" label="${tool.name} on ${on_string}: Coordinates of predicted CN alterations" from_work_dir="output/sample.bam_CNVs" />
+        <data name="out_sample_info" format="txt" label="${tool.name} on ${on_string}: Information about FREEC run" from_work_dir="output/sample.bam_info.txt" />
+        <data name="out_sample_ratio" format="tabular" label="${tool.name} on ${on_string}: Ratios and predicted CN alterations for each window" from_work_dir="output/sample.bam_ratio.txt" />
+        <data name="out_sample_subclones" format="txt" label="${tool.name} on ${on_string}: Subclones" from_work_dir="output/sample.bam_subclones.txt" >
+            <filter>int(WGS_WES['advanced_settings']['minimalSubclonePresence']) != 100</filter>
+        </data>
+        <data name="out_sample_bedgraph" format="bed" label="${tool.name} on ${on_string}: Ratios in BedGraph format" from_work_dir="output/sample.bam_ratio.BedGraph">
+            <filter>WGS_WES['advanced_settings']['BedGraphOutput']</filter>
+        </data>
+        <data name="out_mg_png" format="png" label="${tool.name} on ${on_string}: Normalized CN profile" from_work_dir="output/sample.bam_ratio.txt.png">
+            <filter>WGS_WES['advanced_settings']['makeGraph']</filter>
+        </data>
+        <data name="out_mg_log2_png" format="png" label="${tool.name} on ${on_string}: Normalized CN profile (log2)" from_work_dir="output/sample.bam_ratio.txt.log2.png">
+            <filter>WGS_WES['advanced_settings']['makeGraph']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="5">
+            <param name="ref_selector" value="history" />
+            <param name="ref" ftype="fasta" value="genome.fasta" />
+            <param name="WGS_WES_selector" value="other" />
+            <param name="input_sample_file" ftype="bam" value="tumor.bam" />
+            <param name="input_control_file" ftype="bam" value="normal.bam" />
+            <param name="mateOrientation_selector" value="0" />
+            <param name="window" value="5000" />
+            <param name="step" value="1000" />
+            <output name="out_sample_raw" file="output/sample.bam_sample.cpn" />
+            <output name="out_control_raw" file="output/control.bam_control.cpn" />
+            <output name="out_sample_coord" file="output/sample.bam_CNVs" />
+            <output name="out_sample_info" file="output/sample.bam_info.txt" />
+            <output name="out_sample_ratio" file="output/sample.bam_ratio.txt" />
+        </test>
+    </tests>
+    <help><![CDATA[
+Control-FREEC
+=============
+
+Control-FREEC is a tool for detection of copy-number changes and allelic imbalances (including loss of heterozygosity/LOH) using deep-sequencing data originally developed by the Bioinformatics Laboratory of Institut Curie (Paris). Nowdays, Control-FREEC is supported by the team of Valentina Boeva at Institut Cochin, Inserm (Paris).
+
+Control-FREEC automatically computes, normalizes, segments copy number and beta allele frequency (BAF) profiles, then calls copy number alterations and LOH. The control (matched normal) sample is optional for whole genome sequencing data but mandatory for whole exome or targeted sequencing data. For whole genome sequencing data analysis, the program can also use mappability data (files created by GEM).
+
+**Input for CNA detection:** Aligned single-end, paired-end or mate-pair data in BAM format.
+
+**Output:** Regions of gain, loss and LOH and normalized copy number.
+
+For more information (f.e. to run Control-FREEC on non-human data) see the Control-FREEC documentation_.
+
+.. _documentation: http://boevalab.inf.ethz.ch/FREEC/index.html#documentation
+
+    ]]></help>
+     <citations>
+         <citation type="doi">10.1093/bioinformatics/btr670</citation>
+         <citation type="doi">10.1093/bioinformatics/btq635</citation>
+    </citations>
+</tool>
