@@ -9,7 +9,6 @@ import sys
 
 import bx.intervals.io
 from bx.bitset import BitSet
-
 from galaxy.tools.util import maf_utilities
 
 
