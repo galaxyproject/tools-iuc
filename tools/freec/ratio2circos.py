@@ -1,6 +1,6 @@
-import math
 import argparse
 import os
+import math
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-i', '--input', required=True, default='./output/sample.bam_ratio.BedGraph', type=str)
