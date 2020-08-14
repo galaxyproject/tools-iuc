@@ -1,4 +1,5 @@
-[![Build Status](https://travis-ci.org/galaxyproject/tools-iuc.svg?branch=master)](https://travis-ci.org/galaxyproject/tools-iuc)
+![Galaxy Tool Linting and Tests for push and PR](https://github.com/galaxyproject/tools-iuc/actions?query=workflow%3A%22Galaxy+Tool+Linting+and+Tests+for+push+and+PR%22)
+![Weekly global Tool Linting and Tests](https://github.com/galaxyproject/tools-iuc/actions?query=workflow%3A%22Weekly+global+Tool+Linting+and+Tests%22)
 [![Gitter](https://badges.gitter.im/galaxyproject/tools-iuc.svg)](https://gitter.im/galaxy-iuc/iuc?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) 
 
 Galaxy Tools maintained by IUC
