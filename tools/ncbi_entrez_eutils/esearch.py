@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 from __future__ import print_function
-
 import argparse
 import json
-
+import sys
 import eutils
 
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ESearch', epilog='')
@@ -17,8 +18,6 @@ if __name__ == '__main__':
     parser.add_argument('--mindate', help='Minimum date')
     parser.add_argument('--maxdate', help='maximum date')
     # History
-    #parser.add_argument('--history_out', type=argparse.FileType('w'),
-    #                    help='Output history file')
     parser.add_argument('--history_out', action="store_true", help='Output history file')
     parser.add_argument('--user_email', help="User email")
     parser.add_argument('--admin_email', help="Admin email")
@@ -45,33 +44,29 @@ if __name__ == '__main__':
     }
     if args.history_file is not None:
         payload.update(c.get_history())
+
     #if args.history_out is not None:
     if args.history_out:
         payload['usehistory'] = 'y'
-        if args.retmode == 'json':
-            payload['retmode'] = 'xml'
-        else:
-            payload['retmode'] = args.retmode
-    else:
-        payload['retmode'] = args.retmode
+
+    payload['retmode'] = args.retmode
 
     for attr in ('datetype', 'reldate', 'mindate', 'maxdate', 'rettype', 'retmax', 'retstart'):
         if getattr(args, attr, None) is not None:
             payload[attr] = getattr(args, attr)
 
+    eprint("Payload used for query:")
+    eprint(json.dumps(payload, indent=4))
+
     results = c.search(**payload)
 
-    #if args.history_out is not None:
-    #    history = c.extract_history(results)
-    #    args.history_out.write(json.dumps(history, indent=4))
-
     #We're going to infer that rettype being uilist means convert to text format (which esearch does not do)
-    if args.retmode is not None and args.retmode == 'text':
+    if args.retmode == 'text':
         ids = c.xmlstring2UIlist(results)
         for id in ids:
             print(id)
-    elif args.history_out and args.retmode == 'json':
-        history = c.extract_history(results)
-        print(json.dumps(history, indent=4))
+    elif args.retmode == 'json':
+        json_data = c.jsonstring2jsondata(results)
+        print(json.dumps(json_data, indent=4))
     else:
         print(results)
