@@ -2,8 +2,8 @@
 from __future__ import print_function
 
 import argparse
-import sys
 import json
+import sys
 import os
 
 import eutils
