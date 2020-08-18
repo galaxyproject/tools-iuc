@@ -3,8 +3,8 @@ from __future__ import print_function
 
 import glob
 import os
-import sys
 import argparse
+import sys
 import json
 
 import eutils
