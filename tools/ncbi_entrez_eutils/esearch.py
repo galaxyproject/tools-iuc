@@ -26,7 +26,7 @@ if __name__ == '__main__':
     parser.add_argument('--retmode', help='Retmode')
     parser.add_argument('--rettype', help='Rettype')
     parser.add_argument('--retstart', type=int, default=0, help='Retstart - Starting rec number (0)')
-    parser.add_argument('--retmax', type=int, default=20, help='Retmax - max number of recs returned (20, max max 100000')
+    parser.add_argument('--retmax', type=int, default=20, help='Retmax - max number of recs returned (20, max 100000)')
 
     args = parser.parse_args()
 

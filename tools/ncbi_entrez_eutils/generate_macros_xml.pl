@@ -9,11 +9,13 @@
 ## use einfo to retrieve all the valid databases
 ##
 
+print STDERR "Retrieving database list\n";
+
 my $dbxml = `python einfo.py --user_email "planemo@galaxyproject.org" --admin_email "planemo@galaxyproject.org;test@bx.psu.edu"`;
 
 my(@dblist);
 my $dbs     = {};
-my $dbtos   = {};
+my $dbfroms = {};
 my $dbnames = {};
 foreach(split(/\n/,$dbxml))
   {
@@ -22,7 +24,7 @@ foreach(split(/\n/,$dbxml))
         my $db = $1;
         push(@dblist,$db);
         $dbs->{$db}     = 0;
-        $dbtos->{$db}   = 0;
+        $dbfroms->{$db} = 0;
         $dbnames->{$db} = $_;
       }
   }
@@ -32,7 +34,7 @@ foreach(split(/\n/,$dbxml))
 ##
 
 my $h = {};
-foreach my $db (@dblist)
+foreach my $db (sort {$dbnames->{$a} cmp $dbnames->{$b}} @dblist)
   {
     sleep(2);
 
@@ -46,16 +48,16 @@ foreach my $db (@dblist)
 
     foreach(split(/\n/,$response))
       {
-        if(/LinkList/)
+        if(/<LinkList>/)
           {
             $dolinks = 1;
             #Save whether there exist links from this database
-            $dbtos->{$db} = 1;
+            $dbfroms->{$db} = 1;
           }
         elsif(!$dolinks)
           {
             if(/<MenuName>(.+)<\/MenuName>/)
-              {$dbnames->{$db} = $1}
+              {$dbnames->{$db} = "$1 ($db)"}
           }
         elsif($dolinks)
           {
@@ -67,14 +69,14 @@ foreach my $db (@dblist)
               {
                 $dbto=$1;
                 push(@{$h->{$db}->{$dbto}},[$link,$name]);
-                #print STDERR ("$db\t$dbto\t$link\t$name\n");
-                #print("$db\t$dbto\t$link\t$name\n");
                 $link="";
                 $name="";
               }
           }
       }
   }
+
+my @sorted_dblist = sort {$dbnames->{$a} cmp $dbnames->{$b}} @dblist;
 
 ##
 ## Generate XML to govern the valid databases to use with efetch
@@ -85,7 +87,8 @@ while(<DATA>)
   {
     chomp;
     my($db,$galaxy_format,$retmode,$rettype,$format_name) = split(/\t/,$_);
-    $efetch_dbhash->{$db}->{"$rettype-$retmode-$galaxy_format"} = "$format_name ($galaxy_format)";
+    $efetch_dbhash->{$db}->{"$rettype-$retmode-$galaxy_format"} =
+      "$format_name ($galaxy_format)";
   }
 
 #EFetch database select list
@@ -95,13 +98,15 @@ print << 'EOXML';
     <param name="@NAME@" type="select" label="@LABEL@">
 EOXML
 
-foreach my $db (grep {exists($dbs->{$_})} sort(keys(%$efetch_dbhash)))
+foreach my $db (grep {exists($dbs->{$_})}
+                sort {$dbnames->{$a} cmp $dbnames->{$b}}
+                keys(%$efetch_dbhash))
   {
     my $selected = '';
     if($db eq 'pubmed')
       {$selected = ' selected="True"'}
     print << "    EOXML";
-      <option value="$db"$selected>$dbnames->{$db} ($db)</option>
+      <option value="$db"$selected>$dbnames->{$db}</option>
     EOXML
   }
 
@@ -118,7 +123,9 @@ print << 'EOXML';
       <expand macro="dbselect_efetch" />
 EOXML
 
-foreach my $db (grep {exists($dbs->{$_})} sort(keys(%$efetch_dbhash)))
+foreach my $db (grep {exists($dbs->{$_})}
+                sort {$dbnames->{$a} cmp $dbnames->{$b}}
+                keys(%$efetch_dbhash))
   {
     print << "    EOXML";
       <when value="$db">
@@ -154,10 +161,10 @@ print << 'EOXML';
     <param name="@NAME@" type="select" label="@LABEL@">
 EOXML
 
-foreach my $from (sort(@dblist))
+foreach my $from (@sorted_dblist)
   {
     print << "    EOXML";
-      <option value="$from">$dbnames->{$from} ($from)</option>
+      <option value="$from">$dbnames->{$from}</option>
     EOXML
   }
 
@@ -175,10 +182,10 @@ print << 'EOXML';
     <param name="@NAME@" type="select" label="@LABEL@">
 EOXML
 
-foreach my $to (grep {exists($dbtos->{$_})} @dblist)
+foreach my $from (grep {$dbfroms->{$_}} @sorted_dblist)
   {
     print << "    EOXML";
-      <option value="$to">$dbnames->{$to} ($to)</option>
+      <option value="$from">$dbnames->{$from}</option>
     EOXML
   }
 
@@ -209,7 +216,7 @@ print << 'EOXML';
           <expand macro="dbselect_linked" name="db_select_from_link" label="From NCBI Database" />
 EOXML
 
-foreach(sort(@dblist))
+foreach(grep {$dbfroms->{$_}} @sorted_dblist)
   {
     print << "    EOXML";
           <when value="$_">
@@ -265,42 +272,42 @@ print << 'EOXML';
         </param>
       </when>
       <when value="acheck">
-        <expand macro="db_link_macro" name="db_select_from" label="From NCBI Database" />
+        <expand macro="db_link_macro" name="db_select_from_link" label="From NCBI Database" />
         <param name="output_format" type="select" label="Output Format">
           <option value="xml" selected="True">Link Description File (xml)</option>
           <option value="json">Link Description File (json)</option>
         </param>
       </when>
       <when value="ncheck">
-        <expand macro="db_link_macro" name="db_select_from" label="From NCBI Database" />
+        <expand macro="db_link_macro" name="db_select_from_link" label="From NCBI Database" />
         <param name="output_format" type="select" label="Output Format">
           <option value="xml" selected="True">Link Description File (xml)</option>
           <option value="json">Link Description File (json)</option>
         </param>
       </when>
       <when value="lcheck">
-        <expand macro="db_link_macro" name="db_select_from" label="From NCBI Database" />
+        <expand macro="db_link_macro" name="db_select_from_link" label="From NCBI Database" />
         <param name="output_format" type="select" label="Output Format">
           <option value="xml" selected="True">Link Description File (xml)</option>
           <option value="json">Link Description File (json)</option>
         </param>
       </when>
       <when value="llinks">
-        <expand macro="db_link_macro" name="db_select_from" label="From NCBI Database" />
+        <expand macro="db_link_macro" name="db_select_from_link" label="From NCBI Database" />
         <param name="output_format" type="select" label="Output Format">
           <option value="xml" selected="True">Link Description File (xml)</option>
           <option value="json">Link Description File (json)</option>
         </param>
       </when>
       <when value="llinkslib">
-        <expand macro="db_link_macro" name="db_select_from" label="From NCBI Database" />
+        <expand macro="db_link_macro" name="db_select_from_link" label="From NCBI Database" />
         <param name="output_format" type="select" label="Output Format">
           <option value="xml" selected="true">Link Description File (xml)</option>
           <option value="json">Link Description File (json)</option>
         </param>
       </when>
       <when value="prlinks">
-        <expand macro="db_link_macro" name="db_select_from" label="From NCBI Database" />
+        <expand macro="db_link_macro" name="db_select_from_link" label="From NCBI Database" />
         <param name="output_format" type="select" label="Output Format">
           <option value="xml" selected="true">Link Description File (xml)</option>
           <option value="json">Link Description File (json)</option>
@@ -320,7 +327,7 @@ print << 'EOXML';
           <expand macro="dbselect_linked" name="db_select_from_link" label="From NCBI Database" />
 EOXML
 
-foreach my $from (sort(keys(%$h)))
+foreach my $from (grep {$dbfroms->{$_}} @sorted_dblist)
   {
     print STDERR ("Creating Links From: $from\n");
 
@@ -330,10 +337,19 @@ foreach my $from (sort(keys(%$h)))
               <param name="db_select_to" type="select" label="To NCBI Database">
     EOXML
 
-    foreach(sort(keys(%{$h->{$from}})))
+    my @dbtos = (grep {exists($h->{$from}) && exists($h->{$from}->{$_})}
+                 @sorted_dblist);
+    foreach(@dbtos)
       {
         print << "        EOXML";
-                <option value="$_">$dbnames->{$_} ($_)</option>
+                <option value="$_">$dbnames->{$_}</option>
+        EOXML
+      }
+    if(scalar(@dbtos) == 0)
+      {
+        #Provide an option for a self-link: from->from
+        print << "        EOXML";
+                <option value="$from">$dbnames->{$from}</option>
         EOXML
       }
 
@@ -341,30 +357,55 @@ foreach my $from (sort(keys(%$h)))
               </param>
     EOXML
 
-    foreach my $to (#There do exist links to invalid(/outdated/non-existant) databases that will result in an error
-                    grep {exists($dbs->{$_})} sort(keys(%{$h->{$from}})))
+    if(exists($h->{$from}))
       {
-        print STDERR ("\tTo: $to Links: ",join(',',map {$_->[0]} @{$h->{$from}->{$to}}),
-                      "\n");
+        #There do exist links to invalid(/outdated/non-existant) databases that
+        #would result in an error if they are selected, so we use the original
+        #@dblist instead of the keys present in the sub hash of $h->{$from}, and
+        #then check for existence in the sub-hash
+        foreach my $to (grep {exists($h->{$from}->{$_})} @sorted_dblist)
+          {
+            print STDERR ("\tTo: $to Links: ",
+                          join(',',map {$_->[0]} @{$h->{$from}->{$to}}),
+                          "\n");
 
-        print << "        EOXML";
+            print << "            EOXML";
               <when value="$to">
                 <param name="linkname" type="select" label="Link Name">
                   <option value="None">All Links</option>
-        EOXML
-
-        foreach(@{$h->{$from}->{$to}})
-          {
-            print << "            EOXML";
-                  <option value="$_->[0]">$_->[1] ($_->[0])</option>
             EOXML
-          }
 
+            foreach(sort {"$a->[1] ($a->[0])" cmp "$b->[1] ($b->[0])"}
+                    @{$h->{$from}->{$to}})
+              {
+                print << "                EOXML";
+                  <option value="$_->[0]">$_->[1] ($_->[0])</option>
+                EOXML
+              }
+
+            print << "            EOXML";
+                </param>
+              </when>
+            EOXML
+
+          }
+      }
+    else
+      {
+        ##
+        ## Add-on selections for self-links for command types neighbor,
+        ## neighbor_history, and neighbor_score
+        ## Note, I'm not sure this would yield a valid result from elink
+        ##
+
+        #This shows $from, but this is the 'when' for db_to conditional
         print << "        EOXML";
+              <when value="$from">
+                <param name="linkname" type="select" label="Link Name">
+                  <option value="none">All Links</option>
                 </param>
               </when>
         EOXML
-
       }
 
     print << '    EOXML';
@@ -374,11 +415,12 @@ foreach my $from (sort(keys(%$h)))
   }
 
 ##
-## Add-on selections for slef-links for command types neighbor, neighbor_history, and neighbor_score
+## Add-on selections for self-links for command types neighbor,
+## neighbor_history, and neighbor_score
 ## Note, I'm not sure this would yield a valid result from elink
 ##
 
-foreach my $from (grep {!exists($h->{$_})} sort(@dblist))
+foreach my $from (grep {!exists($h->{$_})} @sorted_dblist)
   {
     print << "EOXML";
           <when value=\"$from\">
@@ -569,11 +611,6 @@ permissions.
       </when>
     </conditional>
   </xml>
-  <xml name="history_out">
-    <data format="json" name="history" label="NCBI History">
-      <yield/>
-    </data>
-  </xml>
   <xml name="citations">
     <citations>
       <citation type="bibtex">@Book{ncbiEutils,
@@ -606,11 +643,7 @@ permissions.
         --rettype $rettype
     #end if
 
-    &&
-
-    ## Change the extensions to galaxy-valid
-    c=0 &&
-    for f in downloads/*.*; do if [ "\$f" != "downloads/no_results.txt" ]; then (( c=c+1 )); mv -- "\$f" "downloads/EFetch-${rettype}-${retmode}-chunk-\${c}.${format}"; fi; done
+    --galaxy_format $format
 
     ]]>
   </token>
@@ -638,7 +671,7 @@ END   {endXML()}
 #Note: While json works for esearch and elink, the only database that supports
 #json (according to an NLM support ticket I have about this) is snp
 
-#The XML value for these formats will be "rettype-retmode-format"
+#The output_format param value for these will be "rettype-retmode-format"
 
 #db	galaxy	retmode	rettype	format_name
 __DATA__
@@ -659,27 +692,30 @@ clinvar	tabular	text	uilist	List of UIDs
 clinvar	xml	xml	clinvarset	ClinVar Set
 clinvar	xml	xml	docsum	Document summary
 clinvar	xml	xml	uilist	List of UIDs
+clinvar	xml	none	none	Full
 gds	tabular	text	uilist	List of UIDs
 gds	txt	text	summary	Summary
 gds	xml	xml	docsum	Document summary
 gds	xml	xml	uilist	List of UIDs
+gds	xml	none	none	Full
 gene	txt	text	gene_table	Gene table
 gene	tabular	text	uilist	List of UIDs
 gene	txt	asn.1	none	text ASN.1
 gene	xml	xml	docsum	Document summary
-gene	xml	xml	none	XML
+gene	xml	xml	none	Full
 gene	xml	xml	uilist	List of UIDs
 gtr	tabular	text	uilist	List of UIDs
 gtr	xml	xml	docsum	Document summary
 gtr	xml	xml	gtracc	GTR Test Report
 gtr	xml	xml	uilist	List of UIDs
+gtr	xml	none	none	Full
 homologene	fasta	text	fasta	FASTA
 homologene	tabular	text	alignmentscores	Alignment scores
 homologene	tabular	text	uilist	List of UIDs
 homologene	txt	asn.1	none	text ASN.1
 homologene	txt	text	homologene	HomoloGene
 homologene	xml	xml	docsum	Document summary
-homologene	xml	xml	none	XML
+homologene	xml	xml	none	Full
 homologene	xml	xml	uilist	List of UIDs
 mesh	tabular	text	uilist	List of UIDs
 mesh	txt	text	full	Full record
@@ -688,7 +724,7 @@ mesh	xml	xml	uilist	List of UIDs
 nlmcatalog	tabular	text	uilist	List of UIDs
 nlmcatalog	txt	text	none	Full record
 nlmcatalog	xml	xml	docsum	Document summary
-nlmcatalog	xml	xml	none	XML
+nlmcatalog	xml	xml	none	Full
 nlmcatalog	xml	xml	uilist	List of UIDs
 nuccore	binary	asn.1	none	binary ASN.1
 nuccore	fasta	text	fasta	FASTA
@@ -738,7 +774,7 @@ nucgss	xml	xml	uilist	List of UIDs
 pmc	tabular	text	uilist	List of UIDs
 pmc	txt	text	medline	MEDLINE
 pmc	xml	xml	docsum	Document summary
-pmc	xml	xml	none	XML
+pmc	xml	xml	none	FULL
 pmc	xml	xml	uilist	List of UIDs
 popset	binary	asn.1	none	binary ASN.1
 popset	fasta	text	fasta	FASTA
@@ -773,7 +809,7 @@ pubmed	txt	asn.1	none	text ASN.1
 pubmed	txt	text	abstract	Abstract
 pubmed	txt	text	medline	MEDLINE
 pubmed	xml	xml	docsum	Document summary
-pubmed	xml	xml	none	XML
+pubmed	xml	xml	none	Full
 pubmed	xml	xml	uilist	List of UIDs
 sequences	fasta	text	fasta	FASTA
 sequences	tabular	text	acc	Accession number(s)
@@ -782,6 +818,7 @@ sequences	tabular	text	uilist	List of UIDs
 sequences	txt	text	none	text ASN.1
 sequences	xml	xml	docsum	Document summary
 sequences	xml	xml	uilist	List of UIDs
+sequences	xml	none	none	Full
 snp	fasta	text	fasta	FASTA
 snp	json	json	docsum	Document summary
 snp	json	json	uilist	List of UIDs
@@ -799,5 +836,6 @@ sra	tabular	text	uilist	List of UIDs
 sra	xml	xml	docsum	Document summary
 sra	xml	xml	full	Full
 taxonomy	tabular	text	uilist	List of UIDs
+taxonomy	xml	xml	none	Full
 taxonomy	xml	xml	docsum	Document summary
 taxonomy	xml	xml	uilist	List of UIDs
