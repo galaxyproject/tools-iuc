@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 from __future__ import print_function
 
-import sys
 import argparse
+import sys
 import json
 import os
+
 import eutils
 
 

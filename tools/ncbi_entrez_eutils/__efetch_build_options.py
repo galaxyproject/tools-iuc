@@ -53,7 +53,7 @@ db_list = '''
 <DbName>sra</DbName>
 <DbName>structure</DbName>
 <DbName>taxonomy</DbName>
-<DbName>unigene</DbName>'''.replace( "<DbName>", "").replace( "</DbName>", "").split("\n")
+<DbName>unigene</DbName>'''.replace( "<DbName>", "").replace( "</DbName>", "" ).split( "\n" )
 
 
 help = '''  (all)
