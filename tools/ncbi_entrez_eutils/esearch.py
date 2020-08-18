@@ -5,8 +5,10 @@ import json
 import sys
 import eutils
 
+
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ESearch', epilog='')
@@ -45,7 +47,7 @@ if __name__ == '__main__':
     if args.history_file is not None:
         payload.update(c.get_history())
 
-    #if args.history_out is not None:
+    # if args.history_out is not None:
     if args.history_out:
         payload['usehistory'] = 'y'
 
@@ -60,7 +62,7 @@ if __name__ == '__main__':
 
     results = c.search(**payload)
 
-    #We're going to infer that rettype being uilist means convert to text format (which esearch does not do)
+    # We're going to infer that rettype being uilist means convert to text format (which esearch does not do)
     if args.retmode == 'text':
         ids = c.xmlstring2UIlist(results)
         for id in ids:

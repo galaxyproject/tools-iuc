@@ -4,10 +4,13 @@ from __future__ import print_function
 import argparse
 import json
 import os
+import sys
 import eutils
+
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ESummary', epilog='')
@@ -55,7 +58,7 @@ if __name__ == '__main__':
             tmp_payload.update(hist)
             results += [c.summary(**tmp_payload)]
     else:
-        #There is no uilist retmode
+        # There is no uilist retmode
         if args.retmode == "uilist":
             payload['retmode'] = 'xml'
         else:
@@ -65,10 +68,10 @@ if __name__ == '__main__':
         qkeys += [1]
         results += [c.summary(**payload)]
 
-    #There could be multiple sets of results if a history was supplied
+    # There could be multiple sets of results if a history was supplied
     if args.history_file is not None or args.history_xml is not None:
-        #Multiple result sets can be returned
-        #Create a directory for the output files
+        # Multiple result sets can be returned
+        # Create a directory for the output files
         current_directory = os.getcwd()
         final_directory = os.path.join(current_directory, r'downloads')
         if not os.path.exists(final_directory):
@@ -94,7 +97,7 @@ if __name__ == '__main__':
                 with open(file_path, 'w') as handle:
                     handle.write(result)
     else:
-        #When rettype is uilist, convert to text format (which elink does not do)
+        # When rettype is uilist, convert to text format (which elink does not do)
         if args.retmode == 'json':
             json_data = c.jsonstring2jsondata(results[0])
             print(json.dumps(json_data, indent=4))

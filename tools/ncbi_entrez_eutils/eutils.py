@@ -30,7 +30,7 @@ class Client(object):
         if history_file is not None:
             with open(history_file, 'r') as handle:
                 data = json.loads(handle.read())
-                #esearch
+                # esearch
                 if 'QueryKey' in data:
                     self.query_key = data['QueryKey']
                     self.webenv = data['WebEnv']
@@ -49,21 +49,20 @@ class Client(object):
                     self.query_keys = []
                     self.query_keys += [data['esearchresult']['querykey']]
                     self.using_history = True
-                #elink
+                # elink
                 elif 'linksets' in data:
-                    #elink for cmd=neighbor_history
+                    # elink for cmd=neighbor_history
                     if 'linksetdbhistories' in data['linksets'][0]:
                         self.webenv = data['linksets'][0]['webenv']
                         self.query_key = data['linksets'][0]['linksetdbhistories'][0]['querykey']
                         self.using_history = True
-                    #elink for cmd=neighbor|neighbor_score
+                    # elink for cmd=neighbor|neighbor_score
                     elif 'linksetdbs' in data['linksets'][0]:
                         self.using_parsedids = True
-                        #print(type(data['linksets'][0]['linksetdbs'][0]['links'][0]))
-                        #elink for neighbor
+                        # elink for neighbor
                         if isinstance(data['linksets'][0]['linksetdbs'][0]['links'][0], str):
                             self.idstr = ','.join(data['linksets'][0]['linksetdbs'][0]['links'])
-                        #elink for neighbor_score
+                        # elink for neighbor_score
                         else:
                             self.idstr = ','.join(map(lambda x: x['id'], data['linksets'][0]['linksetdbs'][0]['links']))
                     if 'linksetdbhistories' in data['linksets'][0]:
@@ -75,7 +74,6 @@ class Client(object):
                 else:
                     print("No match")
                     print(data)
-
 
     def get_history(self):
         if self.using_history:
@@ -147,8 +145,6 @@ class Client(object):
         history = {}
         with open(xml_file, 'r') as handle:
             xml_str = handle.read()
-            #print("Input xml:")
-            #print(xml_str)
             history = self.extract_history_from_xml(xml_str)
         return history
 
@@ -158,19 +154,15 @@ class Client(object):
             history = {}
             gotit = 0
 
-            #New code doesn't work for esearch input to elink - Parsing esearch output (reading an xml history) does not work as an elink input payload, which needs 'QueryKey'.  Notably, if parsing elink output as input to elink, conversion of xml 'QueryKey' to 'query_key' is needed for some reason.  Also Notably, efetch returned results using the 'QueryKey' key
-            #For esearch xml history results
+            # New code doesn't work for esearch input to elink - Parsing esearch output (reading an xml history) does not work as an elink input payload, which needs 'QueryKey'.  Notably, if parsing elink output as input to elink, conversion of xml 'QueryKey' to 'query_key' is needed for some reason.  Also Notably, efetch returned results using the 'QueryKey' key
+            # For esearch xml history results
             if 'QueryKey' in parsed_data:
                 history['query_key'] = parsed_data['QueryKey']
                 gotit += 1
             if 'WebEnv' in parsed_data:
                 history['WebEnv'] = parsed_data['WebEnv']
                 gotit += 1
-            #for key in ('QueryKey', 'WebEnv'):
-            #    if key in parsed_data:
-            #        history[key] = parsed_data[key]
-            #        gotit += 1
-            #For elink xml history results
+            # For elink xml history results
             if gotit < 2:
                 if 'LinkSetDbHistory' in parsed_data[0]:
                     if 'QueryKey' in parsed_data[0]['LinkSetDbHistory'][0]:
@@ -181,10 +173,10 @@ class Client(object):
                     gotit += 1
                 if gotit < 2:
                     raise Exception("Could not find WebEnv in xml response")
-        except:
+        except Exception as e:
             print("Error parsing...")
             print(xml_str)
-            raise
+            raise(e)
 
         return history
 
@@ -192,8 +184,6 @@ class Client(object):
         histories = []
         with open(xml_file, 'r') as handle:
             xml_str = handle.read()
-            #print("Input xml:")
-            #print(xml_str)
             histories = self.extract_histories_from_xml(xml_str)
         return histories
 
@@ -203,8 +193,8 @@ class Client(object):
             histories = []
             gotit = 0
 
-            #New code doesn't work for esearch input to elink - Parsing esearch output (reading an xml history) does not work as an elink input payload, which needs 'QueryKey'.  Notably, if parsing elink output as input to elink, conversion of xml 'QueryKey' to 'query_key' is needed for some reason.  Also Notably, efetch returned results using the 'QueryKey' key
-            #For esearch xml history results
+            # New code doesn't work for esearch input to elink - Parsing esearch output (reading an xml history) does not work as an elink input payload, which needs 'QueryKey'.  Notably, if parsing elink output as input to elink, conversion of xml 'QueryKey' to 'query_key' is needed for some reason.  Also Notably, efetch returned results using the 'QueryKey' key
+            # For esearch xml history results
             if 'QueryKey' in parsed_data:
                 tmp_hist = {}
                 tmp_hist['query_key'] = parsed_data['QueryKey']
@@ -214,29 +204,24 @@ class Client(object):
                 gotit += 1
             if gotit == 2:
                 histories += [tmp_hist]
-            #For elink xml history results
+            # For elink xml history results
             else:
                 gotenv = 0
                 if 'LinkSetDbHistory' in parsed_data[0]:
                     for query in parsed_data[0]['LinkSetDbHistory']:
                         tmp_hist = {}
                         if 'WebEnv' in parsed_data[0]:
-                            getenv = 1
                             tmp_hist['WebEnv'] = parsed_data[0]['WebEnv']
                         if 'QueryKey' in query:
                             tmp_hist['query_key'] = query['QueryKey']
-                            #print("New hist:")
-                            #print(tmp_hist)
                             histories += [tmp_hist]
                             gotit += 1
                 if gotit == 0 and gotenv == 0:
                     raise Exception("Could not find WebEnv in xml response")
-                #print("Parsed histories:")
-                #print(histories)
-        except:
+        except Exception as e:
             print("Error parsing...")
             print(xml_str)
-            raise
+            raise(e)
 
         return histories
 
@@ -271,29 +256,22 @@ class Client(object):
     def jsondata2UIlist(cls, json_data):
         merged_ids = []
 
-        #try:
-        #Always prioritize the result links as opposed to the search links
-        #elink - retrieves linked IDs for cmd=neighbor|neighbor_score only
+        # Always prioritize the result links as opposed to the search links
+        # elink - retrieves linked IDs for cmd=neighbor|neighbor_score only
         if 'linksets' in json_data:
             for lnk in json_data['linksets'][0]['linksetdbs']:
                 if 'links' in lnk:
                     for id in lnk['links']:
-                        #elink for neighbor
+                        # elink for neighbor
                         if isinstance(id, str):
                             merged_ids.append(id)
-                        #elink for neighbor_score
+                        # elink for neighbor_score
                         else:
                             merged_ids.append(id['id'])
-        #esearch
+        # esearch
         elif 'esearchresult' in json_data:
             for id in json_data['esearchresult']['idlist']:
                 merged_ids += [id]
-        ##If it was not elink output, we will end up here
-        #except:
-        #    #esearch
-        #    if 'esearchresult' in json_data:
-        #        for id in json_data['esearchresult']['idlist']:
-        #            merged_ids += [id]
 
         return merged_ids
 
@@ -319,23 +297,23 @@ class Client(object):
         merged_ids = []
 
         try:
-            #Always prioritize the result links as opposed to the search links
-            #elink - retrieves linked IDs for cmd=neighbor|neighbor_score only
+            # Always prioritize the result links as opposed to the search links
+            # elink - retrieves linked IDs for cmd=neighbor|neighbor_score only
             if 'LinkSetDb' in xml_data[0]:
                 for lnk in xml_data[0]['LinkSetDb'][0]['Link']:
-                    #elink for neighbor
+                    # elink for neighbor
                     if isinstance(lnk, str):
                         merged_ids.append(lnk)
-                    #elink for neighbor_score
+                    # elink for neighbor_score
                     else:
                         merged_ids.append(lnk['Id'])
-            #esearch
+            # esearch
             elif 'IdList' in xml_data:
                 for id in xml_data['IdList']:
                     merged_ids += [id]
-        #If it was not elink output, we will end up here
-        except:
-            #esearch
+        # If it was not elink output, we will end up here
+        except Exception:
+            # esearch
             if 'IdList' in xml_data:
                 for id in xml_data['IdList']:
                     merged_ids += [id]
@@ -365,9 +343,5 @@ class Client(object):
             tmp_ids = cls.jsonfile2UIlist(json_file)
             for id in tmp_ids:
                 merged_ids += [id]
-
-        # Exception handled here for uniformity
-        #if len(merged_ids) == 0 and history_file is None:
-        #    raise Exception("No query IDs found in input")
 
         return merged_ids

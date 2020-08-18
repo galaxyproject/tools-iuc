@@ -7,8 +7,10 @@ import json
 import argparse
 import eutils
 
+
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
+
 
 def handleEfetchException(e, db, payload):
     eprint('No results returned. This could either be due to no records matching the supplied IDs for the query database or it could be a an error due to invalid parameters.')
@@ -18,7 +20,7 @@ def handleEfetchException(e, db, payload):
     eprint(json.dumps(payload, indent=4))
     eprint()
 
-    #Create a file in the downloads folder so that the user can access run information
+    # Create a file in the downloads folder so that the user can access run information
     current_directory = os.getcwd()
     final_directory = os.path.join(current_directory, r'downloads')
     if not os.path.exists(final_directory):
@@ -30,6 +32,7 @@ def handleEfetchException(e, db, payload):
     file_path = os.path.join('downloads', 'no_results.txt')
     with open(file_path, 'w') as handle:
         handle.write('No results')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='EFetch', epilog='')
@@ -75,7 +78,7 @@ if __name__ == '__main__':
                 chunk = 0
                 for file in glob.glob('downloads/EFetch *'):
                     chunk += 1
-                    os.rename(file,'downloads/EFetch-%s-%s-querykey%s-chunk%s.%s' % (args.rettype, args.retmode, qkey, chunk, args.galaxy_format))
+                    os.rename(file, 'downloads/EFetch-%s-%s-querykey%s-chunk%s.%s' % (args.rettype, args.retmode, qkey, chunk, args.galaxy_format))
 
             except Exception as e:
                 problems += 1
@@ -108,7 +111,7 @@ if __name__ == '__main__':
             chunk = 0
             for file in glob.glob('downloads/EFetch *'):
                 chunk += 1
-                os.rename(file,'downloads/EFetch-%s-%s-chunk%s.%s' % (args.rettype, args.retmode, chunk, args.galaxy_format))
+                os.rename(file, 'downloads/EFetch-%s-%s-chunk%s.%s' % (args.rettype, args.retmode, chunk, args.galaxy_format))
 
         except Exception as e:
             handleEfetchException(e, args.db, payload)

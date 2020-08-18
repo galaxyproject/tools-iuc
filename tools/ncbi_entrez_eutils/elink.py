@@ -7,8 +7,10 @@ import json
 import os
 import eutils
 
+
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='EFetch', epilog='')
@@ -18,12 +20,10 @@ if __name__ == '__main__':
                                         'neighbor_history', 'acheck', 'ncheck', 'lcheck',
                                         'llinks', 'llinkslib', 'prlinks'],
                         help='ELink command mode')
-    # Only used in case of neighbor_history
-    #parser.add_argument('--history_out', type=argparse.FileType('w'),
-    #                    help='Output history file', default='-')
 
     parser.add_argument('--user_email', help="User email")
     parser.add_argument('--admin_email', help="Admin email")
+
     # ID Sources
     parser.add_argument('--id_xml', help='list of ids in an xml file as returned by esearch or elink')
     parser.add_argument('--id_json', help='list of ids in a json file as returned by esearch or elink')
@@ -74,7 +74,7 @@ if __name__ == '__main__':
             tmp_payload.update(hist)
             results += [c.link(**tmp_payload)]
     else:
-        #There is no uilist retmode
+        # There is no uilist retmode
         if args.retmode == "uilist":
             payload['retmode'] = 'xml'
         else:
@@ -84,17 +84,17 @@ if __name__ == '__main__':
         qkeys += [1]
         results += [c.link(**payload)]
 
-    #There could be multiple sets of results if a history was supplied
+    # There could be multiple sets of results if a history was supplied
     if args.history_file is not None or args.history_xml is not None:
-        #Multiple result sets can be returned
-        #Create a directory for the output files
+        # Multiple result sets can be returned
+        # Create a directory for the output files
         current_directory = os.getcwd()
         final_directory = os.path.join(current_directory, r'downloads')
         if not os.path.exists(final_directory):
             os.makedirs(final_directory)
 
         eprint("Writing files:")
-        #When rettype is uilist, convert to text format (which elink does not do)
+        # When rettype is uilist, convert to text format (which elink does not do)
         count = 0
         if args.retmode == 'uilist':
             for result in results:
@@ -125,7 +125,7 @@ if __name__ == '__main__':
                 with open(file_path, 'w') as handle:
                     handle.write(result)
     else:
-        #When rettype is uilist, convert to text format (which elink does not do)
+        # When rettype is uilist, convert to text format (which elink does not do)
         if args.retmode == 'uilist':
             ids = c.xmlstring2UIlist(results[0])
             for id in ids:
