@@ -1,0 +1,133 @@
+<tool id="vardict" name="VarDict" version="@WRAPPER_VERSION@">
+    <description>calls SNVs and indels for tumour-normal pairs</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+        <requirement type="package" version="5.0.1">gawk</requirement>
+        <requirement type="package" version="5.18.1">perl</requirement>
+        <requirement type="package" version="3.2.1">R</requirement>
+        <requirement type="package" version="@TOOL_VERSION@">vardictjava</requirement>
+        <!--<requirement type="set_environment">VARDICTJAVA_ROOT_DIR</requirement>-->
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## LINK BAM INDEX
+        ln -s $normal ./normal.bam &&
+        ln -s $normal.metadata.bam_index ./normal.bam.bai &&
+        ln -s $tumour tumor.bam &&
+        ln -s $tumour.metadata.bam_index ./tumor.bam.bai &&
+
+        ## INDEX REFERENCE FASTA FILE IF FROM HISTORY
+        #if $reference_source.reference_source_selector == "history":
+            ln -s $reference_source.ref_file ref.fa &&
+            samtools faidx ref.fa &&
+        #else if $reference_source.reference_source_selector == "cached"
+            ln -s $reference_source.ref_file.fields.path ref.fa &&
+            ln -s ${reference_source.ref_file.fields.path}.fai ref.fa.fai &&
+        #end if
+
+        ## BUILD BED FILE FROM CHROMOSOME LIST
+        #if $interval_file:
+            grep -w -f $interval_file ref.fa.fai > chromosomes.fa.fai &&
+        #else
+            ln -s ref.fa.fai chromosomes.fa.fai &&
+        #end if
+        awk 'BEGIN {FS=OFS="\t"} {print $1, "1", $2}' chromosomes.fa.fai > regions.bed &&
+
+        ## BUILD VARDICT COMMAND
+        vardictjava
+        -b "./tumor.bam|./normal.bam"
+        -G ref.fa
+        -z
+        -th \${GALAXY_SLOTS:-1}
+
+        ## ADVANCED OPTIONS
+        -f $advancedsettings.f
+        -k $advancedsettings.k
+        -r $advancedsettings.r
+        -B $advancedsettings.B
+        -Q $advancedsettings.Q
+        -q $advancedsettings.q
+        -m $advancedsettings.m
+        -T $advancedsettings.T
+        -X $advancedsettings.X
+        -P $advancedsettings.P
+        -o $advancedsettings.o
+        -O $advancedsettings.O
+        -V $advancedsettings.V
+
+        ## CONSTRUCT VCF TABLE
+        -c 1 -S 2 -E 3 -g 4
+
+        ## REGION SPECIFICATION (ENTIRE CHROMOSOMES)
+        regions.bed
+
+        ## POSTPROCESSING
+        ## | \$VARDICTJAVA_ROOT_DIR/VarDict/testsomatic.R
+        ## | \$VARDICTJAVA_ROOT_DIR/VarDict/var2vcf_somatic.pl
+        ## -f $advancedsettings.f
+
+        ## > $all_variants;
+
+        ## Filter for PASS variants
+        ## awk 'BEGIN {FS=OFS="\t"} substr(\$0, 1, 1) == "#" {print \$0; next} \$7 == "PASS" {print \$0}' $all_variants > $passed_variants
+    ]]></command>
+    <inputs>
+        <conditional name="reference_source">
+            <param name="reference_source_selector" type="select" label="Choose the source for the reference genome file">
+                <option value="cached" selected="True">Use a built-in genome</option>
+                <option value="history">Use a genome from the history</option>
+            </param>
+            <when value="cached">
+                <param name="ref_file" type="select" label="Reference Genome File">
+                    <options from_data_table="fasta_indexes"/>
+                </param>
+            </when>
+            <when value="history">
+                <param name="ref_file" format="fasta" type="data" label="Reference Genome File" />
+            </when>
+        </conditional>
+        <param name="normal" type="data" format="bam" label="Normal Alignment File" />
+        <param name="tumour" type="data" format="bam" label="Tumour Alignment File" />
+        <param name="interval_file" type="data" format="txt" optional="true" label="Chromosomes" help="Restrict SNV calls to the following list of chromosomes (one per line)" />
+        <section name="advancedsettings" title="Advanced Settings" expanded="False">
+            <param name="f" type="float" value="0.01" label="Minimum variant allele fraction" />
+            <param name="k" type="integer" value="1" label="Set to 0 to disable local realignment" />
+            <param name="r" type="integer" value="2" label="Minimum number of reads supporting the variant" />
+            <param name="B" type="integer" value="2" label="Minimum number of reads for determining strand bias" />
+            <param name="Q" type="integer" value="1" label="Minimum mapping quality for reads to be considered" />
+            <param name="m" type="integer" value="8" label="Maximum number of mismatches before a read is no longer considered (gaps are not counted as mismatches)" />
+            <param name="T" type="integer" value="0" label="Maximum number of bases considered from 5' end (default: 0, no trimming)" />
+            <param name="X" type="integer" value="3" label="Maximum number of extended based after indel to look for mismatches" />
+            <param name="P" type="integer" value="5" label="Maximum average read position for a variant to be considered." />
+            <param name="q" type="integer" value="25" label="Minimum phred score for a base to be considered a good call" />
+            <param name="o" type="float" value="1.5" label="Minimum quality ratio [(good_quality_reads)/(bad_quality_reads+0.5)] (based on definition of a good call; see previous option)" />
+            <param name="O" type="float" value="0" label="Minimum average mapping quality" />
+            <param name="V" type="float" value="0.05" label="Maximum allowed variant allele fraction in the normal sample" />
+        </section>
+    </inputs>
+    <outputs>
+        <data name="all_variants" format="vcf" label="VarDict SNVs and Indels (All)" />
+        <data name="passed_variants" format="vcf" label="VarDict SNVs and Indels (Passed)" />
+    </outputs>
+    <help>
+        <![CDATA[
+        https://github.com/AstraZeneca-NGS/VarDictJava
+        ]]>
+    </help>
+    <citations>
+        <citation type="bibtex">
+            @article{
+            Lai20062016,
+            title = {VarDict: a novel and versatile variant caller for next-generation sequencing in cancer research},
+            author = {Lai, Zhongwu and Markovets, Aleksandra and Ahdesmaki, Miika and Chapman, Brad and Hofmann, Oliver and McEwen, Robert and Johnson, Justin and Dougherty, Brian and Barrett, J. Carl and Dry, Jonathan R.},
+            journal = {Nucleic Acids Research}
+            volume = {44},
+            number = {11},
+            pages = {e108},
+            year = {2016},
+            doi = {10.1093/nar/gkw227}
+            }
+        </citation>
+    </citations>
+</tool>
