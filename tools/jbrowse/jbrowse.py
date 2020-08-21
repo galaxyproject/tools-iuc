@@ -322,8 +322,7 @@ def metadata_from_node(node):
     metadata['tool_tool'] = '<a target="_blank" href="{galaxy}/datasets/{encoded_id}/show_params">{tool_id}</a>'.format(
         galaxy=GALAXY_INFRASTRUCTURE_URL,
         encoded_id=metadata['dataset_id'],
-        tool_id=metadata['tool_tool_id'],
-        tool_version=metadata['tool_tool_version'],
+        tool_id=metadata['tool_tool_id']
     )
     return metadata
 
