@@ -323,14 +323,14 @@ def metadata_from_node(node):
         galaxy=GALAXY_INFRASTRUCTURE_URL,
         encoded_id=metadata['dataset_id'],
         tool_id=metadata['tool_tool_id'],
-        tool_version=metadata['tool_tool_version'],
+        # tool_version=metadata['tool_tool_version'],
     )
     return metadata
 
 
 class JbrowseConnector(object):
 
-    def __init__(self, jbrowse, outdir, genomes, standalone=False, gencode=1):
+    def __init__(self, jbrowse, outdir, genomes, standalone=None, gencode=1):
         self.cs = ColorScaling()
         self.jbrowse = jbrowse
         self.outdir = outdir
@@ -339,8 +339,10 @@ class JbrowseConnector(object):
         self.gencode = gencode
         self.tracksToIndex = []
 
-        if standalone:
+        if standalone == "complete":
             self.clone_jbrowse(self.jbrowse, self.outdir)
+        elif standalone == "minimal":
+            self.clone_jbrowse(self.jbrowse, self.outdir, minimal=True)
         else:
             try:
                 os.makedirs(self.outdir)
@@ -390,6 +392,10 @@ class JbrowseConnector(object):
             log.error(output)
             log.error(err)
             raise RuntimeError("Command failed with exit code %s" % (retcode))
+
+    def subprocess_check_output(self, command):
+        log.debug('cd %s && %s', self.outdir, ' '.join(command))
+        return subprocess.check_output(command, cwd=self.outdir)
 
     def _jbrowse_bin(self, command):
         return os.path.realpath(os.path.join(self.jbrowse, 'bin', command))
@@ -501,7 +507,7 @@ class JbrowseConnector(object):
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
-        cmd = ['ln', '-s', data, dest]
+        cmd = ['cp', data, dest]
         self.subprocess_check_call(cmd)
 
         url = os.path.join('raw', trackData['label'] + '.bw')
@@ -1069,23 +1075,31 @@ class JbrowseConnector(object):
                 with open(os.path.join(self.outdir, 'data', 'trackList2.json'), 'w') as handle:
                     json.dump(trackListJson, handle)
 
-    def clone_jbrowse(self, jbrowse_dir, destination):
+    def clone_jbrowse(self, jbrowse_dir, destination, minimal=False):
         """Clone a JBrowse directory into a destination directory.
         """
-        # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
-        # unlike copytree
-        cmd = ['cp', '-r', os.path.join(jbrowse_dir, '.'), destination]
-        log.debug(' '.join(cmd))
-        subprocess.check_call(cmd)
+        if minimal:
+            # Should be the absolute minimum required for JBrowse to function.
+            interesting = [
+                'dist', 'img', 'index.html', 'jbrowse.conf', 'jbrowse_conf.json', 'webpack.config.js'
+            ]
+            for i in interesting:
+                cmd = ['cp', '-r', os.path.join(jbrowse_dir, i), destination]
+                self.subprocess_check_call(cmd)
+        else:
+            # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
+            # unlike copytree
+            cmd = ['cp', '-r', os.path.join(jbrowse_dir, '.'), destination]
+            self.subprocess_check_call(cmd)
+
         cmd = ['mkdir', '-p', os.path.join(destination, 'data', 'raw')]
-        log.debug(' '.join(cmd))
-        subprocess.check_call(cmd)
+        self.subprocess_check_call(cmd)
 
         # http://unix.stackexchange.com/a/38691/22785
         # JBrowse releases come with some broken symlinks
         cmd = ['find', destination, '-type', 'l', '-xtype', 'l']
-        log.debug(' '.join(cmd))
-        symlinks = subprocess.check_output(cmd)
+        symlinks = self.subprocess_check_output(cmd)
+
         for i in symlinks:
             try:
                 os.unlink(i)
@@ -1099,7 +1113,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
-    parser.add_argument('--standalone', help='Standalone mode includes a copy of JBrowse', action='store_true')
+    parser.add_argument('--standalone', choices=['complete', 'minimal', 'data'], help='Standalone mode includes a copy of JBrowse')
     parser.add_argument('--version', '-V', action='version', version="%(prog)s 0.8.0")
     args = parser.parse_args()
 
