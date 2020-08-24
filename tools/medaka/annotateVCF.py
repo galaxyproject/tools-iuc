@@ -12,7 +12,8 @@
 # 08/24/2020 - Nathan P. Roach, natproach@gmail.com
 
 import sys
-from math import log10, isnan
+from math import isnan, log10
+
 from scipy.stats import fisher_exact
 
 
