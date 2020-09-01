@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+eval "$(conda shell.bash hook)"
+conda activate __stacks@2.52
+
+
+
 
 mkdir stacks_outputs
-
 denovo_map.pl --samples demultiplexed --popmap denovo_map/popmap_cstacks.tsv -o stacks_outputs --paired  && 
 gunzip -c stacks_outputs/catalog.calls > stacks_outputs/catalog.calls.vcf
 rm stacks_outputs/catalog.calls

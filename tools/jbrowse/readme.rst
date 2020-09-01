@@ -25,6 +25,10 @@ likely to change at any time! Beware. ;)
 History
 =======
 
+- 1.16.8+galaxy0
+
+    - UPDATED to JBrowse 1.16.8
+
 - 1.16.5+galaxy0
 
     - UPDATED to JBrowse 1.16.5
