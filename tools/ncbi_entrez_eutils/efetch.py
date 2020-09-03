@@ -29,7 +29,7 @@ def handleEfetchException(e, db, payload):
         os.makedirs(final_directory)
 
     print('The following files were downloaded:')
-    print(os.listdir('downloads'))
+    print(os.listdir(final_directory))
 
     file_path = os.path.join('downloads', 'no_results.txt')
     with open(file_path, 'w') as handle:
