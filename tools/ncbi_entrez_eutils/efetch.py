@@ -77,9 +77,7 @@ if __name__ == '__main__':
             try:
                 c.fetch(args.db, **tmp_payload)
 
-                chunk = 0
-                for file in glob.glob('downloads/EFetch *'):
-                    chunk += 1
+                for chunk, file in enumerate(glob.glob('downloads/EFetch *')):
                     os.rename(file, 'downloads/EFetch-%s-%s-querykey%s-chunk%s.%s' % (args.rettype, args.retmode, qkey, chunk, args.galaxy_format))
 
             except Exception as e:
