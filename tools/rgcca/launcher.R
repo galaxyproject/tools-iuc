@@ -10,11 +10,12 @@
 
 rm(list = ls())
 graphics.off()
+separator <- nmark <- blocks <- NULL
 
 ########## Arguments ##########
 
 # Parse the arguments from a command line launch
-getArgs <- function() {
+get_args <- function() {
     option_list <- list(
         # File parameters
         make_option(
@@ -248,10 +249,10 @@ getArgs <- function() {
             help = "Path for the analysis results in RData [default: %default]"
         )
     )
-    return(OptionParser(option_list = option_list))
+    return(optparse::OptionParser(option_list = option_list))
 }
 
-char_to_list <- function(x){
+char_to_list <- function(x) {
     strsplit(gsub(" ", "", as.character(x)), ",")[[1]]
 }
 
@@ -294,21 +295,8 @@ check_arg <- function(opt) {
         opt$separator <- separators[opt$separator]
     }
 
-    # if (! opt$init %in% 1:2 )
-    # stop(paste0('--init must be 1 or 2 (1: Singular Value
-    # Decompostion , 2: random) [by default: 1], not ', opt$init, '.'),
-    #  exit_code = 124)
-    # else
-    # opt$init <- ifelse(opt$init == 1, 'svd', 'random')
-    
-    
-    # files <- c("connection", "group")
-    # for (o in files)
-    #     if (!is.null(opt[[o]]))
-    #         check_file(opt[[o]])
-
     check_integer("nmark", opt$nmark, min = 2)
-    
+
     for (x in c("ncomp", "penalty"))
         opt[[x]] <- char_to_list(opt[[x]])
 
@@ -318,12 +306,12 @@ check_arg <- function(opt) {
 post_check_arg <- function(opt, rgcca) {
 # Check the validity of the arguments after loading the blocks opt : an
 # optionParser object blocks : a list of matrix
- 
+
     for (x in c("block", "block_y")) {
         if (!is.null(opt[[x]])) {
             if (opt[[x]] == 0)
                 opt[[x]] <- length(rgcca$call$blocks)
-            opt[[x]] <- check_blockx(x, opt[[x]], rgcca$call$blocks)
+            opt[[x]] <- RGCCA:::check_blockx(x, opt[[x]], rgcca$call$blocks)
         }
     }
 
@@ -340,7 +328,7 @@ check_integer <- function(x, y = x, type = "scalar", float = FALSE, min = 1) {
 
     if (is.null(y))
         y <- x
-    
+
     if (type %in% c("matrix", "data.frame"))
         y_temp <- y
 
@@ -351,20 +339,20 @@ check_integer <- function(x, y = x, type = "scalar", float = FALSE, min = 1) {
 
     if (!is(y, "numeric"))
         stop(paste(x, "should be numeric."))
-    
+
     if (type == "scalar" && length(y) != 1)
         stop(paste(x, "should be of length 1."))
 
     if (!float)
         y <- as.integer(y)
-    
+
     if (all(y < min))
         stop(paste0(x, " should be higher than or equal to ", min, "."))
 
     if (type %in% c("matrix", "data.frame"))
         y <- matrix(
-            y, 
-            dim(y_temp)[1], 
+            y,
+            dim(y_temp)[1],
             dim(y_temp)[2],
             dimnames = dimnames(y_temp)
         )
@@ -423,7 +411,7 @@ load_libraries(c("ggplot2", "optparse", "scales", "igraph", "MASS", "rlang", "De
 try(load_libraries("ggrepel"), silent = TRUE)
 
 tryCatch(
-    opt <- check_arg(parse_args(getArgs())),
+    opt <- check_arg(parse_args(get_args())),
     error = function(e) {
         if (length(grep("nextArg", e[[1]])) != 1)
             stop(e[[1]], exit_code = 140)
@@ -435,13 +423,12 @@ tryCatch(
 setwd(opt$directory)
 
 all_funcs <- unclass(lsf.str(envir = asNamespace("RGCCA"), all = T))
-for(i in all_funcs) 
-    eval(parse(text=paste0(i, '<-RGCCA:::', i)))
+for (i in all_funcs)
+    eval(parse(text = paste0(i, "<-RGCCA:::", i)))
 
 # Set missing parameters by default
 opt$header <- !("header" %in% names(opt))
 opt$superblock <- !("superblock" %in% names(opt))
-# opt$bias <- !('bias' %in% names(opt))
 opt$scale <- !("scale" %in% names(opt))
 opt$text <- !("text" %in% names(opt))
 
@@ -469,13 +456,13 @@ tryCatch({
     }else {
         func[["tau"]] <- opt$penalty
     }
-    
+
     rgcca_out <- eval(as.call(func))
-    
+
     opt <- post_check_arg(opt, rgcca_out)
-    
+
     ########## Plot ##########
-    
+
     if (rgcca_out$call$ncomp[opt$block] == 1 && is.null(opt$block_y)) {
         warning("With a number of component of 1, a second block should be chosen to perform an individual plot")
     } else {
@@ -493,7 +480,7 @@ tryCatch({
         )
         save_plot(opt$o1, individual_plot)
     }
-    
+
     if (rgcca_out$call$ncomp[opt$block] > 1) {
         (
             corcircle <- plot_var_2D(
@@ -507,7 +494,7 @@ tryCatch({
         )
         save_plot(opt$o2, corcircle)
     }
-    
+
     top_variables <- plot_var_1D(
             rgcca_out,
             opt$compx,
@@ -520,15 +507,15 @@ tryCatch({
     # Average Variance Explained
     (ave <- plot_ave(rgcca_out))
     save_plot(opt$o4, ave)
-    
+
     # Creates design scheme
     design <- function() plot_network(rgcca_out)
     save_plot(opt$o5, design)
-    
+
     save_ind(rgcca_out, opt$compx, opt$compy, opt$o6)
     save_var(rgcca_out, opt$compx, opt$compy, opt$o7)
     save(rgcca_out, file = opt$o8)
-    
+
     }, error = function(e){
         if (class(e)[1] %in% c("simpleError", "error", "condition" ))
             status <<- 1
