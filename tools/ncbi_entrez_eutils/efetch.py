@@ -4,8 +4,8 @@ from __future__ import print_function
 import argparse
 import glob
 import json
-import os
 import logging
+import os
 
 
 import eutils
