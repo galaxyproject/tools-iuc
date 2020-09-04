@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 
+
 import eutils
 
 
@@ -59,8 +60,7 @@ if __name__ == '__main__':
         if getattr(args, attr, None) is not None:
             payload[attr] = getattr(args, attr)
 
-    eprint("Payload used for query:")
-    eprint(json.dumps(payload, indent=4))
+    eprint("Payload used for query:", json.dumps(payload, indent=4))
 
     results = c.search(**payload)
 
