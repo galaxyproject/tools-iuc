@@ -37,11 +37,9 @@ if __name__ == '__main__':
 
     c = eutils.Client(history_file=args.history_file, user_email=args.user_email, admin_email=args.admin_email)
 
-    if args.retmax is not None:
-        if args.retmax > 100000:
-            max = 100000
-        else:
-            max = args.retmax
+    max_retmax = 100000
+    min_retmax = 1
+    max = max(min(args.retmax, max_retmax), min_retmax)
 
     payload = {
         'db': args.db,
