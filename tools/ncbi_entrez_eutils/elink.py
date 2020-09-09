@@ -1,16 +1,14 @@
 #!/usr/bin/env python
-from __future__ import print_function
 
 import argparse
 import json
+import logging
 import os
-import sys
 
 import eutils
 
 
-def eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+logging.basicConfig(level=logging.DEBUG)
 
 
 if __name__ == '__main__':
@@ -94,7 +92,7 @@ if __name__ == '__main__':
         if not os.path.exists(final_directory):
             os.makedirs(final_directory)
 
-        eprint("Writing files:")
+        logging.info("Writing files:")
         # When rettype is uilist, convert to text format (which elink does not do)
         count = 0
         if args.retmode == 'uilist':
@@ -103,7 +101,7 @@ if __name__ == '__main__':
                 count += 1
                 ids = c.xmlstring2UIlist(result)
                 file_path = os.path.join('downloads', '%s-querykey%s.tabular' % (args.db, qkey))
-                eprint('%s.tabular' % (args.db))
+                logging.info('%s.tabular' % (args.db))
                 with open(file_path, 'w') as handle:
                     for id in ids:
                         handle.write(id)
@@ -113,7 +111,7 @@ if __name__ == '__main__':
                 qkey = qkeys[count]
                 count += 1
                 file_path = os.path.join('downloads', '%s-querykey%s.json' % (args.db, qkey))
-                eprint('%s-link%s.json' % (args.db, count))
+                logging.info('%s-link%s.json' % (args.db, count))
                 with open(file_path, 'w') as handle:
                     json_data = c.jsonstring2jsondata(result)
                     handle.write(json.dumps(json_data, indent=4))
@@ -122,7 +120,7 @@ if __name__ == '__main__':
                 qkey = qkeys[count]
                 count += 1
                 file_path = os.path.join('downloads', '%s-querykey%s.xml' % (args.db, qkey))
-                eprint('%s-link%s.xml' % (args.db, count))
+                logging.info('%s-link%s.xml' % (args.db, count))
                 with open(file_path, 'w') as handle:
                     handle.write(result)
     else:

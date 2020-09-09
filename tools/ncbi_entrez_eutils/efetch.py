@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-from __future__ import print_function
 
 import argparse
 import glob
@@ -29,6 +28,24 @@ def handleEfetchException(e, db, payload):
     file_path = os.path.join('downloads', 'no_results.txt')
     with open(file_path, 'w') as handle:
         handle.write('No results')
+
+
+def localFetch(db, gformat, newname, **payload):
+    problem = None
+    try:
+        c.fetch(db, **payload)
+
+        for chunk, file in enumerate(glob.glob('downloads/EFetch *')):
+            os.rename(file, '%s%s.%s' % (newname, chunk + 1, gformat))
+
+    except Exception as e:
+        problem = e
+        handleEfetchException(e, db, payload)
+    else:
+        print('The following files were downloaded:')
+        print(os.listdir('downloads'))
+
+    return problem
 
 
 if __name__ == '__main__':
@@ -64,24 +81,13 @@ if __name__ == '__main__':
         else:
             input_histories = c.extract_histories_from_xml_file(args.history_xml)
 
-        problems = 0
+        problem = None
         for hist in input_histories:
             qkey = hist['query_key']
             tmp_payload = payload
             tmp_payload.update(hist)
-            try:
-                c.fetch(args.db, **tmp_payload)
-
-                for chunk, file in enumerate(glob.glob('downloads/EFetch *')):
-                    os.rename(file, 'downloads/EFetch-%s-%s-querykey%s-chunk%s.%s' % (args.rettype, args.retmode, qkey, chunk, args.galaxy_format))
-
-            except Exception as e:
-                problems += 1
-                latest = e
-                handleEfetchException(e, args.db, payload)
-            else:
-                print('The following files were downloaded:')
-                print(os.listdir('downloads'))
+            newname = 'downloads/EFetch-%s-%s-querykey%s-chunk' % (args.rettype, args.retmode, qkey)
+            problem = localFetch(args.db, args.galaxy_format, newname, **tmp_payload)
 
             if os.path.exists('downloads'):
                 os.rename('downloads', 'downloads-qkey%s' % (qkey))
@@ -93,24 +99,11 @@ if __name__ == '__main__':
             file = os.path.basename(relpath)
             os.rename(relpath, 'downloads/%s' % (file))
 
-        if problems > 0:
-            raise(latest)
+        if problem is not None:
+            raise(problem)
 
     else:
         merged_ids = c.parse_ids(args.id_list, args.id, args.history_file, args.id_xml, args.id_json)
         payload['id'] = ','.join(merged_ids)
-
-        try:
-            c.fetch(args.db, **payload)
-
-            chunk = 0
-            for file in glob.glob('downloads/EFetch *'):
-                chunk += 1
-                os.rename(file, 'downloads/EFetch-%s-%s-chunk%s.%s' % (args.rettype, args.retmode, chunk, args.galaxy_format))
-
-        except Exception as e:
-            handleEfetchException(e, args.db, payload)
-
-        else:
-            print('The following files were downloaded:')
-            print(os.listdir('downloads'))
+        newname = 'downloads/EFetch-%s-%s-chunk' % (args.rettype, args.retmode)
+        localFetch(args.db, args.galaxy_format, newname, **payload)

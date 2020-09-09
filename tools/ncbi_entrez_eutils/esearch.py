@@ -1,16 +1,14 @@
 #!/usr/bin/env python
-from __future__ import print_function
 
 import argparse
 import json
-import sys
+import logging
 
 
 import eutils
 
 
-def eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+logging.basicConfig(level=logging.DEBUG)
 
 
 if __name__ == '__main__':
@@ -58,7 +56,7 @@ if __name__ == '__main__':
         if getattr(args, attr, None) is not None:
             payload[attr] = getattr(args, attr)
 
-    eprint("Payload used for query:", json.dumps(payload, indent=4))
+    logging.info("Payload used for query:" + json.dumps(payload, indent=4))
 
     results = c.search(**payload)
 
