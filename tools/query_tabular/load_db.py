@@ -176,7 +176,7 @@ def getValueType(val):
 
 
 def get_column_def(file_path, table_name, skip=0, comment_char='#',
-                   column_names=None, max_lines=100, load_named_columns=False,
+                   column_names=None, max_lines=1000, load_named_columns=False,
                    firstlinenames=False, filters=None):
     col_pref = ['TEXT', 'REAL', 'INTEGER', None]
     col_types = []
@@ -272,8 +272,26 @@ def create_table(conn, file_path, table_name, skip=0, comment_char='#',
                         if x else None for i, x in enumerate(fields)]
                 c.execute(insert_stmt, vals)
             except Exception as e:
-                print('Failed at line: %d err: %s' % (linenum, e),
+                print('Load %s Failed line: %d err: %s' % (file_path, linenum, e),
                       file=sys.stderr)
+                for i, val in enumerate(fields):
+                    try:
+                        col_func[i](val)
+                    except Exception:
+                        colType = getValueType(val)
+                        col_func[i] = float if colType == 'REAL' else int if colType == 'INTEGER' else str
+                        print('Changing %s from %s to %s' % (col_names[i], col_types[i], colType),
+                              file=sys.stderr)
+                        col_types[i] = colType
+                vals = [col_func[i](x)
+                        if x else None for i, x in enumerate(fields)]
+                print('%s  %s' % (insert_stmt, vals),
+                      file=sys.stderr)
+                try:
+                    c.execute(insert_stmt, vals)
+                except Exception as e:
+                    print('Insert %s line: %d Failed err: %s' % (file_path, linenum, e),
+                          file=sys.stderr)
         conn.commit()
         c.close()
         for i, index in enumerate(unique_indexes):
