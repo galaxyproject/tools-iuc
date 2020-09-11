@@ -160,16 +160,15 @@ def __main__():
     parser.add_argument('-l', '--length',
                         action="append",
                         default=[],
-                        help='lengths for which to make predictions, ' +
-                             '1 per allele')
+                        help='lengths for which to make predictions for alleles')
     parser.add_argument('-w', '--window_size',
                         type=int,
                         default=None,
                         help='window_size for bcell prediction')
     parser.add_argument('-i', '--input',
                         default=None,
-                        help='Input file for peptide sequences ' +
-                             '(fasta or tabular)')
+                        help='Input file for peptide sequences '
+                             + '(fasta or tabular)')
     parser.add_argument('-c', '--column',
                         default=None,
                         help='Peptide Column in a tabular input file')
@@ -207,8 +206,8 @@ def __main__():
             warn_err('-a allele or -A allelefile required\n', exit_code=1)
 
     if not (args.sequence or args.input):
-        warn_err('NO Sequences given: ' +
-                 'either -s sequence or -i input_file is required\n',
+        warn_err('NO Sequences given: '
+                 + 'either -s sequence or -i input_file is required\n',
                  exit_code=1)
 
     if args.output is not None:
