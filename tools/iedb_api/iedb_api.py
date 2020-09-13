@@ -27,8 +27,7 @@ prediction_methods = {'mhci': mhci_methods,
                       'processing': processing_methods,
                       'mhcnp': mhcnp_methods,
                       'bcell': bcell_methods}
-all_methods = set(mhci_methods + mhcii_methods +
-                  mhcnp_methods + bcell_methods)
+all_methods = set(mhci_methods + mhcii_methods + mhcnp_methods + bcell_methods)
 prediction_lengths = {'mhci': range(8, 16),
                       'mhcii': range(11, 31),
                       'processing': range(8, 15),
@@ -36,7 +35,7 @@ prediction_lengths = {'mhci': range(8, 16),
                       'bcell': range(8, 16)}
 
 
-def parse_alleles(allelefile, lengths):
+def parse_alleles(allelefile, query_lengths):
     alleles = []
     lengths = []
     with open(allelefile, 'r') as fh:
@@ -48,8 +47,11 @@ def parse_alleles(allelefile, lengths):
                     for alen in fields[1:]:
                         alleles.append(allele)
                         lengths.append(alen)
-                elif lengths:
-                    for alen in str(lengths).split(','):
+                elif query_lengths:
+                    lens = []
+                    for ql in query_lengths:
+                        lens.extend(str(ql).split(','))
+                    for alen in lens:
                         alleles.append(allele)
                         lengths.append(alen)
                 else:
@@ -158,16 +160,15 @@ def __main__():
     parser.add_argument('-l', '--length',
                         action="append",
                         default=[],
-                        help='lengths for which to make predictions, ' +
-                             '1 per allele')
+                        help='lengths for which to make predictions for alleles')
     parser.add_argument('-w', '--window_size',
                         type=int,
                         default=None,
                         help='window_size for bcell prediction')
     parser.add_argument('-i', '--input',
                         default=None,
-                        help='Input file for peptide sequences ' +
-                             '(fasta or tabular)')
+                        help='Input file for peptide sequences '
+                             + '(fasta or tabular)')
     parser.add_argument('-c', '--column',
                         default=None,
                         help='Peptide Column in a tabular input file')
@@ -205,8 +206,8 @@ def __main__():
             warn_err('-a allele or -A allelefile required\n', exit_code=1)
 
     if not (args.sequence or args.input):
-        warn_err('NO Sequences given: ' +
-                 'either -s sequence or -i input_file is required\n',
+        warn_err('NO Sequences given: '
+                 + 'either -s sequence or -i input_file is required\n',
                  exit_code=1)
 
     if args.output is not None:
@@ -229,7 +230,8 @@ def __main__():
         if args.allele:
             for i, allele in enumerate(args.allele):
                 alleles.append(allele)
-                alen = args.length[i] if i < len(args.length) else args.length[-1]
+                alen = args.length[i] if i < len(args.length)\
+                    else args.length[-1]
                 lengths.append(alen)
     allele = ','.join(alleles) if alleles else None
     length = ','.join(lengths) if lengths else None
@@ -239,7 +241,8 @@ def __main__():
         args.prediction
 
     # results
-    results = {'prediction': {'header': None, 'entries': []}, 'detail': {'header': None, 'entries': []}}
+    results = {'prediction': {'header': None, 'entries': []},
+               'detail': {'header': None, 'entries': []}}
 
     if args.sequence:
         for i, seq in enumerate(args.sequence):

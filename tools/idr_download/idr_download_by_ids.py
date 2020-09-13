@@ -1,24 +1,39 @@
 import argparse
 import os
 import sys
+import tarfile
+from contextlib import ExitStack
+from tempfile import TemporaryDirectory
 
-from matplotlib import pyplot as plt
+from libtiff import TIFF
 from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
 
-def warn(message, image_identifier):
+def warn(message, image_identifier, warn_skip=False):
+    message = message.rstrip()
+    if warn_skip:
+        if message[-1] in ['.', '!', '?']:
+            skip_msg = ' Skipping download!'
+        else:
+            skip_msg = '. Skipping download!'
+    else:
+        skip_msg = ''
     print(
-        'ImageSpecWarning for {0}: {1}'
-        .format(image_identifier, message),
+        'ImageSpecWarning for {0}: {1}{2}'
+        .format(
+            image_identifier,
+            message,
+            skip_msg
+        ),
         file=sys.stderr
     )
 
 
 def find_channel_index(image, channel_name):
     channel_name = channel_name.lower()
-    for n, channel in enumerate(image.getChannels()):
-        if channel_name == channel.getLabel().lower():
+    for n, channel in enumerate(image.getChannelLabels()):
+        if channel_name == channel.lower():
             return n
     # Check map annotation for information (this is necessary for some images)
     for ann in image.listAnnotations(NSBULKANNOTATIONS):
@@ -80,43 +95,82 @@ def confine_frame(image, t):
     return t
 
 
-def download_plane_as_tiff(image, tile, z, c, t, fname):
+def get_image_array(image, tile, z, c, t):
     pixels = image.getPrimaryPixels()
-    selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
+    try:
+        selection = pixels.getTile(theZ=z, theT=t, theC=c, tile=tile)
+    except Exception:
+        warning = '{0} (ID: {1})'.format(image.getName(),
+                                         image.getId())
+        warn('Could not download the requested region', warning)
+        return
 
-    if fname[-5:] != '.tiff':
-        fname += '.tiff'
-    plt.imsave(fname, selection)
+    return selection
 
 
 def download_image_data(
     image_ids,
     channel=None, z_stack=0, frame=0,
     coord=(0, 0), width=0, height=0, region_spec='rectangle',
-    skip_failed=False
+    skip_failed=False, download_tar=False
 ):
+    # basic argument sanity checks and adjustments
+    prefix = 'image-'
+    # normalize image ids by stripping off prefix if it exists
+    image_ids = [
+        iid[len(prefix):] if iid[:len(prefix)] == prefix else iid
+        for iid in image_ids
+    ]
 
-    # connect to idr
-    conn = BlitzGateway('public', 'public',
-                        host='idr.openmicroscopy.org',
-                        secure=True)
-    conn.connect()
+    if region_spec not in ['rectangle', 'center']:
+        raise ValueError(
+            'Got unknown value "{0}" as region_spec argument'
+            .format(region_spec)
+        )
 
-    try:
-        prefix = 'image-'
+    with ExitStack() as exit_stack:
+        # connect to idr
+        conn = exit_stack.enter_context(
+            BlitzGateway(
+                'public', 'public',
+                host='idr.openmicroscopy.org',
+                secure=True
+            )
+        )
+        # exit_stack.callback(conn.connect().close)
+        if download_tar:
+            # create an archive file to write images to
+            archive = exit_stack.enter_context(
+                tarfile.open('images.tar', mode='w')
+            )
+            tempdir = exit_stack.enter_context(
+                TemporaryDirectory()
+            )
+
         for image_id in image_ids:
-            if image_id[:len(prefix)] == prefix:
-                image_id = image_id[len(prefix):]
-            image_id = int(image_id)
-            image = conn.getObject("Image", image_id)
+            image_warning_id = 'Image-ID: {0}'.format(image_id)
+            try:
+                image_id = int(image_id)
+            except ValueError:
+                image = None
+            else:
+                try:
+                    image = conn.getObject("Image", image_id)
+                except Exception as e:
+                    # respect skip_failed on unexpected errors
+                    if skip_failed:
+                        warn(str(e), image_warning_id, warn_skip=True)
+                        continue
+                    else:
+                        raise
 
             if image is None:
-                image_warning_id = 'Image-ID: {0}'.format(image_id)
                 if skip_failed:
                     warn(
                         'Unable to find an image with this ID in the '
-                        'database. Skipping download!',
-                        image_warning_id
+                        'database.',
+                        image_warning_id,
+                        warn_skip=True
                     )
                     continue
                 raise ValueError(
@@ -125,23 +179,39 @@ def download_image_data(
                     .format(image_warning_id)
                 )
 
-            image_name = os.path.splitext(image.getName())[0]
-            image_warning_id = '{0} (ID: {1})'.format(
-                image_name, image_id
-            )
+            try:
+                # try to extract image properties
+                # if anything goes wrong here skip the image
+                # or abort.
+                image_name = os.path.splitext(image.getName())[0]
+                image_warning_id = '{0} (ID: {1})'.format(
+                    image_name, image_id
+                )
 
-            if region_spec == 'rectangle':
-                tile = get_clipping_region(image, *coord, width, height)
-            elif region_spec == 'center':
-                tile = get_clipping_region(
-                    image,
-                    *_center_to_ul(*coord, width, height)
-                )
-            else:
-                raise ValueError(
-                    'Got unknown value "{0}" as region_spec argument'
-                    .format(region_spec)
-                )
+                if region_spec == 'rectangle':
+                    tile = get_clipping_region(image, *coord, width, height)
+                elif region_spec == 'center':
+                    tile = get_clipping_region(
+                        image,
+                        *_center_to_ul(*coord, width, height)
+                    )
+
+                ori_z, z_stack = z_stack, confine_plane(image, z_stack)
+                ori_frame, frame = frame, confine_frame(image, frame)
+                num_channels = image.getSizeC()
+                if channel is None:
+                    channel_index = 0
+                else:
+                    channel_index = find_channel_index(image, channel)
+            except Exception as e:
+                # respect skip_failed on unexpected errors
+                if skip_failed:
+                    warn(str(e), image_warning_id, warn_skip=True)
+                    continue
+                else:
+                    raise
+
+            # region sanity checks and warnings
             if tile[2] < width or tile[3] < height:
                 # The downloaded image region will have smaller dimensions
                 # than the specified width x height.
@@ -152,7 +222,7 @@ def download_image_data(
                     image_warning_id
                 )
 
-            ori_z, z_stack = z_stack, confine_plane(image, z_stack)
+            # z-stack sanity checks and warnings
             if z_stack != ori_z:
                 warn(
                     'Specified image plane ({0}) is out of bounds. Using {1} '
@@ -161,7 +231,7 @@ def download_image_data(
                     image_warning_id
                 )
 
-            ori_frame, frame = frame, confine_frame(image, frame)
+            # frame sanity checks and warnings
             if frame != ori_frame:
                 warn(
                     'Specified image frame ({0}) is out of bounds. Using '
@@ -169,10 +239,9 @@ def download_image_data(
                     .format(ori_frame, frame),
                     image_warning_id
                 )
-            # Get the channel index. If the index is not valid, skip the image
+
+            # channel index sanity checks and warnings
             if channel is None:
-                channel_index = 0
-                num_channels = image.getSizeC()
                 if num_channels > 1:
                     warn(
                         'No specific channel selected for multi-channel '
@@ -181,21 +250,52 @@ def download_image_data(
                         image_warning_id
                     )
             else:
-                channel_index = find_channel_index(image, channel)
-                if channel_index == -1:
-                    raise ValueError(
-                        '"{0}" is not a known channel name for image {1}'
-                        .format(channel, image.getName())
-                    )
+                if channel_index == -1 or channel_index >= num_channels:
+                    if skip_failed:
+                        warn(
+                            str(channel)
+                            + ' is not a known channel name for this image.',
+                            image_warning_id,
+                            warn_skip=True
+                        )
+                        continue
+                    else:
+                        raise ValueError(
+                            '"{0}" is not a known channel name for image {1}. '
+                            'Aborting!'
+                            .format(channel, image_warning_id)
+                        )
 
             # download and save the region as TIFF
-            fname = '_'.join(
+            fname = '__'.join(
                 [image_name, str(image_id)] + [str(x) for x in tile]
             )
-            download_plane_as_tiff(image, tile, z_stack, channel_index, frame, fname)
-    finally:
-        # Close the connection
-        conn.close()
+            try:
+                if fname[-5:] != '.tiff':
+                    fname += '.tiff'
+
+                fname = fname.replace(' ', '_')
+
+                im_array = get_image_array(image, tile, z_stack, channel_index, frame)
+
+                if download_tar:
+                    fname = os.path.join(tempdir, fname)
+                try:
+                    tiff = TIFF.open(fname, mode='w')
+                    tiff.write_image(im_array)
+                finally:
+                    tiff.close()
+                # move image into tarball
+                if download_tar:
+                    archive.add(fname, os.path.basename(fname))
+                    os.remove(fname)
+            except Exception as e:
+                if skip_failed:
+                    # respect skip_failed on unexpected errors
+                    warn(str(e), image_warning_id, warn_skip=True)
+                    continue
+                else:
+                    raise
 
 
 def _center_to_ul(center_x, center_y, width, height):
@@ -252,6 +352,9 @@ if __name__ == "__main__":
     )
     p.add_argument(
         '--skip-failed', action='store_true'
+    )
+    p.add_argument(
+        '--download-tar', action='store_true'
     )
     args = p.parse_args()
     if not args.image_ids:
