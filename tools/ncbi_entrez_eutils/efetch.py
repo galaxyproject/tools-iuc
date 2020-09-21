@@ -10,11 +10,11 @@ import os
 import eutils
 
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 
 def handleEfetchException(e, db, payload):
-    logging.error('No results returned. This could either be due to no records matching the supplied IDs for the query database or it could be an error due to invalid parameters.\n\nPayload used for the efetch query to database "%s"\n\n%s', db, json.dumps(payload, indent=4))
+    logging.error('No results returned. This could either be due to no records matching the supplied IDs for the query database or it could be an error due to invalid parameters.  The reported exception was "%s".\n\nPayload used for the efetch query to database "%s"\n\n%s', e, db, json.dumps(payload, indent=4))
 
     # Create a file in the downloads folder so that the user can access run information
     current_directory = os.getcwd()
