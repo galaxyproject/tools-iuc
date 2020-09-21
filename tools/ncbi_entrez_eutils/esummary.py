@@ -17,6 +17,8 @@ if __name__ == '__main__':
     parser.add_argument('--user_email', help="User email")
     parser.add_argument('--admin_email', help="Admin email")
 
+    parser.add_argument('--version', action='version', version=eutils.Client.getVersion(), help='Version (reports Biopython version)')
+
     # ID source
     parser.add_argument('--id_xml', help='list of ids in an xml file as returned by esearch or elink')
     parser.add_argument('--id_json', help='list of ids in a json file as returned by esearch or elink')

@@ -11,6 +11,8 @@ if __name__ == '__main__':
     parser.add_argument('--user_email', help="User email")
     parser.add_argument('--admin_email', help="Admin email")
 
+    parser.add_argument('--version', action='version', version=eutils.Client.getVersion(), help='Version (reports Biopython version)')
+
     # ID source
     parser.add_argument('--id_list', help='list of ids')
     parser.add_argument('--id', help='Comma separated individual IDs')

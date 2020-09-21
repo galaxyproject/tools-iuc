@@ -25,6 +25,8 @@ if __name__ == '__main__':
     parser.add_argument('--user_email', help="User email")
     parser.add_argument('--admin_email', help="Admin email")
 
+    parser.add_argument('--version', action='version', version=eutils.Client.getVersion(), help='Version (reports Biopython version)')
+
     # Output
     parser.add_argument('--retmode', help='Retmode')
     parser.add_argument('--rettype', help='Rettype')

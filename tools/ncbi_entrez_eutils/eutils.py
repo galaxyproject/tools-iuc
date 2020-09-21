@@ -345,3 +345,10 @@ class Client(object):
                 merged_ids += [id]
 
         return merged_ids
+
+    @classmethod
+    def getVersion(cls):
+        """Return the biopython version
+        """
+        import Bio
+        return Bio.__version__

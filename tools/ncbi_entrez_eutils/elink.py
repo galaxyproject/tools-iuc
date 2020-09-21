@@ -20,6 +20,8 @@ if __name__ == '__main__':
                                         'llinks', 'llinkslib', 'prlinks'],
                         help='ELink command mode')
 
+    parser.add_argument('--version', action='version', version=eutils.Client.getVersion(), help='Version (reports Biopython version)')
+
     parser.add_argument('--user_email', help="User email")
     parser.add_argument('--admin_email', help="Admin email")
 
