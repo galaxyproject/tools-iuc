@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<tool id="delly_filter" name="Delly: filter" version="@TOOL_VERSION@+galaxy0" profile="18.01">
+<tool id="delly_filter" name="Delly filter" version="@TOOL_VERSION@+galaxy0" profile="18.01">
     <description>somatic or germline structural variants</description>
     <macros>
         <import>macros.xml</import>
@@ -7,9 +7,14 @@
     <expand macro="requirements"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
-## initialize 
-ln -s '${samples}' 'sample.bcf' &&
-ln -s '${samples.metadata.bcf_index}' 'sample.bcf.csi' &&
+## initialize
+#if $samples.is_of_type('vcf')
+    bcftools view -Ob '$samples' > 'sample.bcf.gz' &&
+    bcftools index 'sample.bcf.gz' &&
+#else
+    ln -s '${samples}' 'sample.bcf.gz' &&
+    ln -s '${samples.metadata.bcf_index}' 'sample.bcf.gz.csi' &&
+#end if
 
 ## run
 delly filter
@@ -22,19 +27,19 @@ delly filter
 --ratiogeno $generic.ratiogeno
 $generic.pass
 ## somatic options
-#if $sv.mode_cond.mode_sel == "somatic"
+#if $sv.mode_cond.mode_sel == 'somatic'
     --samples '$sv.mode_cond.samples'
     --coverage $sv.mode_cond.coverage
     --controlcontamination $sv.mode_cond.controlcontamination
 #end if
 ## germline options
-#if $sv.mode_cond.mode_sel == "germline"
+#if $sv.mode_cond.mode_sel == 'germline'
     --gq $sv.mode_cond.gq
     --rddel $sv.mode_cond.rddel
     --rddup $sv.mode_cond.rddup
 #end if
 ## samples
-'sample.bcf' ## input
+'sample.bcf.gz' ## input
 
 ## postprocessing
 #if 'log' in $oo.out
@@ -45,12 +50,12 @@ $generic.pass
 #end if
     ]]></command>
     <inputs>
-        <expand macro="samples" format="bcf" multiple="false" label="Select file"/>
+        <expand macro="samples" format="bcf,vcf" multiple="false" label="Select file"/>
         <section name="generic" title="Generic options" expanded="true">
-            <param argument="--altaf" type="float" value="0.200000003" label="Set minimum fractional ALT support"/>
+            <param argument="--altaf" type="float" value="0.200000003" min="0.0" max="1.0" label="Set minimum fractional ALT support"/>
             <param argument="--minsize" type="integer" value="0" label="Set minimum SV size"/>
             <param argument="--maxsize" type="integer" value="500000000" label="Set maximum SV size"/>
-            <param argument="--ratiogeno" type="float" value="0.75" label="Set minimum fraction of genotyped samples"/>
+            <param argument="--ratiogeno" type="float" value="0.75" min="0.0" max="1.0" label="Set minimum fraction of genotyped samples"/>
             <param argument="--pass" type="boolean" truevalue="--pass" falsevalue="" label="Filter sites for PASS?"/>
         </section>
         <section name="sv" title="SV calling options" expanded="true">
@@ -62,10 +67,10 @@ $generic.pass
                 <when value="somatic">
                     <param argument="--samples" type="data" format="tabular" label="Select sample file" help="Two-column sample file listing sample name and tumor or control."/>
                     <param argument="--coverage" type="integer" value="10" label="Set minimum coverage in tumor."/>
-                    <param argument="--controlcontamination" type="integer" value="0" label="Set maximum fractional ALT support in control"/>
+                    <param argument="--controlcontamination" type="float" value="0.0" min="0.0" max="1.0" label="Set maximum fractional ALT support in control"/>
                 </when>
                 <when value="germline">
-                    <param argument="--gq" type="integer" value="15" label="Set minimum median GQ for carriers and   non-carriers"/>
+                    <param argument="--gq" type="integer" value="15" label="Set minimum median GQ for carriers and non-carriers"/>
                     <param argument="--rddel" type="float" value="0.800000012"  label="Set maximum read-depth ratio of carrier vs. non-carrier for a deletion"/>
                     <param argument="--rddup" type="float" value="1.20000005" label="Set minimum read-depth ratio of carrier vs. non-carrier for a duplication"/>
                 </when>
@@ -73,8 +78,8 @@ $generic.pass
         </section>
         <section name="oo" title="Output options">
             <param name="out" type="select" multiple="true" optional="false" label="Select output file(s)">
-                <option value="vcf" selected="true">VCF</option>
                 <option value="bcf" selected="true">BCF</option>
+                <option value="vcf">VCF</option>
                 <option value="log">Log</option>
             </param>
         </section>
@@ -87,12 +92,15 @@ $generic.pass
     <tests>
         <!-- #1 default, somatic -->
         <test expect_num_outputs="2">
-            <param name="samples" value="call_1.bcf"/>
+            <param name="samples" value="call_1.bcf.gz"/>
             <section name="sv">
                 <conditional name="mode_cond">
                     <param name="mode_sel" value="somatic"/>
                     <param name="samples" value="samples.tsv"/>
                 </conditional>
+            </section>
+            <section name="oo">
+                <param name="out" value="vcf,bcf"/>
             </section>
             <output name="out_bcf">
                 <assert_contents>
@@ -109,7 +117,7 @@ $generic.pass
         </test>
         <!-- #2 somatic -->
         <test expect_num_outputs="3">
-            <param name="samples" value="call_1.bcf"/>
+            <param name="samples" value="call_1.bcf.gz"/>
             <section name="generic">
                 <param name="altaf" value="0.200000004"/>
                 <param name="minsize" value="1"/>
@@ -122,7 +130,7 @@ $generic.pass
                     <param name="mode_sel" value="somatic"/>
                     <param name="samples" value="samples.tsv"/>
                     <param name="coverage" value="11"/>
-                    <param name="controlcontamination" value="1"/>
+                    <param name="controlcontamination" value="0.1"/>
                 </conditional>
             </section>
             <section name="oo">
@@ -148,11 +156,14 @@ $generic.pass
         </test>
        <!-- #3 default, germline -->
         <test expect_num_outputs="2">
-            <param name="samples" value="call_1.bcf"/>
+            <param name="samples" value="call_1.bcf.gz"/>
             <section name="sv">
                 <conditional name="mode_cond">
                     <param name="mode_sel" value="germline"/>
                 </conditional>
+            </section>
+            <section name="oo">
+                <param name="out" value="vcf,bcf"/>
             </section>
             <output name="out_bcf">
                 <assert_contents>
@@ -169,7 +180,7 @@ $generic.pass
         </test>
         <!-- #4 germline -->
         <test expect_num_outputs="3">
-            <param name="samples" value="call_1.bcf"/>
+            <param name="samples" value="call_1.bcf.gz"/>
             <section name="generic">
                 <param name="altaf" value="0.200000004"/>
                 <param name="minsize" value="1"/>
@@ -218,9 +229,9 @@ Delly *filter* contains workflows for germline and somatic SV calling.
 
 **Input**
 
-Somatic SV calling with at least one tumor sample and a matched control sample are required for SV discovery. Somatic pre-filtering requires a tab-delimited sample description file where the first column is the sample id (as in the VCF/BCF file) and the second column is either tumor or control.
+*Somatic* filtering requires a called SV input with at least one tumor sample and a matched control sample. In addition, a tab-delimited sample description needs to be provided, in which the first column holds the sample ids (as found in the VCF/BCF input) and the second column specifies either tumor or control.
 
-Germline SV calling is done by sample for high-coverage genomes or in small batches for low-coverage genomes.
+*Germline* SV calling is done by sample for high-coverage genomes or in small batches for low-coverage genomes.
 
 **Output**
 
