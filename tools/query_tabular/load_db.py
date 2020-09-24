@@ -213,7 +213,7 @@ def get_column_def(file_path, table_name, skip=0, comment_char='#',
     if not col_names:
         col_names = ['c%d' % i for i in range(1, len(col_types) + 1)]
     if column_names:
-        cnames = [cn.strip() for cn in column_names.split(',')] 
+        cnames = [cn.strip() for cn in column_names.split(',')]
         if load_named_columns:
             col_idx = []
             colnames = []
@@ -232,11 +232,11 @@ def get_column_def(file_path, table_name, skip=0, comment_char='#',
                     if cname and i < len(col_names):
                         col_names[i] = cname
             else:
-                col_names = [x if x else 'c%d' % (i) for i,x in enumerate(cnames)]
+                col_names = [x if x else 'c%d' % (i) for i, x in enumerate(cnames)]
     col_def = []
     for i, col_name in enumerate(col_names):
         if i >= len(col_types):
-            col_types.append('TEXT') 
+            col_types.append('TEXT')
         col_def.append('%s %s' % (col_names[i], col_types[i]))
     return col_names, col_types, col_def, col_idx
 
