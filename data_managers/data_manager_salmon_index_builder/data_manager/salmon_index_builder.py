@@ -27,7 +27,7 @@ def get_id_name(params, dbkey, fasta_description=None):
 
 def build_salmon_index(data_manager_dict, options, params, sequence_id, sequence_name):
     data_table_name = options.data_table_name or DEFAULT_DATA_TABLE_NAME
-    target_directory = params['output_data' ][0]['extra_files_path']
+    target_directory = params['output_data'][0]['extra_files_path']
     if not os.path.exists(target_directory):
         os.mkdir(target_directory)
     args = ['salmon', 'index']
