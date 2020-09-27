@@ -53,7 +53,7 @@ db_list = '''
 <DbName>sra</DbName>
 <DbName>structure</DbName>
 <DbName>taxonomy</DbName>
-<DbName>unigene</DbName>'''.replace( "<DbName>", "").replace( "</DbName>", "").split("\n")
+<DbName>unigene</DbName>'''.replace("<DbName>", "").replace("</DbName>", "").split("\n")
 
 
 help = '''  (all)
@@ -166,7 +166,7 @@ for db_name in db_list:
 
 section = None
 for line in help:
-    line = re.split('\s{2,}', line.strip())
+    line = re.split(r'\s{2,}', line.strip())
     # Ignore empties
     if len(line) == 0:
         continue

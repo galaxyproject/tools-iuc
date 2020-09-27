@@ -21,6 +21,7 @@ spec = matrix(c(
     'gtf', 'a', 1, "character",
     'outfile', 'o', 1, "character",
     'reportdir', 'r', 1, "character",
+    'rds', 'd', 1, "character",
     'factors', 'f', 1, "character",
     'threads', 'p', 1, "integer",
     'fdr', 'c', 1, "double"
@@ -110,10 +111,11 @@ for(i in 1:nrow(export_table)) {
 write.table(export_table, file = opt$outfile, sep="\t", quote = FALSE, col.names = FALSE)
 print("Written Results")
 
+if ( !is.null(opt$rds) ) {
+    saveRDS(res, file="DEXSeqResults.rds")
+}
+
 if ( !is.null(opt$reportdir) ) {
-    save(dxd, resSorted, file = file.path(opt$reportdir,"DEXSeq_analysis.RData"))
-    save.image()
     DEXSeqHTML(res, fitExpToVar=primaryFactor, path=opt$reportdir, FDR=opt$fdr, color=c("#B7FEA0", "#FF8F43", "#637EE9", "#FF0000", "#F1E7A1", "#C3EEE7","#CEAEFF", "#EDC3C5", "#AAA8AA"))
-    unlink(file.path(opt$reportdir,"DEXSeq_analysis.RData"))
 }
 sessionInfo()

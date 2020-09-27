@@ -23,7 +23,7 @@ def __main__():
         if line[0] == '>':
             header = line[1:]
         else:
-            (id, start, end, frame, score) = re.split('\s+', line)
+            (id, start, end, frame, score) = re.split(r'\s+', line)
             if int(end) > int(start):
                 strand = '+'
             else:

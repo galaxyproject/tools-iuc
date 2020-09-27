@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 
 import gzip
 import json
@@ -43,7 +44,7 @@ data_table = 'snpsift_dbnsfps'
 softgenetics_url = 'ftp://dbnsfp:dbnsfp@dbnsfp.softgenetics.com/'
 dbNSFP_file_pat = '(dbNSFP(.*)_variant|dbscSNV(.*)).chr(.*)'
 tokenize = re.compile(r'(\d+)|(\D+)').findall
-dbNSFP_name_pat = 'dbNSFP(v|_light)?(\d*).*?'
+dbNSFP_name_pat = r'dbNSFP(v|_light)?(\d*).*?'
 
 
 def stop_err(msg):
@@ -53,7 +54,7 @@ def stop_err(msg):
 
 def get_nsfp_genome_version(name):
     genome_version = 'hg19'
-    dbNSFP_name_pat = '(dbscSNV|dbNSFP(v|_light)?)(\d*).*?'
+    dbNSFP_name_pat = r'(dbscSNV|dbNSFP(v|_light)?)(\d*).*?'
     m = re.match(dbNSFP_name_pat, name)
     if m:
         (base, mid, ver) = m.groups()
@@ -82,7 +83,7 @@ def get_annotations(gzip_path):
 
 
 def tabix_file(input_fname, output_fname):
-    print >> sys.stdout, "tabix_file: %s -> %s" % (input_fname, output_fname)
+    print("tabix_file: %s -> %s" % (input_fname, output_fname))
     ctabix.tabix_compress(input_fname, output_fname, force=True)
     # Column indices are 0-based.
     ctabix.tabix_index(output_fname, seq_col=0, start_col=1, end_col=1)
@@ -119,7 +120,7 @@ def download_dbnsfp_database(url, output_file):
                         tfh.close()
                         tempfiles.append(file + "_%d" % len(tempfiles))
                         tfh = open(tempfiles[-1], 'w')
-                        print >> sys.stderr, "%s [%d] pos: %d < %d" % (file, i, pos, lastpos)
+                        print("%s [%d] pos: %d < %d" % (file, i, pos, lastpos), file=sys.stderr)
                     lastpos = pos
                 tfh.write(line)
             tfh.close()
@@ -167,7 +168,7 @@ def main():
     bzip_path = None
     if options.softgenetics:
         dbnsfp_url = softgenetics_url + options.softgenetics
-        db_name = options.db_name if options.db_name else re.sub('\.zip$', '', options.softgenetics)
+        db_name = options.db_name if options.db_name else re.sub(r'\.zip$', '', options.softgenetics)
         genome_version = get_nsfp_genome_version(options.softgenetics)
         tsv = db_name + '.tsv'
         dbnsfp_tsv = download_dbnsfp_database(dbnsfp_url, tsv)
@@ -195,7 +196,7 @@ def main():
     data_manager_dict['data_tables'][data_table].append(data_table_entry)
 
     # save info to json file
-    open(filename, 'wb').write(json.dumps(data_manager_dict))
+    open(filename, 'w').write(json.dumps(data_manager_dict, sort_keys=True))
 
 
 if __name__ == "__main__":

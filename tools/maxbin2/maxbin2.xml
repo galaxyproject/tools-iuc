@@ -1,0 +1,304 @@
+<tool id="maxbin2" name="MaxBin2" version="@MAXBIN_VERSION@+galaxy2">
+    <description>clusters metagenomic contigs into bins</description>
+    <macros>
+        <token name="@MAXBIN_VERSION@">2.2.7</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@MAXBIN_VERSION@">maxbin2</requirement>
+    </requirements>
+    <version_command><![CDATA[run_MaxBin.pl -version | head -n 1]]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
+    ## generate read or abundance files	
+    #if $intype_cond.intype_select == 'rds':
+        #for $r in $intype_cond.reads
+            #if $r
+                echo '$r' >> reads_list &&
+            #end if
+        #end for
+    #else if $intype_cond.intype_select == 'abdc':
+        #for $a in $intype_cond.abund
+            #if $a
+                echo '$a' >> abund_list &&
+            #end if
+        #end for
+    #end if
+
+    ## in case of reassembly the IBDA out and err is appended
+    ## to differentiate this a header is added also befor the
+    ## MaxBin2 outputs
+    #if $intype_cond.intype_select == 'rds' and $intype_cond.reassembly != ""
+        echo "==== MaxBin2 stdout ====" &&
+        echo "==== MaxBin2 stderr ====" 1>&2 &&
+    #end if
+
+    run_MaxBin.pl
+    -contig '$contig'
+    -out out
+    #if $intype_cond.intype_select == 'rds':
+        -reads_list reads_list
+        $intype_cond.reassembly
+    #else if $intype_cond.intype_select == 'abdc':
+        -abund_list abund_list
+    #end if
+    #if $adv_cond.adv_select == 'yes':
+        -min_contig_length $adv_cond.min_contig_length
+        -max_iteration $adv_cond.max_iteration
+        -prob_threshold $adv_cond.prob_threshold
+        $adv_cond.plotmarker
+        -markerset $adv_cond.markerset
+    #end if
+    -thread \${GALAXY_SLOTS:-1}
+
+    && gzip -cd out.marker_of_each_bin.tar.gz | tar -xf -
+
+    ## redirect the idba out and err file content to stdout and err
+    ## since this is also wanted in case the error case ';' is used here to 
+    ## separate commands
+    #if $intype_cond.intype_select == 'rds' and $intype_cond.reassembly != ""
+        ; echo "==== IDBA stdout ===="
+        && if [[ -f out.idba.out ]]; then cat out.idba.out; fi
+        && echo "==== IDBA stderr ====" 1>&2
+        && if [[ -f out.idba.err ]]; then cat out.idba.err 1>&2; fi
+    #end if
+    ]]></command>
+    <inputs>
+        <param argument="-contig" type="data" format="fasta,fasta.gz" label="Contig file"/>
+          <conditional name="intype_cond">
+              <param name="intype_select" type="select" label="Input type">
+                  <option value="rds" selected="true">Sequencing Reads</option>
+                  <option value="abdc">Abundances</option>
+              </param>
+              <when value="rds">
+                  <param name="reads" type="data" format="fasta,fastq" multiple="true" label="Reads file(s)" help="(-read/-read2/...)"/>
+                  <param name="output_abundances" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output abundances" help="" />
+                  <param argument="--reassembly" type="boolean" truevalue="-reassembly" falsevalue="" checked="false" label="Reassembly" help="Reassembly option is still highly experimental. To use this function, you need to feed MaxBin interleaved paired-end fastq or fasta file." />
+              </when>
+              <when value="abdc">
+                  <param name="abund" type="data" format="tabular" multiple="true" label="Abundance file(s)" help="(-abund/-abund2/...)" />
+              </when>
+          </conditional>
+          <conditional name="adv_cond">
+            <param name="adv_select" type="select" label="Advanced options">
+                <option value="yes">Yes</option>
+                <option value="no" selected="true">No</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param argument="-min_contig_length" type="integer" min="0" value="1000" label="minimum contig length" />
+                <param argument="-max_iteration" type="integer" min="0" value="50" label="Maximum Expectation-Maximization algorithm iteration number" />
+                <param argument="-prob_threshold" type="float" min="0" max="1.0" value="0.5" label="Probability threshold for EM final classification" />
+                <param argument="-plotmarker" type="boolean" truevalue="-plotmarker" falsevalue="" checked="false" label="Generate visualization of the marker gene presence numbers" />
+                <param name="output_marker" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output marker gene presence for bins table" />
+                <param name="output_markers" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output marker genes for each bin as fasta" />
+                <param name="output_log" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output log" />
+                <param argument="-markerset" type="select" label="Marker gene set">
+                    <option value="107" selected="true">107 marker genes present in >95% of bacteria</option>
+                    <option value="40">40 marker gene sets that are universal among bacteria and archaea</option>
+                </param>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <!-- default outputs -->
+        <collection name="bins" type="list" label="${tool.name} on ${on_string} (bins)">
+            <discover_datasets pattern="out.(?P&lt;designation&gt;[0-9]+).fasta" format="fasta" visible="false" />
+        </collection>
+        <data name="noclass" format="fasta" label="${tool.name} on ${on_string} (unclassified sequences)" from_work_dir="out.noclass"/>
+        <data name="toshort" format="fasta" label="${tool.name} on ${on_string} (to short sequences)" from_work_dir="out.tooshort"/>
+        <data name="summary" format="tabular" label="${tool.name} on ${on_string} (summary)" from_work_dir="out.summary"/>
+
+        <!-- optional outputs -->
+        <data name="log" format="txt" label="${tool.name} on ${on_string} (log)" from_work_dir="out.log">
+            <filter>adv_cond['adv_select']=='yes' and adv_cond['output_log']</filter>
+        </data>
+        <data name="marker" format="tabular" label="${tool.name} on ${on_string} (marker gene presence)" from_work_dir="out.marker">
+            <filter>adv_cond['adv_select']=='yes' and adv_cond['output_marker']</filter>
+        </data>
+        <data name="abundout" format="tabular" label="${tool.name} on ${on_string} (abundances)" from_work_dir="out.abund1">
+            <filter>intype_cond['intype_select']=='rds' and intype_cond['output_abundances']</filter>
+        </data>
+        <data name="plot" format="pdf" label="${tool.name} on ${on_string} (marker gene presence plot)" from_work_dir="out.marker.pdf">
+            <filter>adv_cond['adv_select']=='yes' and adv_cond['plotmarker']</filter>
+        </data>
+        <collection name="markers" type="list" label="${tool.name} on ${on_string} (markers prediced for bins)">
+            <discover_datasets pattern="out.(?P&lt;designation&gt;[0-9]+).marker.fasta" format="fasta" visible="false" />
+            <filter>adv_cond['adv_select']=='yes' and adv_cond['output_markers']</filter>
+        </collection>
+
+        <!-- additional output in case of reassembly -->
+        <collection name="reassembly_bins" type="list" label="${tool.name} on ${on_string} (reassembly bins)">
+            <discover_datasets directory="out.reassem" pattern="out.(?P&lt;designation&gt;[0-9]+).fasta" format="fasta" visible="false" />
+            <filter>intype_cond['intype_select']=='rds' and intype_cond['reassembly']</filter>
+        </collection>
+        <collection name="reassembly_reads" type="list" label="${tool.name} on ${on_string} (reassembly reads)">
+            <discover_datasets directory="out.reassem" pattern="out.reads.(?P&lt;designation&gt;[0-9]+)" format="fasta" visible="false" />
+            <filter>intype_cond['intype_select']=='rds' and intype_cond['reassembly']</filter>
+        </collection>
+        <data name="reassembly_noclass" format="fasta" label="${tool.name} on ${on_string} (reassembly unclassified sequences)" from_work_dir="out.reassem/out.reads.noclass">
+            <filter>intype_cond['intype_select']=='rds' and intype_cond['reassembly']</filter>
+        </data>
+        <data name="reassembly_n50" format="txt" label="${tool.name} on ${on_string} (reassembly N50)" from_work_dir="out.reassem/N50.txt">
+            <filter>intype_cond['intype_select']=='rds' and intype_cond['reassembly']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test w contigs and reads as input -->
+        <test expect_num_outputs="4">
+            <param name="contig" value="Bin_Sample3_contigs.fasta" ftype="fasta" />
+            <conditional name="intype_cond">
+                <param name="intype_select" value="rds"/>
+                <param name="reads" value="interleavedPE_unmapped_Sample3_small.fasta" ftype="fasta"/>
+            </conditional>
+            <conditional name="adv_cond">
+                <param name="adv_select" value="no"/>
+            </conditional>
+            <output_collection name="bins" type="list" count="2">
+                <element name="001" file="1/out.001.fasta" ftype="fasta"/>
+                <element name="002" file="1/out.002.fasta" ftype="fasta"/>
+            </output_collection>
+            <output name="summary" file="1/out.summary" ftype="tabular" />
+            <output name="noclass" file="1/out.noclass" ftype="fasta" />
+            <output name="toshort" file="1/out.tooshort" ftype="fasta" />
+        </test>
+        <!-- test w contigs and reads as input test for optional outputs -->
+        <test expect_num_outputs="9">
+            <param name="contig" value="Bin_Sample3_contigs.fasta" ftype="fasta" />
+            <conditional name="intype_cond">
+                <param name="intype_select" value="rds"/>
+                <param name="reads" value="interleavedPE_unmapped_Sample3_small.fasta" ftype="fasta"/>
+                <param name="output_abundances" value="true" />
+            </conditional>
+            <conditional name="adv_cond">
+                <param name="adv_select" value="yes"/>
+                <param name="plotmarker" value="true" />
+                <param name="output_marker" value="true" />
+                <param name="output_markers" value="true" />
+                <param name="output_log" value="true" />
+            </conditional>
+            <output_collection name="bins" type="list" count="2">
+                <element name="001" file="1/out.001.fasta" ftype="fasta"/>
+                <element name="002" file="1/out.002.fasta" ftype="fasta"/>
+            </output_collection>
+            <output name="summary" file="1/out.summary" ftype="tabular" />
+            <output name="noclass" file="1/out.noclass" ftype="fasta" />
+            <output name="toshort" file="1/out.tooshort" ftype="fasta" />
+            <output name="log" file="1/out.log" ftype="txt" compare="diff" lines_diff="21" />
+            <output name="abundout" file="1/out.abund1" ftype="tabular" />
+            <output name="marker" file="1/out.marker" ftype="tabular" />
+            <output name="plot" file="1/out.marker.pdf" ftype="pdf" compare="sim_size" />
+            <output_collection name="markers" type="list" count="1">
+                <element name="001" file="1/out.001.marker.fasta" ftype="fasta"/>
+            </output_collection>
+        </test>
+        <!--test w contigs and abundances as input + advanced options -->
+        <test expect_num_outputs="5">
+            <param name="contig" value="Bin_Sample3_contigs.fasta" ftype="fasta" />
+            <conditional name="intype_cond">
+                <param name="intype_select" value="abdc"/>
+                <param name="abund" value="abundances.tsv" ftype="tabular"/>
+            </conditional>
+            <conditional name="adv_cond">
+                <param name="adv_select" value="yes"/>
+                <param name="min_contig_length" value="500"/>
+                <param name="max_iteration" value="10"/>
+                <param name="prob_threshold" value="0.95"/>
+                <param name="plotmarker" value="-plotmarker"/>
+                <param name="markerset" value="107"/>
+            </conditional>
+            <output_collection name="bins" type="list" count="2">
+                <element name="001" file="2/out.001.fasta" ftype="fasta"/>
+                <element name="002" file="2/out.002.fasta" ftype="fasta"/>
+            </output_collection>
+            <output name="summary" file="2/out.summary" ftype="tabular" />
+            <output name="noclass" file="2/out.noclass" ftype="fasta" />
+            <output name="toshort" file="2/out.tooshort" ftype="fasta" />
+            <output name="plot" file="2/out.marker.pdf" ftype="pdf" compare="sim_size" />
+        </test>
+        <!-- test w contigs and reads as input + reassembly-->
+        <test expect_num_outputs="8">
+            <param name="contig" value="Bin_Sample3_contigs.fasta" ftype="fasta" />
+            <conditional name="intype_cond">
+                <param name="intype_select" value="rds"/>
+                <param name="reads" value="interleavedPE_unmapped_Sample3_small.fasta" ftype="fasta"/>
+                <param name="reassembly" value="-reassembly"/>
+            </conditional>
+            <conditional name="adv_cond">
+                <param name="adv_select" value="no"/>
+            </conditional>
+            <output_collection name="bins" type="list" count="2">
+                <element name="001" file="3/out.001.fasta" ftype="fasta"/>
+                <element name="002" file="3/out.002.fasta" ftype="fasta"/>
+            </output_collection>
+            <output name="summary" file="3/out.summary" ftype="tabular" />
+            <output name="noclass" file="3/out.noclass" ftype="fasta" />
+            <output name="toshort" file="3/out.tooshort" ftype="fasta" />
+            <output_collection name="reassembly_bins" type="list" count="2">
+                <element name="001" file="3/out.reassem/out.001.fasta" ftype="fasta"/>
+                <element name="002" file="3/out.reassem/out.002.fasta" ftype="fasta"/>
+            </output_collection>
+            <output_collection name="reassembly_reads" type="list" count="2">
+                <element name="001" file="3/out.reassem/out.reads.001" ftype="fasta"/>
+                <element name="002" file="3/out.reassem/out.reads.002" ftype="fasta"/>
+            </output_collection>
+            <output name="reassembly_noclass" file="3/out.reassem/out.reads.noclass" ftype="fasta" />
+            <output name="reassembly_n50" file="3/out.reassem/N50.txt" ftype="txt" />
+        </test>
+    </tests>
+    <help><![CDATA[
+MaxBin is a software that clusters metagenomic contigs into different bins,
+each consists (hopefully) of contigs from one species. MaxBin uses the
+nucleotide composition information and contig abundance information to do
+achieve binning through an Expectation-Maximization algorithm.
+
+**Input**:
+
+MaxBin need the contigs and contig abundance information. The contig abundance
+information can be provided in two ways: the user can choose to provide
+
+- the abundance file or
+- the sequencing reads in fasta format (and MaxBin will use Bowtie2 to map the
+  sequencing reads against the contigs and generate the abundance information)
+
+The abundance information can be provided as tabular file:
+
+For example, assume I have three contigs named A0001, A0002, and A0003, then my abundance file will look like
+
+A0001	30.89
+A0002	20.02
+A0003	78.93
+
+Reads/Abundundance files can be given in multiple files.
+
+By default MaxBin will look for 107 marker genes present in >95% of bacteria.
+Alternatively you can also choose 40 marker gene sets that are universal among
+bacteria and archaea (Wu et al., PLoS ONE 2013). This option may be better
+suited for environment dominated by archaea; however it tend to split genomes
+into more bins. You can choose between different marker gene sets and see which
+one works better.
+
+**Outputs**
+
+- bins: binned sequences
+- summary: a summary file describing which contigs are being classified into which bin.
+- log: a log file recording the core steps of MaxBin algorithm
+- abundances (only if reads are used as input): a summary file describing which contigs are being classified into which bin
+- marker: marker gene presence numbers for each bin. This table is ready to be plotted by R or other 3rd-party software.
+- marker plot (anly present if selected in the advanced options): visualization of the marker gene presence numbers using R. Will only appear if -plotmarker is specified.
+- unclassified sequences: this file stores all sequences that pass the minimum length threshold but are not classified successfully.
+- to short sequences: this file stores all sequences that do not meet the minimum length threshold.
+- markers prediced for bins: these data sets store all markers predicted from the individual bins.
+
+**Reassembly**
+
+This is an experimental feature of MaxBin. It calls for each read bin IDBA_UD with the pre_correction parameter.  Of course this IDBA_UD call can be done also with the corresponding Galaxy tool
+
+
+** More information **
+
+https://downloads.jbei.org/data/microbial_communities/MaxBin/MaxBin.html
+
+]]></help>
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/btv638</citation>
+    </citations>
+</tool>

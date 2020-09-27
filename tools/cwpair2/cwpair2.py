@@ -62,7 +62,7 @@ if __name__ == '__main__':
         by_file[path].append(stats)
     # Write tabular statistics file.
     keys = ['fname', 'final_mode', 'preview_mode', 'perc95', 'paired', 'orphans']
-    statistics_out = csv.writer(open(args.statistics_output, 'wt'), delimiter='\t')
+    statistics_out = csv.writer(open(args.statistics_output, 'wt'), delimiter='\t', lineterminator="\n")
     statistics_out.writerow(keys)
     for file_path, statistics in by_file.items():
         for stats in statistics:

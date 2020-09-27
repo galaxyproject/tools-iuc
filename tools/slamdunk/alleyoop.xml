@@ -1,0 +1,168 @@
+<tool id="alleyoop" name="Alleyoop" version="@TOOL_VERSION@">
+    <description>- post-processing and QC of Slamdunk analyses</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <version_command>alleyoop --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+
+#if $reference_source.reference_source_selector == 'history':
+    ln -f -s '$reference_source.ref_file' reference.fa &&
+#else:
+    ln -f -s '$reference_source.ref_file.fields.path' reference.fa &&
+#end if
+
+mkdir ./filter &&
+#for $bam in $reads:
+    #set $ext = ""
+    #set $bam_name = re.sub('[^\w\-\.]', '_', str($bam.element_identifier))
+    #if not $bam_name.endswith('.bam')
+        #set $ext = ".bam"
+    #end if
+    ln -s '$bam' './filter/${bam_name}${ext}' &&
+    ln -s '$bam.metadata.bam_index' './filter/${bam_name}${ext}.bai' &&
+#end for
+
+mkdir ./count &&
+#for $tsv in $count_tsvs:
+    #set $ext = ""
+    #set $tsv_name = re.sub('[^\w\-\.]', '_', str($tsv.element_identifier))
+    #if not $tsv_name.endswith('_tcount.tsv')
+        #set $ext = "_tcount.tsv"
+    #end if
+    ln -s '$tsv' './count/${tsv_name}${ext}' &&
+#end for
+
+mkdir ./snp &&
+#for $vcf in $variants:
+    #set $ext = ""
+    #set $vcf_name = re.sub('[^\w\-\.]', '_', str($vcf.element_identifier))
+    #if not $vcf_name.endswith('_snp.vcf')
+        #set $ext = "_snp.vcf"
+    #end if
+    ln -s '$vcf' './snp/${vcf_name}${ext}' &&
+#end for
+
+alleyoop summary -o ./summary.txt -t ./count ./filter/*bam &&
+
+alleyoop rates -o ./stats -r reference.fa -mq $mq ./filter/*bam &&
+
+alleyoop utrrates -o ./stats -r reference.fa -b $Reference -t \${GALAXY_SLOTS:-1} -l $l -mq $mq ./filter/*bam &&
+
+alleyoop tcperreadpos -o ./stats -r reference.fa -s ./snp -t \${GALAXY_SLOTS:-1} -l $l -mq $mq ./filter/*bam &&
+
+alleyoop tcperutrpos -o ./stats -r reference.fa -s ./snp -t \${GALAXY_SLOTS:-1} -l $l -b $Reference -mq $mq ./filter/*bam
+
+#if $bams:
+    && alleyoop read-separator -o ./splitbams -s ./snp -r reference.fa ./filter/*bam
+#end if
+
+    ]]></command>
+    <inputs>
+        <expand macro="reference_files" />
+        <param name="reads" type="data" format="sam,bam" multiple="True" label="Slamdunk BAM files" />
+        <param name="count_tsvs" type="data" format="tabular" multiple="True" label="Slamdunk Count TSV files" />
+        <param name="variants" type="data" format="vcf" multiple="True" label="Slamdunk VCF files" />
+        <param argument="-mq" type="integer" label="Minimum base quality"
+                value="27" min="0"
+                help="Minimum base quality for T>C conversions (default: 27)." />
+        <param argument="-l" type="integer" label="Read length"
+            value="50" min="50" help="Maximum read length (before trimming)." />
+        <param name="bams" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Output T>C separated BAM files?" help="If this option is set to Yes, the Alleyoop read-separator module will be run to output BAM files of separated T>C reads from non T>C reads. Default: No"/>
+    </inputs>
+    <outputs>
+         <collection name="outputSummary" type="list" label="${tool.name} on ${on_string}: Summary tables">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.txt$" format="tabular" directory="." visible="false" />
+        </collection>
+        <collection name="outputStats" type="list" label="${tool.name} on ${on_string}: Stats tables">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)\.csv$" format="tabular" directory="./stats" visible="false" />
+        </collection>
+        <collection name="outputTCReads" type="list" label="${tool.name} on ${on_string}: TC Reads">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)_TCReads.bam$" format="bam" directory="./splitbams" visible="false" />
+            <filter>bams</filter>
+        </collection>
+        <collection name="outputbkgdReads" type="list" label="${tool.name} on ${on_string}: Background Reads">
+            <discover_datasets pattern="(?P&lt;name&gt;.+)_backgroundReads.bam$" format="bam" directory="./splitbams" visible="false" />
+            <filter>bams</filter>
+        </collection>
+    </outputs>
+    <tests>
+        <!-- Ensure default output works -->
+        <test expect_num_outputs="2">
+            <param name="reference_source_selector" value="history" />
+            <param name="ref_file" ftype="fasta" value="ref.fa" />
+            <param name="Reference" ftype="bed" value="actb.bed" />
+            <param name="reads" ftype="bam" value="reads1.bam,reads2.bam" />
+            <param name="count_tsvs" ftype="tabular" value="reads1_tcount.tsv,reads2_tcount.tsv" />
+            <param name="variants" ftype="vcf" value="reads1_snp.vcf,reads2_snp.vcf" />
+            <param name="l" value="100" />
+            <param name="mq" value="27" />
+            <output_collection name="outputSummary" count="2">
+                <element name="summary" ftype="tabular" file="summary.txt" />
+            </output_collection>
+            <output_collection name="outputStats" count="8">
+                <element name="reads1_overallrates" ftype="tabular" file="reads1_overallrates.csv"  />
+            </output_collection>
+        </test>
+        <!-- Ensure BAM output works -->
+        <test expect_num_outputs="4">
+            <param name="reference_source_selector" value="history" />
+            <param name="ref_file" ftype="fasta" value="ref.fa" />
+            <param name="Reference" ftype="bed" value="actb.bed" />
+            <param name="reads" ftype="bam" value="reads1.bam,reads2.bam" />
+            <param name="count_tsvs" ftype="tabular" value="reads1_tcount.tsv,reads2_tcount.tsv" />
+            <param name="variants" ftype="vcf" value="reads1_snp.vcf,reads2_snp.vcf" />
+            <param name="l" value="100" />
+            <param name="mq" value="27" />
+            <param name="bams" value="True" />
+            <output_collection name="outputTCReads" count="2">
+                <element name="reads1" ftype="bam" file="reads1_TCReads.bam" />
+            </output_collection>
+            <output_collection name="outputbkgdReads" count="2">
+                <element name="reads1" ftype="bam" file="reads1_backgroundReads.bam" />
+            </output_collection>
+        </test>
+    </tests>
+    <help><![CDATA[
+SLAMseq
+=======
+
+SLAMseq is a novel sequencing protocol that directly uncovers 4-thiouridine incorporation events in RNA by high-throughput sequencing. When combined with metabolic labeling protocols, SLAM-seq allows to study the intracellular RNA dynamics, from transcription, RNA processing to RNA stability.
+
+Original publication: `Herzog et al., Nature Methods, 2017; doi:10.1038/nmeth.4435 <https://www.nature.com/nmeth/journal/vaop/ncurrent/full/nmeth.4435.html>`_
+
+Alleyoop
+========
+
+Alleyoop (Additional sLamdunk heLpEr tools for anY diagnOstics Or Plots) is a collection of tools for post-processing and running diagnostics on Slamdunk analyses. This tool works on the output of the **Slamdunk** tool and requires all the inputs listed in the table below.
+
+===============  ==========================================================================================================================================================
+Parameter        Description
+===============  ==========================================================================================================================================================
+**Genome**       The reference fasta file (Genome assembly).
+**Reference**    BED-file containing coordinates for 3' UTRs.
+**Reads**        Slamdunk Filtered BAM files.
+**Counts**       Slamdunk Count TSV files.
+**Variants**     Slandunk VCF files.
+**Read length**  Maximum length of reads (usually 50, 100, 150).
+===============  ==========================================================================================================================================================
+
+This tool runs the **Alleyoop** *summary*, *rates*, *utrrates*, *tcperreadpos* and *tcperutrpos* modules and outputs:
+
+* Tab-separated *summary* files from the summary module with mapping and PCA statistics
+* Tab-separated *stats* files from the rates, utrrates, tcperreadpos and tcperutrpos modules
+
+Optionally, the *read-separator* module can be run to output BAM files of separated T>C and non T>C reads.
+
+The summary and stats files can be summarised and visualised with MultiQC. An example MultiQC report can be seen here_. For information on these modules see the `Alleyoop documentation`_.
+
+.. _`Alleyoop documentation`: http://t-neumann.github.io/slamdunk/docs.html#document-Alleyoop
+.. _here: http://t-neumann.github.io/slamdunk/multiqc_example/multiqc_report.html
+
+    ]]></help>
+    <citations>
+        <expand macro="citations" />
+    </citations>
+</tool>

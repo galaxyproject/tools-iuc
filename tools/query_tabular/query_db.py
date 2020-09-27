@@ -52,7 +52,7 @@ def describe_tables(conn, outputFile):
             except Exception as exc:
                 print("Warning: %s" % exc, file=sys.stderr)
     except Exception as e:
-        exit('Error: %s' % (e))
+        exit('describe_tables Error: %s' % (e))
     exit(0)
 
 

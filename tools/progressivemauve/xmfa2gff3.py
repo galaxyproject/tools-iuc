@@ -16,6 +16,15 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 
+# Patch bcbio gff to work around url encoding issue. This is clearly
+# sub-optimal but we should transition to the newer library.
+def _new_format_keyvals(self, keyvals):
+    return ";".join(["%s=%s" % (k, ",".join(v)) for (k, v) in sorted(keyvals.items())])
+
+
+GFF.GFFOutput.GFF3Writer._format_keyvals = _new_format_keyvals
+
+
 def parse_xmfa(xmfa):
     """Simple XMFA parser until https://github.com/biopython/biopython/pull/544
     """
@@ -112,7 +121,7 @@ def convert_xmfa_to_gff3(xmfa_file, relative_to='1', sequences=None, window_size
                 type="match", strand=parent['strand'],
                 qualifiers={
                     "source": "progressiveMauve",
-                    "target": label_convert.get(other['id'], other['id']),
+                    "Target": " ".join(map(str, [label_convert.get(other['id'], other['id']), other['start'], other['end'], '+' if other['strand'] > 0 else '-'])),
                     "ID": label_convert.get(other['id'], 'xmfa_' + other['rid'])
                 }
             )
@@ -136,6 +145,10 @@ def convert_xmfa_to_gff3(xmfa_file, relative_to='1', sequences=None, window_size
                 # Ignore 0% identity sequences
                 if pid == 0:
                     continue
+
+                # Support for Biopython 1.68 and above, which removed sub_features
+                if not hasattr(other['feature'], "sub_features"):
+                    other['feature'].sub_features = []
                 other['feature'].sub_features.append(
                     SeqFeature(
                         FeatureLocation(real_start, real_end),
@@ -154,10 +167,10 @@ def convert_xmfa_to_gff3(xmfa_file, relative_to='1', sequences=None, window_size
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert XMFA alignments to gff3', prog='xmfa2gff3')
-    parser.add_argument('xmfa_file', type=file, help='XMFA File')
+    parser.add_argument('xmfa_file', type=argparse.FileType('r'), help='XMFA File')
     parser.add_argument('--window_size', type=int, help='Window size for analysis', default=1000)
     parser.add_argument('--relative_to', type=str, help='Index of the parent sequence in the MSA', default='1')
-    parser.add_argument('--sequences', type=file, nargs='+',
+    parser.add_argument('--sequences', type=argparse.FileType('r'), nargs='+',
                         help='Fasta files (in same order) passed to parent for reconstructing proper IDs')
     parser.add_argument('--version', action='version', version='%(prog)s 1.0')
 

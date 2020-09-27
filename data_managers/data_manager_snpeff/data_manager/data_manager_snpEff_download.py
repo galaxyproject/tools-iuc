@@ -19,7 +19,7 @@ def fetch_databases(genome_list=None):
     args = ['snpEff', 'databases']
     return_code = subprocess.call(args=args, shell=False, stdout=databases_output.fileno())
     if return_code:
-        sys.exit( return_code )
+        sys.exit(return_code)
     databases_output.close()
     try:
         fh = open(databases_path, 'r')
@@ -34,7 +34,7 @@ def fetch_databases(genome_list=None):
                 description = fields[1].strip()
                 snpDBs[genome_version] = description
     except Exception as e:
-        stop_err( 'Error parsing %s %s\n' % (databases_path, str( e )) )
+        stop_err('Error parsing %s %s\n' % (databases_path, str(e)))
     else:
         fh.close()
     return snpDBs
@@ -59,11 +59,11 @@ def getSnpeffVersion():
     args = ['snpEff', '-h']
     return_code = subprocess.call(args=args, shell=False, stderr=stderr_fh.fileno())
     if return_code != 255:
-        sys.exit( return_code )
+        sys.exit(return_code)
     stderr_fh.close()
     fh = open(stderr_path, 'r')
     for line in fh:
-        m = re.match('^[Ss]npEff version (SnpEff)\s*(\d+\.\d+).*$', line)
+        m = re.match(r'^[Ss]npEff version (SnpEff)\s*(\d+\.\d+).*$', line)
         if m:
             snpeff_version = m.groups()[0] + m.groups()[1]
             break
@@ -90,7 +90,7 @@ def download_database(data_manager_dict, target_directory, genome_version, organ
     args = ['snpEff', 'download', '-dataDir', data_dir, '-v', genome_version]
     return_code = subprocess.call(args=args, shell=False)
     if return_code:
-        sys.exit( return_code )
+        sys.exit(return_code)
     # search data_dir/genome_version for files
     regulation_pattern = 'regulation_(.+).bin'
     genome_path = os.path.join(data_dir, genome_version)
@@ -103,42 +103,42 @@ def download_database(data_manager_dict, target_directory, genome_version, organ
                     # if snpEffectPredictor.bin download succeeded
                     name = genome_version + (' : ' + organism if organism else '')
                     data_table_entry = dict(key=key, version=snpeff_version, value=genome_version, name=name, path=data_dir)
-                    _add_data_table_entry( data_manager_dict, 'snpeffv_genomedb', data_table_entry )
+                    _add_data_table_entry(data_manager_dict, 'snpeffv_genomedb', data_table_entry)
                 else:
                     m = re.match(regulation_pattern, fname)
                     if m:
                         name = m.groups()[0]
                         data_table_entry = dict(key=key, version=snpeff_version, genome=genome_version, value=name, name=name)
-                        _add_data_table_entry( data_manager_dict, 'snpeffv_regulationdb', data_table_entry )
+                        _add_data_table_entry(data_manager_dict, 'snpeffv_regulationdb', data_table_entry)
     return data_manager_dict
 
 
-def _add_data_table_entry( data_manager_dict, data_table, data_table_entry ):
-    data_manager_dict['data_tables'] = data_manager_dict.get( 'data_tables', {} )
-    data_manager_dict['data_tables'][data_table] = data_manager_dict['data_tables'].get( data_table, [] )
-    data_manager_dict['data_tables'][data_table].append( data_table_entry )
+def _add_data_table_entry(data_manager_dict, data_table, data_table_entry):
+    data_manager_dict['data_tables'] = data_manager_dict.get('data_tables', {})
+    data_manager_dict['data_tables'][data_table] = data_manager_dict['data_tables'].get(data_table, [])
+    data_manager_dict['data_tables'][data_table].append(data_table_entry)
     return data_manager_dict
 
 
 def main():
     parser = optparse.OptionParser()
-    parser.add_option( '-g', '--genome_version', dest='genome_version', action='store', type="string", default=None, help='genome_version' )
-    parser.add_option( '-o', '--organism', dest='organism', action='store', type="string", default=None, help='organism name' )
+    parser.add_option('-g', '--genome_version', dest='genome_version', action='store', type="string", default=None, help='genome_version')
+    parser.add_option('-o', '--organism', dest='organism', action='store', type="string", default=None, help='organism name')
     (options, args) = parser.parse_args()
 
     filename = args[0]
 
-    params = json.loads( open( filename ).read() )
-    target_directory = params[ 'output_data' ][0]['extra_files_path']
-    os.mkdir( target_directory )
+    params = json.loads(open(filename).read())
+    target_directory = params['output_data'][0]['extra_files_path']
+    os.mkdir(target_directory)
     data_manager_dict = {}
 
     # Create SnpEff Reference Data
     for genome_version, organism in zip(options.genome_version.split(','), getOrganismNames(options.genome_version, options.organism).split(',')):
-        download_database( data_manager_dict, target_directory, genome_version, organism )
+        download_database(data_manager_dict, target_directory, genome_version, organism)
 
     # save info to json file
-    open( filename, 'wb' ).write( json.dumps( data_manager_dict ) )
+    open(filename, 'w').write(json.dumps(data_manager_dict, sort_keys=True))
 
 
 if __name__ == "__main__":
