@@ -3,10 +3,11 @@
 import argparse
 import multiprocessing
 import os
-import pandas
 import queue
-import pandas.io.formats.excel
 import re
+
+import pandas
+import pandas.io.formats.excel
 from Bio import SeqIO
 
 INPUT_JSON_AVG_MQ_DIR = 'input_json_avg_mq_dir'
