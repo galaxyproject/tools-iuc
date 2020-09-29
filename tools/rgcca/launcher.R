@@ -295,7 +295,8 @@ check_arg <- function(opt) {
         opt$separator <- separators[opt$separator]
     }
 
-    check_integer("nmark", opt$nmark, min = 2)
+    nmark <- NULL
+    RGCCA:::check_integer("nmark", opt$nmark, min = 2)
 
     for (x in c("ncomp", "penalty"))
         opt[[x]] <- char_to_list(opt[[x]])
@@ -306,6 +307,7 @@ check_arg <- function(opt) {
 post_check_arg <- function(opt, rgcca) {
 # Check the validity of the arguments after loading the blocks opt : an
 # optionParser object blocks : a list of matrix
+    blocks <- NULL
 
     for (x in c("block", "block_y")) {
         if (!is.null(opt[[x]])) {
@@ -516,8 +518,8 @@ tryCatch({
     save_var(rgcca_out, opt$compx, opt$compy, opt$o7)
     save(rgcca_out, file = opt$o8)
 
-    }, error = function(e){
-        if (class(e)[1] %in% c("simpleError", "error", "condition" ))
+    }, error = function(e) {
+        if (class(e)[1] %in% c("simpleError", "error", "condition"))
             status <<- 1
         else
             status <<- class(e)[1]
