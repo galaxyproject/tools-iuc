@@ -3,11 +3,12 @@
 import argparse
 import multiprocessing
 import os
-import pandas
-import pysam
 import queue
 import re
 import shutil
+
+import pandas
+import pysam
 from Bio import SeqIO
 
 INPUT_BAM_DIR = 'input_bam_dir'
