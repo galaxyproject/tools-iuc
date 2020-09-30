@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<tool id="medaka_variant" name="medaka: Variant" version="@TOOL_VERSION@+galaxy1" profile="@PROFILE@">
+<tool id="medaka_variant" name="medaka: Variant" version="@TOOL_VERSION@+galaxy2" profile="@PROFILE@">
     <description>Probability decoding</description>
     <macros>
         <import>macros.xml</import>
@@ -10,29 +10,59 @@
 ## initialize
 @REF_FASTA@
 
-## run
-medaka variant
-## optional
---debug
-#if $region
-    --region '${region}'
-#end if
-$verbose
-## required
-reference.fa
-#for $current in $inputs
-    '$current'
-#end for
-'$out_result' ## output
 
-2>&1 | tee '$out_log'
+#if $pool.pool_mode == "Yes":
+    ## run
+    medaka variant
+    ## optional
+    --debug
+    #if $region
+        --region '${region}'
+    #end if
+    $verbose
+    ## required
+    reference.fa
+    #for $current in $pool.inputs
+        '$current'
+    #end for
+    '$out_result' ## output
+
+    2>&1 | tee '$out_log'
+#elif $pool.pool_mode == "No":
+    ## run
+    medaka variant
+    ## optional
+    --debug
+    #if $region
+        --region '${region}'
+    #end if
+    $verbose
+    ## required
+    reference.fa
+    '$pool.input'
+    '$out_result' ##output
+    2>&1 | tee '$out_log'
+#end if
 
 #if $out_annotated
-    && python '$__tool_directory__'/annotateVCF.py '$out_result' '$in_mpileup' '$out_annotated'
+    && samtools faidx reference.fa
+    && samtools mpileup -f reference.fa --positions '$out_result' '$in_bam' > mpileup.txt
+    && python '$__tool_directory__'/annotateVCF.py '$out_result' mpileup.txt '$out_annotated'
 #end if
     ]]></command>
     <inputs>
-        <param argument="inputs" type="data" format="h5" multiple="true" label="Select consensus file(s)"/>
+        <conditional name="pool">
+            <param name="pool_mode"  type="select" label="Are you pooling HDF5 datasets?">
+                <option value="No">No</option>
+                <option value="Yes" selected="True">Yes</option>
+            </param>
+            <when value="Yes">
+                <param argument="inputs" type="data" format="h5" multiple="true" label="Select consensus file(s)"/>
+            </when>
+            <when value="No">
+                <param argument="input" type="data" format="h5" label="Select consensus file(s)"/>
+            </when>
+        </conditional>
         <expand macro="reference"/>
         <param argument="--region" type="text" value="" optional="true" label="Set reference names to limit variant calling" help="Separated by ','.">
             <sanitizer invalid_char="">
@@ -46,13 +76,14 @@ reference.fa
         <param argument="--verbose" type="boolean" truevalue="--verbose" falsevalue="" label="Populate VCF info fields?"/>
 
         <conditional name="output_annotated">
-            <param name="output_annotated_select" type="select" label="Output annotated VCF?" help="Annotate allele frequency, depth of coverage, etc for each variant (requires pileup file)">
+            <param name="output_annotated_select" type="select" label="Output annotated VCF?" help="Annotate allele frequency, depth of coverage, etc for each variant (requires BAM file)">
                 <option value="true" selected="true">Output annotated VCF</option>
                 <option value="false">Don't output annotated VCF</option>
             </param>
             <when value="true">
-                <param name="in_mpileup" type = "data" format="pileup" optional="false" label="Mpileup to annotate the VCF"/>
+                <param name="in_bam" type = "data" format="bam" optional="false" label="BAM to annotate the VCF"/>
             </when>
+            <when value="false"/>
         </conditional>
         <param name="output_log_bool" type="boolean" label="Output log file?" checked="true"/>
     </inputs>
@@ -70,14 +101,54 @@ reference.fa
     <tests>
         <!-- #1 default -->
         <test expect_num_outputs="3">
-            <param name="inputs" value="medaka_test.hdf"/>
+            <conditional name="pool">
+                <param name="pool_mode" value="Yes"/>
+                <param name="inputs" value="medaka_test.hdf,medaka_test.hdf"/>
+            </conditional>
             <conditional name="reference_source">
                 <param name="reference_source_selector" value="history"/>
                 <param name="ref_file" value="ref.fasta"/>
             </conditional>
             <conditional name="output_annotated">
                 <param name="output_annotated_select" value="true"/>
-                <param name="in_mpileup" value="annotate_vcf_test.pileup"/>
+                <param name="in_bam" value="medaka_test.bam"/>
+            </conditional>
+            <param name="output_log_bool" value="true"/>
+            
+            <output name="out_result">
+                <assert_contents>
+                    <has_n_lines n="9"/>
+                    <has_line line="##fileformat=VCFv4.1" />
+                    <has_line line="##medaka_version=1.0.3" />
+                </assert_contents>
+            </output>
+            <output name="out_annotated">
+                <assert_contents>
+                    <has_n_lines n="16"/>
+                    <has_line line="##fileformat=VCFv4.1" />
+                    <has_line line="##medaka_version=1.0.3" />
+                    <has_line line="##annotateVCFVersion=0.1" />
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_n_lines n="10" />
+                </assert_contents>
+            </output>
+        </test>
+        <!--No pooling-->
+        <test expect_num_outputs="3">
+            <conditional name="pool">
+                <param name="pool_mode" value="No"/>
+                <param name="input" value="medaka_test.hdf"/>
+            </conditional>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="ref.fasta"/>
+            </conditional>
+            <conditional name="output_annotated">
+                <param name="output_annotated_select" value="true"/>
+                <param name="in_bam" value="medaka_test.bam"/>
             </conditional>
             <param name="output_log_bool" value="true"/>
             
