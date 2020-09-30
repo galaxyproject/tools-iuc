@@ -11,7 +11,7 @@ omics, RGCCA, multi-block
 analysis, correlation, visualisation
 
 ##### Contact: 
-arthur.tenenhaus@l2s.centralesupelec.fr
+arthur.tenenhaus@centralesupelec.fr
 
 ##### Short description:
 Performs multi-variate analysis (PCA, CCA, PLS, R/SGCCA, etc.) and produces textual and graphical outputs (e.g. variables and individuals plots).
@@ -22,33 +22,6 @@ Performs multi-variate analysis (PCA, CCA, PLS, R/SGCCA, etc.) and produces text
 
 We consider J data matrices X1 ,..., XJ. Each n × pj data matrix Xj = [ xj1, ..., xjpj ] is called a block and represents a set of pj variables observed on n individuals. The number and the nature of the variables may differ from one block to another, but the individuals must be the same across blocks. We assume that all variables are centered. The objective of RGCCA is to find, for each block, a weighted composite of variables (called block component) yj = Xj . aj, j = 1 ,..., J (where aj is a column-vector with pj elements) summarizing the relevant information between and within the blocks. The block components are obtained such that (i) block components explain well their own block and/or (ii) block components that are assumed to be connected are highly correlated. In addition, RGCCA integrates a variable selection procedure, called SGCCA, allowing the identification of the most relevant features (see [here](https://github.com/rgcca-factory/RGCCA/tree/release/3.0.0#algorithm) for more information).
 
-
-## Setting up (not for Windows)
-
-### Conda installation
-
-```
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-sh Miniconda3-latest-Linux-x86_64.sh [yes, then ./miniconda3 and no]
-source ./miniconda3/bin/activate
-```
-
-### Package installation
-
-```
-PACKAGE_NAME=RGCCA
-git clone https://github.com/rgcca-factory/${PACKAGE_NAME}.git
-cd ${PACKAGE_NAME}
-conda create -n ${PACKAGE_NAME} -c conda-forge -c bioconda -c icm-iconics planemo
-```
-
-### Usage
-```
-source ../miniconda3/bin/activate ${PACKAGE_NAME} [if environment is not activated]
-planemo serve [wait, then go to the link]
-```
-
-
 ## 1. Load the inputs
 
 
@@ -56,7 +29,7 @@ In the tool-shed (left panel), select the « RGCCA » tool (Fig. 1).
 
 Download the pre-formatted files [here](https://github.com/rgcca-factory/RGCCA/tree/release/3.0.0/inst/extdata). This folder includes three blocks with the same individuals (corresponding to the countries here) but different types of variables (agriculture, industry and politic). In this dataset, according to Russett (1964), a high agriculture inequality and a low industrial development lead to unstable political regime. 
 
-Download them in Galaxy (with the download button in green, **Fig. 1**). The accepted format is one (for PCA) or multiple CSV files containing a matrix with:
+Download them in Galaxy (with the download button in green, **Fig. 1**). The accepted format is one (for PCA) or multiple TSV files containing a matrix with:
 - quantitative values only, with decimals separated by '.' and missing values labelled as "NA"
 - samples in rows, labelled in the 1rst column with the same sample names between blocks (some samples could be missing in some blocks)
 - variables in columns, labelled in the 1rst line without duplications in variable names between blocks
@@ -159,7 +132,7 @@ Only, the horst scheme penalizes structural negative correlation. The factorial 
 *Fig. 7 : The graphical option panel includes: (i) the loading of groups of response to color the samples (ii) the possibility to hide/print the names of the variables, (iii) the components used in the plots and (iv) the selection of the block to visualize. In this example, the superblock will be selected as the block for the X- and Y-axis.*
 
 ### 4.1. Color the samples
-A variable could be used to color the points according to a response. For this, load the ``` political_system.tsv``` file (**Fig. 8**) in the corresponding ```groups of modalities``` box to update the plot. The expected format is a CSV file tabulation-separated with: 
+A variable could be used to color the points according to a response. For this, load the ``` political_system.tsv``` file (**Fig. 8**) in the corresponding ```groups of modalities``` box to update the plot. The expected format is a TSV file tabulation-separated with: 
 - qualitative or quantitative values (decimals separated by '.') with missing values labelled as "NA"
 - samples in lines, labelled in the 1rst column with the same sample names as the blocks (some samples could be missing)
 - a header containing the names of the columns
