@@ -3,10 +3,11 @@
 import argparse
 import multiprocessing
 import os
-import pandas
 import queue
-import pandas.io.formats.excel
 import re
+
+import pandas
+import pandas.io.formats.excel
 from Bio import SeqIO
 
 INPUT_JSON_AVG_MQ_DIR = 'input_json_avg_mq_dir'
@@ -32,7 +33,7 @@ def annotate_table(table_df, group, annotation_dict):
         # Create an annotation file.
         annotation_file = "%s_annotations.csv" % group
         with open(annotation_file, "a") as fh:
-            for index, row in positions.iterrows():
+            for _, row in positions.iterrows():
                 pos = row.position
                 try:
                     aaa = pro.iloc[pro.index.get_loc(int(pos))][['chrom', 'locus', 'product', 'gene']]
