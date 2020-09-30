@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-from __future__ import print_function
 
 import argparse
 
@@ -16,6 +15,8 @@ if __name__ == '__main__':
     parser.add_argument('--volume', nargs='*', help='Volume')
     parser.add_argument('--first_page', nargs='*', help='First Page')
     parser.add_argument('--author_name', nargs='*', help='Author name')
+
+    parser.add_argument('--version', action='version', version=eutils.Client.getVersion(), help='Version (reports Biopython version)')
 
     # Emails
     parser.add_argument('--user_email', help="User email")
