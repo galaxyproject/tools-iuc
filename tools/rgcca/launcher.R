@@ -10,7 +10,7 @@
 
 rm(list = ls())
 graphics.off()
-separator <- nmark <- blocks <- NULL
+separator <- NULL
 
 ########## Arguments ##########
 
@@ -25,14 +25,6 @@ get_args <- function() {
             help = "List of comma-separated file paths corresponding to the
             blocks to be analyzed (one per block and without spaces between
             them; e.g., path/file1.txt,path/file2.txt) [required]"
-        ),
-        make_option(
-            opt_str = c("-w", "--directory"),
-            type = "character",
-            metavar = "path",
-            default = opt[1],
-            help = "Path of the root folder containing the R/ (e.g. for Galaxy)
-            [default: the current one]"
         ),
         make_option(
             opt_str = c("-c", "--connection"),
@@ -72,7 +64,7 @@ get_args <- function() {
             opt_str = "--separator",
             type = "integer",
             metavar = "integer",
-            default = 1,
+            default = opt[1],
             help = "Character used to separate columns (1: tabulation,
             2: semicolon, 3: comma) [default: %default]"
         ),
@@ -81,7 +73,7 @@ get_args <- function() {
             opt_str = "--type",
             type = "character",
             metavar = "character",
-            default = opt[3],
+            default = opt[2],
             help = "Type of analysis [default: %default] (among: rgcca, pca,
             cca, gcca, cpca-w, hpca, maxbet-b, maxbet, maxdiff-b, maxdiff,
             maxvar-a, maxvar-b, maxvar, niles, r-maxvar, rcon-pca, ridge-gca,
@@ -92,7 +84,7 @@ get_args <- function() {
             opt_str = "--ncomp",
             type = "character",
             metavar = "integer list",
-            default = opt[4],
+            default = opt[3],
             help = "Number of components in the analysis for each block
             [default: %default]. The number should be higher than 1 and lower
             than the minimum number of variables among the blocks. It can be a
@@ -102,7 +94,7 @@ get_args <- function() {
             opt_str = "--penalty",
             type = "character",
             metavar = "float list",
-            default = opt[5],
+            default = opt[4],
             help = "For RGCCA, a regularization parameter for each block (i.e., tau)
             [default: %default]. Tau varies from 0 (maximizing the correlation)
             to 1 (maximizing the covariance). For SGCCA, tau is automatically
@@ -116,11 +108,12 @@ get_args <- function() {
             opt_str = "--scheme",
             type = "integer",
             metavar = "integer",
-            default = 2,
+            default = opt[5],
             help = "Link (i.e. scheme) function for covariance maximization
-            (1: x, 2: x^2, 3: |x|, 4: x^4) [default: %default]. Only, the x
-            function penalizes structural negative correlation. The x^4
-            function discriminates more strongly the blocks than the x^2 one."
+            (1: x, 2: x^2, 3: |x|, 4: x^4) [default: %default]. Onnly, the x
+            function ('horst scheme') penalizes structural negative correlation.
+            The x^2 function ('factorial scheme') discriminates more strongly
+            the blocks than the |x| ('centroid scheme') one."
         ),
         make_option(
             opt_str = "--scale",
@@ -151,7 +144,7 @@ get_args <- function() {
             opt_str = "--block",
             type = "integer",
             metavar = "integer",
-            default = opt[8],
+            default = opt[6],
             help = "Position in the path list of the plotted block (0: the
             superblock or, if not activated, the last one, 1: the fist one,
             2: the 2nd, etc.)[default: the last one]"
@@ -169,7 +162,7 @@ get_args <- function() {
             opt_str = "--compx",
             type = "integer",
             metavar = "integer",
-            default = opt[9],
+            default = opt[7],
             help = "Component used in the X-axis for biplots and the only
             component used for histograms [default: %default] (should not be
             higher than the number of components of the analysis)"
@@ -178,7 +171,7 @@ get_args <- function() {
             opt_str = "--compy",
             type = "integer",
             metavar = "integer",
-            default = opt[10],
+            default = opt[8],
             help = "Component used in the Y-axis for biplots
             [default: %default] (should not be higher than the number of
             components of the analysis)"
@@ -187,7 +180,7 @@ get_args <- function() {
             opt_str = "--nmark",
             type = "integer",
             metavar = "integer",
-            default = opt[11],
+            default = opt[9],
             help = "Number maximum of top variables in ad hoc plot
             [default: %default]"
         ),
@@ -196,56 +189,56 @@ get_args <- function() {
             opt_str = "--o1",
             type = "character",
             metavar = "path",
-            default = opt[12],
-            help = "Path for the variable plot [default: %default]"
+            default = opt[10],
+            help = "Path for the individual plot [default: %default]"
         ),
         make_option(
             opt_str = "--o2",
             type = "character",
             metavar = "path",
-            default = opt[13],
-            help = "Path for the individual plot [default: %default]"
+            default = opt[11],
+            help = "Path for the variable plot [default: %default]"
         ),
         make_option(
             opt_str = "--o3",
             type = "character",
             metavar = "path",
-            default = opt[14],
+            default = opt[12],
             help = "Path for the top variables plot [default: %default]"
         ),
         make_option(
             opt_str = "--o4",
             type = "character",
             metavar = "path",
-            default = opt[15],
+            default = opt[13],
             help = "Path for the explained variance plot [default: %default]"
         ),
         make_option(
             opt_str = "--o5",
             type = "character",
             metavar = "path",
-            default = opt[16],
+            default = opt[14],
             help = "Path for the design plot [default: %default]"
         ),
         make_option(
             opt_str = "--o6",
             type = "character",
             metavar = "path",
-            default = opt[17],
+            default = opt[15],
             help = "Path for the individual table [default: %default]"
         ),
         make_option(
             opt_str = "--o7",
             type = "character",
             metavar = "path",
-            default = opt[18],
+            default = opt[16],
             help = "Path for the variable table [default: %default]"
         ),
         make_option(
             opt_str = "--o8",
             type = "character",
             metavar = "path",
-            default = opt[19],
+            default = opt[17],
             help = "Path for the analysis results in RData [default: %default]"
         )
     )
@@ -260,12 +253,12 @@ check_arg <- function(opt) {
     # Check the validity of the arguments opt : an optionParser object
 
     if (is.null(opt$datasets))
-        stop(paste0("datasets is required."), exit_code = 121)
+        stop_rgcca(paste0("datasets is required."), exit_code = 121)
 
     if (is.null(opt$scheme))
         opt$scheme <- "factorial"
     else if (!opt$scheme %in% seq(4)) {
-        stop(
+        stop_rgcca(
             paste0(
                 "scheme should be comprise between 1 and 4 [by default: 2], not be equal to ",
                 opt$scheme,
@@ -282,7 +275,7 @@ check_arg <- function(opt) {
     }
 
     if (!opt$separator %in% seq(3)) {
-        stop(
+        stop_rgcca(
             paste0(
                 "separator should be comprise between 1 and 3 (1: Tabulation, 2: Semicolon, 3: Comma) [by default: 2], not be equal to ",
                 opt$separator,
@@ -308,7 +301,6 @@ post_check_arg <- function(opt, rgcca) {
 # Check the validity of the arguments after loading the blocks opt : an
 # optionParser object blocks : a list of matrix
     blocks <- NULL
-
     for (x in c("block", "block_y")) {
         if (!is.null(opt[[x]])) {
             if (opt[[x]] == 0)
@@ -317,7 +309,7 @@ post_check_arg <- function(opt, rgcca) {
         }
     }
 
-    if (opt$ncomp == 1)
+    if (any(opt$ncomp == 1))
         opt$compy <- 1
 
     for (x in c("compx", "compy"))
@@ -337,19 +329,19 @@ check_integer <- function(x, y = x, type = "scalar", float = FALSE, min = 1) {
     y <- suppressWarnings(as.double(as.matrix(y)))
 
     if (any(is.na(y)))
-        stop(paste(x, "should not be NA."))
+        stop_rgcca(paste(x, "should not be NA."))
 
     if (!is(y, "numeric"))
-        stop(paste(x, "should be numeric."))
+        stop_rgcca(paste(x, "should be numeric."))
 
     if (type == "scalar" && length(y) != 1)
-        stop(paste(x, "should be of length 1."))
+        stop_rgcca(paste(x, "should be of length 1."))
 
     if (!float)
         y <- as.integer(y)
 
     if (all(y < min))
-        stop(paste0(x, " should be higher than or equal to ", min, "."))
+        stop_rgcca(paste0(x, " should be higher than or equal to ", min, "."))
 
     if (type %in% c("matrix", "data.frame"))
         y <- matrix(
@@ -379,18 +371,28 @@ load_libraries <- function(librairies) {
     }
 }
 
+stop_rgcca <- function(
+    message,
+    exit_code = "1",
+    call = NULL) {
+
+    base::stop(
+        structure(
+            class = c(exit_code, "simpleError", "error", "condition"),
+            list(message = message, call. = NULL)
+    ))
+ }
+
 ########## Main ##########
 
 # Get arguments : R packaging install, need an opt variable with associated
 # arguments
 opt <- list(
-    directory = ".",
-    separator = "\t",
+    separator = 1,
     type = "rgcca",
     ncomp = 2,
     penalty = 1,
-    scheme = "factorial",
-    init = 1,
+    scheme = 2,
     block = 0,
     compx = 1,
     compy = 2,
@@ -415,15 +417,13 @@ try(load_libraries("ggrepel"), silent = TRUE)
 tryCatch(
     opt <- check_arg(parse_args(get_args())),
     error = function(e) {
-        if (length(grep("nextArg", e[[1]])) != 1)
+    if (length(grep("nextArg", e[[1]])) != 1)
             stop(e[[1]], exit_code = 140)
     }, warning = function(w)
         stop(w[[1]], exit_code = 141)
 )
 
 # Load functions
-setwd(opt$directory)
-
 all_funcs <- unclass(lsf.str(envir = asNamespace("RGCCA"), all = T))
 for (i in all_funcs)
     eval(parse(text = paste0(i, "<-RGCCA:::", i)))
@@ -526,3 +526,4 @@ tryCatch({
         message(e$message)
 })
 quit(status = status)
+
