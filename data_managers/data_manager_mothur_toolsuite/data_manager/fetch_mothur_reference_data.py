@@ -28,118 +28,118 @@ MOTHUR_REFERENCE_DATA = {
     # Look up data
     # http://www.mothur.org/wiki/Lookup_files
     "lookup_titanium": {
-        "GS FLX Titanium": ["http://www.mothur.org/w/images/9/96/LookUp_Titanium.zip", ]
+        "GS FLX Titanium": ["https://mothur.s3.us-east-2.amazonaws.com/wiki/lookup_titanium.zip", ]
     },
     "lookup_gsflx": {
-        "GSFLX": ["http://www.mothur.org/w/images/8/84/LookUp_GSFLX.zip", ]
+        "GSFLX": ["https://mothur.s3.us-east-2.amazonaws.com/wiki/lookup_gsflx.zip", ]
     },
     "lookup_gs20": {
-        "GS20": ["http://www.mothur.org/w/images/7/7b/LookUp_GS20.zip", ]
+        "GS20": ["https://mothur.s3.us-east-2.amazonaws.com/wiki/lookup_gs20.zip", ]
     },
     # RDP reference files
     # http://www.mothur.org/wiki/RDP_reference_files
     "RDP_v16": {
         "16S rRNA RDP training set 16":
-        ["https://mothur.org/w/images/d/dc/Trainset16_022016.rdp.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset16_022016.rdp.tgz", ],
         "16S rRNA PDS training set 16":
-        ["https://mothur.org/w/images/c/c3/Trainset16_022016.pds.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset16_022016.pds.tgz", ],
     },
     "RDP_v14": {
         "16S rRNA RDP training set 14":
-        ["https://mothur.org/w/images/6/6c/Trainset14_032015.rdp.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset14_032015.rdp.tgz", ],
         "16S rRNA PDS training set 14":
-        ["https://mothur.org/w/images/8/88/Trainset14_032015.pds.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset14_032015.pds.tgz", ],
     },
     "RDP_v10": {
         "16S rRNA RDP training set 10":
-        ["http://www.mothur.org/w/images/b/b5/Trainset10_082014.rdp.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset10_082014.rdp.tgz", ],
         "16S rRNA PDS training set 10":
-        ["http://www.mothur.org/w/images/2/24/Trainset10_082014.pds.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset10_082014.pds.tgz", ],
     },
     "RDP_v9": {
         "16S rRNA RDP training set 9":
-        ["http://www.mothur.org/w/images/7/72/Trainset9_032012.rdp.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset9_032012.rdp.zip", ],
         "16S rRNA PDS training set 9":
-        ["http://www.mothur.org/w/images/5/59/Trainset9_032012.pds.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset9_032012.pds.zip", ],
     },
     "RDP_v7": {
         "16S rRNA RDP training set 7":
-        ["http://www.mothur.org/w/images/2/29/Trainset7_112011.rdp.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset7_112011.rdp.zip", ],
         "16S rRNA PDS training set 7":
-        ["http://www.mothur.org/w/images/4/4a/Trainset7_112011.pds.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset7_112011.pds.zip", ],
         "8S rRNA Fungi training set 7":
-        ["http://www.mothur.org/w/images/3/36/FungiLSU_train_v7.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/fungilsu_train_v7.zip", ],
     },
     "RDP_v6": {
         "RDP training set 6":
-        ["http://www.mothur.org/w/images/4/49/RDPTrainingSet.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/rdptrainingset.zip", ],
     },
     # Silva reference files
     # http://www.mothur.org/wiki/Silva_reference_files
     "silva_release_128": {
         "SILVA release 128":
-        ["https://mothur.org/w/images/b/b4/Silva.nr_v128.tgz",
-         "https://mothur.org/w/images/a/a4/Silva.seed_v128.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v128.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v128.tgz", ],
     },
     "silva_release_123": {
         "SILVA release 123":
-        ["https://mothur.org/w/images/b/be/Silva.nr_v123.tgz",
-         "https://mothur.org/w/images/1/15/Silva.seed_v123.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v123.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v123.tgz", ],
     },
     "silva_release_119": {
         "SILVA release 119":
-        ["http://www.mothur.org/w/images/2/27/Silva.nr_v119.tgz",
-         "http://www.mothur.org/w/images/5/56/Silva.seed_v119.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v119.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v119.tgz", ],
     },
     "silva_release_102": {
         "SILVA release 102":
-        ["http://www.mothur.org/w/images/9/98/Silva.bacteria.zip",
-         "http://www.mothur.org/w/images/3/3c/Silva.archaea.zip",
-         "http://www.mothur.org/w/images/1/1a/Silva.eukarya.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.bacteria.zip",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.archaea.zip",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.eukarya.zip", ],
     },
     "silva_gold_bacteria": {
         "SILVA gold":
-        ["http://www.mothur.org/w/images/f/f1/Silva.gold.bacteria.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.gold.bacteria.zip", ],
     },
     # Greengenes
     # http://www.mothur.org/wiki/Greengenes-formatted_databases
     "greengenes_August2013": {
         "Greengenes August 2013":
-        ["http://www.mothur.org/w/images/1/19/Gg_13_8_99.refalign.tgz",
-         "http://www.mothur.org/w/images/6/68/Gg_13_8_99.taxonomy.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/gg_13_8_99.refalign.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/gg_13_8_99.taxonomy.tgz", ],
     },
     "greengenes_May2013": {
         "Greengenes May 2013":
-        ["http://www.mothur.org/w/images/c/cd/Gg_13_5_99.refalign.tgz",
-         "http://www.mothur.org/w/images/9/9d/Gg_13_5_99.taxonomy.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/gg_13_5_99.refalign.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/gg_13_5_99.taxonomy.tgz", ],
     },
     "greengenes_old": {
         "Greengenes pre-May 2013":
-        ["http://www.mothur.org/w/images/7/72/Greengenes.alignment.zip",
-         "http://www.mothur.org/w/images/1/16/Greengenes.tax.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/greengenes.alignment.zip",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/greengenes.tax.tgz", ],
     },
     "greengenes_gold_alignment": {
         "Greengenes gold alignment":
-        ["http://www.mothur.org/w/images/2/21/Greengenes.gold.alignment.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/greengenes.gold.alignment.zip", ],
     },
     # Secondary structure maps
     # http://www.mothur.org/wiki/Secondary_structure_map
     "secondary_structure_maps_silva": {
         "SILVA":
-        ["http://www.mothur.org/w/images/6/6d/Silva_ss_map.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva_ss_map.zip", ],
     },
     "secondary_structure_maps_greengenes": {
         "Greengenes":
-        ["http://www.mothur.org/w/images/4/4b/Gg_ss_map.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/gg_ss_map.zip", ],
     },
     # Lane masks: not used here?
     "lane_masks": {
         "Greengenes-compatible":
-        ["http://www.mothur.org/w/images/2/2a/Lane1241.gg.filter",
-         "http://www.mothur.org/w/images/a/a0/Lane1287.gg.filter",
-         "http://www.mothur.org/w/images/3/3d/Lane1349.gg.filter", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/Lane1241.gg.filter",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/lane1287.gg.filter",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/lane1349.gg.filter", ],
         "SILVA-compatible":
-        ["http://www.mothur.org/w/images/6/6d/Lane1349.silva.filter", ]
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/lane1349.silva.filter", ]
     },
 }
 
