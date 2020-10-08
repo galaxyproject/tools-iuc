@@ -32,9 +32,20 @@ class LineFilter(object):
             p = filter_dict['pattern']
             r = filter_dict['replace']
             c = int(filter_dict['column']) - 1
-            self.func = lambda i, l: '\t'.join(
-                [x if j != c else re.sub(p, r, x)
-                 for j, x in enumerate(l.split('\t'))])
+            if 'add' not in filter_dict\
+                or filter_dict['add'] not in ['prepend',
+                                              'append',
+                                              'before',
+                                              'after']:
+                self.func = lambda i, l: '\t'.join(
+                    [x if j != c else re.sub(p, r, x)
+                     for j, x in enumerate(l.split('\t'))])
+            else:
+                a = 0 if filter_dict['add'] == 'prepend'\
+                    else min(0, c - 1) if filter_dict['add'] == 'before'\
+                    else c + 1 if filter_dict['add'] == 'after'\
+                    else None
+                self.func = lambda i, l: self.replace_add(l, p, r, c, a)
         elif filter_dict['filter'] == 'prepend_line_num':
             self.func = lambda i, l: '%d\t%s' % (i, l)
         elif filter_dict['filter'] == 'append_line_num':
@@ -68,6 +79,14 @@ class LineFilter(object):
     def select_columns(self, line, cols):
         fields = line.split('\t')
         return '\t'.join([fields[x] for x in cols])
+
+    def replace_add(self, line, pat, rep, col, pos):
+        fields = line.rstrip('\r\n').split('\t')
+        i = pos if pos else len(fields)
+        val = ''
+        if col < len(fields) and re.search(pat, fields[col]):
+            val = re.sub(pat, rep, fields[col]).replace('\t', ' ')
+        return '\t'.join(fields[:i] + [val] + fields[i:])
 
     def normalize(self, line, split_cols, sep):
         lines = []

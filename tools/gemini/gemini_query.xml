@@ -1,4 +1,4 @@
-<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@">
+<tool id="gemini_@BINARY@" name="GEMINI @BINARY@" version="@VERSION@+galaxy1">
     <description>Querying the GEMINI database</description>
     <macros>
         <import>gemini_macros.xml</import>
@@ -26,6 +26,13 @@
         <xml name="dgidb_query">
             <param argument="--dgidb" name="dgidb" type="boolean" truevalue="--dgidb" falsevalue="" checked="False"
             label="Request drug-gene interaction info from DGIdb" help="" />
+        </xml>
+        <xml name="maf_extra_info">
+            <param name="tumor_sample_name" type="text"
+            label="Name of the tumor sample in the (multi-sample) GEMINI database"
+            help="Specify only if the tumor sample is not the only sample in the database." />
+            <param name="normal_sample_name" type="text"
+            label="Name of the normal sample in the GEMINI database (for matched tumor/normal sample pair analyses only)" />
         </xml>
     </macros>
     <expand macro="requirements" />
@@ -69,7 +76,7 @@
                 #else:
                     affected
                 #end if
-            #else:
+            #elif str($query.oformat.report.format) != 'maf':
                 --format ${query.oformat.report.format}
             #end if
 
@@ -77,11 +84,36 @@
                 ## build the SQL query string from its components
                 #if str($query.oformat.report.format) in ('vcf', 'tped'):
                     #set $cols = "*"
+                #elif str($query.oformat.report.format) == 'maf':
+                    #if str($query.oformat.report.tumor_sample_name):
+                        #set $gt_string = 'gt_alt_depths.{0}, gt_ref_depths.{0}, gts.{0}'.format(str($query.oformat.report.tumor_sample_name))
+                        #if str($query.oformat.report.normal_sample_name):
+                            #set $gt_string = $gt_string + ', gt_alt_depths.{0}, gt_ref_depths.{0}, gts.{0}'.format(str($query.oformat.report.normal_sample_name))
+                        #end if
+                    #else:
+                        #set $gt_string = '(gt_alt_depths).(*), (gt_ref_depths).(*), (gts).(*)'
+                    #end if
+                    #if str($query.oformat.report.mutation_status.status_select) == 'custom':
+                        ## Need to quote the user-specified mutation status for the SQL query
+                        #set $mutation_status = '"%s"' % str($query.oformat.report.mutation_status.status_custom)
+                    #elif str($query.oformat.report.mutation_status.status_select) == 'expression':
+                        ## For custom expressions, it is up to the user to ensure valid syntax
+                        #set $mutation_status = str($query.oformat.report.mutation_status.status_expression)
+                    #else:
+                        ## The user selected a fixed value from the list, but
+                        ## it still needs quoting.
+                        #set $mutation_status = '"%s"' % str($query.oformat.report.mutation_status.status_select)
+                    #end if
+                    #set $cols = 'ifnull(g1.gene, "unknown") AS Hugo_Symbol, ifnull(ifnull(g2.entrez_id, g1.entrez_id), "") AS Entrez_Gene_Id, "" AS Center, "37" AS NCBI_Build, replace(v.chrom, "chr", "") AS Chromosome, v.start + 1 AS Start_Position, v.end AS End_Position, "" as Strand, v.impact_so AS Variant_Classification, ifnull(nullif(v.type, "indel"), v.sub_type) AS Variant_Type, v.ref AS Reference_Allele, "${tumor_seq_allele1}" AS Tumor_Seq_Allele1, "${tumor_seq_allele2}" AS Tumor_Seq_Allele2, ifnull(v.rs_ids, ifnull(nullif(ifnull(nullif(v.in_omim = 0 AND v.cosmic_ids IS NULL AND v.max_aaf_all = -1, 1), "novel"), 0), "")) AS dbSNP_RS, "" AS dbSNP_Val_Status, printf("%s", "' + str($query.oformat.report.tumor_sample_id) + '") AS Tumor_Sample_Barcode, printf("%s", "' + str($query.oformat.report.norm_sample_id) + '") AS Matched_Norm_Sample_Barcode, "${match_norm_seq_allele1}" AS Match_Norm_Seq_Allele1, "${match_norm_seq_allele2}" AS Match_Norm_Seq_Allele2, "" AS Tumor_Validation_Allele1, "" AS Tumor_Validation_Allele2, "" AS Match_Norm_Validation_Allele1, "" AS Match_Norm_Validation_Allele2, "" AS Verification_Status, "" AS Validation_Status, ' + $mutation_status + ' AS Mutation_Status, "" AS Sequencing_Phase, "" AS Sequence_Source, "" AS Validation_Method, "" AS Score, "" AS BAM_File, "" AS Sequencer, ifnull(nullif(v.aa_change, ""), "p.=") AS HGVSp_Short, "${t_alt_count}" AS t_alt_count, "${t_ref_count}" AS t_ref_count, "${n_alt_count}" AS n_alt_count, "${n_ref_count}" AS n_ref_count, v.alt, ' + $gt_string
                 #else:
                     #set $report = $query.oformat.report.report
                     @SET_COLS@
                 #end if
                 #set $q = "SELECT %s FROM variants" % $cols
+                #if str($query.oformat.report.format) == 'maf':
+                    #set $q = $q + ' v LEFT JOIN (SELECT DISTINCT gene, is_hgnc, hgnc_id, entrez_id, chrom FROM gene_detailed) g1 ON v.gene = g1.gene AND v.chrom = g1.chrom LEFT JOIN (SELECT DISTINCT gene, is_hgnc, hgnc_id, entrez_id, transcript, chrom, ensembl_gene_id FROM gene_detailed) g2 ON g1.gene = g2.gene AND (v.transcript = g2.transcript OR v.transcript=g2.ensembl_gene_id)'
+                #end if
+
                 #set $where_clause_elements = []
                 #if str($query.filter).strip():
                     #silent $where_clause_elements.append(str($query.filter).strip())
@@ -94,6 +126,9 @@
                 #end if
                 #if $where_clause_elements:
                     #set $q = $q + " WHERE " + " AND ".join($where_clause_elements)
+                #end if
+                #if str($query.oformat.report.format) == 'maf':
+                    #set $q = $q + " GROUP BY v.variant_id"
                 #end if
                 #if str($query.oformat.report.order_by).strip():
                     #set $q = $q + " ORDER BY " + str($query.oformat.report.order_by).strip() + str($query.oformat.report.sort_order)
@@ -108,6 +143,9 @@
             @MULTILN_SQL_EXPR_TO_CMDLN@
 
             '$infile'
+            #if str($query.oformat.report.format) == 'maf':
+                > temp.txt && python '$__tool_directory__/gemini_mafify.py' temp.txt '${query.oformat.report.tumor_sample_name}' '${query.oformat.report.normal_sample_name}'
+            #end if
             > '$outfile'
 ]]>
     </command>
@@ -136,6 +174,7 @@
                             <option value="carrier_summary">tabular with carrier summary</option>
                             <option value="vcf">VCF (simplified)</option>
                             <option value="json">JSON</option>
+                            <option value="maf">MAF (cBioportal-compatible)</option>
                             <option value="tped">TPED</option>
                         </param>
                         <when value="default">
@@ -194,6 +233,50 @@
                             <param name="dgidb" type="hidden" value="" />
                             <expand macro="sorting" />
                         </when>
+                        <when value="maf">
+                            <param name="header" type="hidden" value="--header" />
+                            <param name="dgidb" type="hidden" value="" />
+                            <expand macro="maf_extra_info" />
+                            <param name="tumor_sample_id" type="text"
+                            label="Tumor sample ID">
+                            <validator type="expression" message="A tumor sample identifier is required">value.strip()</validator>
+                            </param>
+                            <param name="norm_sample_id" type="text"
+                            label="Normal sample ID (for matched tumor/normal sample pair analyses only)" />
+                            <conditional name="mutation_status">
+                                <param name="status_select" type="select"
+                                label="Mutation status to be recorded for variants reported with this query"
+                                help="'Somatic', 'Germline', 'LOH', 'Wildtype' and 'None' are fixed values that are treated explicitly by cBioportal. In particular, 'Somatic' and 'Germline' are supported by the cBioportal user interface in the Mutations tab, while 'LOH', 'Wildtype' and 'None' will not be loaded. Any other values will cause the variants to be loaded into cBioPortal and will be displayed as text in the Mutations tab.">
+                                    <option value="expression">Calculate per variant</option>
+                                    <option value="custom">Other fixed value</option>
+                                    <option value="Somatic" selected="true">Somatic</option>
+                                    <option value="Germline">Germline</option>
+                                    <option value="LOH">LOH</option>
+                                    <option value="Wildtype">Wildtype</option>
+                                    <option value="None">None</option>
+                                </param>
+                                <when value="Somatic" />
+                                <when value="Germline" />
+                                <when value="LOH" />
+                                <when value="Wildtype" />
+                                <when value="None" />
+                                <when value="custom">
+                                    <param name="status_custom" type="text"
+                                    label="Mutation status (custom value)">
+                                        <validator type="expression" message="Need a value for Mutation status">value.strip()</validator>
+                                    </param>
+                                </when>
+                                <when value="expression">
+                                    <param name="status_expression" type="text"
+                                    label="SQL expression used to compute per-variant status"
+                                    help="Enter a valid SQL result column expression to compute the mutation status from columns of the variants table in the GEMINI database. As one example, the expression ifnull(nullif(ifnull(nullif(ifnull(nullif(somatic_status, 3), 'LOH'), 2), 'Somatic'), 1), 'Germline') assumes that you have a column somatic_status added to the variants table of your database, and will record 'Germline', 'Somatic', or 'LOH' for variants with a value of 1, 2, or 3 in that column, respectively.">
+                                        <expand macro="sanitize_query" />
+                                        <validator type="expression" message="Mutation status expression cannot be empty">value.strip()</validator>
+                                    </param>
+                                </when>
+                            </conditional>
+                            <expand macro="sorting" />
+                        </when>
                         <when value="tped">
                             <param name="header" type="hidden" value="" />
                             <param name="dgidb" type="hidden" value="" />
@@ -222,6 +305,7 @@
                             <option value="carrier_summary">tabular with carrier summary</option>
                             <option value="vcf">VCF (simplified)</option>
                             <option value="json">JSON</option>
+                            <option value="maf">MAF (cBioportal-compatible)</option>
                             <option value="tped">TPED</option>
                         </param>
                         <when value="default">
@@ -255,6 +339,11 @@
                             <param name="header" type="hidden" value="" />
                             <param name="dgidb" type="hidden" value="" />
                         </when>
+                        <when value="maf">
+                            <param name="header" type="hidden" value="--header" />
+                            <param name="dgidb" type="hidden" value="" />
+                            <expand macro="maf_extra_info" />
+                        </when>
                         <when value="tped">
                             <param name="header" type="hidden" value="" />
                             <param name="dgidb" type="hidden" value="" />
@@ -284,6 +373,19 @@
                     <has_line_matching expression="chrom&#009;start" />
                 </assert_contents>
             </output>
+        </test>
+        <test>
+            <param name="infile" value="gemini_load_result1.db" ftype="gemini.sqlite" />
+            <conditional name="query">
+                <param name="interface" value="basic" />
+            </conditional>
+            <section name="oformat">
+                <conditional name="report">
+                    <param name="format" value="maf" />
+                    <param name="tumor_sample_id" value="test" />
+                </conditional>
+            </section>
+            <output name="outfile" file="gemini_query_as_maf_result.tabular" />
         </test>
     </tests>
     <help>
