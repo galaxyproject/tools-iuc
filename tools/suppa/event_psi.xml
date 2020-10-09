@@ -1,0 +1,195 @@
+<?xml version="1.0"?>
+<tool id="suppa_events_psi" name="SUPPA generateEvents, psiPerIsoform, psiPerEvent" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <description>of expression values</description>
+    <macros>
+        <import>macros.xml</import>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@GET_PAIRS@"><![CDATA[
+#set $events = ['A3','A5','AF','AL','MX','RI','SE']
+#set $types = ['strict','variable']
+#set $pairs = [x + '_' + y for x in events for y in types] ## ['A3_strict','A3_variable','A5_strict', ...]
+        ]]></token>
+        <xml name="e">
+            <param argument="-e" type="data" format="tabular" label="Select expression file" help="Containing the abundances of all transcripts (ideally in TPM units)."/>
+        </xml>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+## initialize
+
+## run generateEvents
+suppa.py generateEvents
+-i '$i'
+-o 'generateevents'
+$poolgenes
+-f '$f_cond.f_sel'
+#if $f_cond.f_sel == 'ioe'
+    #if $f_cond.e
+        #set $e = str($f_cond.e).replace(',',' ') ## whitespace required
+        -e $e ## doesn't allow ''
+    #end if
+    -b '$f_cond.b_cond.b_sel'
+    #if $f_cond.b_cond.b_sel == 'V'
+        -t '$f_cond.b_cond.t'
+    #end if
+    -l '$f_cond.l'
+#end if
+
+&& ls -lisa
+
+## run PsiPerEvent
+#if $f_cond.f_sel == 'ioe'
+    #if $f_cond.psievent_cond.psievent_sel == 'yes'
+        @GET_PAIRS@
+        #for pair in $pairs
+            #set $file = 'generateevents' + '_' + $pair + '.ioe'
+            && test -f '$file'
+                && suppa.py psiPerEvent 
+                    -e '$f_cond.psievent_cond.e' 
+                    -i '$file' 
+                    -f '$f_cond.psievent_cond.f' 
+                    #set $o = 'psievent' + '_' + $pair
+                    -o '$o'
+                || echo ''
+        #end for
+    #end if
+#end if
+
+&& ls -lisa
+
+## run PsiPerIsoform
+#if $f_cond.f_sel == 'ioe'
+    #if $f_cond.psiisoform_cond.psiisoform_sel == 'yes'
+        @GET_PAIRS@
+        #for pair in $pairs
+            #set $file = 'generateevents' + '_' + $pair + '.gtf'
+            && test -f '$file'
+                && suppa.py psiPerIsoform 
+                    -e '$f_cond.psiisoform_cond.e'
+                    -g '$file'
+                    #set $o = $pair
+                    -o '$o'
+                || echo ''
+        #end for
+    #end if
+#end if
+
+## postprocessing
+&& ls -lisa
+    ]]></command>
+    <inputs>
+        <param argument="-i" type="data" format="gtf" label="Select file containing exon lines"/>
+        <param name="poolgenes" type="boolean" truevalue="--pool-genes" falsevalue="" label="Redefine genes?" help="By clustering together transcripts by genomic stranded overlap and sharing at least one exon. It is crucial when creating ioe/ioi from annotations that are not loci-based, e.g. RefSeq and UCSC genes. (--pool-genes)"/>
+        <conditional name="f_cond">
+            <param name="f_sel" type="select" label="Select format of event annotation to create" help="(-f)">
+                <option value="ioi" selected="true">Transcript events (IOI)</option>
+                <option value="ioe">Local events (IOE)</option>                
+            </param>
+            <when value="ioi"/>
+            <when value="ioe">
+                <param argument="-e" type="select" multiple="true" label="Select event type(s)">                    
+                    <option value="SE" selected="true">Skipping exon (SE)</option>
+                    <option value="SS" selected="true">Alternative 5' (A5) or 3' (A3) splice sites (generates both, SS)</option>
+                    <option value="MX" selected="true">Mutually Exclusive (MX) exons</option>
+                    <option value="RI" selected="true">Retained intron (RI)</option>
+                    <option value="FL" selected="true">Alternative First (AF) and Last (AL) exons (generates both, FL)</option>
+                </param>
+                <conditional name="b_cond">
+                    <param name="b_sel" type="select" multiple="false" label="Select boundary type" help="(-b)">
+                        <option value="S" selected="true">Strict</option>
+                        <option value="V">Variable</option>
+                    </param>
+                    <when value="V">
+                        <param argument="-t" type="integer" value="10" label="Set variability threshold"/>
+                    </when>
+                    <when value="S"/>
+                </conditional>
+                <param argument="-l" type="integer" value="100" label="Set number of nucleotides" help="To display in the output GTF."/>
+                <conditional name="psievent_cond">
+                    <param name="psievent_sel" type="select" label="Calculate PSI per local event?">
+                        <option value="no" selected="true">No</option>
+                        <option value="yes">Yes</option>
+                    </param>
+                    <when value="no"/>
+                    <when value="yes">
+                        <expand macro="e"/>
+                        <param argument="-f" type="float" value="0.0" label="Set minimum total expression?" help="Of the transcripts involved in the event (Default is zero). If used, it will filter out the events that do not reach this total expression value for the transcripts defining the event (the denominator of the PSI calculation)."/>
+                    </when>
+                </conditional>
+                <conditional name="psiisoform_cond">
+                    <param name="psiisoform_sel" type="select" label="Calculate PSI per transcript isoform?">
+                        <option value="no" selected="true">No</option>
+                        <option value="yes">Yes</option>
+                    </param>
+                    <when value="no"/>
+                    <when value="yes">
+                        <expand macro="e"/> 
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="out_ioi" format="tabular" from_work_dir="generateevents.ioi" label="${tool.name} on ${on_string}: Transcript events (IOI)">
+            <filter>f_cond['f_sel'] == 'ioi'</filter>
+        </data>
+        <collection name="out_ioe" type="list" label="${tool.name} on ${on_string}: Local events (IOE)">
+            <filter>f_cond['f_sel'] == 'ioe'</filter>
+            <discover_datasets pattern="generateevents\_(?P&lt;designation&gt;.+)\.ioe" ext="tabular" visible="false"/>
+        </collection>
+        <collection name="out_gtf" type="list" label="${tool.name} on ${on_string}: Annotation (GTF)">
+            <filter>f_cond['f_sel'] == 'ioe'</filter>
+            <discover_datasets pattern="generateevents\_(?P&lt;designation&gt;.+)\.gtf" ext="gtf" visible="false"/>
+        </collection>
+        <collection name="out_event" type="list" label="${tool.name} on ${on_string}: PSI per event">
+            <filter>f_cond['f_sel'] == 'ioe' and f_cond['psievent_cond']['psievent_cond'] == 'yes'</filter>
+            <discover_datasets pattern="psievent\_(?P&lt;designation&gt;.+)\.psi" ext="tabular" visible="false"/>            
+        </collection>
+        <collection name="out_isoform" type="list" label="${tool.name} on ${on_string}: PSI per isoform">
+            <filter>f_cond['f_sel'] == 'ioe' and f_cond['psiisoform_cond']['psiisoform_cond'] == 'yes'</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\_isoform\.psi" ext="tabular" visible="false" />
+        </collection>
+    </outputs>
+    <tests>
+        <!-- #1 default -->
+        <test expect_num_outputs="1">
+            <param name="i" value="annotation.gtf"/>
+            <conditional name="f_cond">
+                <param name="f_sel" value="ioi"/>
+            </conditional>
+            <output name="out_ioi">
+                <assert_contents>
+                    <has_n_lines n="241"/>
+                    <has_text_matching expression="seqname&#09;gene\_id.+"/>
+                    <has_text_matching expression="chr1&#09;ENSG00000223972.+"/>
+                    <has_text_matching expression="chr1&#09;ENSG00000078808.+"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+@WID@
+
+...
+
+**Input**
+
+...
+
+**Output**
+
+...
+
+.. class:: infomark
+
+**References**
+
+@REFERENCES@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
