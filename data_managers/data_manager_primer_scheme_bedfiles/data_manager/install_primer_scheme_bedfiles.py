@@ -18,7 +18,7 @@ import requests
 DATA_TABLE_NAME = "primer_scheme_bedfiles"
 
 
-def write_good_bed(input_file, bed_output_filename):
+def write_artic_style_bed(input_file, bed_output_filename):
     with open(bed_output_filename, "w") as bed_output_file:
         for line in input_file:
             fields = line.split("\t")
@@ -27,10 +27,16 @@ def write_good_bed(input_file, bed_output_filename):
                 exit("invalid format in BED file: {}".format(line.rstrip()))
             try:
                 # try and parse field 5 as a number
-                float(fields[4])
+                score = float(fields[4])
             except ValueError:
-                # ARTIC with broken BED, set field 5 to 60
-                fields[4] = "60"
+                # Alright, this is an ARTIC-style bed,
+                # which is actually against the specs, but required by the
+                # ARTIC pipeline.
+                pass
+            else:
+                # This is a regular bed with numbers in the score column.
+                # We need to "fix" it for the ARTIC pipeline.
+                fields[4] = '_{0}'.format(score)
             bed_output_file.write("\t".join(fields))
 
 
@@ -56,7 +62,7 @@ def fetch_artic_primers(output_directory, primers):
             )
             exit(response.status_code)
         bed_output_filename = os.path.join(output_directory, name + ".bed")
-        write_good_bed(StringIO(response.text), bed_output_filename)
+        write_artic_style_bed(StringIO(response.text), bed_output_filename)
         description = name[:-2] + " " + name[-2:] + " primer set"
         data.append(dict(value=name, path=bed_output_filename, description=description))
     return data
@@ -68,7 +74,7 @@ def install_primer_file(
     name = re.sub(r"\W", "", str(primer_name).replace(" ", "_"))
     output_filename = os.path.join(output_directory, name + ".bed")
     with open(input_filename) as input_file:
-        write_good_bed(input_file, output_filename)
+        write_artic_style_bed(input_file, output_filename)
     data = [dict(value=name, description=primer_description, path=output_filename)]
     return data
 
