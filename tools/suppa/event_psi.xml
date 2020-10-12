@@ -4,10 +4,9 @@
     <macros>
         <import>macros.xml</import>
         <token name="@VERSION_SUFFIX@">0</token>
-        <token name="@GET_PAIRS@"><![CDATA[
-#set $events = ['A3','A5','AF','AL','MX','RI','SE']
-#set $types = ['strict','variable']
-#set $pairs = [x + '_' + y for x in events for y in types] ## ['A3_strict','A3_variable','A5_strict', ...]
+        <token name="@PAIRS@"><![CDATA[
+## ['A3_strict','A3_variable','A5_strict', ...]
+#set $pairs = [x + '_' + y for x in ['A3','A5','AF','AL','MX','RI','SE'] for y in ['strict','variable']] 
         ]]></token>
         <xml name="e">
             <param argument="-e" type="data" format="tabular" label="Select expression file" help="Containing the abundances of all transcripts (ideally in TPM units)."/>
@@ -16,7 +15,8 @@
     <expand macro="requirements"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
-## initialize
+## elements that can't be matched between input files
+## are shown in stderr and saved in $out_log
 
 ## run generateEvents
 suppa.py generateEvents
@@ -26,8 +26,7 @@ $poolgenes
 -f '$f_cond.f_sel'
 #if $f_cond.f_sel == 'ioe'
     #if $f_cond.e
-        #set $e = str($f_cond.e).replace(',',' ') ## whitespace required
-        -e $e ## doesn't allow ''
+        -e ${str($f_cond.e).replace(',',' ')} ## whitespace required
     #end if
     -b '$f_cond.b_cond.b_sel'
     #if $f_cond.b_cond.b_sel == 'V'
@@ -35,41 +34,54 @@ $poolgenes
     #end if
     -l '$f_cond.l'
 #end if
-
-&& ls -lisa
+#if $log
+    2>&1 | tee -a '$out_log'
+#end if
 
 ## run PsiPerEvent
 #if $f_cond.f_sel == 'ioe'
     #if $f_cond.psievent_cond.psievent_sel == 'yes'
-        @GET_PAIRS@
-        #for pair in $pairs
-            #set $file = 'generateevents' + '_' + $pair + '.ioe'
-            && test -f '$file'
-                && suppa.py psiPerEvent 
-                    -e '$f_cond.psievent_cond.e' 
-                    -i '$file' 
-                    -f '$f_cond.psievent_cond.f' 
-                    #set $o = 'psievent' + '_' + $pair
-                    -o '$o'
+        @PAIRS@
+        #for $pair in $pairs
+            #set $filename = 'generateevents' + '_' + $pair
+            ## value of t (given V is selected) is part of generateEvents output filenames
+            #if $f_cond.b_cond.b_sel == 'V'
+                #set $filename = $filename + '_' + str($f_cond.b_cond.t)
+            #end if
+            ## apply psiPerEvent on all existing generateEvents *.ioe output files
+            && test -f '${filename}.ioe'
+                && suppa.py psiPerEvent
+                    -e '$f_cond.psievent_cond.e'
+                    -i '${filename}.ioe'
+                    -f '$f_cond.psievent_cond.f'
+                    -o 'psievent_${pair}'
+                    #if $log
+                        2>&1 | tee -a '$out_log'
+                    #end if
                 || echo ''
         #end for
     #end if
 #end if
 
-&& ls -lisa
-
 ## run PsiPerIsoform
 #if $f_cond.f_sel == 'ioe'
     #if $f_cond.psiisoform_cond.psiisoform_sel == 'yes'
-        @GET_PAIRS@
+        @PAIRS@
         #for pair in $pairs
-            #set $file = 'generateevents' + '_' + $pair + '.gtf'
-            && test -f '$file'
+            #set $filename = 'generateevents' + '_' + $pair
+            ## value of t (given V is selected) is part of generateEvents output filenames
+            #if $f_cond.b_cond.b_sel == 'V'
+                #set $filename = $filename + '_' + str($f_cond.b_cond.t)
+            #end if
+            ## apply psiPerIsoform on all existing generateEvents *.gtf output files
+            && test -f '${filename}.gtf'
                 && suppa.py psiPerIsoform 
                     -e '$f_cond.psiisoform_cond.e'
-                    -g '$file'
-                    #set $o = $pair
-                    -o '$o'
+                    -g '${filename}.gtf'
+                    -o '${pair}' ## results have suffix '_isoform'
+                    #if $log
+                        2>&1 | tee -a '$out_log'
+                    #end if
                 || echo ''
         #end for
     #end if
@@ -84,11 +96,11 @@ $poolgenes
         <conditional name="f_cond">
             <param name="f_sel" type="select" label="Select format of event annotation to create" help="(-f)">
                 <option value="ioi" selected="true">Transcript events (IOI)</option>
-                <option value="ioe">Local events (IOE)</option>                
+                <option value="ioe">Local events (IOE)</option>
             </param>
             <when value="ioi"/>
             <when value="ioe">
-                <param argument="-e" type="select" multiple="true" label="Select event type(s)">                    
+                <param argument="-e" type="select" multiple="true" label="Select event type(s)">
                     <option value="SE" selected="true">Skipping exon (SE)</option>
                     <option value="SS" selected="true">Alternative 5' (A5) or 3' (A3) splice sites (generates both, SS)</option>
                     <option value="MX" selected="true">Mutually Exclusive (MX) exons</option>
@@ -100,10 +112,10 @@ $poolgenes
                         <option value="S" selected="true">Strict</option>
                         <option value="V">Variable</option>
                     </param>
+                    <when value="S"/>
                     <when value="V">
                         <param argument="-t" type="integer" value="10" label="Set variability threshold"/>
                     </when>
-                    <when value="S"/>
                 </conditional>
                 <param argument="-l" type="integer" value="100" label="Set number of nucleotides" help="To display in the output GTF."/>
                 <conditional name="psievent_cond">
@@ -124,11 +136,12 @@ $poolgenes
                     </param>
                     <when value="no"/>
                     <when value="yes">
-                        <expand macro="e"/> 
+                        <expand macro="e"/>
                     </when>
                 </conditional>
             </when>
         </conditional>
+        <param name="log" type="boolean" label="Create log file?"/>
     </inputs>
     <outputs>
         <data name="out_ioi" format="tabular" from_work_dir="generateevents.ioi" label="${tool.name} on ${on_string}: Transcript events (IOI)">
@@ -143,16 +156,19 @@ $poolgenes
             <discover_datasets pattern="generateevents\_(?P&lt;designation&gt;.+)\.gtf" ext="gtf" visible="false"/>
         </collection>
         <collection name="out_event" type="list" label="${tool.name} on ${on_string}: PSI per event">
-            <filter>f_cond['f_sel'] == 'ioe' and f_cond['psievent_cond']['psievent_cond'] == 'yes'</filter>
-            <discover_datasets pattern="psievent\_(?P&lt;designation&gt;.+)\.psi" ext="tabular" visible="false"/>            
+            <filter>f_cond['f_sel'] == 'ioe' and f_cond['psievent_cond']['psievent_sel'] == 'yes'</filter>
+            <discover_datasets pattern="psievent\_(?P&lt;designation&gt;.+)\.psi" ext="tabular" visible="false"/>
         </collection>
         <collection name="out_isoform" type="list" label="${tool.name} on ${on_string}: PSI per isoform">
-            <filter>f_cond['f_sel'] == 'ioe' and f_cond['psiisoform_cond']['psiisoform_cond'] == 'yes'</filter>
+            <filter>f_cond['f_sel'] == 'ioe' and f_cond['psiisoform_cond']['psiisoform_sel'] == 'yes'</filter>
             <discover_datasets pattern="(?P&lt;designation&gt;.+)\_isoform\.psi" ext="tabular" visible="false" />
         </collection>
+        <data name="out_log" format="txt" label="${tool.name} on ${on_string}: Log">
+            <filter>log</filter>
+        </data>
     </outputs>
     <tests>
-        <!-- #1 default -->
+        <!-- #1 default, ioi -->
         <test expect_num_outputs="1">
             <param name="i" value="annotation.gtf"/>
             <conditional name="f_cond">
@@ -167,6 +183,308 @@ $poolgenes
                 </assert_contents>
             </output>
         </test>
+        <!-- #2 default, ioe -->
+        <test expect_num_outputs="2">
+            <param name="i" value="annotation.gtf"/>
+            <conditional name="f_cond">
+                <param name="f_sel" value="ioe"/>
+            </conditional>
+            <output_collection name="out_ioe" count="7">
+                <element name="A3_strict" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="22"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000223972.+"/>
+                    </assert_contents>
+                </element>
+                <element name="A5_strict" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="16"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000237094.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AF_strict" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="29"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000237094.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AL_strict" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="14"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000237094.+"/>
+                    </assert_contents>
+                </element>
+                <element name="MX_strict" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000228794.+"/>
+                    </assert_contents>
+                </element>
+                <element name="RI_strict" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="9"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000187583.+"/>
+                    </assert_contents>
+                </element>
+                <element name="SE_strict" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="24"/>
+                        <has_text_matching expression="chr1&#009;ENSG0000023749.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="out_gtf" count="7">
+                <element name="A3_strict" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="85"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="A5_strict" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="61"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AF_strict" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="113"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AL_strict" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="53"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="MX_strict" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="19"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="RI_strict" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="25"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="SE_strict" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="116"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- #3 custom values, ioe, psi -->
+        <test expect_num_outputs="5">
+            <param name="i" value="annotation.gtf"/>
+            <param name="poolgenes" value="true"/>
+            <conditional name="f_cond">
+                <param name="f_sel" value="ioe"/>
+                <param name="e" value="SE,SS,MX,RI,FL"/>
+                <conditional name="b_cond">
+                    <param name="b_sel" value="V"/>
+                    <param name="t" value="11"/>
+                </conditional>
+                <param name="l" value="101"/>
+                <conditional name="psievent_cond">
+                    <param name="psievent_sel" value="yes"/>
+                    <param name="e" value="expression.tpm"/>
+                    <param name="f" value="0.01"/>
+                </conditional>
+                <conditional name="psiisoform_cond">
+                    <param name="psiisoform_sel" value="yes"/>
+                    <param name="e" value="expression.tpm"/>
+                </conditional>
+            </conditional>
+            <param name="log" value="true"/>
+            <output_collection name="out_ioe" count="7">
+                <element name="A3_variable_11" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="59"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000223972.+"/>
+                    </assert_contents>
+                </element>
+                <element name="A5_variable_11" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="43"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000237094.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AF_variable_11" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="29"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000237491.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AL_variable_11" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="14"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000237491.+"/>
+                    </assert_contents>
+                </element>
+                <element name="MX_variable_11" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000228794.+"/>
+                    </assert_contents>
+                </element>
+                <element name="RI_variable_11" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="42"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000223972.+"/>
+                    </assert_contents>
+                </element>
+                <element name="SE_variable_11" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="24"/>
+                        <has_text_matching expression="chr1&#009;ENSG00000237491.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="out_gtf" count="7">
+                <element name="A3_variable_11" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="117"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="A5_variable_11" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="85"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AF_variable_11" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="113"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AL_variable_11" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="53"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="MX_variable_11" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="19"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="RI_variable_11" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="124"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="SE_variable_11" ftype="gtf">
+                    <assert_contents>
+                        <has_n_lines n="116"/>
+                        <has_text_matching expression="chr1.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="out_event" count="7">
+                <element name="A3_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="59"/>
+                        <has_text_matching expression="ENSG00000131591.+"/>
+                    </assert_contents>
+                </element>
+                <element name="A5_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="43"/>
+                        <has_text_matching expression="ENSG00000131591.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AF_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="29"/>
+                        <has_text_matching expression="ENSG00000131591.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AL_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="14"/>
+                        <has_text_matching expression="ENSG00000131591.+"/>
+                    </assert_contents>
+                </element>
+                <element name="MX_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="4"/>
+                        <has_text_matching expression="ENSG00000131591.+"/>
+                    </assert_contents>
+                </element>
+                <element name="RI_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="42"/>
+                        <has_text_matching expression="ENSG00000131591.+"/>
+                    </assert_contents>
+                </element>
+                <element name="SE_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="24"/>
+                        <has_text_matching expression="ENSG00000131591.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <!-- outputs are empty, test dataset is to small -->
+            <output_collection name="out_isoform" count="7">
+                <element name="A3_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_text_matching expression="Sample1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="A5_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_text_matching expression="Sample1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AF_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_text_matching expression="Sample1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="AL_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_text_matching expression="Sample1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="MX_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_text_matching expression="Sample1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="RI_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_text_matching expression="Sample1.+"/>
+                    </assert_contents>
+                </element>
+                <element name="SE_variable" ftype="tabular">
+                    <assert_contents>
+                        <has_n_lines n="1"/>
+                        <has_text_matching expression="Sample1.+"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_log">
+                <assert_contents>
+                    <has_line line="INFO:eventGenerator:Done"/>
+                    <has_line line="INFO:psiCalculator:Done"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 .. class:: infomark
@@ -175,15 +493,32 @@ $poolgenes
 
 @WID@
 
-...
+SUPPA can work with local alternative splicing events or with transcripts 'events' per gene. The local alternative splicing events are standard local splicing variations, whereas a transcript event is an isoform-centric approach, where each isoform in a gene is described separately.
+
+This module combines *generateEvents*, *psiPerEvents* and *psiPerIsoform*.
+
+*generateEvents* reads transcript and gene information solely from the 'exon' lines. *psiPerEvents* and *psiPerIsoform* read the IOI or IOE file generated in the previous step and a transcript expression file with the transcript abundances (TPM) to calculate the relative abundance (PSI) value per sample for each transcript or each local event.
 
 **Input**
 
-...
+*generateEvents*
+
+- annotation file (GTF)
+
+*psiPerEvents*
+
+- file with transcript 'events' created with *generateEvents* and automatically included (IOI, tabular)
+- a transcript expression file (TPM, tabular)
+
+*psiPerIsoform*
+
+- an automatically included file with half-open coordinate convention and a track header created with *generateEvents* (GTF)
+- a transcript expression file (TPM, tabular)
 
 **Output**
 
-...
+- IOI/IOE and GTF result files created by *generateEvents*
+- a tabular file with PSI values for every IOE/GTF (*psiPerIsoform*, *psiPerEvents*)
 
 .. class:: infomark
 
