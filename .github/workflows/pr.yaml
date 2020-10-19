@@ -17,6 +17,9 @@ jobs:
     strategy:
       matrix:
         python-version: [3.7]
+    outputs:
+      galaxy-commit: ${{ steps.galaxy-commit.outputs.galaxy-commit }}
+      changed-repositories: ${{ steps.discover-repositories.changed-repositories }}
     steps:
     - name: Print github context properties
       run: |
@@ -32,12 +35,9 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Determine latest galaxy commit
       run: echo "GALAXY_HEAD_SHA=$(git ls-remote ${{ env.GALAXY_REPO }} refs/heads/${{ env.GALAXY_RELEASE }} | cut -f1)" >> $GITHUB_ENV
-    - name: Save latest galaxy commit to artifact file
-      run: echo $GALAXY_HEAD_SHA > galaxy.sha
-    - uses: actions/upload-artifact@v2
-      with:
-        name: Workflow artifacts
-        path: galaxy.sha
+    - name: Set galaxy head commit
+      id: galaxy-commit
+      run: echo "::set-output name=galaxy-commit::$GALAXY_HEAD_SHA"
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
@@ -50,46 +50,15 @@ jobs:
       with:
         path: ~/.planemo
         key: planemo_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
-    # Install the `wheel` package so that when installing other packages which
-    # are not available as wheels, pip will build a wheel for them, which can be cached.
-    - name: Install wheel
-      run: pip install wheel
-    - name: Install Planemo and flake8
-      run: pip install planemo flake8 flake8-import-order
-    - name: Fake a Planemo run to update cache
-      if: steps.cache-pip.outputs.cache-hit != 'true' || steps.cache-planemo.outputs.cache-hit != 'true'
-      run: |
-        touch tool.xml
-        PIP_QUIET=1 planemo test --galaxy_python_version ${{ matrix.python-version }} --no_conda_auto_init --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE
     - uses: actions/checkout@v2
       with:
         fetch-depth: 0
-    # The range of commits to check for changes is:
-    # - `origin/master...` for all events happening on a feature branch
-    # - for events on the master branch we compare against the sha before the event
-    #   (note that this does not work for feature branch events since we want all
-    #   commits on the feature branch and not just the commits of the last event)
-    # - for pull requests we compare against the 1st ancestor, given the current
-    #   HEAD is the merge between the PR branch and the base branch
-    - name: Set commit range (push to the feature branch)
-      if: github.ref != 'refs/heads/master' && github.event_name == 'push'
-      run: |
-        git fetch origin master
-        echo "COMMIT_RANGE=origin/master..." >> $GITHUB_ENV
-    - name: Set commit range (push to the master branch, e.g. merge)
-      if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-      run: echo "COMMIT_RANGE=${{ github.event.before }}.." >> $GITHUB_ENV
-    - name: Set commit range (pull request)
-      if: github.event_name == 'pull_request'
-      run: echo "COMMIT_RANGE=HEAD~.." >> $GITHUB_ENV
-    - name: Planemo ci_find_repos
-      run: planemo ci_find_repos --changed_in_commit_range $COMMIT_RANGE --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_repositories.list
-    - name: Show repo list
-      run: cat changed_repositories.list
-    - uses: actions/upload-artifact@v2.0.1
+    - uses: mvdbeek/planemo-discover-action@master
+      id: discover-repositories
       with:
-        name: Workflow artifacts
-        path: changed_repositories.list
+        create-cache: ${{ steps.cache-pip.outputs.cache-hit != 'true' || steps.cache-planemo.outputs.cache-hit != 'true' }}
+        galaxy-branch: ${{ env.GALAXY_RELEASE }}
+        galaxy-source: ${{ env.GALAXY_REPO }}
 
   # Planemo lint the changed repositories
   lint:
@@ -109,26 +78,17 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
-    - uses: actions/download-artifact@v2
-      with:
-        name: Workflow artifacts
-        path: ../workflow_artifacts/
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(cat ../workflow_artifacts/galaxy.sha)" >> $GITHUB_ENV
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-commit }}
     - name: Install Planemo
       run: pip install planemo
     - name: Planemo lint
       run: |
-        set -e
-        while read -r DIR; do
-            planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive "$DIR";
-        done < ../workflow_artifacts/changed_repositories.list
+        planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive ${{ needs.setup.outputs.changed_repositories }}
 
   # flake8 of Python scripts in the changed repositories
   flake8:
@@ -148,25 +108,16 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
-    - uses: actions/download-artifact@v2
-      with:
-        name: Workflow artifacts
-        path: ../workflow_artifacts/
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(cat ../workflow_artifacts/galaxy.sha)" >> $GITHUB_ENV
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_$gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-commit }}
     - name: Install flake8
       run: pip install flake8 flake8-import-order
     - name: Flake8
-      run: |
-        if [ -s ../workflow_artifacts/changed_repositories.list ]; then
-            flake8 $(cat ../workflow_artifacts/changed_repositories.list)
-        fi
+      run: flake8 ${{ needs.setup.outputs.changed_repositories }}
 
   lintr:
     name: Lint R scripts
@@ -181,10 +132,6 @@ jobs:
     - uses: actions/checkout@v2
       with:
         fetch-depth: 1
-    - uses: actions/download-artifact@v2
-      with:
-        name: Workflow artifacts
-        path: ../workflow_artifacts/
     - uses: r-lib/actions/setup-r@master
       with:
         r-version: ${{ matrix.r-version }}
@@ -200,11 +147,13 @@ jobs:
         install.packages('remotes')
         remotes::install_cran("lintr")
       shell: Rscript {0}
+
+    - run: echo ${{ needs.setup.outputs.changed_repositories }} > changed_repositories.list
     - name: lintr
       run: |
         library(lintr)
         linters <- with_defaults(line_length_linter = NULL)
-        con <- file("../workflow_artifacts/changed_repositories.list", "r")
+        con <- file("changed_repositories.list", "r")
         status <- 0
         while (TRUE) {
           repo <- readLines(con, n = 1)
@@ -253,38 +202,33 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
-    - uses: actions/download-artifact@v2
-      with:
-        name: Workflow artifacts
-        path: ../workflow_artifacts/
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(cat ../workflow_artifacts/galaxy.sha)" >> $GITHUB_ENV
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-commit }}
     - name: Cache .planemo
       uses: actions/cache@v2
       id: cache-planemo
       with:
         path: ~/.planemo
-        key: planemo_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-commit }}
     - name: Install Planemo
       run: pip install planemo
+    - run: echo ${{ needs.setup.outputs.changed_repositories }} > changed_repositories.list
     - name: Planemo ci_find_tools
       run: |
         touch changed_repositories_chunk.list changed_tools_chunk.list
-        if [ -s ../workflow_artifacts/changed_repositories.list ]; then
-            if [ $(wc -l < ../workflow_artifacts/changed_repositories.list) -eq 1 ]; then
+        if [ -s changed_repositories.list ]; then
+            if [ $(wc -l < changed_repositories.list) -eq 1 ]; then
                 planemo ci_find_tools --chunk_count 4 --chunk ${{ matrix.chunk }} \
                                --output changed_tools_chunk.list \
-                               $(cat ../workflow_artifacts/changed_repositories.list)
+                               $(cat changed_repositories.list)
             else
                 planemo ci_find_repos --chunk_count 4 --chunk ${{ matrix.chunk }} \
                                --output changed_repositories_chunk.list \
-                               $(cat ../workflow_artifacts/changed_repositories.list)
+                               $(cat changed_repositories.list)
             fi
         fi
     - name: Show changed tools/repositories chunk list
@@ -322,7 +266,7 @@ jobs:
         mv tool_test_output.json tool_test_output.html upload/
     - uses: actions/upload-artifact@v2.0.1
       with:
-        name: 'Tool test output ${{ matrix.chunk  }}'
+        name: 'Tool test output ${{ matrix.chunk }}'
         path: upload
 
   # - combine the results of the test chunks (which will never fail due
@@ -345,14 +289,12 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(cat ../workflow_artifacts/galaxy.sha)" >> $GITHUB_ENV
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_{{ needs.setup.outputs.galaxy-commit }}
     - name: Install Planemo
       run: pip install planemo
     - name: Install jq
@@ -392,27 +334,22 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
-    - uses: actions/download-artifact@v2
-      with:
-        name: Workflow artifacts
-        path: ../workflow_artifacts/
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(cat ../workflow_artifacts/galaxy.sha)" >> $GITHUB_ENV
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_{{ needs.setup.outputs.galaxy-commit }}
     - name: Install Planemo
       run: pip install planemo
+    - run: echo ${{ needs.setup.outputs.changed_repositories }} > changed_repositories.list
     - name: Deploy on testtoolshed
       env:
         SHED_KEY: ${{ secrets.tts_api_key }}
       run: |
         while read -r DIR; do
             planemo shed_update --shed_target testtoolshed --shed_key "${{ env.SHED_KEY }}" --force_repository_creation "$DIR" || exit 1;
-        done < ../workflow_artifacts/changed_repositories.list
+        done < changed_repositories.list
       continue-on-error: true
     - name: Deploy on toolshed
       env:
@@ -420,4 +357,4 @@ jobs:
       run: |
         while read -r DIR; do
             planemo shed_update --shed_target toolshed --shed_key "${{ env.SHED_KEY }}" --force_repository_creation "$DIR" || exit 1;
-        done < ../workflow_artifacts/changed_repositories.list
+        done < changed_repositories.list
