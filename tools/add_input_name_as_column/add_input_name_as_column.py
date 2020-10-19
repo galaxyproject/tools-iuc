@@ -8,7 +8,7 @@ def Parser():
     the_parser.add_argument('--output', required=True, action="store", type=str, help="output file path")
     the_parser.add_argument('--label', required=True, action="store", type=str, help="label to add in last column")
     the_parser.add_argument('--header', action="store", type=str, help="column label for last column")
-    the_parser.add_argument('--prepend', action='store_true', default=False, help='Prepend column instead of appending' )
+    the_parser.add_argument('--prepend', action='store_true', default=False, help='Prepend column instead of appending')
 
     args = the_parser.parse_args()
     return args
