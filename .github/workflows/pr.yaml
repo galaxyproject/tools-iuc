@@ -85,11 +85,10 @@ jobs:
       with:
         path: ~/.cache/pip
         key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-commit }}
-    - name: Install Planemo
-      run: pip install planemo
-    - name: Planemo lint
-      run: |
-        planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive ${{ needs.setup.outputs.changed-repositories }}
+    - uses: mvdbeek/planemo-discover-action@master
+      id: discover-repositories
+      with:
+         changed-repositories: ${{ needs.setup.outputs.changed-repositories }}
 
   # flake8 of Python scripts in the changed repositories
   flake8:
@@ -218,60 +217,18 @@ jobs:
       with:
         path: ~/.planemo
         key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-commit }}
-    - name: Install Planemo
-      run: pip install planemo
-    - run: echo ${{ needs.setup.outputs.changed-repositories }} > changed_repositories.list
-    - name: Planemo ci_find_tools
-      run: |
-        touch changed_repositories_chunk.list changed_tools_chunk.list
-        if [ -s changed_repositories.list ]; then
-            if [ $(wc -l < changed_repositories.list) -eq 1 ]; then
-                planemo ci_find_tools --chunk_count 4 --chunk ${{ matrix.chunk }} \
-                               --output changed_tools_chunk.list \
-                               $(cat changed_repositories.list)
-            else
-                planemo ci_find_repos --chunk_count 4 --chunk ${{ matrix.chunk }} \
-                               --output changed_repositories_chunk.list \
-                               $(cat changed_repositories.list)
-            fi
-        fi
-    - name: Show changed tools/repositories chunk list
-      run: cat changed_tools_chunk.list changed_repositories_chunk.list
-    - name: Planemo test tools
-      run: |
-        if grep -lqf .tt_biocontainer_skip changed_tools_chunk.list changed_repositories_chunk.list; then
-                PLANEMO_OPTIONS=""
-        else
-                PLANEMO_OPTIONS="--biocontainers --no_dependency_resolution --no_conda_auto_init"
-        fi
-        if [ -s changed_tools_chunk.list ]; then
-            PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json tool_test_output.json $(cat changed_tools_chunk.list) || true
-            docker system prune --all --force --volumes || true
-        elif [ -s changed_repositories_chunk.list ]; then
-            while read -r DIR; do
-                if [[ "$DIR" =~ ^data_managers.* ]]; then
-                    TESTPATH=$(planemo ci_find_tools "$DIR")
-                else
-                    TESTPATH="$DIR"
-                fi
-                PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$DIR"/tool_test_output.json "$TESTPATH" || true
-                docker system prune --all --force --volumes || true
-            done < changed_repositories_chunk.list
-        else
-            echo '{"tests":[]}' > tool_test_output.json
-        fi
-    - name: Merge tool_test_output.json files
-      run: find . -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
-    - name: Create tool_test_output.html
-      run: planemo test_reports tool_test_output.json --test_output tool_test_output.html
-    - name: Copy artifacts into place
-      run: |
-        mkdir upload
-        mv tool_test_output.json tool_test_output.html upload/
+    - uses: mvdbeek/planemo-discover-action@master
+      with:
+         changed-repositories: ${{ needs.setup.outputs.changed-repositories }}
+         test-tools: true
+         chunk-count: 4
+         chunk: ${{ matrix.chunk}}
+         combine-outputs: true
     - uses: actions/upload-artifact@v2.0.1
       with:
         name: 'Tool test output ${{ matrix.chunk }}'
         path: upload
+
 
   # - combine the results of the test chunks (which will never fail due
   #   to `|| true`) and create a global test report as json and html which
@@ -299,18 +256,15 @@ jobs:
       with:
         path: ~/.cache/pip
         key: pip_cache_py_${{ matrix.python-version }}_gxy_{{ needs.setup.outputs.galaxy-commit }}
-    - name: Install Planemo
-      run: pip install planemo
     - name: Install jq
       run: sudo apt-get install jq
-    - name: Combine outputs
-      run: find artifacts/ -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
-    - name: Create tool_test_output.html
-      run: planemo test_reports tool_test_output.json --test_output tool_test_output.html
-    - name: Copy artifacts into place
-      run: |
-        mkdir upload
-        mv tool_test_output.json tool_test_output.html upload/
+    - uses: mvdbeek/planemo-discover-action@master
+      with:
+         changed-repositories: ${{ needs.setup.outputs.changed-repositories }}
+         chunk-count: 4
+         chunk: ${{ matrix.chunk}}
+         combine-outputs: true
+         html-report: true
     - uses: actions/upload-artifact@v2.0.1
       with:
         name: 'All tool test results'
@@ -344,21 +298,18 @@ jobs:
       with:
         path: ~/.cache/pip
         key: pip_cache_py_${{ matrix.python-version }}_gxy_{{ needs.setup.outputs.galaxy-commit }}
-    - name: Install Planemo
-      run: pip install planemo
-    - run: echo ${{ needs.setup.outputs.changed-repositories }} > changed_repositories.list
     - name: Deploy on testtoolshed
-      env:
-        SHED_KEY: ${{ secrets.tts_api_key }}
-      run: |
-        while read -r DIR; do
-            planemo shed_update --shed_target testtoolshed --shed_key "${{ env.SHED_KEY }}" --force_repository_creation "$DIR" || exit 1;
-        done < changed_repositories.list
+      uses: mvdbeek/planemo-discover-action@master
+      with:
+         changed-repositories: ${{ needs.setup.outputs.changed-repositories }}
+         deploy-tools: true
+         shed-target: testtoolshed
+         shed-key: ${{ secrets.tts_api_key }}
       continue-on-error: true
     - name: Deploy on toolshed
-      env:
-        SHED_KEY: ${{ secrets.ts_api_key }}
-      run: |
-        while read -r DIR; do
-            planemo shed_update --shed_target toolshed --shed_key "${{ env.SHED_KEY }}" --force_repository_creation "$DIR" || exit 1;
-        done < changed_repositories.list
+      uses: mvdbeek/planemo-discover-action@master
+      with:
+         changed-repositories: ${{ needs.setup.outputs.changed-repositories }}
+         deploy-tools: true
+         shed-target: toolshed
+         shed-key: ${{ secrets.ts_api_key }}
