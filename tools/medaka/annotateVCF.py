@@ -75,6 +75,7 @@ def parseSimpleSNPpileup(fields, ref_base, alt_base):
                 ins_str += base
             else:
                 ins_len = int(ins_str) - 1
+                ins_str = ""
                 insertion = base
                 ins_flag = False
         elif del_flag:
@@ -82,6 +83,7 @@ def parseSimpleSNPpileup(fields, ref_base, alt_base):
                 del_str += base
             else:
                 del_len = int(del_str) - 1
+                del_str = ""
                 deletion = base
                 del_flag = False
         else:
@@ -107,7 +109,10 @@ def parseSimpleSNPpileup(fields, ref_base, alt_base):
             else:
                 counts[base_to_idx[base]] += 1
                 stranded_counts[base_to_idx_stranded[base]] += 1
-    af = float(counts[base_to_idx[alt_base]]) / float(sum(counts))
+    if sum(counts) == 0:
+        af = float("nan")
+    else:
+        af = float(counts[base_to_idx[alt_base]]) / float(sum(counts))
     if float(sum(stranded_counts[0:4])) == 0:
         faf = float("nan")
     else:
@@ -293,7 +298,10 @@ def parseIndelPileup(fields, ref_base, alt_base):
             else:
                 counts[8] += 1
     dp = int(fields[3])
-    af = float(counts[3]) / float(sum([counts[0], counts[3], counts[6]]))
+    if sum([counts[0], counts[3], counts[6]]) == 0:
+        af = float("nan")
+    else:
+        af = float(counts[3]) / float(sum([counts[0], counts[3], counts[6]]))
     if sum([counts[1], counts[4], counts[7]]) == 0:
         faf = float("nan")
     else:
@@ -317,7 +325,7 @@ def annotateVCF(in_vcf_filepath, in_mpileup_filepath, out_vcf_filepath):
         if line[0:2] == "##":
             out_vcf.write(line)
         elif line[0] == "#":
-            out_vcf.write("##annotateVCFVersion=0.1\n")
+            out_vcf.write("##annotateVCFVersion=0.2\n")
             out_vcf.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Raw Depth\">\n")
             out_vcf.write("##INFO=<ID=AF,Number=1,Type=Float,Description=\"Allele Frequency\">\n")
             out_vcf.write("##INFO=<ID=FAF,Number=1,Type=Float,Description=\"Forward Allele Frequency\">\n")
@@ -376,7 +384,10 @@ def annotateVCF(in_vcf_filepath, in_mpileup_filepath, out_vcf_filepath):
         else:
             info = fields[7].split(';')
         info.append("DP=%d" % (dp))
-        info.append("AF=%.6f" % (af))
+        if isnan(af):
+            info.append("AF=NaN")
+        else:
+            info.append("AF=%.6f" % (af))
         if isnan(faf):
             info.append("FAF=NaN")
         else:
