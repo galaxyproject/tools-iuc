@@ -1,9 +1,9 @@
 # PyEGA3
 
-## set up user credentials on Galaxy
+## Set up user credentials on Galaxy
 
 To enable users to set their credentials for this tool,
-make sure the file `confgi/user_preferences_extra.yml` has the following section:
+make sure the file `config/user_preferences_extra.yml` has the following section:
 
 ```
     ega_account:
