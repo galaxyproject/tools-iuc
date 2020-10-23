@@ -20,10 +20,12 @@ def pval_to_phredqual(pval):
 def parseInfoField(info):
     info_fields = info.split(';')
     info_dict = {}
+    info_list = []  # Want to keep fields in order they appear in original VCF
     for info_field in info_fields:
         code, val = info_field.split('=')
         info_dict[code] = val
-    return info_dict
+        info_list.append(code)
+    return info_dict, info_list
 
 
 def annotateVCF(in_vcf_filepath, out_vcf_filepath):
@@ -52,7 +54,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
             out_vcf.write(line)
         else:
             fields = line.strip().split('\t')
-            info_dict = parseInfoField(fields[7])
+            info_dict, info_list = parseInfoField(fields[7])
             sr_list = [int(x) for x in info_dict["SR"].split(',')]
             sc_list = [int(x) for x in info_dict["SC"].split(',')]
             if len(sr_list) == len(sc_list):
@@ -75,9 +77,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
                     as_ = [sc_list[ref_fwd], sc_list[ref_rev], sc_list[var_fwd], sc_list[var_rev]]
 
                     info = []
-                    for code in info_dict:
-                        if code in to_skip:
-                            continue
+                    for code in info_list:
                         val = info_dict[code]
                         info.append("%s=%s" % (code, val))
 
@@ -96,9 +96,9 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
                     else:
                         raf = float(dp4[3]) / float(dpr)
                         info.append("RAF=%.6f" % (raf))
+                    info.append("SB=%d" % (sb))
                     info.append("DP4=%s" % (','.join([str(x) for x in dp4])))
                     info.append("AS=%s" % (','.join([str(x) for x in as_])))
-                    info.append("SB=%d" % (sb))
                     new_info = ';'.join(info)
                     fields[7] = new_info
                     out_vcf.write("%s\n" % ("\t".join(fields)))
