@@ -1,0 +1,188 @@
+<?xml version="1.0"?>
+<tool id="chromhmm_binarize" name="chromHMM Binarize" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <description>BAM/BED</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <stdio></stdio>
+    <command detect_errors="exit_code"><![CDATA[
+## initialize
+mkdir -p 'input/sample' 'input/control' 'output/control' 'output/binary' 'output/signal' &&
+
+## initiliaze cellmarkfiletable
+#set $filetypes = []
+#set $controlfile = ''
+touch 'cellmarkfiletable.csv' &&
+#for $i, $current in enumerate($input_rep)
+    #silent $filetypes.append(str($current.sample.datatype.file_ext))
+    #set $samplefile = str($current.identifier) + '_' + str($current.mark) + '.' + str($current.sample.datatype.file_ext)
+    ln -s '${current.sample}' 'input/sample/${samplefile}' &&
+
+    #if $current.control
+        #silent $filetypes.append(str($current.control.datatype.file_ext))
+        #set $controlfile = str($current.identifier) + '_' + str($current.mark) + '_control.' + str($current.control.datatype.file_ext)
+        ln -s '${current.control}' 'input/sample/${controlfile}' &&
+    #end if
+    echo -e '${current.identifier}\t${current.mark}\t${samplefile}\t$controlfile' >> 'input/cellmarkfiletable.tsv' && 
+#end for
+
+## requires only one filetype
+#set $type = list(set($filetypes))
+#if len($type) > 1
+    echo BAM and BED files cannot be handled simultaneously. >&2
+    exit 1
+#end if
+
+echo $type[0] &&
+
+#if str($type[0]) == 'bam'
+    ChromHMM.sh BinarizeBam
+#else if str($type[0]) == 'bed'
+    ChromHMM.sh BinarizeBed
+#end if
+## optional
+-b $ap.b
+-e $ap.e
+-f $ap.f
+-g $ap.g
+$ap.mode_cond.mode_sel ## -center, -n, -paired, -peaks
+#if $ap.mode_cond.mode_sel == '-n'
+    $ap.mode_cond.n
+#end if
+#if $ap.colfields
+    -colfields '$ap.colfields'
+#end if
+#if 'control' in $oo.out
+    -o 'output/control' #todo need to be fetched
+#end if
+-p $ap.p
+-s $ap.s
+#if 'signal' in $oo.out
+    -t 'output/signal'
+#end if
+$ap.strictthresh
+-u $ap.u
+## required (specific order)
+'${__tool_directory__}/tool-data/CHROMSIZES/${assembly}.txt' ## chromosomelengthfile
+'input/sample' ## inputbeddir/inputbamdir
+'input/cellmarkfiletable.tsv' ## cellmarkfiletable
+'output/binary' ## outputbinarydir
+
+&& ls -lisa
+&& ls input/sample -lisa
+&& ls output/binary -lisa
+
+#if 'log' in $oo.out
+    |& tee -a '$out_log'
+#end if
+    ]]></command>
+    <inputs>
+        <repeat name="input_rep" min="1" title="Select input data" help="BAM and BED cannot be used together. The combination of identifier and mark has to be unique. See help section for details. If no control files are specified then by default a uniform background will be used in determining the binarization thresholds."> <!-- todo -->            
+            <param name="identifier" type="text" value="" label="Set cell type or other identifier for a groups of marks (e.g. cell1, cell2, ...)"/>
+            <param name="mark" type="text" value="" label="Set associated mark (e.g. mark1, mark2 ...)"/>
+            <param name="sample" type="data" format="bam,bed" label="Select sample file"/>
+            <param name="control" type="data" format="bam,bed" optional="true" label="Select control file"/>
+        </repeat>
+        <expand macro="assembly"/>
+        <section name="ap" title="Advanced parameters" expanded="true">
+            <expand macro="b"/>
+            <expand macro="e"/>
+            <expand macro="f"/>
+            <expand macro="g"/>
+            <conditional name="mode_cond">
+                <param name="mode_sel" type="select" label="Select mode" help="-center: center of the interval is used to determine the bin to assign a read; -n: number of bases a read should be shifted to determine a bin assignment based on 5' end of a read with respect to the strand orientation; -paired: reads in BAM files are treated as pairs, and each pair is counted once with bin assignment is based on shifting half the insert size; -peaks: specifies to treat the bed files as peak calls directly and give a '1' call to any bin overlapping a peak call. Not recommend for broad peak calls.">
+                        <option value="" selected="true">None</option>                    
+                        <option value="-center">Center</option>
+                        <option value="-paired">Paired (only for BAM files)</option>
+                        <option value="-peak">Peak</option>
+                        <option value="-n">Shift (-n)</option>
+                </param>
+                <when value=""/>
+                <when value="-center"/>
+                <when value="-paired"/>
+                <when value="-peak"/>
+                <when value="-n">
+                    <param argument="-n" type="integer" value="100" label="Set number of bases a read should be shifted to determine a bin assignment" help="Bin assignment is based on the 5' end of a read shifted this amount with respect to the strand orientation."/>
+                </when>
+            </conditional>
+            <expand macro="colfields"/>
+            <expand macro="p"/>
+            <expand macro="s"/>
+            <expand macro="strictthresh"/>
+            <expand macro="u"/>
+            <param argument="-w" type="integer" value="5" label="Set flank width control" help="This determines the extent of the spatial smoothing in computing the local enrichment for control reads. The local enrichment for control signal in the xth bin on the chromosome after adding pseudocountcontrol is computed based on the average control counts for all bins within x-w and x+w. If no control data is applied, then this option is ignored."/>
+        </section>
+        <section name="oo" title="Output options">
+            <param name="out" type="select" multiple="true" optional="false" label="Select output file(s)" help="Signal files could later be binarized directly at different thresholds with BinarizeSignal. Control data will only be outputted if there are control bed files present.">
+                <option value="binary" selected="true">Binary</option>
+                <option value="cellmarkfiletable">Cellmarkfiletable</option>
+                <option value="control">Control (-o)</option>
+                <option value="signal">Signal (-t)</option>                
+                <option value="log">Log</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <expand macro="out_binary"/> 
+        <data name="out_cellmarkfiletable" format="tabular" from_work_dir="input/cellmarkfiletable.tsv" label="${tool.name} on $(on_string) Cellmark file table">
+        </data>
+        <expand macro="out_signal"/>
+        <!-- todo control files missing -o -->
+    </outputs>
+    <tests>
+        <!-- no test implemented for -colfields, control input files -->
+
+        <!-- #1 default -->
+        <test>
+            <repeat name="input_rep">          
+                <param name="identifier" value="cell1"/>
+                <param name="mark" value="mark1"/>
+                <param name="sample" value="sample1.bam"/>
+            </repeat>
+            <repeat name="input_rep">          
+                <param name="identifier" value="cell1"/>
+                <param name="mark" value="mark2"/>
+                <param name="sample" value="sample2.bam"/>
+            </repeat>
+            <param name="assembly" value="hg18"/>
+            <output name="out_cellmarkfiletable">
+                <assert_contents>
+                    <has_text_matching expression=".+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #2 -->
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+... 
+
+**Input**
+
+Each sample has a specific cell type/identifier and an associated mark. The combination of both needs to be unique and will be stored in acellmarkfiletable, that looks as follows. todo
+
+:: 
+
+    cell1   mark1   cell1_mark1.bed    cell1_mark1_control.bed
+    cell1   mark2   cell1_mark2.bed    cell1_mark2_control.bed
+    cell2   mark1   cell2_mark1.bed    cell2_mark1_control.bed
+    cell2   mark2   cell2_mark2.bed    cell2_mark2_control.bed
+
+**Output**
+
+...
+
+.. class:: infomark
+
+**References**
+
+@HELP_REFERENCES@
+    ]]></help>
+    <citations>
+        <expand macro="citations"/>
+    </citations>
+</tool>
