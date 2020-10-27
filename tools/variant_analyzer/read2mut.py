@@ -23,7 +23,6 @@ USAGE: python read2mut.py --mutFile DCS_Mutations.tabular --bamFile Interesting_
 from __future__ import division
 
 import argparse
-import itertools
 import json
 import operator
 import os
@@ -518,8 +517,7 @@ def read2mut(argv):
                         trimmed = False
                         contradictory = False
 
-                        if ((all(float(ij) >= 0.5 for ij in [alt1ff, alt4ff]) & all(float(ij) == 0. for ij in [alt2ff, alt3ff])) 
-                            | (all(float(ij) >= 0.5 for ij in [alt2ff, alt3ff]) & all(float(ij) == 0. for ij in [alt1ff, alt4ff]))):
+                        if ((all(float(ij) >= 0.5 for ij in [alt1ff, alt4ff]) & all(float(ij) == 0. for ij in [alt2ff, alt3ff])) | (all(float(ij) >= 0.5 for ij in [alt2ff, alt3ff]) & all(float(ij) == 0. for ij in [alt1ff, alt4ff]))):
                             alt1ff = 0
                             alt4ff = 0
                             alt2ff = 0
@@ -558,8 +556,7 @@ def read2mut(argv):
                             details2 = (total2, total3, total2new, total3new, ref2, ref3, alt2, alt3, ref2f, ref3f, alt2f, alt3f, na2, na3, lowq2, lowq3, beg2, beg3)
 
                         # assign tiers
-                        if ((all(int(ij) >= 3 for ij in [total1new, total4new]) & all(float(ij) >= 0.75 for ij in [alt1ff, alt4ff]))
-                            | (all(int(ij) >= 3 for ij in [total2new, total3new]) & all(float(ij) >= 0.75 for ij in [alt2ff, alt3ff]))):
+                        if ((all(int(ij) >= 3 for ij in [total1new, total4new]) & all(float(ij) >= 0.75 for ij in [alt1ff, alt4ff])) | (all(int(ij) >= 3 for ij in [total2new, total3new]) & all(float(ij) >= 0.75 for ij in [alt2ff, alt3ff]))):
                             tier = "1.1"
                             counter_tier11 += 1
                             tier_dict[key1]["tier 1.1"] += 1
@@ -649,14 +646,14 @@ def read2mut(argv):
                                     half1_mate2 = array2_half2
                                     half2_mate2 = array2_half
                                 # calculate HD of "a" in the tag to all "a's" or "b" in the tag to all "b's"
-                                dist = np.array([sum(itertools.imap(operator.ne, half1_mate1, c)) for c in half1_mate2])
+                                dist = np.array([sum(map(operator.ne, half1_mate1, c)) for c in half1_mate2])
                                 min_index = np.where(dist == dist.min())  # get index of min HD
                                 # get all "b's" of the tag or all "a's" of the tag with minimum HD
                                 min_tag_half2 = half2_mate2[min_index]
                                 min_tag_array2 = array2[min_index]  # get whole tag with min HD
                                 min_value = dist.min()
                                 # calculate HD of "b" to all "b's" or "a" to all "a's"
-                                dist_second_half = np.array([sum(itertools.imap(operator.ne, half2_mate1, e))
+                                dist_second_half = np.array([sum(map(operator.ne, half2_mate1, e))
                                                              for e in min_tag_half2])
 
                                 dist2 = dist_second_half.max()
