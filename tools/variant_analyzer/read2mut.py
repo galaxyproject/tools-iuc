@@ -277,7 +277,7 @@ def read2mut(argv):
             ref = mut_array[i, 2]
             alt = mut_array[i, 3]
             dcs_median = cvrg_dict[key1][2]
-            whole_array = pure_tags_dict_short[key1].keys()
+            whole_array = list(pure_tags_dict_short[key1].keys())
 
             tier_dict[key1] = {}
             values_tier_dict = [("tier 1.1", 0), ("tier 1.2", 0), ("tier 2.1", 0), ("tier 2.2", 0), ("tier 2.3", 0), ("tier 2.4", 0), ("tier 3.1", 0), ("tier 3.2", 0), ("tier 4.1", 0), ("tier 4.2", 0), ("tier 5", 0)]
