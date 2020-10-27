@@ -76,7 +76,7 @@ def mut2read(argv):
         ref = variant.REF
         alt = variant.ALT[0]
 #        nc = variant.format('NC')
-        ad = variant.format('AD')
+        # ad = variant.format('AD')
 
         dcs_len = []
         if len(ref) == len(alt):
@@ -149,4 +149,3 @@ def mut2read(argv):
 
 if __name__ == '__main__':
     sys.exit(mut2read(sys.argv))
-

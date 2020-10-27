@@ -25,7 +25,6 @@ import json
 import os
 import sys
 
-import numpy as np
 import pysam
 from cyvcf2 import VCF
 
@@ -70,7 +69,7 @@ def mut2sscs(argv):
         ref = variant.REF
         alt = variant.ALT[0]
 #        nc = variant.format('NC')
-        ad = variant.format('AD')
+        # ad = variant.format('AD')
 
         if len(ref) == len(alt):
 
@@ -135,4 +134,3 @@ def mut2sscs(argv):
 
 if __name__ == '__main__':
     sys.exit(mut2sscs(sys.argv))
-
