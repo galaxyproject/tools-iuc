@@ -8,8 +8,8 @@
 # 10/21/2020 - Nathan P. Roach, natproach@gmail.com
 
 import sys
-from math import log10
 from collections import OrderedDict
+from math import log10
 
 from scipy.stats import fisher_exact
 
