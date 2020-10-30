@@ -10,7 +10,7 @@ positions and calculates frequencies and stats.
 
 =======  ==========  =================  ================================
 Version  Date        Author             Description
-0.2.1    2019-10-27  Gundula Povysil    -
+2.0.0    2020-10-30  Gundula Povysil    -
 =======  ==========  =================  ================================
 
 
@@ -98,7 +98,6 @@ def read2mut(argv):
         (mut_pos_dict, ref_pos_dict) = json.load(f)
 
     # read bam file
-    # pysam.index(file2)
     bam = pysam.AlignmentFile(file2, "rb")
 
     # create mut_dict
@@ -115,8 +114,6 @@ def read2mut(argv):
         chrom_stop_pos = str(chrom) + "#" + str(stop_pos)
         ref = variant.REF
         alt = variant.ALT[0]
-#        nc = variant.format('NC')
-        # ad = variant.format('AD')
 
         if len(ref) == len(alt):
             mut_array.append([chrom, stop_pos, ref, alt])
@@ -180,6 +177,7 @@ def read2mut(argv):
                     print("coverage at pos %s = %s, ref = %s, alt = %s, other bases = %s, N = %s, indel = %s, low quality = %s\n" % (pileupcolumn.pos, count_ref + count_alt, count_ref, count_alt, count_other, count_n, count_indel, count_lowq))
         else:
             print("indels are currently not evaluated")
+
     mut_array = np.array(mut_array)
     for read in bam.fetch(until_eof=True):
         if read.is_unmapped:
@@ -222,16 +220,6 @@ def read2mut(argv):
     else:
         pure_tags_dict_short = pure_tags_dict
 
-    # whole_array = []
-    # for k in pure_tags_dict.values():
-    #    if len(k) != 0:
-    #        keys = k.keys()
-    #        if len(keys) > 1:
-    #            for k1 in keys:
-    #                whole_array.append(k1)
-    #        else:
-    #            whole_array.append(keys[0])
-
     # output summary with threshold
     workbook = xlsxwriter.Workbook(outfile)
     ws1 = workbook.add_worksheet("Results")
@@ -250,7 +238,6 @@ def read2mut(argv):
                    'SSCS alt.ab', 'SSCS alt.ba', 'SSCS ref.ab', 'SSCS ref.ba',
                    'in phase', 'chimeric tag')
     ws1.write_row(0, 0, header_line)
-
     counter_tier11 = 0
     counter_tier12 = 0
     counter_tier21 = 0
@@ -261,10 +248,7 @@ def read2mut(argv):
     counter_tier32 = 0
     counter_tier41 = 0
     counter_tier42 = 0
-    # if chimera_correction:
-    #    counter_tier43 = 0
     counter_tier5 = 0
-
     row = 1
     tier_dict = {}
     chimera_dict = {}
@@ -309,15 +293,11 @@ def read2mut(argv):
                         total1 = sum(mut_dict[key1][key2[:-5] + '.ab.1'].values())
                         if 'na' in mut_dict[key1][key2[:-5] + '.ab.1'].keys():
                             na1 = mut_dict[key1][key2[:-5] + '.ab.1']['na']
-                            # na1f = na1/total1
                         else:
-                            # na1 = na1f = 0
                             na1 = 0
                         if 'lowQ' in mut_dict[key1][key2[:-5] + '.ab.1'].keys():
                             lowq1 = mut_dict[key1][key2[:-5] + '.ab.1']['lowQ']
-                            # lowq1f = lowq1 / total1
                         else:
-                            # lowq1 = lowq1f = 0
                             lowq1 = 0
                         if ref in mut_dict[key1][key2[:-5] + '.ab.1'].keys():
                             ref1 = mut_dict[key1][key2[:-5] + '.ab.1'][ref]
@@ -352,15 +332,11 @@ def read2mut(argv):
                         total2 = sum(mut_dict[key1][key2[:-5] + '.ab.2'].values())
                         if 'na' in mut_dict[key1][key2[:-5] + '.ab.2'].keys():
                             na2 = mut_dict[key1][key2[:-5] + '.ab.2']['na']
-                            # na2f = na2 / total2
                         else:
-                            # na2 = na2f = 0
                             na2 = 0
                         if 'lowQ' in mut_dict[key1][key2[:-5] + '.ab.2'].keys():
                             lowq2 = mut_dict[key1][key2[:-5] + '.ab.2']['lowQ']
-                            # lowq2f = lowq2 / total2
                         else:
-                            # lowq2 = lowq2f = 0
                             lowq2 = 0
                         if ref in mut_dict[key1][key2[:-5] + '.ab.2'].keys():
                             ref2 = mut_dict[key1][key2[:-5] + '.ab.2'][ref]
@@ -395,15 +371,11 @@ def read2mut(argv):
                         total3 = sum(mut_dict[key1][key2[:-5] + '.ba.1'].values())
                         if 'na' in mut_dict[key1][key2[:-5] + '.ba.1'].keys():
                             na3 = mut_dict[key1][key2[:-5] + '.ba.1']['na']
-                            # na3f = na3 / total3
                         else:
-                            # na3 = na3f = 0
                             na3 = 0
                         if 'lowQ' in mut_dict[key1][key2[:-5] + '.ba.1'].keys():
                             lowq3 = mut_dict[key1][key2[:-5] + '.ba.1']['lowQ']
-                            # lowq3f = lowq3 / total3
                         else:
-                            # lowq3 = lowq3f = 0
                             lowq3 = 0
                         if ref in mut_dict[key1][key2[:-5] + '.ba.1'].keys():
                             ref3 = mut_dict[key1][key2[:-5] + '.ba.1'][ref]
@@ -434,15 +406,11 @@ def read2mut(argv):
                         total4 = sum(mut_dict[key1][key2[:-5] + '.ba.2'].values())
                         if 'na' in mut_dict[key1][key2[:-5] + '.ba.2'].keys():
                             na4 = mut_dict[key1][key2[:-5] + '.ba.2']['na']
-                            # na4f = na4 / total4
                         else:
-                            # na4 = na4f = 0
                             na4 = 0
                         if 'lowQ' in mut_dict[key1][key2[:-5] + '.ba.2'].keys():
                             lowq4 = mut_dict[key1][key2[:-5] + '.ba.2']['lowQ']
-                            # lowq4f = lowq4 / total4
                         else:
-                            # lowq4 = lowq4f = 0
                             lowq4 = 0
                         if ref in mut_dict[key1][key2[:-5] + '.ba.2'].keys():
                             ref4 = mut_dict[key1][key2[:-5] + '.ba.2'][ref]
@@ -664,14 +632,7 @@ def read2mut(argv):
                                 if min_value == 0 or dist2 == 0:
                                     min_tags_list_zeros.append(tag)
                                     chimera_tags.append(max_tag)
-                                    # chimeric = True
-                                # else:
-                                    # chimeric = False
 
-                                # if mate_b is False:
-                                #    text = "pos {}: sample tag: {}; HD a = {}; HD b' = {}; similar tag(s): {}; chimeric = {}".format(pos, sample_tag, min_value, dist2, list(max_tag), chimeric)
-                                # else:
-                                #     text = "pos {}: sample tag: {}; HD a' = {}; HD b = {}; similar tag(s): {}; chimeric = {}".format(pos, sample_tag, dist2, min_value, list(max_tag), chimeric)
                                 i += 1
                             chimera_tags = [x for x in chimera_tags if x != []]
                             chimera_tags_new = []
@@ -722,8 +683,8 @@ def read2mut(argv):
                                                 'criteria': '=$B${}>="3"'.format(row + 1),
                                                 'format': format2,
                                                 'multi_range': 'L{}:M{} T{}:U{} B{}'.format(row + 1, row + 2, row + 1, row + 2, row + 1)})
-
                         row += 3
+
             if chimera_correction:
                 chimeric_dcs_high_tiers = 0
                 chimeric_dcs = 0
@@ -736,6 +697,7 @@ def read2mut(argv):
                     else:
                         chimeric_dcs_high_tiers += high_tiers
                 chimera_dict[key1] = (chimeric_dcs, chimeric_dcs_high_tiers)
+
     # sheet 2
     if chimera_correction:
         header_line2 = ('variant ID', 'cvrg', 'AC alt (all tiers)', 'AF (all tiers)', 'chimeras in AC alt (all tiers)', 'chimera-corrected cvrg', 'chimera-corrected AF (all tiers)', 'cvrg (tiers 1.1-2.4)', 'AC alt (tiers 1.1-2.4)', 'AF (tiers 1.1-2.4)', 'chimeras in AC alt (tiers 1.1-2.4)', 'chimera-corrected cvrg (tiers 1.1-2.4)', 'chimera-corrected AF (tiers 1.1-2.4)', 'AC alt (orginal DCS)', 'AF (original DCS)',

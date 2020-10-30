@@ -11,7 +11,7 @@ Creates fastq file of reads of tags with mutation.
 
 =======  ==========  =================  ================================
 Version  Date        Author             Description
-0.2.1    2019-10-27  Gundula Povysil    -
+2.0.0    2020-10-30  Gundula Povysil    -
 =======  ==========  =================  ================================
 
 USAGE: python mut2read.py DCS_Mutations.tabular DCS.bam Aligned_Families.tabular Interesting_Reads.fastq tag_count_dict.json
@@ -62,7 +62,6 @@ def mut2read(argv):
         sys.exit("Error: Could not find '{}'".format(file3))
 
     # read dcs bam file
-#    pysam.index(file2)
     bam = pysam.AlignmentFile(file2, "rb")
 
     # get tags
@@ -75,13 +74,9 @@ def mut2read(argv):
         chrom_stop_pos = str(chrom) + "#" + str(stop_pos)
         ref = variant.REF
         alt = variant.ALT[0]
-#        nc = variant.format('NC')
-        # ad = variant.format('AD')
-
         dcs_len = []
         if len(ref) == len(alt):
             for pileupcolumn in bam.pileup(chrom, stop_pos - 1, stop_pos + 1, max_depth=100000000):
-
                 if pileupcolumn.reference_pos == stop_pos:
                     count_alt = 0
                     count_ref = 0
