@@ -131,7 +131,7 @@ def download_image_data(
     with ExitStack() as exit_stack:
         conn = exit_stack.enter_context(
             BlitzGateway(
-                omero_username,omero_password, 
+                omero_username,omero_password,
                 host=omero_host,
                 secure=omero_secure
             )
