@@ -112,7 +112,7 @@ def download_image_data(
     image_ids,
     channel=None, z_stack=0, frame=0,
     coord=(0, 0), width=0, height=0, region_spec='rectangle',
-    skip_failed=False, download_tar=False, omero_host='idr.openmicroscopy.org', omero_secure='True',omero_username='public',omero_password='public'
+    skip_failed=False, download_tar=False, omero_host='idr.openmicroscopy.org', omero_secure='True', omero_username='public', omero_password='public' 
 ):
     # basic argument sanity checks and adjustments
     prefix = 'image-'
@@ -139,7 +139,7 @@ def download_image_data(
         # )
         conn = exit_stack.enter_context(
             BlitzGateway(
-                omero_username,omero_password,
+                omero_username,omero_password, 
                 host=omero_host,
                 secure=omero_secure
             )
