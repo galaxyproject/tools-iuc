@@ -1,11 +1,11 @@
-## Set up user credentials on Galaxy to connect to private omero instance
+## Set up user credentials on Galaxy to connect to other omero instance
 
 To enable users to set their credentials for this tool,
 make sure the file `config/user_preferences_extra.yml` has the following section:
 
 ```
     omero_account:
-        description: Your OMERO instsnce connection credentials
+        description: Your OMERO instance connection credentials
         inputs:
             - name: username
               label: Username
