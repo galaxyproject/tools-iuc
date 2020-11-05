@@ -112,7 +112,7 @@ def download_image_data(
     image_ids,
     channel=None, z_stack=0, frame=0,
     coord=(0, 0), width=0, height=0, region_spec='rectangle',
-    skip_failed=False, download_tar=False, omero_host='idr.openmicroscopy.org', omero_secure=True, omero_username='public', omero_password='public'
+    skip_failed=False, download_tar=False, omero_host='idr.openmicroscopy.org', omero_secured=True, omero_username='public', omero_password='public'
 ):
     # basic argument sanity checks and adjustments
     prefix = 'image-'
@@ -127,13 +127,12 @@ def download_image_data(
             'Got unknown value "{0}" as region_spec argument'
             .format(region_spec)
         )
-
     with ExitStack() as exit_stack:
         conn = exit_stack.enter_context(
             BlitzGateway(
                 omero_username, omero_password,
                 host=omero_host,
-                secure=omero_secure
+                secure=omero_secured
             )
         )
         # exit_stack.callback(conn.connect().close)
@@ -356,10 +355,10 @@ if __name__ == "__main__":
         '--download-tar', action='store_true'
     )
     p.add_argument(
-        '-h', '--omero-host', type=str, default="idr.openmicroscopy.org"
+        '-oh', '--omero-host', type=str, default="idr.openmicroscopy.org"
     )
     p.add_argument(
-        '-s', action='store_true'
+        '--omero-secured', action='store_false'
     )
     p.add_argument(
         '-u', '--omero-username', type=str, default="public"
