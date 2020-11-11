@@ -269,7 +269,7 @@ if (args$gsdb != "None") {
 
 gs_annots <- buildIdx(entrezIDs = rownames(counts),
                       species = args$species,
-                     msigdb.gsets = msigdb,
+                      msigdb.gsets = msigdb,
                       gsdb.gsets = gsdb,
                       kegg.exclude = kegg_exclude,
                       kegg.updated = args$keggupdated)
@@ -299,4 +299,3 @@ gsa <- egsea.cnt(counts = counts,
 if (!is.null(args$rdaOpt)) {
   save.image(file = "EGSEA_analysis.RData")
 }
-
