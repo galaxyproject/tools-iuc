@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 
-import subprocess
 import sys
-
-AWK_CMD = """BEGIN{FS="%s"; OFS="%s";} {print %s;}"""
 
 input_filename = sys.argv[1]
 output_filename = sys.argv[2]
@@ -31,5 +28,9 @@ sorted_header.sort()
 for key in sorted_header:
     columns.append(header.index(key))
 
-awk_cmd = AWK_CMD % (delimiter, delimiter, ",".join(map(lambda x: "$%i" % (x + 1), columns)))
-sys.exit(subprocess.call(['gawk', awk_cmd, input_filename], stdout=open(output_filename, 'wb+'), shell=False))
+with open(input_filename, 'r') as in_fh, open(output_filename, 'w') as out_fh:
+    for line in in_fh:
+        line = line.strip('\r\n')
+        line = line.split(delimiter)
+
+        out_fh.write(delimiter.join([line[j] for j in columns]) + "\n")
