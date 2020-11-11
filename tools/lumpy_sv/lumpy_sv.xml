@@ -1,5 +1,5 @@
 <tool id="lumpy_sv" name="LUMPY" version="@WRAPPER_VERSION@">
-    <description>discovers structural variants</description>
+    <description>is a probabilistic framework for structural variant discovery</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -7,78 +7,145 @@
         <requirement type="package" version="@TOOL_VERSION@">lumpy-sv</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-
-    ln '$input_sample_file' ./sample.input.bam &&
-    samtools collate -O --output-fmt sam ./sample.input.bam | samblaster --excludeDups --addMateTags --maxSplitCount 2 --minNonOverlap 20 | samtools view -h -S -b - > ./sample.bam &&
-
-    samtools view -b -F 1294 ./sample.bam > ./sample.discordants.unsorted.bam &&
-    samtools view -h ./sample.bam | extractSplitReads_BwaMem -i stdin | samtools view -Sb - > ./sample.splitters.unsorted.bam &&
-
-    samtools sort ./sample.discordants.unsorted.bam > ./sample.discordants.bam &&
-    samtools sort ./sample.splitters.unsorted.bam > ./sample.splitters.bam &&
-
-    pe_var=\$(samtools view -r id1 ./sample.bam | tail -n+'$general.stat_tail_n' | python \$CONDA_PREFIX/share/lumpy-sv-*/scripts/pairend_distro.py -r '$pe.read_length' -X 4 -N 10000 -o sample.lib1.histo | tr '\t' ',') &&
-
-    lumpy
-        -mw '$general.mw'
-        -tt '$general.tt'
-        #if $general.e:
-        -e
-        #end if
-        -pe id:sample1,bam_file:sample.discordants.bam,histo_file:sample.lib1.histo,\${pe_var},read_length:'$pe.read_length',min_non_overlap:'$pe.min_non_overlap',discordant_z:'$pe.discordant_z',back_distance:'$pe.back_distance',weight:'$pe.weight',min_mapping_threshold:'$pe.min_mapping_threshold'
-        -sr id:sample1,bam_file:sample.splitters.bam,back_distance:'$sr.back_distance',weight:'$sr.weight',min_mapping_threshold:'$sr.min_mapping_threshold'
-        > ./sample.vcf
+python $configure_job > lumpy_job.sh &&
+cat lumpy_job.sh &&
+chmod u+x lumpy_job.sh &&
+./lumpy_job.sh > $result
     ]]></command>
+    <configfiles>
+        <configfile name="configure_job"><![CDATA[
+import os
+import pysam
+
+preproc_cmds = []
+lumpy_cmd_parts = ['lumpy -mw ${general.mw} -tt ${general.tt} ${general.e}']
+
+full_bams = []
+disc_bams = []
+split_bams = []
+#for $n,$bam_file in enumerate($input_bams):
+os.symlink('$bam_file', 'f${n}.bam')
+full_bams.append('f${n}.bam')
+#end for
+#if $discordant_alns:
+    #for $n, $disc_file in enumerate($discordant_alns):
+os.symlink('$disc_file', 'd${n}.bam')
+os.symlink('$disc_file.metadata.bam_index', 'd${n}.bam.bai')
+disc_bams.append('d${n}.bam')
+    #end for
+#end if
+#if $split_alns:
+    #for $n, $split_file in enumerate($split_alns):
+os.symlink('$split_file', 's${n}.bam')
+os.symlink('$split_file.metadata.bam_index', 's${n}.bam.bai')
+split_bams.append('s${n}.bam')
+    #end for
+#end if
+
+if not disc_bams and not split_bams:
+    raise Exception('Either discordant or split alignments are required as input')
+
+known_rg_records = {}
+for bam_file in full_bams:
+    ibam = pysam.AlignmentFile(bam_file, 'rb')
+    for rg_record in ibam.header['RG']:
+        known_rg_records[(rg_record['ID'], rg_record['SM'])] = bam_file
+    ibam.close()
+print('# {0}'.format(known_rg_records))
+
+for discordant_file in disc_bams:
+    dbam = pysam.AlignmentFile(discordant_file, 'rb')
+    sample_info = {}
+    for rg_record in dbam.header['RG']:
+        if (rg_record['ID'], rg_record['SM']) in known_rg_records:
+            if rg_record['SM'] not in sample_info:
+                sample_info[rg_record['SM']] = []
+            sample_info[rg_record['SM']].append({'ID': rg_record['ID'], 'read_len': 101, 'bam_for_stats': known_rg_records[(rg_record['ID'], rg_record['SM'])]})
+    dbam.close()
+    print('# {0}'.format(sample_info))
+    n=0
+    for sample in sample_info:
+        for rg_info in sample_info[sample]:
+            preproc_cmds.append(
+                "pe_var_{0}=\$(samtools view -r '{1}' '{2}' | tail -n+${general.stat_tail_n} | python \"\$CONDA_PREFIX\"/share/lumpy-sv-*/scripts/pairend_distro.py -r {3} -X 4 -N 10000 -o rg{0}.histo | tr '\t' ',') &&"
+                .format(n, rg_info['ID'], rg_info['bam_for_stats'], rg_info['read_len'])
+            )
+            lumpy_cmd_parts.append(
+                '-pe id:{0},'
+                'read_group:{1},'
+                'bam_file:{2},'
+                'histo_file:rg{3}.histo,'
+                '\$pe_var_{3},'
+                'read_length:{4},'
+                'min_non_overlap:${pe.min_non_overlap},discordant_z:${pe.discordant_z},back_distance:${pe.back_distance},weight:${pe.weight},min_mapping_threshold:${pe.min_mapping_threshold}'
+                .format(sample, rg_info['ID'], discordant_file, n, rg_info['read_len'])
+            )
+            n += 1
+
+for split_file in split_bams:
+    sbam = pysam.AlignmentFile(split_file, 'rb')
+    for rg_record in sbam.header['RG']:
+        if (rg_record['ID'], rg_record['SM']) in known_rg_records:
+            lumpy_cmd_parts.append(
+                '-sr id:{0},'
+                'bam_file:{1},'
+                'back_distance:${sr.sr_back_distance},weight:${sr.sr_weight},min_mapping_threshold:${sr.sr_min_mapping_threshold}'
+                .format(rg_record['SM'], split_file)
+            )
+
+print('\n'.join(preproc_cmds))
+print(' '.join(lumpy_cmd_parts))
+        ]]></configfile>
+    </configfiles>
     <inputs>
-        <param name="input_sample_file" type="data" format="bam" multiple="false" label="Sample file" help="Sample file in .BAM format." />
+        <param name="input_bams" type="data" format="qname_sorted.bam" multiple="true" label="BAM input dataset" />
+        <param name="discordant_alns" type="data" format="bam" multiple="true" optional="true" label="Discordant reads input" />
+        <param name="split_alns" type="data" format="bam" multiple="true" optional="true" label="Split alignments input" />
         <!--<param name="input_bedpe_file" type="data" format="bed" multiple="false" label="BEDPE file" help="Position sorted bedpe file containing the breakpoint intervals for this sample." />-->
-            <!-- General options -->
-            <section name="general" title="General options" expanded="false">
-                <!--<param name="g" type="data" label="Genome file (-g)" help="Defines chromosome order" />-->
-                <param name="e" type="boolean" checked="true" label="Show evidence for each call (-e)" help="" />
-                <!--<param name="w" type="integer" value="1000000" label="File read windows size (-w)" help="Default 1000000" />-->
-                <param name="mw" type="integer" value="4" label="Minimum weight across all samples for a call (-mw)" help="" />
-                <!--<param name="msw" type="integer" value="1" label="Minimum per-sample weight for a call (-msw)" help="" />-->
-                <param name="tt" type="integer" value="0" label="Trim threshold (-tt)" help="" />
-                <!--<param name="x" type="boolean" checked="true" label="Exclude bed file (-x)" help="" />-->
-                <!--<param name="t" type="text" value="" label="Temp file prefix, must be to a writeable directory (-t)" help="" />-->
-                <!--<param name="P" type="boolean" checked="false" label="Output probability curve for each variant (-P)" help="" />-->
-                <!--<param name="b" type="boolean" checked="false" label="output as BEDPE instead of VCF (-b)" help="" />-->
-                <param name="stat_tail_n" type="integer" value="100000" label="stat_tail_n" help="" />
-            </section>
-            <!-- PE options -->
-            <section name="pe" title="Paired-end options (-pe)" expanded="false">
-                <param name="read_length" type="integer" value="101" label="Length of sequenced reads" help="" />
-                <param name="min_non_overlap" type="integer" value="101" label="Number of base pair positions that must be unique to each end of a read pair" help="Some library preps are created with large reads and small library sizes such that read overlap, in all over cases overlapping reads tends to be a sign of an error. We typically set this to read length (pairs cannot overlap)." />
-                <param name="discordant_z" type="integer" value="5" label="Number of standard deviations away from the mean to be considered as a normal library size" help="" />
-                <param name="back_distance" type="integer" value="10" label="Distance into the read to add to the breakpoint interval" help="" />
-                <param name="min_mapping_threshold" type="integer" value="20" label="Minimum mapping quality (reported from the aligner) that a read must have to be considered" help="A quality of 1 will filter all reads with two or more equally good mappings." />
-                <param name="weight" type="integer" value="1" label="Weight of each piece of evidence from this sample" help="" />
-            </section>
-            <!-- SR options -->
-            <section name="sr" title="Split-read options (-sr)" expanded="false">
-                <param name="back_distance" type="integer" value="10" label="Distance around the +/- of the split to include in the breakpoint interval" help="A distance of 20 will created a breakpoint interval of size 40 centered at the split." />
-                <param name="min_mapping_threshold" type="integer" value="20" label="Minimum mapping quality (reported from the aligner) that a read must have to be considered" help="A quality of 1 will filter all reads with two or more equally good mappings." />
-                <param name="weight" type="integer" value="1" label="Weight of each piece of evidence from this sample" help="" />
-            </section>
-            <!-- BEDPE options -->
-            <!--<section name="bedpe" title="BEDPE options (-bedpe)" expanded="false">-->
-                <!--<param name="bedpe_back_distance" type="integer" value="10" label="Distance into the read to add to the breakpoint interval" help="" />-->
-                <!--<param name="bedpe_weight" type="integer" value="1" label="Weight of each piece of evidence from this sample" help="" />-->
-            <!--</section>-->
+        <!-- General options -->
+        <section name="general" title="General options" expanded="false">
+            <!--<param name="g" type="data" label="Genome file (-g)" help="Defines chromosome order" />-->
+            <param name="e" type="boolean" checked="true" truevalue="-e" falsevalue=""
+            label="Show evidence for each call (-e)" help="" />
+            <!--<param name="w" type="integer" value="1000000" label="File read windows size (-w)" help="Default 1000000" />-->
+            <param name="mw" type="integer" value="4" label="Minimum weight across all samples for a call (-mw)" help="" />
+            <!--<param name="msw" type="integer" value="1" label="Minimum per-sample weight for a call (-msw)" help="" />-->
+            <param name="tt" type="integer" value="0" label="Trim threshold (-tt)" help="" />
+            <!--<param name="x" type="boolean" checked="true" label="Exclude bed file (-x)" help="" />-->
+            <!--<param name="t" type="text" value="" label="Temp file prefix, must be to a writeable directory (-t)" help="" />-->
+            <!--<param name="P" type="boolean" checked="false" label="Output probability curve for each variant (-P)" help="" />-->
+            <!--<param name="b" type="boolean" checked="false" label="output as BEDPE instead of VCF (-b)" help="" />-->
+            <param name="stat_tail_n" type="integer" min="1" value="100000" label="stat_tail_n" help="" />
+        </section>
+        <!-- PE options -->
+        <section name="pe" title="Paired-end options (-pe)" expanded="false">
+            <param name="read_length" type="integer" value="101" label="Length of sequenced reads" help="" />
+            <param name="min_non_overlap" type="integer" value="101" label="Number of base pair positions that must be unique to each end of a read pair" help="Some library preps are created with large reads and small library sizes such that read overlap, in all over cases overlapping reads tends to be a sign of an error. We typically set this to read length (pairs cannot overlap)." />
+            <param name="discordant_z" type="integer" value="5" label="Number of standard deviations away from the mean to be considered as a normal library size" help="" />
+            <param name="back_distance" type="integer" value="10" label="Distance into the read to add to the breakpoint interval" help="" />
+            <param name="min_mapping_threshold" type="integer" value="20" label="Minimum mapping quality (reported from the aligner) that a read must have to be considered" help="A quality of 1 will filter all reads with two or more equally good mappings." />
+            <param name="weight" type="integer" value="1" label="Weight of each piece of evidence from this sample" help="" />
+        </section>
+        <!-- SR options -->
+        <section name="sr" title="Split-read options (-sr)" expanded="false">
+            <param name="sr_back_distance" type="integer" value="10" label="Distance around the +/- of the split to include in the breakpoint interval" help="A distance of 20 will created a breakpoint interval of size 40 centered at the split." />
+            <param name="sr_min_mapping_threshold" type="integer" value="20" label="Minimum mapping quality (reported from the aligner) that a read must have to be considered" help="A quality of 1 will filter all reads with two or more equally good mappings." />
+            <param name="sr_weight" type="integer" value="1" label="Weight of each piece of evidence from this sample" help="" />
+        </section>
+        <!-- BEDPE options -->
+        <!--<section name="bedpe" title="BEDPE options (-bedpe)" expanded="false">-->
+            <!--<param name="bedpe_back_distance" type="integer" value="10" label="Distance into the read to add to the breakpoint interval" help="" />-->
+            <!--<param name="bedpe_weight" type="integer" value="1" label="Weight of each piece of evidence from this sample" help="" />-->
+        <!--</section>-->
     </inputs>
     <outputs>
-        <data name="out_sample" format="vcf" label="${tool.name} on ${on_string}: sample" from_work_dir="sample.vcf" />
+        <data name="result" format="vcf" label="${tool.name} on ${on_string}" />
     </outputs>
     <tests>
         <test>
-            <param name="input_sample_file" ftype="bam" value="sample.bam" />
-            <param name="general|stat_tail_n" value="0" />
-            <output name="out_sample" ftype="vcf" file="sample.vcf">
-                <assert_contents>
-                    <has_text text="##source=LUMPY" />
-                </assert_contents>
-            </output>
+            <param name="input_bams" ftype="bam" value="sample.bam" />
+            <param name="general|stat_tail_n" value="1" />
+            <output name="out_sample" ftype="vcf" file="sample.vcf" />
         </test>
     </tests>
     <help><![CDATA[
@@ -92,7 +159,5 @@ For more information see the LUMPY documentation_.
 .. _documentation: https://github.com/arq5x/lumpy-sv
 
     ]]></help>
-     <citations>
-         <citation type="doi">10.1186/gb-2014-15-6-r84</citation>
-    </citations>
+    <expand macro="citations" />
 </tool>
