@@ -22,22 +22,27 @@
     <command detect_errors="exit_code"><![CDATA[
 ln -s `dirname \$(which lumpy)`/../share/lumpy-sv-*/scripts/ . &&
 python $configure_job > lumpy_job.sh &&
-cat lumpy_job.sh &&
 chmod u+x lumpy_job.sh &&
 ./lumpy_job.sh > $result
     ]]></command>
     <configfiles>
         <configfile name="configure_job"><![CDATA[
+## The Python script that gets put together here, will emit a shell script
+## with the necessary commands for a traditional (non-express) LUMPY workflow.
+## After running the python code, the resulting shell script is all that's
+## needed to run LUMPY with all user-specified settings.
 import os
 import pysam
 
 preproc_cmds = []
 lumpy_cmd_parts = ['lumpy -mw ${general.mw} -tt ${general.tt} ${general.e}']
 
+## symlink in all input bams, and there index files if available
 full_bams = []
 disc_bams = []
 split_bams = []
 #for $n,$bam_file in enumerate($input_bams):
+## main input files are collated BAMs without index
 os.symlink('$bam_file', 'f${n}.bam')
 full_bams.append('f${n}.bam')
 #end for
@@ -58,6 +63,7 @@ split_bams.append('s${n}.bam')
 if not disc_bams and not split_bams:
     raise Exception('Either discordant or split alignments are required as input')
 
+## make pe and sr params available in the Python code
 #set $pe_rg_specs = {}
 #for $per_rg_pe in $pe.rg_specific:
     #silent $pe_rg_specs[str($per_rg_pe.rg_id)] = {
@@ -95,14 +101,30 @@ pe_rg_specs = $pe_rg_specs
 }
 sr_sm_specs = $sr_sm_specs
 
+## discover read groups and samples defined in any of the input files
+## the main input files are used to build a catalogue of read groups and
+## samples to work with.
+## For each combination of RG ID and SM, the input that has those reads is
+## recorded
 known_rg_records = {}
 for bam_file in full_bams:
     ibam = pysam.AlignmentFile(bam_file, 'rb')
     for rg_record in ibam.header['RG']:
         known_rg_records[(rg_record['ID'], rg_record['SM'])] = bam_file
     ibam.close()
-print('# {0}'.format(known_rg_records))
+print('# Available read groups and samples in input BAMs:')
+print('# RG\tSample')
+for r, s in known_rg_records:
+    print('# {0}\t{1}'.format(r, s))
 
+## Lumpy can analyze *discordant pairs* per read group.
+## We only use read groups that we've also seen in any of the main inputs.
+## For these read groups, we retrieve the main input BAM that has the read
+## group and use the file to generate paired-end stats with the help of LUMPY's
+## pairend_distro script.
+## The paired-end stats (emitted as numbered .histo files, but also to stdout)
+## are then used as part of the actual LUMPY command, i.e. in the value of the
+## -pe option.
 n = 0
 for discordant_file in disc_bams:
     dbam = pysam.AlignmentFile(discordant_file, 'rb')
@@ -113,14 +135,18 @@ for discordant_file in disc_bams:
                 sample_info[rg_record['SM']] = []
             sample_info[rg_record['SM']].append({'ID': rg_record['ID'], 'bam_for_stats': known_rg_records[(rg_record['ID'], rg_record['SM'])]})
     dbam.close()
-    print('# {0}'.format(sample_info))
     for sample in sample_info:
         for rg_info in sample_info[sample]:
             rg_specs = pe_rg_specs.get(rg_info['ID'], pe_rg_specs[None])
             preproc_cmds.append(
+                ## calculate pe stats, store the main output in distinct
+                ## -histo files per read group and capture stdout in
+                ## shell variables, one per read-group.
                 "pe_var_{0}=\$(samtools view -r '{1}' '{2}' | tail -n+${general.stat_tail_n} | python scripts/pairend_distro.py -r {3} -X 4 -N 10000 -o rg{0}.histo | tr '\t' ',') &&"
                 .format(n, rg_info['ID'], rg_info['bam_for_stats'], rg_specs['read_len'])
             )
+            ## reuse the .histo files and the captured stdout in the value
+            ## of LUMPY's -pe option
             lumpy_cmd_parts.append(
                 '-pe id:{0},'
                 'read_group:{1},'
@@ -133,6 +159,10 @@ for discordant_file in disc_bams:
             )
             n += 1
 
+## *Split-reads* get analyzed on a per-sample level.
+## Again, we only use samples that we've seen in the main inputs before.
+## The names of these samples and the correponding split-reads bam files are
+## used directly in the -sr option value of the LUMPY main command.
 for split_file in split_bams:
     sbam = pysam.AlignmentFile(split_file, 'rb')
     for rg_record in sbam.header['RG']:
@@ -203,6 +233,7 @@ print(' '.join(lumpy_cmd_parts))
     </inputs>
     <outputs>
         <data name="result" format="vcf" label="${tool.name} on ${on_string}" />
+        <data name="job_script" format="txt" label="${tool.name} on ${on_string}: Job Script" from_work_dir="lumpy_job.sh" />
     </outputs>
     <tests>
         <test>
