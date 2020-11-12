@@ -1,3 +1,4 @@
+## TODO use SHA for caching
 name: Weekly global Tool Linting and Tests
 on:
   schedule:
@@ -7,7 +8,11 @@ on:
     types: [run-all-tool-tests-command]
 env:
   GALAXY_RELEASE: release_20.09
+<<<<<<< HEAD
   MAX_CHUNKS: 40
+=======
+  GALAXY_FORK: galaxyproject
+>>>>>>> optional parameters branch and fork for slash command
 jobs:
   setup:
     name: Setup cache
@@ -19,7 +24,17 @@ jobs:
     strategy:
       matrix:
         python-version: [3.7]
+    outputs:
+      fork: ${{ steps.set_gxy_fork_branch.outputs.fork }}
+      branch: ${{ steps.set-gxy-fork-branch.outputs.branch }}
     steps:
+    - id: set_gxy_fork_branch
+      name: Set galaxy fork and branch
+      run: |
+        TMP="${{ github.event.client_payload.slash_command.args.named.fork }}"
+        echo "fork=${TMP:-$GALAXY_FORK}" >> $GITHUB_ENV
+        TMP="${{ github.event.client_payload.slash_command.args.named.branch }}"
+        echo "branch=${TMP:-$GALAXY_BRANCH}" >> $GITHUB_ENV
     - name: Add reaction
       if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
       uses: peter-evans/create-or-update-comment@v1
@@ -36,7 +51,7 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+        key: pip_cache_${{ matrix.python-version }}_${{ env.fork }}_${{ env.branch }}
     # Install the `wheel` package so that when installing other packages which
     # are not available as wheels, pip will build a wheel for them, which can be cached.
     - name: Install wheel
@@ -46,7 +61,7 @@ jobs:
     - name: Fake a planemo run to update cache
       run: |
         touch tool.xml
-        PIP_QUIET=1 planemo test --galaxy_python_version ${{ matrix.python-version }} --no_conda_auto_init --galaxy_branch $GALAXY_RELEASE
+        PIP_QUIET=1 planemo test --galaxy_python_version ${{ matrix.python-version }} --no_conda_auto_init --galaxy_source 'https://github.com/'"$fork"'/galaxy' --galaxy_branch "$branch"
     - uses: actions/checkout@v2
       with:
         fetch-depth: 1
@@ -79,6 +94,12 @@ jobs:
         ports:
           - 5432:5432
     steps:
+    - name: Set galaxy fork and branch
+      run: |
+        TMP="${{ github.event.client_payload.slash_command.args.named.fork }}"
+        echo "fork=${TMP:-$GALAXY_FORK}" >> $GITHUB_ENV
+        TMP="${{ github.event.client_payload.slash_command.args.named.branch }}"
+        echo "branch=${TMP:-$GALAXY_BRANCH}" >> $GITHUB_ENV
     # checkout the repository
     # and use it as the current working directory
     - uses: actions/checkout@v2
@@ -92,7 +113,7 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
+        key: pip_cache_${{ matrix.python-version }}_${{ env.fork }}_${{ env.branch }}
     - name: Install Planemo
       run: pip install planemo
     - name: Planemo ci_find_tools
@@ -109,7 +130,7 @@ jobs:
                    PLANEMO_OPTIONS="--biocontainers --no_dependency_resolution --no_conda_auto_init"
                fi
                json=$(mktemp -u -p json_output --suff .json)
-               PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_branch $GALAXY_RELEASE  --galaxy_python_version ${{ matrix.python-version }} --test_output_json $json $TOOLS || true
+               PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source "https://github.com/$fork/galaxy" --galaxy_branch $branch --galaxy_python_version ${{ matrix.python-version }} --test_output_json $json $TOOLS || true
                docker system prune --all --force --volumes || true
            done < tool.list
     - name: Merge tool_test_output.json files
@@ -162,6 +183,11 @@ jobs:
       id: vars
       run: echo ::set-output name=run-url::https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
 
+    - name: Gather statistics
+      if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
+      id: stats
+      run: echo ::set-output name=statistics::$(jq '.["tests"][]["data"]["status"]' upload/tool_test_output.json | sed 's/"//g' | sort | uniq -c)
+
     - name: Create comment
       if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
       uses: peter-evans/create-or-update-comment@v1
@@ -170,6 +196,10 @@ jobs:
         repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
         issue-number: ${{ github.event.client_payload.github.payload.issue.number }}
         body: |
+          Summary:
+
+          ${{ steps.stats.outputs.statistics }}
+
           [Find all tool test results here][1]
 
           [1]: ${{ steps.vars.outputs.run-url }}
