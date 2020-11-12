@@ -54,9 +54,45 @@ os.symlink('$split_file.metadata.bam_index', 's${n}.bam.bai')
 split_bams.append('s${n}.bam')
     #end for
 #end if
-
 if not disc_bams and not split_bams:
     raise Exception('Either discordant or split alignments are required as input')
+
+#set $pe_rg_specs = {}
+#for $per_rg_pe in $pe.rg_specific:
+    #silent $pe_rg_specs[str($per_rg_pe.rg_id)] = {
+        'read_len': int($per_rg_pe.read_length),
+        'min_non_overlap': int($per_rg_pe.min_non_overlap),
+        'discordant_z': int($per_rg_pe.discordant_z),
+        'back_distance': int($per_rg_pe.back_distance),
+        'min_mapping_threshold': int($per_rg_pe.min_mapping_threshold),
+        'weight': int($per_rg_pe.weight)
+     }
+#end for
+#silent $pe_rg_specs[None] = {
+    'read_len': int($pe.default.read_length),
+    'min_non_overlap': int($pe.default.min_non_overlap),
+    'discordant_z': int($pe.default.discordant_z),
+    'back_distance': int($pe.default.back_distance),
+    'min_mapping_threshold': int($pe.default.min_mapping_threshold),
+    'weight': int($pe.default.weight)
+}
+pe_rg_specs = $pe_rg_specs
+
+#set $sr_sm_specs = {}
+#for $per_sm_sr in $sr.sm_specific:
+    #silent $sr_sm_specs[str($per_sm_sr.rg_sm)] = {
+        'back_distance': int($per_sm_sr.sr_back_distance),
+        'min_mapping_threshold': int($per_sm_sr.sr_min_mapping_threshold),
+        'weight': int($per_sm_sr.sr_weight)
+     }
+#end for
+
+#silent $sr_sm_specs[None] = {
+    'back_distance': int($sr.default.sr_back_distance),
+    'min_mapping_threshold': int($sr.default.sr_min_mapping_threshold),
+    'weight': int($sr.default.sr_weight)
+}
+sr_sm_specs = $sr_sm_specs
 
 known_rg_records = {}
 for bam_file in full_bams:
@@ -66,6 +102,7 @@ for bam_file in full_bams:
     ibam.close()
 print('# {0}'.format(known_rg_records))
 
+n = 0
 for discordant_file in disc_bams:
     dbam = pysam.AlignmentFile(discordant_file, 'rb')
     sample_info = {}
@@ -73,15 +110,15 @@ for discordant_file in disc_bams:
         if (rg_record['ID'], rg_record['SM']) in known_rg_records:
             if rg_record['SM'] not in sample_info:
                 sample_info[rg_record['SM']] = []
-            sample_info[rg_record['SM']].append({'ID': rg_record['ID'], 'read_len': 101, 'bam_for_stats': known_rg_records[(rg_record['ID'], rg_record['SM'])]})
+            sample_info[rg_record['SM']].append({'ID': rg_record['ID'], 'bam_for_stats': known_rg_records[(rg_record['ID'], rg_record['SM'])]})
     dbam.close()
     print('# {0}'.format(sample_info))
-    n=0
     for sample in sample_info:
         for rg_info in sample_info[sample]:
+            rg_specs = pe_rg_specs.get(rg_info['ID'], pe_rg_specs[None])
             preproc_cmds.append(
                 "pe_var_{0}=\$(samtools view -r '{1}' '{2}' | tail -n+${general.stat_tail_n} | python \"\$CONDA_PREFIX\"/share/lumpy-sv-*/scripts/pairend_distro.py -r {3} -X 4 -N 10000 -o rg{0}.histo | tr '\t' ',') &&"
-                .format(n, rg_info['ID'], rg_info['bam_for_stats'], rg_info['read_len'])
+                .format(n, rg_info['ID'], rg_info['bam_for_stats'], rg_specs['read_len'])
             )
             lumpy_cmd_parts.append(
                 '-pe id:{0},'
@@ -89,9 +126,9 @@ for discordant_file in disc_bams:
                 'bam_file:{2},'
                 'histo_file:rg{3}.histo,'
                 '\$pe_var_{3},'
-                'read_length:{4},'
-                'min_non_overlap:${pe.min_non_overlap},discordant_z:${pe.discordant_z},back_distance:${pe.back_distance},weight:${pe.weight},min_mapping_threshold:${pe.min_mapping_threshold}'
-                .format(sample, rg_info['ID'], discordant_file, n, rg_info['read_len'])
+                'read_length:{read_len},'
+                'min_non_overlap:{min_non_overlap},discordant_z:{discordant_z},back_distance:{back_distance},weight:{weight},min_mapping_threshold:{min_mapping_threshold}'
+                .format(sample, rg_info['ID'], discordant_file, n, **rg_specs)
             )
             n += 1
 
@@ -99,13 +136,14 @@ for split_file in split_bams:
     sbam = pysam.AlignmentFile(split_file, 'rb')
     for rg_record in sbam.header['RG']:
         if (rg_record['ID'], rg_record['SM']) in known_rg_records:
+            sm_specs = sr_sm_specs.get(rg_record['SM'], sr_sm_specs[None])
             lumpy_cmd_parts.append(
                 '-sr id:{0},'
                 'bam_file:{1},'
-                'back_distance:${sr.sr_back_distance},weight:${sr.sr_weight},min_mapping_threshold:${sr.sr_min_mapping_threshold}'
-                .format(rg_record['SM'], split_file)
+                'back_distance:{back_distance},weight:{weight},min_mapping_threshold:{min_mapping_threshold}'
+                .format(rg_record['SM'], split_file, **sm_specs)
             )
-
+    sbam.close()
 print('\n'.join(preproc_cmds))
 print(' '.join(lumpy_cmd_parts))
         ]]></configfile>
@@ -167,8 +205,17 @@ print(' '.join(lumpy_cmd_parts))
     </outputs>
     <tests>
         <test>
-            <param name="input_bams" ftype="bam" value="sample.bam" />
-            <param name="general|stat_tail_n" value="1" />
+            <param name="input_bams" ftype="qname_sorted.bam" value="blasted.bam" />
+            <param name="discordant_alns" ftype="bam" value="discordants.bam" />
+            <section name="general">
+                <param name="e" value="false" />
+                <param name="stat_tail_n" value="1" />
+            </section>
+            <section name="pe">
+                <section name="default">
+                    <param name="weight" value="2" />
+                </section>
+            </section>
             <output name="result" ftype="vcf" file="sample.vcf" />
         </test>
     </tests>
