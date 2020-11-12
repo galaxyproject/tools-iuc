@@ -120,16 +120,16 @@ option_list <- list(
 
 opt_parser <- OptionParser(usage = "%prog [options] file",
                            option_list = option_list)
-opt <- parse_args(opt_parser)
+opt <- parse_opt(opt_parser)
 
 
 ## Read in Files
 
-if (!is.null(args$filesPath)) {
+if (!is.null(opt$filesPath)) {
     # Process the separate count files (adapted from DESeq2 wrapper)
     library("rjson")
     parser <- newJSONParser()
-    parser$addData(args$filesPath)
+    parser$addData(opt$filesPath)
     factor_list <- parser$getObject()
     factors <- sapply(factor_list, function(x) x[[1]])
     filenames_in <- unname(unlist(factor_list[[1]][[2]]))
@@ -160,15 +160,15 @@ if (!is.null(args$filesPath)) {
 
 } else {
  # Process the single count matrix
-    counts <- read.table(args$matrixPath, header = TRUE, sep = "\t",
+    counts <- read.table(opt$matrixPath, header = TRUE, sep = "\t",
                          stringsAsFactors = FALSE, check.names = FALSE)
     row.names(counts) <- counts[, 1]
     counts <- counts[, -1]
     counts_rows <- nrow(counts)
 
     # Process factors
-    if (is.null(args$factInput)) {
-            factor_data <- read.table(args$factFile, header = TRUE, sep = "\t",
+    if (is.null(opt$factInput)) {
+            factor_data <- read.table(opt$factFile, header = TRUE, sep = "\t",
                                      strip.white = TRUE)
             # check samples names match
             if (!any(factor_data[, 1] %in% colnames(counts))) {
@@ -179,7 +179,7 @@ if (!is.null(args$filesPath)) {
                                              factor_data[, 1]), ]
             factors <- factor_data[, -1, drop = FALSE]
     }  else {
-            factors <- unlist(strsplit(args$factInput, "|", fixed = TRUE))
+            factors <- unlist(strsplit(opt$factInput, "|", fixed = TRUE))
             factor_data <- list()
             for (fact in factors) {
                 new_fact <- unlist(strsplit(fact, split = "::"))
@@ -207,7 +207,7 @@ counts <- DGEList(counts)
 group <- factors[, 1, drop = FALSE]
 
 # Split up contrasts separated by comma into a vector then sanitise
-contrast_data <- unlist(strsplit(args$contrast_data, split = ","))
+contrast_data <- unlist(strsplit(opt$contrast_data, split = ","))
 contrast_data <- sanitise_equation(contrast_data)
 contrast_data <- gsub(" ", ".", contrast_data, fixed = TRUE)
 
@@ -233,24 +233,24 @@ contrasts <- makeContrasts(contrasts = contrast_data, levels = design)
 
 ## Add Gene Symbol information
 
-genes <- read.table(args$genes, sep = "\t", header = TRUE)
+genes <- read.table(opt$genes, sep = "\t", header = TRUE)
 
 
 ## Set Gene Set Testing Methods
 
-base_methods <- unlist(strsplit(args$base_methods, ","))
+base_methods <- unlist(strsplit(opt$base_methods, ","))
 
 
 ## Set Gene Sets
 
-if (args$msigdb != "None") {
-    msigdb <- unlist(strsplit(args$msigdb, ","))
+if (opt$msigdb != "None") {
+    msigdb <- unlist(strsplit(opt$msigdb, ","))
 } else {
     msigdb <- "none"
 }
 
-if (args$keggdb != "None") {
-    keggdb <- unlist(strsplit(args$keggdb, ","))
+if (opt$keggdb != "None") {
+    keggdb <- unlist(strsplit(opt$keggdb, ","))
     kegg_all <- c("Metabolism" = "keggmet",
                   "Signaling" = "keggsig",
                   "Disease" = "keggdis")
@@ -259,8 +259,8 @@ if (args$keggdb != "None") {
     kegg_exclude <- "all"
 }
 
-if (args$gsdb != "None") {
-    gsdb <- unlist(strsplit(args$gsdb, ","))
+if (opt$gsdb != "None") {
+    gsdb <- unlist(strsplit(opt$gsdb, ","))
 } else {
     gsdb <- "none"
 }
@@ -268,11 +268,11 @@ if (args$gsdb != "None") {
 ## Index gene sets
 
 gs_annots <- buildIdx(entrezIDs = rownames(counts),
-                      species = args$species,
+                      species = opt$species,
                       msigdb.gsets = msigdb,
                       gsdb.gsets = gsdb,
                       kegg.exclude = kegg_exclude,
-                      kegg.updated = args$keggupdated)
+                      kegg.updated = opt$keggupdated)
 
 
 ## Run egsea.cnt
@@ -284,18 +284,18 @@ gsa <- egsea.cnt(counts = counts,
                  gs_annots = gs_annots,
                  symbolsMap = genes,
                  baseGSEAs = base_methods,
-                 minSize = args$min_size,
-                 display.top = args$display_top,
-                 combineMethod = args$combine_method,
-                 sort.by = args$sort_method,
+                 minSize = opt$min_size,
+                 display.top = opt$display_top,
+                 combineMethod = opt$combine_method,
+                 sort.by = opt$sort_method,
                  report.dir = "./report_dir",
-                 fdr.cutoff = args$fdr_cutoff,
-                 num.threads = args$threads,
+                 fdr.cutoff = opt$fdr_cutoff,
+                 num.threads = opt$threads,
                  report = TRUE)
 
 
 ## Output RData file
 
-if (!is.null(args$rdaOpt)) {
+if (!is.null(opt$rdaOpt)) {
   save.image(file = "EGSEA_analysis.RData")
 }
