@@ -2,17 +2,10 @@ options(show.error.messages = F, error = function() {
   cat(geterrmessage(), file = stderr()); q("no", 1, F)
 })
 
-# we need that to not crash galaxy with an UTF8 error on German LC settings.
-loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
-
 suppressPackageStartupMessages({
   library(optparse)
   library(jsonlite)
-  
   library(EGSEA)
-  library(limma)
-  library(edgeR)
-  
 })
 
 option_list <- list(
@@ -23,53 +16,70 @@ option_list <- list(
               metavar = "character"),
   make_option(c("-u", "--universe"),
               type = "Character",
-              help = "character, a vector of Enterz IDs to be used as a background list.
-              If universe=NULL, the background list is created
-              from the AnnotationDbi package.",
+              help = "character, a vector of Enterz IDs to be used as a
+              background list. If universe=NULL, the background list is
+              created from the AnnotationDbi package.",
               metavar = "Character"),
   make_option(c("-l", "--logFC"),
               type = "double",
-              help = "double,  it can be a matrix or vector of the same length of entrezIDs. If logFC=NULL, 1 is used as a default value. Then, the regulation direction in heatmaps and pathway maps is not indicative of the gene regulation direction.",
+              help = "double,  it can be a matrix or vector of the same
+              length of entrezIDs. If logFC=NULL, 1 is used as a default
+              value. Then, the regulation direction in heatmaps and pathway
+              maps is not indicative of the gene regulation direction.",
               metavar = "double"),
   make_option(c("-t", "--titel"),
               type = "character",
-              help = "character, a short description of the experimental contrast.",
+              help = "character, a short description of the experimental
+              contrast.",
               metavar = "character"),
   make_option(c("-a", "--gs.annots"),
               type = "list",
-              help = "list, list of objects of class GSCollectionIndex. It is generated using one of these functions: buildIdx, buildMSigDBIdx, buildKEGGIdx, buildGeneSetDBIdx, and buildCustomIdx.",
+              help = "list, list of objects of class GSCollectionIndex.
+              It is generated using one of these functions:
+              buildIdx, buildMSigDBIdx, buildKEGGIdx, buildGeneSetDBIdx,
+              and buildCustomIdx.",
               metavar = "list"),
   make_option(c("-s", "--symbolsMap"),
               type = "dataframe",
-              help = "dataframe, an K x 2 matrix stores the gene symbol of each Entrez Gene ID. The first column must be the Entrez Gene IDs and the second column must be the Gene Symbols. It is used for the heatmap visualization.",
+              help = "dataframe, an K x 2 matrix stores the gene symbol
+              of each Entrez Gene ID. The first column must be the Entrez
+              Gene IDs and the second column must be the Gene Symbols.
+              It is used for the heatmap visualization.",
               metavar = "dataframe"),
   make_option(c("-m", "--minSize"),
               type = "integer",
-              help = "integer, the minimum size of a gene set to be included in the analysis. Default minSize= 2.",
+              help = "integer, the minimum size of a gene set to be included
+              in the analysis. Default minSize= 2.",
               metavar = "integer"),
   make_option(c("-d", "--display.top"),
               type = "integer",
-              help = "integer, the number of top gene sets to be displayed in the EGSEA report.",
+              help = "integer, the number of top gene sets to be displayed
+              in the EGSEA report.",
               metavar = "integer"),
   make_option(c("-x", "--sort.by"),
               type = "character",
-              help = "character, determines how to order the analysis results in the stats table.",
+              help = "character, determines how to order the analysis results
+              in the stats table.",
               metavar = "character"),
   make_option(c("-r", "--report.dir"),
               type = "character",
-              help = "character, directory into which the analysis results are written out.",
+              help = "character, directory into which the analysis results
+              are written out.",
               metavar = "character"),
   make_option(c("-k", "--kegg.dir"),
               type = "character",
-              help = "character, the directory of KEGG pathway data file (.xml) and image file (.png).",
+              help = "character, the directory of KEGG pathway data file (.xml)
+              and image file (.png).",
               metavar = "character"),
   make_option(c("-p", "--sum.plot.axis"),
               type = "character",
-              help = "character, the x-axis of the summary plot. All the values accepted by the sort.by parameter can be used.",
+              help = "character, the x-axis of the summary plot. All the values
+              accepted by the sort.by parameter can be used.",
               metavar = "character"),
   make_option(c("-c", "--sum.plot.cutoff"),
               type = "integer",
-              help = "numeric, cut-off threshold to filter the gene sets of the summary plots based on the values of the sum.plot.axis.",
+              help = "numeric, cut-off threshold to filter the gene sets of
+              the summary plots based on the values of the sum.plot.axis.",
               metavar = "integer"),
   make_option(c("-n", "--num.threads"),
               type = "integer",
@@ -77,15 +87,19 @@ option_list <- list(
               metavar = "integer"),
   make_option(c("-y", "--report"),
               type = "logical",
-              help = "logical, whether to generate the EGSEA interactive report. It takes longer time to run. Default is True.",
+              help = "logical, whether to generate the EGSEA interactive
+              report. It takes longer time to run. Default is True.",
               metavar = "logical"),
   make_option(c("-i", "--interactive"),
               type = "logical",
-              help = "logical, whether to generate interactive tables and plots. Note this might dramatically increase the size of the EGSEA report.",
+              help = "logical, whether to generate interactive tables and
+              plots. Note this might dramatically increase the size of the
+              EGSEA report.",
               metavar = "logical"),
   make_option(c("-v", "--verbose"),
               type = "logical",
-              help = "logical, whether to print out progress messages and warnings.",
+              help = "logical, whether to print out progress messages and
+              warnings.",
               metavar = "logical")
 )
 
@@ -95,7 +109,8 @@ opt <- parse_args(opt_parser)
 
 
 # Create a vector of Gene IDs to be tested for ORA
-geneIDs <- grep("^#", readLines(opt$geneIDs), invert = T, value = T)
+gene_ids <- read.table(opt$geneIDs, header = TRUE)[, c("Symbols")]
+                      #strip.white = TRUE)
 
 # Create a vector of Enterz IDs to be used as a background list
 universe <- c()
@@ -106,15 +121,63 @@ for (i in opt$universe) {
   universe <- unique(c(unlist(pathways_list), universe))
 }
 
-# 
+# Create a vector of logFC
+log_fc <- read.table(opt$logFC, header = TRUE)[, c("logFC")]
 
-logFC <- grep("^#", readLines(opt$logFC), invert = T, value = T)
+# Create a title
+title <- opt$title
 
+# Create a K x 2 matrix that stores the gene symbol of each Entrez Gene ID.
+symbols_map <- read.table(opt$symbolsMap, header = TRUE)[, c("FeatureID,
+                                                             Symbols")]
 
+# The minimum size of a gene set to be included in the analysis.
+min_size <- opt$minSize
 
+# The number of top gene sets to be displayed in the EGSEA report.
+display_top <- opt$display.top
 
-egsea.ora(geneIDs = geneIDs, universe = universe, logFC = NULL, title = NULL, gs.annots,
-          symbolsMap = NULL, minSize = 2, display.top = 20, sort.by = "p.adj",
-          report.dir = NULL, kegg.dir = NULL, sum.plot.axis = "p.adj",
-          sum.plot.cutoff = NULL, num.threads = 4, report = TRUE,
-          interactive = FALSE, verbose = FALSE)
+# Directory into which the analysis results are written out.
+report_dir <- "./report_dir"
+
+# Directory of KEGG pathway data file (.xml) and image file (.png).
+kegg_dir <- "./kegg_dir"
+
+# The x-axis of the summary plot. All the values accepted by the sort.by
+# parameter can be used.
+sum_plot_axis <- opt$sum.plot.axis
+
+# cut-off threshold to filter the gene sets of the summary plots based on the
+# values of the sum.plot.axis.
+sum_plot_cutoff <- opt$sum.plot.cutoff
+
+# Number of CPU cores to be used.
+num_threads <- opt$num.threads
+
+# Whether to generate the EGSEA interactive report.
+report <- TRUE
+
+# Whether to generate interactive tables and plots.
+interactive <- opt$interactive
+
+# Whether to print out progress messages and warnings.
+verbose <- FALSE
+
+# Run egsea.ora
+gsa <- egsea.ora(
+  geneIDs = gene_ids,
+  universe = universe,
+  logFC = log_fc,
+  title = title, gs.annots,
+  symbolsMap = symbols_map,
+  minSize = min_size,
+  display.top = display_top,
+  sort.by = opt$sort.by,
+  report.dir = report_dir,
+  kegg.dir = kegg_dir,
+  sum.plot.axis = sum_plot_axis,
+  sum.plot.cutoff = sum_plot_cutoff,
+  num.threads = num_threads,
+  report = report,
+  interactive = interactive,
+  verbose = verbose)
