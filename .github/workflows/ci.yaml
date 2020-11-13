@@ -1,4 +1,3 @@
-## TODO use SHA for caching
 name: Weekly global Tool Linting and Tests
 on:
   schedule:
@@ -24,17 +23,7 @@ jobs:
     strategy:
       matrix:
         python-version: [3.7]
-    outputs:
-      fork: ${{ steps.set_gxy_fork_branch.outputs.fork }}
-      branch: ${{ steps.set-gxy-fork-branch.outputs.branch }}
     steps:
-    - id: set_gxy_fork_branch
-      name: Set galaxy fork and branch
-      run: |
-        TMP="${{ github.event.client_payload.slash_command.args.named.fork }}"
-        echo "fork=${TMP:-$GALAXY_FORK}" >> $GITHUB_ENV
-        TMP="${{ github.event.client_payload.slash_command.args.named.branch }}"
-        echo "branch=${TMP:-$GALAXY_BRANCH}" >> $GITHUB_ENV
     - name: Add reaction
       if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
       uses: peter-evans/create-or-update-comment@v1
@@ -43,6 +32,14 @@ jobs:
         repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
         comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
         reaction-type: hooray
+    - name: Set galaxy fork and branch
+      run: |
+        TMP="${{ github.event.client_payload.slash_command.args.named.fork }}"
+        echo "fork=${TMP:-$GALAXY_FORK}" >> $GITHUB_ENV
+        TMP="${{ github.event.client_payload.slash_command.args.named.branch }}"
+        echo "branch=${TMP:-$GALAXY_BRANCH}" >> $GITHUB_ENV
+    - name: Determine latest galaxy commit
+      run: echo "GALAXY_HEAD_SHA=$(git ls-remote https://github.com/$fork/galaxy refs/heads/$branch | cut -f1)" >> $GITHUB_ENV
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
@@ -51,7 +48,7 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_${{ env.fork }}_${{ env.branch }}
+        key: pip_cache_${{ matrix.python-version }}_gxy_${{ env.GALAXY_HEAD_SHA }}
     # Install the `wheel` package so that when installing other packages which
     # are not available as wheels, pip will build a wheel for them, which can be cached.
     - name: Install wheel
@@ -100,6 +97,8 @@ jobs:
         echo "fork=${TMP:-$GALAXY_FORK}" >> $GITHUB_ENV
         TMP="${{ github.event.client_payload.slash_command.args.named.branch }}"
         echo "branch=${TMP:-$GALAXY_BRANCH}" >> $GITHUB_ENV
+    - name: Determine latest galaxy commit
+      run: echo "GALAXY_HEAD_SHA=$(git ls-remote https://github.com/$fork/galaxy refs/heads/$branch | cut -f1)" >> $GITHUB_ENV
     # checkout the repository
     # and use it as the current working directory
     - uses: actions/checkout@v2
@@ -113,7 +112,7 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_${{ env.fork }}_${{ env.branch }}
+        key: pip_cache_${{ matrix.python-version }}_gxy_${{ env.GALAXY_HEAD_SHA }}
     - name: Install Planemo
       run: pip install planemo
     - name: Planemo ci_find_tools
@@ -124,6 +123,7 @@ jobs:
       run: |
            mkdir json_output/
            while read -r TOOLS; do
+               docker system prune --all --force --volumes || true
                if grep -qf .tt_biocontainer_skip <(echo $TOOLS); then
                    PLANEMO_OPTIONS=""
                else
@@ -131,7 +131,6 @@ jobs:
                fi
                json=$(mktemp -u -p json_output --suff .json)
                PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source "https://github.com/$fork/galaxy" --galaxy_branch $branch --galaxy_python_version ${{ matrix.python-version }} --test_output_json $json $TOOLS || true
-               docker system prune --all --force --volumes || true
            done < tool.list
     - name: Merge tool_test_output.json files
       run: planemo merge_test_reports json_output/*.json tool_test_output.json
