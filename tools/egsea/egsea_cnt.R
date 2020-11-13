@@ -71,7 +71,7 @@ option_list <- list(
                 metavar = "character"),
     make_option(c("-y", "--species"),
                 type = "character",
-		help = "Species",
+                help = "Species",
                 metavar = "character"),
     make_option(c("-b", "--base_methods"),
                 type = "character",
