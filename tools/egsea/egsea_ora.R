@@ -109,8 +109,7 @@ opt <- parse_args(opt_parser)
 
 
 # Create a vector of Gene IDs to be tested for ORA
-gene_ids <- read.table(opt$geneIDs, header = TRUE)[, c("Symbols")]
-                      #strip.white = TRUE)
+gene_ids <- read.table(opt$geneIDs, header = TRUE)[1]
 
 # Create a vector of Enterz IDs to be used as a background list
 universe <- c()
@@ -127,10 +126,49 @@ log_fc <- read.table(opt$logFC, header = TRUE)[, c("logFC")]
 # Create a title
 title <- opt$title
 
+# Creating list of objects of class GSCollectionIndex. Setting the Gene sets.
+if (opt$msigdb != "None") {
+  msigdb <- unlist(strsplit(opt$msigdb, ","))
+} else {
+  msigdb <- "none"
+}
+
+if (opt$keggdb != "None") {
+  keggdb <- unlist(strsplit(opt$keggdb, ","))
+  kegg_all <- c("Metabolism" = "keggmet",
+                "Signaling" = "keggsig",
+                "Disease" = "keggdis")
+  kegg_exclude <- names(kegg_all[!(kegg_all %in% keggdb)])
+} else {
+  kegg_exclude <- "all"
+}
+
+if (opt$gsdb != "None") {
+  gsdb <- unlist(strsplit(opt$gsdb, ","))
+} else {
+  gsdb <- "none"
+}
+
+gs_annots <- buildIdx(entrezIDs = rownames(counts),
+                      species = opt$species,
+                      msigdb.gsets = msigdb,
+                      gsdb.gsets = gsdb,
+                      go.part = opt$go.part,
+                      kegg.updated = opt$keggupdated,
+                      kegg.exclude = kegg_exclude,
+                      min.size = opt$min.size)
+
+gs.annots = buildCustomIdx(geneIDs = gene_ids,
+                           gsets = gsets,
+                           #anno = NULL,
+                           label = label,
+                           name = name,
+                           species = "Human",
+                           min.size = min_size)
+
 # Create a K x 2 matrix that stores the gene symbol of each Entrez Gene ID.
 symbols_map <- read.table(opt$symbolsMap, header = TRUE)[, c("FeatureID,
                                                              Symbols")]
-
 # The minimum size of a gene set to be included in the analysis.
 min_size <- opt$minSize
 
@@ -168,7 +206,8 @@ gsa <- egsea.ora(
   geneIDs = gene_ids,
   universe = universe,
   logFC = log_fc,
-  title = title, gs.annots,
+  title = title,
+  gs.annots = gs_annots,
   symbolsMap = symbols_map,
   minSize = min_size,
   display.top = display_top,
