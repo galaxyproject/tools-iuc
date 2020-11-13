@@ -69,8 +69,9 @@ option_list <- list(
                 type = "character",
                 help = "Path to genes file",
                 metavar = "character"),
-    make_option(c("-h", "--species"),
+    make_option(c("-y", "--species"),
                 type = "character",
+		help = "Species",
                 metavar = "character"),
     make_option(c("-b", "--base_methods"),
                 type = "character",
@@ -88,22 +89,22 @@ option_list <- list(
                 type = "logical",
                 help = "Use updated KEGG",
                 metavar = "logical"),
-    make_option(c("-y", "--gsdb"),
+    make_option(c("-w", "--gsdb"),
                 type = "character",
                 help = "GeneSetDB Gene Sets",
                 metavar = "character"),
-    make_option(c("-t", "--display_top"),
+    make_option(c("-v", "--display_top"),
                 type = "integer",
                 help = "Number of top Gene Sets to display",
-                metavar = "character"),
+                metavar = "integer"),
     make_option(c("-l", "--min_size"),
                 type = "integer",
                 help = "Minimum Size of Gene Set",
-                metavar = "character"),
-    make_option(c("-z", "--fdr_cutoff"),
+                metavar = "integer"),
+    make_option(c("-d", "--fdr_cutoff"),
                 type = "double",
                 help = "FDR cutoff",
-                metavar = "character"),
+                metavar = "double"),
     make_option(c("-p", "--combine_method"),
                 type = "character",
                 help = "Method to use to combine the p-values",
@@ -216,14 +217,14 @@ row.names(factors) <- colnames(counts)
 factor_list <- sapply(names(factors), paste_list_name)
 
 formula <- "~0"
-for (i in seq_len(factor_list)) {
+for (i in seq_len(length(factor_list))) {
     formula <- paste(formula, factor_list[i], sep = "+")
 }
 formula <- formula(formula)
 
 design <- model.matrix(formula)
 
-for (i in seq_len(factor_list)) {
+for (i in seq_len(length(factor_list))) {
     colnames(design) <- gsub(factor_list[i], "", colnames(design), fixed = TRUE)
 }
 
@@ -281,7 +282,7 @@ gsa <- egsea.cnt(counts = counts,
                  group = group,
                  design = design,
                  contrasts = contrasts,
-                 gs_annots = gs_annots,
+                 gs.annots = gs_annots,
                  symbolsMap = genes,
                  baseGSEAs = base_methods,
                  minSize = opt$min_size,
