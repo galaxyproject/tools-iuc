@@ -158,7 +158,7 @@ gs_annots <- buildIdx(entrezIDs = rownames(counts),
                       kegg.exclude = kegg_exclude,
                       min.size = opt$min.size)
 
-gs.annots = buildCustomIdx(geneIDs = gene_ids,
+gs.annots <- buildCustomIdx(geneIDs = gene_ids,
                            gsets = gsets,
                            #anno = NULL,
                            label = label,
