@@ -120,7 +120,7 @@ option_list <- list(
 
 opt_parser <- OptionParser(usage = "%prog [options] file",
                            option_list = option_list)
-opt <- parse_opt(opt_parser)
+opt <- parse_args(opt_parser)
 
 
 ## Read in Files
