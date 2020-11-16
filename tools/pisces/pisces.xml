@@ -8,7 +8,7 @@
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">pisces</requirement>
     </requirements>    
-    <version_command><![CDATA[dotnet Pisces.dll -v 2>&1 | grep 'Pisces' | cut -f 2 -d ' ' ]]></version_command>
+    <version_command><![CDATA[dotnet Pisces.dll -v 2>&1 | grep 'Pisces' | cut -f 2 -d ' ' ]]></version_command> <!-- TODO Pisces 5.2.10.49 -> 5.2.10.49 -->
     <command detect_errors="exit_code"><![CDATA[
 ## process genome to create GenomeSize.xml
 mkdir genome &&
@@ -18,6 +18,7 @@ dotnet CreateGenomeSizeFile.dll
 -s '$genome_description' &&
 
 ## process samples
+## TODO how to name the samples?
 mkdir data &&
 #for $i, $current in enumerate($b)
     ln -s '${current}' 'data/sample_${i}.bam' &&
@@ -31,24 +32,53 @@ dotnet Pisces.dll
 -b 'data'
 
 ##common parameters
---callmnvs $cp.callmnvs
---maxgapbetweenmnv $cp.maxgapbetweenmnv
---outputsbfiles $cp.outputsbfiles
---collapse $cp.collapse
---collapsefreqthreshold $cp.collapsefreqthreshold
---collapsefreqratiothreshold $cp.collapsefreqratiothreshold
---trimmnvpriors $cp.trimmnvpriors
+-i '$i'
+#if $cp.mode_cond.mode_sel == 'forcedalleles'
+    --forcedalleles '$cp.mode_cond.forcedalleles'
+#else if $cp.mode_cond.mode_sel == 'crushvcf'
+    $cp.mode_cond.crushvcf
+#end if
+#if $cp.callmnvs_cond.callmnvs_sel == 'yes'
+    --callmnvs true
+    --maxmnvlength $cp.callmnvs_cond.maxmnvlength
+    --maxgapbetweenmnv $cp.callmnvs_cond.maxgapbetweenmnv
+#end if
+#if $cp.collapse_cond.collapse_sel == 'yes'
+    --collapse true
+    --priorspath '$cp.collapse_cond.priorspath' ## TODO filetype required?
+    $cp.collapse_cond.trimmnvpriors
+    --collapsefreqthreshold $cp.collapse_cond.collapsefreqthreshold
+    --collapsefreqratiothreshold $cp.collapse_cond.collapsefreqratiothreshold
+#end if
 --coveragemethod $cp.coveragemethod
---usestitchedxd $cp.usestitchedxd
+$cp.usestitchedxd
 --trackedanchorsize $cp.trackedanchorsize
---chrfilter $cp.chrfilter
---insidesubprocess ## todo what its good for?
---threadbychr true
---baselogname 'log' ## todo 
+#if $cp.chrfilter
+    --chrfilter '$cp.chrfilter'
+#end if
+
+--insidesubprocess true ## TODO required?
 --multiprocess true
---debug true ## todo for logging?
+--baselogname 'log' ## TODO fetch logs
+--debug true ## TODO fetch logs
+--threadbychr true
 --outfolder 'results'
 --maxthreads \${GALAXY_SLOTS:-4}
+         
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ## BAM filtering parameters
 --minbq $bfp.minbq
@@ -95,35 +125,78 @@ $bfp.pp
 --reportrccounts $vcfp.reportrccounts
 --reporttscounts $vcfp.reporttscounts
 --reportsuspiciouscoveragefraction $vcfp.reportsuspiciouscoveragefraction
+
+## Output options
+$op.outputsbfiles
+
     ]]></command>
     <inputs>
         <!-- CreateGenomeSizeFile.dll -->
-        <param name="genome" type="data" format="fasta" label="Select file with genome" help="(CreateGenomeSizeFile.dll -g)"/>
-        <!-- TODO seem to accept specific format only, e.g. "Human (hg19) " works; "Human (hg19)" not -->
-        <param name="genome_description" type="data" format="fasta" label="Select genome description" help="Species name and build, e.g. 'Rattus norvegicus (UCSC rn4)' (CreateGenomeSizeFile.dll -s)"/>
+        <param name="genome" type="data" format="fasta" label="Select file with genome" help="(CreateGenomeSizeFile.dll -g)"/> <!-- TODO use galaxy references here? -->
+        <param name="genome_description" type="data" format="fasta" label="Select genome description" help="Species name and build, e.g. 'Rattus norvegicus (UCSC rn4)' (CreateGenomeSizeFile.dll -s)"/> <!-- TODO seem to accept specific format only, e.g. "Human (hg19) " works; "Human (hg19)" not -->
 
         <!-- Pisces.dll -->
         <param argument="-b" type="data" format="bam" multiple="true" label="Select samples"/>
 
-        <section name="cp" title="Common parameters">
-            <!-- -i -->
-            <!-- -forcedalleles -->
-            <param argument="--callmnvs" type="boolean" truevalue="--callmnvs" falsevalue="" checked="true" label="Call MNVs (a.k.a. phased SNPs)?" help=""/>
-            <!-- -maxmnvlength -->
-            <param argument="--maxgapbetweenmnv" type="integer" min="" max="" value="" label="Set max allowed gap between phased SNPs that can be called"/>                               
-            <param argument="--outputsbfiles" type="boolean" truevalue="--outputsbfiles" falsevalue="" label="Output strand bias files?"/> <!-- TODO additional output files? -->
-            <param argument="--collapse" type="boolean" truevalue="--collapse" falsevalue="" label="Collapse variants together?"/>
-            <param argument="--collapsefreqthreshold" type="float" min="" max="" value="" label="Set minimum frequency required for target variants"/>
-            <param argument="--collapsefreqratiothreshold" type="float" min="" max="" value="0.5" label="Set minimum ratio required of target variant frequency to collapsible variant frequency."/>
-            <!-- - -priorspath -->
-            <param argument="--trimmnvpriors" type="boolean" truevalue="--trimmnvpriors" falsevalue="" label="Trim preceeding base from MNVs in priors file?" help="COSMIC convention is to include preceeding base for MNV."/>
-            <param argument="--coveragemethod" type="select" multiple="false" label="Select coverage method">
+        <section name="cp" title="Common parameters">            
+            <param argument="-i" type="data" format="tabular" label="Select interval file"/> <!-- TODO not sure how this works format, content -->
+            <conditional name="mode_cond">
+                <param name="mode_sel" type="select" label="Select mode" help="">
+                    <option value="forcedalleles" selected="true">Forced alleles (--forcedalleles)</option>
+                    <option value="crushvcf">Crushed VCF (--crushvcf)</option>
+                </param>
+                <when value="forcedalleles">
+                    <param argument="--forcedalleles" type="data" format="vcf" label="Select file to force pisces to output specific supplied variants"/>
+                </when>
+                <when value="crushvcf">
+                    <param argument="--crushvcf" type="boolean" truevalue="--crushvcf" falsevalue="" label="Create crushed VCF?" help="Normally gVCFs use the 'somatic' format, which has one line per allele. A crushed VCF is more standard in the germline world, with one line per genomic loci. Note: typically set to true in conjunction with the '-Ploidy diploid' option."/> <!-- TODO implement conditional with ploidy or is NOTE enough? -->
+                </when>
+            </conditional>            
+            <conditional name="callmnvs_cond"> <!-- TODO conditional here required? -->
+                <param name="callmnvs_sel" type="select" label="Call multiple nucleotide variants?" help="MNVs a.k.a. phased SNPs (--callmnvs)">
+                    <option value="yes" selected="true">Yes</option>
+                    <option value="no">No</option>
+                </param>
+                <when value="no"/>
+                <when value="yes">
+                    <param argument="--maxmnvlength" type="integer" min="1" max="1000" value="3" label="Set maximum length for MNVs"/>
+                    <param argument="--maxgapbetweenmnv" type="integer" min="0" value="1" label="Set maximum length of reference span contained in MNV"/>
+                </when>
+            </conditional>         
+            <conditional name="collapse_cond">
+                <param name="collapse_sel" type="select" label="Collapse variants together?">
+                    <option value="no" selected="true">No</option>
+                    <option value="yes">Yes (--collapse)</option>
+                </param> 
+                <when value="no"/>
+                <when value="yes">
+                    <param argument="--priorspath" type="data" format="vcf" label="Select file containing known variants" help="To preferentially reconcile variants"/>
+                    <param argument="" type="boolean" truevalue="" falsevalue="" checked="true" label="" help=""/>
+                    <param argument="--trimmnvpriors" type="boolean" truevalue="--trimmnvpriors true" falsevalue="" label="Trim preceeding base from MNVs in priors file?" help="COSMIC convention is to include preceeding base for MNV, which is NOT the Pisces convention. So, if you are using -collapse and -priorsFile and your file defies Pisces MNV convention you need this."/>
+                    <param argument="--collapsefreqthreshold" type="float" value="" optional="true" label="Set minimum frequency required for target variants"/> <!-- TODO default unknown, not sure if this belongs to this conditional -->
+                    <param argument="--collapsefreqratiothreshold" type="float" value="0.5"  optional="true" label="Set minimum ratio required of target variant frequency to collapsible variant frequency."/> <!-- TODO default unknown, not sure if this belongs to this conditional -->
+                </when>
+            </conditional>
+            <param argument="--coveragemethod" type="select" label="Select coverage method">
                 <option value="approximate" selected="true">Approximate</option>
                 <option value="exact">Exact</option>
-            </param>
-            <param argument="--usestitchedxd" type="boolean" truevalue="--usestitchedxd" falsevalue="" label="Use stitched xd?" help="Set to true to make use of the consensus read-direction information (the XD tag) from stitched reads. This is on by default when using Stitcher output bam, but must be deliberately set for Gemini output."/>
-            <param argument="--trackedanchorsize" type="float" min="" max="" value="5" label="Set tracked anchor size" help="Set maximum size of anchor to granularly track, when collecting reference coverage at insertion sites. If zero, all coverage counts equally. Higher values will yield more precise spanning coverage results but require more memory and compromise speed."/>
-            <param argument="--chrfilter" type="text" value="" optional="true" label="Set chromosome to process." help="If provided, other chromosomes are filtered out of output."/> <!-- todo needed? -->
+            </param> 
+
+            <param argument="--usestitchedxd" type="boolean" truevalue="--usestitchedxd true" falsevalue="" label="Use stitched XD (stitched direction tag)?" help="Activate if you are using Gemini and it is doing stitching."/>
+            <param argument="--trackedanchorsize" type="float" value="5" label="Set tracked anchor size" help="Set maximum size of anchor to granularly track, when collecting reference coverage at insertion sites. If zero, all coverage counts equally. Higher values will yield more precise spanning coverage results but require more memory and compromise speed."/>
+            <param argument="--chrfilter" type="text" value="" optional="true" label="Set chromosome to process." help="If provided, other chromosomes are filtered out of output."/>
+
+        
+
+
+ 
+            
+            
+
+
+
+            
+
         </section>
         <section name="bfp" title="BAM filtering parameters">
             <param argument="--minbq" type="integer" min="" max="" value="" label="Set minimum basecall quality to use a base of the read"/>
@@ -178,8 +251,7 @@ $bfp.pp
 
         <section name="vcfp" title="VCF writer parameters">
             <param argument="--gvcf" type="boolean" truevalue="--gvcf" falsevalue="" checked="true" label="Create gVCF outputs?" help="Include reference calls."/>
-            <!-- TODO implement conditional with ploidy? -->
-            <param argument="--crushvcf" type="boolean" truevalue="--crushvcf" falsevalue="" label="Create crushed VCF?" help="Normally gVcfs are output in the 'somatic' format, which has one line per allele. A crushed vcf is more standard in the germline world, with one line per genomic loci. Note: typically set to true in conjunction with the '-Ploidy diploid' option."/>
+
             <param argument="--reportnocalls" type="boolean" truevalue="--reportnocalls" falsevalue="" label="Report fraction no calls?"/>
             <param argument="--reportrccounts" type="boolean" truevalue="--reportrccounts" falsevalue="" label="Report collapsed read count?" help="When BAM files contain X1 and X2 tags, output read counts for duplex-stitched, duplex-nonstitched, simplex-stitched, and simplex-nonstitched."/>
             <!-- TODO check parameter description -->
@@ -187,6 +259,12 @@ $bfp.pp
             <param argument="--reportsuspiciouscoveragefraction" type="boolean" truevalue="--reportsuspiciouscoveragefraction" falsevalue="" label="Report fraction of total coverage?" help="That is 'suspicious' i.e. unanchored and bearing some resemblance to an insertion at that site. For spanning variants, this is start + end coverage, so up to double the reported coverage."/>
         </section>
         <section name="op" title="Output parameters">
+
+
+            <param argument="--outputsbfiles" type="boolean" truevalue="--outputsbfiles true" falsevalue="" label="Output strand bias files?"/> <!-- TODO additional output files need to be fetched -->
+
+
+
             <param argument="log" type="boolean" label="Create log file?"/>
         </section>  
     </inputs>
@@ -291,6 +369,8 @@ Pisces requires one or more BAM files as input. These BAM files are assumed to b
 Pisces does not perform denovo variant calling. Therefore, it also requires a reference genome for each BAM file.
 
 Optionally, the user can specify genomic regions of interest for which Pisces should produce allele calls. This is done by providing Picard-style interval files. This format lists intervals defined as a chromosome, and start and end positions, inclusive. Positions in interval files are expected to use 1-based coordinate system. An example of a line in an interval file is as follows, where the entries between brackets describe typical hidden characters.
+
+TODO list optional input files ... there are a lot of optional PATH variables
 
 ::
 
