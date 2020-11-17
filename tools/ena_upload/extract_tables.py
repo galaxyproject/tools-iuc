@@ -1,8 +1,8 @@
 import argparse
 import json
 import pathlib
-
 from datetime import datetime
+
 FILE_FORMAT = 'fastq'
 
 parser = argparse.ArgumentParser()
