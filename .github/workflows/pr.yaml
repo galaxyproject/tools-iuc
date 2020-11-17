@@ -3,6 +3,7 @@ on: [push, pull_request]
 env:
   GALAXY_REPO: https://github.com/galaxyproject/galaxy
   GALAXY_RELEASE: release_20.09
+  MAX_CHUNKS: 4
 jobs:
   # the setup job does two things:
   # 1. cache the pip cache and .planemo
@@ -14,6 +15,9 @@ jobs:
   setup:
     name: Setup cache and determine changed repositories
     runs-on: ubuntu-latest
+    outputs:
+      nchunks: ${{ steps.get-chunks.outputs.nchunks }}
+      chunk_list: ${{ steps.get-chunks.outputs.chunk_list }}
     strategy:
       matrix:
         python-version: [3.7]
@@ -90,6 +94,16 @@ jobs:
       with:
         name: Workflow artifacts
         path: changed_repositories.list
+    - name: Get number of changed tools and compute number of chunks
+      id: get-chunks
+      run: |
+        planemo ci_find_tools --output changed_tools.list $(cat changed_repositories.list)
+        nchunks=$(wc -l < changed_tools.list)
+        if [ "$nchunks" -gt "$MAX_CHUNKS" ]; then
+            nchunks=$MAX_CHUNKS
+        fi
+        echo "::set-output name=nchunks::$nchunks"
+        echo "::set-output name=chunk_list::'['$(seq -s ", " 0 $(($nchunks - 1)))']'"
 
   # Planemo lint the changed repositories
   lint:
@@ -233,7 +247,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        chunk: [0, 1, 2, 3]
+        chunk: ${{ fromJson(needs.setup.outputs.chunk_list) }}
         python-version: [3.7]
     services:
       postgres:
@@ -278,11 +292,11 @@ jobs:
         touch changed_repositories_chunk.list changed_tools_chunk.list
         if [ -s ../workflow_artifacts/changed_repositories.list ]; then
             if [ $(wc -l < ../workflow_artifacts/changed_repositories.list) -eq 1 ]; then
-                planemo ci_find_tools --chunk_count 4 --chunk ${{ matrix.chunk }} \
+                planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} \
                                --output changed_tools_chunk.list \
                                $(cat ../workflow_artifacts/changed_repositories.list)
             else
-                planemo ci_find_repos --chunk_count 4 --chunk ${{ matrix.chunk }} \
+                planemo ci_find_repos --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} \
                                --output changed_repositories_chunk.list \
                                $(cat ../workflow_artifacts/changed_repositories.list)
             fi
