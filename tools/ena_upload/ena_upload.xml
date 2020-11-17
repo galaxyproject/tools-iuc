@@ -1,43 +1,203 @@
-<tool id="ena_upload" name="ENA Upload tool" version="0.1.0" python_template_version="3.5">
-    <token name="@VERSION@">0.1</token>   
-    <requirements>
-      <requirement type="package" version="@VERSION@">ena-upload-cli</requirement>
-    </requirements>
-    <command detect_errors="exit_code"><![CDATA[
-        ena-upload-cli
-        --action $action
-        --center $center
-        --webin_id $webin_id
+<tool id="ena_upload" name="ENA Upload tool" version="0.2" python_template_version="3.5">
+  <macros>
+    <token name="@VERSION@">0.2.2</token>
+    <import>samples_macros.xml</import>
+</macros>
+  <requirements>
+    <requirement type="package" version="@VERSION@">ena-upload-cli</requirement>
+    <requirement type="package" version="1.2.0">xlrd</requirement>
+  </requirements>
+  <command detect_errors="exit_code"><![CDATA[
+cwd=\$(pwd);
+#set $use_secret = "False"
+#set $webin_id = $__user__.extra_preferences.get('ena_account|webin_id', "").strip()
+#set $password = $__user__.extra_preferences.get('ena_account|password', "").strip()
+echo $webin_id;
+#if $webin_id == "":
+    ## No user defined credentials, try with global webin_id + secret file path
+    #set webin_id = os.environ.get('WEBIN_ID', "").strip()
+    #set webin_secret = os.environ.get('WEBIN_SECRET', "").strip()
+    #set use_secret = "True"
+    #if webin_id == "":
+        echo "No ENA credentials defined. Set your credentials via: User -> Preferences -> Manage Information";
+        exit 1;
+    #end if
+#end if
+
+echo "Submissions will be made with user: $webin_id. You can set your credentials via: User -> Preferences -> Manage Information";
+
+#set working_dir = os.getcwd()
+#set $dry_run_option = "False"
+#set viral_submission = "False"
+#if $action_options.input_format_conditional.input_format == "build_tables":
+  python $__tool_directory__/extract_tables.py --action $action_options.action --out_dir \$cwd --studies $studies_json;
+  #set $studies_table_path = "$cwd/studies.tsv"
+  #set $samples_table_path =   "$cwd/samples.tsv"
+  #set $experiments_table_path = "$cwd/experiments.tsv"
+  #set $runs_table_path =  "$cwd/runs.tsv"
+#end if
+
+#if $action_options.input_format_conditional.input_format == "excel_tables":
+    python $__tool_directory__/process_xlsx.py 
+    #if $action_options.input_format_conditional.viral_submission == "true":
+        --vir 
+    #end if
+    --action $action_options.action --form $action_options.input_format_conditional.xlsx_file --out_dir . ;
+    #set $studies_table_path = "$cwd/studies.tsv"
+    #set $samples_table_path =   "$cwd/samples.tsv"
+    #set $experiments_table_path = "$cwd/experiments.tsv"
+    #set $runs_table_path =  "$cwd/runs.tsv"
+    #if $action_options.input_format_conditional.dry_run == "true":
+      #set $dry_run_option = "True"
+    #end if
+#end if
+
+#if $action_options.input_format_conditional.input_format != "user_generated_tables":
+    cp $studies_table_path $studies_table_out;
+    cp $samples_table_path $samples_table_out;
+    cp $experiments_table_path $experiments_table_out;
+    cp $runs_table_path $runs_table_out;
+    #if $action_options.input_format_conditional.dry_run == "true":
+      #set $dry_run_option = "True"
+    #end if
+#end if
+
+
+## create the list of files to upload and make the symlinks 
+#set $files_to_upload = list()
+#if $action_options.input_format_conditional.input_format == "build_tables":
+    #for $study in $action_options.input_format_conditional.conditional_viral_metadata.rep_study:
+      #for $sample in $study.rep_sample:
+        #for $experiment in $sample.rep_experiment:
+          #for $run in $experiment.rep_runs:
+            #for $file in $run.upload_files:
+                ln -s $file $file.element_identifier;
+                $files_to_upload.append(str($file.element_identifier))
+            #end for
+          #end for
+        #end for
+      #end for
+    #end for
+#else:
+    #for $file in $action_options.input_format_conditional.data:
+        ln -s $file $file.element_identifier;
+        $files_to_upload.append(str($file.element_identifier))
+    #end for
+#end if
+
+
+#if $dry_run_option == "False":
+ena-upload-cli
+    --tool 'ena-upload-cli v@VERSION@ @ Galaxy'
+    --action '$action_options.action'
+    --center '$action_options.center'
+    --webin_id '$webin_id'
+    #if $use_secret == "False":
         --password $password
-        if $action == 'add':
-            --data $data
-            --experiment $experiment
-            --study $study
-            --run $run
-            --sample $sample
-        > $output
+    #else:
+        --secret $webin_secret
+    #end if
+    --data
+    #for $dataset in $files_to_upload:
+      $dataset
+    #end for
+#if $action_options.input_format_conditional.input_format == "user_generated_tables":
+    --experiment $action_options.input_format_conditional.experiments_users_table
+    --study $action_options.input_format_conditional.studies_users_table
+    --run $action_options.input_format_conditional.runs_users_table
+    --sample $action_options.input_format_conditional.samples_users_table
+    #if $action_options.input_format_conditional.viral_submission == "true":
+        --vir
+    #end if
+#else:
+    --experiment $experiments_table_path
+    --study $studies_table_path
+    --run $runs_table_path
+    --sample $samples_table_path
+    #if $action_options.input_format_conditional.input_format == "build_tables":
+        #if $action_options.input_format_conditional.conditional_viral_metadata.viral_sample == "true":
+          --vir
+        #end if
+    #else:
+        #if $action_options.input_format_conditional.viral_submission == "true":
+          --vir
+        #end if
+    #end if
+#end if
+#if $action_options.submit_dev == "true":
+    -d
+#end if
+  > $output
+#end if
+
     ]]></command>
+    <configfiles>
+    <configfile name="studies_json">
+#import json
+#if $action_options.input_format_conditional.input_format == "build_tables":
+  #set $files_to_upload = list()
+  #set $studies = list()
+  #for $study in $action_options.input_format_conditional.conditional_viral_metadata.rep_study:
+    #set samples = list()
+    #for $sample in $study.rep_sample:
+      #set experiments = list()
+      #for $experiment in $sample.rep_experiment:
+        #set runs = list()
+        #for $run in $experiment.rep_runs:
+            #set run_files = list()
+            #for $file in $run.upload_files:
+              $run_files.append(str($file.element_identifier))
+            #end for
+            $runs.append($run_files)
+        #end for
+        $experiments.append({'title':str($experiment.experiment_title),'experiment_design':str($experiment.experiment_design),'library_strategy':str($experiment.library_strategy),'library_source':str($experiment.library_source),'library_selection':str($experiment.library_selection),'library_layout':str($experiment.library_layout),'insert_size':str($experiment.insert_size),'library_construction_protocol':str($experiment.library_construction_protocol),'platform':str($experiment.platform),'instrument_model':str($experiment.instrument_model),'runs':$runs})
+      #end for
+      #if $action_options.input_format_conditional.conditional_viral_metadata.viral_sample == "true":
+        $samples.append({'title':str($sample.sample_title),'description':str($sample.sample_description),'tax_name':str($sample.scientific_name),'tax_id':str($sample.tax_id),'collection_date':str($sample.collection_date),'geo_location':str($sample.geo_location_country),'host_common_name':str($sample.host_common_name),'host_subject_id':str($sample.host_subject_id),'host_health_state':str($sample.host_health_state),'host_sex':str($sample.host_sex),'host_scientific_name':str($sample.host_scientific_name),'collector_name':str($sample.collector_name),'collecting_institution':str($sample.collecting_institution),'isolate':str($sample.isolate),'experiments':$experiments})
+      #else:
+        $samples.append({'title':str($sample.sample_title),'description':str($sample.sample_description),'tax_name':str($sample.scientific_name),'tax_id':str($sample.tax_id),'experiments':$experiments})
+      #end if
+    #end for
+    $studies.append({'title':str($study.study_title),'type':str($study.study_type),'abstract':str($study.study_abstract),'pubmed_id':str($study.study_pubmed_id),'samples':$samples})
+  #end for
+  #echo $json.dumps($studies)
+#end if
+        </configfile>
+    </configfiles>
 <inputs>
        <conditional name="action_options">
-            <param argument="--action" type="select" label="Action to execute">
+            <param name="action" type="select" label="Action to execute">
                 <option value="add" selected="True">Add new data</option>
                 <option value="modify">Modify metadata</option>
             </param>
             <when value="add">
-                <param argument="--data" type="data" format="fastq.gz" multiple="true" label="Datasets to upload" help="fastq.gz data to upload"/>
-                <param argument="--experiment" type="data" format="tabular" multiple="false" label="Metadata" help="Experiment metadata file"/>
-                <param argument="--study" type="data" format="tabular" multiple="false" label="Metadata" help="Study metadata file"/>
-                <param argument="--run" type="data" format="tabular" multiple="false" label="Datasets to upload" help="Run metadata file"/>
-                <param argument="--sample" type="data" format="tabular" multiple="false" label="Datasets to upload" help="Sample metadata file"/>
+                <param name="submit_dev" type="boolean" label="Submit to test ENA server?" help="By selecting yes the reads will be submitted " />
+                <expand macro="table_inputs_macro" />
+            </when>
+            <when value="modify">
+                <expand macro="table_inputs_macro" />
             </when>
         </conditional>
-        <param argument="--center" type="text" format="text" optional="False" label="Affiliation center"/>
-        <param argument="--webin_id" type="text" format="text" optional="False" label="Web access ID"/>
     </inputs>
     <outputs>
         <data name="output" format="data" label="${tool.name} on ${on_string}: Upload summary"/>
+        <data name="studies_table_out" format="tabular" label="Studies table">
+            <filter> action_options['input_format_conditional']['input_format'] == "build_tables" or action_options['input_format_conditional']['input_format'] == "excel_tables"</filter>
+        </data>
+        <data name="samples_table_out" format="tabular" label="Samples table">
+            <filter> action_options['input_format_conditional']['input_format'] == "build_tables" or action_options['input_format_conditional']['input_format'] == "excel_tables"</filter>
+        </data>
+        <data name="experiments_table_out" format="tabular" label="Experiments table">
+            <filter> action_options['input_format_conditional']['input_format'] == "build_tables" or action_options['input_format_conditional']['input_format'] == "excel_tables"</filter>
+        </data>
+        <data name="runs_table_out" format="tabular" label="Runs table">
+            <filter> action_options['input_format_conditional']['input_format'] == "build_tables" or action_options['input_format_conditional']['input_format'] == "excel_tables"</filter>
+        </data>
     </outputs>
     <help><![CDATA[
-        TODO: Fill in help.
+        This is a wrapper for the ENA upload tool in https://github.com/usegalaxy-eu/ena-upload-cli
+        The input metadata can be submitted following the tabular format of the templates in https://github.com/usegalaxy-eu/ena-upload-cli/tree/master/example_tables
+        It is also possible to submit an excel file by following the template in https://drive.google.com/file/d/1ncC22--tW2v-EI-te_r86sAZujIPAjlX/view?usp=sharing
+        For viral submissions a larger set of metadata is required, you can find the template in https://drive.google.com/file/d/1U4VdcczsIecIXxseV8svE1zO_CBUadog/view?usp=sharing 
     ]]></help>
 </tool>
