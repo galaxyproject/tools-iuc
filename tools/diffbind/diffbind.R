@@ -1,5 +1,7 @@
 ## Setup R error handling to go to stderr
-options(show.error.messages = F, error = function() { cat(geterrmessage(), file = stderr()); q("no", 1, F) })
+options(show.error.messages = F, error = function() {
+    cat(geterrmessage(), file = stderr()); q("no", 1, F)
+})
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
@@ -92,40 +94,40 @@ if (!is.null(opt$plots)) {
 }
 
 # Output differential binding sites
-resSorted <- diff_bind[order(diff_bind$FDR), ]
+res_sorted <- diff_bind[order(diff_bind$FDR), ]
 # Convert from GRanges (1-based) to 0-based format (adapted from https://www.biostars.org/p/89341/)
 if (opt$format == "bed") {
-    resSorted  <- data.frame(Chrom = seqnames(resSorted),
-        Start = start(resSorted) - 1,
-        End = end(resSorted),
-        Name = rep("DiffBind", length(resSorted)),
-        Score = rep("0", length(resSorted)),
-        Strand = gsub("\\*", ".", strand(resSorted)))
+    res_sorted  <- data.frame(Chrom = seqnames(res_sorted),
+        Start = start(res_sorted) - 1,
+        End = end(res_sorted),
+        Name = rep("DiffBind", length(res_sorted)),
+        Score = rep("0", length(res_sorted)),
+        Strand = gsub("\\*", ".", strand(res_sorted)))
 } else if (opt$format == "interval") {
      # Output as interval
-    df <- as.data.frame(resSorted)
+    df <- as.data.frame(res_sorted)
     extrainfo <- NULL
     for (i in seq_len(nrow(df))) {
         extrainfo[i] <- paste0(c(df$width[i], df[i, 6:ncol(df)]), collapse = "|")
     }
-    resSorted  <- data.frame(Chrom = seqnames(resSorted),
-        Start = start(resSorted) - 1,
-        End = end(resSorted),
-        Name = rep("DiffBind", length(resSorted)),
-        Score = rep("0", length(resSorted)),
-        Strand = gsub("\\*", ".", strand(resSorted)),
+    res_sorted  <- data.frame(Chrom = seqnames(res_sorted),
+        Start = start(res_sorted) - 1,
+        End = end(res_sorted),
+        Name = rep("DiffBind", length(res_sorted)),
+        Score = rep("0", length(res_sorted)),
+        Strand = gsub("\\*", ".", strand(res_sorted)),
         Comment = extrainfo)
 } else {
     # Output as 0-based tabular
-    resSorted <- data.frame(Chrom = seqnames(resSorted),
-        Start = start(resSorted) - 1,
-        End = end(resSorted),
-        Name = rep("DiffBind", length(resSorted)),
-        Score = rep("0", length(resSorted)),
-        Strand = gsub("\\*", ".", strand(resSorted)),
-        mcols(resSorted))
+    res_sorted <- data.frame(Chrom = seqnames(res_sorted),
+        Start = start(res_sorted) - 1,
+        End = end(res_sorted),
+        Name = rep("DiffBind", length(res_sorted)),
+        Score = rep("0", length(res_sorted)),
+        Strand = gsub("\\*", ".", strand(res_sorted)),
+        mcols(res_sorted))
 }
-write.table(resSorted, file = opt$outfile, sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(res_sorted, file = opt$outfile, sep = "\t", quote = FALSE, row.names = FALSE)
 
 # Output binding affinity scores
 if (!is.null(opt$bmatrix)) {
