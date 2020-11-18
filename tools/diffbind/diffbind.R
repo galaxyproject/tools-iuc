@@ -1,5 +1,5 @@
 ## Setup R error handling to go to stderr
-options( show.error.messages=F, error = function () { cat( geterrmessage(), file=stderr() ); q( "no", 1, F ) } )
+options(show.error.messages=F, error = function () { cat(geterrmessage(), file=stderr()); q("no", 1, F) })
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
 Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
@@ -14,7 +14,7 @@ args <- commandArgs(trailingOnly = TRUE)
 
 #get options, using the spec as defined by the enclosed list.
 #we read the options from the default: commandArgs(TRUE).
-spec = matrix(c(
+spec <- matrix(c(
     'infile' , 'i', 1, "character",
     'outfile' , 'o', 1, "character",
     'scorecol', 'n', 1, "integer",
@@ -30,11 +30,11 @@ spec = matrix(c(
     'help' , 'h', 0, "logical"
 ), byrow=TRUE, ncol=4);
 
-opt = getopt(spec);
+opt <- getopt(spec);
 
 # if help was asked for print a friendly message
 # and exit with a non-zero error code
-if ( !is.null(opt$help) ) {
+if (!is.null(opt$help)) {
     cat(getopt(spec, usage=TRUE));
     q(status=1);
 }
@@ -48,10 +48,10 @@ bams <- filenamesIn[grepl("bamreads.bam", filenamesIn)]
 ctrls <- filenamesIn[grepl("bamcontrol.bam", filenamesIn)]
 
 # get the group and sample id from the peaks filenames
-groups <- sapply(strsplit(peaks,"-"), `[`, 1)
-samples <- sapply(strsplit(peaks,"-"), `[`, 2)
+groups <- sapply(strsplit(peaks, "-"), `[`, 1)
+samples <- sapply(strsplit(peaks, "-"), `[`, 2)
 
-if ( length(ctrls) != 0 ) {
+if (length(ctrls) != 0) {
     sampleTable <- data.frame(SampleID=samples,
                         Condition=groups,
                         bamReads=bams,
@@ -68,22 +68,22 @@ if ( length(ctrls) != 0 ) {
                         Tissue=samples)
 }
 
-sample = dba(sampleSheet=sampleTable, peakFormat='bed', scoreCol=opt$scorecol, bLowerScoreBetter=opt$lowerbetter)
+sample <- dba(sampleSheet=sampleTable, peakFormat='bed', scoreCol=opt$scorecol, bLowerScoreBetter=opt$lowerbetter)
 
-if ( !is.null(opt$summits) ) {
-    sample_count = dba.count(sample, summits=opt$summits)
+if (!is.null(opt$summits)) {
+    sample_count <- dba.count(sample, summits=opt$summits)
 } else {
-    sample_count = dba.count(sample)
+    sample_count <- dba.count(sample)
 }
 
-sample_contrast = dba.contrast(sample_count, categories=DBA_CONDITION, minMembers=2)
-sample_analyze = dba.analyze(sample_contrast)
-diff_bind = dba.report(sample_analyze, th=opt$th)
+sample_contrast <- dba.contrast(sample_count, categories=DBA_CONDITION, minMembers=2)
+sample_analyze <- dba.analyze(sample_contrast)
+diff_bind <- dba.report(sample_analyze, th=opt$th)
 
 # Generate plots
-if ( !is.null(opt$plots) ) {
+if (!is.null(opt$plots)) {
     pdf(opt$plots)
-    orvals = dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE, cexCol=0.8, th=opt$th)
+    orvals <- dba.plotHeatmap(sample_analyze, contrast=1, correlations=FALSE, cexCol=0.8, th=opt$th)
     dba.plotPCA(sample_analyze, contrast=1, th=opt$th, label=DBA_TISSUE, labelSize=0.3)
     dba.plotMA(sample_analyze, th=opt$th)
     dba.plotVolcano(sample_analyze, th=opt$th)
@@ -92,7 +92,7 @@ if ( !is.null(opt$plots) ) {
 }
 
 # Output differential binding sites
-resSorted <- diff_bind[order(diff_bind$FDR),]
+resSorted <- diff_bind[order(diff_bind$FDR), ]
 # Convert from GRanges (1-based) to 0-based format (adapted from https://www.biostars.org/p/89341/)
 if (opt$format == "bed") {
     resSorted  <- data.frame(Chrom=seqnames(resSorted),
