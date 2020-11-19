@@ -89,7 +89,7 @@ def main():
             url_download(args.db_url, args.install_path)
         else:
             cat_prepare(args.install_path)
-        for root, dirs, files in os.walk(args.install_path):
+        for root, dirs, _ in os.walk(args.install_path):
             for dname in dirs:
                 if dname.endswith('CAT_database'):
                     cat_db = dname
@@ -109,7 +109,8 @@ def main():
                             taxonomy_folder=os.path.join(cat_dir, tax_db))
     dm_dict['data_tables'][data_table].append(data_table_entry)
     # save info to json file
-    open(args.config_file, 'w').write(json.dumps(dm_dict))
+    with open(args.config_file, 'w') as fh:
+        json.dump(dm_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

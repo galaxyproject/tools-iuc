@@ -71,14 +71,14 @@ def main(tpe, db, outjson):
     data_manager_entry['path'] = path
     data_manager_json = dict(data_tables=dict(mitos=data_manager_entry))
 
-    with open(outjson) as f:
-        params = json.loads(f.read())
+    with open(outjson) as fh:
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
     # output_path = os.path.abspath(os.path.join(os.getcwd(), 'mitos'))
     shutil.move(os.path.join(workdir, path), target_directory)
     with open(outjson, 'w') as fh:
-        fh.write(json.dumps(data_manager_json, sort_keys=True))
+        json.dump(data_manager_json, fh, sort_keys=True)
 
 
 if __name__ == '__main__':
