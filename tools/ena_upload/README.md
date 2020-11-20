@@ -9,11 +9,11 @@ To enable users to set their credentials for this tool,
 make sure the file `config/user_preferences_extra_conf.yml` has the following section:
 
 ```
-    ena_account:
-        description: Your ENA Brokering account details
+    ena_webin_account:
+        description: Your ENA Webin account details
         inputs:
             - name: webin_id
-              label: webin_id
+              label: ENA Webin ID
               type: text
               required: False
             - name: password
