@@ -13,24 +13,24 @@ suppressPackageStartupMessages({
 sessionInfo()
 
 option_list <- list(
-    make_option(c("-d", "--dge_file"), type="character", help="Path to file with differential gene expression result"),
-    make_option(c("-lf", "--length_file"), type="character", default=NULL, help="Path to tabular file mapping gene id to length"),
-    make_option(c("-g", "--genome"), type="character", default=NULL, help="Genome [used for looking up correct gene length]"),
-    make_option(c("-i", "--gene_id"), type="character", default=NULL, help="Gene ID format of genes in DGE file"),
-    make_option(c("-fc", "--fetch_cats"), type="character", default=NULL, help="Categories to get can include one or more of GO:CC, GO:BP, GO:MF, KEGG"),
-    make_option(c("-cat_file", "--category_file"), type="character", default=NULL, help="Path to tabular file with gene_id <-> category mapping"),
-    make_option(c("-w","--wallenius_tab"), type="character", default=NULL, help="Path to output file with P-values estimated using wallenius distribution"),
-    make_option(c("-n","--nobias_tab"), type="character", default=NULL, help="Path to output file with P-values estimated using hypergeometric distribution and no correction for gene length bias"),
-    make_option(c("-r", "--repcnt"), type="integer", default=0, help="Number of repeats for sampling"),
-    make_option(c("-s","--sampling_tab"), type="character", default=NULL, help="Path to output file with P-values estimated using sampling distribution"),
-    make_option(c("-p", "--p_adj_method"), type="character", default="BH", help="Multiple hypothesis testing correction method to use"),
-    make_option(c("-cat", "--use_genes_without_cat"), type="logical", default=FALSE, help="A large number of gene may have no GO term annotated. If this option is set to FALSE, genes without category will be ignored in the calculation of p-values(default behaviour). If TRUE these genes will count towards the total number of genes outside the tested category (default behaviour prior to version 1.15.2)."),
-    make_option(c("-tp", "--top_plot"), type="character", default=NULL, help="Path to output PDF with top10 over-rep GO terms"),
-    make_option(c("-plots", "--make_plots"), default=FALSE, type="logical", help="Produce diagnostic plots?"),
-    make_option(c("-l","--length_bias_plot"), type="character", default=NULL, help="Path to length-bias plot"),
-    make_option(c("-sw","--sample_vs_wallenius_plot"), type="character", default=NULL, help="Path to plot comparing sampling with wallenius p-values"),
-    make_option(c("-rd", "--rdata"), type="character", default=NULL, help="Path to RData output file"),
-    make_option(c("-g2g", "--categories_genes_out_fp"), type="character", default=NULL, help="Path to file with categories (GO/KEGG terms) and associated DE genes")
+    make_option("--dge_file", type="character", help="Path to file with differential gene expression result"),
+    make_option("--length_file", type="character", default=NULL, help="Path to tabular file mapping gene id to length"),
+    make_option("--genome", type="character", default=NULL, help="Genome [used for looking up correct gene length]"),
+    make_option("--gene_id", type="character", default=NULL, help="Gene ID format of genes in DGE file"),
+    make_option("--fetch_cats", type="character", default=NULL, help="Categories to get can include one or more of GO:CC, GO:BP, GO:MF, KEGG"),
+    make_option("--category_file", type="character", default=NULL, help="Path to tabular file with gene_id <-> category mapping"),
+    make_option("--wallenius_tab", type="character", default=NULL, help="Path to output file with P-values estimated using wallenius distribution"),
+    make_option("--nobias_tab", type="character", default=NULL, help="Path to output file with P-values estimated using hypergeometric distribution and no correction for gene length bias"),
+    make_option("--repcnt", type="integer", default=0, help="Number of repeats for sampling"),
+    make_option("--sampling_tab", type="character", default=NULL, help="Path to output file with P-values estimated using sampling distribution"),
+    make_option("--p_adj_method", type="character", default="BH", help="Multiple hypothesis testing correction method to use"),
+    make_option("--use_genes_without_cat", type="logical", default=FALSE, help="A large number of gene may have no GO term annotated. If this option is set to FALSE, genes without category will be ignored in the calculation of p-values(default behaviour). If TRUE these genes will count towards the total number of genes outside the tested category (default behaviour prior to version 1.15.2)."),
+    make_option("--top_plot", type="character", default=NULL, help="Path to output PDF with top10 over-rep GO terms"),
+    make_option("--make_plots", default=FALSE, type="logical", help="Produce diagnostic plots?"),
+    make_option("--length_bias_plot", type="character", default=NULL, help="Path to length-bias plot"),
+    make_option("--sample_vs_wallenius_plot", type="character", default=NULL, help="Path to plot comparing sampling with wallenius p-values"),
+    make_option("--rdata", type="character", default=NULL, help="Path to RData output file"),
+    make_option("--categories_genes_out_fp", type="character", default=NULL, help="Path to file with categories (GO/KEGG terms) and associated DE genes")
     )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
