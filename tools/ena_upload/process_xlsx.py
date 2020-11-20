@@ -96,7 +96,7 @@ studies_table.write('\t'.join(['alias', 'status', 'accession', 'title', 'study_t
 samples_table = open(pathlib.Path(args.out_path) / 'samples.tsv', 'w')
 if args.viral_submission:
     samples_table.write('\t'.join(['alias', 'status', 'accession', 'title', 'scientific_name',
-                                   'taxon_id', 'sample_description', 'collection date',
+                                   'taxon_id', 'sample_description', 'collection_date',
                                    'geographic_location', 'host_common_name', 'host_subject_id',
                                    'host_health_state', 'host_sex', 'host_scientific_name',
                                    'collector_name', 'collecting_institution', 'isolate',
