@@ -110,9 +110,23 @@ color_list <- list(gene_color = gene_color, effect_color = effect_color)
 names(color_list) <- c("gene", "effect")
 
                                         # visualize heatmap
-pdf(out.filepdf,
-    width = img.multiplier_width*ncol(final),      ## the pdf scales with the number
-    height = img.multiplier_height*nrow(final))    ## of variants and samples
+## the pdf scales with the number of variants and samples
+
+if (out.type == 'PDF'){
+    pdf(out.file,
+        width = img.multiplier_width*ncol(final),
+        height = img.multiplier_height*nrow(final))
+} else if (out.type == 'PNG'){
+    png(out.file,
+        width = png.multiplier*img.multiplier_width*ncol(final),
+        height = png.multiplier*img.multiplier_height*nrow(final))
+} else if (out.type == 'SVG'){
+    svg(out.file,
+        width = img.multiplier_width*ncol(final),
+        height = img.multiplier_height*nrow(final))
+} else {
+    stop("No such output type", out.type)
+}
 
 pheatmap(final,
          color = my_colors(100),
