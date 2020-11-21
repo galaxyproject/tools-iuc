@@ -4,33 +4,12 @@ library(pheatmap)
 library(RColorBrewer)
 library(tidyverse)
 
-
-                                        # Galaxy Variables
-samples = data.frame(ids=c("436", "437", "438", "439", "440", "441", "442", "443", "444"),
-                     ## the full file paths below are populated by the galaxy wrapper
-                     files=c("./input//Galaxy436-[SnpSift_Extract_Fields_on_data_367].tabular",
-                             "./input//Galaxy437-[SnpSift_Extract_Fields_on_data_370].tabular",
-                             "./input//Galaxy438-[SnpSift_Extract_Fields_on_data_373].tabular",
-                             "./input//Galaxy439-[SnpSift_Extract_Fields_on_data_376].tabular",
-                             "./input//Galaxy440-[SnpSift_Extract_Fields_on_data_379].tabular",
-                             "./input//Galaxy441-[SnpSift_Extract_Fields_on_data_382].tabular",
-                             "./input//Galaxy442-[SnpSift_Extract_Fields_on_data_385].tabular",
-                             "./input//Galaxy443-[SnpSift_Extract_Fields_on_data_388].tabular",
-                             "./input//Galaxy444-[SnpSift_Extract_Fields_on_data_391].tabular"))
-##
-date.has <- FALSE                   ## do the file names contain a date (format: dd.mm.yyyy) and you want to sort
-date.regex <- "\\d{2}[[:punct:]]\\d{2}[[:punct:]]\\d{4}"
-variant.frequency <- 0.1                   ## adjust the variant frequency
-img.multiplier_width <- 0.5                ## pdf weight multiplier - adjust if needed
-img.multiplier_height <- 0.6               ## pdf height multiplier - adjust if needed
-brewer.color_gene_annotation <- "Set3"     ## adjust color of gene annotation ("Set2" or "Paired")
-pheat.clustering <- FALSE                  ## should the samples be clustered?
-pheat.clustering_method <- "ward.D2"       ## what clustering method -> see ?hclust for further information
-pheat.number_of_clusters <- 5              ## do you assume a particular amount of clusters?
-out.filepdf <- "output/Heatmap.pdf"
+                                        # Load Galaxy Variables
+args = commandArgs(trailingOnly = T)
+source(args[1])
 
 
-
+                                        # Main
 if (date.has){
     samples$dates <- as.Date(regmatches(samples$files,
                                         regexpr(date.regex, samples$files)),
