@@ -94,15 +94,15 @@ results <- list()
 
 run_goseq <- function(pwf, genome, gene_id, goseq_method, use_genes_without_cat, repcnt, gene2cat, p_adj_method, out_fp) {
   out <- goseq(pwf, genome = genome, id = gene_id, method = goseq_method, use_genes_without_cat = use_genes_without_cat, gene2cat = go_map)
-  out$p.adjust.over_represented <- p.adjust(out$over_represented_pvalue, method = p_adj_method)
-  out$p.adjust.under_represented <- p.adjust(out$under_represented_pvalue, method = p_adj_method)
+  out$p_adjust_over_represented <- p.adjust(out$over_represented_pvalue, method = p_adj_method)
+  out$p_adjust_under_represented <- p.adjust(out$under_represented_pvalue, method = p_adj_method)
   write.table(out, out_fp, sep = "\t", row.names = FALSE, quote = FALSE)
   return(out)
 }
 
 # wallenius approximation of p-values
 if (!is.null(args$wallenius_tab)) {
-  results[["Wallenius"]] <- runGoseq(
+  results[["Wallenius"]] <- run_goseq(
     pwf,
     genome = args$genome,
     gene_id = args$gene_id,
@@ -118,7 +118,7 @@ if (!is.null(args$wallenius_tab)) {
 
 # hypergeometric (no length bias correction)
 if (!is.null(args$nobias_tab)) {
-  results[["Hypergeometric"]] <- runGoseq(
+  results[["Hypergeometric"]] <- run_goseq(
     pwf,
     genome = args$genome,
     gene_id = args$gene_id,
@@ -133,7 +133,7 @@ if (!is.null(args$nobias_tab)) {
 
 # Sampling distribution
 if (args$repcnt > 0) {
-  results[["Sampling"]] <- runGoseq(
+  results[["Sampling"]] <- run_goseq(
     pwf,
     genome = args$genome,
     gene_id = args$gene_id,
@@ -171,7 +171,7 @@ if (!is.null(args$top_plot)) {
       ggplot(aes(
         x = hitsPerc,
         y = reorder(substr(term, 1, 40), -over_represented_pvalue), # only use 1st 40 chars of terms otherwise squashes plot
-        colour = p.adjust.over_represented,
+        colour = p_adjust_over_represented,
         size = numDEInCat
       )) +
       geom_point() +
@@ -193,13 +193,13 @@ if (!is.null(args$categories_genes_out_fp)) {
   }
   categories <- unique(categories)
   # extract the DE genes for each catge term
-  categories_genes <- data.frame(Categories = categories, DEgenes = rep("", length(categories)))
-  categories_genes$DEgenes <- as.character(categories_genes$DEgenes)
+  categories_genes <- data.frame(category = categories, de_genes = rep("", length(categories)))
+  categories_genes$de_genes <- as.character(categories_genes$de_genes)
   rownames(categories_genes) <- categories
   for (cat in categories) {
     tmp <- pwf[cat2gene[[cat]], ]
     tmp <- rownames(tmp[tmp$DEgenes > 0, ])
-    categories_genes[cat, "DEgenes"] <- paste(tmp, collapse = ",")
+    categories_genes[cat, "de_genes"] <- paste(tmp, collapse = ",")
   }
   # output
   write.table(categories_genes, args$categories_genes_out_fp, sep = "\t", row.names = FALSE, quote = FALSE)
