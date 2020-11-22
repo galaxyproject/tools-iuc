@@ -69,7 +69,8 @@ def read_input_json(jsonfile):
     to create it if necessary.
 
     """
-    params = json.loads(open(jsonfile).read())
+    with open(jsonfile) as fh:
+        params = json.load(fh)
     return (params['param_dict'],
             params['output_data'][0]['extra_files_path'])
 
@@ -81,7 +82,7 @@ def read_input_json(jsonfile):
 # >>> add_data_table(d,'my_data')
 # >>> add_data_table_entry(dict(dbkey='hg19',value='human'))
 # >>> add_data_table_entry(dict(dbkey='mm9',value='mouse'))
-# >>> print str(json.dumps(d))
+# >>> print(json.dumps(d))
 def create_data_tables_dict():
     """Return a dictionary for storing data table information
 
@@ -126,7 +127,8 @@ def get_ftp_file(ftp, filename):
     """
     """
     try:
-        ftp.retrbinary("RETR " + filename, open(filename, 'wb').write)
+        with open(filename, 'wb') as fh:
+            ftp.retrbinary("RETR " + filename, fh.write)
     except Exception:
         print("Error")
 
@@ -180,14 +182,12 @@ def extract_archive(filepath, ext, db):
     """
     archive_content_path = "tmp"
     if ext == "tar.gz" or ext == "tgz":
-        tar = tarfile.open(filepath)
-        tar.extractall(path=archive_content_path)
-        tar.close()
+        with tarfile.open(filepath) as tar:
+            tar.extractall(path=archive_content_path)
         archive_content_path = find_archive_content_path(archive_content_path)
     elif ext == "zip":
-        zip_ref = zipfile.ZipFile(filepath, 'r')
-        zip_ref.extractall(archive_content_path)
-        zip_ref.close()
+        with zipfile.ZipFile(filepath, 'r') as zip_ref:
+            zip_ref.extractall(archive_content_path)
         archive_content_path = find_archive_content_path(archive_content_path)
     return archive_content_path
 
@@ -372,7 +372,6 @@ if __name__ == "__main__":
 
     # Write output JSON
     print("Outputting JSON")
-    print(str(json.dumps(data_tables)))
     with open(jsonfile, 'w') as out:
-        json.dump(data_tables, out)
+        json.dump(data_tables, out, sort_keys=True)
     print("Done.")
