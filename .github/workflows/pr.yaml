@@ -148,13 +148,13 @@ jobs:
         while read -r DIR; do
             planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive "$DIR";
         done < ../workflow_artifacts/changed_repositories.list
-    - name: Check if each tool is in the list of repositories
+    - name: Check if each changed tool is in the list of changed repositories
       run: |
         set -e
         while read -r TOOL; do
             dn=$(dirname $TOOL);
-            if ! grep -q $dn ../workflow_artifacts/changed_repos.list; then
-                echo "$TOOL not in changed repository list: .shed.yml file missing" >&2
+            if ! grep -q "$dn" ../workflow_artifacts/changed_repos.list; then
+                echo "Tool $TOOL not in changed repositories list: .shed.yml file missing" >&2
                 exit 1
             fi
         done < ../workflow_artifacts/changed_tools.list
@@ -303,24 +303,28 @@ jobs:
     - name: Install Planemo
       run: pip install planemo
     - name: Planemo ci_find_tools
-      run: planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_tools_chunk.list $(cat ../workflow_artifacts/changed_repositories.list)
-    - name: Show tool list
+      run: |
+        touch changed_tools_chunk.list
+        if [ -s ../workflow_artifacts/changed_repositories.list ]; then
+          planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_tools_chunk.list $(cat ../workflow_artifacts/changed_repositories.list)
+        fi
+    - name: Show changed tools chunk list
       run: cat changed_tools_chunk.list
     - name: Planemo test tools
       run: |
-        mkdir json_output/
-        while read -r TOOLS; do
-           if grep -qf .tt_biocontainer_skip <(echo $TOOLS); then
+        mkdir json_output
+        while read -r TOOL; do
+           if grep -q "$TOOL" .tt_biocontainer_skip; then
                PLANEMO_OPTIONS=""
            else
                PLANEMO_OPTIONS="--biocontainers --no_dependency_resolution --no_conda_auto_init"
            fi
            json=$(mktemp -u -p json_output --suff .json)
-           PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy --no_conda_auto_init --galaxy_branch $GALAXY_RELEASE --biocontainers --no_dependency_resolution --galaxy_python_version ${{ matrix.python-version }} --test_output_json $json $TOOLS || true
+           PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy --no_conda_auto_init --galaxy_branch $GALAXY_RELEASE --biocontainers --no_dependency_resolution --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$json" "$TOOL" || true
            docker system prune --all --force --volumes || true
         done < changed_tools_chunk.list
         if [ ! -s changed_tools_chunk.list ]; then
-            echo '{"tests":[]}' > $(mktemp -u -p json_output --suff .json)
+            echo '{"tests":[]}' > "$(mktemp -u -p json_output --suff .json)"
         fi
     - name: Merge tool_test_output.json files
       run: find . -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
