@@ -1,6 +1,6 @@
 #!/usr/bin/env R
 
-library(VariantAnnotation)
+library(vcfR)
 library(pheatmap)
 library(RColorBrewer)
 library(tidyverse)
