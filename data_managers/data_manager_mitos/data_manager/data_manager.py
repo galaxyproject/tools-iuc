@@ -12,7 +12,7 @@ except ImportError:
 
 ZENODO = {
     "mitos": "2683856",
-    "mitos2": "3685310"
+    "mitos2": "4284483"
 }
 NAMES = {
     "mitos1-refdata": "RefSeq39 + MiTFi tRNA models",
