@@ -2,11 +2,11 @@
 # Dan Blankenberg
 from __future__ import print_function
 
+import json
 import optparse
 import os
 import subprocess
 import sys
-from json import dumps, loads
 
 DEFAULT_DATA_TABLE_NAMES = ["bowtie2_indexes"]
 
@@ -61,7 +61,8 @@ def main():
 
     filename = args[0]
 
-    params = loads(open(filename).read())
+    with open(filename) as fh:
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
     data_manager_dict = {}
@@ -77,8 +78,8 @@ def main():
     build_bowtie2_index(data_manager_dict, options.fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name, data_table_names=options.data_table_name or DEFAULT_DATA_TABLE_NAMES)
 
     # save info to json file
-    with open(filename, 'w') as json_out:
-        json_out.write(dumps(data_manager_dict, sort_keys=True))
+    with open(filename, 'w') as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

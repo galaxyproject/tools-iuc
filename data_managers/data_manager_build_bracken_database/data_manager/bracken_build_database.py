@@ -55,7 +55,8 @@ def main():
     parser.add_argument('--database-name', dest='database_name', help='Database Name')
     args = parser.parse_args()
 
-    data_manager_input = json.loads(open(args.data_manager_json).read())
+    with open(args.data_manager_json) as fh:
+        data_manager_input = json.load(fh)
 
     target_directory = data_manager_input['output_data'][0]['extra_files_path']
 
@@ -69,7 +70,7 @@ def main():
     try:
         os.mkdir(target_directory)
     except OSError as exc:
-        if exc.errno == errno.EEXIST and os.path.isdir( target_directory ):
+        if exc.errno == errno.EEXIST and os.path.isdir(target_directory):
             pass
         else:
             raise
@@ -82,8 +83,8 @@ def main():
         args.database_name,
     )
 
-    with open(args.data_manager_json, 'w') as out:
-        out.write(json.dumps(data_manager_output, sort_keys=True))
+    with open(args.data_manager_json, 'w') as fh:
+        json.dump(data_manager_output, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

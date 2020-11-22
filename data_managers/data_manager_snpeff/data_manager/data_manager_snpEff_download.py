@@ -7,36 +7,28 @@ import subprocess
 import sys
 
 
-def stop_err(msg):
-    sys.stderr.write(msg)
-    sys.exit(1)
-
-
 def fetch_databases(genome_list=None):
     snpDBs = dict()
     databases_path = 'databases.out'
-    databases_output = open(databases_path, 'w')
     args = ['snpEff', 'databases']
-    return_code = subprocess.call(args=args, shell=False, stdout=databases_output.fileno())
+    with open(databases_path, 'w') as databases_output:
+        return_code = subprocess.call(args=args, shell=False, stdout=databases_output.fileno())
     if return_code:
         sys.exit(return_code)
-    databases_output.close()
     try:
-        fh = open(databases_path, 'r')
-        for i, line in enumerate(fh):
-            fields = line.split('\t')
-            if len(fields) >= 2:
-                genome_version = fields[0].strip()
-                if genome_list and genome_version not in genome_list:
-                    continue
-                if genome_version.startswith("Genome") or genome_version.startswith("-"):
-                    continue
-                description = fields[1].strip()
-                snpDBs[genome_version] = description
+        with open(databases_path, 'r') as fh:
+            for line in fh:
+                fields = line.split('\t')
+                if len(fields) >= 2:
+                    genome_version = fields[0].strip()
+                    if genome_list and genome_version not in genome_list:
+                        continue
+                    if genome_version.startswith("Genome") or genome_version.startswith("-"):
+                        continue
+                    description = fields[1].strip()
+                    snpDBs[genome_version] = description
     except Exception as e:
-        stop_err('Error parsing %s %s\n' % (databases_path, str(e)))
-    else:
-        fh.close()
+        sys.exit('Error parsing %s %s\n' % (databases_path, str(e)))
     return snpDBs
 
 
@@ -55,19 +47,17 @@ def getOrganismNames(genomes, organisms):
 def getSnpeffVersion():
     snpeff_version = 'SnpEff ?.?'
     stderr_path = 'snpeff.err'
-    stderr_fh = open(stderr_path, 'w')
     args = ['snpEff', '-h']
-    return_code = subprocess.call(args=args, shell=False, stderr=stderr_fh.fileno())
+    with open(stderr_path, 'w') as stderr_fh:
+        return_code = subprocess.call(args=args, shell=False, stderr=stderr_fh.fileno())
     if return_code != 255:
         sys.exit(return_code)
-    stderr_fh.close()
-    fh = open(stderr_path, 'r')
-    for line in fh:
-        m = re.match(r'^[Ss]npEff version (SnpEff)\s*(\d+\.\d+).*$', line)
-        if m:
-            snpeff_version = m.groups()[0] + m.groups()[1]
-            break
-    fh.close()
+    with open(stderr_path) as fh:
+        for line in fh:
+            m = re.match(r'^[Ss]npEff version (SnpEff)\s*(\d+\.\d+).*$', line)
+            if m:
+                snpeff_version = m.groups()[0] + m.groups()[1]
+                break
     return snpeff_version
 
 
@@ -97,7 +87,7 @@ def download_database(data_manager_dict, target_directory, genome_version, organ
     snpeff_version = getSnpeffVersion()
     key = snpeff_version + '_' + genome_version
     if os.path.isdir(genome_path):
-        for root, dirs, files in os.walk(genome_path):
+        for _, _, files in os.walk(genome_path):
             for fname in files:
                 if fname.startswith('snpEffectPredictor'):
                     # if snpEffectPredictor.bin download succeeded
@@ -128,7 +118,8 @@ def main():
 
     filename = args[0]
 
-    params = json.loads(open(filename).read())
+    with open(filename) as fh:
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
     data_manager_dict = {}
@@ -138,7 +129,8 @@ def main():
         download_database(data_manager_dict, target_directory, genome_version, organism)
 
     # save info to json file
-    open(filename, 'w').write(json.dumps(data_manager_dict, sort_keys=True))
+    with open(filename, 'w'):
+        json.dump(data_manager_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":
