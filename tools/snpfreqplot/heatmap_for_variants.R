@@ -1,6 +1,5 @@
 #!/usr/bin/env R
 
-library(vcfR)
 library(pheatmap)
 library(RColorBrewer)
 library(tidyverse)
@@ -22,7 +21,8 @@ extractAll_annots <- function(id){
         select(posalt, effect, gene)
 }
 
-
+                                        # M A I N
+stopifnot(samples)
                                         # process allele frequencies
 processed.files <- lapply(samples$ids, extractAll_data)
 final <- as_tibble(
