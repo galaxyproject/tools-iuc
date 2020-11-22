@@ -5,12 +5,6 @@ library(pheatmap)
 library(RColorBrewer)
 library(tidyverse)
 
-                                        # Load Galaxy Variables
-args = commandArgs(trailingOnly = T)
-source(args[1])
-
-
-                                        # Main
 extractAll_data <- function(id){
     file <- (samples %>% filter(ids==id))$files
     variants <- read.table(file, header = T, sep = "\t")
