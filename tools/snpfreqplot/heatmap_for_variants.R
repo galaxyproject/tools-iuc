@@ -11,18 +11,6 @@ source(args[1])
 
 
                                         # Main
-## ## Disabled
-## ## - Date sorting has been disabled, because the user can simply provide
-## ##   the ordering using the sample IDs
-## if (date.has){
-##     samples$dates <- as.Date(regmatches(samples$files,
-##                                         regexpr(date.regex, samples$files)),
-##                              format="%d.%m.%y")
-##     samples$ids <- factor(samples$ids,
-##                           ## files are processed in factor order if date is given
-##                           levels=samples$ids[order(sort(samples$dates))])
-## }
-
 extractAll_data <- function(id){
     file <- (samples %>% filter(ids==id))$files
     variants <- read.table(file, header = T, sep = "\t")
