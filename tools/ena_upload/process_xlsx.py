@@ -89,6 +89,7 @@ if xl_sheet.nrows < 3:
     raise ValueError('No entries found in runs sheet')
 run_cols = ['alias', 'experiment_alias', 'file_name', 'file_format']
 runs_dict = extract_data(xl_sheet, run_cols)
+
 # WRITE HEADERS TO TABLES
 studies_table = open(pathlib.Path(args.out_path) / 'studies.tsv', 'w')
 studies_table.write('\t'.join(['alias', 'status', 'accession', 'title', 'study_type',
@@ -157,7 +158,7 @@ for sample_alias, sample in samples_dict.items():
                                                exp['library_strategy'], exp['library_source'],
                                                exp['library_selection'],
                                                exp['library_layout'].lower(),
-                                               str(exp['insert_size']),
+                                               str(int(exp['insert_size'])),
                                                exp['library_construction_protocol'],
                                                exp['platform'], exp['instrument_model'],
                                                'submission_date_ENA']) + '\n')
