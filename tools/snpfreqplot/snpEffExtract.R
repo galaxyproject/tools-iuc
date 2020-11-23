@@ -4,11 +4,7 @@ suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(tidyverse))
 
 tsvEFFfromVCF <- function(input.vcf, output.tab){
-    read.vcf <- read.vcfR(input.vcf)
-    vcf.fix <- as_tibble(getFIX(read.vcf)) %>%
-        select(CHROM, POS, REF, ALT, FILTER)
-
-
+    read.vcf <- readVcf(input.vcf)
     chrom.pos <- data.frame(read.vcf@rowRanges)[,c("seqnames", "start")]
     ref.alt.filter <- read.vcf@fixed[,c("REF","ALT","FILTER")]
     dp.af <- read.vcf@info[c("DP","AF")]
@@ -60,19 +56,18 @@ tsvEFFfromVCF <- function(input.vcf, output.tab){
 
 
                                         # M A I N
-stopifnot(samples)
+stopifnot(exists("samples"))
 
 for (i in 1:nrow(samples)){
-    entry = samples[[i]];
-    if (entry$exts %in% c(".vcf", ".vcf.gz")){
+    entry = samples[i,];
+    if (entry$exts %in% c("vcf", "vcf.gz")){
         in.vcf = entry$files
         out.tsv = tempfile()
         tsvEFFfromVCF(in.vcf, out.tsv)
         ## point to the new file
-        samples[[i]]$files = out.tsv
+        samples[i,]$files = out.tsv
         print(paste(entry$ids, ": converted from VCF to tabular"))
     } else {
         print(paste(entry$ids, ": already tabular"))
     }
 }
-

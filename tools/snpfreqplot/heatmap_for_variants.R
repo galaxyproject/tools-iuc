@@ -1,28 +1,27 @@
 #!/usr/bin/env R
 
-library(pheatmap)
-library(RColorBrewer)
-library(tidyverse)
+suppressPackageStartupMessages(library(pheatmap))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(tidyverse))
 
 extractAll_data <- function(id){
-    file <- (samples %>% filter(ids==id))$files
-    variants <- read.table(file, header = T, sep = "\t")
-    tmp <- variants %>% mutate(posalt=paste(POS,ALT)) %>% select(posalt, AF)
+    variants = readAndProcess(id)
+    tmp = variants %>% mutate(posalt=uni.select) %>%
+        select(posalt, AF)
     colnames(tmp) <- c("Mutation", id)
     return(tmp)
 }
 
 extractAll_annots <- function(id){
-    file <- (samples %>% filter(ids==id))$files
-    variants <- read.table(file, header = T, sep = "\t")
-    tmp <- variants %>% mutate(posalt=paste(POS,ALT),
-                               effect=EFF....EFFECT,
-                               gene=EFF....GENE) %>%
+    variants = readAndProcess(id)
+    tmp <- variants %>%
+        mutate(posalt=paste(POS,ALT),
+               effect=EFF....EFFECT, gene=EFF....GENE) %>%
         select(posalt, effect, gene)
+    return(tmp)
 }
-
                                         # M A I N
-stopifnot(samples)
+stopifnot(exists("samples"))
                                         # process allele frequencies
 processed.files <- lapply(samples$ids, extractAll_data)
 final <- as_tibble(
