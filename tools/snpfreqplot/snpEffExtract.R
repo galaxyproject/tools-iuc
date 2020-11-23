@@ -45,11 +45,17 @@ tsvEFFfromVCF <- function(input.vcf, output.tab){
                         'trans.id', 'exon.rank', 'gt.num', 'warnings')) %>%
         dplyr::select('CHROM', 'POS', 'REF', 'ALT', 'FILTER', 'DP', 'AF',
                       'EFF[*].EFFECT', 'EFF[*].IMPACT', 'EFF[*].FUNCLASS',
-                      'EFF[*].AA', 'EFF[*].GENE')
+                      'EFF[*].AA', 'EFF[*].GENE') %>%
+        ## now we deduplicate any rows that arise from subselecting columns
+        dplyr::distinct()
 
-    write.table(vcf.info,
-                file=output.tab,
-                quote=F, sep='\t', row.names=F)
+    ## At this point, we would still have rows which share a POS and ALT pair
+    ## which could be problematic for the heatmap plot later.
+    ##
+    ## This is not something to worry about here, and is resolved in the heatmap
+    ## script later.
+
+    write.table(vcf.info, file=output.tab, quote=F, sep='\t', row.names=F)
 }
 
 
