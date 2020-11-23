@@ -111,8 +111,8 @@ if (out.type == 'PDF'){
 
 pheatmap(final,
          color = my_colors(100),
-         cellwidth = 20,
-         cellheight = 20,
+         cellwidth = cell.width,
+         cellheight = cell.height,
          clustering_method = pheat.clustering_method,
          cluster_rows = pheat.clustering,
          cluster_cols = F,
