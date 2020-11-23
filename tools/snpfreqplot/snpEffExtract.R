@@ -1,7 +1,7 @@
 #!/usr/bin/env R
 
-library(vcfR)
-library(tidyverse)
+suppressPackageStartupMessages(library(VariantAnnotation))
+suppressPackageStartupMessages(library(tidyverse))
 
 tsvEFFfromVCF <- function(input.vcf, output.tab){
     read.vcf <- read.vcfR(input.vcf)
