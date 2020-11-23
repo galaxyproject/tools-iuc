@@ -59,6 +59,7 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
         "kmer-len", str(kraken2_args["kmer_len"]),
         "minimizer-len", str(kraken2_args["minimizer_len"]),
         "minimizer-spaces", str(kraken2_args["minimizer_spaces"]),
+        "load-factor", str(kraken2_args["load_factor"]),
     ])
 
     database_name = " ".join([
@@ -68,6 +69,7 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
         "kmer-len=" + str(kraken2_args["kmer_len"]) + ",",
         "minimizer-len=" + str(kraken2_args["minimizer_len"]) + ",",
         "minimizer-spaces=" + str(kraken2_args["minimizer_spaces"]) + ")",
+        "load-factor", str(kraken2_args["load_factor"]),
     ])
 
     database_path = database_value
@@ -78,6 +80,7 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
         '--kmer-len', str(kraken2_args["kmer_len"]),
         '--minimizer-len', str(kraken2_args["minimizer_len"]),
         '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
+        '--load-factor', str(kraken2_args["load_factor"]),
         '--db', database_path
     ]
 
@@ -172,6 +175,7 @@ def kraken2_build_special(kraken2_args, target_directory, data_table_name=DATA_T
         "kmer-len", str(kraken2_args["kmer_len"]),
         "minimizer-len", str(kraken2_args["minimizer_len"]),
         "minimizer-spaces", str(kraken2_args["minimizer_spaces"]),
+        "load-factor", str(kraken2_args["load_factor"]),
     ])
 
     database_name = " ".join([
@@ -181,6 +185,7 @@ def kraken2_build_special(kraken2_args, target_directory, data_table_name=DATA_T
         "kmer-len=" + str(kraken2_args["kmer_len"]) + ",",
         "minimizer-len=" + str(kraken2_args["minimizer_len"]) + ",",
         "minimizer-spaces=" + str(kraken2_args["minimizer_spaces"]) + ")",
+        "load-factor=" + str(kraken2_args["load_factor"]) + ")",
     ])
 
     database_path = database_value
@@ -191,6 +196,7 @@ def kraken2_build_special(kraken2_args, target_directory, data_table_name=DATA_T
         '--kmer-len', str(kraken2_args["kmer_len"]),
         '--minimizer-len', str(kraken2_args["minimizer_len"]),
         '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
+        '--load-factor', str(kraken2_args["load_factor"]),
         '--db', database_path
     ]
 
@@ -247,6 +253,7 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
         '--kmer-len', str(kraken2_args["kmer_len"]),
         '--minimizer-len', str(kraken2_args["minimizer_len"]),
         '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
+        '--load-factor', str(kraken2_args["load_factor"]),
         '--db', custom_database_name
     ]
 
@@ -282,6 +289,7 @@ def main():
     parser.add_argument('--kmer-len', dest='kmer_len', type=int, default=35, help='kmer length')
     parser.add_argument('--minimizer-len', dest='minimizer_len', type=int, default=31, help='minimizer length')
     parser.add_argument('--minimizer-spaces', dest='minimizer_spaces', default=6, help='minimizer spaces')
+    parser.add_argument('--load-factor', dest='load_factor', type=float, default=0.7, help='load factor')
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
     parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to --database-type minikraken)')
@@ -312,6 +320,7 @@ def main():
             "kmer_len": args.kmer_len,
             "minimizer_len": args.minimizer_len,
             "minimizer_spaces": args.minimizer_spaces,
+            "load_factor": args.load_factor,
             "threads": args.threads,
             "clean": args.clean,
         }
@@ -330,6 +339,7 @@ def main():
             "kmer_len": args.kmer_len,
             "minimizer_len": args.minimizer_len,
             "minimizer_spaces": args.minimizer_spaces,
+            "load_factor": args.load_factor,
             "threads": args.threads,
             "clean": args.clean,
         }
@@ -344,6 +354,7 @@ def main():
             "kmer_len": args.kmer_len,
             "minimizer_len": args.minimizer_len,
             "minimizer_spaces": args.minimizer_spaces,
+            "load_factor": args.load_factor,
             "threads": args.threads,
             "clean": args.clean,
         }
