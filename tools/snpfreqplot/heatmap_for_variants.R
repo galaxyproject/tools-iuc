@@ -91,22 +91,6 @@ color_list <- list(gene_color = gene_color, effect_color = effect_color)
 names(color_list) <- c("gene", "effect")
 
                                         # visualize heatmap
-## the pdf scales with the number of variants and samples
-
-if (out.type == 'PDF'){
-    pdf(out.file,
-        width = img.multiplier_width*ncol(final),
-        height = img.multiplier_height*nrow(final))
-} else if (out.type == 'PNG'){
-    png(out.file,
-        width = png.multiplier*img.multiplier_width*ncol(final),
-        height = png.multiplier*img.multiplier_height*nrow(final))
-} else if (out.type == 'SVG'){
-    svg(out.file,
-        width = img.multiplier_width*ncol(final),
-        height = img.multiplier_height*nrow(final))
-} else {
-    stop("No such output type", out.type)
  if (pheat.number_of_clusters > length(samples$ids)){
     print(paste0("[INFO] Number of clusters: User-specified clusters (",
                  pheat.number_of_clusters,
@@ -116,6 +100,14 @@ if (out.type == 'PDF'){
     print(paste0("[INFO] Number of clusters: now set to ",
                  pheat.number_of_clusters))
 }
+
+## image trickery needed here:
+## - the heatmap file type is determined by the extension, but
+##   galaxy only serves .dat files, so we need to create a
+##   a new output file with that extension, and move to the
+##   the galaxy output dat file.
+
+out.tmpfile = tempfile(fileext=paste0(".", tolower(out.type)))
 
 pheatmap(final,
          color = my_colors(100),
@@ -127,6 +119,7 @@ pheatmap(final,
          cutree_rows = pheat.number_of_clusters,
          annotation_col = ann_final,
          annotation_colors = color_list,
+         filename = out.tmpfile,
          gaps_col = gap_vector)
 
-dev.off()
+file.rename(from=out.tmpfile, to=out.file)
