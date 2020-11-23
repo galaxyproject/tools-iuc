@@ -107,6 +107,14 @@ if (out.type == 'PDF'){
         height = img.multiplier_height*nrow(final))
 } else {
     stop("No such output type", out.type)
+ if (pheat.number_of_clusters > length(samples$ids)){
+    print(paste0("[INFO] Number of clusters: User-specified clusters (",
+                 pheat.number_of_clusters,
+                 ") is greater than the number of samples (",
+                 length(samples$ids), ")"))
+    pheat.number_of_clusters = length(samples$ids)
+    print(paste0("[INFO] Number of clusters: now set to ",
+                 pheat.number_of_clusters))
 }
 
 pheatmap(final,
