@@ -52,23 +52,32 @@ split_table_and_process <- function(tab) {
     #' This function is necessary because tidyr is difficult
     #' to write custom group binding functions.
     posalts <- tab %>% group_by(POS, ALT) %>% select(POS, ALT) # nolint
+    nlines <- nrow(tab)
     groups <- list()
     groups[[1]] <- c(1, 1)
     last_pa <- paste(posalts[1, ])
-    for (r in 2:nrow(tab)) {
+    for (r in 2:nlines) {
         curr_pa <- paste(posalts[r, ])
-        if (!all(last_pa == curr_pa)) {
+        posalt_diff_between_lines <- !all(last_pa == curr_pa)
+        if (posalt_diff_between_lines) {
             ## end of current group, start of new
             groups[[length(groups)]][2] <- r - 1     ## change prev end
-            groups[[length(groups) + 1]] <- c(r, r)  ## set start end
+            groups[[length(groups) + 1]] <- c(r, r)  ## set (start, end)
+        } else if (r == nlines){
+            ## i.e. if the very last line shares
+            ## the same POS ALT as the one before,
+            ## close current group.
+            groups[[length(groups)]][2] <- r
         }
         last_pa <- curr_pa
     }
     as_tibble(do.call(
         "rbind",
         lapply(groups, function(grange) {
-            difference_in_group(tab[unique(grange), ])
-        })))
+            expand_range <- grange[1]:grange[2]
+            difference_in_group(tab[expand_range, ])
+        })
+    ))
 }
 
 read_and_process <- function(id) {
