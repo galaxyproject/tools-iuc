@@ -84,7 +84,11 @@ read_and_process <- function(id) {
     file <- (samples %>% filter(ids == id))$files    # nolint
     variants <- read.table(file, header = T, sep = "\t")
     uniq_ids <- split_table_and_process(variants)
-    stopifnot(nrow(variants) == nrow(uniq_ids))
+    if (nrow(variants) != nrow(uniq_ids)){
+        stop(paste0(id, " '", file, "' failed: ", file, "\"",
+                    "nrow(variants)=", nrow(variants),
+                    " but nrow(uniq_ids)=", nrow(uniq_ids)))
+    }
     variants <- as_tibble(cbind(variants, uniq_ids)) # nolint
     return(variants)
 }
