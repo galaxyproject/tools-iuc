@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       galaxy_head_sha: ${{ steps.get-galaxy-sha.outputs.galaxy_head_sha }}
+      commit_range: ${{ steps.get-commit-range.outputs.commit_range }}
       nchunks: ${{ steps.get-chunks.outputs.nchunks }}
       chunk_list: ${{ steps.get-chunks.outputs.chunk_list }}
     strategy:
@@ -82,21 +83,25 @@ jobs:
     - name: Set commit range (pull request)
       if: github.event_name == 'pull_request'
       run: echo "COMMIT_RANGE=HEAD~.." >> $GITHUB_ENV
+    - id: get-commit-range
+      run: echo "::set-output name=commit_range::$COMMIT_RANGE"
     - name: Planemo ci_find_repos
       run: planemo ci_find_repos --changed_in_commit_range $COMMIT_RANGE --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_repositories.list
     - name: Show repo list
       run: cat changed_repositories.list
-    - name: Planemo ci_find_tools
-      run: planemo ci_find_tools --changed_in_commit_range $COMMIT_RANGE --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_tools.list
-    - name: Show tool list
-      run: cat changed_tools.list
     - uses: actions/upload-artifact@v2
       with:
         name: Workflow artifacts
-        path: |
-          changed_repositories.list
-          changed_tools.list
-    - name: Get number of changed tools and compute number of chunks
+        path: changed_repositories.list
+    - name: Planemo ci_find_tools for the changed repos
+      run: |
+        touch changed_tools.list
+        if [ -s changed_repositories.list ]; then
+            planemo ci_find_tools --output changed_tools.list $(cat changed_repositories.list)
+        fi
+    - name: Show tool list
+      run: cat changed_tools.list
+    - name: Compute chunks
       id: get-chunks
       run: |
         nchunks=$(wc -l < changed_tools.list)
@@ -125,7 +130,7 @@ jobs:
     # and use it as the current working directory
     - uses: actions/checkout@v2
       with:
-        fetch-depth: 1
+        fetch-depth: 0
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
@@ -147,6 +152,8 @@ jobs:
         while read -r DIR; do
             planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive "$DIR";
         done < ../workflow_artifacts/changed_repositories.list
+    - name: Planemo ci_find_tools for the commit range
+      run: planemo ci_find_tools --changed_in_commit_range ${{ needs.setup.outputs.commit_range }} --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_tools.list
     - name: Check if each changed tool is in the list of changed repositories
       run: |
         set -e
@@ -164,7 +171,7 @@ jobs:
                 echo "Tool $TOOL not in changed repositories list: .shed.yml file missing" >&2
                 exit 1
             fi
-        done < ../workflow_artifacts/changed_tools.list
+        done < changed_tools.list
 
   # flake8 of Python scripts in the changed repositories
   flake8:
@@ -305,11 +312,11 @@ jobs:
         key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
     - name: Install Planemo
       run: pip install planemo
-    - name: Planemo ci_find_tools
+    - name: Planemo ci_find_tools for the change repos, chunked
       run: |
         touch changed_tools_chunk.list
         if [ -s ../workflow_artifacts/changed_repositories.list ]; then
-          planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_tools_chunk.list $(cat ../workflow_artifacts/changed_repositories.list)
+          planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} --output changed_tools_chunk.list $(cat ../workflow_artifacts/changed_repositories.list)
         fi
     - name: Show changed tools chunk list
       run: cat changed_tools_chunk.list
