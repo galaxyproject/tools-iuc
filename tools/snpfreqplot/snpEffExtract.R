@@ -65,7 +65,7 @@ for (i in seq_len(nrow(samples))) {
     entry <- samples[i, ];
     if (entry$exts %in% c("vcf", "vcf.gz")) {
         in_vcf <- entry$files
-        out_tsv <- tempfile(pattern=entry$ids, fileext=".tsv")
+        out_tsv <- tempfile(pattern = entry$ids, fileext = ".tsv")
         tsv_eff_from_vcf(in_vcf, out_tsv)
         ## point to the new file
         samples[i, ]$files <- out_tsv

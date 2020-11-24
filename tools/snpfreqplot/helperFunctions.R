@@ -63,7 +63,7 @@ split_table_and_process <- function(tab) {
             ## end of current group, start of new
             groups[[length(groups)]][2] <- r - 1     ## change prev end
             groups[[length(groups) + 1]] <- c(r, r)  ## set (start, end)
-        } else if (r == nlines){
+        } else if (r == nlines) {
             ## i.e. if the very last line shares
             ## the same POS ALT as the one before,
             ## close current group.
@@ -84,7 +84,7 @@ read_and_process <- function(id) {
     file <- (samples %>% filter(ids == id))$files    # nolint
     variants <- read.table(file, header = T, sep = "\t")
     uniq_ids <- split_table_and_process(variants)
-    if (nrow(variants) != nrow(uniq_ids)){
+    if (nrow(variants) != nrow(uniq_ids)) {
         stop(paste0(id, " '", file, "' failed: ", file, "\"",
                     "nrow(variants)=", nrow(variants),
                     " but nrow(uniq_ids)=", nrow(uniq_ids)))

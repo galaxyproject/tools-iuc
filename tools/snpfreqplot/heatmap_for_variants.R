@@ -4,7 +4,7 @@ suppressPackageStartupMessages(library(pheatmap))
 suppressPackageStartupMessages(library(RColorBrewer))
 suppressPackageStartupMessages(library(tidyverse))
 
-fapply <- function(vect_ids, func){
+fapply <- function(vect_ids, func) {
     #' List apply but preserve the names
     res <- lapply(vect_ids, func)
     names(res) <- vect_ids
