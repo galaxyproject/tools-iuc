@@ -129,7 +129,7 @@ def main():
         download_database(data_manager_dict, target_directory, genome_version, organism)
 
     # save info to json file
-    with open(filename, 'w'):
+    with open(filename, 'w') as fh:
         json.dump(data_manager_dict, fh, sort_keys=True)
 
 
