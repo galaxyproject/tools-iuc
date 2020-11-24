@@ -4,8 +4,19 @@ suppressPackageStartupMessages(library(pheatmap))
 suppressPackageStartupMessages(library(RColorBrewer))
 suppressPackageStartupMessages(library(tidyverse))
 
+fapply <- function(vect_ids, func){
+    #' List apply but preserve the names
+    res <- lapply(vect_ids, func)
+    names(res) <- vect_ids
+    return(res)
+}
+
+                                        # M A I N
+stopifnot(exists("samples"))
+variant_files <- fapply(samples$ids, read_and_process)  # nolint
+
 extractall_data <- function(id) {
-    variants <- read_and_process(id)  # nolint
+    variants <- variant_files[[id]]
     tmp <- variants %>%
         mutate(posalt = uni_select) %>%
         select(posalt, AF)
@@ -14,17 +25,16 @@ extractall_data <- function(id) {
 }
 
 extractall_annots <- function(id) {
-    variants <- read_and_process(id) # nolint
+    variants <- variant_files[[id]]
     tmp <- variants %>%
-        mutate(posalt = paste(POS, ALT),
+        mutate(posalt = uni_select,
                effect = EFF....EFFECT, gene = EFF....GENE) %>%
         select(posalt, effect, gene)
     return(tmp)
 }
-                                        # M A I N
-stopifnot(exists("samples"))
+
                                         # process allele frequencies
-processed_files <- lapply(samples$ids, extractall_data)
+processed_files <- fapply(samples$ids, extractall_data)
 final <- as_tibble(
     processed_files %>%
     reduce(full_join, by = "Mutation", copy = T))
@@ -39,7 +49,7 @@ class(final) <- "numeric"
 
                                         # add annotations
 ## readout annotations
-processed_annots <- lapply(samples$ids, extractall_annots)
+processed_annots <- fapply(samples$ids, extractall_annots)
 ann_final <- processed_annots %>%
     reduce(function(x, y) {
         unique(rbind(x, y))}) %>%
