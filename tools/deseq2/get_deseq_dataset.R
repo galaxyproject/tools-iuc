@@ -61,12 +61,12 @@ get_deseq_dataset <- function(sample_table, header, design_formula, tximport, tx
         k <- keys(txdb, keytype = "TXNAME")
         tx2gene <- select(txdb, keys = k, columns = "GENEID", keytype = "TXNAME")
         # Remove 'transcript:' from transcript IDs (when gff_file is a GFF3 from Ensembl and the transcript does not have a Name)
-        tx2gene$TXNAME <- sub("^transcript:", "", tx2gene$TXNAME)
+        tx2gene$TXNAME <- sub("^transcript:", "", tx2gene$TXNAME)  # nolint
       }
       try(txi <- tximport(txi_files, type = txtype, tx2gene = tx2gene))
       if (!exists("txi")) {
         # Remove version from transcript IDs in tx2gene...
-        tx2gene$TXNAME <- sub("\\.[0-9]+$", "", tx2gene$TXNAME)
+        tx2gene$TXNAME <- sub("\\.[0-9]+$", "", tx2gene$TXNAME)  # nolint
         # ...and in txi_files
         txi <- tximport(txi_files, type = txtype, tx2gene = tx2gene, ignoreTxVersion = TRUE)
       }

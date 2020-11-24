@@ -341,7 +341,7 @@ if (is.null(opt$many_contrasts)) {
   }
   res_sorted <- res[order(res$padj), ]
   out_df <- as.data.frame(res_sorted)
-  out_df$geneID <- rownames(out_df)
+  out_df$geneID <- rownames(out_df)  # nolint
   out_df <- out_df[, c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")]
   filename <- opt$outfile
   write.table(out_df, file = filename, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
@@ -370,7 +370,7 @@ if (is.null(opt$many_contrasts)) {
       )
       res_sorted <- res[order(res$padj), ]
       out_df <- as.data.frame(res_sorted)
-      out_df$geneID <- rownames(out_df)
+      out_df$geneID <- rownames(out_df)  # nolint
       out_df <- out_df[, c("geneID", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj")]
       filename <- paste0(primary_factor, "_", lvl, "_vs_", ref)
       write.table(out_df, file = filename, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
