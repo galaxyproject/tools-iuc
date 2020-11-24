@@ -39,7 +39,7 @@ difference_in_group <- function(lines) {
         }
     }
     uni_select <- c("POS", "ALT", diff.colnames)
-    return(lines[, uni_select] %>% unite(uni_select, sep = " "))
+    return(lines[, uni_select] %>% unite(uni_select, sep = " ")) # nolint
 }
 
 split_table_and_process <- function(tab) {
@@ -51,7 +51,7 @@ split_table_and_process <- function(tab) {
     #'
     #' This function is necessary because tidyr is difficult
     #' to write custom group binding functions.
-    posalts <- tab %>% group_by(POS, ALT) %>% select(POS, ALT)
+    posalts <- tab %>% group_by(POS, ALT) %>% select(POS, ALT) # nolint
     groups <- list()
     groups[[1]] <- c(1, 1)
     last_pa <- paste(posalts[1, ])
@@ -72,10 +72,10 @@ split_table_and_process <- function(tab) {
 }
 
 read_and_process <- function(id) {
-    file <- (samples %>% filter(ids == id))$files
+    file <- (samples %>% filter(ids == id))$files    # nolint
     variants <- read.table(file, header = T, sep = "\t")
     uniq_ids <- split_table_and_process(variants)
     stopifnot(nrow(variants) == nrow(uniq_ids))
-    variants <- as_tibble(cbind(variants, uniq_ids))
+    variants <- as_tibble(cbind(variants, uniq_ids)) # nolint
     return(variants)
 }
