@@ -43,7 +43,8 @@ jobs:
       run: pip install wheel
     - name: Install Planemo
       run: pip install planemo
-    - name: Fake a planemo run to update cache
+    - name: Fake a Planemo run to update cache
+      if: steps.cache-pip.outputs.cache-hit != 'true'
       run: |
         touch tool.xml
         PIP_QUIET=1 planemo test --galaxy_python_version ${{ matrix.python-version }} --no_conda_auto_init --galaxy_branch $GALAXY_RELEASE
@@ -53,7 +54,7 @@ jobs:
     - name: Get approximate number of tools and compute number of chunks
       id: get-chunks
       run: |
-        nchunks=$(find tools/ tool_collections/ data_managers/ -iname '*xml' | grep -v macro | wc -l)
+        nchunks=$(find data_managers/ tools/ tool_collections/ -iname '*.xml' | grep -v 'data_manager_conf.xml\|macro\|repository_dependencies.xml\|test-data/\|tool_dependencies.xml' | wc -l)
         if [ "$nchunks" -gt "$MAX_CHUNKS" ]; then
             nchunks=$MAX_CHUNKS
         elif [ "$nchunks" -eq 0 ]; then
@@ -61,6 +62,10 @@ jobs:
         fi
         echo "::set-output name=nchunks::$nchunks"
         echo "::set-output name=chunk_list::[$(seq -s ", " 0 $(($nchunks - 1)))]"
+    - name: Show chunks
+      run: |
+        echo 'Using ${{ steps.get-chunks.outputs.nchunks }} chunks (${{ steps.get-chunks.outputs.chunk_list }})'
+
   test:
     name: Test tools
     # This job runs on Linux
@@ -97,23 +102,23 @@ jobs:
         key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
     - name: Install Planemo
       run: pip install planemo
-    - name: Planemo ci_find_tools
+    - name: Planemo ci_find_tools, chunked
       run: planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk  }} --exclude test_repositories --exclude packages --exclude deprecated --exclude_from .tt_skip --exclude_from .tt_biocontainer_skip --group_tools --output tool.list
-    - name: Show repo list
+    - name: Show tools chunk list
       run: cat tool.list
     - name: Planemo test tools
       run: |
-           mkdir json_output/
-           while read -r TOOLS; do
-               if grep -qf .tt_biocontainer_skip <(echo $TOOLS); then
-                   PLANEMO_OPTIONS=""
-               else
-                   PLANEMO_OPTIONS="--biocontainers --no_dependency_resolution --no_conda_auto_init"
-               fi
-               json=$(mktemp -u -p json_output --suff .json)
-               PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_branch $GALAXY_RELEASE  --galaxy_python_version ${{ matrix.python-version }} --test_output_json $json $TOOLS || true
-               docker system prune --all --force --volumes || true
-           done < tool.list
+        mkdir json_output
+        while read -r TOOL; do
+            if grep -q "$TOOL" .tt_biocontainer_skip; then
+                PLANEMO_OPTIONS=""
+            else
+                PLANEMO_OPTIONS="--biocontainers --no_dependency_resolution --no_conda_auto_init"
+            fi
+            json=$(mktemp -u -p json_output --suff .json)
+            PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$json" "$TOOL" || true
+            docker system prune --all --force --volumes || true
+        done < tool.list
     - name: Merge tool_test_output.json files
       run: planemo merge_test_reports json_output/*.json tool_test_output.json
     - name: Create tool_test_output.html
@@ -122,7 +127,7 @@ jobs:
       run: |
         mkdir upload
         mv tool_test_output.json tool_test_output.html upload/
-    - uses: actions/upload-artifact@v2.0.1
+    - uses: actions/upload-artifact@v2
       with:
         name: 'Tool test output ${{ matrix.chunk  }}'
         path: upload
@@ -142,19 +147,25 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Cache .cache/pip
+      uses: actions/cache@v2
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_${{ matrix.python-version }}_${{ env.GALAXY_RELEASE }}
     - name: Install Planemo
       run: pip install planemo
     - name: Install jq
       run: sudo apt-get install jq
     - name: Combine outputs
-      run: find artifacts -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
+      run: find artifacts/ -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
     - name: Create tool_test_output.html
       run: planemo test_reports tool_test_output.json --test_output tool_test_output.html
     - name: Copy artifacts into place
       run: |
         mkdir upload
         mv tool_test_output.json tool_test_output.html upload/
-    - uses: actions/upload-artifact@v2.0.1
+    - uses: actions/upload-artifact@v2
       with:
         name: 'All tool test results'
         path: upload
