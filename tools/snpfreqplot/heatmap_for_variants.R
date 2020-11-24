@@ -5,15 +5,15 @@ suppressPackageStartupMessages(library(RColorBrewer))
 suppressPackageStartupMessages(library(tidyverse))
 
 extractAll_data <- function(id){
-    variants = readAndProcess(id)
-    tmp = variants %>% mutate(posalt=uni.select) %>%
+    variants = read_and_process(id)
+    tmp = variants %>% mutate(posalt = uni_select) %>%
         select(posalt, AF)
     colnames(tmp) <- c("Mutation", id)
     return(tmp)
 }
 
 extractAll_annots <- function(id){
-    variants = readAndProcess(id)
+    variants = read_and_process(id)
     tmp <- variants %>%
         mutate(posalt=paste(POS,ALT),
                effect=EFF....EFFECT, gene=EFF....GENE) %>%
@@ -39,9 +39,9 @@ class(final) <- "numeric"
                                         # add annotations
 processed.annots <-lapply(samples$ids, extractAll_annots)   ## readout annotations
 ann_final <- processed.annots %>%
-    reduce(function(x,y){unique(rbind(x,y))}) %>%
+    reduce(function(x,y){unique(rbind(x, y))}) %>%
     filter(posalt %in% colnames(final))                     ## apply frequency filter
-ann_final <- as_tibble(ann_final[str_order(ann_final$posalt, numeric = T),]) %>%
+ann_final <- as_tibble(ann_final[str_order(ann_final$posalt, numeric = T), ]) %>%
     column_to_rownames("posalt")                            ## sort
 
                                         # rename annotations
@@ -59,14 +59,14 @@ ann_final$effect[ann_final$effect=="CODON_CHANGE_PLUS_CODON_INSERTION"] <- "inse
 ann_final$effect[ann_final$effect=="INSERTION"] <- "insertion"
 
                                         # automatically determine gaps for the heatmap
-gap_vector <- which(!(ann_final$gene[1:length(ann_final$gene)-1] ==
+gap_vector <- which(!(ann_final$gene[1:length(ann_final$gene) - 1] ==
                       ann_final$gene[2:length(ann_final$gene)]))
 
                                         # colormanagement
-my_colors <- colorRampPalette(c("grey93","brown","black"))  #colormangment heatmap
-count <- length(unique(ann_final$gene))                     #colormanagement annotations (genes)
+my_colors <- colorRampPalette(c("grey93", "brown", "black"))  #colormangment heatmap
+count <- length(unique(ann_final$gene))                       #colormanagement annotations (genes)
 gene_color <- c(brewer.pal(brewer.color_gene_annotation, n=count))
-names(gene_color) = unique(ann_final$gene)
+names(gene_color) <- unique(ann_final$gene)
 
                                         # colormanagement annotations (effect)
 colors <- c()
@@ -107,7 +107,7 @@ names(color_list) <- c("gene", "effect")
 ##   a new output file with that extension, and move to the
 ##   the galaxy output dat file.
 
-out.tmpfile = tempfile(fileext=paste0(".", tolower(out.type)))
+out.tmpfile = tempfile(fileext = paste0(".", tolower(out.type)))
 
 pheatmap(final,
          color = my_colors(100),
@@ -122,4 +122,4 @@ pheatmap(final,
          filename = out.tmpfile,
          gaps_col = gap_vector)
 
-file.rename(from=out.tmpfile, to=out.file)
+file.rename(from = out.tmpfile, to = out.file)
