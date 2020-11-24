@@ -4,20 +4,20 @@ suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(tidyverse))
 
 tsv_eff_from_vcf <- function(input_vcf, output_tab) {
-    read_vcf <- readVcf(input_vcf)
+    read_vcf <- readVcf(input_vcf)  # nolint
     chrom_pos <- data.frame(read_vcf@rowRanges)[, c("seqnames", "start")]
     ref_alt_filter <- read_vcf@fixed[, c("REF", "ALT", "FILTER")]
     dp_af <- read_vcf@info[c("DP", "AF")]
 
     ## Unwrap the DNAStringList
-    # Begin Exclude Linting
+    # nolint start
     ref_alt_filter <- data.frame(
         REF = as.character(ref_alt_filter$REF),
         ALT = sapply(seq_len(nrow(ref_alt_filter)), function(i) {
             as.character(ref_alt_filter$ALT[[i]])
         }),
         FILTER = as.character(ref_alt_filter$FILTER))
-    # End Exclude Linting
+    # nolint end
     ##
     ## Don't unwrap EFF yet, we need to preserve rows
     eff <- read_vcf@info["EFF"]
@@ -28,8 +28,8 @@ tsv_eff_from_vcf <- function(input_vcf, output_tab) {
 
     ## EFF data contains nested constructs we need to unify all
     ## data sources first, and then explode the EFF column.
-    united <- as_tibble(cbind(chrom_pos, ref_alt_filter, dp_af, eff))
-    united_exploderows <- unnest(united, cols = c(EFF))
+    united <- as_tibble(cbind(chrom_pos, ref_alt_filter, dp_af, eff)) # nolint
+    united_exploderows <- unnest(united, cols = c(EFF)) # nolint
 
     united_exploderows <- united_exploderows %>%
         dplyr::mutate(CHROM = seqnames, POS = start) %>%
