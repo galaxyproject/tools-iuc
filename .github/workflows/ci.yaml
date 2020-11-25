@@ -15,6 +15,9 @@ jobs:
     if: github.repository_owner == 'galaxyproject'
     runs-on: ubuntu-latest
     outputs:
+      branch: ${{ steps.get-fork-branch.outputs.branch }}
+      fork: ${{ steps.get-fork-branch.outputs.fork }}
+      galaxy_head_sha: ${{ steps.get-galaxy-sha.outputs.galaxy_head_sha }}
       nchunks: ${{ steps.get-chunks.outputs.nchunks }}
       chunk_list: ${{ steps.get-chunks.outputs.chunk_list }}
     strategy:
@@ -30,13 +33,15 @@ jobs:
         comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
         reaction-type: hooray
     - name: Set galaxy fork and branch
+      id: get-fork-branch
       run: |
         TMP="${{ github.event.client_payload.slash_command.args.named.fork }}"
-        echo "FORK=${TMP:-$GALAXY_FORK}" >> $GITHUB_ENV
+        echo "::set-output name=fork::${TMP:-$GALAXY_FORK}"
         TMP="${{ github.event.client_payload.slash_command.args.named.branch }}"
-        echo "BRANCH=${TMP:-$GALAXY_RELEASE}" >> $GITHUB_ENV
+        echo "::set-output name=branch::${TMP:-$GALAXY_RELEASE}"
     - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(git ls-remote https://github.com/$FORK/galaxy refs/heads/$BRANCH | cut -f1)" >> $GITHUB_ENV
+      id: get-galaxy-sha
+      run: echo "::set-output name=galaxy_head_sha::$(git ls-remote https://github.com/${{ steps.get-fork-branch.outputs.fork }}/galaxy refs/heads/${{ steps.get-fork-branch.outputs.branch }} | cut -f1)"
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
@@ -45,7 +50,7 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_gxy_${{ env.GALAXY_HEAD_SHA }}
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy_head_sha }}
     # Install the `wheel` package so that when installing other packages which
     # are not available as wheels, pip will build a wheel for them, which can be cached.
     - name: Install wheel
@@ -56,7 +61,7 @@ jobs:
       if: steps.cache-pip.outputs.cache-hit != 'true'
       run: |
         touch tool.xml
-        PIP_QUIET=1 planemo test --galaxy_python_version ${{ matrix.python-version }} --no_conda_auto_init --galaxy_source 'https://github.com/'"$FORK"'/galaxy' --galaxy_branch "$BRANCH" --galaxy_python_version ${{ matrix.python-version }}
+        PIP_QUIET=1 planemo test --galaxy_python_version ${{ matrix.python-version }} --no_conda_auto_init --galaxy_source 'https://github.com/${{ steps.get-fork-branch.outputs.fork }}/galaxy' --galaxy_branch "${{ steps.get-fork-branch.outputs.branch }}" --galaxy_python_version ${{ matrix.python-version }}
     - uses: actions/checkout@v2
       with:
         fetch-depth: 1
@@ -95,14 +100,6 @@ jobs:
         ports:
           - 5432:5432
     steps:
-    - name: Set galaxy fork and branch
-      run: |
-        TMP="${{ github.event.client_payload.slash_command.args.named.fork }}"
-        echo "FORK=${TMP:-$GALAXY_FORK}" >> $GITHUB_ENV
-        TMP="${{ github.event.client_payload.slash_command.args.named.branch }}"
-        echo "BRANCH=${TMP:-$GALAXY_RELEASE}" >> $GITHUB_ENV
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(git ls-remote https://github.com/$FORK/galaxy refs/heads/$BRANCH | cut -f1)" >> $GITHUB_ENV
     # checkout the repository
     # and use it as the current working directory
     - uses: actions/checkout@v2
@@ -116,7 +113,7 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_gxy_${{ env.GALAXY_HEAD_SHA }}
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
     - name: Install Planemo
       run: pip install planemo
     - name: Planemo ci_find_tools, chunked
@@ -134,7 +131,7 @@ jobs:
                 PLANEMO_OPTIONS="--biocontainers --no_dependency_resolution --no_conda_auto_init"
             fi
             json=$(mktemp -u -p json_output --suff .json)
-            PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source "https://github.com/$FORK/galaxy" --galaxy_branch $BRANCH --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$json" "$TOOL" || true
+            PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source "https://github.com/${{ needs.setup.outputs.fork }}/galaxy" --galaxy_branch "${{ needs.setup.outputs.branch }}" --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$json" "$TOOL" || true
             docker system prune --all --force --volumes || true
         done < tool.list
     - name: Merge tool_test_output.json files
@@ -170,7 +167,7 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_${{ matrix.python-version }}_gxy_${{ env.GALAXY_HEAD_SHA }}
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
     - name: Install Planemo
       run: pip install planemo
     - name: Install jq
