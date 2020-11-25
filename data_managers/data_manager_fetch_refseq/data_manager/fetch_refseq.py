@@ -141,7 +141,8 @@ if __name__ == '__main__':
     division_names = args.division_names.split(',')
     mol_types = args.mol_types.split(',')
     if args.galaxy_datamanager_filename is not None:
-        dm_opts = json.loads(open(args.galaxy_datamanager_filename).read())
+        with open(args.galaxy_datamanager_filename) as fh:
+            dm_opts = json.load(fh)
         output_directory = dm_opts['output_data'][0]['extra_files_path']  # take the extra_files_path of the first output parameter
         data_manager_dict = {}
     else:
@@ -162,4 +163,5 @@ if __name__ == '__main__':
                 _add_data_table_entry(data_manager_dict=data_manager_dict,
                                       data_table_entry=dict(value=unique_key, dbkey=dbkey, name=desc, path=path),
                                       data_table_name='all_fasta')
-            open(args.galaxy_datamanager_filename, 'w').write(json.dumps(data_manager_dict, sort_keys=True))
+            with open(args.galaxy_datamanager_filename, 'w') as fh:
+                json.dump(data_manager_dict, fh, sort_keys=True)

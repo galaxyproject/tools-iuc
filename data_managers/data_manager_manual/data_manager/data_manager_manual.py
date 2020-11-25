@@ -162,14 +162,14 @@ def main():
     filename = args[0]
 
     with open(filename) as fh:
-        params = json.loads(fh.read())
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
 
     data_table_entries = get_data_table_entries(params['param_dict'], options.galaxy_data_manager_data_path)
 
     # save info to json file
     with open(filename, 'w') as fh:
-        fh.write(json.dumps({"data_tables": data_table_entries}, sort_keys=True))
+        json.dump({"data_tables": data_table_entries}, fh, sort_keys=True)
 
     get_file_content(params['param_dict'], target_directory)
 
