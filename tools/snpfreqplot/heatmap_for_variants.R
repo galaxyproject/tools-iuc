@@ -124,7 +124,8 @@ names(color_list) <- c("gene", "effect")
 ##   a new output file with that extension, and move to the
 ##   the galaxy output dat file.
 
-out_tmpfile <- tempfile(fileext = paste0(".", tolower(out_type)))
+ext <- tolower(out_type)
+out_tmpfile <- paste0("output.", ext)
 
 pheatmap(final,
          color = my_colors(100),
