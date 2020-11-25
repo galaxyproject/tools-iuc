@@ -139,5 +139,3 @@ pheatmap(final,
          annotation_colors = color_list,
          filename = out_tmpfile,
          gaps_col = gap_vector)
-
-file.rename(from = out_tmpfile, to = out_file)
