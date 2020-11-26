@@ -3,9 +3,9 @@ options(show.error.messages = F, error = function() {
 })
 
 suppressPackageStartupMessages({
+  library(EGSEA)
   library(optparse)
   library(jsonlite)
-  library(EGSEA)
 })
 
 option_list <- list(
