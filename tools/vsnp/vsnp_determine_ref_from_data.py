@@ -209,6 +209,13 @@ def get_species_strings_for_collection(task_queue, finished_queue, timeout):
         task_queue.task_done()
 
 
+def handle_processes(processes):
+    for p in processes:
+        p.start()
+    for p in processes:
+        p.join()
+
+
 def output_dbkey(file_name, dbkey, output_file=None):
     # Output the dbkey.
     if output_file is None:
@@ -319,35 +326,19 @@ if __name__ == '__main__':
             queue1.put(fastq_file)
 
         # Complete the get_species_counts task.
-        processes = [multiprocessing.Process(target=get_species_counts_for_collection, args=(queue1, queue2, args.gzipped, timeout, )) for _ in range(cpus)]
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
+        handle_processes([multiprocessing.Process(target=get_species_counts_for_collection, args=(queue1, queue2, args.gzipped, timeout, )) for _ in range(cpus)])
         queue1.join()
 
         # Complete the get_species_strings task.
-        processes = [multiprocessing.Process(target=get_species_strings_for_collection, args=(queue2, queue1, timeout, )) for _ in range(cpus)]
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
+        handle_processes([multiprocessing.Process(target=get_species_strings_for_collection, args=(queue2, queue1, timeout, )) for _ in range(cpus)])
         queue2.join()
 
         # Complete the get_group_and_dbkey task.
-        processes = [multiprocessing.Process(target=get_group_and_dbkey_for_collection, args=(queue1, queue2, dnaprints_dict, timeout, )) for _ in range(cpus)]
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
+        handle_processes([multiprocessing.Process(target=get_group_and_dbkey_for_collection, args=(queue1, queue2, dnaprints_dict, timeout, )) for _ in range(cpus)])
         queue1.join()
 
         # Complete the output_files task.
-        processes = [multiprocessing.Process(target=output_files_for_collection, args=(queue2, timeout, )) for _ in range(cpus)]
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
+        handle_processes([multiprocessing.Process(target=output_files_for_collection, args=(queue2, timeout, )) for _ in range(cpus)])
         queue2.join()
 
         if queue1.empty() and queue2.empty():
