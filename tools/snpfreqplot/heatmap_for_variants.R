@@ -118,13 +118,15 @@ names(color_list) <- c("gene", "effect")
                  pheat_number_of_clusters))
 }
 
-get_plot_dims <- function(heat_map){
-  # get the dimensions of a pheatmap object
-  # useful for plot formats that can't be written to a file directly, but
-  # for which we need to set up a plotting device
-  # source: https://stackoverflow.com/a/61876386
-  plot_height <- sum(sapply(heat_map$gtable$heights, grid::convertHeight, "in"))
-  plot_width  <- sum(sapply(heat_map$gtable$widths, grid::convertWidth, "in"))
+get_plot_dims <- function(heat_map) {
+    ## get the dimensions of a pheatmap object
+    ## useful for plot formats that can't be written to a file directly, but
+    ## for which we need to set up a plotting device
+    ## source: https://stackoverflow.com/a/61876386
+    plot_height <- sum(sapply(heat_map$gtable$heights,
+                              grid::convertHeight, "in"))
+    plot_width  <- sum(sapply(heat_map$gtable$widths,
+                              grid::convertWidth, "in"))
   return(list(height = plot_height, width = plot_width))
 }
 
@@ -134,51 +136,49 @@ height <- round(max(c(max(c(
     nrow(final), 15)))
 width <- round(ratio * height)
 
-if (endsWith(out_file, '.svg')){
-    # SVG is not a format pheatmap knows how to write to a file directly.
-    # As a workaround we
-    # 1. create the plot object
-    # 2. get its dimensions
-    # 3. set up a svg plotting device with these dimensions
-    # 4. print the heatmap object to the device
-    hm <- pheatmap(
-        final,
-        color = my_colors(100),
-        cellwidth = width,
-        cellheight = height,
-        fontsize_col = round(1 / 3 * width),
-        fontsize_row = round(1 / 3 * min(c(height, width))),
-        clustering_method = pheat_clustering_method,
-        cluster_rows = pheat_clustering,
-        cluster_cols = F,
-        cutree_rows = pheat_number_of_clusters,
-        annotation_col = ann_final,
-        annotation_colors = color_list,
-        gaps_col = gap_vector
-    )
-    plot_dims = get_plot_dims(hm)
-    svg(
-        out_file,
-        width = plot_dims$width,
-        height = plot_dims$height
-    )
+
+if (!(out_ext %in% c("svg", "jpeg", "png", "pdf"))) {
+    stop("Unknown extension: ", ext, ", aborting.")
+}
+plot_device <- get(out_ext)
+
+
+## A constant scaling factor based on the calculated dimensions
+## above does not work for PNG, so we resort to feeding pheatmap
+## with a direct filename
+plot_filename <- NA
+if (out_ext %in% c("jpeg", "png")) {
+    plot_filename <- out_file
+}
+
+## SVG is not a format pheatmap knows how to write to a file directly.
+## As a workaround we
+## 1. create the plot object
+## 2. get its dimensions
+## 3. set up a svg plotting device with these dimensions
+## 4. print the heatmap object to the device
+hm <- pheatmap(
+    final,
+    color = my_colors(100),
+    cellwidth = width,
+    cellheight = height,
+    fontsize_col = round(1 / 3 * width),
+    fontsize_row = round(1 / 3 * min(c(height, width))),
+    clustering_method = pheat_clustering_method,
+    cluster_rows = pheat_clustering,
+    cluster_cols = F,
+    cutree_rows = pheat_number_of_clusters,
+    annotation_col = ann_final,
+    annotation_colors = color_list,
+    filename = plot_filename,
+    gaps_col = gap_vector
+)
+
+if (out_ext %in% c("pdf", "svg")) {
+    plot_dims <- get_plot_dims(hm)
+    plot_device(out_file,
+                width = plot_dims$width,
+                height = plot_dims$height)
     print(hm)
     dev.off()
-} else {
-    pheatmap(
-        final,
-        color = my_colors(100),
-        cellwidth = width,
-        cellheight = height,
-        fontsize_col = round(1 / 3 * width),
-        fontsize_row = round(1 / 3 * min(c(height, width))),
-        clustering_method = pheat_clustering_method,
-        cluster_rows = pheat_clustering,
-        cluster_cols = F,
-        cutree_rows = pheat_number_of_clusters,
-        annotation_col = ann_final,
-        annotation_colors = color_list,
-        filename = out_file,
-        gaps_col = gap_vector
-    )
 }
