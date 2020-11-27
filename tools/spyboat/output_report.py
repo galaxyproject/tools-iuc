@@ -15,7 +15,6 @@ DPI = 250
 
 
 def produce_snapshots(input_movie, results, frame, Wkwargs, img_path="."):
-
     """
     Takes the *input_movie* and the *results* dictionary
     from spyboat.processing.run_parallel and produces phase,
@@ -63,7 +62,6 @@ def produce_snapshots(input_movie, results, frame, Wkwargs, img_path="."):
 
 
 def produce_distr_plots(results, Wkwargs, img_path="."):
-
     """
     Output file names are:
 
@@ -72,24 +70,23 @@ def produce_distr_plots(results, Wkwargs, img_path="."):
 
     spyplot.period_distr_dynamics(results["period"], Wkwargs)
     fig = ppl.gcf()
-    out_path = os.path.join(img_path, f"period_distr.png")
+    out_path = os.path.join(img_path, "period_distr.png")
     fig.savefig(out_path, dpi=DPI)
 
     spyplot.power_distr_dynamics(results["power"], Wkwargs)
     fig = ppl.gcf()
-    out_path = os.path.join(img_path, f"power_distr.png")
+    out_path = os.path.join(img_path, "power_distr.png")
     fig.savefig(out_path, dpi=DPI)
 
     spyplot.phase_coherence_dynamics(results["phase"], Wkwargs)
     fig = ppl.gcf()
-    out_path = os.path.join(img_path, f"phase_distr.png")
+    out_path = os.path.join(img_path, "phase_distr.png")
     fig.savefig(out_path, dpi=DPI)
 
-    logger.info(f"Produced 3 distribution plots..")
+    logger.info("Produced 3 distribution plots..")
 
 
 def create_html(frame_nums, html_fname="OutputReport.html"):
-
     """
     The html generated assumes the respective png's
     have been created with 'produce_snapshots' and 'produce_distr_plots'
@@ -247,12 +244,10 @@ def create_html(frame_nums, html_fname="OutputReport.html"):
     """
 
     with open(html_fname, "w") as OUT:
-
         OUT.write(html_string)
 
     logger.info("Created html report")
     return html_string
-
 
 # for local testing
 # create_html([0,20,40,60,80])
