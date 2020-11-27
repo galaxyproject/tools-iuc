@@ -118,16 +118,18 @@ names(color_list) <- c("gene", "effect")
                  pheat_number_of_clusters))
 }
 
-## image trickery needed here:
-## - the heatmap file type is determined by the extension, but
-##   galaxy only serves .dat files, so we need to create a
-##   a new output file with that extension, and move to the
-##   the galaxy output dat file.
+height <- round(max(c(max(c(
+    16*(length(unique(ann_final$effect)) +
+        length(unique(ann_final$gene))), 160)) /
+    nrow(final), 15)))
+width <- round(ratio * height)
 
 pheatmap(final,
          color = my_colors(100),
-         cellwidth = cell_width,
-         cellheight = cell_height,
+         cellwidth = width,
+         cellheight = height,
+         fontsize_col = round(1/3 * height),
+         fontsize_row = round(1/3 * min(c(height, width))),
          clustering_method = pheat_clustering_method,
          cluster_rows = pheat_clustering,
          cluster_cols = F,
