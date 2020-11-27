@@ -16,6 +16,8 @@ jobs:
     name: Setup cache and determine changed repositories
     runs-on: ubuntu-latest
     outputs:
+      galaxy_head_sha: ${{ steps.get-galaxy-sha.outputs.galaxy_head_sha }}
+      commit_range: ${{ steps.get-commit-range.outputs.commit_range }}
       nchunks: ${{ steps.get-chunks.outputs.nchunks }}
       chunk_list: ${{ steps.get-chunks.outputs.chunk_list }}
     strategy:
@@ -34,26 +36,21 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(git ls-remote ${{ env.GALAXY_REPO }} refs/heads/${{ env.GALAXY_RELEASE }} | cut -f1)" >> $GITHUB_ENV
-    - name: Save latest galaxy commit to artifact file
-      run: echo $GALAXY_HEAD_SHA > galaxy.sha
-    - uses: actions/upload-artifact@v2
-      with:
-        name: Workflow artifacts
-        path: galaxy.sha
+    - name: Determine latest commit in the Galaxy repo
+      id: get-galaxy-sha
+      run: echo "::set-output name=galaxy_head_sha::$(git ls-remote ${{ env.GALAXY_REPO }} refs/heads/${{ env.GALAXY_RELEASE }} | cut -f1)"
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy_head_sha }}
     - name: Cache .planemo
       uses: actions/cache@v2
       id: cache-planemo
       with:
         path: ~/.planemo
-        key: planemo_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy_head_sha }}
     # Install the `wheel` package so that when installing other packages which
     # are not available as wheels, pip will build a wheel for them, which can be cached.
     - name: Install wheel
@@ -86,24 +83,38 @@ jobs:
     - name: Set commit range (pull request)
       if: github.event_name == 'pull_request'
       run: echo "COMMIT_RANGE=HEAD~.." >> $GITHUB_ENV
+    - id: get-commit-range
+      run: echo "::set-output name=commit_range::$COMMIT_RANGE"
     - name: Planemo ci_find_repos
       run: planemo ci_find_repos --changed_in_commit_range $COMMIT_RANGE --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_repositories.list
     - name: Show repo list
       run: cat changed_repositories.list
-    - uses: actions/upload-artifact@v2.0.1
+    - uses: actions/upload-artifact@v2
       with:
         name: Workflow artifacts
         path: changed_repositories.list
-    - name: Get number of changed tools and compute number of chunks
+    - name: Planemo ci_find_tools for the changed repos
+      run: |
+        touch changed_tools.list
+        if [ -s changed_repositories.list ]; then
+            planemo ci_find_tools --output changed_tools.list $(cat changed_repositories.list)
+        fi
+    - name: Show tool list
+      run: cat changed_tools.list
+    - name: Compute chunks
       id: get-chunks
       run: |
-        planemo ci_find_tools --output changed_tools.list $(cat changed_repositories.list)
         nchunks=$(wc -l < changed_tools.list)
         if [ "$nchunks" -gt "$MAX_CHUNKS" ]; then
             nchunks=$MAX_CHUNKS
+        elif [ "$nchunks" -eq 0 ]; then
+            nchunks=1
         fi
         echo "::set-output name=nchunks::$nchunks"
-        echo "::set-output name=chunk_list::'['$(seq -s ", " 0 $(($nchunks - 1)))']'"
+        echo "::set-output name=chunk_list::[$(seq -s ", " 0 $(($nchunks - 1)))]"
+    - name: Show chunks
+      run: |
+        echo 'Using ${{ steps.get-chunks.outputs.nchunks }} chunks (${{ steps.get-chunks.outputs.chunk_list }})'
 
   # Planemo lint the changed repositories
   lint:
@@ -119,7 +130,7 @@ jobs:
     # and use it as the current working directory
     - uses: actions/checkout@v2
       with:
-        fetch-depth: 1
+        fetch-depth: 0
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
@@ -127,14 +138,12 @@ jobs:
       with:
         name: Workflow artifacts
         path: ../workflow_artifacts/
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(cat ../workflow_artifacts/galaxy.sha)" >> $GITHUB_ENV
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
     - name: Install Planemo
       run: pip install planemo
     - name: Planemo lint
@@ -143,6 +152,18 @@ jobs:
         while read -r DIR; do
             planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive "$DIR";
         done < ../workflow_artifacts/changed_repositories.list
+    - name: Planemo ci_find_tools for the commit range
+      run: planemo ci_find_tools --changed_in_commit_range ${{ needs.setup.outputs.commit_range }} --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_tools.list
+    - name: Check if each changed tool is in the list of changed repositories
+      run: |
+        set -e
+        while read -r TOOL; do
+            # Check if any changed repo dir is a substring of $TOOL
+            if ! echo $TOOL | grep -qf ../workflow_artifacts/changed_repositories.list; then
+                echo "Tool $TOOL not in changed repositories list: .shed.yml file missing" >&2
+                exit 1
+            fi
+        done < changed_tools.list
 
   # flake8 of Python scripts in the changed repositories
   flake8:
@@ -166,14 +187,12 @@ jobs:
       with:
         name: Workflow artifacts
         path: ../workflow_artifacts/
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(cat ../workflow_artifacts/galaxy.sha)" >> $GITHUB_ENV
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
     - name: Install flake8
       run: pip install flake8 flake8-import-order
     - name: Flake8
@@ -217,7 +236,7 @@ jobs:
     - name: lintr
       run: |
         library(lintr)
-        linters <- with_defaults(line_length_linter = NULL)
+        linters <- with_defaults(line_length_linter = NULL, object_usage_linter = NULL)
         con <- file("../workflow_artifacts/changed_repositories.list", "r")
         status <- 0
         while (TRUE) {
@@ -271,70 +290,54 @@ jobs:
       with:
         name: Workflow artifacts
         path: ../workflow_artifacts/
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(cat ../workflow_artifacts/galaxy.sha)" >> $GITHUB_ENV
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
     - name: Cache .planemo
       uses: actions/cache@v2
       id: cache-planemo
       with:
         path: ~/.planemo
-        key: planemo_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
     - name: Install Planemo
       run: pip install planemo
-    - name: Planemo ci_find_tools
+    - name: Planemo ci_find_tools for the change repos, chunked
       run: |
-        touch changed_repositories_chunk.list changed_tools_chunk.list
+        touch changed_tools_chunk.list
         if [ -s ../workflow_artifacts/changed_repositories.list ]; then
-            if [ $(wc -l < ../workflow_artifacts/changed_repositories.list) -eq 1 ]; then
-                planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} \
-                               --output changed_tools_chunk.list \
-                               $(cat ../workflow_artifacts/changed_repositories.list)
-            else
-                planemo ci_find_repos --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} \
-                               --output changed_repositories_chunk.list \
-                               $(cat ../workflow_artifacts/changed_repositories.list)
-            fi
+          planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} --group_tools --output changed_tools_chunk.list $(cat ../workflow_artifacts/changed_repositories.list)
         fi
-    - name: Show changed tools/repositories chunk list
-      run: cat changed_tools_chunk.list changed_repositories_chunk.list
+    - name: Show changed tools chunk list
+      run: cat changed_tools_chunk.list
     - name: Planemo test tools
       run: |
-        if grep -lqf .tt_biocontainer_skip changed_tools_chunk.list changed_repositories_chunk.list; then
+        mkdir json_output
+        while read -r TOOL_GROUP; do
+            # Check if any of the lines in .tt_biocontainer_skip is a substring of $TOOL_GROUP
+            if echo $TOOL_GROUP | grep -qf .tt_biocontainer_skip; then
                 PLANEMO_OPTIONS=""
-        else
+            else
                 PLANEMO_OPTIONS="--biocontainers --no_dependency_resolution --no_conda_auto_init"
-        fi
-        if [ -s changed_tools_chunk.list ]; then
-            PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json tool_test_output.json $(cat changed_tools_chunk.list) || true
+            fi
+            json=$(mktemp -u -p json_output --suff .json)
+            PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$json" $TOOL_GROUP || true
             docker system prune --all --force --volumes || true
-        elif [ -s changed_repositories_chunk.list ]; then
-            while read -r DIR; do
-                if [[ "$DIR" =~ ^data_managers.* ]]; then
-                    TESTPATH=$(planemo ci_find_tools "$DIR")
-                else
-                    TESTPATH="$DIR"
-                fi
-                PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$DIR"/tool_test_output.json "$TESTPATH" || true
-                docker system prune --all --force --volumes || true
-            done < changed_repositories_chunk.list
-        else
-            echo '{"tests":[]}' > tool_test_output.json
+        done < changed_tools_chunk.list
+        if [ ! -s changed_tools_chunk.list ]; then
+            echo '{"tests":[]}' > "$(mktemp -u -p json_output --suff .json)"
         fi
     - name: Merge tool_test_output.json files
-      run: find . -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
+      run: planemo merge_test_reports json_output/*.json tool_test_output.json
     - name: Create tool_test_output.html
       run: planemo test_reports tool_test_output.json --test_output tool_test_output.html
     - name: Copy artifacts into place
       run: |
         mkdir upload
         mv tool_test_output.json tool_test_output.html upload/
-    - uses: actions/upload-artifact@v2.0.1
+    - uses: actions/upload-artifact@v2
       with:
         name: 'Tool test output ${{ matrix.chunk  }}'
         path: upload
@@ -346,7 +349,7 @@ jobs:
   #   and fail this step if this is the case
   combine_outputs:
     name: Combine chunked test results
-    needs: test
+    needs: [setup, test]
     strategy:
       matrix:
         python-version: [3.7]
@@ -359,14 +362,12 @@ jobs:
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(cat ../workflow_artifacts/galaxy.sha)" >> $GITHUB_ENV
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
     - name: Install Planemo
       run: pip install planemo
     - name: Install jq
@@ -379,11 +380,11 @@ jobs:
       run: |
         mkdir upload
         mv tool_test_output.json tool_test_output.html upload/
-    - uses: actions/upload-artifact@v2.0.1
+    - uses: actions/upload-artifact@v2
       with:
         name: 'All tool test results'
         path: upload
-    - name: Check status of combined status
+    - name: Check status of combined outputs
       run: |
         if jq '.["tests"][]["data"]["status"]' upload/tool_test_output.json | grep -v "success"; then
             echo "Unsuccessful tests found, inspect the 'All tool test results' artifact for details."
@@ -393,7 +394,7 @@ jobs:
   # deploy the tools to the toolsheds (first TTS for testing)
   deploy:
     name: Deploy
-    needs: [lint,flake8,lintr,combine_outputs]
+    needs: [setup, lint, flake8, lintr, combine_outputs]
     strategy:
       matrix:
         python-version: [3.7]
@@ -410,19 +411,17 @@ jobs:
       with:
         name: Workflow artifacts
         path: ../workflow_artifacts/
-    - name: Determine latest galaxy commit
-      run: echo "GALAXY_HEAD_SHA=$(cat ../workflow_artifacts/galaxy.sha)" >> $GITHUB_ENV
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_$GALAXY_HEAD_SHA
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
     - name: Install Planemo
       run: pip install planemo
     - name: Deploy on testtoolshed
       env:
-        SHED_KEY: ${{ secrets.tts_api_key }}
+        SHED_KEY: ${{ secrets.TTS_API_KEY }}
       run: |
         while read -r DIR; do
             planemo shed_update --shed_target testtoolshed --shed_key "${{ env.SHED_KEY }}" --force_repository_creation "$DIR" || exit 1;
@@ -430,7 +429,7 @@ jobs:
       continue-on-error: true
     - name: Deploy on toolshed
       env:
-        SHED_KEY: ${{ secrets.ts_api_key }}
+        SHED_KEY: ${{ secrets.TS_API_KEY }}
       run: |
         while read -r DIR; do
             planemo shed_update --shed_target toolshed --shed_key "${{ env.SHED_KEY }}" --force_repository_creation "$DIR" || exit 1;

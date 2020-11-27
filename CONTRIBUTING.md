@@ -63,8 +63,10 @@ submitted code (which we will be happy to help you achieve if you need the
 assistance).
 
 * Tools must contain tests (and test-data)
-* The tests must pass (`planemo test --install_galaxy my_tool.xml`)
-* The tools should pass linting by planemo (`planemo lint my_tool.xml`)
+* Continuous integration tests must pass: 
+    * The tests must pass (`planemo test --install_galaxy my_tool.xml`)
+    * The tools must pass linting by planemo (`planemo lint my_tool.xml`)
+    * Any Python or R script must pass linting with `flake8` and `lintr`, respectively
 * If there's a relevant paper for the tool, it should be cited in a [citation](https://docs.galaxyproject.org/en/latest/dev/schema.html#tool-citations) block
-* The tool must be licensed to allow use by anyone. The OSI maintains a [list of appropriate](https://opensource.org/licenses/alphabetical) licenses. 
-
+* The tool must be licensed to allow use by anyone. The OSI maintains a [list of appropriate](https://opensource.org/licenses/alphabetical) licenses
+* At least one approving review by an IUC member

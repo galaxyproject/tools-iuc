@@ -1,0 +1,140 @@
+<tool id="gecko" name="Gecko" version="@TOOL_VERSION@" profile="20.01">
+    <description>Ungapped genome comparison</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.1</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">gecko</requirement>
+    </requirements>
+    <command><![CDATA[
+    #import re
+    #set $queryName=re.sub('/', '\\/', str($query.element_identifier))
+    #set $dbName=re.sub('/', '\\/', str($db.element_identifier))
+    cp $query query.fasta &&
+    cp $db db.fasta &&
+    workflow.sh query.fasta db.fasta $minlen $similarity $kmer 1 &&
+    rm -rf intermediateFiles &&
+    #if str($options['selection_mode']) == "alignments":
+      frags2align.sh results/query-db.frags query.fasta db.fasta results/query-db.txt &&
+      mv results/query-db.txt $alignments2 &&
+    #end if
+    sed -i 's/query.fasta/$queryName/g' results/query-db.csv &&
+    sed -i 's/db.fasta/$dbName/g' results/query-db.csv &&
+    mv results/query-db.csv $csv_output1 &&
+    rm -rf results
+    ]]></command>
+    <inputs>
+        <param name="query" type="data" format="fasta" label="Query sequence" help="Query sequence file in fasta format"/>
+        <param name="db" type="data" format="fasta" label="Reference sequence" help="Reference sequence file in fasta format"/>
+        <param name="kmer" type="select" label="K-mer seed size" help="Use 32 for larger sequences (above 5mbps) and 16 or smaller otherwise">
+            <option value="32" selected="true">32</option>
+            <option value="28">28</option>
+            <option value="24">24</option>
+            <option value="20">20</option>
+            <option value="16">16</option>
+            <option value="12">12</option>
+            <option value="8">8</option>
+        </param>
+        <param name="minlen" type="integer" value="40" min="8" label="Minimum length" help="The minimum length a fragment must achieve to be reported"/>
+        <param name="similarity" type="integer" value="60" min="1" max="99" label="Minimum similarity" help="Percentage of similarity threshold (calculated as the attained score divided by the maximum possible score)"/>
+        <conditional name="options">
+            <param label="Generate alignments file?" name="selection_mode" type="select">
+                <option selected="true" value="noalignments">Do not extract alignments (Only CSV file)</option>
+                <option value="alignments">Extract alignments (CSV and alignments file)</option>
+            </param>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="csv_output1" format="csv" label="${tool.name} on ${on_string}: CSV"/> 
+        <data name="alignments2" format="txt" label="${tool.name} on ${on_string}: Alignments">
+            <filter> options['selection_mode'] == 'alignments'</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- test run w defaults (no alignments) -->
+        <test expect_num_outputs="1">
+            <param name="query" value="hyopneumoniae_16S.fasta"/>
+            <param name="db" value="flocculare_16S.fasta"/>
+            <param name="kmer" value="8"/> 
+            <param name="minlen" value="20"/>
+            <param name="similarity" value="50"/>
+            <param name="selection_mode" value="noalignments"/>
+            <output name="csv_output1" ftype="csv">
+                <assert_contents>
+                    <has_n_lines n="20"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test run w non defaults (alignment included) -->
+        <test expect_num_outputs="2">
+            <param name="query" value="hyopneumoniae_16S.fasta"/>
+            <param name="db" value="flocculare_16S.fasta"/>
+            <param name="kmer" value="8"/>
+            <param name="minlen" value="20"/>
+            <param name="similarity" value="50"/>
+            <param name="selection_mode" value="alignments"/>
+            <output name="csv_output1" ftype="csv">
+                <assert_contents>
+                    <has_n_lines n="20"/>
+                </assert_contents>
+            </output>
+            <output name="alignments2" ftype="txt">
+                <assert_contents>
+                    <has_n_lines n="96"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+*GECKO*
+
+A pairwise genome comparison software for the detection of High-scoring Segment Pairs.
+
+GECKO (GEnome Comparison with K-mers Out-of-core) is a fast, modular application designed to identify collections of High-scoring Segment Pairs in a pairwise genome comparisons. By employing novel filtering and data storing strategies, it is able to compare chromosome-sized sequences in less time.
+
+*How to use*
+
+To use GECKO, upload two .fasta datasets and select these as "Query sequence" and as "Reference sequence". Once so, choose the parameters that best suite your comparison:
+
+**Input parameters**
+
+- Query sequence: The sequence that will be compared against the reference. Use only FASTA format.
+- Reference sequence: The reference sequence where to look for matches from the query. Note that the reverse strand is computed for the reference and also matched. Use only FASTA format.
+- Length: This parameter is the minimum length in nucleotides for an HSP (similarity fragment) to be conserved. Any HSP below this length will be filtered out of the comparison. It is recommended to use around 40 bp for small organisms (e.g. bacterial mycoplasma or E. Coli) and around 100 bp or more for larger organisms (e.g. human chromosomes).
+- Similarity: This parameter is analogous to the minimum length, however, instead of length, the similarity is used as threshold. The similarity is calculated as the score attained by an HSP divided by the maximum possible score. Use values above 50-60 to filter noise.
+- Word length: This parameter is the seed size used to find HSPs. A smaller seed size will increase sensitivity and decrease performance, whereas a larger seed size will decrease sensitivity and increase performance. Recommended values are 12 or 16 for smaller organisms (bacteria) and 32 for larger organisms (chromosomes). These values must be multiples of 4.
+- Alignment extraction: Select "Yes" if you want to generate a file containing the alingments in a format similar to BLAST.
+
+**Output data sets**
+
+Two files are produced when running GECKO:
+
+- query-reference.csv: A CSV file that includes metadata about the sequence compared and each HSP detected. See section "Interpreting the CSV" below for more information. This file can be used to visualize the comparison in the interactive sequence visualizer GECKO-MGV (use online here or download and install here).
+- query-reference.txt: This file contains the alignments in a BLAST-like format (only generated if alignment extraction is selected).
+
+The CSV file can be interpreted as follows. Each column represents:
+
+`Type,xStart,yStart,xEnd,yEnd,strand(f/r),block,length,score,ident,similarity,%ident,SeqX,SeqY`
+
+
+- Type: currently, this field is reserved for Frag.
+- xStart: starting coordinates of the alignment in the query sequence.
+- yStart: starting coordinates of the alignment in the reference sequence.
+- xEnd: ending coordinates of the alignment in the query sequence.
+- yEnd: ending coordinates of the alignment in the reference sequence.
+- strand: a character f or r encoding whether the alignment is in the forward or reverse strand.
+- block: currently reserved.
+- length: the length in nucleotides of the alignment.
+- score: the raw score of the alignment calculated with +4 and -4 per match and mismatch.
+- ident: the number of identities found in the alignment (i.e. matches).
+- similarity: the similarity percentage calculated as the achieved raw score divided by the maximum possible score.
+- %ident: the number of identities divided by the length of the alignment.
+- SeqX: the ID corresponding to the sequence in the query file to which the xStart and xEnd coordinates correspond (0=> first sequence, 1=> second sequence, etc).
+- SeqY: same as above but for the reference file.
+
+Note that fragments in the reverse strand (marked with the r field) have their yStart and yEnd coordinates switched, i.e. yEnd is smaller than yStart.
+    </help>
+    <citations>
+        <citation type="doi">10.1186/s12859-015-0679-9</citation>
+    </citations>
+</tool>

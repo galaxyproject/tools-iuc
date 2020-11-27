@@ -10,17 +10,16 @@ def fetch_databases(data_manager_dict, target_directory):
     if not os.path.exists(target_directory):
         os.makedirs(target_directory)
     databases_path = os.path.join(target_directory, 'databases.out')
-    databases_output = open(databases_path, 'w')
     args = ['snpEff', 'databases']
-    return_code = subprocess.call(args=args, shell=False, stdout=databases_output.fileno())
+    with open(databases_path, 'w') as databases_output:
+        return_code = subprocess.call(args=args, shell=False, stdout=databases_output.fileno())
     if return_code:
         sys.exit(return_code)
-    databases_output.close()
     data_manager_dict['data_tables'] = data_manager_dict.get('data_tables', {})
     data_manager_dict['data_tables']['snpeffv_databases'] = data_manager_dict['data_tables'].get('snpeffv_databases', [])
     data_table_entries = []
     with open(databases_path, 'r') as fh:
-        for i, line in enumerate(fh):
+        for line in fh:
             fields = line.split('\t')
             if len(fields) >= 2:
                 genome_version = fields[0].strip()
@@ -41,7 +40,8 @@ def main():
 
     filename = args[0]
 
-    params = json.loads(open(filename).read())
+    with open(filename) as fh:
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
     data_manager_dict = {}
@@ -50,7 +50,8 @@ def main():
     data_manager_dict = fetch_databases(data_manager_dict, target_directory)
 
     # save info to json file
-    open(filename, 'w').write(json.dumps(data_manager_dict, sort_keys=True))
+    with open(filename, 'w') as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":
