@@ -2,14 +2,12 @@
 import os
 import matplotlib
 
-# headless plotting and disable latex
-matplotlib.use("Agg")
-matplotlib.rcParams["text.usetex"] = False
 import matplotlib.pyplot as ppl
 import logging
 import spyboat.plotting as spyplot
 
-
+ppl.switch_backend('Agg')
+matplotlib.rcParams["text.usetex"] = False
 logger = logging.getLogger(__name__)
 
 # figure resolution
@@ -104,24 +102,33 @@ def create_html(frame_nums, html_fname="OutputReport.html"):
     for frame_num in frame_nums:
         new_gal = f"""
         <div class="FrameSlides">
-        <h3 style="text-align:center; color=#363333"> Frame Nr. {frame_num} </h3>
+        <h3 style="text-align:center; color=#363333">
+        Frame Nr. {frame_num} </h3>
 
             <div class="snapshot_gallery">
 
-               <figure class=”snapshot_gallery__item snapshot_gallery__item--1">
-                 <img src="input_frame{frame_num}.png" alt="The Input" class="snapshot_gallery__img">
+               <figure class=”snapshot_gallery__item
+                   snapshot_gallery__item--1">
+                 <img src="input_frame{frame_num}.png" alt="The Input"
+                     class="snapshot_gallery__img">
                </figure>
 
-               <figure class=”snapshot_gallery__item snapshot_gallery__item--2">
-                 <img src="phase_frame{frame_num}.png" alt="Phase" class="snapshot_gallery__img">
+               <figure class=”snapshot_gallery__item
+                  snapshot_gallery__item--2">
+                 <img src="phase_frame{frame_num}.png" alt="Phase"
+                    class="snapshot_gallery__img">
                </figure>
 
-               <figure class=”snapshot_gallery__item snapshot_gallery__item--3">
-                 <img src="period_frame{frame_num}.png" alt="Period" class="snapshot_gallery__img">
+               <figure class=”snapshot_gallery__item
+                    snapshot_gallery__item--3">
+                 <img src="period_frame{frame_num}.png"
+                   alt="Period" class="snapshot_gallery__img">
                </figure>
 
-               <figure class=”snapshot_gallery__item snapshot_gallery__item--4">
-                 <img src="amplitude_frame{frame_num}.png" alt="Amplitude" class="snapshot_gallery__img">
+               <figure class=”snapshot_gallery__item
+                   snapshot_gallery__item--4">
+                 <img src="amplitude_frame{frame_num}.png"
+                   alt="Amplitude" class="snapshot_gallery__img">
                </figure>
             </div>
         </div>
