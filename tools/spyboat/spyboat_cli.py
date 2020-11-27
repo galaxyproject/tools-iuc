@@ -196,22 +196,22 @@ except FileExistsError as e:
 if arguments.phase_out is not None:
     # save phase movie
     io.imsave(arguments.phase_out, results['phase'], plugin="tifffile")
-    logger.info(f'Written {arguments.phase_out}')
+    logger.info(f'Written phase to {arguments.phase_out}')
 if arguments.period_out is not None:    
     # save period movie
     io.imsave(arguments.period_out, results['period'], plugin="tifffile")
-    logger.info(f'Written {arguments.period_out}')
+    logger.info(f'Written period to {arguments.period_out}')
 if arguments.power_out is not None:    
     # save power movie
     io.imsave(arguments.power_out, results['power'], plugin="tifffile")
-    logger.info(f'Written {arguments.power_out}')
+    logger.info(f'Written power to {arguments.power_out}')
 if arguments.amplitude_out is not None:        
     # save amplitude movie
     io.imsave(arguments.amplitude_out, results['amplitude'], plugin="tifffile")
-    logger.info(f'Written {arguments.amplitude_out}')
+    logger.info(f'Written amplitude to {arguments.amplitude_out}')
 
 # save out the probably pre-processed (scaled and blurred) input movie for
 # direct comparison to results and coordinate mapping etc.
 if arguments.preprocessed_out is not None:
     io.imsave(arguments.preprocessed_out, movie.astype(float32), plugin='tifffile')
-    logger.info(f'Written {arguments.preprocessed_out}')
+    logger.info(f'Written preprocessed to {arguments.preprocessed_out}')

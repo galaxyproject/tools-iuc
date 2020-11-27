@@ -1,28 +1,27 @@
-''' Produces plots and a summary html 'headless' '''
-
+""" Produces plots and a summary html 'headless' """
 import os
 import matplotlib
+
 # headless plotting and disable latex
-matplotlib.use('Agg')
-matplotlib.rcParams['text.usetex'] = False
+matplotlib.use("Agg")
+matplotlib.rcParams["text.usetex"] = False
 import matplotlib.pyplot as ppl
-
 import logging
-
 import spyboat.plotting as spyplot
+
 
 logger = logging.getLogger(__name__)
 
 # figure resolution
-DPI=250
+DPI = 250
 
-def produce_snapshots(input_movie, results, frame, Wkwargs,
-                      img_path='.'):
 
-    '''
-    Takes the *input_movie* and the 
-    *results* dictionary from spyboat.processing.run_parallel
-    and produces phase, period and amplitude snapshot png's.
+def produce_snapshots(input_movie, results, frame, Wkwargs, img_path="."):
+
+    """
+    Takes the *input_movie* and the *results* dictionary
+    from spyboat.processing.run_parallel and produces phase,
+    period and amplitude snapshot png's.
 
     For the period snapshot also the period range is needed,
     hence the analysis dictionary 'Wkwargs' also gets passed.
@@ -32,78 +31,79 @@ def produce_snapshots(input_movie, results, frame, Wkwargs,
     and the storage location in *img_path*.
 
     These get picked up by 'create_html'
-    '''
-
+    """
 
     spyplot.input_snapshot(input_movie[frame])
     fig = ppl.gcf()
-    out_path = os.path.join(img_path, f'input_frame{frame}.png')
-    fig.savefig(out_path, dpi=DPI)
-    ppl.close(fig)
-    
-    spyplot.phase_snapshot(results['phase'][frame])
-    fig = ppl.gcf()
-    out_path = os.path.join(img_path, f'phase_frame{frame}.png')    
+    out_path = os.path.join(img_path, f"input_frame{frame}.png")
     fig.savefig(out_path, dpi=DPI)
     ppl.close(fig)
 
-    spyplot.period_snapshot(results['period'][frame],
-                            Wkwargs['Tmin'],Wkwargs['Tmax'],
-                            time_unit = 'a.u.')
-    
+    spyplot.phase_snapshot(results["phase"][frame])
     fig = ppl.gcf()
-    out_path = os.path.join(img_path, f'period_frame{frame}.png')    
+    out_path = os.path.join(img_path, f"phase_frame{frame}.png")
     fig.savefig(out_path, dpi=DPI)
     ppl.close(fig)
-    
-    spyplot.amplitude_snapshot(results['amplitude'][frame])
+
+    spyplot.period_snapshot(
+        results["period"][frame], Wkwargs["Tmin"],
+        Wkwargs["Tmax"], time_unit="a.u."
+    )
+
     fig = ppl.gcf()
-    out_path = os.path.join(img_path, f'amplitude_frame{frame}.png')    
+    out_path = os.path.join(img_path, f"period_frame{frame}.png")
     fig.savefig(out_path, dpi=DPI)
     ppl.close(fig)
-        
-    logger.info(f'Produced 4 snapshots for frame {frame}..')
 
-def produce_distr_plots(results, Wkwargs, img_path='.'):
+    spyplot.amplitude_snapshot(results["amplitude"][frame])
+    fig = ppl.gcf()
+    out_path = os.path.join(img_path, f"amplitude_frame{frame}.png")
+    fig.savefig(out_path, dpi=DPI)
+    ppl.close(fig)
 
-    '''
+    logger.info(f"Produced 4 snapshots for frame {frame}..")
+
+
+def produce_distr_plots(results, Wkwargs, img_path="."):
+
+    """
     Output file names are:
-    
-    period_distr.png, power_distr.png and phase_distr.png   
-    '''
 
-    spyplot.period_distr_dynamics(results['period'], Wkwargs)
+    period_distr.png, power_distr.png and phase_distr.png
+    """
+
+    spyplot.period_distr_dynamics(results["period"], Wkwargs)
     fig = ppl.gcf()
-    out_path = os.path.join(img_path, f'period_distr.png')    
-    fig.savefig(out_path, dpi=DPI)
-    
-    spyplot.power_distr_dynamics(results['power'], Wkwargs)
-    fig = ppl.gcf()
-    out_path = os.path.join(img_path, f'power_distr.png')    
+    out_path = os.path.join(img_path, f"period_distr.png")
     fig.savefig(out_path, dpi=DPI)
 
-    spyplot.phase_coherence_dynamics(results['phase'], Wkwargs)
+    spyplot.power_distr_dynamics(results["power"], Wkwargs)
     fig = ppl.gcf()
-    out_path = os.path.join(img_path, f'phase_distr.png')    
+    out_path = os.path.join(img_path, f"power_distr.png")
     fig.savefig(out_path, dpi=DPI)
-        
-    logger.info(f'Produced 3 distribution plots..')
 
-    
-def create_html(frame_nums, html_fname='OutputReport.html'):
+    spyplot.phase_coherence_dynamics(results["phase"], Wkwargs)
+    fig = ppl.gcf()
+    out_path = os.path.join(img_path, f"phase_distr.png")
+    fig.savefig(out_path, dpi=DPI)
 
-    '''
-    The html generated assumes the respective png's 
+    logger.info(f"Produced 3 distribution plots..")
+
+
+def create_html(frame_nums, html_fname="OutputReport.html"):
+
+    """
+    The html generated assumes the respective png's
     have been created with 'produce_snapshots' and 'produce_distr_plots'
     and can be found at the cwd (that's how Galaxy works..)
-    '''
+    """
 
     # -- create a gallery for every frame in frame_nums --
-    
-    galleries = ''
+
+    galleries = ""
     for frame_num in frame_nums:
-        new_gal =f'''
-        <div class="FrameSlides"> 
+        new_gal = f"""
+        <div class="FrameSlides">
         <h3 style="text-align:center; color=#363333"> Frame Nr. {frame_num} </h3>
 
             <div class="snapshot_gallery">
@@ -125,10 +125,10 @@ def create_html(frame_nums, html_fname='OutputReport.html'):
                </figure>
             </div>
         </div>
-        '''
+        """
         galleries += new_gal
-    
-    html_string =f'''
+
+    html_string = f"""
     <html>
     <!-- this file got automatically created by 'output_report.py' -->
     <title>SpyBOAT Output Report</title>
@@ -152,7 +152,7 @@ def create_html(frame_nums, html_fname='OutputReport.html'):
             text-align: center;
             /* border: 1px dashed rgba(4, 4, 4, 0.35);     */
             grid-template-columns: repeat(3,1fr);
-            grid-template-rows: 20vw;    
+            grid-template-rows: 20vw;
             grid-gap: 0px;
             column-gap: 0px
         }}
@@ -186,7 +186,7 @@ def create_html(frame_nums, html_fname='OutputReport.html'):
     </head>
     <body>
     <h1 style="text-align:center; color:#363333">SpyBOAT Results Report</h1>
-    <hr style="width:50%"> 
+    <hr style="width:50%">
     <h1 class="subheader"> Distribution Dynamics </h1>
     <div class="distr_gallery">
        <figure class=”distr_gallery__item distr_gallery__item--1">
@@ -237,14 +237,15 @@ def create_html(frame_nums, html_fname='OutputReport.html'):
     </script>
     </body>
     </html>
-    '''
+    """
 
-    with open(html_fname, 'w') as OUT:
+    with open(html_fname, "w") as OUT:
 
         OUT.write(html_string)
 
-    logger.info('Created html report')
+    logger.info("Created html report")
     return html_string
+
 
 # for local testing
 # create_html([0,20,40,60,80])
