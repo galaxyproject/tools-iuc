@@ -243,7 +243,7 @@ def create_html(frame_nums, html_fname='OutputReport.html'):
 
         OUT.write(html_string)
 
-    logger.info(f'Created html report')
+    logger.info('Created html report')
     return html_string
 
 # for local testing

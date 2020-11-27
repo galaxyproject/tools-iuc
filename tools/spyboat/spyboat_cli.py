@@ -24,7 +24,7 @@ parser.add_argument('--phase_out', help='Phase output file name', required=True)
 parser.add_argument('--period_out', help='Period output file name', required=True)
 parser.add_argument('--power_out', help='Power output file name', required=True)
 parser.add_argument('--amplitude_out', help='Amplitude output file name', required=True)
-parser.add_argument('--preprocessed_out', help="Preprocessed-input output file name, 'None'", required=False)
+parser.add_argument('--preprocessed_out', help="Preprocessed-input output file name", required=False)
 
 
 # (Optional) Multiprocessing
@@ -33,7 +33,7 @@ parser.add_argument('--ncpu', help='Number of processors to use',
                     required=False, type=int, default=1)
 
 # Optional spatial downsampling
-parser.add_argument('--rescale', help='Rescale the image by a factor given in %%, None means no rescaling',
+parser.add_argument('--rescale_factor', help='Rescale the image by a factor given in %%, None means no rescaling',
                     required=False, type=int)
 # Optional Gaussian smoothing
 parser.add_argument('--gauss_sigma', help='Gaussian smoothing parameter, None means no smoothing', required=False, type=float)
@@ -85,7 +85,7 @@ if movie is None:
     sys.exit(1)
 # -------- Do (optional) spatial downsampling ---------------------------
 
-scale_factor = arguments.rescale
+scale_factor = arguments.rescale_factor
 
 # defaults to None
 if not scale_factor:
@@ -191,21 +191,27 @@ except FileExistsError as e:
 
 # --- save out result movies ---
 
-# save phase movie
-io.imsave(arguments.phase_out, results['phase'], plugin="tifffile")
-logger.info(f'Written {arguments.phase_out}')
-# save period movie
-io.imsave(arguments.period_out, results['period'], plugin="tifffile")
-logger.info(f'Written {arguments.period_out}')
-# save power movie
-io.imsave(arguments.power_out, results['power'], plugin="tifffile")
-logger.info(f'Written {arguments.power_out}')
-# save amplitude movie
-io.imsave(arguments.amplitude_out, results['amplitude'], plugin="tifffile")
-logger.info(f'Written {arguments.amplitude_out}')
+# None means output is filtered from galaxy settings
+
+if arguments.phase_out is not None:
+    # save phase movie
+    io.imsave(arguments.phase_out, results['phase'], plugin="tifffile")
+    logger.info(f'Written {arguments.phase_out}')
+if arguments.period_out is not None:    
+    # save period movie
+    io.imsave(arguments.period_out, results['period'], plugin="tifffile")
+    logger.info(f'Written {arguments.period_out}')
+if arguments.power_out is not None:    
+    # save power movie
+    io.imsave(arguments.power_out, results['power'], plugin="tifffile")
+    logger.info(f'Written {arguments.power_out}')
+if arguments.amplitude_out is not None:        
+    # save amplitude movie
+    io.imsave(arguments.amplitude_out, results['amplitude'], plugin="tifffile")
+    logger.info(f'Written {arguments.amplitude_out}')
 
 # save out the probably pre-processed (scaled and blurred) input movie for
 # direct comparison to results and coordinate mapping etc.
-if arguments.preprocessed_out:
-    io.imsave(arguments.preprocessed_out, movie, plugin='tifffile')
+if arguments.preprocessed_out is not None:
+    io.imsave(arguments.preprocessed_out, movie.astype(float32), plugin='tifffile')
     logger.info(f'Written {arguments.preprocessed_out}')
