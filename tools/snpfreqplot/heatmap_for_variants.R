@@ -134,5 +134,5 @@ pheatmap(final,
          cutree_rows = pheat_number_of_clusters,
          annotation_col = ann_final,
          annotation_colors = color_list,
-         filename = out_filetmp,
+         filename = out_file,
          gaps_col = gap_vector)
