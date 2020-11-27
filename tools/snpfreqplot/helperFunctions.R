@@ -3,6 +3,7 @@
 ## Helper functions for processing variant data, especially for
 ## data which contains duplicate variants differing only on
 ## annotation.
+library(stringr)
 
 difference_in_group <- function(lines) {
     #' Find the columns containing the differences between a
