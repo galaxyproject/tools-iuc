@@ -9,7 +9,7 @@ suppressPackageStartupMessages({
 })
 
 option_list <- list(
-  make_option(c("-g", "--geneIDs"),
+  make_option(c("-g", "--deg_table"),
               type = "character",
               help = "Character, a vector of Gene IDs to be tested for ORA.
               They must be Entrez IDs if EGSEAdata collections are used.",
@@ -20,14 +20,7 @@ option_list <- list(
               background list. If universe=NULL, the background list is
               created from the AnnotationDbi package.",
               metavar = "Character"),
-  make_option(c("-l", "--logFC"),
-              type = "double",
-              help = "double,  it can be a matrix or vector of the same
-              length of entrezIDs. If logFC=NULL, 1 is used as a default
-              value. Then, the regulation direction in heatmaps and pathway
-              maps is not indicative of the gene regulation direction.",
-              metavar = "double"),
-  make_option(c("-t", "--titel"),
+  make_option(c("-t", "--title"),
               type = "character",
               help = "character, a short description of the experimental
               contrast.",
@@ -109,7 +102,7 @@ opt <- parse_args(opt_parser)
 
 
 # Create a vector of Gene IDs to be tested for ORA
-gene_ids <- read.table(opt$geneIDs, header = TRUE)[1]
+gene_ids <- read.table(opt$deg_table, header = TRUE)[,1]
 
 # Create a vector of Enterz IDs to be used as a background list
 universe <- c()
@@ -121,7 +114,7 @@ for (i in opt$universe) {
 }
 
 # Create a vector of logFC
-log_fc <- read.table(opt$logFC, header = TRUE)[, c("logFC")]
+log_fc <- read.table(opt$deg_table, header = TRUE)[, c("logFC")]
 
 # Create a title
 title <- opt$title
