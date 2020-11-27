@@ -119,7 +119,7 @@ names(color_list) <- c("gene", "effect")
 }
 
 height <- round(max(c(max(c(
-    16*(length(unique(ann_final$effect)) +
+    16 * (length(unique(ann_final$effect)) +
         length(unique(ann_final$gene))), 160)) /
     nrow(final), 15)))
 width <- round(ratio * height)
@@ -128,8 +128,8 @@ pheatmap(final,
          color = my_colors(100),
          cellwidth = width,
          cellheight = height,
-         fontsize_col = round(1/3 * height),
-         fontsize_row = round(1/3 * min(c(height, width))),
+         fontsize_col = round(1 / 3 * height),
+         fontsize_row = round(1 / 3 * min(c(height, width))),
          clustering_method = pheat_clustering_method,
          cluster_rows = pheat_clustering,
          cluster_cols = F,
