@@ -1,9 +1,9 @@
 """ Produces plots and a summary html 'headless' """
-import os
-import matplotlib
-
-import matplotlib.pyplot as ppl
 import logging
+import os
+
+import matplotlib
+import matplotlib.pyplot as ppl
 import spyboat.plotting as spyplot
 
 ppl.switch_backend('Agg')
