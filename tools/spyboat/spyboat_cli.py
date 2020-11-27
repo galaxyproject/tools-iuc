@@ -19,7 +19,7 @@ logger = logging.getLogger('spyboat-cli')
 parser = argparse.ArgumentParser(description='Process some arguments.')
 
 # I/O
-parser.add_argument('--input_path', help="Input movie location", required=False)
+parser.add_argument('--input_path', help="Input movie location", required=True)
 parser.add_argument('--phase_out', help='Phase output file name', required=False)
 parser.add_argument('--period_out', help='Period output file name', required=False)
 parser.add_argument('--power_out', help='Power output file name', required=False)
