@@ -165,8 +165,8 @@ try:
         logger.info(f'Creating report directory {arguments.report_img_path}')
         os.mkdir(arguments.report_img_path)
 
-        # 4 snapshots each
-    Nsnap = 7
+    # 4 figures per snapshot
+    Nsnap = 8
     NFrames = movie.shape[0]
     # show only frames at least one Tmin
     # away from the edge (-effects)
@@ -180,12 +180,19 @@ try:
     frame_increment = int((NFrames - 2 * start_frame) / Nsnap)
     snapshot_frames = range(start_frame, NFrames - start_frame, frame_increment)
 
+    # get all relevant parameters
+    par_str = ''
+    for arg in vars(arguments):
+        if 'out' in arg or 'path' in arg or 'html' in arg:
+            continue
+        par_str += f'{arg} -> {getattr(arguments, arg)}\n'
+
     for snapshot_frame in snapshot_frames:
         output_report.produce_snapshots(movie, results, snapshot_frame, Wkwargs, img_path=arguments.report_img_path)
 
     output_report.produce_distr_plots(results, Wkwargs, img_path=arguments.report_img_path)
 
-    output_report.create_html(snapshot_frames, arguments.html_fname)
+    output_report.create_html(snapshot_frames, par_str, arguments.html_fname)
 
 except FileExistsError as e:
     logger.critical(f"Could not create html report directory: {repr(e)}")
