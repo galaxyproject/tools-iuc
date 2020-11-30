@@ -207,7 +207,6 @@ if __name__ == '__main__':
     parser.add_argument('--read1', action='store', dest='read1', required=True, default=None, help='Required: single read')
     parser.add_argument('--read2', action='store', dest='read2', required=False, default=None, help='Optional: paired read')
     parser.add_argument('--gzipped', action='store_true', dest='gzipped', default=False, help='Input files are gzipped')
-    parser.add_argument('--in_test_mode', action='store', dest='in_test_mode', required=False, default=None, help='Functional test mode flag')
     parser.add_argument('--output_dbkey', action='store', dest='output_dbkey', required=True, default=None, help='Output reference file')
     parser.add_argument('--output_metrics', action='store', dest='output_metrics', required=True, default=None, help='Output metrics file')
 
@@ -222,10 +221,7 @@ if __name__ == '__main__':
     # The data_manager_vsnp_dnaprints tool assigns the dbkey column from the
     # all_fasta data table to the value column in the vsnp_dnaprints data
     # table to ensure a proper mapping for discovering the dbkey.
-    if args.in_test_mode is None:
-        dnaprints_dict = get_dnaprints_dict(args.dnaprint_fields)
-    else:
-        dnaprints_dict = {'bovis': {'AF2122': ['11001110', '11011110', '11001100']}}
+    dnaprints_dict = get_dnaprints_dict(args.dnaprint_fields)
 
     # Here fastq_list consists of either a single read
     # or a set of paired reads, producing single outputs.
