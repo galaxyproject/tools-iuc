@@ -2,15 +2,12 @@
 
 import argparse
 import gzip
-import multiprocessing
 import os
-import queue
 from collections import OrderedDict
 
 import yaml
 from Bio.SeqIO.QualityIO import FastqGeneralIterator
 
-INPUT_READS_DIR = 'input_reads'
 OUTPUT_DBKEY_DIR = 'output_dbkey'
 OUTPUT_METRICS_DIR = 'output_metrics'
 
@@ -91,18 +88,6 @@ def get_group_and_dbkey(dnaprints_dict, brucella_string, brucella_sum, bovis_str
     return group, dbkey
 
 
-def get_group_and_dbkey_for_collection(task_queue, finished_queue, dnaprints_dict, timeout):
-    while True:
-        try:
-            tup = task_queue.get(block=True, timeout=timeout)
-        except queue.Empty:
-            break
-        fastq_file, count_list, brucella_string, brucella_sum, bovis_string, bovis_sum, para_string, para_sum = tup
-        group, dbkey = get_group_and_dbkey(dnaprints_dict, brucella_string, brucella_sum, bovis_string, bovis_sum, para_string, para_sum)
-        finished_queue.put((fastq_file, count_list, group, dbkey))
-        task_queue.task_done()
-
-
 def get_oligo_dict():
     oligo_dict = {}
     oligo_dict["01_ab1"] = "AATTGTCGGATAGCCTGGCGATAACGACGC"
@@ -138,7 +123,7 @@ def get_oligo_dict():
 def get_seq_counts(value, fastq_list, gzipped):
     count = 0
     for fastq_file in fastq_list:
-        if gzipped == "true":
+        if gzipped:
             with gzip.open(fastq_file, 'rt') as fh:
                 for title, seq, qual in FastqGeneralIterator(fh):
                     count += seq.count(value)
@@ -166,17 +151,6 @@ def get_species_counts(fastq_list, gzipped):
     return count_summary, count_list, brucella_sum, bovis_sum, para_sum
 
 
-def get_species_counts_for_collection(task_queue, finished_queue, gzipped, timeout):
-    while True:
-        try:
-            fastq_file = task_queue.get(block=True, timeout=timeout)
-        except queue.Empty:
-            break
-        count_summary, count_list, brucella_sum, bovis_sum, para_sum = get_species_counts([fastq_file], gzipped)
-        finished_queue.put((fastq_file, count_summary, count_list, brucella_sum, bovis_sum, para_sum))
-        task_queue.task_done()
-
-
 def get_species_strings(count_summary):
     binary_dictionary = {}
     for k, v in count_summary.items():
@@ -197,56 +171,20 @@ def get_species_strings(count_summary):
     return brucella_string, bovis_string, para_string
 
 
-def get_species_strings_for_collection(task_queue, finished_queue, timeout):
-    while True:
-        try:
-            tup = task_queue.get(block=True, timeout=timeout)
-        except queue.Empty:
-            break
-        fastq_file, count_summary, count_list, brucella_sum, bovis_sum, para_sum = tup
-        brucella_string, bovis_string, para_string = get_species_strings(count_summary)
-        finished_queue.put((fastq_file, count_list, brucella_string, brucella_sum, bovis_string, bovis_sum, para_string, para_sum))
-        task_queue.task_done()
-
-
-def handle_processes(processes):
-    for p in processes:
-        p.start()
-    for p in processes:
-        p.join()
-
-
-def output_dbkey(file_name, dbkey, output_file=None):
+def output_dbkey(file_name, dbkey, output_file):
     # Output the dbkey.
-    if output_file is None:
-        # We're producing a dataset collection.
-        output_file = os.path.join(OUTPUT_DBKEY_DIR, "%s.txt" % file_name)
     with open(output_file, "w") as fh:
         fh.write("%s" % dbkey)
 
 
-def output_files(fastq_file, count_list, group, dbkey, dbkey_file=None, metrics_file=None):
+def output_files(fastq_file, count_list, group, dbkey, dbkey_file, metrics_file):
     base_file_name = get_base_file_name(fastq_file)
     output_dbkey(base_file_name, dbkey, dbkey_file)
     output_metrics(base_file_name, count_list, group, dbkey, metrics_file)
 
 
-def output_files_for_collection(task_queue, timeout):
-    while True:
-        try:
-            tup = task_queue.get(block=True, timeout=timeout)
-        except queue.Empty:
-            break
-        fastq_file, count_list, group, dbkey = tup
-        output_files(fastq_file, count_list, group, dbkey)
-        task_queue.task_done()
-
-
-def output_metrics(file_name, count_list, group, dbkey, output_file=None):
+def output_metrics(file_name, count_list, group, dbkey, output_file):
     # Output the metrics.
-    if output_file is None:
-        # We're producing a dataset collection.
-        output_file = os.path.join(OUTPUT_METRICS_DIR, "%s.txt" % file_name)
     with open(output_file, "w") as fh:
         fh.write("Sample: %s\n" % file_name)
         fh.write("Brucella counts: ")
@@ -262,43 +200,22 @@ def output_metrics(file_name, count_list, group, dbkey, output_file=None):
         fh.write("\ndbkey: %s\n" % dbkey)
 
 
-def set_num_cpus(num_files, processes):
-    num_cpus = int(multiprocessing.cpu_count())
-    if num_files < num_cpus and num_files < processes:
-        return num_files
-    if num_cpus < processes:
-        half_cpus = int(num_cpus / 2)
-        if num_files < half_cpus:
-            return num_files
-        return half_cpus
-    return processes
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--dnaprint_fields', action='append', dest='dnaprint_fields', nargs=2, required=False, default=None, help="List of dnaprints data table value, name and path fields")
-    parser.add_argument('--read1', action='store', dest='read1', required=False, default=None, help='Required: single read')
+    parser.add_argument('--read1', action='store', dest='read1', required=True, default=None, help='Required: single read')
     parser.add_argument('--read2', action='store', dest='read2', required=False, default=None, help='Optional: paired read')
-    parser.add_argument('--gzipped', action='store', dest='gzipped', help='Input files are gzipped')
+    parser.add_argument('--gzipped', action='store_true', dest='gzipped', default=False, help='Input files are gzipped')
     parser.add_argument('--in_test_mode', action='store', dest='in_test_mode', required=False, default=None, help='Functional test mode flag')
-    parser.add_argument('--output_dbkey', action='store', dest='output_dbkey', required=False, default=None, help='Output reference file')
-    parser.add_argument('--output_metrics', action='store', dest='output_metrics', required=False, default=None, help='Output metrics file')
-    parser.add_argument('--processes', action='store', dest='processes', type=int, help='User-selected number of processes to use for job splitting')
+    parser.add_argument('--output_dbkey', action='store', dest='output_dbkey', required=True, default=None, help='Output reference file')
+    parser.add_argument('--output_metrics', action='store', dest='output_metrics', required=True, default=None, help='Output metrics file')
 
     args = parser.parse_args()
 
-    collection = False
-    fastq_list = []
-    if args.read1 is not None:
-        fastq_list.append(args.read1)
-        if args.read2 is not None:
-            fastq_list.append(args.read2)
-    else:
-        collection = True
-        for file_name in sorted(os.listdir(INPUT_READS_DIR)):
-            file_path = os.path.abspath(os.path.join(INPUT_READS_DIR, file_name))
-            fastq_list.append(file_path)
+    fastq_list = [args.read1]
+    if args.read2 is not None:
+        fastq_list.append(args.read2)
 
     # The value of dnaprint_fields is a list of lists, where each list is
     # the [value, name, path] components of the vsnp_dnaprints data table.
@@ -310,46 +227,9 @@ if __name__ == '__main__':
     else:
         dnaprints_dict = {'bovis': {'AF2122': ['11001110', '11011110', '11001100']}}
 
-    if collection:
-        # Here fastq_list consists of any number of
-        # reads, so each file will be processed and
-        # dataset collections will be produced as outputs.
-        multiprocessing.set_start_method('spawn')
-        queue1 = multiprocessing.JoinableQueue()
-        queue2 = multiprocessing.JoinableQueue()
-        num_files = len(fastq_list)
-        cpus = set_num_cpus(num_files, args.processes)
-        # Set a timeout for get()s in the queue.
-        timeout = 0.05
-
-        for fastq_file in fastq_list:
-            queue1.put(fastq_file)
-
-        # Complete the get_species_counts task.
-        handle_processes([multiprocessing.Process(target=get_species_counts_for_collection, args=(queue1, queue2, args.gzipped, timeout, )) for _ in range(cpus)])
-        queue1.join()
-
-        # Complete the get_species_strings task.
-        handle_processes([multiprocessing.Process(target=get_species_strings_for_collection, args=(queue2, queue1, timeout, )) for _ in range(cpus)])
-        queue2.join()
-
-        # Complete the get_group_and_dbkey task.
-        handle_processes([multiprocessing.Process(target=get_group_and_dbkey_for_collection, args=(queue1, queue2, dnaprints_dict, timeout, )) for _ in range(cpus)])
-        queue1.join()
-
-        # Complete the output_files task.
-        handle_processes([multiprocessing.Process(target=output_files_for_collection, args=(queue2, timeout, )) for _ in range(cpus)])
-        queue2.join()
-
-        if queue1.empty() and queue2.empty():
-            queue1.close()
-            queue1.join_thread()
-            queue2.close()
-            queue2.join_thread()
-    else:
-        # Here fastq_list consists of either a single read
-        # or a set of paired reads, producing single outputs.
-        count_summary, count_list, brucella_sum, bovis_sum, para_sum = get_species_counts(fastq_list, args.gzipped)
-        brucella_string, bovis_string, para_string = get_species_strings(count_summary)
-        group, dbkey = get_group_and_dbkey(dnaprints_dict, brucella_string, brucella_sum, bovis_string, bovis_sum, para_string, para_sum)
-        output_files(args.read1, count_list, group, dbkey, dbkey_file=args.output_dbkey, metrics_file=args.output_metrics)
+    # Here fastq_list consists of either a single read
+    # or a set of paired reads, producing single outputs.
+    count_summary, count_list, brucella_sum, bovis_sum, para_sum = get_species_counts(fastq_list, args.gzipped)
+    brucella_string, bovis_string, para_string = get_species_strings(count_summary)
+    group, dbkey = get_group_and_dbkey(dnaprints_dict, brucella_string, brucella_sum, bovis_string, bovis_sum, para_string, para_sum)
+    output_files(args.read1, count_list, group, dbkey, dbkey_file=args.output_dbkey, metrics_file=args.output_metrics)
