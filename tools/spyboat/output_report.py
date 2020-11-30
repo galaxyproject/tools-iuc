@@ -86,7 +86,7 @@ def produce_distr_plots(results, Wkwargs, img_path="."):
     logger.info("Produced 3 distribution plots..")
 
 
-def create_html(frame_nums, html_fname="OutputReport.html"):
+def create_html(frame_nums, par_str, html_fname="OutputReport.html"):
     """
     The html generated assumes the respective png's
     have been created with 'produce_snapshots' and 'produce_distr_plots'
@@ -105,25 +105,25 @@ def create_html(frame_nums, html_fname="OutputReport.html"):
             <div class="snapshot_gallery">
 
                <figure class=”snapshot_gallery__item
-                   snapshot_gallery__item--1">
+                   snapshot_gallery__item--1" style="margin: 0 0">
                  <img src="input_frame{frame_num}.png" alt="The Input"
                      class="snapshot_gallery__img">
                </figure>
 
                <figure class=”snapshot_gallery__item
-                  snapshot_gallery__item--2">
+                  snapshot_gallery__item--2" style="margin: 0 0">
                  <img src="phase_frame{frame_num}.png" alt="Phase"
                     class="snapshot_gallery__img">
                </figure>
 
                <figure class=”snapshot_gallery__item
-                    snapshot_gallery__item--3">
+                    snapshot_gallery__item--3" style="margin: 0 0">
                  <img src="period_frame{frame_num}.png"
                    alt="Period" class="snapshot_gallery__img">
                </figure>
 
                <figure class=”snapshot_gallery__item
-                   snapshot_gallery__item--4">
+                   snapshot_gallery__item--4" style="margin: 0 0">
                  <img src="amplitude_frame{frame_num}.png"
                    alt="Amplitude" class="snapshot_gallery__img">
                </figure>
@@ -131,6 +131,18 @@ def create_html(frame_nums, html_fname="OutputReport.html"):
         </div>
         """
         galleries += new_gal
+
+    parameter_cells = ''
+    for line in par_str.split('\n'):
+        # last str is empty..
+        if not line:
+            break
+        par_name, par_val = line.split('->')
+        parameter_cells += f'''
+            <tr>
+              <td>{par_name}</td>
+              <td>{par_val}</td>
+            </tr>'''
 
     html_string = f"""
     <html>
@@ -141,7 +153,12 @@ def create_html(frame_nums, html_fname="OutputReport.html"):
         <!--link rel="stylesheet" href="styles.css"-->
       <style type="text/css">
         body{{ margin:10 100; background:whitesmoke; }}
-        /*body{{ margin:10 100; background:darkslategrey; }}*/
+        p{{
+           text-align: center;
+           margin-top: 0.05cm;
+           margin-bottom: .05cm;
+           color:#2c2e2e;
+         }}
         .center{{
             text-align: center;
             display: block;
@@ -150,60 +167,80 @@ def create_html(frame_nums, html_fname="OutputReport.html"):
             width: 100%;}}
 
         /* matplotlib output at 1600x1200  */
-        .distr_gallery {{
-            display: grid;
-            margin: 0 auto;
-            text-align: center;
-            /* border: 1px dashed rgba(4, 4, 4, 0.35);     */
-            grid-template-columns: repeat(3,1fr);
-            grid-template-rows: 20vw;
-            grid-gap: 0px;
-            column-gap: 0px
-        }}
-        .distr_gallery__img {{
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }}
-
-
-        /* matplotlib output at 1600x1200  */
         .snapshot_gallery {{
-            display: grid;
-            margin: 0 auto;
-            border: 1px dashed rgba(4, 4, 4, 0.35);
+            margin: 0 0;
             text-align: center;
+            display: grid;
             grid-template-columns: repeat(2,1fr);
-            grid-template-rows: repeat(2,20vw);
+            grid-template-rows: repeat(2,27vw);
             grid-gap: 5px;
         }}
+
         .snapshot_gallery__img {{
             width: 100%;
             height: 100%;
             object-fit: contain;
+            margin-top: 5px;
+            margin-bottom: 15px;
         }}
         .subheader{{
              text-align:center;
              font-size: 160%;
              color:#363333;}}
+        .centerimg{{
+            text-align: center;
+            width: 65%;
+            max-width: 400px;
+            display: block;
+            padding: 10px;
+            margin-left: auto;
+            margin-right: auto;
+       }}
+
+        .div_distr{{
+          text-align: center;
+          border-radius: 25px;
+          margin-top: 1cm;
+          margin: auto;
+          margin-bottom: 0.5cm;
+          background-color: #cce1e3;
+          max-width: 550px;
+    }}
+
+        .partable{{
+          width: 70%;
+          margin-left: auto;
+          margin-right: auto;
+          }}
+
+       tr, td{{
+         color:#2c2e2e;
+         font-size: 110%;
+          }}
+
      </style>
     </head>
     <body>
     <h1 style="text-align:center; color:#363333">SpyBOAT Results Report</h1>
-    <hr style="width:50%">
-    <h1 class="subheader"> Distribution Dynamics </h1>
-    <div class="distr_gallery">
-       <figure class=”distr_gallery__item distr_gallery__item--1">
-         <img src="period_distr.png" alt="Period" class="distr_gallery__img">
-       </figure>
+    <hr style="width:70%">
 
-       <figure class=”distr_gallery__item distr_gallery__item--2">
-         <img src="power_distr.png" alt="Power" class="distr_gallery__img">
-       </figure>
+    <h1 class="subheader"> Spatial Summary Statistics </h1>
+    <div class="div_distr">
+      <img src="period_distr.png" alt="Period"
+       class="centerimg">
+      <p> Median and quartiles of the estimated periods for each frame </p>
+    </div>
 
-       <figure class=”distr_gallery__item distr_gallery__item--3">
-         <img src="phase_distr.png" alt="Phase" class="distr_gallery__img">
-       </figure>
+
+    <div class="div_distr">
+      <img src="power_distr.png" alt="Period"
+       class="centerimg">
+      <p> Median and quartiles of the ridge wavelet power for each frame </p>
+    </div>
+    <div class="div_distr">
+      <img src="phase_distr.png" alt="Period"
+       class="centerimg">
+      <p> Kuramoto order parameter for the phases estimated for each frame </p>
 
     </div>
 
@@ -217,6 +254,17 @@ def create_html(frame_nums, html_fname="OutputReport.html"):
 
     <!-- defines all elements of the "FrameSlides" class --->
     {galleries}
+    </div>
+
+    <h1 class="subheader"> Parameters </h1>
+    <div class="div_distr">
+      <table border = "1" class="partable">
+         <tr>
+            <th>Name</th>
+            <th>Value</th>
+         </tr>
+         {parameter_cells}
+      </table>
     </div>
 
     <!-- javascript with escaped '{{'--->
@@ -250,4 +298,4 @@ def create_html(frame_nums, html_fname="OutputReport.html"):
     return html_string
 
 # for local testing
-# create_html([0,20,40,60,80])
+# create_html([0,20], 'par1 -> val1\n verylongpar2 -> val2')
