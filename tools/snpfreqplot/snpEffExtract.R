@@ -37,21 +37,21 @@ tsv_eff_from_vcf <- function(input_vcf, output_tab) {
 
     ## EFF columns are defined here:
     ## https://pcingola.github.io/SnpEff/se_inputoutput/#eff-field-vcf-output-files
-    options(warn=-1)  ## suppress warnings
+    options(warn = -1)  ## suppress warnings
     seperated_info <- united_exploderows %>%
         separate(EFF, sep = "[(|)]",
-                 extra="merge", ## extra values are merged into the "extra" column
+                 extra = "merge",  ## extra values are merged into the "extra" column
                  into = c("EFF[*].EFFECT", "EFF[*].IMPACT", "EFF[*].FUNCLASS",
                           "codon.change", "EFF[*].AA", "AA.length",
                           "EFF[*].GENE", "trans.biotype", "gene.coding",
                           "trans.id", "exon.rank", "gt.num", "warnings", "extra"))
-    options(warn=0)
+    options(warn = 0)
     ## Warning messages are likely printed here, where 'missing' data is said to be
     ## filled with NA values. Let us see what this missing data is.
     test_missing <- seperated_info %>%
         dplyr::select("CHROM", "POS", "extra") %>%
-        replace_na(list(extra="")) %>%  ## change NA to "" (the expected data values)
-        filter(extra!="")               ## filter out rows with "" values
+        replace_na(list(extra = "")) %>%  ## change NA to "" (the expected data values)
+        filter(extra != "")               ## filter out rows with "" values
 
     if (nrow(test_missing) > 0){
         print(test_missing)
