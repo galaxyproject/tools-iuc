@@ -37,8 +37,7 @@ extractall_annots <- function(id) {
 processed_files <- fapply(samples$ids, extractall_data)
 final <- as_tibble(
     processed_files %>%
-    reduce(full_join, by = "Mutation", copy = T) %>%
-    distinct())
+    reduce(full_join, by = "Mutation", copy = T))
 
 final <- final[str_order(final$Mutation, numeric = T), ] %>%
     column_to_rownames("Mutation")              ## sort and set rownames
