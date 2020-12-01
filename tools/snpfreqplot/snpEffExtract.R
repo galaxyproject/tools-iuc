@@ -53,7 +53,7 @@ tsv_eff_from_vcf <- function(input_vcf, output_tab) {
         replace_na(list(extra = "")) %>%  ## change NA to "" (the expected data values)
         filter(extra != "")               ## filter out rows with "" values
 
-    if (nrow(test_missing) > 0){
+    if (nrow(test_missing) > 0) {
         print(test_missing)
         stop("Extra values were not parsed")
     }
