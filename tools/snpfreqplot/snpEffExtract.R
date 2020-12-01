@@ -35,16 +35,33 @@ tsv_eff_from_vcf <- function(input_vcf, output_tab) {
         dplyr::mutate(CHROM = seqnames, POS = start) %>%
         dplyr::select(CHROM, POS, REF, ALT, FILTER, DP, AF, EFF)
 
-    vcf_info <- united_exploderows %>%
+    ## EFF columns are defined here:
+    ## https://pcingola.github.io/SnpEff/se_inputoutput/#eff-field-vcf-output-files
+    seperated_info <- united_exploderows %>%
         separate(EFF, sep = "[(|)]",
+                 extra="merge", ## extra values are merged into the "extra" column
                  into = c("EFF[*].EFFECT", "EFF[*].IMPACT", "EFF[*].FUNCLASS",
-                        "codon.change", "EFF[*].AA", "AA.length",
-                        "EFF[*].GENE", "trans.biotype", "gene.coding",
-                        "trans.id", "exon.rank", "gt.num", "warnings")) %>%
+                          "codon.change", "EFF[*].AA", "AA.length",
+                          "EFF[*].GENE", "trans.biotype", "gene.coding",
+                          "trans.id", "exon.rank", "gt.num", "warnings", "extra"))
+
+    ## Warning messages are likely printed here, where 'missing' data is said to be
+    ## filled with NA values. Let us see what this missing data is.
+    test_missing <- seperated_info %>%
+        dplyr::select("CHROM", "POS", "extra") %>%
+        replace_na(list(extra="")) %>%  ## change NA to "" (the expected data values)
+        filter(extra!="")               ## filter out rows with "" values
+
+    if (nrow(test_missing) > 0){
+        print(test_missing)
+        stop("Extra values were not parsed")
+    }
+
+    vcf_info <- seperated_info %>%
         dplyr::select("CHROM", "POS", "REF", "ALT", "FILTER", "DP", "AF",
                       "EFF[*].EFFECT", "EFF[*].IMPACT", "EFF[*].FUNCLASS",
                       "EFF[*].AA", "EFF[*].GENE") %>%
-        ## now we deduplicate any rows that arise from subselecting columns
+        ## now we de-duplicate any rows that arise from subselecting columns
         dplyr::distinct()
 
     ## At this point, we would still have rows which share a POS and ALT pair
@@ -52,7 +69,6 @@ tsv_eff_from_vcf <- function(input_vcf, output_tab) {
     ##
     ## This is not something to worry about here, and is resolved in the heatmap
     ## script later.
-
     write.table(vcf_info, file = output_tab,
                 quote = F, sep = "\t", row.names = F)
 }
