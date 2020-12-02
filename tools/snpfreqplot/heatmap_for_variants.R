@@ -95,11 +95,11 @@ names(so_effects_translation) <- c(
     "stop_gained", "stop_lost"
 )
 # translate to our simple terms turning undefined terms into '?'
-simple_effects <- sapply(so_effects, function (x) trans(x, so_effects_translation, replace_missing="?"))
+simple_effects <- sapply(so_effects, function(x) trans(x, so_effects_translation, replace_missing = "?"))
 # complex variant effects (those that do more than one thing) are concatenated
 # with either '+' (for classic terms) or '&' (for SO terms)
-simple_effects[grepl("+", so_effects, fixed=TRUE)] <- "complex"
-simple_effects[grepl("&", so_effects, fixed=TRUE)] <- "complex"
+simple_effects[grepl("+", so_effects, fixed = TRUE)] <- "complex"
+simple_effects[grepl("&", so_effects, fixed = TRUE)] <- "complex"
 
 ann_final$gene <- sub("^$", "NCR", ann_final$gene)
 ann_final$effect <- simple_effects
