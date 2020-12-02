@@ -412,8 +412,9 @@ def identify_type(filen):
         print("WARNING: unknown file type for " + filen + ", skipping")
         return None
 
+
 def is_aligned(filen):
-    """Return seq/1 depending if the data is 
+    """Return seq/1 depending if the data is
     - unaligned (extension is fasta)
     - aligned (otherwise)
     """
