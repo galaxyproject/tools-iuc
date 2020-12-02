@@ -73,6 +73,9 @@ ann_final$effect[ann_final$effect == "FRAME_SHIFT+STOP_GAINED"] <- "stop gained"
 ann_final$effect[ann_final$effect ==
                  "CODON_CHANGE_PLUS_CODON_INSERTION"] <- "insertion"
 ann_final$effect[ann_final$effect == "INSERTION"] <- "insertion"
+ann_final$effect[ann_final$effect ==
+                 "SPLICE_SITE_REGION+SYNONYMOUS_CODING"] <- "splice+syn"
+
 
 ## automatically determine gaps for the heatmap
 gap_vector <- which(!(ann_final$gene[1:length(ann_final$gene) - 1] ==  # nolint
@@ -85,30 +88,35 @@ gene_color <- c(brewer.pal(brewer_color_gene_annotation, n = count))
 names(gene_color) <- unique(ann_final$gene)
 
                                         # colormanagement annotations (effect)
-colors <- c()
-color_test <- function(eff, col, colors) {
-    if (eff %in% ann_final$effect) colors <<- c(colors, col)
-}
-color_test("non-coding", "white", colors)
-color_test("syn", "green", colors)
-color_test("non-syn", "orange", colors)
-color_test("deletion", "red", colors)
-color_test("frame shift", "black", colors)
-color_test("stop gained", "grey", colors)
-color_test("insertion", "blue", colors)
+## Define the full set of colors for each effect that we can encounter
+## This is not bulletproof. The effect names given here were swapped into the
+## data (see above substitutions in ann_final$effect) and so are hard-coded,
+## as well as their preferred colors.
 ##
+## One value that somehow went undetected is the "splice+syn" combination.
+## It is likely that many other combinations will also be possible.
+## Do we drop these rows for the effects that we want to see? i.e.:
+## - non-coding, syn, non-syn, deletion, frame shift, stop gained, insertion
+##
+## Or do we show them all? If we show them all we need a less manual way
+## way of defining colours
 all_colors <- data.frame(
-    color = c("white", "green", "orange", "red", "black", "grey", "blue"),
-    name = c("non-coding", "syn", "non-syn", "deletion", "frame shift",
-             "stop gained", "insertion"))
-subset_colors <- subset(all_colors, color %in% colors)
+    color = c("white", "green", "orange", "red",
+              "black", "grey", "blue", "purple"),
+    name = c("non-coding", "syn", "non-syn", "deletion",
+             "frame shift", "stop gained", "insertion",
+             "splice+syn"))
+
+## Reduce the full set to just those that we want
+detected_effects <- unique(ann_final$effect)
+subset_colors <- subset(all_colors, name %in% detected_effects)
 effect_color <- subset_colors$color
 names(effect_color) <- subset_colors$name
 color_list <- list(gene_color = gene_color, effect_color = effect_color)
 names(color_list) <- c("gene", "effect")
 
                                         # visualize heatmap
- if (pheat_number_of_clusters > length(samples$ids)) {
+if (pheat_number_of_clusters > length(samples$ids)) {
     print(paste0("[INFO] Number of clusters: User-specified clusters (",
                  pheat_number_of_clusters,
                  ") is greater than the number of samples (",
