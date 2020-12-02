@@ -49,6 +49,7 @@ class Minikraken2Versions(Enum):
     def __str__(self):
         return self.value
 
+
 class Minikraken2Releases(Enum):
     March_2020 = 'March_2020'
     April_2019 = 'April_2019'
