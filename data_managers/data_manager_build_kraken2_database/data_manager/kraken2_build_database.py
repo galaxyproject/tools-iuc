@@ -49,6 +49,13 @@ class Minikraken2Versions(Enum):
     def __str__(self):
         return self.value
 
+class Minikraken2Releases(Enum):
+    March_2020 = 'March_2020'
+    April_2019 = 'April_2019'
+
+    def __str__(self):
+        return self.value
+
 
 def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_TABLE_NAME):
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
@@ -110,31 +117,30 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
     return data_table_entry
 
 
-def kraken2_build_minikraken(minikraken2_version, target_directory, data_table_name=DATA_TABLE_NAME):
+def kraken2_build_minikraken(minikraken2_version, minikraken2_release, target_directory, data_table_name=DATA_TABLE_NAME):
 
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
 
-    database_value = "_".join([
-        now,
-        "minikraken2",
-        minikraken2_version,
-        "8GB",
-    ])
+    value_parts = [now, "minikraken2", minikraken2_release, "8GB"]
+    name_parts = ["Minikraken2", minikraken2_release, "8GB", "(Created: %s)" % now]
 
-    database_name = " ".join([
-        "Minikraken2",
-        minikraken2_version,
-        "(Created:",
-        now + ")"
-    ])
+    if minikraken2_release == 'April_2019':
+        value_parts.insert(3, minikraken2_version)
+        name_parts.insert(2, minikraken2_version)
+        src = urlopen(
+            'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/old/minikraken2_%s_8GB_201904.tgz'
+            % minikraken2_version
+        )
+    else:
+        src = urlopen('ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/minikraken_8GB_202003.tgz')
+
+    database_value = "_".join(value_parts)
+
+    database_name = " ".join(name_parts)
 
     database_path = database_value
 
     # download the minikraken2 data
-    src = urlopen(
-        'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/minikraken2_%s_8GB_201904_UPDATE.tgz'
-        % minikraken2_version
-    )
     with open('tmp_data.tar.gz', 'wb') as dst:
         shutil.copyfileobj(src, dst)
     # unpack the downloaded archive to the target directory
@@ -292,7 +298,8 @@ def main():
     parser.add_argument('--load-factor', dest='load_factor', type=float, default=0.7, help='load factor')
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
-    parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to --database-type minikraken)')
+    parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to the March 2019 release of --database-type minikraken)')
+    parser.add_argument('--minikraken2-release', dest='minikraken2_release', type=Minikraken2Releases, choices=list(Minikraken2Releases), help='MiniKraken2 release (only applies to --database-type minikraken)')
     parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
     parser.add_argument('--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)')
@@ -331,6 +338,7 @@ def main():
     elif str(args.database_type) == 'minikraken':
         data_manager_output = kraken2_build_minikraken(
             str(args.minikraken2_version),
+            str(args.minikraken2_release),
             target_directory
         )
     elif str(args.database_type) == 'special':
