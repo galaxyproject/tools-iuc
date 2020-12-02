@@ -1,0 +1,154 @@
+<tool id="vsnp_determine_ref_from_data" name="vSNP: determine reference" version="1.0.0">
+    <description>from input data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+        <requirement type="package" version="1.76">biopython</requirement>
+        <requirement type="package" version="5.3">pyyaml</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+#set gzipped = 'false'
+#set input_type = $input_type_cond.input_type
+
+#if $input_type in ["single", "pair"]:
+    #set read1 = $input_type_cond.read1
+    #set read1_identifier = re.sub('[^\s\w\-]', '_', str($read1.element_identifier))
+    ln -s '${read1}' '${read1_identifier}' &&
+    #if $input_type == "pair":
+        #set read2 = $input_type_cond.read2
+        #set read2_identifier = re.sub('[^\s\w\-]', '_', str($read2.element_identifier))
+        ln -s '${read2}' '${read2_identifier}' &&
+    #else:
+        #set read2 = None 
+    #end if
+#else:
+    #set read1 = $input_type_cond.reads_collection['forward']
+    #set read1_identifier = re.sub('[^\s\w\-]', '_', str($read1.element_identifier))
+    ln -s '${read1}' '${read1_identifier}' &&
+    #set read2 = $input_type_cond.reads_collection['reverse']
+    #set read2_identifier = re.sub('[^\s\w\-]', '_', str($read2.element_identifier))
+    ln -s '${read2}' '${read2_identifier}' &&
+#end if
+
+python '$__tool_directory__/vsnp_determine_ref_from_data.py'
+    --read1 '${read1_identifier}'
+    #if $read2 is not None
+      --read2 '${read2_identifier}'
+    #end if
+    --output_dbkey '$output_dbkey'
+    --output_metrics '$output_metrics'
+#if $read1.is_of_type('fastqsanger.gz'):
+    --gzipped
+#end if
+#set $dnaprint_fields = $__app__.tool_data_tables['vsnp_dnaprints'].get_fields()
+#for $i in $dnaprint_fields:
+    --dnaprint_fields '${i[0]}' '${i[2]}'
+#end for
+]]></command>
+    <inputs>
+        <conditional name="input_type_cond">
+            <param name="input_type" type="select" label="Choose the category of the files to be analyzed">
+                <option value="single" selected="true">Single files</option>
+		<option value="paired">Paired reads</option>
+		<option value="pair">Paired reads in separate data sets</option>
+            </param>
+            <when value="single">
+                <param name="read1" type="data" format="fastqsanger.gz,fastqsanger" label="Read1 fastq file"/>
+            </when>
+            <when value="paired">
+                <param name="reads_collection" type="data_collection" format="fastqsanger,fastqsanger.gz" collection_type="paired" label="Collection of fastqsanger paired read files"/>
+            </when>
+            <when value="pair">
+                <param name="read1" type="data" format="fastqsanger.gz,fastqsanger" label="Read1 fastq file"/>
+                <param name="read2" type="data" format="fastqsanger.gz,fastqsanger" label="Read2 fastq file"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output_dbkey" format="txt" label="${tool.name} (dbkey) on ${on_string}"/>
+        <data name="output_metrics" format="txt" label="${tool.name} (metrics) on ${on_string}"/>
+    </outputs>
+    <tests>
+        <!-- 1 single read -->
+        <test expect_num_outputs="2">
+            <param name="input_type" value="single"/>
+            <param name="read1" value="Mcap_Deer_DE_SRR650221.fastq.gz" ftype="fastqsanger.gz"/>
+            <output name="output_dbkey" file="output_dbkey.txt" ftype="txt"/>
+            <output name="output_metrics" file="output_metrics.txt" ftype="txt"/>
+        </test>
+        <!-- 1 set of paired reads -->
+        <test expect_num_outputs="2">
+            <param name="input_type" value="pair"/>
+            <param name="read1" value="forward.fastq.gz" ftype="fastqsanger.gz"/>
+            <param name="read2" value="reverse.fastq.gz" ftype="fastqsanger.gz"/>
+            <output name="output_dbkey" file="paired_dbkey.txt" ftype="txt"/>
+            <output name="output_metrics" file="paired_metrics.txt" ftype="txt"/>
+        </test>
+        <!-- A collection of paired reads -->
+        <test expect_num_outputs="2">
+            <param name="input_type" value="paired"/>
+            <param name="reads_collection">
+                <collection type="paired">
+                    <element name="forward" value="forward.fastq.gz" ftype="fastqsanger.gz"/>
+                    <element name="reverse" value="reverse.fastq.gz" ftype="fastqsanger.gz"/>
+                </collection>
+            </param>
+            <output name="output_dbkey" file="paired_dbkey.txt" ftype="txt"/>
+            <output name="output_metrics" file="paired_metrics.txt" ftype="txt"/>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+Accepts a single fastqsanger read, a set of paired reads, or a collection of single or paired reads (bacterial samples) and
+inspects the data to discover the best reference genome for aligning the reads.
+
+The information needed to discover the best reference is maintained by the USDA in this repository_.  References are curreently
+
+.. _repository:  https://github.com/USDA-VS/vSNP_reference_options
+
+limited to TB complex, paraTB, and Brucella, but information for additional references will be added.  The information for each
+reference is a string consisting of zeros and ones, compiled by USDA researchers, which we call a "DNA print".   These strings
+are maintained in yaml files for use in Galaxy, and are installed via the **vSNP DNAprints data manager** tool.
+
+This tool creates an in-memory dictionary of these DNA print strings for matching with a string generated by inspecting the
+input sample data.  During inspection, this tool accrues sequence counts for supported species, ultimately generating a string
+consisting of zeros and ones based on the counts, (i.e., a DNA print).  This string is then compared to the strings contained
+in the in-memory dictionary of DNA prints to find a match.
+
+The strings in the in-memory dictionary are each associated with a Galaxy "dbkey" (i.e., genome build), so when a match is found,
+the associated "dbkey" is passed to a mapper (e.g., **Map with BWA-MEM**), typically within a workflow via an expression tool,
+to align the reads to the associated reference.
+
+This tool produces 2 text files, a "dbkey" file that contains the dbkey string and a "metrics" file that provides information
+about the sequence counts that were discovered in the input sample data that produced the "DNA print" string.
+
+This tool is important for samples containing bacterial species because many of the samples have a "mixed bag" of species,
+and discovering the primary species is critical.  DNA print matching is currently supported for the following genomes.
+
+ * Mycobacterium bovis AF2122/97
+ * Brucella abortus bv. 1 str. 9-941
+ * Brucella abortus strain BER
+ * Brucella canis ATCC 23365
+ * Brucella ceti TE10759-12
+ * Brucella melitensis bv. 1 str. 16M
+ * Brucella melitensis bv. 3 str. Ether
+ * Brucella melitensis BwIM_SOM_36b
+ * Brucella melitensis ATCC 23457
+ * Brucella ovis ATCC 25840
+ * Brucella suis 1330
+ * Mycobacterium tuberculosis H37Rv
+ * Mycobacterium avium subsp. paratuberculosis strain Telford
+ * Mycobacterium avium subsp. paratuberculosis K-10
+ * Brucella suis ATCC 23445
+ * Brucella suis bv. 3 str. 686
+
+**Required Options**
+
+ * **Choose the category of the files to be analyzed** - select "Single files" or "Collection of files", then select the appropriate history items (single or paired fastqsanger reads or a collection of fastqsanger reads) based on the selected option.
+    </help>
+    <expand macro="citations"/>
+</tool>
+
