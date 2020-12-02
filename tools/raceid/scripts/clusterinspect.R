@@ -1,5 +1,5 @@
 #!/usr/bin/env R
-VERSION = "0.2"
+VERSION = "0.5"
 
 args = commandArgs(trailingOnly = T)
 
@@ -17,13 +17,30 @@ test$side = 3
 test$line = 3
 
 do.plotting <- function(sc){
-    print(plotmap(sc, final = FALSE, fr = FALSE))
+
+    sc.tmp <- sc
+
+    ## If it's a subset, we need to get clever and subset specific parts
+    if (!(is.null(plotting.cln) || is.na(plotting.cln))){
+        cellstokeep <- names(sc.tmp@cpart[sc.tmp@cpart %in% plotting.cln])
+
+        ## Subselect partitions for initial and final clusters
+        sc.tmp@cpart <- sc.tmp@cpart[cellstokeep]
+        sc.tmp@cluster$kpart <- sc.tmp@cluster$kpart[cellstokeep]
+
+        ## Subselect tSNE and FR data
+        ## - Note: no names in tsne, so we assume it follows the ndata naming
+        sc.tmp@tsne <- sc.tmp@tsne[colnames(sc.tmp@ndata) %in% cellstokeep,]
+        sc.tmp@fr <- sc.tmp@fr[cellstokeep,]
+    }
+
+    print(plotmap(sc.tmp, final = FALSE, fr = FALSE))
     print(do.call(mtext, c("Initial Clustering tSNE", test)))
-    print(plotmap(sc, final = TRUE, fr = FALSE))
+    print(plotmap(sc.tmp, final = TRUE, fr = FALSE))
     print(do.call(mtext, c("Final Clustering tSNE", test)))
-    print(plotmap(sc, final = FALSE, fr = TRUE))
+    print(plotmap(sc.tmp, final = FALSE, fr = TRUE))
     print(do.call(mtext, c("Initial Clustering Fruchterman-Reingold", test)))
-    print(plotmap(sc, final = TRUE, fr = TRUE))
+    print(plotmap(sc.tmp, final = TRUE, fr = TRUE))
     print(do.call(mtext, c("Final Clustering Fruchterman-Reingold", test)))
 }
 

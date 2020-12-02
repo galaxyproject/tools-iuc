@@ -1,4 +1,4 @@
-<tool id="snpSift_filter" name="SnpSift Filter" version="@WRAPPER_VERSION@.galaxy0">
+<tool id="snpSift_filter" name="SnpSift Filter" version="@WRAPPER_VERSION@.galaxy1">
     <description>Filter variants using arbitrary expressions</description>
     <macros>
         <import>snpSift_macros.xml</import>
@@ -8,54 +8,75 @@
     <expand macro="version_command" />
     <command><![CDATA[
 SnpSift -Xmx6G filter -f '$input' -e '$exprFile' $inverse
-#if $filtering.mode == 'field':
-    #if $filtering.replace.pass:
-        --pass
-        #if $filtering.replace.filterId.strip():
-            --filterId '$filtering.replace.filterId'
-        #end if
-    #end if
-    #if $filtering.addFilter.strip():
-        --addFilter '$filtering.addFilter'
-    #end if
-    #if $filtering.rmFilter.strip():
-        --rmFilter '$filtering.rmFilter'
-    #end if
+#if str($filter_expression.type) == 'complex':
+    #for $set_file in $filter_expression.set:
+        --set $set_file
+    #end for
+#end if
+#if $filtering.mode == 'set_filter':
+    --filterID $filtering.filter_id
+#elif $filtering.mode == 'remove_filter':
+    --rmFilter $filtering.rm_filter
+#elif $filtering.mode == 'add_filter':
+    --addFilter $filtering.add_filter
 #end if
 > '$output'
     ]]></command>
     <configfiles>
         <configfile name="exprFile">
-$expr#slurp
+$filter_expression.expr#slurp
         </configfile>
     </configfiles>
     <inputs>
-        <param name="input" type="data" format="vcf" label="Variant input file in VCF format"/>
-        <param name="expr" type="text" label="Filter criteria" help="Need help? See below a few examples">
-            <sanitizer sanitize="False"/>
-        </param>
-        <param name="inverse" type="boolean" truevalue="--inverse" falsevalue="" checked="false" label="Inverse filter" help="Show lines that do not match filter expression" />
+        <param name="input" type="data" format="vcf" label="Input variant list in VCF format"/>
+        <conditional name="filter_expression">
+            <param name="type" type="select"
+            label="Type of filter expression">
+                <option value="simple">Simple expression</option>
+                <option value="complex">Expression using value set(s)</option>
+            </param>
+            <when value="simple">
+                <param name="expr" type="text" label="Filter criteria"
+                help="Need help? See the tool help below for some examples.">
+                    <sanitizer sanitize="False"/>
+                </param>
+            </when>
+            <when value="complex">
+                <param name="expr" type="text" label="Filter criteria"
+                help="Need help? See the tool help below for some examples.">
+                    <sanitizer sanitize="False"/>
+                </param>
+                <param name="set" type="data" format="txt" multiple="true" optional="False"
+                label="Set value source"
+                help="Select one or more datasets for construction of value sets. The datasets are supposed to specify one value per line. See also: the help section on Sets below." />
+            </when>
+        </conditional>
+        <param argument="--inverse" type="boolean" truevalue="--inverse" falsevalue="" checked="false" label="Invert filter" help="Select variants that do not match the filter expression." />
         <conditional name="filtering">
             <param name="mode" type="select" label="Filter mode">
-                <option value="entries" selected="true">Retain entries that pass filter, remove other entries</option>
-                <option value="field">Change the FILTER field, but retain all entries</option>
+                <option value="entries" selected="true">Retain selected variants, remove others</option>
+                <option value="set_filter">Add a value to FILTER field of non-selected variants</option>
+                <option value="remove_filter">Remove a value from FILTER field of selected variants</option>
+                <option value="add_filter">Add a value to the FILTER field of selected variants</option>
             </param>
-            <when value="entries"/>
-            <when value="field">
-                <conditional name="replace">
-                    <param name="pass" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Set matching entry FILTER to 'PASS'"
-                           help="appends an ID tag to non-matching entry FILTER" />
-                    <when value="no"/>
-                    <when value="yes">
-                        <param name="filterId" type="text" value="" label="ID appended to non-matching (##FILTER tag in header and FILTER VCF field)" help="Default ID is 'SnpSift'"/>
-                    </when>
-                </conditional>
-                <param name="addFilter" type="text" value="" label="Add a string to FILTER VCF field if 'expression' is true" />
-                <param name="rmFilter" type="text" value="" label="Remove a string from FILTER VCF field if 'expression' is true (and 'str' is in the field)" />
+            <when value="entries" />
+            <when value="set_filter">
+                <param argument="--filterID" name="filter_id" type="text" optional="false"
+                label="Value to add to FILTER field of non-selected variants"
+                help="The value provided here will be added to the FILTER field of variants that are NOT selected by the expression above. Selected variants, in contrast, will have their FILTER field cleared and set to PASS." />
+            </when>
+            <when value="remove_filter">
+                <param argument="--rmFilter" name="rm_filter" type="text" optional="false"
+                label="Value to remove from FILTER field of selected variants"
+                help="The FILTER field of variants that are selected by the expression above will be checked for existence of the specified value. When the value is found it will be removed, but other values will be preserved. If the removed value was the only value in a FILTER field, that field will be set to the '.' (missing) value." />
+            </when>
+            <when value="add_filter">
+                <param argument="--addFilter" name="add_filter" type="text" optional="false"
+                label="Value to add to FILTER field of selected variants"
+                help="The value provided here will be added to the FILTER field of variants that are selected by the expression above. USE WITH CARE: The tool will NOT add a corresponding FILTER entry to the VCF header of the output, i.e. will produce output that violates the VCF format specification. To avoid issues with downstream tools it may be necessary to add such a header line using standard text processing tools before proceeding." />
             </when>
         </conditional>
     </inputs>
-
     <outputs>
         <data name="output" format="vcf" />
     </outputs>
@@ -71,7 +92,6 @@ $expr#slurp
             </assert_contents>
         </output>
         </test>
-
         <test>
         <param name="input" ftype="vcf" value="test01.vcf"/>
         <param name="expr" value="(CHROM = '19')"/>
@@ -83,7 +103,6 @@ $expr#slurp
             </assert_contents>
         </output>
         </test>
-
         <test>
         <param name="input" ftype="vcf" value="test01.vcf"/>
         <param name="expr" value="(POS &gt;= 20175) &amp; (POS &lt;= 35549)"/>
@@ -98,7 +117,6 @@ $expr#slurp
             </assert_contents>
         </output>
         </test>
-
         <test>
         <param name="input" ftype="vcf" value="test01.vcf"/>
         <param name="expr" value="( DP &gt;= 5 )"/>
@@ -111,11 +129,31 @@ $expr#slurp
             </assert_contents>
         </output>
         </test>
+        <test>
+        <param name="input" ftype="vcf" value="test01.vcf"/>
+        <conditional name="filter_expression">
+            <param name="type" value="complex" />
+            <param name="expr" value="( POS in SET[0] ) | ( POS in SET[1] )" />
+            <param name="set" ftype="txt" value="test_set1.txt,test_set2.txt" />
+        </conditional>
+        <param name="mode" value="entries"/>
+        <output name="output">
+            <assert_contents>
+                <has_text text="NT_166464&#009;7268&#009;" />
+                <has_text text="NT_166464&#009;7283&#009;" />
+                <has_text text="NT_166464&#009;7335&#009;" />
+                <has_text text="NT_166480&#009;12474&#009;" />
+                <has_text text="NT_166480&#009;12483&#009;" />
+                <not_has_text text="NT_166464&#009;7258&#009;" />
+                <not_has_text text="NT_166452&#009;16693&#009;" />
+            </assert_contents>
+        </output>
+        </test>
     </tests>
     <help><![CDATA[
 **SnpSift filter**
 
-You can filter a VCF file using arbitrary expressions, for instance "(QUAL > 30) | (exists INDEL) | ( countHet() > 2 )". The actual expressions can be quite complex, so it allows for a lot of flexibility.
+This tool provides a flexible solution for filtering the variants in a VCF input dataset through the use of arbitrary, possibly rather complex expressions.
 
 Some examples:
 
@@ -127,43 +165,62 @@ Some examples:
 
       (FILTER = 'PASS') | ( na FILTER )
 
-- *I want to filter lines with an ANN annotation EFFECT of 'frameshift_variant' ( for vcf files using Sequence Ontology terms )*::
+- *Variants that have either a QUAL score above 30, or are indel variants, or for which at least two samples have a heterozygous genotype called*:: 
 
-      ( ANN[*].EFFECT has 'frameshift_variant' )
+      (QUAL > 30) | (exists INDEL) | ( countHet() > 2 )
 
-  **Important** According to the specification, there can be more than one EFFECT separated by & (e.g. 'missense_variant&splice_region_variant', thus using has operator is better than using equality operator (=). For instance 'missense_variant&splice_region_variant' = 'missense_variant' is false, whereas 'missense_variant&splice_region_variant' has 'missense_variant' is true.
+- *Variants that are supported by at least 10 reads (as calculated from the DP4 attribute in the INFO field through zero-based index-access to the multiple values)*::
 
-- *I want to filter lines with an EFF of 'FRAME_SHIFT' ( for vcf files using Classic Effect names )*::
+      (DP4[2] + DP4[3] >= 10)
 
-      ( EFF[*].EFFECT = 'FRAME_SHIFT' )
+----
 
-- *I want to filter out samples with quality less than 30*::
+Sets:
 
-      ( QUAL > 30 )
+The tool can construct sets of values for use in expressions from text files listing one value per line. Variants can then be filtered based on whether a given field in the variant record has a value that's contained in a set. For example, the expression::
 
-- *...but we also want InDels that have quality 20 or more*::
+      ( ID in SET[2] )
 
-      (( exists INDEL ) & (QUAL >= 20)) | (QUAL >= 30 )
+would filter variants based on whether their ID field value appears in the set parsed from the third dataset used for set construction (the first set can be addressed with index ``[0]``, the second with index ``[1]``, and so on).
 
-- *...or any homozygous variant present in more than 3 samples*::
+----
 
-      (countHom() > 3) | (( exists INDEL ) & (QUAL >= 20)) | (QUAL >= 30 )
+Genotype-based filtering:
 
-- *...or any heterozygous sample with coverage 25 or more*::
-
-      ((countHet() > 0) & (DP >= 25)) | (countHom() > 3) | (( exists INDEL ) & (QUAL >= 20)) | (QUAL >= 30 )
+Genotypes of specific samples can be accessed via zero-based indexing or via sample names.
 
 - *I want to keep samples where the genotype for the first sample is homozygous variant and the genotype for the second sample is reference*::
 
       (isHom( GEN[0] ) & isVariant( GEN[0] ) & isRef( GEN[1] ))
 
-**For information regarding HGVS and Sequence Ontology terms versus classic names**:
+----
 
-- http://snpeff.sourceforge.net/SnpEff_manual.html#cmdline for the options: -classic, -hgvs, and -sequenceOntology
-- http://snpeff.sourceforge.net/SnpEff_manual.html#input for the table containing the classic name and sequence onology term for each effect
+Filtering based on SnpEff annotations (``ANN`` or ``EFF`` fields):
+
+- *I want to filter lines with an ANN annotation EFFECT of 'frameshift_variant' ( for vcf files using Sequence Ontology terms )*::
+
+      ( ANN[*].EFFECT has 'frameshift_variant' )
+
+  .. class:: infomark
+
+  According to the specification, there can be more than one EFFECT separated by ``&`` (e.g. ``'missense_variant&splice_region_variant'``), thus using the ``has`` operator is better than using the equality operator (``=``). For instance, ``'missense_variant&splice_region_variant' = 'missense_variant'`` is false, whereas ``'missense_variant&splice_region_variant' has 'missense_variant'`` is true.
+
+- *I want to filter lines with an EFF of 'FRAME_SHIFT' ( for vcf files using Classic Effect names )*::
+
+      ( EFF[*].EFFECT = 'FRAME_SHIFT' )
+
+
+.. class:: infomark
+
+For information regarding HGVS and Sequence Ontology terms versus classic names:
+
+- https://pcingola.github.io/SnpEff/se_commandline/ for the options: ``-classic``, ``-hgvs``, and ``-sequenceOntology``
+- https://pcingola.github.io/SnpEff/se_inputoutput/#effect-prediction-details for the table containing the classic name and sequence onology term for each effect
 
 @EXTERNAL_DOCUMENTATION@
-- http://snpeff.sourceforge.net/SnpSift.html#filter
+- https://pcingola.github.io/SnpEff/ss_filter/
+
+The second link in particular has further details and more examples about the tool's expression syntax.
     ]]></help>
     <expand macro="citations" />
 </tool>

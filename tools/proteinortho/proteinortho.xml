@@ -1,0 +1,343 @@
+<tool id="proteinortho" name="Proteinortho" version="@TOOL_VERSION@+galaxy@WRAPPER_VERSION@">
+    <description>detects orthologous proteins/genes within different species</description>
+    <macros>
+        <import>proteinortho_macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+        ## the following ln-action is necessary, since the file names are used by proteinortho (output contains filenames => species names)
+        #import re
+        #for $f in $input_files#
+            ln -sf '$f' '${re.sub('[^\w\-_.]', '_', f.element_identifier)}' &&
+        #end for
+        #if $synteny.synteny_options == "specified":
+            #for $f in $synteny.input_files_syn#
+                ln -sf '$f' '${re.sub('[^\w\-_.]', '_', f.element_identifier)}' &&
+            #end for#
+        #end if
+        proteinortho 
+            --project=result
+            --cpus="\${GALAXY_SLOTS:-4}"
+            --ram="\${GALAXY_MEMORY_MB:-16000}"
+            #if $more_options.selfblast:
+                $more_options.selfblast
+            #end if
+            #if $more_options.singles:
+                $more_options.singles
+            #end if
+            --p=$p
+            --e=$evalue
+            #if $more_options.cov:
+                --cov=$more_options.cov
+            #end if
+            #if $more_options.sim:
+                --sim=`LC_NUMERIC=C awk "BEGIN {printf \"%.2f\",$more_options.sim/100}"`
+            #end if
+            #if $more_options.identity:
+                --cov=$more_options.identity
+            #end if
+            #if $more_options.isoform != "no":
+                --isoform=$more_options.isoform
+            #end if
+            #if $synteny.synteny_options == "specified":
+                --synteny
+                --dups=$synteny.dups
+                --cs=$synteny.cs
+                --alpha=$synteny.alpha
+            #end if
+            #for $f in $input_files#
+                ${re.sub('[^\w\-_.]', '_', f.element_identifier)}
+            #end for#
+            #if $synteny.synteny_options == "specified":    
+                #for $f in $synteny.input_files_syn#
+                    ${re.sub('[^\w\-_.]', '_', f.element_identifier)}
+                #end for#
+            #end if
+            2> >(sed -E "s/.\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g" 1>&2)
+        #if $synteny.synteny_options == "specified":
+            &&
+            mv result.poff-graph result.proteinortho-graph &&
+            mv result.poff.tsv result.proteinortho.tsv &&
+            mv result.poff.html result.proteinortho.html ;
+        #end if
+    ]]></command>
+    <inputs>
+        <param name="input_files" format="fasta" type="data" multiple="true" min="2" label="Select the input fasta files (>2)" help="The input fasta files. At least 2 are needed!"/>    
+        <param argument="--p" type="select" label="Similarity comparision algorithm" help="In the first step of proteinortho an all-versus-all reciprocal best hit graph is build from the input files (using this algorithm).">
+            <option value="diamond" selected="true">diamond (aminoacid sequences)</option>
+            <option value="autoblast">auto detect NCBI-BLAST (protein and nucleotide sequences)</option>
+            <option value="blastp">NCBI-BLASTP+ (protein sequences)</option>
+            <option value="blastn">NCBI-BLASTN+ (nucleotide sequences)</option>
+            <option value="lastp">Last (aminoacid sequences)</option>
+            <option value="lastn">Last (nucleotide sequences)</option>
+            <option value="blatp">BLAT (aminoacid sequences)</option>
+            <option value="blatn">BLAT (nucleotide sequences)</option>
+        </param>
+        <param argument="--evalue" type="float" value="0.001" min="0" label="E-value threshold of the blast algorithm" help="This is the main parameter for the generation of the reciprocal best hit graph. Larger values results in more false positives (connections between proteins)."/>
+        <param argument="--conn" type="float" value="0.1" min="0." max="10." label="Minimal algebraic connectivity" help="This is the main parameter for the clustering step. Choose larger values then more splits are done, resulting in more and smaller clusters."/>
+        <section name="more_options" title="Additional Options" expanded="False">
+            <param argument="--cov" type="integer" value="50" min="0" max="100" label="Minimal coverage of best blast alignments in %"/>
+            <param argument="--sim" type="integer" value="95" min="0" max="100" label="Minimal sequence similarity in %"/>
+            <param argument="--identity" type="integer" value="25" min="0" max="100" label="Minimal percent identity of best blast hits in %"/>
+            <param argument="--selfblast" type="boolean" checked="false" truevalue="--selfblast" falsevalue="" label="Apply selfblast, detects paralogs without orthologs "/>
+            <param argument="--singles" type="boolean" checked="false" truevalue="--singles" falsevalue="" label="Report singleton genes without any hit "/>
+            <param argument="--isoform" type="select" label="Use isoform information" help="The reciprocal best hit graph is build using isoform information (isoforms are treated equivalent). For ncbi : simply add the additional files to the input (file names need to match). For uniprot : the isoforms need to contain the word isoform and the corresponding identifier. For trinity simply use the trinity output format.">
+                <option value="no" selected="true">Don't use isoform information</option>
+                <option value="ncbi">ncbi style (..._additional.fasta)</option>
+                <option value="uniprot">uniprot style (...isoform of...)</option>
+                <option value="trinity">trinity style (...i4)</option>
+            </param>
+        </section>
+        <conditional name="synteny">
+            <param name="synteny_options" type="select" label="Activate synteny feature (POFF)" help="To enhance the prediction accuracy, the relative order of genes (synteny) can be used as additional feature for the discrimination of orthologs. For more details see doi:10.1371/journal.pone.0105015.">
+                <option value="no" selected="true">no</option>
+                <option value="specified">yes</option>
+            </param>
+            <when value="no"/>
+            <when value="specified">
+                <param argument="--dups" type="integer" value="0" min="0" max="100" label="Number of reiterations for adjacencies heuristic, to determine duplicated regions"/>
+                <param argument="--cs" type="integer" value="3" min="0" max="100" label="Size of a maximum common substring (MCS) for adjacency matches"/>
+                <param argument="--alpha" type="float" value="0.5" min="0." max="1." label="Minimal percent identity of best blast hits"/>
+                <param name="input_files_syn" type="data" format="gff" multiple="true" min="2" label="Select the GFF3 files matching the input fasta files" help="The GFF3 files need matching names with the input fasta files. If you provide mybacteria123.faa or mybacteria123.fasta ... then you need to provide mybacteria123.gff here accoringly. The attributes column (#9) must contain the attribute Name=GENE IDENTIFIER where GENE IDENTIFIER corresponds to the respective (protein) identifier in the FASTA input. For example see https://gitlab.com/paulklemm_PHD/proteinortho/-/blob/master/test/C.gff"/> 
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="blastgraph" format="tabular" label="${tool.name} on ${on_string}: RBH graph" from_work_dir="result.blast-graph"/>
+        <data name="proteinortho" format="tabular" label="${tool.name} on ${on_string}: orthology-groups" from_work_dir="result.proteinortho.tsv"/>
+        <data name="proteinorthograph" format="tabular" label="${tool.name} on ${on_string}: orthology-pairs" from_work_dir="result.proteinortho-graph"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3"> <!-- test normal -->
+            <param name="input_files" value="L.fasta,C.fasta,C2.fasta,E.fasta,M.fasta"/>
+            <output name="proteinortho">
+                <assert_contents>
+                    <has_text text="# Species&#009;Genes&#009;Alg.-Conn."/>
+                    <has_text text="2&#009;5&#009;0.16"/>
+                    <has_text text="M_640,M_642,M_649"/>
+                </assert_contents>
+            </output>
+            <output name="blastgraph">
+                <assert_contents>
+                    <has_text text="L_10&#009;E_10&#009;"/>
+                </assert_contents>
+            </output>
+            <output name="proteinorthograph">
+                <assert_contents>
+                    <has_text text="L_11&#009;E_11&#009;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3"> <!-- various parameter -->
+            <param name="input_files" value="L.fasta,C.fasta,C2.fasta,E.fasta,M.fasta"/>
+            <param name="evalue" value="1"/>
+            <param name="conn" value="1"/>
+            <param name="cov" value="42"/>
+            <param name="sim" value="42"/>
+            <param name="identity" value="42"/>
+            <param name="selfblast" value="true"/>
+            <param name="singles" value="true"/>
+            <output name="proteinortho">
+                <assert_contents>
+                    <has_text text="# Species&#009;Genes&#009;Alg.-Conn."/>
+                    <has_text text="1&#009;1&#009;0"/>
+                    <has_text text="&#009;C_177&#009;"/>
+                </assert_contents>
+            </output>
+            <output name="blastgraph">
+                <assert_contents>
+                    <has_text text="C_1&#009;C_1&#009;"/>
+                </assert_contents>
+            </output>
+            <output name="proteinorthograph">
+                <assert_contents>
+                    <has_text text="C_12&#009;C_21&#009;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3"> <!-- synteny -->
+            <param name="input_files" value="L.fasta,C.fasta,C2.fasta,E.fasta,M.fasta"/>
+            <param name="input_files_syn" value="L.gff,C.gff,C2.gff,E.gff,M.gff"/>
+            <param name="synteny_options" value="specified"/>
+            <output name="proteinortho">
+                <assert_contents>
+                    <has_text text="# Species&#009;Genes&#009;Alg.-Conn."/>
+                    <has_text text="4&#009;5&#009;0.1"/>
+                    <has_text text="E_313,E_315"/>
+                </assert_contents>
+            </output>
+            <output name="proteinorthograph">
+                <assert_contents>
+                    <has_text text="M_313&#009;L_313&#009;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3"> <!-- blast -->
+            <param name="input_files" value="L.fasta,C.fasta,C2.fasta,E.fasta,M.fasta"/>
+            <param name="--p" value="blastp"/>
+            <output name="proteinortho">
+                <assert_contents>
+                    <has_text text="# Species&#009;Genes&#009;Alg.-Conn."/>
+                    <has_text text="2&#009;5&#009;0.16"/>
+                    <has_text text="M_640,M_642,M_649"/>
+                </assert_contents>
+            </output>
+            <output name="blastgraph">
+                <assert_contents>
+                    <has_text text="M_3&#009;L_3&#009;"/>
+                </assert_contents>
+            </output>
+            <output name="proteinorthograph">
+                <assert_contents>
+                    <has_text text="M_317&#009;L_317&#009;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3"> <!-- auto blast -->
+            <param name="input_files" value="L.fasta,C.fasta,C2.fasta,E.fasta,M.fasta"/>
+            <param name="--p" value="autoblast"/>
+            <output name="proteinortho">
+                <assert_contents>
+                    <has_text text="# Species&#009;Genes&#009;Alg.-Conn."/>
+                    <has_text text="2&#009;5&#009;0.16"/>
+                    <has_text text="M_640,M_642,M_649"/>
+                </assert_contents>
+            </output>
+            <output name="blastgraph">
+                <assert_contents>
+                    <has_text text="M_3&#009;L_3&#009;"/>
+                </assert_contents>
+            </output>
+            <output name="proteinorthograph">
+                <assert_contents>
+                    <has_text text="M_317&#009;L_317&#009;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3"> <!-- last -->
+            <param name="input_files" value="L.fasta,C.fasta,C2.fasta,E.fasta,M.fasta"/>
+            <param name="--p" value="lastp"/>
+            <output name="proteinortho">
+                <assert_contents>
+                    <has_text text="# Species&#009;Genes&#009;Alg.-Conn."/>
+                    <has_text text="2&#009;5&#009;0.16"/>
+                    <has_text text="M_640,M_642,M_649"/>
+                </assert_contents>
+            </output>
+            <output name="blastgraph">
+                <assert_contents>
+                    <has_text text="M_636&#009;E_317&#009;"/>
+                </assert_contents>
+            </output>
+            <output name="proteinorthograph">
+                <assert_contents>
+                    <has_text text="E_11&#009;C_11&#009;"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3"> <!-- blat -->
+            <param name="input_files" value="L.fasta,C.fasta,C2.fasta,E.fasta,M.fasta"/>
+            <param name="--p" value="blastp"/>
+            <output name="proteinortho">
+                <assert_contents>
+                    <has_text text="# Species&#009;Genes&#009;Alg.-Conn."/>
+                    <has_text text="2&#009;5&#009;0.16"/>
+                    <has_text text="M_640,M_642,M_649"/>
+                </assert_contents>
+            </output>
+            <output name="blastgraph">
+                <assert_contents>
+                    <has_text text="E_10&#009;C_10&#009;"/>
+                </assert_contents>
+            </output>
+            <output name="proteinorthograph">
+                <assert_contents>
+                    <has_text text="E_10&#009;C_10&#009;"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[Proteinortho with POFF - An orthology detection tool
+
+**What it does**
+
+Proteinortho is a tool to detect orthologous proteins/genes within different species (at least 2). 
+
+  | It compares similarities of given gene/protein sequences and clusters them to find significant groups.
+  | The algorithm was designed to handle large-scale data and can be applied to hundreds of species at one.
+  | Details can be found in (doi:10.1186/1471-2105-12-124).
+  | To enhance the prediction accuracy, the relative order of genes (synteny) can be used as additional feature for the discrimination of orthologs. The corresponding extension, namely PoFF (details see doi:10.1371/journal.pone.0105015), is already build in Proteinortho. 
+
+----
+
+**Proteinortho in a nutshell**
+
+----
+
+* **(i) Build adaptive reciprocal best hit graph (RBH)**
+
+      | Using the blast algorithm (diamond,blast,blat,...) all input sequences are compared against each other.
+      | If two proteins find each other with respect to multiple criteria like minimal evalue, similarity compared to the best hit, ... then a edge is drawn between the two proteins.
+      | The result of this step is outputted to RBH
+
+* **(ii) Cluster the RBH**
+
+      | Using two clustering algorithms, edges are removed that weakly connect two connected components to reduce false positive hits.
+      | The resulting connected components are outputted in orthology-groups / -PAIRS 
+
+----
+
+**Proteinortho output files**
+
+----
+
+* **RBH**
+
+      | The result of the (i) step, the reciprocal best hit graph. 
+      | First a comment line announces 2 species (# ecoli.faa   human.faa), then each line corresponds to a reciprocal best hit between 2 proteins/genes of the announced species. The output format is shown below.
+      | *seqidA*,*seqidB* = the 2 ids/names of the proteins involved 
+      | *evalue_ab* = evalue with seqidA as query and seqidB as part of the database 
+      | *bitscore_ab* = bitscore with seqidA as query ...
+      | *evalue_ba* = evalue with seqidB as query ...
+      | ...
+
+.. csv-table::
+    
+    seqidA,seqidB,evalue_ab,bitscore_ab,evalue_ba,bitscore_ba    
+
+----
+
+* **orthology-groups**
+
+      | The result of the (ii) step, the clustered reciprocal best hit graph or the orthology groups.
+      | Every line corresponds to an orthology group of proteins/genes. 
+      | The first 3 columns characterize general properties of that group: number of proteins, species and the algebraic connectivity. The higher the algebraic connectivity the more edges are there and the better the group is connected to itself in general. 
+      | Then a column for each species follows containing the proteins of that species. If a species contributes with more than one protein to a group of orthologs, then they are ordered by connectivity.
+
+.. csv-table::
+    
+    Species,Genes,Alg.-Conn.   
+
+----
+
+* **orthology-pairs**
+
+      | The same as orthology-groups but every edge is printed one-by-one here. The output is formatted the same as the RBH graph:
+
+.. csv-table::
+    
+    seqidA,seqidB,evalue_ab,bitscore_ab,evalue_ba,bitscore_ba   
+
+----
+
+**Proteinortho-Tools for downstream analysis**
+
+* `proteinortho grab proteins` : find gene(s)/protein(s) in a given fasta file and retrieve their sequence(s). You can also use a orthology-groups file.
+* `proteinortho summary` : Summaries the orthology-pairs/RBH files to determine how the species are connected to each other.
+
+More information can be found on github https://gitlab.com/paulklemm_PHD/proteinortho
+]]>
+    </help>
+    <expand macro="citations"/>
+</tool>

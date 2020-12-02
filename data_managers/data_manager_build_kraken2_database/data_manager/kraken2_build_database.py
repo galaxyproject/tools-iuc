@@ -59,6 +59,7 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
         "kmer-len", str(kraken2_args["kmer_len"]),
         "minimizer-len", str(kraken2_args["minimizer_len"]),
         "minimizer-spaces", str(kraken2_args["minimizer_spaces"]),
+        "load-factor", str(kraken2_args["load_factor"]),
     ])
 
     database_name = " ".join([
@@ -68,6 +69,7 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
         "kmer-len=" + str(kraken2_args["kmer_len"]) + ",",
         "minimizer-len=" + str(kraken2_args["minimizer_len"]) + ",",
         "minimizer-spaces=" + str(kraken2_args["minimizer_spaces"]) + ")",
+        "load-factor", str(kraken2_args["load_factor"]),
     ])
 
     database_path = database_value
@@ -78,18 +80,20 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
         '--kmer-len', str(kraken2_args["kmer_len"]),
         '--minimizer-len', str(kraken2_args["minimizer_len"]),
         '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
+        '--load-factor', str(kraken2_args["load_factor"]),
         '--db', database_path
     ]
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
-    args = [
-        '--threads', str(kraken2_args["threads"]),
-        '--clean',
-        '--db', database_path
-    ]
+    if kraken2_args["clean"]:
+        args = [
+            '--threads', str(kraken2_args["threads"]),
+            '--clean',
+            '--db', database_path
+        ]
 
-    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+        subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
         'data_tables': {
@@ -171,6 +175,7 @@ def kraken2_build_special(kraken2_args, target_directory, data_table_name=DATA_T
         "kmer-len", str(kraken2_args["kmer_len"]),
         "minimizer-len", str(kraken2_args["minimizer_len"]),
         "minimizer-spaces", str(kraken2_args["minimizer_spaces"]),
+        "load-factor", str(kraken2_args["load_factor"]),
     ])
 
     database_name = " ".join([
@@ -180,6 +185,7 @@ def kraken2_build_special(kraken2_args, target_directory, data_table_name=DATA_T
         "kmer-len=" + str(kraken2_args["kmer_len"]) + ",",
         "minimizer-len=" + str(kraken2_args["minimizer_len"]) + ",",
         "minimizer-spaces=" + str(kraken2_args["minimizer_spaces"]) + ")",
+        "load-factor=" + str(kraken2_args["load_factor"]) + ")",
     ])
 
     database_path = database_value
@@ -190,18 +196,20 @@ def kraken2_build_special(kraken2_args, target_directory, data_table_name=DATA_T
         '--kmer-len', str(kraken2_args["kmer_len"]),
         '--minimizer-len', str(kraken2_args["minimizer_len"]),
         '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
+        '--load-factor', str(kraken2_args["load_factor"]),
         '--db', database_path
     ]
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
-    args = [
-        '--threads', str(kraken2_args["threads"]),
-        '--clean',
-        '--db', database_path
-    ]
+    if kraken2_args["clean"]:
+        args = [
+            '--threads', str(kraken2_args["threads"]),
+            '--clean',
+            '--db', database_path
+        ]
 
-    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+        subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
         'data_tables': {
@@ -245,18 +253,20 @@ def kraken2_build_custom(kraken2_args, custom_database_name, target_directory, d
         '--kmer-len', str(kraken2_args["kmer_len"]),
         '--minimizer-len', str(kraken2_args["minimizer_len"]),
         '--minimizer-spaces', str(kraken2_args["minimizer_spaces"]),
+        '--load-factor', str(kraken2_args["load_factor"]),
         '--db', custom_database_name
     ]
 
     subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
-    args = [
-        '--threads', str(kraken2_args["threads"]),
-        '--clean',
-        '--db', custom_database_name
-    ]
+    if kraken2_args["clean"]:
+        args = [
+            '--threads', str(kraken2_args["threads"]),
+            '--clean',
+            '--db', custom_database_name
+        ]
 
-    subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
+        subprocess.check_call(['kraken2-build'] + args, cwd=target_directory)
 
     data_table_entry = {
         'data_tables': {
@@ -279,6 +289,7 @@ def main():
     parser.add_argument('--kmer-len', dest='kmer_len', type=int, default=35, help='kmer length')
     parser.add_argument('--minimizer-len', dest='minimizer_len', type=int, default=31, help='minimizer length')
     parser.add_argument('--minimizer-spaces', dest='minimizer_spaces', default=6, help='minimizer spaces')
+    parser.add_argument('--load-factor', dest='load_factor', type=float, default=0.7, help='load factor')
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
     parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to --database-type minikraken)')
@@ -286,16 +297,18 @@ def main():
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
     parser.add_argument('--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)')
     parser.add_argument('--skip-maps', dest='skip_maps', action='store_true', help='')
+    parser.add_argument('--clean', dest='clean', action='store_true', help='Clean up extra files')
     args = parser.parse_args()
 
-    data_manager_input = json.loads(open(args.data_manager_json).read())
+    with open(args.data_manager_json) as fh:
+        data_manager_input = json.load(fh)
 
     target_directory = data_manager_input['output_data'][0]['extra_files_path']
 
     try:
-        os.mkdir( target_directory )
+        os.mkdir(target_directory)
     except OSError as exc:
-        if exc.errno == errno.EEXIST and os.path.isdir( target_directory ):
+        if exc.errno == errno.EEXIST and os.path.isdir(target_directory):
             pass
         else:
             raise
@@ -307,7 +320,9 @@ def main():
             "kmer_len": args.kmer_len,
             "minimizer_len": args.minimizer_len,
             "minimizer_spaces": args.minimizer_spaces,
+            "load_factor": args.load_factor,
             "threads": args.threads,
+            "clean": args.clean,
         }
         data_manager_output = kraken2_build_standard(
             kraken2_args,
@@ -324,7 +339,9 @@ def main():
             "kmer_len": args.kmer_len,
             "minimizer_len": args.minimizer_len,
             "minimizer_spaces": args.minimizer_spaces,
+            "load_factor": args.load_factor,
             "threads": args.threads,
+            "clean": args.clean,
         }
         data_manager_output = kraken2_build_special(
             kraken2_args,
@@ -337,7 +354,9 @@ def main():
             "kmer_len": args.kmer_len,
             "minimizer_len": args.minimizer_len,
             "minimizer_spaces": args.minimizer_spaces,
+            "load_factor": args.load_factor,
             "threads": args.threads,
+            "clean": args.clean,
         }
         data_manager_output = kraken2_build_custom(
             kraken2_args,
@@ -347,7 +366,8 @@ def main():
     else:
         sys.exit("Invalid database type")
 
-    open(args.data_manager_json, 'w').write(json.dumps(data_manager_output))
+    with open(args.data_manager_json, 'w') as fh:
+        json.dump(data_manager_output, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

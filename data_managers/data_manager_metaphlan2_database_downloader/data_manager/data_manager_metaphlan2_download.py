@@ -24,7 +24,8 @@ def read_input_json(jsonfile):
     to create it if necessary.
 
     """
-    params = json.loads(open(jsonfile).read())
+    with open(jsonfile) as fh:
+        params = json.load(fh)
     return (params['param_dict'],
             params['output_data'][0]['extra_files_path'])
 
@@ -36,7 +37,7 @@ def read_input_json(jsonfile):
 # >>> add_data_table(d,'my_data')
 # >>> add_data_table_entry(dict(dbkey='hg19',value='human'))
 # >>> add_data_table_entry(dict(dbkey='mm9',value='mouse'))
-# >>> print str(json.dumps(d))
+# >>> print(json.dumps(d))
 def create_data_tables_dict():
     """Return a dictionary for storing data table information
 
@@ -144,7 +145,6 @@ if __name__ == "__main__":
 
     # Write output JSON
     print("Outputting JSON")
-    print(str(json.dumps(data_tables)))
-    with open(jsonfile, 'wb') as out:
-        out.write(json.dumps(data_tables))
+    with open(jsonfile, 'w') as fh:
+        json.dump(data_tables, fh, sort_keys=True)
     print("Done.")

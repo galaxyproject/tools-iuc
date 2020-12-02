@@ -323,21 +323,14 @@ def metadata_from_node(node):
         galaxy=GALAXY_INFRASTRUCTURE_URL,
         encoded_id=metadata['dataset_id'],
         tool_id=metadata['tool_tool_id'],
-        tool_version=metadata['tool_tool_version'],
+        # tool_version=metadata['tool_tool_version'],
     )
     return metadata
 
 
 class JbrowseConnector(object):
 
-    def __init__(self, jbrowse, outdir, genomes, standalone=False, gencode=1):
-        self.TN_TABLE = {
-            'gff3': '--gff',
-            'gff': '--gff',
-            'bed': '--bed',
-            'genbank': '--gbk',
-        }
-
+    def __init__(self, jbrowse, outdir, genomes, standalone=None, gencode=1):
         self.cs = ColorScaling()
         self.jbrowse = jbrowse
         self.outdir = outdir
@@ -346,8 +339,10 @@ class JbrowseConnector(object):
         self.gencode = gencode
         self.tracksToIndex = []
 
-        if standalone:
+        if standalone == "complete":
             self.clone_jbrowse(self.jbrowse, self.outdir)
+        elif standalone == "minimal":
+            self.clone_jbrowse(self.jbrowse, self.outdir, minimal=True)
         else:
             try:
                 os.makedirs(self.outdir)
@@ -379,9 +374,13 @@ class JbrowseConnector(object):
         with open(trackList, 'w') as handle:
             json.dump(trackListData, handle, indent=2)
 
-    def subprocess_check_call(self, command):
-        log.debug('cd %s && %s', self.outdir, ' '.join(command))
-        subprocess.check_call(command, cwd=self.outdir)
+    def subprocess_check_call(self, command, output=None):
+        if output:
+            log.debug('cd %s && %s >  %s', self.outdir, ' '.join(command), output)
+            subprocess.check_call(command, cwd=self.outdir, stdout=output)
+        else:
+            log.debug('cd %s && %s', self.outdir, ' '.join(command))
+            subprocess.check_call(command, cwd=self.outdir)
 
     def subprocess_popen(self, command):
         log.debug('cd %s && %s', self.outdir, command)
@@ -393,6 +392,10 @@ class JbrowseConnector(object):
             log.error(output)
             log.error(err)
             raise RuntimeError("Command failed with exit code %s" % (retcode))
+
+    def subprocess_check_output(self, command):
+        log.debug('cd %s && %s', self.outdir, ' '.join(command))
+        return subprocess.check_output(command, cwd=self.outdir)
 
     def _jbrowse_bin(self, command):
         return os.path.realpath(os.path.join(self.jbrowse, 'bin', command))
@@ -504,7 +507,7 @@ class JbrowseConnector(object):
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
-        cmd = ['ln', '-s', data, dest]
+        cmd = ['cp', data, dest]
         self.subprocess_check_call(cmd)
 
         url = os.path.join('raw', trackData['label'] + '.bw')
@@ -555,6 +558,41 @@ class JbrowseConnector(object):
             trackData['autoscale'] = wiggleOpts.get('autoscale', 'local')
 
         trackData['scale'] = wiggleOpts['scale']
+
+        self._add_track_json(trackData)
+
+    def add_maf(self, data, trackData, mafOpts, **kwargs):
+        script = os.path.realpath(os.path.join(self.jbrowse, 'plugins', 'MAFViewer', 'bin', 'maf2bed.pl'))
+        dest = os.path.join('data', 'raw', trackData['label'] + '.txt')
+
+        tmp1 = tempfile.NamedTemporaryFile(delete=False)
+        tmp1.close()
+
+        # Process MAF to bed-like
+        cmd = [script, data]
+        self.subprocess_check_call(cmd, output=tmp1.path)
+
+        # Sort / Index it
+        self._sort_bed(tmp1.path, dest)
+        # Cleanup
+        try:
+            os.remove(tmp1.path)
+        except OSError:
+            pass
+
+        # Construct samples list
+        # We could get this from galaxy metadata, not sure how easily.
+        ps = subprocess.Popen(['grep', '^s [^ ]*', '-o', data], stdout=subprocess.PIPE)
+        output = subprocess.check_output(('sort', '-u'), stdin=ps.stdout)
+        ps.wait()
+        samples = [x[2:] for x in output]
+
+        trackData.update({
+            "storeClass": "MAFViewer/Store/SeqFeature/MAFTabix",
+            "type": "MAFViewer/View/Track/MAF",
+            "urlTemplate": trackData['label'] + '.txt.gz',
+            "samples": samples,
+        })
 
         self._add_track_json(trackData)
 
@@ -610,19 +648,25 @@ class JbrowseConnector(object):
         self._add_track_json(trackData)
 
     def _sort_gff(self, data, dest):
-
+        # Only index if not already done
         if not os.path.exists(dest):
-            # Only index if not already done
             cmd = "gff3sort.pl --precise '%s' | grep -v \"^$\" > '%s'" % (data, dest)
             self.subprocess_popen(cmd)
 
-            cmd = ['bgzip', '-f', dest]
-            self.subprocess_popen(' '.join(cmd))
-            cmd = ['tabix', '-f', '-p', 'gff', dest + '.gz']
-            self.subprocess_popen(' '.join(cmd))
+            self.subprocess_check_call(['bgzip', '-f', dest])
+            self.subprocess_check_call(['tabix', '-f', '-p', 'gff', dest + '.gz'])
 
-    def add_features(self, data, format, trackData, gffOpts, **kwargs):
+    def _sort_bed(self, data, dest):
+        # Only index if not already done
+        if not os.path.exists(dest):
+            cmd = ['sort', '-k1,1', '-k2,2n', data]
+            with open(dest, 'w') as handle:
+                self.subprocess_check_call(cmd, output=handle)
 
+            self.subprocess_check_call(['bgzip', '-f', dest])
+            self.subprocess_check_call(['tabix', '-f', '-p', 'bed', dest + '.gz'])
+
+    def add_gff(self, data, format, trackData, gffOpts, **kwargs):
         dest = os.path.join(self.outdir, 'data', 'raw', trackData['label'] + '.gff')
 
         self._sort_gff(data, dest)
@@ -654,6 +698,89 @@ class JbrowseConnector(object):
                 trackData['topLevelFeatures'] = gffOpts['topLevelFeatures']
 
         self._add_track_json(trackData)
+
+        if gffOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
+
+    def add_bed(self, data, format, trackData, gffOpts, **kwargs):
+        dest = os.path.join(self.outdir, 'data', 'raw', trackData['label'] + '.bed')
+
+        self._sort_bed(data, dest)
+
+        url = os.path.join('raw', trackData['label'] + '.bed.gz')
+        trackData.update({
+            "urlTemplate": url,
+            "storeClass": "JBrowse/Store/SeqFeature/BEDTabix",
+        })
+
+        if 'match' in gffOpts:
+            trackData['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
+
+        trackType = gffOpts.get('trackType', 'JBrowse/View/Track/CanvasFeatures')
+        trackData['type'] = trackType
+
+        if trackType in ['JBrowse/View/Track/CanvasFeatures', 'NeatCanvasFeatures/View/Track/NeatFeatures']:
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                trackData['transcriptType'] = gffOpts['transcriptType']
+            if 'subParts' in gffOpts and gffOpts['subParts']:
+                trackData['subParts'] = gffOpts['subParts']
+            if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
+                trackData['impliedUTRs'] = gffOpts['impliedUTRs']
+        elif trackType in ['JBrowse/View/Track/HTMLFeatures', 'NeatHTMLFeatures/View/Track/NeatFeatures']:
+            if 'topLevelFeatures' in gffOpts and gffOpts['topLevelFeatures']:
+                trackData['topLevelFeatures'] = gffOpts['topLevelFeatures']
+
+        self._add_track_json(trackData)
+
+        if gffOpts.get('index', 'false') == 'true':
+            self.tracksToIndex.append("%s" % trackData['label'])
+
+    def add_genbank(self, data, format, trackData, gffOpts, **kwargs):
+        cmd = [
+            'perl', self._jbrowse_bin('flatfile-to-json.pl'),
+            '--genbank', data,
+            '--trackLabel', trackData['label'],
+            '--key', trackData['key']
+        ]
+
+        # className in --clientConfig is ignored, it needs to be set with --className
+        if 'className' in trackData['style']:
+            cmd += ['--className', trackData['style']['className']]
+
+        config = copy.copy(trackData)
+        clientConfig = trackData['style']
+        del config['style']
+
+        if 'match' in gffOpts:
+            config['glyph'] = 'JBrowse/View/FeatureGlyph/Segments'
+            if bool(gffOpts['match']):
+                # Can be empty for CanvasFeatures = will take all by default
+                cmd += ['--type', gffOpts['match']]
+
+        cmd += ['--clientConfig', json.dumps(clientConfig)]
+
+        trackType = 'JBrowse/View/Track/CanvasFeatures'
+        if 'trackType' in gffOpts:
+            trackType = gffOpts['trackType']
+
+        if trackType == 'JBrowse/View/Track/CanvasFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                config['transcriptType'] = gffOpts['transcriptType']
+            if 'subParts' in gffOpts and gffOpts['subParts']:
+                config['subParts'] = gffOpts['subParts']
+            if 'impliedUTRs' in gffOpts and gffOpts['impliedUTRs']:
+                config['impliedUTRs'] = gffOpts['impliedUTRs']
+        elif trackType == 'JBrowse/View/Track/HTMLFeatures':
+            if 'transcriptType' in gffOpts and gffOpts['transcriptType']:
+                cmd += ['--type', gffOpts['transcriptType']]
+
+        cmd += [
+            '--trackType', gffOpts['trackType']
+        ]
+
+        cmd.extend(['--config', json.dumps(config)])
+
+        self.subprocess_check_call(cmd)
 
         if gffOpts.get('index', 'false') == 'true':
             self.tracksToIndex.append("%s" % trackData['label'])
@@ -782,15 +909,24 @@ class JbrowseConnector(object):
 
             # import pprint; pprint.pprint(track)
             # import sys; sys.exit()
-            if dataset_ext in ('gff', 'gff3', 'bed'):
-                self.add_features(dataset_path, dataset_ext, outputTrackConfig,
-                                  track['conf']['options']['gff'])
+            if dataset_ext in ('gff', 'gff3'):
+                self.add_gff(dataset_path, dataset_ext, outputTrackConfig,
+                             track['conf']['options']['gff'])
+            elif dataset_ext in ('bed', ):
+                self.add_bed(dataset_path, dataset_ext, outputTrackConfig,
+                             track['conf']['options']['gff'])
+            elif dataset_ext in ('genbank', ):
+                self.add_genbank(dataset_path, dataset_ext, outputTrackConfig,
+                                 track['conf']['options']['gff'])
             elif dataset_ext == 'bigwig':
                 self.add_bigwig(dataset_path, outputTrackConfig,
                                 track['conf']['options']['wiggle'])
             elif dataset_ext == 'bigwig_multiple':
                 self.add_bigwig_multiple(dataset_path, outputTrackConfig,
                                          track['conf']['options']['wiggle'])
+            elif dataset_ext == 'maf':
+                self.add_maf(dataset_path, outputTrackConfig,
+                             track['conf']['options']['maf'])
             elif dataset_ext == 'bam':
                 real_indexes = track['conf']['options']['pileup']['bam_indices']['bam_index']
                 if not isinstance(real_indexes, list):
@@ -939,23 +1075,31 @@ class JbrowseConnector(object):
                 with open(os.path.join(self.outdir, 'data', 'trackList2.json'), 'w') as handle:
                     json.dump(trackListJson, handle)
 
-    def clone_jbrowse(self, jbrowse_dir, destination):
+    def clone_jbrowse(self, jbrowse_dir, destination, minimal=False):
         """Clone a JBrowse directory into a destination directory.
         """
-        # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
-        # unlike copytree
-        cmd = ['cp', '-r', os.path.join(jbrowse_dir, '.'), destination]
-        log.debug(' '.join(cmd))
-        subprocess.check_call(cmd)
+        if minimal:
+            # Should be the absolute minimum required for JBrowse to function.
+            interesting = [
+                'dist', 'img', 'index.html', 'jbrowse.conf', 'jbrowse_conf.json', 'webpack.config.js'
+            ]
+            for i in interesting:
+                cmd = ['cp', '-r', os.path.join(jbrowse_dir, i), destination]
+                self.subprocess_check_call(cmd)
+        else:
+            # JBrowse seems to have included some bad symlinks, cp ignores bad symlinks
+            # unlike copytree
+            cmd = ['cp', '-r', os.path.join(jbrowse_dir, '.'), destination]
+            self.subprocess_check_call(cmd)
+
         cmd = ['mkdir', '-p', os.path.join(destination, 'data', 'raw')]
-        log.debug(' '.join(cmd))
-        subprocess.check_call(cmd)
+        self.subprocess_check_call(cmd)
 
         # http://unix.stackexchange.com/a/38691/22785
         # JBrowse releases come with some broken symlinks
         cmd = ['find', destination, '-type', 'l', '-xtype', 'l']
-        log.debug(' '.join(cmd))
-        symlinks = subprocess.check_output(cmd)
+        symlinks = self.subprocess_check_output(cmd)
+
         for i in symlinks:
             try:
                 os.unlink(i)
@@ -969,7 +1113,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
-    parser.add_argument('--standalone', help='Standalone mode includes a copy of JBrowse', action='store_true')
+    parser.add_argument('--standalone', choices=['complete', 'minimal', 'data'], help='Standalone mode includes a copy of JBrowse')
     parser.add_argument('--version', '-V', action='version', version="%(prog)s 0.8.0")
     args = parser.parse_args()
 

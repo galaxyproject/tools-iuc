@@ -5,12 +5,7 @@ import os
 import shutil
 import tarfile
 import zipfile
-try:
-    # For Python 3.0 and later
-    from urllib.request import Request, urlopen
-except ImportError:
-    # Fall back to Python 2 imports
-    from urllib2 import Request, urlopen
+from urllib.request import Request, urlopen
 
 
 def url_download(url, workdir):
@@ -50,13 +45,15 @@ def main(args):
     data_manager_entry['name'] = args.name
     data_manager_entry['path'] = '.'
     data_manager_json = dict(data_tables=dict(ncbi_taxonomy=data_manager_entry))
-    params = json.loads(open(args.output).read())
+    with open(args.output) as fh:
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
     output_path = os.path.abspath(os.path.join(os.getcwd(), 'taxonomy'))
     for filename in os.listdir(workdir):
         shutil.move(os.path.join(output_path, filename), target_directory)
-    file(args.output, 'w').write(json.dumps(data_manager_json))
+    with open(args.output, 'w') as fh:
+        json.dump(data_manager_json, fh, sort_keys=True)
 
 
 if __name__ == '__main__':

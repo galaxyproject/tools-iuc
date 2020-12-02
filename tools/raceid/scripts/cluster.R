@@ -1,5 +1,5 @@
 #!/usr/bin/env R
-VERSION = "0.4"
+VERSION = "0.5"
 
 args = commandArgs(trailingOnly = T)
 
@@ -139,6 +139,19 @@ mkgenelist <- function(sc){
     write.table(df, file=out.genelist, sep="\t", quote=F)
 }
 
+
+writecellassignments <- function(sc){
+    dat <- sc@cluster$kpart
+    tab <- data.frame(row.names = NULL,
+                      cells = names(dat),
+                      cluster.initial = dat,
+                      cluster.final = sc@cpart,
+                      is.outlier = names(dat) %in% sc@out$out)
+
+    write.table(tab, file=out.assignments, sep="\t", quote=F, row.names = F)
+}
+
+
 pdf(out.pdf)
 
 if (use.filtnormconf){
@@ -148,6 +161,7 @@ if (use.filtnormconf){
     message(paste("         :: ",
                   sprintf("%.1f", 100 * nrow(getfdata(sc))/nrow(sc@expdata)), "% of genes remain,",
                   sprintf("%.1f", 100 * ncol(getfdata(sc))/ncol(sc@expdata)), "% of cells remain"))
+    write.table(as.matrix(sc@ndata), file=out.table, col.names=NA, row.names=T, sep="\t", quote=F)
 }
 
 if (use.cluster){
@@ -161,6 +175,7 @@ if (use.cluster){
     sc <- do.clustmap(sc)
 
     mkgenelist(sc)
+    writecellassignments(sc)
 }
 
 dev.off()

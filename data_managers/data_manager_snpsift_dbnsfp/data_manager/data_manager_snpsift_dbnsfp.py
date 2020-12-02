@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 
 import gzip
 import json
@@ -46,11 +47,6 @@ tokenize = re.compile(r'(\d+)|(\D+)').findall
 dbNSFP_name_pat = r'dbNSFP(v|_light)?(\d*).*?'
 
 
-def stop_err(msg):
-    sys.stderr.write(msg)
-    sys.exit(1)
-
-
 def get_nsfp_genome_version(name):
     genome_version = 'hg19'
     dbNSFP_name_pat = r'(dbscSNV|dbNSFP(v|_light)?)(\d*).*?'
@@ -66,23 +62,19 @@ def get_nsfp_genome_version(name):
 
 def get_annotations(gzip_path):
     annotations = None
-    fh = None
     try:
-        fh = gzip.open(gzip_path, 'r')
-        buf = fh.read(10000)
+        with gzip.open(gzip_path, 'r') as fh:
+            buf = fh.read(10000)
         lines = buf.splitlines()
         headers = lines[0].split('\t')
         annotations = ','.join([x.strip() for x in headers[4:]])
     except Exception as e:
-        stop_err('Error Reading annotations %s : %s' % (gzip_path, e))
-    finally:
-        if fh:
-            fh.close()
+        sys.exit('Error Reading annotations %s : %s' % (gzip_path, e))
     return annotations
 
 
 def tabix_file(input_fname, output_fname):
-    print >> sys.stdout, "tabix_file: %s -> %s" % (input_fname, output_fname)
+    print("tabix_file: %s -> %s" % (input_fname, output_fname))
     ctabix.tabix_compress(input_fname, output_fname, force=True)
     # Column indices are 0-based.
     ctabix.tabix_index(output_fname, seq_col=0, start_col=1, end_col=1)
@@ -119,7 +111,7 @@ def download_dbnsfp_database(url, output_file):
                         tfh.close()
                         tempfiles.append(file + "_%d" % len(tempfiles))
                         tfh = open(tempfiles[-1], 'w')
-                        print >> sys.stderr, "%s [%d] pos: %d < %d" % (file, i, pos, lastpos)
+                        print("%s [%d] pos: %d < %d" % (file, i, pos, lastpos), file=sys.stderr)
                     lastpos = pos
                 tfh.write(line)
             tfh.close()
@@ -156,7 +148,8 @@ def main():
     (options, args) = parser.parse_args()
 
     filename = args[0]
-    params = json.loads(open(filename).read())
+    with open(filename) as fh:
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     if not os.path.exists(target_directory):
         os.mkdir(target_directory)
@@ -182,7 +175,7 @@ def main():
         bzip_path = os.path.join(target_directory, bgzip_name)
         db_name = re.sub('(.txt)?.gz$', '', bgzip_name)
     else:
-        stop_err('Either --softgenetics or --dbnsfp_tabular required')
+        sys.exit('Either --softgenetics or --dbnsfp_tabular required')
     if dbnsfp_tsv:
         bgzip_name = '%s.txt.gz' % db_name
         bzip_path = os.path.join(target_directory, bgzip_name)
@@ -195,7 +188,8 @@ def main():
     data_manager_dict['data_tables'][data_table].append(data_table_entry)
 
     # save info to json file
-    open(filename, 'wb').write(json.dumps(data_manager_dict))
+    with open(filename, 'w') as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

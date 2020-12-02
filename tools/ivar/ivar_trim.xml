@@ -1,0 +1,113 @@
+<tool id="ivar_trim" name="ivar trim" version="@VERSION@+galaxy1">
+    <description>Trim reads in aligned BAM</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements">
+        <requirement type="package" version="3.8.1">python</requirement>
+    </expand>
+    <expand macro="version_command" />
+    <command detect_errors="exit_code"><![CDATA[
+        #if $primer.source == "history"
+            cp '$primer.input_bed' bed.bed &&
+        #else
+            cp '$primer.cached_bed.fields.path' bed.bed &&
+        #end if
+        python '$__tool_directory__/sanitize_bed.py' bed.bed &&
+
+        ln -s '$input_bam' sorted.bam &&
+        ln -s '${input_bam.metadata.bam_index}' sorted.bam.bai &&
+
+        ivar trim
+        -i sorted.bam
+        -b bed.bed
+        -m $min_len
+        -q $min_qual
+        -s $window_width
+        $inc_primers
+        -p trimmed &&
+        samtools sort -@ \${GALAXY_SLOTS:-1} -o trimmed.sorted.bam trimmed.bam
+    ]]>    </command>
+    <inputs>
+        <param name="input_bam" argument="-i" type="data" format="bam" label="Bam file" help="Aligned reads, to trim primers and quality"/>
+        <conditional name="primer">
+            <param label="Source of primer information" name="source" type="select">
+                <option value="history" selected="true">History</option>
+                <option value="cached">Built-in</option>
+            </param>
+            <when value="history">
+                <param name="input_bed" argument="-b" type="data" format="bed" label="BED file with primer sequences and positions"/>
+            </when>
+            <when value="cached">
+                <param name="cached_bed" type="select" label="Primer scheme name" help="Select primer scheme bed file from a list">
+                    <options from_data_table="primer_scheme_bedfiles">
+                        <filter type="sort_by" column="1" />
+                    <validator type="no_options" message="No primer schemes are available" />
+                    </options>
+                </param>
+            </when>
+        </conditional>
+        <param name="min_len" argument="-m" type="integer" min="0" value="30" label="Minimum length of read to retain after trimming"/>
+        <param name="min_qual" argument="-q" type="integer" min="0" value="20" label="Minimum quality threshold for sliding window to pass"/>
+        <param name="window_width" argument="-s" type="integer" min="0" value="4" label="Width of sliding window"/>
+        <param name="inc_primers" argument="-e" type="boolean" truevalue="-e" falsevalue="" checked="false" label="Include reads with no primers"/>
+    </inputs>
+    <outputs>
+        <data name="output_bam" format="bam" label="${tool.name} on ${on_string} Trimmed bam" from_work_dir="trimmed.sorted.bam"/>
+    </outputs>
+    <tests>
+        <!-- #1: SARS-Cov data-->
+        <test>
+            <param name="input_bam" value="covid19/PC00101P_sub.sorted.bam" />
+            <param name="input_bed" value="covid19/ARTIC-V1.bed" />
+            <param name="inc_primers" value="true" />
+            <output name="output_bam" file="covid19/PC00101P_sub.sorted.bam" compare="sim_size" delta="300000"/>
+        </test>
+        <test>
+            <!-- Test with primer bed file that needs to be sanitized -->
+            <param name="input_bam" value="covid19/PC00101P_sub.sorted.bam" />
+            <param name="input_bed" value="covid19/ARTIC-V1-bad.bed" />
+            <param name="inc_primers" value="true" />
+            <output name="output_bam" file="covid19/PC00101P_sub.sorted.bam" compare="sim_size" delta="300000"/>
+        </test>
+        <!-- #1: Zika data-->
+        <test>
+            <conditional name="primer">
+                <param name="source" value="history" />
+                <param name="input_bed" value="zika/db/zika_primers.bed" />
+            </conditional>
+            <param name="input_bam" value="zika/Z52_a.sorted.bam" />
+            <output name="output_bam" file="zika/Z52_a.trimmed.sorted.bam" compare="sim_size" delta="100000"/>
+        </test>
+        <test>
+            <conditional name="primer">
+                <param name="source" value="history" />
+                <param name="input_bed" value="zika/db/zika_primers.bed" />
+            </conditional>
+            <param name="input_bam" value="zika/Z52_b.sorted.bam" />
+            <output name="output_bam" file="zika/Z52_b.trimmed.sorted.bam" compare="sim_size" delta="100000"/>
+        </test>
+        <test>
+            <conditional name="primer">
+                <param name="source" value="cached" />
+                <param name="cached_bed" value="SARS-CoV-2-ARTICv1" />
+            </conditional>
+            <param name="input_bam" value="sars-cov-2/sars_cov2_untrimmed.bam" ftype="bam" />
+            <output name="output_bam" file="sars-cov-2/sars_cov2_trimmed.bam" />
+        </test>
+    </tests>
+    <help><![CDATA[
+        iVar uses primer positions supplied in a BED file to soft clip primer
+        sequences from an aligned and sorted BAM file. Following this, the reads are
+        trimmed based on a quality threshold(Default: 20). To do the quality
+        trimming, iVar uses a sliding window approach(Default: 4). The windows
+        slides from the 5' end to the 3' end and if at any point the average base
+        quality in the window falls below the threshold, the remaining read is soft
+        clipped. If after trimming, the length of the read is greater than the
+        minimum length specified(Default: 30), the read is written to the new
+        trimmed BAM file
+        
+        Documentation can be found at `<https://andersen-lab.github.io/ivar/html/manualpage.html>`_.
+    ]]>    </help>
+    <expand macro="citations" />
+</tool>

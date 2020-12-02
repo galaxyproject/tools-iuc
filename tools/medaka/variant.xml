@@ -1,0 +1,206 @@
+<?xml version="1.0"?>
+<tool id="medaka_variant" name="medaka variant tool" version="@TOOL_VERSION@+galaxy3" profile="@PROFILE@">
+    <description>Probability decoding</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements">
+        <requirement type="package" version="1.4.1">scipy</requirement>
+    </expand>
+
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
+## initialize
+@REF_FASTA@
+
+
+#if $pool.pool_mode == "Yes":
+    ## run
+    medaka variant
+    ## optional
+    --debug
+    #if $regions
+        --regions '${regions}'
+    #end if
+    $verbose
+    ## required
+    reference.fa
+    #for $current in $pool.inputs
+        '$current'
+    #end for
+    '$out_result' ## output
+
+    2>&1 | tee '$out_log'
+#elif $pool.pool_mode == "No":
+    ## run
+    medaka variant
+    ## optional
+    --debug
+    #if $regions
+        --regions '${regions}'
+    #end if
+    $verbose
+    ## required
+    reference.fa
+    '$pool.input'
+    '$out_result' ##output
+    2>&1 | tee '$out_log'
+#end if
+
+#if $out_annotated
+    && samtools faidx reference.fa
+    && grep -v "^#" '$out_result' > tmp.txt
+    && cut -f 1,2 tmp.txt > positions.txt
+    && samtools mpileup -d 0 --positions positions.txt -Q $output_annotated.min_basequal -q $output_annotated.min_mapqual -f reference.fa '$output_annotated.in_bam' > mpileup.txt
+    && python '$__tool_directory__/annotateVCF.py' '$out_result' mpileup.txt '$out_annotated'
+#end if
+    ]]></command>
+    <inputs>
+        <conditional name="pool">
+            <param name="pool_mode"  type="select" label="Are you pooling HDF5 datasets?">
+                <option value="No" selected="True">No</option>
+                <option value="Yes">Yes</option>
+            </param>
+            <when value="Yes">
+                <param name="inputs" type="data" format="h5" multiple="true" label="Select consensus file(s)"/>
+            </when>
+            <when value="No">
+                <param name="input" type="data" format="h5" label="Select consensus file(s)"/>
+            </when>
+        </conditional>
+        <expand macro="reference"/>
+        <param argument="--regions" type="text" value="" optional="true" label="Set reference names to limit variant calling" help="Separated by ','.">
+            <sanitizer invalid_char="">
+                <valid initial="string.ascii_letters,string.digits">
+                    <add value="_"/>
+                    <add value=","/>
+                    <add value="."/>
+                </valid>
+            </sanitizer>
+        </param>
+        <param argument="--verbose" type="boolean" truevalue="--verbose" falsevalue="" label="Populate VCF info fields?"/>
+        <conditional name="output_annotated">
+            <param name="output_annotated_select" type="select" label="Output annotated VCF?" help="Annotate allele frequency, depth of coverage, etc for each variant (requires BAM file)">
+                <option value="true" selected="true">Output annotated VCF</option>
+                <option value="false">Don't output annotated VCF</option>
+            </param>
+            <when value="true">
+                <param name="in_bam" type="data" format="bam" optional="false" label="BAM to annotate the VCF" />
+                <param name="min_basequal" type="integer" value="0" min="0" max="50" label="Minimum base quality" help="The minimum base quality (default: 0) at a given variant position required to include a read in the calculation of variant statistics (samtools mpileup -Q)" />
+                <param name="min_mapqual" type="integer" value="0" min="0" max="60" label="Minimum mapping quality" help="The minimum mapping quality (default: 0) required for a read to be considered in calculation of variant statistics (samtools mpileup -q)" />
+            </when>
+            <when value="false"/>
+        </conditional>
+        <param name="output_log_bool" type="boolean" label="Output log file?" checked="true"/>
+    </inputs>
+    <outputs>
+        <!-- standard -->
+        <data name="out_result" format="vcf" label="${tool.name} on ${on_string}: Result"/>
+        <!-- optional -->
+        <data name="out_annotated" format="vcf" label="${tool.name} on ${on_string}: Annotated">
+            <filter>output_annotated_select</filter>
+        </data>
+        <data name="out_log" format="tabular" label="${tool.name} on ${on_string}: Log">
+            <filter>output_log_bool</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- #1 default -->
+        <test expect_num_outputs="3">
+            <conditional name="pool">
+                <param name="pool_mode" value="Yes"/>
+                <param name="inputs" value="medaka_test.hdf,medaka_test.hdf"/>
+            </conditional>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="ref.fasta"/>
+            </conditional>
+            <conditional name="output_annotated">
+                <param name="output_annotated_select" value="true"/>
+                <param name="in_bam" value="medaka_test.bam"/>
+            </conditional>
+            <param name="output_log_bool" value="true"/>
+            
+            <output name="out_result">
+                <assert_contents>
+                    <has_n_lines n="9"/>
+                    <has_line line="##fileformat=VCFv4.1" />
+                    <has_line line="##medaka_version=1.0.3" />
+                </assert_contents>
+            </output>
+            <output name="out_annotated">
+                <assert_contents>
+                    <has_n_lines n="16"/>
+                    <has_line line="##fileformat=VCFv4.1" />
+                    <has_line line="##medaka_version=1.0.3" />
+                    <has_line line="##annotateVCFVersion=0.2" />
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_n_lines n="10" />
+                </assert_contents>
+            </output>
+        </test>
+        <!--No pooling-->
+        <test expect_num_outputs="3">
+            <conditional name="pool">
+                <param name="pool_mode" value="No"/>
+                <param name="input" value="medaka_test.hdf"/>
+            </conditional>
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history"/>
+                <param name="ref_file" value="ref.fasta"/>
+            </conditional>
+            <conditional name="output_annotated">
+                <param name="output_annotated_select" value="true"/>
+                <param name="in_bam" value="medaka_test.bam"/>
+            </conditional>
+            <param name="output_log_bool" value="true"/>
+            
+            <output name="out_result">
+                <assert_contents>
+                    <has_n_lines n="9"/>
+                    <has_line line="##fileformat=VCFv4.1" />
+                    <has_line line="##medaka_version=1.0.3" />
+                </assert_contents>
+            </output>
+            <output name="out_annotated">
+                <assert_contents>
+                    <has_n_lines n="16"/>
+                    <has_line line="##fileformat=VCFv4.1" />
+                    <has_line line="##medaka_version=1.0.3" />
+                    <has_line line="##annotateVCFVersion=0.2" />
+                </assert_contents>
+            </output>
+            <output name="out_log">
+                <assert_contents>
+                    <has_n_lines n="8" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+@WID@
+
+The module *variant* decodes probabilities.
+
+**Input**
+
+- reference sequence (FASTA)
+- (several) consensus files (H5/HDF)
+
+**Output**
+
+- decoded probabilities (VCF)
+
+**References**
+
+@REFERENCES@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

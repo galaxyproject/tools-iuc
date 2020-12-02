@@ -1,0 +1,208 @@
+<tool id="tximport" name="tximport" version="0.1">
+    <description>Summarize transcript-level estimates for gene-level analysis</description>
+    <requirements>
+        <requirement type="package">bioconductor-tximport</requirement>
+        <requirement type="package" version="1.34.1">bioconductor-genomicfeatures</requirement>
+        <requirement type="package" version="1.20.2">r-getopt</requirement>
+    </requirements>
+
+    <stdio>
+        <exit_code range="1:" level="fatal" description="Error code returned" />
+        <regex match="is not TRUE"
+           source="both"
+           level="fatal"
+           description="Execution halted." />
+    </stdio>
+
+    <command><![CDATA[
+#if $gene_id_source_selector.gene_id_source == 'external_file':
+    #if $gene_id_source_selector.gff_source_selector.gff_source == 'history':
+        #if $gene_id_source_selector.gff_source_selector.gff_tx2gene_selector.mapping_file_option == 'gff_gtf':
+            ln -s '$gene_id_source_selector.gff_source_selector.gff_tx2gene_selector.own_gff' mapping.gff &&
+        #else:
+            ln -s '$gene_id_source_selector.gff_source_selector.gff_tx2gene_selector.own_tx2gene' mapping.tab &&
+        #end if
+    #end if
+#end if
+
+Rscript '${__tool_directory__}/tximport.R'
+--format $input_source_selector.input_source
+#if $input_source_selector.input_source == 'none':
+    --txIdCol '$input_source_selector.tx_id_col'
+    --abundanceCol '$input_source_selector.abundance_col'
+    --countsCol '$input_source_selector.counts_col'
+    --lengthCol '$input_source_selector.length_col'
+#end if
+#if $gene_id_source_selector.gene_id_source == 'gene_id_column_option':
+    --geneIdCol '$gene_id_source_selector.gene_id_column'
+#else
+    #if $gene_id_source_selector.gff_source_selector.gff_source == "history":
+        #if $gene_id_source_selector.gff_source_selector.gff_tx2gene_selector.mapping_file_option == 'tx2gene':
+            --tx2gene mapping.tab
+        #else
+            --gff_file mapping.gff
+        #end if
+    #else:
+        --tx2gene $gene_id_source_selector.gff_source_selector.tx2gene.fields.path
+    #end if
+#end if
+--countsFiles '$counts_files_table'
+--countsFromAbundance $counts_from_abundance
+--out_file '${gene_level_values}'
+    ]]></command>
+
+    <configfiles>
+        <configfile name="counts_files_table"><![CDATA[#echo "sample_id\tpath\n"
+#for $file in $counts_file:
+    #echo str($file.element_identifier) + "\t" + str($file) + "\n"
+#end for]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="counts_file" type="data" format="tabular" multiple="true" label="Counts file(s)"/>
+        <conditional name="input_source_selector">
+            <param name="input_source" type ="select" label="Select the source of the quantification file">
+                <option value="salmon" selected="True">Salmon</option>
+                <option value="sailfish">Sailfish</option>
+                <option value="alevin">Alevin</option>
+                <option value="kallisto">Kallisto</option>
+                <option value="rsem">RSEM</option>
+                <option value="stringtie">Stringtie</option>
+                <option value="none">Custom format (specify the columns)</option>
+            </param>
+            <when value="none">
+                <param name="tx_id_col" type="text" label="Name of the txID columns"/>
+                <param name="abundance_col" type="text" label="Name of the abundance column"/>
+                <param name="counts_col" type="text" label="Name of the counts column"/>
+                <param name="length_col" type="text" label="Name of the length column"/>
+            </when>
+            <when value="salmon"/>
+            <when value="sailfish"/>
+            <when value="alevin"/>
+            <when value="kallisto"/>
+            <when value="rsem"/>
+            <when value="stringtie"/>
+        </conditional>
+        <conditional name="gene_id_source_selector" >
+            <param name="gene_id_source" type="select" label="Is the gene id part of the counts file or will be obtained from an external file?">
+                <option value="external_file" selected="True">Use an external file to map transcript to gene ids</option>
+                <option value="gene_id_column_option">Gene id is a column of the input file</option>
+            </param>
+            <when value="gene_id_column_option">
+                <param name="gene_id_column" type="text" label="Name of the column containing the geneID"/>
+            </when>
+            <when value="external_file">
+                <conditional name="gff_source_selector">
+                    <param name="gff_source" type="select" label="Select a tx-to-gene table/GFF from your history or use a built-in file?">
+                        <option value="built-in" selected="True">Use a built-in file</option>
+                        <option value="history" >Use one from the history</option>
+                    </param>
+                    <when value="built-in">
+                        <param name="tx2gene" type="select" label="Select an annotation version" help="If the build of your interest is not listed contact your Galaxy admin">
+                            <options from_data_table="tx2gene_table">
+                                <filter type="sort_by" column="1"/>
+                                <validator type="no_options" message="No files are available for the selected input dataset"/>
+                            </options>
+                        </param>
+                    </when>
+                    <when value="history">
+                        <conditional name="gff_tx2gene_selector">
+                            <param name="mapping_file_option" type="select" label="Will you provide a tx2gene or a GFF/GTF file?">
+                                <option value="tx2gene" selected="True">TranscriptID to GeneID table</option>
+                                <option value="gff_gtf">GTF/GFF file</option>
+                            </param>
+                            <when value="gff_gtf">
+                                <param name="own_gff" type="data" format="gff" label="Select your GFF file"/>
+                            </when>
+                            <when value="tx2gene">
+                                <param name="own_tx2gene" type="data" format="tabular" label="Select your TranscriptID to GeneID table file"/>
+                            </when>
+                        </conditional>
+                    </when>
+                </conditional>
+             </when>
+        </conditional>
+        <param name="counts_from_abundance" type="select" label="Summarization using the abundance (TPM) values?">
+            <option value="no">No</option>
+            <option value="scaled_TPM">Scaled up to library size</option>
+            <option value="length_scaled_TPM">Scaled using the avg. transcript legth over samples and then the library size</option>
+            <option value="dtu_scaled_TPM">Scaled using the median transcript length among isoforms of a gene, and then the library size</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="gene_level_values" format="tabular" label="Gene level summarization on ${on_string}"/>
+    </outputs>
+
+    <tests>
+        <test>
+            <param name="input_source" value="salmon"/>
+            <param name="gene_id_source" value="external_file"/>
+            <param name="counts_from_abundance" value="no"/>
+            <param name="gff_source" value="history"/>
+            <param name="mapping_file_option" value="tx2gene"/>
+        <param name="own_tx2gene" value="tx2gene.tab"/>
+        <param name="counts_file" value="salmon_sample2.tab,salmon_sample1.tab" />
+            <output name="gene_level_values">
+                 <assert_contents>
+                    <has_text_matching expression="salmon_sample2.tab\tsalmon_sample1.tab" />
+                    <has_text_matching expression="AT1G01010\t156\t156" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_source" value="salmon"/>
+            <param name="gene_id_source" value="external_file"/>
+            <param name="counts_from_abundance" value="no"/>
+            <param name="gff_source" value="history"/>
+            <param name="mapping_file_option" value="gff_gtf"/>
+            <param name="own_gff" value="Araport11_subset.gff3"/>
+            <param name="counts_file" value="salmon_sample2.tab,salmon_sample1.tab" />
+            <output name="gene_level_values">
+                <assert_contents>
+                    <has_text_matching expression="salmon_sample2.tab\tsalmon_sample1.tab" />
+                    <has_text_matching expression="AT1G01010\t156\t156" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_source" value="salmon"/>
+            <param name="gene_id_source" value="external_file"/>
+            <param name="counts_from_abundance" value="no"/>
+            <param name="gff_source" value="built-in"/>
+            <param name="tx2gene" value="Ath_Araport11_subset"/>
+            <param name="counts_file" value="salmon_sample2.tab,salmon_sample1.tab" />
+            <output name="gene_level_values">
+                 <assert_contents>
+                    <has_text_matching expression="salmon_sample2.tab\tsalmon_sample1.tab" />
+                    <has_text_matching expression="AT1G01010\t156\t156" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test input with custom format -->
+        <test>
+            <param name="input_source" value="none"/>
+            <param name="tx_id_col" value="Transcript_id_here"/>
+            <param name="abundance_col" value="Abundance_goes_here"/>
+            <param name="counts_col" value="Here_goes_the_counts"/>
+            <param name="length_col" value="Here_goes_the_length"/>
+            <param name="counts_from_abundance" value="no"/>
+            <param name="gff_source" value="built-in"/>
+            <param name="tx2gene" value="Ath_Araport11_subset"/>
+            <param name="counts_file" value="custom_sample.tab" />
+            <output name="gene_level_values">
+                <assert_contents>
+                    <has_text_matching expression="custom_sample.tab" />
+                    <has_text_matching expression="AT1G01010\t156" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+Current version only works in 'merge' mode: A single table of gene summarizations is generated with one column for each sample file.
+Take into account that DEseq2 package in Galaxy requires one table per sample.
+    ]]></help>
+    <citations>
+        <citation type="doi">doi:10.18129/B9.bioc.tximport</citation>
+    </citations>
+</tool>

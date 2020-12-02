@@ -16,9 +16,10 @@ def write_gemini_config(config, config_file):
 
 def main():
     today = datetime.date.today()
-    params = json.loads( open( sys.argv[1] ).read() )
-    target_directory = params[ 'output_data' ][0]['extra_files_path']
-    os.mkdir( target_directory )
+    with open(sys.argv[1]) as fh:
+        params = json.load(fh)
+    target_directory = params['output_data'][0]['extra_files_path']
+    os.mkdir(target_directory)
 
     # Generate a minimal configuration file for GEMINI update
     # to instruct the tool to download the annotation data into a
@@ -39,7 +40,7 @@ def main():
         params['param_dict']['gerp_bp'],
         params['param_dict']['cadd']
     )
-    subprocess.check_call( cmd, shell=True, env=gemini_env )
+    subprocess.check_call(cmd, shell=True, env=gemini_env)
 
     # GEMINI tool wrappers that need access to the annotation files
     # are supposed to symlink them into a gemini/data subfolder of
@@ -83,8 +84,8 @@ def main():
     }
 
     # ... and save it to the json results file
-    with open( sys.argv[1], 'wb' ) as out:
-        out.write( json.dumps( data_manager_dict ) )
+    with open(sys.argv[1], 'w') as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":
