@@ -83,13 +83,13 @@ so_effects <- sapply(ann_final$effect, function(x) trans(x, classic_snpeff_effec
 
 # handle further translation of effects we care about
 so_effects_translation <- list(
-    "non-coding", "non-syn", "syn",
+    "non-syn", "syn",
     "deletion", "deletion", "deletion",
     "insertion", "insertion", "frame shift",
     "stop gained", "stop lost"
 )
 names(so_effects_translation) <- c(
-    "", "missense_variant", "synonymous_variant",
+    "missense_variant", "synonymous_variant",
     "disruptive_inframe_deletion", "inframe_deletion", "chromosomal_deletion",
     "disruptive_inframe_insertion", "inframe_insertion", "frameshift_variant",
     "stop_gained", "stop_lost"
@@ -100,10 +100,10 @@ simple_effects <- sapply(so_effects, function(x) trans(x, so_effects_translation
 # with either '+' (for classic terms) or '&' (for SO terms)
 simple_effects[grepl("+", so_effects, fixed = TRUE)] <- "complex"
 simple_effects[grepl("&", so_effects, fixed = TRUE)] <- "complex"
+simple_effects[so_effects == ""] <- "non-coding"
 
-ann_final$gene <- sub("^$", "NCR", ann_final$gene)
 ann_final$effect <- simple_effects
-
+ann_final$gene <- sub("^$", "NCR", ann_final$gene)
 
 ## automatically determine gaps for the heatmap
 gap_vector <- which(!(ann_final$gene[1:length(ann_final$gene) - 1] ==  # nolint
