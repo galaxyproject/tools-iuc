@@ -64,42 +64,43 @@ trans <- function(x, mapping, replace_missing=NULL) {
     mapped <- mapping[[x]]
     if (is.null(mapped)) {
         if (is.null(replace_missing)) x else replace_missing
+    } else {
+        mapped
     }
-    else {mapped}
 }
 
 # handle translation of classic SnpEff effects to sequence ontology terms
 # The following list defines the complete mapping between classic and So effect
 # terms even if not all of these are likely to appear in viral variant data.
 classic_snpeff_effects_to_so <- list(
-    'coding_sequence_variant', 'coding_sequence_variant', 'disruptive_inframe_deletion', 'disruptive_inframe_insertion', 'inframe_deletion', 'inframe_insertion', 'downstream_gene_variant', 'exon_variant', 'exon_loss_variant', 'frameshift_variant', 'gene_variant', 'intergenic_variant', 'intergenic_region', 'conserved_intergenic_variant', 'intragenic_variant', 'intron_variant', 'conserved_intron_variant', 'missense_variant', 'rare_amino_acid_variant', 'splice_acceptor_variant', 'splice_donor_variant', 'splice_region_variant', '5_prime_UTR_premature_start_codon_variant', 'start_lost', 'stop_gained', 'stop_lost', 'synonymous_variant', 'start_retained_variant', 'stop_retained_variant', 'transcript_variant', 'upstream_gene_variant', '3_prime_UTR_truncation_+_exon_loss_variant', '3_prime_UTR_variant', '5_prime_UTR_truncation_+_exon_loss_variant', '5_prime_UTR_variant', 'initiator_codon_variant', 'None', 'chromosomal_deletion'
+    "coding_sequence_variant", "coding_sequence_variant", "disruptive_inframe_deletion", "disruptive_inframe_insertion", "inframe_deletion", "inframe_insertion", "downstream_gene_variant", "exon_variant", "exon_loss_variant", "frameshift_variant", "gene_variant", "intergenic_variant", "intergenic_region", "conserved_intergenic_variant", "intragenic_variant", "intron_variant", "conserved_intron_variant", "missense_variant", "rare_amino_acid_variant", "splice_acceptor_variant", "splice_donor_variant", "splice_region_variant", "5_prime_UTR_premature_start_codon_variant", "start_lost", "stop_gained", "stop_lost", "synonymous_variant", "start_retained_variant", "stop_retained_variant", "transcript_variant", "upstream_gene_variant", "3_prime_UTR_truncation_+_exon_loss_variant", "3_prime_UTR_variant", "5_prime_UTR_truncation_+_exon_loss_variant", "5_prime_UTR_variant", "initiator_codon_variant", "None", "chromosomal_deletion"
 )
 names(classic_snpeff_effects_to_so) <- c(
-    'CDS', 'CODON_CHANGE', 'CODON_CHANGE_PLUS_CODON_DELETION', 'CODON_CHANGE_PLUS_CODON_INSERTION', 'CODON_DELETION', 'CODON_INSERTION', 'DOWNSTREAM', 'EXON', 'EXON_DELETED', 'FRAME_SHIFT', 'GENE', 'INTERGENIC', 'INTERGENIC_REGION', 'INTERGENIC_CONSERVED', 'INTRAGENIC', 'INTRON', 'INTRON_CONSERVED', 'NON_SYNONYMOUS_CODING', 'RARE_AMINO_ACID', 'SPLICE_SITE_ACCEPTOR', 'SPLICE_SITE_DONOR', 'SPLICE_SITE_REGION', 'START_GAINED', 'START_LOST', 'STOP_GAINED', 'STOP_LOST', 'SYNONYMOUS_CODING', 'SYNONYMOUS_START', 'SYNONYMOUS_STOP', 'TRANSCRIPT', 'UPSTREAM', 'UTR_3_DELETED', 'UTR_3_PRIME', 'UTR_5_DELETED', 'UTR_5_PRIME', 'NON_SYNONYMOUS_START', 'NONE', 'CHROMOSOME_LARGE_DELETION'
+    "CDS", "CODON_CHANGE", "CODON_CHANGE_PLUS_CODON_DELETION", "CODON_CHANGE_PLUS_CODON_INSERTION", "CODON_DELETION", "CODON_INSERTION", "DOWNSTREAM", "EXON", "EXON_DELETED", "FRAME_SHIFT", "GENE", "INTERGENIC", "INTERGENIC_REGION", "INTERGENIC_CONSERVED", "INTRAGENIC", "INTRON", "INTRON_CONSERVED", "NON_SYNONYMOUS_CODING", "RARE_AMINO_ACID", "SPLICE_SITE_ACCEPTOR", "SPLICE_SITE_DONOR", "SPLICE_SITE_REGION", "START_GAINED", "START_LOST", "STOP_GAINED", "STOP_LOST", "SYNONYMOUS_CODING", "SYNONYMOUS_START", "SYNONYMOUS_STOP", "TRANSCRIPT", "UPSTREAM", "UTR_3_DELETED", "UTR_3_PRIME", "UTR_5_DELETED", "UTR_5_PRIME", "NON_SYNONYMOUS_START", "NONE", "CHROMOSOME_LARGE_DELETION"
 )
 # translate classic effects into SO terms leaving unknown terms (possibly SO already) as is
-so_effects <- sapply(ann_final$effect, function (x) trans(x, classic_snpeff_effects_to_so))
-print(so_effects)
+so_effects <- sapply(ann_final$effect, function(x) trans(x, classic_snpeff_effects_to_so))
+
 # handle further translation of effects we care about
 so_effects_translation <- list(
-    'non-coding', 'non-syn', 'syn',
-    'deletion', 'deletion', 'deletion',
-    'insertion', 'insertion', 'frame shift',
-    'stop gained', 'stop lost'
+    "non-coding", "non-syn", "syn",
+    "deletion", "deletion", "deletion",
+    "insertion", "insertion", "frame shift",
+    "stop gained", "stop lost"
 )
 names(so_effects_translation) <- c(
-    '', 'missense_variant', 'synonymous_variant',
-    'disruptive_inframe_deletion', 'inframe_deletion', 'chromosomal_deletion',
-    'disruptive_inframe_insertion', 'inframe_insertion', 'frameshift_variant',
-    'stop_gained', 'stop_lost'
+    "", "missense_variant", "synonymous_variant",
+    "disruptive_inframe_deletion", "inframe_deletion", "chromosomal_deletion",
+    "disruptive_inframe_insertion", "inframe_insertion", "frameshift_variant",
+    "stop_gained", "stop_lost"
 )
 # translate to our simple terms turning undefined terms into '?'
 simple_effects <- sapply(so_effects, function (x) trans(x, so_effects_translation, replace_missing="?"))
 # complex variant effects (those that do more than one thing) are concatenated
 # with either '+' (for classic terms) or '&' (for SO terms)
-simple_effects[grepl('+', so_effects, fixed=TRUE)] <- "complex"
-simple_effects[grepl('&', so_effects, fixed=TRUE)] <- "complex"
-print(simple_effects)
+simple_effects[grepl("+", so_effects, fixed=TRUE)] <- "complex"
+simple_effects[grepl("&", so_effects, fixed=TRUE)] <- "complex"
+
 ann_final$gene <- sub("^$", "NCR", ann_final$gene)
 ann_final$effect <- simple_effects
 
