@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import argparse
+import collections
 import csv
 import sys
 
@@ -35,7 +36,7 @@ def tbl2gff3(
     strand_infer=False,
 ):
 
-    records = {}
+    records = collections.OrderedDict()
 
     for row in csv.reader(table, delimiter="\t"):
         # print(', '.join(row))
