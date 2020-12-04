@@ -142,16 +142,10 @@ def get_annotation_dict(gbk_file):
 
 def get_sample_name(file_path):
     base_file_name = os.path.basename(file_path)
-    if base_file_name.find("_") > 0:
-        # The file name is something like
-        # Mbovis-01D6_avg_mq_json.avg_mq
-        items = base_file_name.split("_")
-        return "_".join(items[0:-1])
-    elif base_file_name.find(".") > 0:
+    if base_file_name.find(".") > 0:
         # Eliminate the extension.
         return os.path.splitext(base_file_name)[0]
-    else:
-        return base_file_name
+    return base_file_name
 
 
 def output_cascade_table(cascade_order, mqdf, group, annotation_dict):

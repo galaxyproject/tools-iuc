@@ -12,13 +12,7 @@ from Bio import SeqIO
 
 def get_sample_name(file_path):
     base_file_name = os.path.basename(file_path)
-    if base_file_name.find("_fastqsanger"):
-        return base_file_name.split("_fastqsanger")[0]
-    elif base_file_name.find("_fastq"):
-        return base_file_name.split("_fastq")[0]
-    elif base_file_name.find("_fq"):
-        return base_file_name.split("_fq")[0]
-    elif base_file_name.find(".") > 0:
+    if base_file_name.find(".") > 0:
         # Eliminate the extension.
         return os.path.splitext(base_file_name)[0]
     return base_file_name
