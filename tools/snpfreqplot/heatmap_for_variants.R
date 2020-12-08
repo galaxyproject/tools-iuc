@@ -18,8 +18,8 @@ variant_files <- fapply(samples$ids, read_and_process)  # nolint
 extractall_data <- function(id) {
     variants <- variant_files[[id]]
     tmp <- variants %>%
-        mutate(posalt = uni_select) %>%
-        select(posalt, AF)
+        mutate(unique_selectors = group_select) %>%
+        select(unique_selectors, AF)
     colnames(tmp) <- c("Mutation", id)
     return(tmp)
 }
@@ -27,9 +27,9 @@ extractall_data <- function(id) {
 extractall_annots <- function(id) {
     variants <- variant_files[[id]]
     tmp <- variants %>%
-        mutate(posalt = uni_select,
+        mutate(unique_selectors = group_select,
                effect = EFF....EFFECT, gene = EFF....GENE) %>%
-        select(posalt, effect, gene)
+        select(unique_selectors, effect, gene)
     return(tmp)
 }
 
@@ -53,10 +53,11 @@ processed_annots <- fapply(samples$ids, extractall_annots)
 ann_final <- processed_annots %>%
     reduce(function(x, y) {
         unique(rbind(x, y))}) %>%
-    filter(posalt %in% colnames(final))         ## apply frequency filter
+    ## apply frequency filter
+    filter(unique_selectors %in% colnames(final))
 ann_final <- as_tibble(ann_final[str_order(
-    ann_final$posalt, numeric = T), ]) %>%
-    column_to_rownames("posalt")                       ## sort
+    ann_final$unique_selectors, numeric = T), ]) %>%
+    column_to_rownames("unique_selectors")  ## sort
 
                                         # rename annotations
 trans <- function(x, mapping, replace_missing=NULL) {

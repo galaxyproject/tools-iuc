@@ -38,8 +38,8 @@ difference_in_group <- function(lines) {
             }
         }
     }
-    uni_select <- c("POS", "ALT", diff.colnames)
-    return(lines[, uni_select] %>% unite(uni_select, sep = " ")) # nolint
+    group_select <- c("POS", "REF", "ALT", diff.colnames)
+    return(lines[, group_select] %>% unite(group_select, sep = " ")) # nolint
 }
 
 split_table_and_process <- function(tab) {
@@ -51,21 +51,21 @@ split_table_and_process <- function(tab) {
     #'
     #' This function is necessary because tidyr is difficult
     #' to write custom group binding functions.
-    posalts <- tab %>% group_by(POS, ALT) %>% select(POS, ALT) # nolint
+    group_ind <- tab %>% group_by(POS, REF, ALT) %>% select(POS, REF, ALT) # nolint
     nlines <- nrow(tab)
     groups <- list()
     groups[[1]] <- c(1, 1)
-    last_pa <- paste(posalts[1, ])
+    last_pa <- paste(group_ind[1, ])
     for (r in 2:nlines) {
-        curr_pa <- paste(posalts[r, ])
-        posalt_diff_between_lines <- !all(last_pa == curr_pa)
-        if (posalt_diff_between_lines) {
+        curr_pa <- paste(group_ind[r, ])
+        group_ind_diff_between_lines <- !all(last_pa == curr_pa)
+        if (group_ind_diff_between_lines) {
             ## end of current group, start of new
             groups[[length(groups)]][2] <- r - 1     ## change prev end
             groups[[length(groups) + 1]] <- c(r, r)  ## set (start, end)
         } else if (r == nlines) {
             ## i.e. if the very last line shares
-            ## the same POS ALT as the one before,
+            ## the same POS REF ALT as the one before,
             ## close current group.
             groups[[length(groups)]][2] <- r
         }
