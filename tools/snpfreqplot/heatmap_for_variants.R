@@ -147,6 +147,41 @@ if (pheat_number_of_clusters > length(samples$ids)) {
                  pheat_number_of_clusters))
 }
 
+
+                                        # Fix Labels
+## Prettify names, check for label parity between final and ann_final
+fix_label <- function(name) {
+    ##' Reduce: 424 AGTAGAAGTTGAAAAAGGCGTTTTGCCTCAACTT A
+    ##'     to: 424 AGT… → A
+    cols <- unlist(str_split(name, " "))
+    ## first 3 are POS REF ALT, and the rest are optional differences
+    pos_ref_alt <- cols[1:3]
+    rest <- ""
+    if (length(cols) > 3) {
+        rest <- paste0(" :: ", paste(cols[4:length(cols)], sep = " "))
+    }
+    ## Trim the REF or ALT if too long
+    if (str_length(pos_ref_alt[2]) > 3) {
+        pos_ref_alt[2] <- paste0(substring(pos_ref_alt[2], 1, 3), "…")
+    }
+    if (str_length(pos_ref_alt[3]) > 3) {
+        pos_ref_alt[3] <- paste0(substring(pos_ref_alt[3], 1, 3), "…")
+    }
+    ## Join required
+    new_name <- paste0(pos_ref_alt[1], " ",
+                       pos_ref_alt[2], " → ",
+                       pos_ref_alt[3])
+    ## Join rest
+    new_name <- paste0(new_name, " ", paste(rest))
+}
+
+colnames(final) <- sapply(colnames(final), fix_label)
+rownames(ann_final) <- sapply(rownames(ann_final), fix_label)
+## sanity test
+stopifnot(all(colnames(final) %in% rownames(ann_final)))
+
+
+                                        # Perform Plotting
 get_plot_dims <- function(heat_map) {
     ## get the dimensions of a pheatmap object
     ## useful for plot formats that can't be written to a file directly, but
