@@ -12,17 +12,11 @@ OUTPUT_DBKEY_DIR = 'output_dbkey'
 OUTPUT_METRICS_DIR = 'output_metrics'
 
 
-def get_base_file_name(file_path):
+def get_sample_name(file_path):
     base_file_name = os.path.basename(file_path)
     if base_file_name.find(".") > 0:
         # Eliminate the extension.
         return os.path.splitext(base_file_name)[0]
-    elif base_file_name.find("_fq") > 0:
-        # The "." character has likely
-        # changed to an "_" character.
-        return base_file_name.split("_fq")[0]
-    elif base_file_name.find("_fastq") > 0:
-        return base_file_name.split("_fastq")[0]
     return base_file_name
 
 
@@ -178,7 +172,7 @@ def output_dbkey(file_name, dbkey, output_file):
 
 
 def output_files(fastq_file, count_list, group, dbkey, dbkey_file, metrics_file):
-    base_file_name = get_base_file_name(fastq_file)
+    base_file_name = get_sample_name(fastq_file)
     output_dbkey(base_file_name, dbkey, dbkey_file)
     output_metrics(base_file_name, count_list, group, dbkey, metrics_file)
 
