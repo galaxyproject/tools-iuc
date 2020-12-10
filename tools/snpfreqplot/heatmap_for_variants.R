@@ -155,7 +155,7 @@ if (pheat_number_of_clusters > length(samples$ids)) {
 ## Prettify names, check for label parity between final and ann_final
 fix_label <- function(name) {
     ##' Reduce: 424 AGTAGAAGTTGAAAAAGGCGTTTTGCCTCAACTT A
-    ##'     to: 424 AGT… → A
+    ##'     to: 424 AGT… > A
     cols <- unlist(str_split(name, " "))
     ## first 3 are POS REF ALT, and the rest are optional differences
     pos_ref_alt <- cols[1:3]
@@ -172,7 +172,7 @@ fix_label <- function(name) {
     }
     ## Join required
     new_name <- paste0(pos_ref_alt[1], " ",
-                       pos_ref_alt[2], " → ",
+                       pos_ref_alt[2], " > ",
                        pos_ref_alt[3])
     ## Join rest
     new_name <- paste0(new_name, " ", paste(rest))
