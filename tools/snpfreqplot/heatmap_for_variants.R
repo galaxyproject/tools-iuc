@@ -30,6 +30,9 @@ extractall_annots <- function(id) {
         mutate(unique_selectors = group_select,
                effect = EFF....EFFECT, gene = EFF....GENE) %>%
         select(unique_selectors, effect, gene)
+    # allow "." as an alternative missing value in EFF.EFFECT and EFF.GENE
+    tmp$effect <- sub("^\\.$", "", tmp$effect)
+    tmp$gene <- sub("^\\.$", "", tmp$gene)
     return(tmp)
 }
 
