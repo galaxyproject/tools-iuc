@@ -1,4 +1,4 @@
-<tool id="rna_starsolo" name="RNA STARSolo" version="@VERSION@" profile="20.01" license="MIT">
+<tool id="rna_starsolo" name="RNA STARSolo" version="@VERSION@+galaxy0" profile="20.01" license="MIT">
     <description>mapping, demultiplexing and gene quantification for single cell RNA-seq</description>
     <xrefs>
         <xref type="bio.tools">star</xref>
@@ -49,7 +49,7 @@
     #end if
 
     ## Droplet is the only mode available for now
-    --soloType Droplet
+    --soloType CB_UMI_Simple
 
     ## 1 - check length of barcode, 0 - do not check
     ## Good for checking custom chemistries
@@ -73,11 +73,30 @@
     --soloUMIlen $solo.params.soloUMIlen
     #end if
 
+    --soloCBmatchWLtype $solo.soloCBmatchWLtype
     --soloStrand $solo.soloStrand
     --soloFeatures $solo.soloFeatures
     --soloUMIdedup $solo.soloUMIdedup
     --quantMode TranscriptomeSAM
     --outSAMtype BAM Unsorted
+    --soloUMIfiltering $solo.soloUMIfiltering
+
+    #if str($solo.filter.filter_type) == "cellranger2":
+    --soloCellFilter CellRanger2.2 $solo.filter.n_expected $solo.filter.max_perc $solo.filter.max_min_ratio
+    #else if str($solo.filter.filter_type) == "topcells":
+    --soloCellFilter TopCells $solo.filter.n_cells
+    #else if str($solo.filter.filter_type) == "no_filter":
+    --soloCellFilter None
+    #end if
+    ## Splice junctions are always under "raw" directory
+
+    --soloOutFormatFeaturesGeneField3 '${solo.soloOutFormatFeaturesGeneField3}'
+
+    ## Rename the the selected features directory
+    && mv Solo.out/${solo.soloFeatures} Solo.out/soloFeatures
+
+    ## put the barcodes and features stats into a single file
+    && cat <(echo "Barcodes:") Solo.out/Barcodes.stats <(echo "Genes:") Solo.out/soloFeatures/Features.stats > '${output_stats}'
 
     ## BAM sorting (logic copied from samtools_sort wrapper)
     ## choosing BAM SortedByCoord appeared once to give fewer reads
@@ -157,6 +176,13 @@
                     <param argument="--soloUMIlen" type="integer" min="1" value="10" label="UMI Length" />
                 </when>
             </conditional>
+            <param argument="--soloCBmatchWLtype" type="select" label="Matching the Cell Barcodes to the WhiteList" help="Exact: only exact matches allowed; 1MM: only one match in whitelist with 1 mismatched base allowed. Allowed
+CBs have to have at least one read with exact match; 1MM_multi: multiple matches in whitelist with 1 mismatched base allowed, posterior probability calculation is used choose one of the matches; 1MM_multi_pseudocounts: same as 1MM_Multi, but pseudocounts of 1 are added to all whitelist barcodes.">
+                <option value="Exact" >Exact</option>
+                <option value="1MM" >Single match</option>
+                <option value="1MM_multi" selected="true" >Multiple matches (CellRanger 2)</option>
+                <option value="1MM_multi_pseudocounts" >Multiple matches (CellRanger 3)</option>
+            </param>
             <param argument="--soloStrand" type="select" label="Strandedness of Library" help="Unstranded has no strand information, Forward has the read strand the same as the original RNA molecule, Reverse has the read strand opposite to the original RNA molecule">
                 <option value="Unstranded" />
                 <option value="Forward" selected="true" />
@@ -167,42 +193,92 @@
                 <option value="SJ" >Splice Junctions: Count reads at exon-intron junctions</option>
                 <option value="GeneFull" >Full: Count all reads overlapping genes' exons and introns</option>
             </param>
-            <param argument="--soloUMIdedup" type="select" label="UMI deduplication (collapsing) algorithm" help="All has all UMIs with 1 mismatch distance to each other collapsed, Directional follows the 'directional' method given in UMI-tools, None has UMIs with 1 mismatch distance to others not collapsed">
+            <param argument="--soloUMIdedup" type="select" label="UMI deduplication (collapsing) algorithm" help="All has all UMIs with 1 mismatch distance to each other collapsed, Directional follows the 'directional' method given in UMI-tools, Exact collapses only exactly matching UMIs.">
                 <option value="1MM_All" selected="true">All</option>
                 <option value="1MM_Directional" >Directional</option>
-                <option value="1MM_NotCollapsed" >None</option>
+                <option value="Exact" >Exact</option>
             </param>
             <param argument="--soloBarcodeReadLength" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Barcode Size is same size of the Read" help="Disable this if your R1 barcodes contain poly-T bases after the barcode sequence." />
+            <param argument="--soloUMIfiltering" type="select" label="Type of UMI filtering" >
+                <option value="-" selected="true">Remove UMIs with N and homopolymers</option>
+                <option value="MultiGeneUMI" >Remove lower-count UMIs that map to more than one gene</option>
+            </param>
+            <conditional name="filter" >
+                <param name="filter_type" type="select" label="Cell filtering type and parameters" >
+                    <option value="cellranger2" selected="true" >Simple filtering of CellRanger v2</option>
+                    <option value="topcells" >Filter top N cells</option>
+                    <option value="no_filter" >Do not filter</option>
+                </param>
+                <when value="cellranger2" >
+                    <param name="n_expected" type="integer" min="1" value="3000" label="Number of expected cells" />
+                    <param name="max_perc" type="float" min="0" max="1" value="0.99" label="Robust maximum percentile for UMI count" />
+                    <param name="max_min_ratio" type="float" min="1" max="100" value="10" label="maximum to minimum ratio for UMI count" />
+                </when>
+                <when value="topcells" >
+                    <param name="n_cells" type="integer" min="1" value="3000" label="Number of top cells to report sorted by UMI count" />
+                </when>
+                <when value="no_filter" />
+            </conditional>
+            <param argument="--soloOutFormatFeaturesGeneField3" type="text" value="Gene Expression" label="Field 3 in the Genes output." help="Input '-' to remove the 3rd column from the output." />
         </section>
     </inputs>
     <outputs>
         <data format="txt" name="output_log" label="${tool.name} on ${on_string}: log" from_work_dir="Log.final.out">
             <expand macro="dbKeyActions" />
         </data>
-        <data format="tsv" name="output_genes" label="${tool.name} on ${on_string}: Genes"
-              from_work_dir="Solo.out/Gene/filtered/features.tsv" />
-        <data format="tsv" name="output_barcodes" label="${tool.name} on ${on_string}: Barcodes"
-              from_work_dir="Solo.out/Gene/filtered/barcodes.tsv" />
-        <data format="mtx" name="output_matrix" label="${tool.name} on ${on_string}: Matrix Gene Counts"
-              from_work_dir="Solo.out/Gene/filtered/matrix.mtx" >
-            <filter>solo['soloFeatures'] == "Gene" </filter>
+<!--
+        <data format="tsv" name="output_genes" label="${tool.name} on ${on_string}: Genes" />
+        <data format="tsv" name="output_barcodes" label="${tool.name} on ${on_string}: Barcodes" />
+        <data format="mtx" name="output_matrix" label="${tool.name} on ${on_string}: Matrix Gene Counts" >
+            <expand macro="dbKeyActions" />
+        </data>
+-->
+        <!-- soloCellFilter set to None, if SJ is selected for soloFeatures -->
+        <data format="tsv" name="output_genes" label="${tool.name} on ${on_string}: Genes raw"
+              from_work_dir="Solo.out/soloFeatures/raw/features.tsv" >
+              <filter>solo['filter']['filter_type'] == "no_filter" or solo['soloFeatures'] == "SJ" </filter>
+        </data>
+        <data format="tsv" name="output_genes_filtered" label="${tool.name} on ${on_string}: Genes filtered"
+              from_work_dir="Solo.out/soloFeatures/filtered/features.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and solo['soloFeatures'] != "SJ" </filter>
+        </data>
+        <data format="tsv" name="output_barcodes" label="${tool.name} on ${on_string}: Barcodes raw"
+              from_work_dir="Solo.out/soloFeatures/raw/barcodes.tsv" >
+              <filter>solo['filter']['filter_type'] == "no_filter" or solo['soloFeatures'] == "SJ" </filter>
+        </data>
+        <data format="tsv" name="output_barcodes_filtered" label="${tool.name} on ${on_string}: Barcodes filtered"
+              from_work_dir="Solo.out/soloFeatures/filtered/barcodes.tsv" >
+              <filter>solo['filter']['filter_type'] != "no_filter" and solo['soloFeatures'] != "SJ" </filter>
+        </data>
+        <data format="mtx" name="output_matrix" label="${tool.name} on ${on_string}: Matrix Gene Counts raw"
+              from_work_dir="Solo.out/soloFeatures/raw/matrix.mtx" >
+            <filter>solo['soloFeatures'] == "Gene" and solo['filter']['filter_type'] == "no_filter" </filter>
+            <expand macro="dbKeyActions" />
+        </data>
+        <data format="mtx" name="output_matrix_filtered" label="${tool.name} on ${on_string}: Matrix Gene Counts filtered"
+              from_work_dir="Solo.out/soloFeatures/filtered/matrix.mtx" >
+            <filter>solo['soloFeatures'] == "Gene" and solo['filter']['filter_type'] != "no_filter" </filter>
             <expand macro="dbKeyActions" />
         </data>
         <data format="mtx" name="output_matrixSJ" label="${tool.name} on ${on_string}: Matrix Splice Junction Counts"
-              from_work_dir="Solo.out/Gene/filtered/matrixSJ.mtx" >
+              from_work_dir="Solo.out/soloFeatures/raw/matrix.mtx" >
             <filter>solo['soloFeatures'] == "SJ" </filter>
             <expand macro="dbKeyActions" />
         </data>
-        <data format="mtx" name="output_matrixGeneFull" label="${tool.name} on ${on_string}: Matrix Full Gene Counts"
-              from_work_dir="Solo.out/Gene/filtered/matrixGeneFull.mtx" >
-            <filter>solo['soloFeatures'] == "GeneFull" </filter>
+        <data format="mtx" name="output_matrixGeneFull" label="${tool.name} on ${on_string}: Matrix Full Gene Counts raw"
+              from_work_dir="Solo.out/soloFeatures/raw/matrix.mtx" >
+            <filter>solo['soloFeatures'] == "GeneFull" and solo['filter']['filter_type'] == "no_filter" </filter>
+            <expand macro="dbKeyActions" />
+        </data>
+        <data format="mtx" name="output_matrixGeneFull_filtered" label="${tool.name} on ${on_string}: Matrix Full Gene Counts filtered"
+              from_work_dir="Solo.out/soloFeatures/filtered/matrix.mtx" >
+            <filter>solo['soloFeatures'] == "GeneFull" and solo['filter']['filter_type'] != "no_filter" </filter>
             <expand macro="dbKeyActions" />
         </data>
         <data format="bam" name="output_BAM" label="${tool.name} on ${on_string}: Alignments" >
             <expand macro="dbKeyActions" />
         </data>
-        <data format="txt" name="output_stats" label="${tool.name} on ${on_string}: Feature Statistic Summaries"
-              from_work_dir="Solo.out/Gene/Features.stats" />
+        <data format="txt" name="output_stats" label="${tool.name} on ${on_string}: Barcode/Feature Statistic Summaries"/>
     </outputs>
     <!-- Generating test data that is big enough for STARsolo to detect and small enough
          for Galaxy to test requires careful modification of input FASTA and GTF data,
@@ -234,12 +310,15 @@
                 <param name="soloStrand" value="Forward" />
                 <param name="soloFeatures" value="Gene" />
                 <param name="soloUMIdedup" value="1MM_All" />
+                <conditional name="filter">
+                    <param name="filter_type" value="no_filter" />
+                </conditional>
             </section>
             <output name="output_barcodes" >
                 <assert_contents>
                     <!-- first and last line -->
-                    <has_line line="ACACCGGTCTAACGGT" />
-                    <has_line line="TTCTCAATCCACGTTC" />
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTGGTTAGTGGGCTA" />
                 </assert_contents>
             </output>
             <output name="output_genes">
@@ -250,8 +329,8 @@
             </output>
             <output name="output_matrix" >
                 <assert_contents>
-                    <has_line_matching expression="14\s+7\s+7" />
-                    <has_line_matching expression="4\s+7\s+1" />
+                    <has_line_matching expression="14\s+394\s+7" />
+                    <has_line_matching expression="4\s+381\s+1" />
                 </assert_contents>
             </output>
             <output name="output_stats" >
@@ -288,19 +367,19 @@
                 <param name="soloFeatures" value="Gene" />
                 <param name="soloUMIdedup" value="1MM_All" />
             </section>
-            <output name="output_barcodes" >
+            <output name="output_barcodes_filtered" >
                 <assert_contents>
                     <has_line line="ACACCGGTCTAACGGT" />
                     <has_line line="TTCTCAATCCACGTTC" />
                 </assert_contents>
             </output>
-            <output name="output_genes">
+            <output name="output_genes_filtered">
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
                 </assert_contents>
             </output>
-            <output name="output_matrix" >
+            <output name="output_matrix_filtered" >
                 <assert_contents>
                     <has_line_matching expression="14\s+7\s+7" />
                     <has_line_matching expression="4\s+7\s+1" />
@@ -336,7 +415,7 @@
                 <param name="soloFeatures" value="Gene" />
                 <param name="soloUMIdedup" value="1MM_All" />
             </section>
-            <output name="output_barcodes" >
+            <output name="output_barcodes_filtered" >
                 <assert_contents>
                     <has_line line="ACACCGGTCTAACGGT" />
                     <has_line line="TTCTCAATCCACGTTC" />
@@ -371,13 +450,63 @@
                 <param name="soloFeatures" value="Gene" />
                 <param name="soloUMIdedup" value="1MM_All" />
             </section>
-            <output name="output_barcodes" >
+            <output name="output_barcodes_filtered" >
                 <assert_contents>
                     <has_line line="ACACCGGTCTAACGGT" />
                     <has_line line="TTCTCAATCCACGTTC" />
                 </assert_contents>
             </output>
             <output name="output_BAM" value="filtered3.bam" compare="sim_size" delta="600" />
+        </test>
+        <test expect_num_outputs="6">
+            <!-- Test soloFeatures, soloCBmatchWLtype, soloCellFilter, soloOutFormatFeaturesGeneField3, soloUMIfiltering -->
+            <conditional name="input_types">
+                <param name="use" value="repeat" />
+                <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+            </conditional>
+            <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
+            <section name="solo" >
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloCBmatchWLtype" value="1MM_multi_pseudocounts" />
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="GeneFull" />
+                <param name="soloUMIdedup" value="1MM_All" />
+                <param name="soloUMIfiltering" value="MultiGeneUMI" />
+                <conditional name="filter">
+                    <param name="filter_type" value="topcells" />
+                    <param name="n_cells" value="5" />
+                </conditional>
+                <param name="soloOutFormatFeaturesGeneField3" value="Dummy Text" />
+            </section>
+            <output name="output_barcodes_filtered" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AGACGTTCAAGGCTCC" />
+                    <has_line line="TCAACGAAGCTAGTGG" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_filtered" >
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Dummy\s+Text" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Dummy\s+Text" />
+                </assert_contents>
+            </output>
+            <output name="output_matrixGeneFull_filtered" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+6\s+14" />
+                    <has_line_matching expression="10\s+6\s+1" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
