@@ -18,8 +18,8 @@ variant_files <- fapply(samples$ids, read_and_process)  # nolint
 extractall_data <- function(id) {
     variants <- variant_files[[id]]
     tmp <- variants %>%
-        mutate(posalt = uni_select) %>%
-        select(posalt, AF)
+        mutate(unique_selectors = group_select) %>%
+        select(unique_selectors, AF)
     colnames(tmp) <- c("Mutation", id)
     return(tmp)
 }
@@ -27,9 +27,12 @@ extractall_data <- function(id) {
 extractall_annots <- function(id) {
     variants <- variant_files[[id]]
     tmp <- variants %>%
-        mutate(posalt = uni_select,
+        mutate(unique_selectors = group_select,
                effect = EFF....EFFECT, gene = EFF....GENE) %>%
-        select(posalt, effect, gene)
+        select(unique_selectors, effect, gene)
+    # allow "." as an alternative missing value in EFF.EFFECT and EFF.GENE
+    tmp$effect <- sub("^\\.$", "", tmp$effect)
+    tmp$gene <- sub("^\\.$", "", tmp$gene)
     return(tmp)
 }
 
@@ -53,10 +56,11 @@ processed_annots <- fapply(samples$ids, extractall_annots)
 ann_final <- processed_annots %>%
     reduce(function(x, y) {
         unique(rbind(x, y))}) %>%
-    filter(posalt %in% colnames(final))         ## apply frequency filter
+    ## apply frequency filter
+    filter(unique_selectors %in% colnames(final))
 ann_final <- as_tibble(ann_final[str_order(
-    ann_final$posalt, numeric = T), ]) %>%
-    column_to_rownames("posalt")                       ## sort
+    ann_final$unique_selectors, numeric = T), ]) %>%
+    column_to_rownames("unique_selectors")  ## sort
 
                                         # rename annotations
 trans <- function(x, mapping, replace_missing=NULL) {
@@ -146,6 +150,41 @@ if (pheat_number_of_clusters > length(samples$ids)) {
                  pheat_number_of_clusters))
 }
 
+
+                                        # Fix Labels
+## Prettify names, check for label parity between final and ann_final
+fix_label <- function(name) {
+    ##' Reduce: 424 AGTAGAAGTTGAAAAAGGCGTTTTGCCTCAACTT A
+    ##'     to: 424 AGT… > A
+    cols <- unlist(str_split(name, " "))
+    ## first 3 are POS REF ALT, and the rest are optional differences
+    pos_ref_alt <- cols[1:3]
+    rest <- ""
+    if (length(cols) > 3) {
+        rest <- paste0(" :: ", paste(cols[4:length(cols)], sep = " "))
+    }
+    ## Trim the REF or ALT if too long
+    if (str_length(pos_ref_alt[2]) > 3) {
+        pos_ref_alt[2] <- paste0(substring(pos_ref_alt[2], 1, 3), "…")
+    }
+    if (str_length(pos_ref_alt[3]) > 3) {
+        pos_ref_alt[3] <- paste0(substring(pos_ref_alt[3], 1, 3), "…")
+    }
+    ## Join required
+    new_name <- paste0(pos_ref_alt[1], " ",
+                       pos_ref_alt[2], " > ",
+                       pos_ref_alt[3])
+    ## Join rest
+    new_name <- paste0(new_name, " ", paste(rest))
+}
+
+colnames(final) <- sapply(colnames(final), fix_label)
+rownames(ann_final) <- sapply(rownames(ann_final), fix_label)
+## sanity test
+stopifnot(all(colnames(final) %in% rownames(ann_final)))
+
+
+                                        # Perform Plotting
 get_plot_dims <- function(heat_map) {
     ## get the dimensions of a pheatmap object
     ## useful for plot formats that can't be written to a file directly, but
