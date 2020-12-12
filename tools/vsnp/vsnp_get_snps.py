@@ -412,7 +412,7 @@ class SnpFinder:
         self.append_to_summary("<b>Time started:</b> %s<br/>" % get_time_stamp())
         self.append_to_summary("<b>Number of VCF inputs:</b> %d<br/>" % self.num_files)
         self.append_to_summary("<b>Reference:</b> %s<br/>" % self.reference)
-        self.append_to_summary("<b>All isolates:</b> %s<br/>" % self.all_isolates.capitalize())
+        self.append_to_summary("<b>All isolates:</b> %s<br/>" % str(self.all_isolates))
 
     def return_val(self, val, index=0):
         # Handle element and single-element list values.
@@ -432,7 +432,7 @@ class SnpFinder:
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--ac', action='store', dest='ac', type=int, help='Allele count value'),
-parser.add_argument('--all_isolates', action='store', dest='all_isolates', required=False, default="no", help='Create table with all isolates'),
+parser.add_argument('--all_isolates', action='store_true', dest='all_isolates', required=False, default=False, help='Create table with all isolates'),
 parser.add_argument('--input_excel', action='store', dest='input_excel', required=False, default=None, help='Optional Excel filter file'),
 parser.add_argument('--input_zc_vcf', action='store', dest='input_zc_vcf', help='Input zero coverage vcf file'),
 parser.add_argument('--min_mq', action='store', dest='min_mq', type=int, help='Minimum map quality value'),
@@ -462,7 +462,7 @@ vcf_dirs = []
 if args.input_excel is None:
     vcf_dirs = setup_all_vcfs(vcf_files, vcf_dirs)
 else:
-    if args.all_isolates == "yes":
+    if args.all_isolates:
         vcf_dirs = setup_all_vcfs(vcf_files, vcf_dirs)
     # Parse the Excel file to detemine groups for filtering.
     snp_finder.group_vcfs(args.input_zc_vcf, args.input_excel)
