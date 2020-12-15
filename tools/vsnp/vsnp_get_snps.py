@@ -4,7 +4,9 @@
 # and output alignment files in fasta format.
 
 import argparse
+import multiprocessing
 import os
+import queue
 import shutil
 import sys
 import time
@@ -23,6 +25,18 @@ OUTPUT_SNPS_DIR = 'output_snps_dir'
 
 def get_time_stamp():
     return datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H-%M-%S')
+
+
+def set_num_cpus(num_files, processes):
+    num_cpus = int(multiprocessing.cpu_count())
+    if num_files < num_cpus and num_files < processes:
+        return num_files
+    if num_cpus < processes:
+        half_cpus = int(num_cpus / 2)
+        if num_files < half_cpus:
+            return num_files
+        return half_cpus
+    return processes
 
 
 def setup_all_vcfs(vcf_files, vcf_dirs):
@@ -48,18 +62,20 @@ class SnpFinder:
         self.all_positions = None
         # Isolate groups.
         self.groups = []
+        # Excel file for grouping.
+        self.input_excel = input_excel
         # Minimum map quality value.
         self.min_mq = min_mq
-        # Quality score N threshold value.
-        self.quality_score_n_threshold = quality_score_n_threshold
         # Minimum quality score value.
         self.min_quality_score = min_quality_score
+        # Number of input zero coverage vcf files.
+        self.num_files = num_files
+        # Quality score N threshold value.
+        self.quality_score_n_threshold = quality_score_n_threshold
         self.reference = reference
         self.start_time = get_time_stamp()
         self.summary_str = ""
         self.timer_start = datetime.now()
-        # Number of input zero coverage vcf files.
-        self.num_files = num_files
         self.initiate_summary(output_summary)
 
     def append_to_summary(self, html_str):
@@ -127,8 +143,7 @@ class SnpFinder:
                     mq_val = self.get_mq_val(record.INFO, filename)
                     if str(mq_val).lower() not in ["nan"]:
                         sample_map_qualities.update({record_position: mq_val})
-                    len_alt = len(alt)
-                    if len_alt == 1:
+                    if len(alt) == 1:
                         qual_val = self.val_as_int(record.QUAL)
                         ac = record.INFO['AC'][0]
                         ref = str(record.REF[0])
@@ -173,20 +188,19 @@ class SnpFinder:
                             sample_dict.update({record_position: "N"})
                         else:
                             # Insurance -- Will still report on a possible
-                            # SNP even if missed with above statement
+                            # SNP even if missed with above statements.
                             # Do not coerce record.REF[0] to a string!
                             sample_dict.update({record_position: record.REF[0]})
-        # Merge dictionaries and order.
+        # Merge dictionaries and order
         merge_dict = {}
         merge_dict.update(positions_dict)
-        # abs_pos:ALT replacing all_positions, because keys must be unique.
         merge_dict.update(sample_dict)
         sample_df = pandas.DataFrame(merge_dict, index=[file_name_base])
         return sample_df, file_name_base, sample_map_qualities
 
     def df_to_fasta(self, parsimonious_df, group):
-        # Generate SNP alignment file from the
-        # parsimonious_df data frame.
+        # Generate SNP alignment file from
+        # the parsimonious_df data frame.
         snps_file = os.path.join(OUTPUT_SNPS_DIR, "%s.fasta" % group)
         test_duplicates = []
         has_sequence_data = False
@@ -220,25 +234,24 @@ class SnpFinder:
             if alt != "None":
                 mq_val = self.get_mq_val(record.INFO, filename)
                 ac = record.INFO['AC'][0]
-                len_ref = len(record.REF)
-                if ac == self.ac and len_ref == 1 and qual_val > self.min_quality_score and mq_val > self.min_mq:
+                if ac == self.ac and len(record.REF) == 1 and qual_val > self.min_quality_score and mq_val > self.min_mq:
                     found_positions.update({absolute_position: record.REF})
-                if ac == 1 and len_ref == 1 and qual_val > self.min_quality_score and mq_val > self.min_mq:
+                if ac == 1 and len(record.REF) == 1 and qual_val > self.min_quality_score and mq_val > self.min_mq:
                     found_positions_mix.update({absolute_position: record.REF})
         return found_positions, found_positions_mix
 
-    def gather_and_filter(self, prefilter_df, mq_averages, group_dir, input_excel):
+    def gather_and_filter(self, prefilter_df, mq_averages, group_dir):
         # Group a data frame of SNPs.
-        if input_excel is None:
+        if self.input_excel is None:
             filtered_all_df = prefilter_df
             sheet_names = None
         else:
             # Filter positions to be removed from all.
-            xl = pandas.ExcelFile(input_excel)
+            xl = pandas.ExcelFile(self.input_excel)
             sheet_names = xl.sheet_names
             # Use the first column to filter "all" postions.
-            exclusion_list_all = self.get_position_list(sheet_names, 0, input_excel)
-            exclusion_list_group = self.get_position_list(sheet_names, group_dir, input_excel)
+            exclusion_list_all = self.get_position_list(sheet_names, 0)
+            exclusion_list_group = self.get_position_list(sheet_names, group_dir)
             exclusion_list = exclusion_list_all + exclusion_list_group
             # Filters for all applied.
             filtered_all_df = prefilter_df.drop(columns=exclusion_list, errors='ignore')
@@ -303,11 +316,11 @@ class SnpFinder:
         parsimonious_df = pandas.concat([parse_df, ref_df], join='inner')
         return parsimonious_df
 
-    def get_position_list(self, sheet_names, group, input_excel):
-        # Get a list of SNP positions defined by an excel file.
+    def get_position_list(self, sheet_names, group):
+        # Get a list of positions defined by an excel file.
         exclusion_list = []
         try:
-            filter_to_all = pandas.read_excel(input_excel, header=1, usecols=[group])
+            filter_to_all = pandas.read_excel(self.input_excel, header=1, usecols=[group])
             for value in filter_to_all.values:
                 value = str(value[0])
                 if "-" not in value.split(":")[-1]:
@@ -322,47 +335,52 @@ class SnpFinder:
                         exclusion_list.append(chrom + ":" + str(position))
             return exclusion_list
         except ValueError:
-            exclusion_list = []
-            return exclusion_list
+            return []
 
-    def get_snps(self, group_dir, input_excel):
-        # Parse all vcf files to accumulate
-        # the SNPs into a data frame.
-        positions_dict = {}
-        group_files = []
-        for file_name in os.listdir(os.path.abspath(group_dir)):
-            file_path = os.path.abspath(os.path.join(group_dir, file_name))
-            group_files.append(file_path)
-        for file_name in group_files:
-            found_positions, found_positions_mix = self.find_initial_positions(file_name)
-            positions_dict.update(found_positions)
-        # Order before adding to file to match
-        # with ordering of individual samples.
-        # all_positions is abs_pos:REF
-        self.all_positions = OrderedDict(sorted(positions_dict.items()))
-        ref_positions_df = pandas.DataFrame(self.all_positions, index=['root'])
-        all_map_qualities = {}
-        df_list = []
-        for file_name in group_files:
-            sample_df, file_name_base, sample_map_qualities = self.decide_snps(file_name)
-            df_list.append(sample_df)
-            all_map_qualities.update({file_name_base: sample_map_qualities})
-        all_sample_df = pandas.concat(df_list)
-        # All positions have now been selected for each sample,
-        # so select parisomony informative SNPs.  This removes
-        # columns where all fields are the same.
-        # Add reference to top row.
-        prefilter_df = pandas.concat([ref_positions_df, all_sample_df], join='inner')
-        all_mq_df = pandas.DataFrame.from_dict(all_map_qualities)
-        mq_averages = all_mq_df.mean(axis=1).astype(int)
-        self.gather_and_filter(prefilter_df, mq_averages, group_dir, input_excel)
+    def get_snps(self, task_queue, timeout):
+        while True:
+            try:
+                group_dir = task_queue.get(block=True, timeout=timeout)
+            except queue.Empty:
+                break
+            # Parse all vcf files to accumulate
+            # the SNPs into a data frame.
+            positions_dict = {}
+            group_files = []
+            for file_name in os.listdir(os.path.abspath(group_dir)):
+                file_path = os.path.abspath(os.path.join(group_dir, file_name))
+                group_files.append(file_path)
+            for file_name in group_files:
+                found_positions, found_positions_mix = self.find_initial_positions(file_name)
+                positions_dict.update(found_positions)
+            # Order before adding to file to match
+            # with ordering of individual samples.
+            # all_positions is abs_pos:REF
+            self.all_positions = OrderedDict(sorted(positions_dict.items()))
+            ref_positions_df = pandas.DataFrame(self.all_positions, index=['root'])
+            all_map_qualities = {}
+            df_list = []
+            for file_name in group_files:
+                sample_df, file_name_base, sample_map_qualities = self.decide_snps(file_name)
+                df_list.append(sample_df)
+                all_map_qualities.update({file_name_base: sample_map_qualities})
+            all_sample_df = pandas.concat(df_list)
+            # All positions have now been selected for each sample,
+            # so select parisomony informative SNPs.  This removes
+            # columns where all fields are the same.
+            # Add reference to top row.
+            prefilter_df = pandas.concat([ref_positions_df, all_sample_df], join='inner')
+            all_mq_df = pandas.DataFrame.from_dict(all_map_qualities)
+            mq_averages = all_mq_df.mean(axis=1).astype(int)
+            self.gather_and_filter(prefilter_df, mq_averages, group_dir)
+            task_queue.task_done()
 
-    def group_vcfs(self, vcf_files, input_excel):
+    def group_vcfs(self, vcf_files):
         # Parse an excel file to produce a
         # grouping dictionary for SNPs.
-        xl = pandas.ExcelFile(input_excel)
+        xl = pandas.ExcelFile(self.input_excel)
         sheet_names = xl.sheet_names
-        ws = pandas.read_excel(input_excel, sheet_name=sheet_names[0])
+        ws = pandas.read_excel(self.input_excel, sheet_name=sheet_names[0])
         defining_snps = ws.iloc[0]
         defsnp_iterator = iter(defining_snps.iteritems())
         next(defsnp_iterator)
@@ -414,56 +432,73 @@ class SnpFinder:
             return 0
 
 
-parser = argparse.ArgumentParser()
+if __name__ == '__main__':
 
-parser.add_argument('--ac', action='store', dest='ac', type=int, help='Allele count value'),
-parser.add_argument('--all_isolates', action='store_true', dest='all_isolates', required=False, default=False, help='Create table with all isolates'),
-parser.add_argument('--input_excel', action='store', dest='input_excel', required=False, default=None, help='Optional Excel filter file'),
-parser.add_argument('--input_zc_vcf', action='store', dest='input_zc_vcf', help='Input zero coverage vcf file'),
-parser.add_argument('--min_mq', action='store', dest='min_mq', type=int, help='Minimum map quality value'),
-parser.add_argument('--min_quality_score', action='store', dest='min_quality_score', type=int, help='Minimum quality score value'),
-parser.add_argument('--output_summary', action='store', dest='output_summary', help='Output summary html file'),
-parser.add_argument('--quality_score_n_threshold', action='store', dest='quality_score_n_threshold', type=int, help='Minimum quality score N value for alleles')
-parser.add_argument('--reference', action='store', dest='reference', help='Reference file'),
+    parser = argparse.ArgumentParser()
 
-args = parser.parse_args()
+    parser.add_argument('--ac', action='store', dest='ac', type=int, help='Allele count value'),
+    parser.add_argument('--all_isolates', action='store_true', dest='all_isolates', required=False, default=False, help='Create table with all isolates'),
+    parser.add_argument('--input_excel', action='store', dest='input_excel', required=False, default=None, help='Optional Excel filter file'),
+    parser.add_argument('--min_mq', action='store', dest='min_mq', type=int, help='Minimum map quality value'),
+    parser.add_argument('--min_quality_score', action='store', dest='min_quality_score', type=int, help='Minimum quality score value'),
+    parser.add_argument('--output_summary', action='store', dest='output_summary', help='Output summary html file'),
+    parser.add_argument('--processes', action='store', dest='processes', type=int, help='Configured processes for job'),
+    parser.add_argument('--quality_score_n_threshold', action='store', dest='quality_score_n_threshold', type=int, help='Minimum quality score N value for alleles')
+    parser.add_argument('--reference', action='store', dest='reference', help='Reference file'),
 
-# Build the list of all input zero coverage vcf
-# files, both the samples and the "database".
-vcf_files = []
-for file_name in os.listdir(INPUT_VCF_DIR):
-    file_path = os.path.abspath(os.path.join(INPUT_VCF_DIR, file_name))
-    vcf_files.append(file_path)
-num_files = len(vcf_files)
+    args = parser.parse_args()
 
-# Initialize the snp_finder object.
-snp_finder = SnpFinder(num_files, args.reference, args.input_excel, args.all_isolates, args.ac, args.min_mq, args.quality_score_n_threshold, args.min_quality_score, args.output_summary)
+    # Build the list of all input zero coverage vcf
+    # files, both the samples and the "database".
+    vcf_files = []
+    for file_name in os.listdir(INPUT_VCF_DIR):
+        file_path = os.path.abspath(os.path.join(INPUT_VCF_DIR, file_name))
+        vcf_files.append(file_path)
 
-# Define and make the set of directories into which the input_zc_vcf
-# file will be placed.  Selected input values (e.g., the use of
-# an Excel file for grouping and filtering, creating a group with
-# all isolates) are used to define the directories.
-vcf_dirs = []
-if args.input_excel is None:
-    vcf_dirs = setup_all_vcfs(vcf_files, vcf_dirs)
-else:
-    if args.all_isolates:
+    multiprocessing.set_start_method('spawn')
+    queue1 = multiprocessing.JoinableQueue()
+    num_files = len(vcf_files)
+    cpus = set_num_cpus(num_files, args.processes)
+    # Set a timeout for get()s in the queue.
+    timeout = 0.05
+
+    # Initialize the snp_finder object.
+    snp_finder = SnpFinder(num_files, args.reference, args.input_excel, args.all_isolates, args.ac, args.min_mq, args.quality_score_n_threshold, args.min_quality_score, args.output_summary)
+
+    # Define and make the set of directories into which the input_zc_vcf
+    # files will be placed.  Selected input values (e.g., the use of
+    # an Excel file for grouping and filtering, creating a group with
+    # all isolates) are used to define the directories.
+    vcf_dirs = []
+    if args.input_excel is None:
         vcf_dirs = setup_all_vcfs(vcf_files, vcf_dirs)
-    # Parse the Excel file to detemine groups for filtering.
-    snp_finder.group_vcfs(vcf_files, args.input_excel)
-    # Append the list of group directories created by
-    # the above call to the set of directories containing
-    # vcf files for analysis.
-    group_dirs = [d for d in os.listdir(os.getcwd()) if os.path.isdir(d) and d in snp_finder.groups]
-    vcf_dirs.extend(group_dirs)
+    else:
+        if args.all_isolates:
+            vcf_dirs = setup_all_vcfs(vcf_files, vcf_dirs)
+        # Parse the Excel file to detemine groups for filtering.
+        snp_finder.group_vcfs(vcf_files)
+        # Append the list of group directories created by
+        # the above call to the set of directories containing
+        # vcf files for analysis.
+        group_dirs = [d for d in os.listdir(os.getcwd()) if os.path.isdir(d) and d in snp_finder.groups]
+        vcf_dirs.extend(group_dirs)
 
-for vcf_dir in vcf_dirs:
-    snp_finder.get_snps(vcf_dir, args.input_excel)
+    # Populate the queue for job splitting.
+    for vcf_dir in vcf_dirs:
+        queue1.put(vcf_dir)
 
-# Finish summary log.
-snp_finder.append_to_summary("<br/><b>Time finished:</b> %s<br/>\n" % get_time_stamp())
-total_run_time = datetime.now() - snp_finder.timer_start
-snp_finder.append_to_summary("<br/><b>Total run time:</b> %s<br/>\n" % str(total_run_time))
-snp_finder.append_to_summary('</body>\n</html>\n')
-with open(args.output_summary, "w") as fh:
-    fh.write("%s" % snp_finder.summary_str)
+    # Complete the get_snps task.
+    processes = [multiprocessing.Process(target=snp_finder.get_snps, args=(queue1, timeout, )) for _ in range(cpus)]
+    for p in processes:
+        p.start()
+    for p in processes:
+        p.join()
+    queue1.join()
+
+    # Finish summary log.
+    snp_finder.append_to_summary("<br/><b>Time finished:</b> %s<br/>\n" % get_time_stamp())
+    total_run_time = datetime.now() - snp_finder.timer_start
+    snp_finder.append_to_summary("<br/><b>Total run time:</b> %s<br/>\n" % str(total_run_time))
+    snp_finder.append_to_summary('</body>\n</html>\n')
+    with open(args.output_summary, "w") as fh:
+        fh.write("%s" % snp_finder.summary_str)
