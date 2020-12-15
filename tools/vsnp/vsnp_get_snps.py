@@ -72,33 +72,28 @@ class SnpFinder:
         # return a group dictionary.
         sample_groups_list = []
         table_name = self.get_sample_name(filename)
-        try:
-            defining_snp = False
-            # Absolute positions in set union of two lists.
-            for abs_position in list(defining_snps.keys() & (found_positions.keys() | found_positions_mix.keys())):
-                group = defining_snps[abs_position]
+        defining_snp = False
+        # Absolute positions in set union of two lists.
+        for abs_position in list(defining_snps.keys() & (found_positions.keys() | found_positions_mix.keys())):
+            group = defining_snps[abs_position]
+            sample_groups_list.append(group)
+            self.check_add_group(group)
+            if len(list(defining_snps.keys() & found_positions_mix.keys())) > 0:
+                table_name = self.get_sample_name(filename)
+                table_name = '%s<font color="red">[[MIXED]]</font>' % table_name
+            self.copy_file(filename, group)
+            defining_snp = True
+        if not set(inverted_defining_snps.keys()).intersection(found_positions.keys() | found_positions_mix.keys()):
+            for abs_position in list(inverted_defining_snps.keys()):
+                group = inverted_defining_snps[abs_position]
                 sample_groups_list.append(group)
                 self.check_add_group(group)
-                if len(list(defining_snps.keys() & found_positions_mix.keys())) > 0:
-                    table_name = self.get_sample_name(filename)
-                    table_name = '%s<font color="red">[[MIXED]]</font>' % table_name
                 self.copy_file(filename, group)
                 defining_snp = True
-            if not set(inverted_defining_snps.keys()).intersection(found_positions.keys() | found_positions_mix.keys()):
-                for abs_position in list(inverted_defining_snps.keys()):
-                    group = inverted_defining_snps[abs_position]
-                    sample_groups_list.append(group)
-                    self.check_add_group(group)
-                    self.copy_file(filename, group)
-                    defining_snp = True
-            if defining_snp:
-                samples_groups_dict[table_name] = sorted(sample_groups_list)
-            else:
-                samples_groups_dict[table_name] = ['<font color="red">No defining SNP</font>']
-        except TypeError as e:
-            msg = "<br/>Error processing file %s to generate samples_groups_dict: %s<br/>" % (filename, str(e))
-            self.append_to_summary(msg)
-            samples_groups_dict[table_name] = [msg]
+        if defining_snp:
+            samples_groups_dict[table_name] = sorted(sample_groups_list)
+        else:
+            samples_groups_dict[table_name] = ['<font color="red">No defining SNP</font>']
         return samples_groups_dict
 
     def check_add_group(self, group):
@@ -215,30 +210,22 @@ class SnpFinder:
         # Find SNP positions in a vcf file.
         found_positions = {}
         found_positions_mix = {}
-        try:
-            vcf_reader = vcf.Reader(open(filename, 'r'))
-            try:
-                for record in vcf_reader:
-                    qual_val = self.val_as_int(record.QUAL)
-                    chrom = record.CHROM
-                    position = record.POS
-                    absolute_position = "%s:%s" % (str(chrom), str(position))
-                    alt = str(record.ALT[0])
-                    if alt != "None":
-                        mq_val = self.get_mq_val(record.INFO, filename)
-                        ac = record.INFO['AC'][0]
-                        len_ref = len(record.REF)
-                        if ac == self.ac and len_ref == 1 and qual_val > self.min_quality_score and mq_val > self.min_mq:
-                            found_positions.update({absolute_position: record.REF})
-                        if ac == 1 and len_ref == 1 and qual_val > self.min_quality_score and mq_val > self.min_mq:
-                            found_positions_mix.update({absolute_position: record.REF})
-                return found_positions, found_positions_mix
-            except (ZeroDivisionError, ValueError, UnboundLocalError, TypeError) as e:
-                self.append_to_summar("<br/>Error parsing record in file %s: %s<br/>" % (filename, str(e)))
-                return {'': ''}, {'': ''}
-        except (SyntaxError, AttributeError) as e:
-            self.append_to_summary("<br/>Error attempting to read file %s: %s<br/>" % (filename, str(e)))
-            return {'': ''}, {'': ''}
+        vcf_reader = vcf.Reader(open(filename, 'r'))
+        for record in vcf_reader:
+            qual_val = self.val_as_int(record.QUAL)
+            chrom = record.CHROM
+            position = record.POS
+            absolute_position = "%s:%s" % (str(chrom), str(position))
+            alt = str(record.ALT[0])
+            if alt != "None":
+                mq_val = self.get_mq_val(record.INFO, filename)
+                ac = record.INFO['AC'][0]
+                len_ref = len(record.REF)
+                if ac == self.ac and len_ref == 1 and qual_val > self.min_quality_score and mq_val > self.min_mq:
+                    found_positions.update({absolute_position: record.REF})
+                if ac == 1 and len_ref == 1 and qual_val > self.min_quality_score and mq_val > self.min_mq:
+                    found_positions_mix.update({absolute_position: record.REF})
+        return found_positions, found_positions_mix
 
     def gather_and_filter(self, prefilter_df, mq_averages, group_dir, input_excel):
         # Group a data frame of SNPs.
@@ -347,11 +334,8 @@ class SnpFinder:
             file_path = os.path.abspath(os.path.join(group_dir, file_name))
             group_files.append(file_path)
         for file_name in group_files:
-            try:
-                found_positions, found_positions_mix = self.find_initial_positions(file_name)
-                positions_dict.update(found_positions)
-            except Exception as e:
-                self.append_to_summary("Error updating the positions_dict dictionary when processing file %s:\n%s\n" % (file_name, str(e)))
+            found_positions, found_positions_mix = self.find_initial_positions(file_name)
+            positions_dict.update(found_positions)
         # Order before adding to file to match
         # with ordering of individual samples.
         # all_positions is abs_pos:REF
@@ -373,7 +357,7 @@ class SnpFinder:
         mq_averages = all_mq_df.mean(axis=1).astype(int)
         self.gather_and_filter(prefilter_df, mq_averages, group_dir, input_excel)
 
-    def group_vcfs(self, vcf_file, input_excel):
+    def group_vcfs(self, vcf_files, input_excel):
         # Parse an excel file to produce a
         # grouping dictionary for SNPs.
         xl = pandas.ExcelFile(input_excel)
@@ -390,8 +374,9 @@ class SnpFinder:
             else:
                 defining_snps[abs_pos] = group
         samples_groups_dict = {}
-        found_positions, found_positions_mix = self.find_initial_positions(vcf_file)
-        samples_groups_dict = self.bin_input_files(vcf_file, samples_groups_dict, defining_snps, inverted_defining_snps, found_positions, found_positions_mix)
+        for vcf_file in vcf_files:
+            found_positions, found_positions_mix = self.find_initial_positions(vcf_file)
+            samples_groups_dict = self.bin_input_files(vcf_file, samples_groups_dict, defining_snps, inverted_defining_snps, found_positions, found_positions_mix)
         # Output summary grouping table.
         self.append_to_summary('<br/>')
         self.append_to_summary('<b>Groupings with %d listed:</b><br/>\n' % len(samples_groups_dict))
@@ -465,7 +450,7 @@ else:
     if args.all_isolates:
         vcf_dirs = setup_all_vcfs(vcf_files, vcf_dirs)
     # Parse the Excel file to detemine groups for filtering.
-    snp_finder.group_vcfs(args.input_zc_vcf, args.input_excel)
+    snp_finder.group_vcfs(vcf_files, args.input_excel)
     # Append the list of group directories created by
     # the above call to the set of directories containing
     # vcf files for analysis.
