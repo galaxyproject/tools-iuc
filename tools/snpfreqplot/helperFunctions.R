@@ -89,6 +89,7 @@ split_table_and_process <- function(tab) {
 read_and_process <- function(id) {
     file <- (samples %>% filter(ids == id))$files    # nolint
     variants <- read.table(file, header = T, sep = "\t", colClasses = "character")
+    variants["AF"]  <- lapply(variants["AF"], as.numeric)
     uniq_ids <- split_table_and_process(variants)
     if (nrow(variants) != nrow(uniq_ids)) {
         stop(paste0(id, " '", file, "' failed: ", file, "\"",
