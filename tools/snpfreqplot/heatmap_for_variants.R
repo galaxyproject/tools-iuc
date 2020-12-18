@@ -161,7 +161,7 @@ fix_label <- function(name) {
     pos_ref_alt <- cols[1:3]
     rest <- ""
     if (length(cols) > 3) {
-        rest <- paste0(" :: ", paste(cols[4:length(cols)], sep = " "))
+        rest <- paste0(" :: ", paste0(cols[4:length(cols)], collapse = " "))
     }
     ## Trim the REF or ALT if too long
     if (str_length(pos_ref_alt[2]) > 3) {
@@ -175,7 +175,7 @@ fix_label <- function(name) {
                        pos_ref_alt[2], " > ",
                        pos_ref_alt[3])
     ## Join rest
-    new_name <- paste0(new_name, " ", paste(rest))
+    new_name <- paste0(new_name, " ", rest)
 }
 
 colnames(final) <- sapply(colnames(final), fix_label)
