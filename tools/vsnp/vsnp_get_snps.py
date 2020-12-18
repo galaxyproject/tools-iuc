@@ -16,12 +16,6 @@ from datetime import datetime
 import pandas
 import vcf
 
-ALL_VCFS_DIR = 'all_vcf'
-INPUT_VCF_DIR = 'input_vcf_dir'
-OUTPUT_JSON_AVG_MQ_DIR = 'output_json_avg_mq_dir'
-OUTPUT_JSON_SNPS_DIR = 'output_json_snps_dir'
-OUTPUT_SNPS_DIR = 'output_snps_dir'
-
 
 def get_time_stamp():
     return datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H-%M-%S')
@@ -42,18 +36,19 @@ def set_num_cpus(num_files, processes):
 def setup_all_vcfs(vcf_files, vcf_dirs):
     # Create the all_vcfs directory and link
     # all input vcf files into it for processing.
-    os.makedirs(ALL_VCFS_DIR)
-    vcf_dirs.append(ALL_VCFS_DIR)
+    all_vcfs_dir = 'all_vcf'
+    os.makedirs(all_vcfs_dir)
+    vcf_dirs.append(all_vcfs_dir)
     for vcf_file in vcf_files:
         file_name_base = os.path.basename(vcf_file)
-        dst_file = os.path.join(ALL_VCFS_DIR, file_name_base)
+        dst_file = os.path.join(all_vcfs_dir, file_name_base)
         os.symlink(vcf_file, dst_file)
     return vcf_dirs
 
 
 class SnpFinder:
 
-    def __init__(self, num_files, reference, input_excel, all_isolates, ac, min_mq, quality_score_n_threshold, min_quality_score, output_summary):
+    def __init__(self, num_files, reference, input_excel, all_isolates, ac, min_mq, quality_score_n_threshold, min_quality_score, input_vcf_dir, output_json_avg_mq_dir, output_json_snps_dir, output_snps_dir, output_summary):
         # Allele count
         self.ac = ac
         # Create a group that will contain all isolates.
@@ -64,12 +59,20 @@ class SnpFinder:
         self.groups = []
         # Excel file for grouping.
         self.input_excel = input_excel
+        # Directory of input zero coverage vcf files.
+        self.input_vcf_dir = input_vcf_dir
         # Minimum map quality value.
         self.min_mq = min_mq
         # Minimum quality score value.
         self.min_quality_score = min_quality_score
         # Number of input zero coverage vcf files.
         self.num_files = num_files
+        # Output directory for json average mq files.
+        self.output_json_avg_mq_dir = output_json_avg_mq_dir
+        # Output directory for json snps files.
+        self.output_json_snps_dir = output_json_snps_dir
+        # Output directory for snps files.
+        self.output_snps_dir = output_snps_dir
         # Quality score N threshold value.
         self.quality_score_n_threshold = quality_score_n_threshold
         self.reference = reference
@@ -201,7 +204,7 @@ class SnpFinder:
     def df_to_fasta(self, parsimonious_df, group):
         # Generate SNP alignment file from
         # the parsimonious_df data frame.
-        snps_file = os.path.join(OUTPUT_SNPS_DIR, "%s.fasta" % group)
+        snps_file = os.path.join(self.output_snps_dir, "%s.fasta" % group)
         test_duplicates = []
         has_sequence_data = False
         for index, row in parsimonious_df.iterrows():
@@ -255,7 +258,7 @@ class SnpFinder:
             exclusion_list = exclusion_list_all + exclusion_list_group
             # Filters for all applied.
             filtered_all_df = prefilter_df.drop(columns=exclusion_list, errors='ignore')
-        json_snps_file = os.path.join(OUTPUT_JSON_SNPS_DIR, "%s.json" % group_dir)
+        json_snps_file = os.path.join(self.output_json_snps_dir, "%s.json" % group_dir)
         parsimonious_df = self.get_parsimonious_df(filtered_all_df)
         samples_number, columns = parsimonious_df.shape
         if samples_number >= 4:
@@ -263,7 +266,7 @@ class SnpFinder:
             # to build a phylogenetic tree.
             has_sequence_data = self.df_to_fasta(parsimonious_df, group_dir)
             if has_sequence_data:
-                json_avg_mq_file = os.path.join(OUTPUT_JSON_AVG_MQ_DIR, "%s.json" % group_dir)
+                json_avg_mq_file = os.path.join(self.output_json_avg_mq_dir, "%s.json" % group_dir)
                 mq_averages.to_json(json_avg_mq_file, orient='split')
                 parsimonious_df.to_json(json_snps_file, orient='split')
             else:
@@ -439,8 +442,12 @@ if __name__ == '__main__':
     parser.add_argument('--ac', action='store', dest='ac', type=int, help='Allele count value'),
     parser.add_argument('--all_isolates', action='store_true', dest='all_isolates', required=False, default=False, help='Create table with all isolates'),
     parser.add_argument('--input_excel', action='store', dest='input_excel', required=False, default=None, help='Optional Excel filter file'),
+    parser.add_argument('--input_vcf_dir', action='store', dest='input_vcf_dir', help='Input vcf directory'),
     parser.add_argument('--min_mq', action='store', dest='min_mq', type=int, help='Minimum map quality value'),
     parser.add_argument('--min_quality_score', action='store', dest='min_quality_score', type=int, help='Minimum quality score value'),
+    parser.add_argument('--output_json_avg_mq_dir', action='store', dest='output_json_avg_mq_dir', help='Output json average mq directory'),
+    parser.add_argument('--output_json_snps_dir', action='store', dest='output_json_snps_dir', help='Output json snps directory'),
+    parser.add_argument('--output_snps_dir', action='store', dest='output_snps_dir', help='Output snps directory'),
     parser.add_argument('--output_summary', action='store', dest='output_summary', help='Output summary html file'),
     parser.add_argument('--processes', action='store', dest='processes', type=int, help='Configured processes for job'),
     parser.add_argument('--quality_score_n_threshold', action='store', dest='quality_score_n_threshold', type=int, help='Minimum quality score N value for alleles')
@@ -451,8 +458,8 @@ if __name__ == '__main__':
     # Build the list of all input zero coverage vcf
     # files, both the samples and the "database".
     vcf_files = []
-    for file_name in os.listdir(INPUT_VCF_DIR):
-        file_path = os.path.abspath(os.path.join(INPUT_VCF_DIR, file_name))
+    for file_name in os.listdir(args.input_vcf_dir):
+        file_path = os.path.abspath(os.path.join(args.input_vcf_dir, file_name))
         vcf_files.append(file_path)
 
     multiprocessing.set_start_method('spawn')
@@ -463,7 +470,7 @@ if __name__ == '__main__':
     timeout = 0.05
 
     # Initialize the snp_finder object.
-    snp_finder = SnpFinder(num_files, args.reference, args.input_excel, args.all_isolates, args.ac, args.min_mq, args.quality_score_n_threshold, args.min_quality_score, args.output_summary)
+    snp_finder = SnpFinder(num_files, args.reference, args.input_excel, args.all_isolates, args.ac, args.min_mq, args.quality_score_n_threshold, args.min_quality_score, args.input_vcf_dir, args.output_json_avg_mq_dir, args.output_json_snps_dir, args.output_snps_dir, args.output_summary)
 
     # Define and make the set of directories into which the input_zc_vcf
     # files will be placed.  Selected input values (e.g., the use of
