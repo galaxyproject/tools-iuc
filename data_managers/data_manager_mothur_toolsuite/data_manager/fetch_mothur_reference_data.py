@@ -8,9 +8,9 @@ import shutil
 import sys
 import tarfile
 import tempfile
-import urllib2
 import zipfile
 from functools import reduce
+from urllib.request import urlopen
 
 # When extracting files from archives, skip names that
 # start with the following strings
@@ -265,7 +265,7 @@ def download_file(url, target=None, wd=None):
         target = os.path.join(wd, target)
     print("Saving to %s" % target)
     with open(target, 'wb') as fh:
-        fh.write(urllib2.urlopen(url).read())
+        fh.write(urlopen(url).read())
     return target
 
 
