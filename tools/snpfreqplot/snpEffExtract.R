@@ -5,6 +5,12 @@ suppressPackageStartupMessages(library(tidyverse))
 
 tsv_eff_from_vcf <- function(input_vcf, output_tab) {
     read_vcf <- readVcf(input_vcf)  # nolint
+    if (!nrow(read_vcf@fixed)) {
+        # no variants in file -> just write a valid header line
+        write(c("CHROM", "POS", "REF", "ALT", "AF", "EFF[*].GENE", "EFF[*].EFFECT"),
+              ncolumns = 7, file = output_tab, sep = "\t")
+        return()
+    }
     chrom_pos <- data.frame(read_vcf@rowRanges)[, c("seqnames", "start")]
     ref_alt_filter <- read_vcf@fixed[, c("REF", "ALT", "FILTER")]
     dp_af <- read_vcf@info[c("DP", "AF")]

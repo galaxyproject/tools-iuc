@@ -54,22 +54,28 @@ split_table_and_process <- function(tab) {
     group_ind <- tab %>% group_by(POS, REF, ALT) %>% select(POS, REF, ALT) # nolint
     nlines <- nrow(tab)
     groups <- list()
-    groups[[1]] <- c(1, 1)
-    last_pa <- paste(group_ind[1, ])
-    for (r in 2:nlines) {
-        curr_pa <- paste(group_ind[r, ])
-        group_ind_diff_between_lines <- !all(last_pa == curr_pa)
-        if (group_ind_diff_between_lines) {
-            ## end of current group, start of new
-            groups[[length(groups)]][2] <- r - 1     ## change prev end
-            groups[[length(groups) + 1]] <- c(r, r)  ## set (start, end)
-        } else if (r == nlines) {
-            ## i.e. if the very last line shares
-            ## the same POS REF ALT as the one before,
-            ## close current group.
-            groups[[length(groups)]][2] <- r
+    if (nlines) {
+        groups[[1]] <- c(1, 1)
+    } else {
+        groups[[1]] <- c(0, 0)
+    }
+    if (nlines >= 2) {
+        last_pa <- paste(group_ind[1, ])
+        for (r in 2:nlines) {
+            curr_pa <- paste(group_ind[r, ])
+            group_ind_diff_between_lines <- !all(last_pa == curr_pa)
+            if (group_ind_diff_between_lines) {
+                ## end of current group, start of new
+                groups[[length(groups)]][2] <- r - 1     ## change prev end
+                groups[[length(groups) + 1]] <- c(r, r)  ## set (start, end)
+            } else if (r == nlines) {
+                ## i.e. if the very last line shares
+                ## the same POS REF ALT as the one before,
+                ## close current group.
+                groups[[length(groups)]][2] <- r
+            }
+            last_pa <- curr_pa
         }
-        last_pa <- curr_pa
     }
     as_tibble(do.call(
         "rbind",
@@ -82,7 +88,8 @@ split_table_and_process <- function(tab) {
 
 read_and_process <- function(id) {
     file <- (samples %>% filter(ids == id))$files    # nolint
-    variants <- read.table(file, header = T, sep = "\t")
+    variants <- read.table(file, header = T, sep = "\t", colClasses = "character")
+    variants["AF"]  <- lapply(variants["AF"], as.numeric)
     uniq_ids <- split_table_and_process(variants)
     if (nrow(variants) != nrow(uniq_ids)) {
         stop(paste0(id, " '", file, "' failed: ", file, "\"",
