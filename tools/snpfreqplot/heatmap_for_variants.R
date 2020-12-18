@@ -116,7 +116,7 @@ gap_vector <- which(!(ann_final$gene[1:length(ann_final$gene) - 1] ==  # nolint
                                         # colormanagement
 my_colors <- colorRampPalette(c("grey93", "brown", "black")) #heatmap
 count <- length(unique(ann_final$gene))                     #annotations (genes)
-gene_color <- c(brewer.pal(brewer_color_gene_annotation, n = count))
+gene_color <- rep(c(brewer.pal(brewer_color_gene_annotation, n = count)), length.out = count)
 names(gene_color) <- unique(ann_final$gene)
 
                                         # colormanagement annotations (effect)
