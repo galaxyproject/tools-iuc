@@ -48,7 +48,7 @@ def setup_all_vcfs(vcf_files, vcf_dirs):
 
 class SnpFinder:
 
-    def __init__(self, num_files, reference, input_excel, all_isolates, ac, min_mq, quality_score_n_threshold, min_quality_score, input_vcf_dir, output_json_avg_mq_dir, output_json_snps_dir, output_snps_dir, output_summary):
+    def __init__(self, num_files, dbkey, input_excel, all_isolates, ac, min_mq, quality_score_n_threshold, min_quality_score, input_vcf_dir, output_json_avg_mq_dir, output_json_snps_dir, output_snps_dir, output_summary):
         # Allele count
         self.ac = ac
         # Create a group that will contain all isolates.
@@ -75,7 +75,7 @@ class SnpFinder:
         self.output_snps_dir = output_snps_dir
         # Quality score N threshold value.
         self.quality_score_n_threshold = quality_score_n_threshold
-        self.reference = reference
+        self.dbkey = dbkey
         self.start_time = get_time_stamp()
         self.summary_str = ""
         self.timer_start = datetime.now()
@@ -417,7 +417,7 @@ class SnpFinder:
         self.append_to_summary('<body style=\"font-size:12px;">')
         self.append_to_summary("<b>Time started:</b> %s<br/>" % get_time_stamp())
         self.append_to_summary("<b>Number of VCF inputs:</b> %d<br/>" % self.num_files)
-        self.append_to_summary("<b>Reference:</b> %s<br/>" % self.reference)
+        self.append_to_summary("<b>Reference:</b> %s<br/>" % self.dbkey)
         self.append_to_summary("<b>All isolates:</b> %s<br/>" % str(self.all_isolates))
 
     def return_val(self, val, index=0):
@@ -450,8 +450,8 @@ if __name__ == '__main__':
     parser.add_argument('--output_snps_dir', action='store', dest='output_snps_dir', help='Output snps directory'),
     parser.add_argument('--output_summary', action='store', dest='output_summary', help='Output summary html file'),
     parser.add_argument('--processes', action='store', dest='processes', type=int, help='Configured processes for job'),
-    parser.add_argument('--quality_score_n_threshold', action='store', dest='quality_score_n_threshold', type=int, help='Minimum quality score N value for alleles')
-    parser.add_argument('--reference', action='store', dest='reference', help='Reference file'),
+    parser.add_argument('--quality_score_n_threshold', action='store', dest='quality_score_n_threshold', type=int, help='Minimum quality score N value for alleles'),
+    parser.add_argument('--dbkey', action='store', dest='dbkey', help='Galaxy genome build dbkey'),
 
     args = parser.parse_args()
 
@@ -470,7 +470,7 @@ if __name__ == '__main__':
     timeout = 0.05
 
     # Initialize the snp_finder object.
-    snp_finder = SnpFinder(num_files, args.reference, args.input_excel, args.all_isolates, args.ac, args.min_mq, args.quality_score_n_threshold, args.min_quality_score, args.input_vcf_dir, args.output_json_avg_mq_dir, args.output_json_snps_dir, args.output_snps_dir, args.output_summary)
+    snp_finder = SnpFinder(num_files, args.dbkey, args.input_excel, args.all_isolates, args.ac, args.min_mq, args.quality_score_n_threshold, args.min_quality_score, args.input_vcf_dir, args.output_json_avg_mq_dir, args.output_json_snps_dir, args.output_snps_dir, args.output_summary)
 
     # Define and make the set of directories into which the input_zc_vcf
     # files will be placed.  Selected input values (e.g., the use of
