@@ -1,0 +1,137 @@
+<tool id="mitobim" name="MITObim" version="@TOOL_VERSION@" profile="20.01">
+    <description>mitochondrial baiting and iterative mapping</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.9.1</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">mitobim</requirement>
+    </requirements>
+    <version_command>MITObim.pl --version</version_command>
+    <command detect_errors="exit_code"><![CDATA[
+    export LC_ALL=C &&
+    cp '$reftype.reference' reference.$reftype.reference.ext &&
+    cp '$readpool' readpool.fastq &&
+
+    MITObim.pl
+    #if str($start) != ""
+        --start $start
+    #end if
+    #if str($end) != ""
+        --end $end
+    #end if
+    --sample '$sample'
+    --ref '$ref'
+    -readpool readpool.fastq
+    $reftype.reftype_selector 'reference.$reftype.reference.ext'
+
+    --kbait $kbait
+    --platform $platform
+    $denovo
+    $pair
+    $split
+##    --clean                 retain only the last 2 iteration directories (default: no)
+    $trimreads
+    $trimoverhang
+    #if str($mismatch) != ""
+        --mismatch $mismatch
+    #end if
+    #if str($min_cov) != ""
+        --min_cov $min_cov
+    #end if
+    #if str($min_len) != ""
+        --min_len $min_len
+    #end if
+## TODO    --redirect_tmp    redirect temporary output to this location (useful in case you are running MITObim on an NFS mount)
+    --NFS_warn_only | tee log.txt &&
+
+    if grep -q "^Final assembly result will be written to file:" log.txt; then
+        cp \$(grep "^Final assembly result will be written to file:" log.txt | cut -d":" -f 2) '$assembly';
+    else
+        exit 1;
+    fi
+    ]]></command>
+    <inputs>
+        <param argument="--readpool" type="data" format="fastq,fastq.gz" label="readpool" help="read pairs need to be interleaved for full functionality of the '-pair' option below"/>
+        <conditional name="reftype">
+            <param name="reftype_selector" type="select" label="">
+                <option value="--quick" selected="true">reference sequence to be used as bait in fasta format (--quick)</option>
+                <option value="--maf">extracts reference from maf file created by previous MITObim iteration/MIRA assembly</option>
+            </param>
+            <when value="--quick">
+                <param name="reference" type="data" format="fasta" label="Reference fasta file" argument="--quick"/>
+            </when>
+            <when value="--maf">
+                <param name="reference" type="data" format="maf" label="Reference MAF file" argument="--maf"/>
+            </when>
+        </conditional>
+        <param argument="--ref" type="text" value="" label="Reference ID" help="If resuming, use the same as in previous iteration/initial MIRA assembly"/>
+        <param argument="--readpool" type="data" format="fastq,fastq.gz" label="readpool" help="read pairs need to be interleaved for full functionality of the '-pair' option below"/>
+        <param argument="--sample" type="text" value="" label="Sample ID" help="If resuming, the sampleID needs to be identical to that of the previous iteration / MIRA assembly"/>
+        <param argument="--start" type="integer" value="" optional="true" label="iteration to start with" help="defaults to 0 when using '--quick' reference"/>
+        <param argument="--end" type="integer" value="" optional="true" label="iteration to end with" help="default=startiteration, i.e. if not specified otherwise stop after 1 iteration"/>
+        <param argument="--kbait" type="integer" value="31" label="kmer for baiting stringency" help=""/>
+        <param argument="--platform" type="select" label="sequencing platform" help="">
+            <option value="solexa">Solexa</option>
+            <option value="iontor">ION Torrent</option>
+            <option value="454">445</option>
+            <option value="pacbio">PacBIO</option>
+        </param>
+        <param argument="--denovo" type="boolean" checked="false" truevalue="--denovo" falsevalue="" label="run MIRA in denovo mode" help=""/>
+        <param argument="--pair" type="boolean" checked="false" truevalue="--pair" falsevalue="" label="extend readpool to contain full read pairs, even if only one member was baited" help="relies on /1 and /2 header convention for read pairs"/>
+        <param argument="--split" type="boolean" checked="false" truevalue="--split" falsevalue="" label="split reference at positions with more than 5N" help=""/>
+
+        <param argument="--trimreads" type="boolean" checked="false" truevalue="--trimreads" falsevalue="" label="trim data" help="its recommended to trim beforehand and feed MITObim with pre trimmed data"/>
+        <param argument="--trimoverhang" type="boolean" checked="false" truevalue="--trimoverhang" falsevalue="" label="trim overhang" help=" up- and downstream of reference. That is don't extend the bait"/>
+        <param argument="--mismatch" type="integer" value="" optional="true" label="number of allowed mismatches in mapping" help="only for illumina data (default: 15% of avg. read length)"/>
+        <param argument="--min_cov" type="integer" value="" optional="true" label="minimum average coverage of contigs to be retained" help="default off"/>
+        <param argument="--min_len" type="integer" value="" optional="true" label="minimum length of contig to be retained as backbone" help="default off"/>
+    </inputs>
+    <outputs>
+        <data format="fasta" name="assembly"/>
+    </outputs>
+    <tests>
+        <!--MITObim.pl -start 1 -end 10 -sample testpool -ref Salpinus_mt_genome -readpool reads.fastq -maf initial-mapping-testpool-to-Salpinus-mt_assembly/initial-mapping-testpool-to-Salpinus-mt_d_results/initial-mapping-testpool-to-Salpinus-mt_out.maf &> log-->
+        <test>
+            <param name="readpool" ftype="fastqsanger" value="Tthymallus-150bp-300sd50-interleaved.fastq"/>
+            <param name="sample" value="testpool"/>
+            <param name="reftype|reftype_selector" value="--maf"/>
+            <param name="reftype|reference" ftype="maf" value="initial-mapping-testpool-to-Salpinus-mt_out.maf"/>
+            <param name="ref" value="Salpinus_mt_genome"/>
+            <param name="start" value="1"/>
+            <param name="end" value="10"/>
+            <output name="assembly" value="ex1.fasta" ftype="fasta" compare="diff"/>
+        </test>
+        <!---start 1 -end 30 -sample testpool -ref Salpinus_mt_genome -readpool ~/PATH/TO/testdata1/Tthymallus-150bp-300sd50-interleaved.fastq \-\-quick ~/PATH/TO/testdata1/Salpinus-mt-genome-NC_000861.fasta &> log-->
+        <test>
+            <param name="readpool" ftype="fastqsanger" value="Tthymallus-150bp-300sd50-interleaved.fastq"/>
+            <param name="sample" value="testpool"/>
+            <param name="reftype|reftype_selector" value="--quick"/>
+            <param name="reftype|reference" ftype="fasta" value="Salpinus-mt-genome-NC_000861.fasta"/>
+            <param name="ref" value="Salpinus_mt_genome"/>
+            <param name="start" value="1"/>
+            <param name="end" value="30"/>
+            <output name="assembly" value="ex2.fasta" ftype="fasta" compare="diff"/>
+        </test>
+        <!--~/PATH/TO/MITObim.pl -sample testpool -ref Tthymallus-COI -readpool ~/PATH/TO/testdata1/Tthymallus-150bp-300sd50-interleaved.fastq \-\-quick ~/PATH/TO/testdata1/Tthymallus-COI-partial-HQ961018.fasta -end 50 \-\-denovo \-\-paired \-\-clean &> log-->
+        <test>
+            <param name="readpool" ftype="fastq" value="Tthymallus-150bp-300sd50-interleaved.fastq"/>
+            <param name="sample" value="testpool"/>
+            <param name="reftype|reftype_selector" value="--quick"/>
+            <param name="reftype|reference" ftype="fasta" value="Tthymallus-COI-partial-HQ961018.fasta"/>
+            <param name="ref" value="Tthymallus-COI"/>
+            <param name="end" value="50"/>
+            <param name="pair" value="true"/>
+            <output name="assembly" value="ex3.fasta" ftype="fasta" compare="diff"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+The MITObim procedure (mitochondrial baiting and iterative mapping) represents a highly efficient approach to assembling novel mitochondrial genomes of non-model organisms directly from total genomic DNA derived NGS reads. Labor intensive long-range PCR steps prior to sequencing are no longer required. MITObim is capable of reconstructing mitochondrial genomes without the need of a reference genome of the targeted species by relying solely on (a) mitochondrial genome information of more distantly related taxa or (b) short mitochondrial barcoding sequences (seeds), such as the commonly used cytochrome-oxidase subunit 1 (COI), as a starting reference.
+
+The script is performing three steps and iteratively repeating them: (i) Deriving reference sequence from previous mapping assembly, (ii) in silico baiting using the newly derived reference (iii) previously fished reads are mapped to the newly derived reference leading to an extension of the reference sequence.
+
+For more details please refer to Hahn et al. 2013. Detailed examples are demonstrated in the TUTORIALS section here https://github.com/chrishah/MITObim
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/nar/gkt371</citation>
+    </citations>
+</tool>
