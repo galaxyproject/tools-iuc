@@ -25,6 +25,15 @@ likely to change at any time! Beware. ;)
 History
 =======
 
+- 1.16.10+galaxy0
+
+    - UPDATED to JBrowse 1.16.10
+    - ADDED GALAXY_JBROWSE_SYMLINKS environment variable: if set, the tool will make symlinks to bam/bigwig files instead of copying them
+
+- 1.16.9+galaxy0
+
+    - UPDATED to JBrowse 1.16.9
+
 - 1.16.8+galaxy0
 
     - UPDATED to JBrowse 1.16.8
