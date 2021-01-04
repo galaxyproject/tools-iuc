@@ -14,3 +14,4 @@ The most disk-consuming step is the writing of "seeds" or "hits". These depend o
 - A medium-sized comparison (around 20 or 30 MB input sequences) can write around 10 GB.
 - A chromosome comparison (50 to 200 MB input sequences) between human and gorilla can write around 600 GB. Other "less" similar comparison can write around 100 GB or less.
 
+
