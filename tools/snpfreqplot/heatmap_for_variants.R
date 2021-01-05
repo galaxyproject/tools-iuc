@@ -192,7 +192,7 @@ fix_labels <- function(names) {
 
     min_bases <- 3
     repeat {
-        new_names <- sapply(names, fix_label, min_bases=min_bases)
+        new_names <- sapply(names, fix_label, min_bases = min_bases)
         if (length(unique(new_names)) == length(new_names)) {
             break
         }
