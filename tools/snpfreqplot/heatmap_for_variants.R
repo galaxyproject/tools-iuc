@@ -153,9 +153,7 @@ if (pheat_number_of_clusters > length(samples$ids)) {
 
                                         # Fix Labels
 ## Prettify names, check for label parity between final and ann_final
-fix_label <- function(name) {
-    ##' Reduce: 424 AGTAGAAGTTGAAAAAGGCGTTTTGCCTCAACTT A
-    ##'     to: 424 AGT… > A
+fix_label <- function(name, min_bases) {
     cols <- unlist(str_split(name, " "))
     ## first 3 are POS REF ALT, and the rest are optional differences
     pos_ref_alt <- cols[1:3]
@@ -164,11 +162,11 @@ fix_label <- function(name) {
         rest <- paste0(" :: ", paste0(cols[4:length(cols)], collapse = " "))
     }
     ## Trim the REF or ALT if too long
-    if (str_length(pos_ref_alt[2]) > 3) {
-        pos_ref_alt[2] <- paste0(substring(pos_ref_alt[2], 1, 3), "…")
+    if (str_length(pos_ref_alt[2]) > min_bases + 3) {
+        pos_ref_alt[2] <- paste0(substring(pos_ref_alt[2], 1, min_bases), "…+", str_length(pos_ref_alt[2]) - min_bases)
     }
-    if (str_length(pos_ref_alt[3]) > 3) {
-        pos_ref_alt[3] <- paste0(substring(pos_ref_alt[3], 1, 3), "…")
+    if (str_length(pos_ref_alt[3]) > min_bases + 3) {
+        pos_ref_alt[3] <- paste0(substring(pos_ref_alt[3], 1, min_bases), "…+", str_length(pos_ref_alt[3]) - min_bases)
     }
     ## Join required
     new_name <- paste0(pos_ref_alt[1], " ",
@@ -178,8 +176,32 @@ fix_label <- function(name) {
     new_name <- paste0(new_name, " ", rest)
 }
 
-colnames(final) <- sapply(colnames(final), fix_label)
-rownames(ann_final) <- sapply(rownames(ann_final), fix_label)
+fix_labels <- function(names) {
+    ## Try to reduce representations of variants by truncating REF and ALT
+    ## alleles.
+    ## Retries with less aggressive truncation if previous attempt did not
+    ## result in unique representations
+    ## For example, the variant representations:
+    ## 11074 C CTTTA
+    ## 11074 C CTTTAT
+    ## 11074 C CTTAGTT
+    ## will be turned into:
+    ## 11074 C > CTTTA
+    ## 11074 C > CTTTAT
+    ## 11074 C > CTT…+4
+
+    min_bases <- 3
+    repeat {
+        new_names <- sapply(names, fix_label, min_bases=min_bases)
+        if (length(unique(new_names)) == length(new_names)) {
+            break
+        }
+        min_bases <- min_bases + 1
+    }
+    return(new_names)
+}
+colnames(final) <- fix_labels(colnames(final))
+rownames(ann_final) <- fix_labels(rownames(ann_final))
 ## sanity test
 stopifnot(all(colnames(final) %in% rownames(ann_final)))
 
