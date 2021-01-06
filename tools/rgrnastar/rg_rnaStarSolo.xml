@@ -17,69 +17,109 @@
     STAR
     @REFGENOMEHANDLING@
 
+    ## Supports Drop-seq, 10X Chromium, inDrop and Smart-Seq
+    --soloType $sc.solo_type
+
+    #if str($sc.solo_type) == "CB_UMI_Simple":
+    --soloCBwhitelist '$sc.soloCBwhitelist'
+    #elif str($sc.solo_type) == "CB_UMI_Complex":
+    ## inDrop supports multiple cell barcodes of varying length
+        #set $cb_whitelist = []
+        #set $cb_pos = []
+        #for $cb in $sc.cb_whitelists:
+            #silent $cb_whitelist.append(str($cb.whitelist_file))
+            #silent $cb_pos.append('_'.join([str($cb.cb_start_anchor), str($cb.cb_start_anchor_pos),str($cb.cb_end_anchor), str($cb.cb_end_anchor_pos)]))
+        #end for
+    #set $cb_whitelist = ' '.join($cb_whitelist)
+    --soloCBwhitelist $cb_whitelist
+    #set $cb_pos = ' '.join($cb_pos)
+    --soloCBposition $cb_pos
+    #set $umi_pos = '_'.join([str($sc.umi_start_anchor), str($sc.umi_start_anchor_pos), str($sc.umi_end_anchor), str($sc.umi_end_anchor_pos)])
+    --soloUMIposition $umi_pos
+    --soloAdapterSequence $sc.soloAdapterSequence
+    --soloAdapterMismatchesNmax $sc.soloAdapterMismatchesNmax
+    #elif str($sc.solo_type) == "SmartSeq":
+    --soloCBwhitelist None
+    --outSAMattrRGline
+    `awk 'NR == 1{print "ID:" $0; next} {print " , ID:" $0} END {print "\n"}' ORS='' $sc.cell_ids`
+    #end if
+
     --readFilesIn
     ## Check that the input pairs are of the same type
     ## otherwise STARsolo will run for a long time and then error out.
     ## We consume either repeats of two inputs R1 + R2
     ## or a collection of paired reads.
 
-    #if str($input_types.use) == "repeat":
+    #if str($sc.solo_type) == "CB_UMI_Simple" or str($sc.solo_type) == "CB_UMI_Complex":
+        #if str($sc.input_types.use) == "repeat":
+            #set $reads1 = []
+            #set $reads2 = []
+            #for $r1, $r2 in zip($sc.input_types.input1, $sc.input_types.input2):
+                #assert $r1.datatype == $r2.datatype
+                #silent $reads1.append(str($r1))
+                #silent $reads2.append(str($r2))
+            #end for
+            #set $reads1 = ','.join($reads1)
+            #set $reads2 = ','.join($reads2)
+        #elif str($sc.input_types.use) == "list_paired":
+            #set $r1 = $sc.input_types.input_collection.forward
+            #set $r2 = $sc.input_types.input_collection.reverse
+            #set $reads1 = $r1
+            #set $reads2 = $r2
+        #end if
+        ## cDNA sequence(s) [R2] always go first, then barcode(s) [R1]
+        ## see: Section 3.2 of STAR manual for multiple inputs, and Section 13 for STARsolo inputs
+        $reads2 $reads1
+        ## 1 - check length of barcode, 0 - do not check
+        ## Good for checking custom chemistries
+        --soloBarcodeReadLength $sc.soloBarcodeReadLength
+        #if str($sc.params.chemistry) == "CR2":
+        --soloCBstart 1
+        --soloCBlen 16
+        --soloUMIstart 17
+        --soloUMIlen 10
+        #else if str($sc.params.chemistry) == "CR3":
+        --soloCBstart 1
+        --soloCBlen 16
+        --soloUMIstart 17
+        --soloUMIlen 12
+        #else if str($sc.params.chemistry) == "custom":
+        --soloCBstart $sc.params.soloCBstart
+        --soloCBlen $sc.params.soloCBlen
+        --soloUMIstart $sc.params.soloUMIstart
+        --soloUMIlen $sc.params.soloUMIlen
+        #end if
+        --soloUMIfiltering $sc.soloUMIfiltering
+        --soloCBmatchWLtype $sc.soloCBmatchWLtype
+
+    #elif str($sc.solo_type) == "SmartSeq":
         #set $reads1 = []
         #set $reads2 = []
-        #for $r1, $r2 in zip($input_types.input1, $input_types.input2):
-            #assert $r1.datatype == $r2.datatype
-            #silent $reads1.append(str($r1))
-            #silent $reads2.append(str($r2))
-        #end for
+        #if str($sc.input_types_smart_seq.use) == "list_single_end":
+            #for $r1 in $sc.input_types_smart_seq.single_end_collection:
+                #silent $reads1.append(str($r1))
+            #end for
+        #elif str($sc.input_types_smart_seq.use) == "list_paired_end":
+            #for $r1,$r2 in $sc.input_types_smart_seq.paired_end_collection:
+                #silent $reads1.append(str($r1))
+                #silent $reads2.append(str($r2))
+            #end for
+        #end if
         #set $reads1 = ','.join($reads1)
         #set $reads2 = ','.join($reads2)
-    #elif str($input_types.use) == "list_paired":
-        #set $r1 = $input_types.input_collection.forward
-        #set $r2 = $input_types.input_collection.reverse
-        #set $reads1 = $r1
-        #set $reads2 = $r2
+        ## Use the normal paired-end order for Smart-Seq
+        $reads1 $reads2
     #end if
-
-    ## cDNA sequence(s) [R2] always go first, then barcode(s) [R1]
-    ## see: Section 3.1 of STAR manual for multiple inputs, and Section 13 for STARsolo inputs
-    $reads2 $reads1
 
     #if $r1.is_of_type('fastq.gz', 'fastqsanger.gz'):
         @FASTQ_GZ_OPTION@
     #end if
 
-    ## Droplet is the only mode available for now
-    --soloType CB_UMI_Simple
-
-    ## 1 - check length of barcode, 0 - do not check
-    ## Good for checking custom chemistries
-    --soloCBwhitelist '$soloCBwhitelist'
-    --soloBarcodeReadLength $solo.soloBarcodeReadLength
-
-    #if str($solo.params.chemistry) == "CR2":
-    --soloCBstart 1
-    --soloCBlen 16
-    --soloUMIstart 17
-    --soloUMIlen 10
-    #else if str($solo.params.chemistry) == "CR3":
-    --soloCBstart 1
-    --soloCBlen 16
-    --soloUMIstart 17
-    --soloUMIlen 12
-    #else if str($solo.params.chemistry) == "custom":
-    --soloCBstart $solo.params.soloCBstart
-    --soloCBlen $solo.params.soloCBlen
-    --soloUMIstart $solo.params.soloUMIstart
-    --soloUMIlen $solo.params.soloUMIlen
-    #end if
-
-    --soloCBmatchWLtype $solo.soloCBmatchWLtype
     --soloStrand $solo.soloStrand
     --soloFeatures $solo.soloFeatures
-    --soloUMIdedup $solo.soloUMIdedup
+    --soloUMIdedup $sc.soloUMIdedup
     --quantMode TranscriptomeSAM
     --outSAMtype BAM Unsorted
-    --soloUMIfiltering $solo.soloUMIfiltering
 
     #if str($solo.filter.filter_type) == "cellranger2":
     --soloCellFilter CellRanger2.2 $solo.filter.n_expected $solo.filter.max_perc $solo.filter.max_min_ratio
@@ -94,7 +134,6 @@
 
     ## Rename the the selected features directory
     && mv Solo.out/${solo.soloFeatures} Solo.out/soloFeatures
-
     ## put the barcodes and features stats into a single file
     && cat <(echo "Barcodes:") Solo.out/Barcodes.stats <(echo "Genes:") Solo.out/soloFeatures/Features.stats > '${output_stats}'
 
@@ -114,22 +153,68 @@
 
     ]]></command>
     <inputs>
-        <conditional name="input_types" >
-            <param name="use" type="select" label="Input Type" >
-                <option value="repeat" >Separate barcode and cDNA reads</option>
-                <option value="list_paired" >Paired collection of barcode and cDNA reads</option>
+        <conditional name="sc" >
+            <param name="solo_type" type="select" label="Type of single-cell RNA-seq" >
+                <option value="CB_UMI_Simple">Drop-seq or 10X Chromium</option>
+                <option value="CB_UMI_Complex">inDrop</option>
+                <option value="SmartSeq">Smart-Seq</option>
             </param>
-            <when value="repeat">
-                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data"  multiple="true"
-                label="RNA-Seq FASTQ/FASTA file, Barcode reads" />
-                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input2" type="data"  multiple="true"
-                label="RNA-Seq FASTQ/FASTA file, cDNA reads"/>
+            <when value="CB_UMI_Simple">
+                <expand macro="input_selection" />
+                <param format="txt,tsv" argument="--soloCBwhitelist" type="data" label="RNA-Seq Cell Barcode Whitelist"/>
+                <expand macro="umi_based_params" />
+                <param argument="--soloUMIdedup" type="select" label="UMI deduplication (collapsing) algorithm" help="All has all UMIs with 1 mismatch distance to each other collapsed, Directional follows the 'directional' method given in UMI-tools, Exact collapses only exactly matching UMIs.">
+                    <expand macro="umidedup_options" />
+                    <option value="Exact" >Exact</option>
+                </param>
+                <param argument="--soloCBmatchWLtype" type="select" label="Matching the Cell Barcodes to the WhiteList" help="Exact: only exact matches allowed; 1MM: only one match in whitelist with 1 mismatched base allowed. Allowed
+    CBs have to have at least one read with exact match; 1MM_multi: multiple matches in whitelist with 1 mismatched base allowed, posterior probability calculation is used choose one of the matches; 1MM_multi_pseudocounts: same as 1MM_Multi, but pseudocounts of 1 are added to all whitelist barcodes.">
+                    <expand macro="cb_match_wl_common" />
+                    <expand macro="cb_match_wl_cellranger" />
+                </param>
             </when>
-            <when value="list_paired">
-                <param name="input_collection" collection_type="paired" type="data_collection" format="fastq,fasta,fastq.gz,fastqsanger.gz" label="Collection of Pairs" />
+            <when value="CB_UMI_Complex">
+                <expand macro="input_selection" />
+                <repeat name="cb_whitelists" title="Cell barcode whitelist information" max="2" >
+                    <param name="whitelist_file" format="txt,tsv" type="data" label="RNA-Seq Cell Barcode Whitelist"/>
+                    <param name="cb_start_anchor" type="select" label="Start anchor base for cell barcode">
+                        <expand macro="anchor_types" />
+                    </param>
+                    <param name="cb_start_anchor_pos" type="integer" value="1" label="0-based position with of the CB start with respect to the anchor base" />
+                    <param name="cb_end_anchor" type="select" label="End anchor base for cell barcode">
+                        <expand macro="anchor_types" />
+                    </param>
+                    <param name="cb_end_anchor_pos" type="integer" value="1" label="0-based position with of the CB end with respect to the anchor base" />
+                </repeat>
+                <param name="umi_start_anchor" type="select" label="Start anchor base for UMI">
+                    <expand macro="anchor_types" />
+                </param>
+                <param name="umi_start_anchor_pos" type="integer" value="1" label="0-based position with of the UMI start with respect to the anchor base" />
+                <param name="umi_end_anchor" type="select" label="End anchor base for UMI">
+                    <expand macro="anchor_types" />
+                </param>
+                <param name="umi_end_anchor_pos" type="integer" value="1" label="0-based position with of the UMI end with respect to the anchor base" />
+                <param argument="--soloAdapterSequence" type="text" value="-" label="Adapter sequence to anchor barcodes." />
+                <param argument="--soloAdapterMismatchesNmax" type="integer" min="1" value="1" label="Maximum number of mismatches allowed in adapter sequence" />
+                <expand macro="umi_based_params" />
+                <param argument="--soloUMIdedup" type="select" label="UMI deduplication (collapsing) algorithm" help="All has all UMIs with 1 mismatch distance to each other collapsed, Directional follows the 'directional' method given in UMI-tools, Exact collapses only exactly matching UMIs.">
+                    <expand macro="umidedup_options" />
+                    <option value="Exact" >Exact</option>
+                </param>
+                <param argument="--soloCBmatchWLtype" type="select" label="Matching the Cell Barcodes to the WhiteList" help="Exact: only exact matches allowed; 1MM: only one match in whitelist with 1 mismatched base allowed. Allowed
+    CBs have to have at least one read with exact match; 1MM_multi: multiple matches in whitelist with 1 mismatched base allowed, posterior probability calculation is used choose one of the matches; 1MM_multi_pseudocounts: same as 1MM_Multi, but pseudocounts of 1 are added to all whitelist barcodes.">
+                    <expand macro="cb_match_wl_common" />
+                </param>
+            </when>
+            <when value="SmartSeq">
+                <expand macro="input_selection_smart_seq" />
+                <param name="cell_ids" type="data" label="File containing cell IDs of the samples. One ID per line in order of samples in the above collection."/>
+                <param argument="--soloUMIdedup" type="select" label="UMI deduplication (collapsing) algorithm" help="All has all UMIs with 1 mismatch distance to each other collapsed, Directional follows the 'directional' method given in UMI-tools, Exact collapses only exactly matching UMIs.">
+                    <option value="Exact" >Exact</option>
+                    <option value="NoDedup">Do not deduplicate UMIs</option>
+                </param>
             </when>
         </conditional>
-        <param format="txt,tsv" argument="--soloCBwhitelist" type="data" label="RNA-Seq Cell Barcode Whitelist" />
 
         <!-- Genome source. -->
         <conditional name="refGenomeSource">
@@ -161,28 +246,6 @@
         </conditional>
 
         <section name="solo" title="Advanced Settings" expanded="true">
-            <conditional name="params">
-                <param name="chemistry" type="select" label="Configure Chemistry Options">
-                    <option value="CR2" selected="true">Cell Ranger v2</option>
-                    <option value="CR3">Cell Ranger v3</option>
-                    <option value="custom">Custom</option>
-                </param>
-                <when value="CR2" />
-                <when value="CR3" />
-                <when value="custom" >
-                    <param argument="--soloCBstart" type="integer" min="1" value="1" label="Cell Barcode Start Base" />
-                    <param argument="--soloCBlen" type="integer" min="1" value="16" label="Cell Barcode Length" />
-                    <param argument="--soloUMIstart" type="integer" min="1" value="17" label="UMI Start Base" />
-                    <param argument="--soloUMIlen" type="integer" min="1" value="10" label="UMI Length" />
-                </when>
-            </conditional>
-            <param argument="--soloCBmatchWLtype" type="select" label="Matching the Cell Barcodes to the WhiteList" help="Exact: only exact matches allowed; 1MM: only one match in whitelist with 1 mismatched base allowed. Allowed
-CBs have to have at least one read with exact match; 1MM_multi: multiple matches in whitelist with 1 mismatched base allowed, posterior probability calculation is used choose one of the matches; 1MM_multi_pseudocounts: same as 1MM_Multi, but pseudocounts of 1 are added to all whitelist barcodes.">
-                <option value="Exact" >Exact</option>
-                <option value="1MM" >Single match</option>
-                <option value="1MM_multi" selected="true" >Multiple matches (CellRanger 2)</option>
-                <option value="1MM_multi_pseudocounts" >Multiple matches (CellRanger 3)</option>
-            </param>
             <param argument="--soloStrand" type="select" label="Strandedness of Library" help="Unstranded has no strand information, Forward has the read strand the same as the original RNA molecule, Reverse has the read strand opposite to the original RNA molecule">
                 <option value="Unstranded" />
                 <option value="Forward" selected="true" />
@@ -193,16 +256,6 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
                 <option value="SJ" >Splice Junctions: Count reads at exon-intron junctions</option>
                 <option value="GeneFull" >Full: Count all reads overlapping genes' exons and introns</option>
             </param>
-            <param argument="--soloUMIdedup" type="select" label="UMI deduplication (collapsing) algorithm" help="All has all UMIs with 1 mismatch distance to each other collapsed, Directional follows the 'directional' method given in UMI-tools, Exact collapses only exactly matching UMIs.">
-                <option value="1MM_All" selected="true">All</option>
-                <option value="1MM_Directional" >Directional</option>
-                <option value="Exact" >Exact</option>
-            </param>
-            <param argument="--soloBarcodeReadLength" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Barcode Size is same size of the Read" help="Disable this if your R1 barcodes contain poly-T bases after the barcode sequence." />
-            <param argument="--soloUMIfiltering" type="select" label="Type of UMI filtering" >
-                <option value="-" selected="true">Remove UMIs with N and homopolymers</option>
-                <option value="MultiGeneUMI" >Remove lower-count UMIs that map to more than one gene</option>
-            </param>
             <conditional name="filter" >
                 <param name="filter_type" type="select" label="Cell filtering type and parameters" >
                     <option value="cellranger2" selected="true" >Simple filtering of CellRanger v2</option>
@@ -212,7 +265,7 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
                 <when value="cellranger2" >
                     <param name="n_expected" type="integer" min="1" value="3000" label="Number of expected cells" />
                     <param name="max_perc" type="float" min="0" max="1" value="0.99" label="Robust maximum percentile for UMI count" />
-                    <param name="max_min_ratio" type="float" min="1" max="100" value="10" label="maximum to minimum ratio for UMI count" />
+                    <param name="max_min_ratio" type="float" min="1" value="10" label="Maximum to minimum ratio for UMI count" />
                 </when>
                 <when value="topcells" >
                     <param name="n_cells" type="integer" min="1" value="3000" label="Number of top cells to report sorted by UMI count" />
@@ -290,12 +343,19 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
     -->
     <tests>
         <test expect_num_outputs="6">
-            <conditional name="input_types">
-                <param name="use" value="repeat" />
-                <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
-                <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
             </conditional>
-            <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
@@ -304,15 +364,11 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
                 <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
             </conditional>
             <section name="solo" >
-                <conditional name="params">
-                    <param name="chemistry" value="CR3" />
-                </conditional>
-                <param name="soloStrand" value="Forward" />
-                <param name="soloFeatures" value="Gene" />
-                <param name="soloUMIdedup" value="1MM_All" />
                 <conditional name="filter">
                     <param name="filter_type" value="no_filter" />
                 </conditional>
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="Gene" />
             </section>
             <output name="output_barcodes" >
                 <assert_contents>
@@ -342,12 +398,23 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
             <output name="output_BAM" value="filtered3.bam" compare="sim_size" delta="600" />
         </test>
         <test expect_num_outputs="6"><!-- same as above, but using custom -->
-            <conditional name="input_types">
-                <param name="use" value="repeat" />
-                <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
-                <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="custom" />
+                    <param name="soloCBstart" value="1" />
+                    <param name="soloCBlen" value="16" />
+                    <param name="soloUMIstart" value="17" />
+                    <param name="soloUMIlen" value="12" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
             </conditional>
-            <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
@@ -356,16 +423,8 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
                 <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
             </conditional>
             <section name="solo" >
-                <conditional name="params">
-                    <param name="chemistry" value="custom" />
-                    <param name="soloCBstart" value="1" />
-                    <param name="soloCBlen" value="16" />
-                    <param name="soloUMIstart" value="17" />
-                    <param name="soloUMIlen" value="12" />
-                </conditional>
                 <param name="soloStrand" value="Forward" />
                 <param name="soloFeatures" value="Gene" />
-                <param name="soloUMIdedup" value="1MM_All" />
             </section>
             <output name="output_barcodes_filtered" >
                 <assert_contents>
@@ -394,12 +453,19 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
             <output name="output_BAM" value="filtered3.bam" compare="sim_size" delta="600" />
         </test>
         <test expect_num_outputs="6"><!-- Multiple repeats test -->
-            <conditional name="input_types">
-                <param name="use" value="repeat" />
-                <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz,pbmc_1k_v2_L001.R1.10k.fastq.gz,pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
-                <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz,pbmc_1k_v2_L001.R2.10k.fastq.gz,pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz,pbmc_1k_v2_L001.R1.10k.fastq.gz,pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz,pbmc_1k_v2_L001.R2.10k.fastq.gz,pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
             </conditional>
-            <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
@@ -408,12 +474,8 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
                 <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
             </conditional>
             <section name="solo" >
-                <conditional name="params">
-                    <param name="chemistry" value="CR3" />
-                </conditional>
                 <param name="soloStrand" value="Forward" />
                 <param name="soloFeatures" value="Gene" />
-                <param name="soloUMIdedup" value="1MM_All" />
             </section>
             <output name="output_barcodes_filtered" >
                 <assert_contents>
@@ -425,16 +487,23 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
         </test>
         <test expect_num_outputs="6">
             <!-- Test with paired collection -->
-            <conditional name="input_types">
-                <param name="use" value="list_paired" />
-                <param name="input_collection" >
-                    <collection type="paired">
-                        <element name="forward" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
-                        <element name="reverse" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
-                    </collection>
-                </param>
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="list_paired" />
+                    <param name="input_collection" >
+                        <collection type="paired">
+                            <element name="forward" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                            <element name="reverse" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                        </collection>
+                    </param>
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
             </conditional>
-            <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
@@ -443,12 +512,8 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
                 <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
             </conditional>
             <section name="solo" >
-                <conditional name="params">
-                    <param name="chemistry" value="CR3" />
-                </conditional>
                 <param name="soloStrand" value="Forward" />
                 <param name="soloFeatures" value="Gene" />
-                <param name="soloUMIdedup" value="1MM_All" />
             </section>
             <output name="output_barcodes_filtered" >
                 <assert_contents>
@@ -460,12 +525,21 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
         </test>
         <test expect_num_outputs="6">
             <!-- Test soloFeatures, soloCBmatchWLtype, soloCellFilter, soloOutFormatFeaturesGeneField3, soloUMIfiltering -->
-            <conditional name="input_types">
-                <param name="use" value="repeat" />
-                <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
-                <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <param name="soloCBmatchWLtype" value="1MM_multi_pseudocounts" />
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
+                <param name="soloUMIfiltering" value="MultiGeneUMI" />
             </conditional>
-            <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
@@ -474,14 +548,8 @@ CBs have to have at least one read with exact match; 1MM_multi: multiple matches
                 <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
             </conditional>
             <section name="solo" >
-                <conditional name="params">
-                    <param name="chemistry" value="CR3" />
-                </conditional>
-                <param name="soloCBmatchWLtype" value="1MM_multi_pseudocounts" />
                 <param name="soloStrand" value="Forward" />
                 <param name="soloFeatures" value="GeneFull" />
-                <param name="soloUMIdedup" value="1MM_All" />
-                <param name="soloUMIfiltering" value="MultiGeneUMI" />
                 <conditional name="filter">
                     <param name="filter_type" value="topcells" />
                     <param name="n_cells" value="5" />
