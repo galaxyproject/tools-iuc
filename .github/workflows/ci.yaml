@@ -65,10 +65,18 @@ jobs:
     - uses: actions/checkout@v2
       with:
         fetch-depth: 1
-    - name: Get approximate number of tools and compute number of chunks
+    - name: Planemo ci_find_repos
+      run: planemo ci_find_repos --exclude packages --exclude deprecated --exclude_from .tt_skip --output repository_list.txt
+    - name: Show repository list
+      run: cat repository_list.txt
+    - name: Planemo ci_find_tools for the repository list
+      run: planemo ci_find_tools --output tool_list.txt $(cat repository_list.txt)
+    - name: Show tool list
+      run: cat tool_list.txt
+    - name: Compute chunks
       id: get-chunks
       run: |
-        nchunks=$(find data_managers/ tools/ tool_collections/ -iname '*.xml' | grep -v 'data_manager_conf.xml\|datatypes_conf.xml\|macro\|repository_dependencies.xml\|test-data/\|tool_dependencies.xml' | xargs grep -l '<tool ' | wc -l)
+        nchunks=$(wc -l < tool_list.txt)
         if [ "$nchunks" -gt "$MAX_CHUNKS" ]; then
             nchunks=$MAX_CHUNKS
         elif [ "$nchunks" -eq 0 ]; then
@@ -117,9 +125,9 @@ jobs:
     - name: Install Planemo
       run: pip install planemo
     - name: Planemo ci_find_tools, chunked
-      run: planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk  }} --exclude test_repositories --exclude packages --exclude deprecated --exclude_from .tt_skip --group_tools --output tool.list
-    - name: Show tools chunk list
-      run: cat tool.list
+      run: planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk  }} --exclude test_repositories --exclude packages --exclude deprecated --exclude_from .tt_skip --group_tools --output tool_list_chunk.txt
+    - name: Show tool list chunk
+      run: cat tool_list_chunk.txt
     - name: Planemo test tools
       run: |
         mkdir json_output
@@ -133,7 +141,10 @@ jobs:
             json=$(mktemp -u -p json_output --suff .json)
             PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source "https://github.com/${{ needs.setup.outputs.fork }}/galaxy" --galaxy_branch "${{ needs.setup.outputs.branch }}" --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$json" $TOOL_GROUP || true
             docker system prune --all --force --volumes || true
-        done < tool.list
+        done < tool_list_chunk.txt
+        if [ ! -s tool_list_chunk.txt ]; then
+            echo '{"tests":[]}' > "$(mktemp -u -p json_output --suff .json)"
+        fi
     - name: Merge tool_test_output.json files
       run: planemo merge_test_reports json_output/*.json tool_test_output.json
     - name: Create tool_test_output.html
