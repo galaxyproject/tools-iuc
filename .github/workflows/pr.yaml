@@ -33,12 +33,12 @@ jobs:
         echo 'base_ref: ${{ github.base_ref }}'
         echo 'event.before: ${{ github.event.before }}'
         echo 'event.after: ${{ github.event.after }}'
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python-version }}
     - name: Determine latest commit in the Galaxy repo
       id: get-galaxy-sha
       run: echo "::set-output name=galaxy_head_sha::$(git ls-remote ${{ env.GALAXY_REPO }} refs/heads/${{ env.GALAXY_RELEASE }} | cut -f1)"
+    - uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
     - name: Cache .cache/pip
       uses: actions/cache@v2
       id: cache-pip
@@ -85,26 +85,26 @@ jobs:
       run: echo "COMMIT_RANGE=HEAD~.." >> $GITHUB_ENV
     - id: get-commit-range
       run: echo "::set-output name=commit_range::$COMMIT_RANGE"
-    - name: Planemo ci_find_repos
-      run: planemo ci_find_repos --changed_in_commit_range $COMMIT_RANGE --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_repositories.list
-    - name: Show repo list
-      run: cat changed_repositories.list
+    - name: Planemo ci_find_repos for the commit range
+      run: planemo ci_find_repos --changed_in_commit_range $COMMIT_RANGE --exclude packages --exclude deprecated --exclude_from .tt_skip --output repository_list.txt
+    - name: Show repository list
+      run: cat repository_list.txt
     - uses: actions/upload-artifact@v2
       with:
         name: Workflow artifacts
-        path: changed_repositories.list
-    - name: Planemo ci_find_tools for the changed repos
+        path: repository_list.txt
+    - name: Planemo ci_find_tools for the repository list
       run: |
-        touch changed_tools.list
-        if [ -s changed_repositories.list ]; then
-            planemo ci_find_tools --output changed_tools.list $(cat changed_repositories.list)
+        touch tool_list.txt
+        if [ -s repository_list.txt ]; then
+            planemo ci_find_tools --output tool_list.txt $(cat repository_list.txt)
         fi
     - name: Show tool list
-      run: cat changed_tools.list
+      run: cat tool_list.txt
     - name: Compute chunks
       id: get-chunks
       run: |
-        nchunks=$(wc -l < changed_tools.list)
+        nchunks=$(wc -l < tool_list.txt)
         if [ "$nchunks" -gt "$MAX_CHUNKS" ]; then
             nchunks=$MAX_CHUNKS
         elif [ "$nchunks" -eq 0 ]; then
@@ -151,19 +151,19 @@ jobs:
         set -e
         while read -r DIR; do
             planemo shed_lint --tools --ensure_metadata --urls --report_level warn --fail_level error --recursive "$DIR";
-        done < ../workflow_artifacts/changed_repositories.list
+        done < ../workflow_artifacts/repository_list.txt
     - name: Planemo ci_find_tools for the commit range
-      run: planemo ci_find_tools --changed_in_commit_range ${{ needs.setup.outputs.commit_range }} --exclude packages --exclude deprecated --exclude_from .tt_skip --output changed_tools.list
+      run: planemo ci_find_tools --changed_in_commit_range ${{ needs.setup.outputs.commit_range }} --exclude packages --exclude deprecated --exclude_from .tt_skip --output tool_list.txt
     - name: Check if each changed tool is in the list of changed repositories
       run: |
         set -e
         while read -r TOOL; do
             # Check if any changed repo dir is a substring of $TOOL
-            if ! echo $TOOL | grep -qf ../workflow_artifacts/changed_repositories.list; then
+            if ! echo $TOOL | grep -qf ../workflow_artifacts/repository_list.txt; then
                 echo "Tool $TOOL not in changed repositories list: .shed.yml file missing" >&2
                 exit 1
             fi
-        done < changed_tools.list
+        done < tool_list.txt
 
   # flake8 of Python scripts in the changed repositories
   flake8:
@@ -197,8 +197,8 @@ jobs:
       run: pip install flake8 flake8-import-order
     - name: Flake8
       run: |
-        if [ -s ../workflow_artifacts/changed_repositories.list ]; then
-            flake8 $(cat ../workflow_artifacts/changed_repositories.list)
+        if [ -s ../workflow_artifacts/repository_list.txt ]; then
+            flake8 $(cat ../workflow_artifacts/repository_list.txt)
         fi
 
   lintr:
@@ -237,7 +237,7 @@ jobs:
       run: |
         library(lintr)
         linters <- with_defaults(line_length_linter = NULL, cyclocomp_linter = NULL, object_usage_linter = NULL)
-        con <- file("../workflow_artifacts/changed_repositories.list", "r")
+        con <- file("../workflow_artifacts/repository_list.txt", "r")
         status <- 0
         while (TRUE) {
           repo <- readLines(con, n = 1)
@@ -304,14 +304,14 @@ jobs:
         key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
     - name: Install Planemo
       run: pip install planemo
-    - name: Planemo ci_find_tools for the change repos, chunked
+    - name: Planemo ci_find_tools for the repository list, chunked
       run: |
-        touch changed_tools_chunk.list
-        if [ -s ../workflow_artifacts/changed_repositories.list ]; then
-          planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} --group_tools --output changed_tools_chunk.list $(cat ../workflow_artifacts/changed_repositories.list)
+        touch tool_list_chunk.txt
+        if [ -s ../workflow_artifacts/repository_list.txt ]; then
+          planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} --group_tools --output tool_list_chunk.txt $(cat ../workflow_artifacts/repository_list.txt)
         fi
-    - name: Show changed tools chunk list
-      run: cat changed_tools_chunk.list
+    - name: Show tool list chunk
+      run: cat tool_list_chunk.txt
     - name: Planemo test tools
       run: |
         mkdir json_output
@@ -325,8 +325,8 @@ jobs:
             json=$(mktemp -u -p json_output --suff .json)
             PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source $GALAXY_REPO --galaxy_branch $GALAXY_RELEASE --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$json" $TOOL_GROUP || true
             docker system prune --all --force --volumes || true
-        done < changed_tools_chunk.list
-        if [ ! -s changed_tools_chunk.list ]; then
+        done < tool_list_chunk.txt
+        if [ ! -s tool_list_chunk.txt ]; then
             echo '{"tests":[]}' > "$(mktemp -u -p json_output --suff .json)"
         fi
     - name: Merge tool_test_output.json files
@@ -339,7 +339,7 @@ jobs:
         mv tool_test_output.json tool_test_output.html upload/
     - uses: actions/upload-artifact@v2
       with:
-        name: 'Tool test output ${{ matrix.chunk  }}'
+        name: 'Tool test output ${{ matrix.chunk }}'
         path: upload
 
   # - combine the results of the test chunks (which will never fail due
@@ -425,7 +425,7 @@ jobs:
       run: |
         while read -r DIR; do
             planemo shed_update --shed_target testtoolshed --shed_key "${{ env.SHED_KEY }}" --force_repository_creation "$DIR" || exit 1;
-        done < ../workflow_artifacts/changed_repositories.list
+        done < ../workflow_artifacts/repository_list.txt
       continue-on-error: true
     - name: Deploy on toolshed
       env:
@@ -433,4 +433,4 @@ jobs:
       run: |
         while read -r DIR; do
             planemo shed_update --shed_target toolshed --shed_key "${{ env.SHED_KEY }}" --force_repository_creation "$DIR" || exit 1;
-        done < ../workflow_artifacts/changed_repositories.list
+        done < ../workflow_artifacts/repository_list.txt
