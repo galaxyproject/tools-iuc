@@ -21,6 +21,7 @@
     --soloType $sc.solo_type
 
     #if str($sc.solo_type) == "CB_UMI_Simple":
+    @READSHANDLING@
     --soloCBwhitelist '$sc.soloCBwhitelist'
     ## 1 - check length of barcode, 0 - do not check
     ## Good for checking custom chemistries
@@ -43,6 +44,7 @@
     #end if
 
     #elif str($sc.solo_type) == "CB_UMI_Complex":
+    @READSHANDLING@
     ## inDrop supports multiple cell barcodes of varying length
         #set $cb_whitelist = []
         #set $cb_pos = []
@@ -60,68 +62,20 @@
     --soloAdapterMismatchesNmax $sc.soloAdapterMismatchesNmax
 
     #elif str($sc.solo_type) == "SmartSeq":
-    --soloCBwhitelist None
-    #end if
-
-    ## Check that the input pairs are of the same type
-    ## otherwise STARsolo will run for a long time and then error out.
-    ## We consume either repeats of two inputs R1 + R2
-    ## or a collection of paired reads.
-
-    #if str($sc.solo_type) == "CB_UMI_Simple" or str($sc.solo_type) == "CB_UMI_Complex":
-        #if str($sc.input_types.use) == "repeat":
-            #set $reads1 = []
-            #set $reads2 = []
-            #for $r1, $r2 in zip($sc.input_types.input1, $sc.input_types.input2):
-                #assert $r1.datatype == $r2.datatype
-                #silent $reads1.append(str($r1))
-                #silent $reads2.append(str($r2))
-            #end for
-            #set $reads1 = ','.join($reads1)
-            #set $reads2 = ','.join($reads2)
-        #elif str($sc.input_types.use) == "list_paired":
-            #set $r1 = $sc.input_types.input_collection.forward
-            #set $r2 = $sc.input_types.input_collection.reverse
-            #set $reads1 = $r1
-            #set $reads2 = $r2
-        #end if
-        ## cDNA sequence(s) [R2] always go first, then barcode(s) [R1]
-        ## see: Section 3.2 of STAR manual for multiple inputs, and Section 13 for STARsolo inputs
-        --readFilesIn $reads2 $reads1
-        --soloCBmatchWLtype $sc.soloCBmatchWLtype
-
-    #elif str($sc.solo_type) == "SmartSeq":
-        #set $reads1 = []
-        #set $reads2 = []
-        ## Create a manifest file with fastq files and their corresponding cell-ids
-        #set $file_manifest = '/tmp/manifest.tsv'
-        #set $file_manifest_fh = open($file_manifest, 'w')
-        #set $cellids_fh = open(str($sc.cell_ids), 'r')
-        #set $cellids = [str(x.strip()) for x in $cellids_fh.readlines()]
-        #silent $cellids_fh.close()
+    ## Create a manifest file with fastq files and their corresponding cell-ids
+    ## For Smart-Seq [R1] is followed by [R2]
+    --readFilesManifest '$manifest_file'
+        #set $read_files_command = ""
         #if str($sc.input_types_smart_seq.use) == "list_single_end":
-            #assert len($cellids) == len($sc.input_types_smart_seq.single_end_collection.keys())
-            #for $i,$r1 in enumerate($sc.input_types_smart_seq.single_end_collection):
-                #silent $reads1.append(str($r1))
-                #silent $file_manifest_fh.write('\t'.join([str($r1), '-', 'ID:' + $cellids[$i]]) + '\n')
-            #end for
+            #if $sc.input_types_smart_seq.single_end_collection[0].is_of_type('fastq.gz', 'fastqsanger.gz'):
+                @FASTQ_GZ_OPTION@
+            #end if
         #elif str($sc.input_types_smart_seq.use) == "list_paired_end":
-            #assert len($cellids) == len($sc.input_types_smart_seq.paired_end_collection.keys())
-            #for $i,($r1,$r2) in enumerate($sc.input_types_smart_seq.paired_end_collection):
-                #silent $reads1.append(str($r1))
-                #silent $reads2.append(str($r2))
-                #silent $file_manifest_fh.write('\t'.join([str($r1), str($r2), 'ID:' + $cellids[$i]]) + '\n')
-            #end for
+            #if $sc.input_types_smart_seq.paired_end_collection[0].forward.is_of_type('fastq.gz', 'fastqsanger.gz'):
+                @FASTQ_GZ_OPTION@
+            #end if
         #end if
-        #silent $file_manifest_fh.close()
-        #set $reads1 = ','.join($reads1)
-        #set $reads2 = ','.join($reads2)
-        ## For Smart-Seq [R1] is followed by [R2]
-        --readFilesManifest $file_manifest
-    #end if
-
-    #if $r1.is_of_type('fastq.gz', 'fastqsanger.gz'):
-        @FASTQ_GZ_OPTION@
+    --soloCBwhitelist None
     #end if
 
     --soloUMIfiltering $solo.soloUMIfiltering
@@ -160,6 +114,28 @@
     ((addmemory=addmemory*75/100)) &&
     samtools sort -@ \$addthreads -m \$addmemory"M" -T "\${TMPDIR:-.}" -O bam -o '$output_BAM' Aligned.out.bam
     ]]></command>
+    <configfiles>
+        <configfile name="manifest_file" >
+    #if str($sc.solo_type) == "SmartSeq":
+        #set $cellids_fh = open(str($sc.cell_ids), 'r')
+        #set $cellids = [str(x.strip()) for x in $cellids_fh.readlines()]
+        #silent $cellids_fh.close()
+        #set $samples = []
+        #if str($sc.input_types_smart_seq.use) == "list_single_end":
+            #assert len($cellids) == len($sc.input_types_smart_seq.single_end_collection.keys())
+            #for $i,$r1 in enumerate($sc.input_types_smart_seq.single_end_collection):
+                #silent $samples.append('\t'.join([str($r1), '-', 'ID:' + $cellids[$i]]))
+            #end for
+        #elif str($sc.input_types_smart_seq.use) == "list_paired_end":
+            #assert len($cellids) == len($sc.input_types_smart_seq.paired_end_collection.keys())
+            #for $i,($r1,$r2) in enumerate($sc.input_types_smart_seq.paired_end_collection):
+                #silent $samples.append('\t'.join([str($r1), str($r2), 'ID:' + $cellids[$i]]))
+            #end for
+        #end if
+        #echo '\n'.join($samples)
+    #end if
+        </configfile>
+    </configfiles>
     <inputs>
         <!-- Genome source. -->
         <conditional name="refGenomeSource">
