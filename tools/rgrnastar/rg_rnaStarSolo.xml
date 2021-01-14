@@ -1,4 +1,4 @@
-<tool id="rna_starsolo" name="RNA STARSolo" version="@VERSION@+galaxy0" profile="20.01" license="MIT">
+<tool id="rna_starsolo" name="RNA STARSolo" version="@VERSION@" profile="20.01" license="MIT">
     <description>mapping, demultiplexing and gene quantification for single cell RNA-seq</description>
     <xrefs>
         <xref type="bio.tools">star</xref>
@@ -93,6 +93,7 @@
     #elif str($sc.solo_type) == "SmartSeq":
         #set $reads1 = []
         #set $reads2 = []
+        ## Create a manifest file with fastq files and their corresponding cell-ids
         #set $file_manifest = '/tmp/manifest.tsv'
         #set $file_manifest_fh = open($file_manifest, 'w')
         #set $cellids_fh = open(str($sc.cell_ids), 'r')
@@ -158,10 +159,36 @@
     addmemory=\${GALAXY_MEMORY_MB_PER_SLOT:-768} &&
     ((addmemory=addmemory*75/100)) &&
     samtools sort -@ \$addthreads -m \$addmemory"M" -T "\${TMPDIR:-.}" -O bam -o '$output_BAM' Aligned.out.bam
-    &&
-    cat <(echo "Barcodes:") Solo.out/Barcodes.stats <(echo "Genes:") Solo.out/soloFeatures/Features.stats
     ]]></command>
     <inputs>
+        <!-- Genome source. -->
+        <conditional name="refGenomeSource">
+            <param name="geneSource" type="select" label="Custom or built-in reference genome" help="Built-ins were indexed using default options">
+                <option value="indexed" selected="true">Use a built-in index</option>
+                <option value="history">Use reference genome from history and create temporary index</option>
+            </param>
+            <when value="indexed">
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" type="select"
+                           label="Reference genome with or without an annotation"
+                           help="Select the '... with builtin gene-model' option to select from the list of available indexes that were built with splice junction information. Select the '... without builtin gene-model' option to select from the list of available indexes without annotated splice junctions, and provide your own splice junction annonations.">
+                        <option value="without-gtf" selected='true'>use genome reference without builtin gene-model</option>
+                        <option value="with-gtf">use genome reference with builtin gene-model</option>
+                    </param>
+                    <when value="with-gtf">
+                        <expand macro="index_selection" with_gene_model="1" />
+                    </when>
+                    <when value="without-gtf">
+                        <expand macro="index_selection" with_gene_model="0" />
+                        <expand macro="@SJDBOPTIONS@" optional="false" />
+                    </when>
+                </conditional>
+            </when>
+            <when value="history">
+                <expand macro="ref_selection" />
+                <expand macro="@SJDBOPTIONS@" optional="false"/>
+            </when>
+        </conditional>
         <conditional name="sc" >
             <param name="solo_type" type="select" label="Type of single-cell RNA-seq" >
                 <option value="CB_UMI_Simple">Drop-seq or 10X Chromium</option>
@@ -170,7 +197,6 @@
             </param>
             <when value="CB_UMI_Simple">
                 <expand macro="input_selection" />
-                <expand macro="reference_selection" />
                 <param format="txt,tsv" argument="--soloCBwhitelist" type="data" label="RNA-Seq Cell Barcode Whitelist"/>
                 <conditional name="params" >
                     <param name="chemistry" type="select" label="Configure Chemistry Options">
@@ -200,7 +226,6 @@
             </when>
             <when value="CB_UMI_Complex">
                 <expand macro="input_selection" />
-                <expand macro="reference_selection" />
                 <repeat name="cb_whitelists" title="Cell barcode whitelist information" max="2" >
                     <param name="whitelist_file" format="txt,tsv" type="data" label="RNA-Seq Cell Barcode Whitelist"/>
                     <param name="cb_start_anchor" type="select" label="Start anchor base for cell barcode">
@@ -233,7 +258,6 @@
             </when>
             <when value="SmartSeq">
                 <expand macro="input_selection_smart_seq" />
-                <expand macro="reference_selection" />
                 <param name="cell_ids" type="data" label="File containing cell IDs of the samples. One ID per line in order of samples in the above collection."/>
                 <param argument="--soloUMIdedup" type="select" label="UMI deduplication (collapsing) algorithm" help="All has all UMIs with 1 mismatch distance to each other collapsed, Directional follows the 'directional' method given in UMI-tools, Exact collapses only exactly matching UMIs.">
                     <option value="Exact" >Exact</option>
@@ -343,7 +367,313 @@
     -->
     <tests>
         <test expect_num_outputs="6">
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
+            </conditional>
+            <section name="solo" >
+                <conditional name="filter">
+                    <param name="filter_type" value="no_filter" />
+                </conditional>
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="Gene" />
+            </section>
+            <output name="output_barcodes" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTGGTTAGTGGGCTA" />
+                </assert_contents>
+            </output>
+            <output name="output_genes">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+394\s+7" />
+                    <has_line_matching expression="4\s+381\s+1" />
+                </assert_contents>
+            </output>
+            <output name="output_stats" >
+                <assert_contents>
+                    <has_line_matching expression="\s+nUnmapped\s+5823" />
+                    <has_line_matching expression="\s+nUMIs\s+8" />
+                </assert_contents>
+            </output>
+            <output name="output_BAM" value="filtered3.bam" compare="sim_size" delta="600" />
+        </test>
+        <test expect_num_outputs="6"><!-- same as above, but using custom -->
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="custom" />
+                    <param name="soloCBstart" value="1" />
+                    <param name="soloCBlen" value="16" />
+                    <param name="soloUMIstart" value="17" />
+                    <param name="soloUMIlen" value="12" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
+            </conditional>
+            <section name="solo" >
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="Gene" />
+            </section>
+            <output name="output_barcodes_filtered" >
+                <assert_contents>
+                    <has_line line="ACACCGGTCTAACGGT" />
+                    <has_line line="TTCTCAATCCACGTTC" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_filtered">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix_filtered" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+7\s+7" />
+                    <has_line_matching expression="4\s+7\s+1" />
+                </assert_contents>
+            </output>
+            <output name="output_stats" >
+                <assert_contents>
+                    <has_line_matching expression="\s+nUnmapped\s+5823" />
+                    <has_line_matching expression="\s+nUMIs\s+8" />
+                </assert_contents>
+            </output>
+            <output name="output_BAM" value="filtered3.bam" compare="sim_size" delta="600" />
+        </test>
+        <test expect_num_outputs="6"><!-- Multiple repeats test -->
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz,pbmc_1k_v2_L001.R1.10k.fastq.gz,pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz,pbmc_1k_v2_L001.R2.10k.fastq.gz,pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
+            </conditional>
+            <section name="solo" >
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="Gene" />
+            </section>
+            <output name="output_barcodes_filtered" >
+                <assert_contents>
+                    <has_line line="ACACCGGTCTAACGGT" />
+                    <has_line line="TTCTCAATCCACGTTC" />
+                </assert_contents>
+            </output>
+            <!-- BAM output is huge, we don't need to test here -->
+        </test>
+        <test expect_num_outputs="6">
+            <!-- Test with paired collection -->
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="list_paired" />
+                    <param name="input_collection" >
+                        <collection type="paired">
+                            <element name="forward" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                            <element name="reverse" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                        </collection>
+                    </param>
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
+            </conditional>
+            <section name="solo" >
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="Gene" />
+            </section>
+            <output name="output_barcodes_filtered" >
+                <assert_contents>
+                    <has_line line="ACACCGGTCTAACGGT" />
+                    <has_line line="TTCTCAATCCACGTTC" />
+                </assert_contents>
+            </output>
+            <output name="output_BAM" value="filtered3.bam" compare="sim_size" delta="600" />
+        </test>
+        <test expect_num_outputs="6">
+            <!-- Test soloFeatures, soloCBmatchWLtype, soloCellFilter, soloOutFormatFeaturesGeneField3, soloUMIfiltering -->
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <param name="soloCBmatchWLtype" value="1MM_multi_pseudocounts" />
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
+            </conditional>
+            <section name="solo" >
+                <param name="soloUMIfiltering" value="MultiGeneUMI" />
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="GeneFull" />
+                <conditional name="filter">
+                    <param name="filter_type" value="topcells" />
+                    <param name="n_cells" value="5" />
+                </conditional>
+                <param name="soloOutFormatFeaturesGeneField3" value="Dummy Text" />
+            </section>
+            <output name="output_barcodes_filtered" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AGACGTTCAAGGCTCC" />
+                    <has_line line="TCAACGAAGCTAGTGG" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_filtered" >
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Dummy\s+Text" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Dummy\s+Text" />
+                </assert_contents>
+            </output>
+            <output name="output_matrixGeneFull_filtered" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+6\s+14" />
+                    <has_line_matching expression="10\s+6\s+1" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="6">
+            <!-- Test soloType CB_UMI_Complex -->
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Complex" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="indrop.R1.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="indrop.R2.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <repeat name="cb_whitelists" >
+                    <param name="whitelist_file" value="indrop.barcodes1.txt"/>
+                    <param name="cb_start_anchor" value="0" />
+                    <param name="cb_start_anchor_pos" value="0" />
+                    <param name="cb_end_anchor" value="2" />
+                    <param name="cb_end_anchor_pos" value="-1" />
+                </repeat>
+                <repeat name="cb_whitelists" >
+                    <param name="whitelist_file" value="indrop.barcodes2.txt"/>
+                    <param name="cb_start_anchor" value="3" />
+                    <param name="cb_start_anchor_pos" value="1" />
+                    <param name="cb_end_anchor" value="3" />
+                    <param name="cb_end_anchor_pos" value="8" />
+                </repeat>
+                <param name="umi_start_anchor" value="3" />
+                <param name="umi_start_anchor_pos" value="9" />
+                <param name="umi_end_anchor" value="3" />
+                <param name="umi_end_anchor_pos" value="14" />
+                <param name="soloAdapterSequence" value="GAGTGATTGCTTGTGACGCCTT"  />
+                <param name="soloAdapterMismatchesNmax" value="1" />
+                <param name="soloUMIdedup" value="1MM_All" />
+                <param name="soloCBmatchWLtype" value="1MM" />
+            </conditional>
+            <output name="output_barcodes_filtered" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="ACAACGTGG_AAACCTCC" />
+                    <has_line line="ATTCCAGAC_TTCGCTGG" />
+                </assert_contents>
+            </output>
+            <output name="output_genes_filtered">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix_filtered" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+33\s+36" />
+                    <has_line_matching expression="2\s+33\s+1" />
+                </assert_contents>
+            </output>
+            <output name="output_stats" >
+                <assert_contents>
+                    <has_line_matching expression="\s+nExactMatch\s+791" />
+                    <has_line_matching expression="\s+nUMIs\s+36" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="6">
             <!-- Test soloType SmartSeq -->
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
             <conditional name="sc" >
                 <param name="solo_type" value="SmartSeq" />
                 <conditional name="input_types_smart_seq">
@@ -406,13 +736,6 @@
                             </element>
                         </collection>
                     </param>
-                </conditional>
-                <conditional name="refGenomeSource">
-                    <param name="geneSource" value="history" />
-                    <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
-                    <param name="genomeSAindexNbases" value="4" />
-                    <param name="sjdbOverhang" value="100" />
-                    <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
                 </conditional>
                 <param name="cell_ids" value="smartseq.cellids.txt" />
                 <param name="soloUMIdedup" value="Exact" />
