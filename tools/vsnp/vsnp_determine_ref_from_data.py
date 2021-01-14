@@ -197,12 +197,12 @@ def output_metrics(file_name, count_list, group, dbkey, output_file):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dnaprint_fields', action='append', dest='dnaprint_fields', nargs=2, required=False, default=None, help="List of dnaprints data table value, name and path fields")
-    parser.add_argument('--read1', action='store', dest='read1', required=True, default=None, help='Required: single read')
+    parser.add_argument('--dnaprint_fields', action='append', dest='dnaprint_fields', nargs=2, help="List of dnaprints data table value, name and path fields")
+    parser.add_argument('--read1', action='store', dest='read1', help='Required: single read')
     parser.add_argument('--read2', action='store', dest='read2', required=False, default=None, help='Optional: paired read')
-    parser.add_argument('--gzipped', action='store_true', dest='gzipped', default=False, help='Input files are gzipped')
-    parser.add_argument('--output_dbkey', action='store', dest='output_dbkey', required=True, default=None, help='Output reference file')
-    parser.add_argument('--output_metrics', action='store', dest='output_metrics', required=True, default=None, help='Output metrics file')
+    parser.add_argument('--gzipped', action='store_true', dest='gzipped', help='Input files are gzipped')
+    parser.add_argument('--output_dbkey', action='store', dest='output_dbkey', help='Output reference file')
+    parser.add_argument('--output_metrics', action='store', dest='output_metrics', help='Output metrics file')
 
     args = parser.parse_args()
 
