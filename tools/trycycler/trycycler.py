@@ -1,13 +1,14 @@
 #!/usr/bin/python3
 
-from os import listdir,path,walk
+from os import listdir, path, walk
 from sys import argv
+
 
 def cluster(output_folder):
     counter = 1
     output_folder = argv[2]
     for root, dir, files in walk(output_folder):
-        if  "1_contigs" in dir:
+        if "1_contigs" in dir:
             full_path = path.join(root, dir[0])
             files = [path.join(full_path, x) for x in listdir(full_path)]
             with open(path.join(output_folder, "cluster_0{}.fasta".format(counter)), "a") as tmp:
@@ -22,9 +23,9 @@ def reconcile(input_file):
     with open(input_file) as tmp:
         reads = [">" + x for x in (tmp.read().split(">"))[1:]]
         for read in reads:
-            fasta_name = "{}{}".format(read.split("\n")[0][1:],".fasta")
-            output_fasta = "{}{}".format(fullpath,fasta_name)
-            with open(output_fasta,"w") as temporal:
+            fasta_name = "{}{}".format(read.split("\n")[0][1:], ".fasta")
+            output_fasta = "{}{}".format(fullpath, fasta_name)
+            with open(output_fasta, "w") as temporal:
                 temporal.write(read)
 
 
@@ -32,6 +33,6 @@ def main():
     if argv[1] == "cluster": cluster(argv[2])
     if argv[1] == "reconcile": reconcile(argv[2])
 
+
 if __name__ == "__main__":
     main()
-    
