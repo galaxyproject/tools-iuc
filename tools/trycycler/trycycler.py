@@ -6,7 +6,6 @@ from sys import argv
 
 def cluster(output_folder):
     counter = 1
-    output_folder = argv[2]
     for root, dir, files in walk(output_folder):
         if "1_contigs" in dir:
             full_path = path.join(root, dir[0])
