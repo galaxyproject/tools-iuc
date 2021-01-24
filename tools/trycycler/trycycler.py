@@ -19,7 +19,7 @@ def cluster(output_folder):
 
 def reconcile(input_file):
     number_cluster = [x for x in input_file[-1:0:-1] if x.isdigit()][0]
-    full_path = f"selected_cluster/cluster_0{number_cluster}/1_contigs/"    
+    full_path = f"selected_cluster/cluster_0{number_cluster}/1_contigs/"
     with open(input_file) as tmp:
         for line in tmp:
             if ">" in line:
