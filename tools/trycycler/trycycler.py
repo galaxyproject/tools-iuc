@@ -7,25 +7,25 @@ from sys import argv
 def cluster(output_folder):
     counter = 1
     for root, dir, files in walk(output_folder):
-        if "1_contigs" in dir:
-            full_path = path.join(root, dir[0])
-            files = [path.join(full_path, x) for x in listdir(full_path)]
-            with open(path.join(output_folder, "cluster_0{}.fasta".format(counter)), "a") as tmp:
-                [tmp.write(open(x).read()) for x in files]
+        print(root)
+        if root.endswith('1_contigs'):
+            output_path = path.join(output_folder, f"cluster_0{counter}.fasta")
+            with open(output_path, "a") as out_cluster:
+                for fasta in files:
+                    fasta_path = path.join(root, fasta)
+                    fasta = open(fasta_path).read()
+                    out_cluster.write(fasta)
             counter += 1
-            continue
-
 
 def reconcile(input_file):
     number_cluster = [x for x in input_file[-1:0:-1] if x.isdigit()][0]
-    fullpath = "selected_cluster/cluster_0{}/1_contigs/".format(number_cluster)    
+    full_path = f"selected_cluster/cluster_0{number_cluster}/1_contigs/"    
     with open(input_file) as tmp:
-        reads = [">" + x for x in (tmp.read().split(">"))[1:]]
-        for read in reads:
-            fasta_name = "{}{}".format(read.split("\n")[0][1:], ".fasta")
-            output_fasta = "{}{}".format(fullpath, fasta_name)
-            with open(output_fasta, "w") as temporal:
-                temporal.write(read)
+        for line in tmp:
+            if ">" in line:
+                filename = line[1:].strip()
+                output_fasta = f"{full_path}{filename}.fasta"
+            open(output_fasta ,"a").write(line)
 
 
 def main():
