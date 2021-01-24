@@ -8,7 +8,7 @@ def cluster(output_folder):
     counter = 1
     for root, dir, files in walk(output_folder):
         if root.endswith('1_contigs'):
-            output_path = path.join(output_folder , f"cluster_0{counter}.fasta")
+            output_path = path.join(output_folder, f"cluster_0{counter}.fasta")
             with open(output_path, "a") as out_cluster:
                 for fasta in files:
                     fasta_path = path.join(root, fasta)
@@ -25,12 +25,15 @@ def reconcile(input_file):
             if ">" in line:
                 filename = line[1:].strip()
                 output_fasta = f"{full_path}{filename}.fasta"
-            open(output_fasta , "a").write(line)
+            with open(output_fasta, "a") as handle:
+                handle.write(line)
 
 
 def main():
-    if argv[1] == "cluster": cluster(argv[2])
-    if argv[1] == "reconcile": reconcile(argv[2])
+    if argv[1] == "cluster":
+        cluster(argv[2])
+    if argv[1] == "reconcile":
+        reconcile(argv[2])
 
 
 if __name__ == "__main__":
