@@ -6,64 +6,81 @@
     </macros>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
+    ## sanity check
+    #if len($bam) > 1 and str($expert_settings.evs.selector) == "enableEVS" and $expert_settings.evs.reportEVSFeatures
+        echo "Reporting of EVS features can only be used with a single input sample" 1>&2; exit 1
+    #else
         ## initialize
-        #for $i, $s in enumerate($bam)
+        #set $bam_inputs = []
+        #for $i, $s in enumerate($bam):
+            #set $target_file = 'input_sample_%d.%s' % ($i, $s.ext)
+            ln -s '$s' $target_file &&
             #if $s.is_of_type('bam')
-                ln -s '$s' './input_sample_${i}.bam' &&               
-                ln -s '$s.metadata.bam_index' './input_sample_${i}.bam.bai' &&
+                ln -s '$s.metadata.bam_index' ${target_file}.bai &&
             #elif $s.is_of_type('cram')
-                ln -s '$s' './input_sample_${i}.cram' &&               
-                ln -s '$s.metadata.cram_index' './input_sample_${i}.cram.crai' &&
+                ln -s '$s.metadata.cram_index' ${target_file}.crai &&
             #end if
+            #silent $bam_inputs.extend(['--bam', $target_file])
         #end for
-        #if $ap.ploidy
-            ln -s '$ap.ploidy' './input_ploidy.vcf' &&
+        #set $bam_spec = ' '.join($bam_inputs)
+        ## Strelka requires both the --ploidy vcf and the --noCompress bed
+        ## to be bgzipped and tabixed.
+        ## Same for the --callRegions bed, but that's handled inside
+        ## the shared INIT code.
+        #if $pl.ploidy
+            #if $pl.ploidy.ext == 'vcf'
+                ln -s '$pl.ploidy' input_ploidy.vcf &&
+                bgzip -c input_ploidy.vcf > input_ploidy.vcf.gz &&
+                tabix -p vcf input_ploidy.vcf.gz &&
+            #else
+                ## File is bgzipped and tabixed already
+                ## -> just symlink data and index
+                ln -s '$pl.ploidy' input_ploidy.vcf.gz &&
+                ln -s '$pl.ploidy.metadata.tabix_index' input_ploidy.vcf.gz.tbi &&
+            #end if
         #end if
-        #if $ap.noCompress
-            ln -s '$ap.noCompress' './input_nocompress.bed' &&
-            ln -s '$ap.noCompress.bgzip' './input_nocompress.bed.gz' &&
-            ln -s '$ap.noCompress.tabix_index' './input_nocompress.bed.gz.tbi' &&
+        #if $oo.gvcf.emit_gvcfs == 'yes' and $oo.gvcf.noCompress
+            ln -s '$oo.gvcf.noCompress' input_nocompress.bed &&
+            bgzip -c input_nocompress.bed > input_nocompress.bed.gz &&
+            tabix -p bed input_nocompress.bed.gz &&
         #end if
         @INIT@
 
         ## create workflow
         configureStrelkaGermlineWorkflow.py
-            #for $i, $s in enumerate($bam)
-                --bam './input_sample_${i}.${s.datatype.file_ext}'
-            #end for
-            #unless $ap.callContinuousVf == 'none'
-                --callContinuousVf '$ap.callContinuousVf'
-            #end unless
-            #if $ap.ploidy
-                --ploidy './input_ploidy.vcf'
+            $bam_spec
+            #if str($pl.callContinuousVf)
+                --callContinuousVf '$pl.callContinuousVf'
             #end if
-            #if $ap.noCompress
-                --noCompress './input_nocompress.bed.gz'
+            #if $pl.ploidy
+                --ploidy input_ploidy.vcf.gz
             #end if
-            $ap.rna 
-            --disableSequenceErrorEstimation ## demo cause warnings
+            #if $oo.gvcf.emit_gvcfs == 'yes' and $oo.gvcf.noCompress
+                --noCompress input_nocompress.bed.gz
+            #end if
+            $expert_settings.s_e_e
             @CREATE@
 
         ## run workflow
         @RUN@
 
-        && ls ./results/results/variants/ -lisa
-
         ## decompress results
-        #if $oo.type == "decompressed"
-            && bgzip -d './results/results/variants/variants.vcf.gz'
-            #for $i in range(1, len($bam)+1)
-                && bgzip -d './results/results/variants/genome.S${i}.vcf.gz'
-            #end for
+        #if $oo.vcf_type == "decompressed"
+            ## we decompress just the main variants file
+            ## per-sample gvcf files are always emitted as a collection of
+            ## compressed files.
+            && bgzip -d results/results/variants/variants.vcf.gz
+            && mv results/results/variants/variants.vcf results/results/variants/variants_out
+        #else
+            && mv results/results/variants/variants.vcf.gz results/results/variants/variants_out
         #end if
-
-        && ls ./results/results/variants/ -lisa
+    #end if
     ]]></command>
     
     <configfiles>
         <configfile name="config_file">
 ## parser cannot handle indents
-[StrelkaSomatic]
+[StrelkaGermline]
 minMapq = $strelka.minMapq
 @CONFIG@
         </configfile>
@@ -72,66 +89,51 @@ minMapq = $strelka.minMapq
     <inputs>
         <param argument="--bam" type="data" format="bam,cram" multiple="true" label="Select sample file(s)" help=""/>
         <expand macro="input_required" ref="bam"/>
-
-        <section name="ap" title="Advanced parameters" expanded="false">
-            <param argument="--ploidy" type="data" format="vcf" optional="true" label="Select ploidy file" help="Provide ploidy file in VCF. The VCF should include one sample column per input sample labeled with the same sample names found in the input BAM/CRAM RG header sections. Ploidy should be provided in records using the FORMAT/CN field, which are interpreted to span the range [POS+1, INFO/END]. Any CN value besides 1 or 0 will be treated as 2. File must be tabix indexed."/>
-            <param argument="--noCompress" type="data" format="bgzip" optional="true" label="Select file of regions where gVCF block compression is not allowed" help="Provide BED file of regions where gVCF block compression is not allowed. File must be bgzip-compressed/tabix-indexed."/>
-            <param argument="--callContinuousVf" type="select" label="Select chromosome to call variants on" help="Call variants on CHROM without a ploidy prior assumption, issuing calls with continuous variant frequencies.">
-                <option value="none" selected="true">None</option>
-                <option value="Chr1">Chr1</option>
-                <option value="Chr2">Chr2</option>
-                <option value="Chr3">Chr3</option>
-                <option value="Chr4">Chr4</option>
-                <option value="Chr5">Chr5</option>
-                <option value="Chr6">Chr6</option>
-                <option value="Chr7">Chr7</option>
-                <option value="Chr8">Chr8</option>
-                <option value="Chr9">Chr9</option>
-                <option value="Chr10">Chr10</option>
-                <option value="Chr11">Chr11</option>
-                <option value="Chr12">Chr12</option>
-                <option value="Chr13">Chr13</option>
-                <option value="Chr14">Chr14</option>
-                <option value="Chr15">Chr15</option>
-                <option value="Chr16">Chr16</option>
-                <option value="Chr17">Chr17</option>
-                <option value="Chr18">Chr18</option>
-                <option value="Chr19">Chr19</option>
-                <option value="Chr20">Chr20</option>
-                <option value="Chr21">Chr21</option>
-                <option value="Chr22">Chr22</option>
-                <option value="ChrX">ChrX</option>
-                <option value="ChrY">ChrY</option>
+        <expand macro="calling_model">
+            <option value="--rna">RNA sequencing data (--rna)</option>
+        </expand>
+        <expand macro="calling_model_expert">
+            <param name="s_e_e" type="select" label="Configure sequence error estimation for indels"
+            help="By default, indel error rates are estimated from a subsample of the input sequencing data for each sample. This step can be disabled so that the tool reverts to precomputed indel error rates reflecting an intermediate point between different sequencing assays. Alternatively, all data (from sufficiently large chromosomes) can be used to obtain the estimate, but this may greatly increase runtime.">
+                <option value="--disableSequenceErrorEstimation">Use default sequence error estimate (--disableSequenceErrorEstimation)</option>
+                <option value="" selected="true">Estimate sequence error rate from a subsample of the input data (default)</option>
+                <option value="--useAllDataForSequenceErrorEstimation">Estimate sequence error rate from the full input data (--useAllDataForSequenceErrorEstimation)</option>
             </param>
-            <param argument="--rna" type="boolean" checked="false" truevalue="--rna" falsevalue="" label="Activate options for RNA-Seq input" help=""/>
-            <expand macro="input_advanced"/>
+        </expand>
+        <expand macro="regions_select" />
+        <section name="pl" title="Ploidy configuration" expanded="false">
+            <param argument="--ploidy" type="data" format="vcf,vcf_bgzip" optional="true" label="Select ploidy file" help="Provide ploidy file in VCF. The VCF should include one sample column per input sample labeled with the same sample names found in the input BAM/CRAM RG header sections. Ploidy should be provided in records using the FORMAT/CN field, which are interpreted to span the range [POS+1, INFO/END]. Any CN value besides 1 (haploid regions) or 0 (regions expected to be absent) will be treated as 2."/>
+            <param argument="--callContinuousVf" type="text" value="" label="Call variants without ploidy assumption on this chromosome" help="For the specified chromosome the sequencing data will be treated as a pooled sample: variants on it will be called with continuous frequencies and scored using a simple Poisson noise model. May be applied to the mitochondrial genome, for example." />
         </section>
-
         <section name="oo" title="Output options" expanded="false">
             <expand macro="input_output"/>
+            <conditional name="gvcf">
+                <param name="emit_gvcfs" type="select" label="Generate per-sample gVCFs?">
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                </param>
+                <when value="no" />
+                <when value="yes">
+                    <param argument="--noCompress" type="data" format="bed" optional="true"
+                    label="In the gVCFs, do NOT block-compress sites that fall in these regions"
+                    help="If you have regions of special interest, for which you do not want site-information to be binned into blocks in the gVCF output, but would want to have calling statistics reported separately, you can specify those regions through a BED dataset here." />
+                </when>
+            </conditional>
         </section>
-
-        <section name="strelka" title="Strelka configuration" expanded="false">
+        <section name="strelka" title="Strelka run configuration" expanded="false">
             <param argument="minMapq" name="minMapq" type="integer" value="20" label="Set minMapq" help="Don't use reads with MAPQ less than this value for variant calling."/>
             <expand macro="input_strelka"/>
         </section>
     </inputs>
     <outputs>
-        <data name="out_variants_decompressed" format="vcf" from_work_dir="results/results/variants/variants.vcf" label="${tool.name} on ${on_string}, Variants, vcf">
-            <filter>'decompressed' == str(oo['type'])</filter>
+        <data name="out_variants" format="vcf" from_work_dir="results/results/variants/variants_out" label="${tool.name} on ${on_string}, Variants, vcf">
+            <change_format>
+                <when input="oo.vcf_type" value="compressed" format="vcf_bgzip" />
+            </change_format>
         </data>
-        <data name="out_variants_compressed" format="vcf_bgzip" from_work_dir="results/results/variants/variants.vcf.gz" label="${tool.name} on ${on_string}, Variants, vcf_bgzip">
-            <filter>'compressed' == str(oo['type'])</filter>
-        </data>
-
-        <collection name="out_genome_decompressed" type="list" label="${tool.name} on ${on_string}: Genome, vcf">
-            <discover_datasets pattern="genome\.(?P&lt;designation&gt;.+)\.vcf&#36;" format="vcf" directory="results/results/variants/"/>
-            <filter>'decompressed' == str(oo['type'])</filter>
-        </collection>
-
-        <collection name="out_genome_compressed" type="list" label="${tool.name} on ${on_string}: Genome, vcf_bgzip">
-            <discover_datasets pattern="genome\.(?P&lt;designation&gt;.+)\.vcf\.gz&#36;" format="vcf_bgzip" directory="results/results/variants/"/>
-            <filter>'compressed' == str(oo['type'])</filter>
+        <collection name="out_genome" type="list" label="${tool.name} on ${on_string}: Genome, vcf">
+            <discover_datasets pattern="genome\.(?P&lt;designation&gt;.+)\.vcf\.gz&#36;" format="vcf_bgzip" directory="results/results/variants/" />
+            <filter>oo['gvcf']['emit_gvcfs'] == 'yes'</filter>
         </collection>
    </outputs>
     <tests>
@@ -143,38 +145,38 @@ minMapq = $strelka.minMapq
                 <param name="ref" value="hg98.fa" ftype="fasta"/>
             </conditional>
             <section name="oo">
-                <param name="type" value="decompressed"/>
+                <param name="vcf_type" value="decompressed"/>
+                <conditional name="gvcf">
+                    <param name="emit_gvcfs" value="yes" />
+                </conditional>
             </section>
-            <output name="out_variants_decompressed">
+            <output name="out_variants" ftype="vcf">
                 <assert_contents>
                     <has_n_lines n="62"/>
                     <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
                     <has_line_matching expression="demo20&#009;3664&#009;.+"/>
                 </assert_contents>
             </output>
-            <output_collection name="out_genome_decompressed" type="list" count="3">
-                <element name="S1" ftype="vcf">
+            <output_collection name="out_genome" type="list" count="3">
+                <element name="S1" ftype="vcf_bgzip">
                     <assert_contents>
-                        <has_n_lines n="95"/>
+                        <has_n_lines n="85"/>
                         <has_line_matching expression="demo20&#009;4101&#009;.+"/>
                     </assert_contents>
                 </element>
             </output_collection>
         </test>
         <!-- #2; input cram, compressed -->
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="1">
             <param name="bam" value="sample1.cram,sample2.cram"/>
             <conditional name="ref_cond">
                 <param name="ref_sel" value="history"/>
                 <param name="ref" value="hg98.fa" ftype="fasta"/>
             </conditional>
             <section name="oo">
-                <param name="type" value="compressed"/>
+                <param name="vcf_type" value="compressed"/>
             </section>
-            <output name="out_variants_compressed" file="variants_test2.vcf.gz" compare="sim_size"/>
-            <output_collection name="out_genome_compressed" type="list" count="2">
-                <element name="S1" value="genome_test2.vcf.gz" compare="sim_size"/>
-            </output_collection>
+            <output name="out_variants" file="variants_test2.vcf.gz" ftype="vcf_bgzip" compare="sim_size"/>
         </test>
         <!-- #3; input bam, no defaults -->
         <test expect_num_outputs="2">
@@ -183,29 +185,29 @@ minMapq = $strelka.minMapq
                 <param name="ref_sel" value="history"/>
                 <param name="ref" value="hg98.fa" ftype="fasta"/>
             </conditional>
+            <param name="optimization" value="--rna" />
             <section name="oo">
-                <param name="type" value="decompressed"/>
+                <param name="vcf_type" value="decompressed"/>
+                <conditional name="gvcf">
+                    <param name="emit_gvcfs" value="yes" />
+                </conditional>
             </section>
-            <section name="ap">
+            <section name="pl">
                 <param name="callContinuousVf" value="Chr1"/>
-                <param name="rna" value="true"/>
-                <param name="rna" value="true"/>
-                <param name="targeted" value="true"/>
-                <param name="exome" value="true"/>
             </section>
             <section name="strelka">
                 <param name="minMapq" value="21"/>
                 <param name="maxIndelSize" value="51"/>
             </section>
-            <output name="out_variants_decompressed">
+            <output name="out_variants" ftype="vcf">
                 <assert_contents>
                     <has_n_lines n="81"/>
                     <has_line_matching expression="#CHROM&#009;POS&#009;.+"/>
                     <has_line_matching expression="demo20&#009;3664&#009;.+"/>
                 </assert_contents>
             </output>
-            <output_collection name="out_genome_decompressed" type="list" count="2">
-                <element name="S1" ftype="vcf">
+            <output_collection name="out_genome" type="list" count="2">
+                <element name="S1" ftype="vcf_bgzip">
                     <assert_contents>
                         <has_n_lines n="219"/>
                         <has_line_matching expression="demo20&#009;4101&#009;.+"/>

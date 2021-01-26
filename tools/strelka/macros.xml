@@ -7,10 +7,9 @@
         <requirements>
             <requirement type="package" version="@TOOL_VERSION@">strelka</requirement>
             <requirement type="package" version="1.9">samtools</requirement>
-            <!--requirement type="package" version="0.2.6">tabix</requirement-->
         </requirements>
     </xml>
-	<xml name="citations">
+    <xml name="citations">
         <citations>
             <citation type="doi">10.1038/s41592-018-0051-x</citation>
         </citations>
@@ -23,57 +22,66 @@
     <token name="@INIT@"><![CDATA[
         ##ln -s '$referenceFasta' './input_ref.fasta' &&
         ##samtools faidx './input_ref.fasta' &&
-        ## must be bgzip compressed and tabix-indexed 
-        #if $ap.forcedGT
-            #for $i, $file in enumerate($ap.forcedGT)
-                ln -s '$file' './input_forcedgt_${i}.vcf' &&
-                ln -s '$file.metadata.vcf_bgzip' ./input_forcedgt_${i}.vcf.gz' &&
-                ln -s '$file.metadata.tabix_index' './input_forcedgt_${i}.vcf.gz.tbi' &&
-            #end for
+
+        ## Make all optional regions files available
+        ## Note: all of these must be tabixed
+        #set $reg_options = []
+        #for $i, $sites in enumerate($forced_regions):
+            #set $target_file = 'input_forcedgt_%d.vcf.gz' % $i
+            #if $sites.whitelist.ext == 'vcf':
+                bgzip -c '${sites.whitelist}' > $target_file &&
+                tabix -p vcf $target_file &&
+            #else:
+                ln -s '${sites.whitelist}' $target_file &&
+                ln -s '${sites.whitelist.metadata.tabix_index}' ${target_file}.tbi' &&
+            #end if
+            #if str($sites.use_whitelist_as) == 'indel_candidates':
+                #silent $reg_options.extend(['--indelCandidates', $target_file])
+            #else:
+                #silent $reg_options.extend(['--forcedGT', $target_file])
+            #end if
+        #end for
+        #if str($regions.restrict_to_region) == 'regions_from_file':
+            #silent $reg_options.append('--callRegions')
+            #set $target_file = 'input_callregions.bed.gz'
+            #if $regions.callRegions.ext == 'bed':
+                bgzip -c '$regions.callRegions' $target_file &&
+                tabix -p bed $target_file &&
+            else:
+                ln -s '$regions.callRegions' $target_file &&
+                ln -s '$regions.callRegions.tabix_index' ${target_file}.tbi &&
+            #end if
+            #silent $reg_options.append($target_file)
         #end if
-        ## must be bgzip compressed and tabix-indexed         
-        #if $ap.indelCandidates
-            #for $i, $file in enumerate($ap.indelCandidates)
-                ln -s '$file' './input_indelcandidates_${i}.vcf' &&
-                ln -s '$file.metadata.vcf_bgzip' './input_indelcandidates_${i}.vcf.gz' &&
-                ln -s '$file.metadata.tabix_index' './input_indelcandidates_${i}.vcf.gz.tbi' &&
-            #end for
-        #end if
-        #if $ap.callRegions
-            ln -s '$ap.callRegions' './input_callregions.bed' &&
-            ln -s '$ap.callRegions.bgzip' './input_callregions.bed.gz' &&
-            ln -s '$ap.callRegions.tabix_index' './input_callregions.bed.gz.tbi' &&
-        #end if
+        #set $region_spec = ' '.join($reg_options)
         #if str($ref_cond.ref_sel) == 'history':
-            #set $reference_fasta_fn = './input_ref.fasta'
+            #set $reference_fasta_fn = 'input_ref.fasta'
             ln -s '$ref_cond.ref' $reference_fasta_fn &&
             samtools faidx $reference_fasta_fn &&
         #else
             #set $reference_fasta_fn = str($ref_cond.ref.fields.path)
-        #end if        
+        #end if
     ]]></token>
     <token name="@CREATE@"><![CDATA[
         --config='$config_file'
-        $ap.exome
-        $ap.targeted       
-        #if $ap.forcedGT
-            #for $i, $file in enumerate($ap.forcedGT)
-                --forcedGT './input_forcedgt_${i}.vcf.gz'
-            #end for
+        $optimization
+        #if str($expert_settings.evs.selector) == "disableEVS"
+            --disableEVS
+        #else
+            #if $expert_settings.evs.snvScoringModelFile
+                --snvScoringModelFile '$expert_settings.evs.snvScoringModelFile'
+            #end if
+            #if $expert_settings.evs.indelScoringModelFile
+                --indelScoringModelFile '$expert_settings.evs.indelScoringModelFile'
+            #end if
+            $expert_settings.evs.reportEVSFeatures
         #end if
-        #if $ap.indelCandidates
-            #for $i, $file in enumerate($ap.indelCandidates)
-                --indelCandidates './input_indelcandidates_${i}.vcf.gz'
-            #end for
-        #end if
-        #if $ap.callRegions
-            --callRegions './input_callregions.bed.gz'
-        #end if        
-        --referenceFasta '${reference_fasta_fn}' ## './input_ref.fasta'
-        --runDir './results' &&
+        $region_spec
+        --referenceFasta '${reference_fasta_fn}'
+        --runDir results &&
     ]]></token>
     <token name="@RUN@"><![CDATA[
-        ./results/runWorkflow.py
+        results/runWorkflow.py
             -m local
             -j \${GALAXY_SLOTS:-2}
             -g \${GALAXY_MEMORY_MB:-8192}
@@ -112,19 +120,65 @@ extraVariantCallerArguments = ## not implemented
             </when>
         </conditional>
     </xml>
-    <xml name="input_advanced">
-        <param argument="--indelCandidates" type="data" format="vcf" multiple="true" optional="true" label="Select file with candidate indel alleles" help="Specify a VCF of candidate indel alleles. These alleles are always evaluated but only reported in the output when they are inferred to exist in the sample. The VCF must be tabix indexed. All indel alleles must be left-shifted/normalized, any unnormalized alleles will be ignored. This option may be specified more than once, multiple input VCFs will be merged."/>
-        <param argument="--forcedGT" type="data" format="vcf" multiple="true" optional="true" label="Select file with candidate alleles" help="Specify a VCF of candidate alleles. These alleles are always evaluated and reported even if they are unlikely to exist in the sample. The VCF must be tabix indexed. All indel alleles must be left- shifted/normalized, any unnormalized allele will trigger a runtime error. This option may be specified more than once, multiple input VCFs will be merged. Note that for any SNVs provided in the VCF, the SNV site will be reported (and for gVCF, excluded from block compression), but the specific SNV alleles are ignored."/>
-        <param argument="--callRegions" type="data" format="bed" optional="true" label="Select file containing a set of regions to call" help="Optionally provide a bgzip-compressed/tabix-indexed BED file containing the set of regions to call. No VCF output will be provided outside of these regions. The full genome will still be used to estimate statistics from the input (such as expected depth per chromosome). Only one BED file may be specified."/>
-        <param argument="--rna" type="boolean" checked="false" truevalue="--rna" falsevalue="" label="Activate options for RNA-Seq input" help=""/>
-        <param argument="--targeted" type="boolean" checked="false" truevalue="--targeted" falsevalue="" label="Activate options for other targeted input" help="Note in particular that this flag turns off high-depth filters."/>
-        <param argument="--exome" type="boolean" checked="false" truevalue="--exome" falsevalue="" label="Activate options for exome input" help="Note in particular that this flag turns off high-depth filters."/>
+    <xml name="regions_select">
+        <conditional name="regions">
+            <param name="restrict_to_region" type="select"
+            label="Call variants across">
+                <option value="genome">Whole reference</option>
+                <option value="regions_from_file">Regions specified in BED</option>
+            </param>
+            <when value="genome" />
+            <when value="regions_from_file">
+                <param argument="--callRegions" type="data" format="bed"
+                label="BED dataset with regions to examine"
+                help="Specify a set of regions to call. No VCF output will be provided outside of these regions. Note that the full genome may still be used to calculate certain input statistics (such as expected depth per chromosome)."/>
+            </when>
+        </conditional>
+        <repeat name="forced_regions" title="Whitelists of SNV/indel sites that should always be considered" default="0" min="0"
+        help="Add whitelisted SNVs/indels to list of considered/reported alleles explicitly">
+            <param name="whitelist" type="data" format="vcf"
+            label="Select file with candidate alleles"
+                help="" />
+            <param name="use_whitelist_as" type="select" display="radio"
+            label="Use this whitelist as"
+            help="An indel candidates list is used during the realignment and calling steps to increase the chances of detecting given indels if they exist in any sample. If the indel is NOT found despite these efforts, it will NOT be reported, however. With a list of 'SNV sites and/or indels of interest', on the other hand, indels in the list undergo that same treatment, but listed indels and SNPs are both guaranteed to be reported in the variants output, even if they are judged as not being present in any sample.">
+                <option value="indel_candidates">A list of indel candidates to be considered during realignment/calling (--indelCandidates)</option>
+                <option value="forced_gt_sites">A list of SNV sites/indels of interest that should always be reported (--forcedGT)</option>
+            </param>
+        </repeat>
+    </xml>
+    <xml name="calling_model">
+        <param name="optimization" type="select" label="Optimize variant calling for">
+            <option value="">Whole-genome sequencing (WGS) data (default mode)</option>
+            <option value="--exome">Whole-exome sequencing (WES) data (--exome)</option>
+            <yield />
+        </param>
+    </xml>
+    <xml name="calling_model_expert">
+        <section name="expert_settings" title="Expert configuration of calling model" expanded="false">
+            <yield />
+            <conditional name="evs">
+                <param name="selector" type="select" label="Configure empirical variant scoring (EVS) model">
+                    <option value="disableEVS">Don't use EVS, just simple threshold-based filtering (--disableEVS)</option>
+                    <option value="enableEVS" selected="true">Use EVS models (default)</option>
+                </param>
+                <when value="disableEVS" />
+                <when value="enableEVS">
+                    <param argument="--snvScoringModelFile" type="data" format="json" optional="true"
+                    label="Optional SNV scoring model to overwrite default model" />
+                    <param argument="--indelScoringModelFile" type="data" format="json" optional="true"
+                    label="Optional indel scoring model to overwrite default model" />
+                    <param argument="--reportEVSFeatures" type="boolean" truevalue="--reportEVSFeatures" falsevalue=""
+                    label="Report all empirical variant scoring features in VCF output"
+                    help="WARNING: Do not use this feature with Strelka Germline and more than one input sample or the tool run will fail!" />
+                </when>
+            </conditional>
+        </section>
     </xml>
     <xml name="input_output">
-        <param name="type" type="select" label="Select output type">
-            <option value="decompressed">Decompressed (vcf, bed)</option>
-            <option value="compressed">Compressed (vcf.gz, bed.gz)</option>
-        </param>
+        <param name="vcf_type" type="boolean" truevalue="compressed" falsevalue="decompressed"
+        label="Generate compressed variants output (vcf.gz)"
+        help="Default is uncompressed vcf" />
     </xml>
     <xml name="input_strelka">
         <param argument="maxIndelSize" name="maxIndelSize" type="integer" value="49" label="Set maximum reported indel size" help=""/>
