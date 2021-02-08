@@ -6,20 +6,21 @@ on:
   repository_dispatch:
     types: [run-all-tool-tests-command]
 env:
-  GALAXY_RELEASE: release_20.09
   GALAXY_FORK: galaxyproject
+  GALAXY_BRANCH: release_20.09
   MAX_CHUNKS: 40
 jobs:
   setup:
-    name: Setup cache
+    name: Setup cache and determine changed repositories
     if: github.repository_owner == 'galaxyproject'
     runs-on: ubuntu-latest
     outputs:
-      branch: ${{ steps.get-fork-branch.outputs.branch }}
+      galaxy-head-sha: ${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
       fork: ${{ steps.get-fork-branch.outputs.fork }}
-      galaxy_head_sha: ${{ steps.get-galaxy-sha.outputs.galaxy_head_sha }}
-      nchunks: ${{ steps.get-chunks.outputs.nchunks }}
-      chunk_list: ${{ steps.get-chunks.outputs.chunk_list }}
+      branch: ${{ steps.get-fork-branch.outputs.branch }}
+      repository-list: ${{ steps.discover.outputs.repository-list }}
+      chunk-count: ${{ steps.discover.outputs.chunk-count }}
+      chunk-list: ${{ steps.discover.outputs.chunk-list }}
     strategy:
       matrix:
         python-version: [3.7]
@@ -38,10 +39,10 @@ jobs:
         TMP="${{ github.event.client_payload.slash_command.args.named.fork }}"
         echo "::set-output name=fork::${TMP:-$GALAXY_FORK}"
         TMP="${{ github.event.client_payload.slash_command.args.named.branch }}"
-        echo "::set-output name=branch::${TMP:-$GALAXY_RELEASE}"
+        echo "::set-output name=branch::${TMP:-$GALAXY_BRANCH}"
     - name: Determine latest commit in the Galaxy repo
       id: get-galaxy-sha
-      run: echo "::set-output name=galaxy_head_sha::$(git ls-remote https://github.com/${{ steps.get-fork-branch.outputs.fork }}/galaxy refs/heads/${{ steps.get-fork-branch.outputs.branch }} | cut -f1)"
+      run: echo "::set-output name=galaxy-head-sha::$(git ls-remote https://github.com/${{ steps.get-fork-branch.outputs.fork }}/galaxy refs/heads/${{ steps.get-fork-branch.outputs.branch }} | cut -f1)"
     - uses: actions/setup-python@v1
       with:
         python-version: ${{ matrix.python-version }}
@@ -50,53 +51,39 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy_head_sha }}
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
     # Install the `wheel` package so that when installing other packages which
     # are not available as wheels, pip will build a wheel for them, which can be cached.
     - name: Install wheel
       run: pip install wheel
-    - name: Install Planemo
-      run: pip install planemo
-    - name: Fake a Planemo run to update cache
-      if: steps.cache-pip.outputs.cache-hit != 'true'
-      run: |
-        touch tool.xml
-        PIP_QUIET=1 planemo test --galaxy_python_version ${{ matrix.python-version }} --no_conda_auto_init --galaxy_source 'https://github.com/${{ steps.get-fork-branch.outputs.fork }}/galaxy' --galaxy_branch "${{ steps.get-fork-branch.outputs.branch }}" --galaxy_python_version ${{ matrix.python-version }}
     - uses: actions/checkout@v2
       with:
         fetch-depth: 1
-    - name: Planemo ci_find_repos
-      run: planemo ci_find_repos --exclude packages --exclude deprecated --exclude_from .tt_skip --output repository_list.txt
+    - name: Fake a Planemo run to update cache and determine commit range, repositories, and chunks
+      uses: galaxyproject/planemo-ci-action@v1
+      id: discover
+      with:
+        create-cache: ${{ steps.cache-pip.outputs.cache-hit != 'true' || steps.cache-planemo.outputs.cache-hit != 'true' }}
+        galaxy-fork: ${{ steps.get-fork-branch.outputs.fork }}
+        galaxy-branch: ${{ steps.get-fork-branch.outputs.branch }}
+        max-chunks: ${{ env.MAX_CHUNKS }}
+        python-version: ${{ matrix.python-version }}
     - name: Show repository list
-      run: cat repository_list.txt
-    - name: Planemo ci_find_tools for the repository list
-      run: planemo ci_find_tools --output tool_list.txt $(cat repository_list.txt)
-    - name: Show tool list
-      run: cat tool_list.txt
-    - name: Compute chunks
-      id: get-chunks
-      run: |
-        nchunks=$(wc -l < tool_list.txt)
-        if [ "$nchunks" -gt "$MAX_CHUNKS" ]; then
-            nchunks=$MAX_CHUNKS
-        elif [ "$nchunks" -eq 0 ]; then
-            nchunks=1
-        fi
-        echo "::set-output name=nchunks::$nchunks"
-        echo "::set-output name=chunk_list::[$(seq -s ", " 0 $(($nchunks - 1)))]"
+      run: echo '${{ steps.discover.outputs.repository-list }}'
     - name: Show chunks
       run: |
-        echo 'Using ${{ steps.get-chunks.outputs.nchunks }} chunks (${{ steps.get-chunks.outputs.chunk_list }})'
+        echo 'Using ${{ steps.discover.outputs.chunk-count }} chunks (${{ steps.discover.outputs.chunk-list }})'
 
   test:
     name: Test tools
     # This job runs on Linux
     runs-on: ubuntu-latest
     needs: setup
+    if: needs.setup.outputs.repository-list != ''
     strategy:
       fail-fast: false
       matrix:
-        chunk: ${{ fromJson(needs.setup.outputs.chunk_list) }}
+        chunk: ${{ fromJson(needs.setup.outputs.chunk-list) }}
         python-version: [3.7]
     services:
       postgres:
@@ -121,38 +108,17 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
-    - name: Install Planemo
-      run: pip install planemo
-    - name: Planemo ci_find_tools, chunked
-      run: planemo ci_find_tools --chunk_count ${{ needs.setup.outputs.nchunks }} --chunk ${{ matrix.chunk }} --exclude test_repositories --exclude packages --exclude deprecated --exclude_from .tt_skip --group_tools --output tool_list_chunk.txt
-    - name: Show tool list chunk
-      run: cat tool_list_chunk.txt
-    - name: Planemo test tools
-      run: |
-        mkdir json_output
-        while read -r TOOL_GROUP; do
-            # Check if any of the lines in .tt_biocontainer_skip is a substring of $TOOL_GROUP
-            if echo $TOOL_GROUP | grep -qf .tt_biocontainer_skip; then
-                PLANEMO_OPTIONS=""
-            else
-                PLANEMO_OPTIONS="--biocontainers --no_dependency_resolution --no_conda_auto_init"
-            fi
-            json=$(mktemp -u -p json_output --suff .json)
-            PIP_QUIET=1 planemo test --database_connection postgresql://postgres:postgres@localhost:5432/galaxy $PLANEMO_OPTIONS --galaxy_source "https://github.com/${{ needs.setup.outputs.fork }}/galaxy" --galaxy_branch "${{ needs.setup.outputs.branch }}" --galaxy_python_version ${{ matrix.python-version }} --test_output_json "$json" $TOOL_GROUP || true
-            docker system prune --all --force --volumes || true
-        done < tool_list_chunk.txt
-        if [ ! -s tool_list_chunk.txt ]; then
-            echo '{"tests":[]}' > "$(mktemp -u -p json_output --suff .json)"
-        fi
-    - name: Merge tool_test_output.json files
-      run: planemo merge_test_reports json_output/*.json tool_test_output.json
-    - name: Create tool_test_output.html
-      run: planemo test_reports tool_test_output.json --test_output tool_test_output.html
-    - name: Copy artifacts into place
-      run: |
-        mkdir upload
-        mv tool_test_output.json tool_test_output.html upload/
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
+    - name: Planemo test
+      uses: galaxyproject/planemo-ci-action@v1
+      id: test
+      with:
+        mode: test
+        repository-list: ${{ needs.setup.outputs.repository-list }}
+        galaxy-fork: ${{ needs.setup.outputs.fork }}
+        galaxy-branch: ${{ needs.setup.outputs.branch }}
+        chunk: ${{ matrix.chunk }}
+        chunk-count: ${{ needs.setup.outputs.chunk-count }}
     - uses: actions/upload-artifact@v2
       with:
         name: 'Tool test output ${{ matrix.chunk }}'
@@ -183,33 +149,21 @@ jobs:
       id: cache-pip
       with:
         path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy_head_sha }}
-    - name: Install Planemo
-      run: pip install planemo
-    - name: Install jq
-      run: sudo apt-get install jq
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
     - name: Combine outputs
-      run: find artifacts/ -name tool_test_output.json -exec sh -c 'planemo merge_test_reports "$@" tool_test_output.json' sh {} +
-    - name: Create tool_test_output.html
-      run: planemo test_reports tool_test_output.json --test_output tool_test_output.html
-    - name: Copy artifacts into place
-      run: |
-        mkdir upload
-        mv tool_test_output.json tool_test_output.html upload/
+      uses: galaxyproject/planemo-ci-action@v1
+      id: combine
+      with:
+        mode: combine
+        html-report: true
     - uses: actions/upload-artifact@v2
       with:
         name: 'All tool test results'
         path: upload
-
     - name: Create URL to the run output
       if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
       id: vars
-      run: echo ::set-output name=run-url::https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
-
-    - name: Gather statistics
-      if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
-      id: stats
-      run: echo ::set-output name=statistics::$(jq '.["tests"][]["data"]["status"]' upload/tool_test_output.json | sed 's/"//g' | sort | uniq -c)
+      run: echo "::set-output name=run-url::https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
     - name: Create comment
       if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
@@ -221,14 +175,13 @@ jobs:
         body: |
           Summary:
 
-          ${{ steps.stats.outputs.statistics }}
+          ${{ steps.combine.outputs.statistics }}
 
           [Find all tool test results here][1]
 
           [1]: ${{ steps.vars.outputs.run-url }}
-    - name: Check status of combined outputs
-      run: |
-        if jq '.["tests"][]["data"]["status"]' upload/tool_test_output.json | grep -v "success"; then
-            echo "Unsuccessful tests found, inspect the 'All tool test results' artifact for details."
-            exit 1
-        fi
+    - name: Check outputs
+      uses: galaxyproject/planemo-ci-action@v1
+      id: check
+      with:
+        mode: check
