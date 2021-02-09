@@ -1,0 +1,226 @@
+<tool id="jvarkit_wgscoverageplotter" name="BAM Coverage Plotter" version="20201223+galaxy0">
+    <description>Plot read coverage across a BAM alignment</description>
+    <requirements>
+        <requirement type="package" version="20201223">jvarkit-wgscoverageplotter</requirement>
+        <requirement type="package" version="2.24.2">picard</requirement>
+        <requirement type="package" version="1.11">samtools</requirement>
+        <requirement type="package" version="7.0.10_62">imagemagick</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        #if str($adv.adv_choice) == "true"
+            #set include_regex = str($adv.include_contig_regex).strip()
+            #set exclude_regex = str($adv.skip_contig_regex).strip()
+        #end if
+        #set alignment_name = str($alignment_file.element_identifier)
+        #if str($reference.source) == "history"
+            ln -s '$reference.hist_genome' reference.fasta &&
+            samtools faidx reference.fasta &&
+        #else
+            #set ref_path = str($reference.cached_genome.fields.path)
+            #set ref_index_path = str($reference.cached_genome.fields.path) + '.fai'
+            ln -s '$ref_path' reference.fasta &&
+            ln -s '$ref_index_path' reference.fasta.fai &&
+        #end if
+        picard CreateSequenceDictionary --REFERENCE reference.fasta &&
+        ln -s '$alignment_file' '$alignment_name' &&
+        ln -s '${alignment_file.metadata.bam_index}' '$alignment_name'.bai &&
+        wgscoverageplotter.sh 
+        --reference reference.fasta
+        --dimension '$dimension'
+        --output plot.svg
+        #if str($adv.adv_choice) == "true"
+            $adv.disable_paired_overlap
+            #if len($include_regex) != 0
+                -I '$include_regex'
+            #end if
+            #if len($exclude_regex) != 0
+                -X '$exclude_regex'
+            #end if
+            --mapq $adv.min_mapq
+            --max-depth $adv.max_depth
+            $adv.clip
+            --min-contig-length $adv.min_contig_length
+            --percentile $adv.percentile
+            $adv.points
+            #if len(str($adv.samples).strip()) != 0
+                --samples '$adv.samples'
+                --partition $adv.partition
+            #end if
+        #end if
+        '$alignment_name' &&
+        #if str($format) == "SVG"
+            mv plot.svg '$plot_output'
+        #else
+            convert plot.svg '$format:$plot_output'
+        #end if
+    ]]>
+    </command>
+    <inputs>
+        <conditional name="reference">
+            <param name="source" type="select"
+            label="Will you select a reference genome from your history or use a built-in genome?">
+                <option value="cached">Use a built-in genome</option>
+                <option value="history" selected="true">Use a genome from my history</option>
+            </param>
+            <when value="cached">
+                <!-- NOTE: wgscoverageplotter requires the genome to be both indexed (with samtools index)
+                     and also have a dictionary (from picard CreateSequenceDictionary). since there is no
+                     way to specify both of these requirements, we take the indexed genome and build a dictionary -->
+                <param name="cached_genome" type="select"
+                label="Reference genome"
+                help="The FASTA reference genome that reads were mapped against.">
+                    <options from_data_table="fasta_indexes" />
+                </param>
+            </when>
+            <when value="history">
+                <param name="hist_genome" type="data" format="fasta"
+                label="Reference genome"
+                help="The FASTA reference genome that reads were mapped against."/>
+            </when>
+        </conditional>
+        <param name="alignment_file" type="data" format="bam" label="BAM alignment" />
+        <param argument="--dimension" value="1000x500" type="text" label="Image dimensions" />
+        <param name="format" type="select" label="Output format" help="Note that SVG might not display correctly on all Galaxy servers">
+            <option value="PNG" selected="true">PNG</option>
+            <option value="SVG">SVG</option>
+        </param>
+        <conditional name="adv">
+            <param type="select" name="adv_choice" label="Show advanced options">
+                <option value="true">Yes</option>
+                <option value="false" selected="true">No</option>
+            </param>
+            <when value="true">            
+                <param argument="--disable-paired-overlap" 
+                    name="disable_paired_overlap" 
+                    type="boolean" truevalue="--disable-paired-overlap" 
+                    falsevalue="" label="Count overlapping bases with mate for paired-end" />
+                <param argument="--include-contig-regex" name="include_contig_regex" type="text" label="Only keep chromosomes matching this regular expression." />
+                <param argument="--mapq" name="min_mapq" type="integer" value="1" label="Minimum mapping quality" />
+                <param argument="--max-depth" 
+                    name="max_depth" 
+                    type="integer" 
+                    label="Max depth to display." 
+                    value="-1"
+                    help="The special value '-1' will first compute the average depth and the set the max depth to 2*average" />
+                <param argument="--clip"
+                    type="boolean"
+                    label="Don't show coverage to be greater than 'max-depth' in the output image"
+                    truevalue="--clip"
+                    falsevalue="" />
+                <param argument="--min-contig-length" 
+                    name="min_contig_length" 
+                    type="integer" 
+                    label="Skip chromosomes shorter than"
+                    value="0"
+                    help="A distance specified as a positive integer. Commas are removed. The following suffixes are interpreted: b,bp,k,kb,m,mb" />
+                <param argument="--percentile" type="select" label="How to bin the coverage under one pixel">
+                    <option value="median" selected="true">median</option>
+                    <option value="average">average</option>
+                    <option value="min">min</option>
+                    <option value="max">max</option>
+                </param>
+                <param argument="--points" 
+                    type="boolean" 
+                    label="Plot coverage using points instead of areas" 
+                    truevalue="--points" 
+                    falsevalue=""
+                />
+                <param argument="--skip-contig-regex"
+                    name="skip_contig_regex"
+                    type="text"
+                    label="Skip chromosomes matching this regular expression" />
+                <param argument="--samples"
+                    type="text"
+                    label="Limit to these read groups" 
+                    help="See also --partition. Multiple read groups can be separated with commas." />
+                <param argument="--partition" type="select" label="Partition data using SAM Read Groups (requires --samples)">
+                    <option value="sample" selected="true">sample</option>
+                    <option value="readgroup">readgroup</option>
+                    <option value="library">library</option>
+                    <option value="platform">platform</option>
+                    <option value="sample_by_platform">sample_by_platform</option>
+                    <option value="sample_by_platform_by_center">sample_by_platform_by_center</option>
+                    <option value="any">any</option>
+                </param>
+            </when>
+            <when value="false">
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data format="png" name="plot_output">
+            <change_format>
+                <when input="format" value="SVG" format="svg" />
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <conditional name="reference">
+                <param name="source" value="history" />
+                <param name="hist_genome" ftype="fasta" value="reference.fasta" />
+            </conditional>
+            <param name="alignment_file" ftype="bam" value="sars_cov2_trimmed_cut.bam" />
+            <output name="plot_output">
+                <assert_contents>
+                    <has_size value="26303" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <conditional name="reference">
+                <param name="source" value="history" />
+                <param name="hist_genome" ftype="fasta" value="reference.fasta" />
+            </conditional>
+            <param name="alignment_file" ftype="bam" value="sars_cov2_trimmed_cut.bam" />
+            <param name="format" value="SVG" />
+            <output name="plot_output">
+                <assert_contents>
+                    <has_size value="7805" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <conditional name="reference">
+                <param name="source" value="history" />
+                <param name="hist_genome" ftype="fasta" value="reference.fasta" />
+            </conditional>
+            <param name="alignment_file" ftype="bam" value="sars_cov2_trimmed_cut.bam" />
+            <conditional name="adv">
+                <param name="adv_choice" value="true" />
+                <param name="max_depth" value="50" />
+            </conditional>
+            <output name="plot_output">
+                <assert_contents>
+                    <has_size value="25410" />
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <conditional name="reference">
+                <param name="source" value="cached" />
+                <param name="cached_genome" value="sars-cov-2-fragment" />
+            </conditional>
+            <param name="alignment_file" ftype="bam" value="sars_cov2_trimmed_cut.bam" />
+            <output name="plot_output">
+                <assert_contents>
+                    <has_size value="26303" />
+                </assert_contents>
+            </output>
+        </test>
+
+    </tests>
+    <help><![CDATA[
+    ]]>
+    </help>
+    <citations>
+        <citation type="bibtex">
+            @misc{jvarkit-wgscoverageplotter,
+                author = {Lindenbaum, Pierre},
+                title = {WGSCoveragePlotter},
+                year = {2020},
+                url = {http://lindenb.github.io/jvarkit/WGSCoveragePlotter.html}
+            }
+        </citation>
+    </citations>
+</tool>
