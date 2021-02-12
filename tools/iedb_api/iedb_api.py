@@ -80,7 +80,7 @@ def query(url, prediction, seq, allele, length, results,
             alleles = []
             lengths = []
             for i in zip(length.split(','), allele.split(',')):
-                if int(i[0]) <= slen:  
+                if int(i[0]) <= slen:
                     lengths.append(i[0])
                     alleles.append(i[1])
             if lengths:
