@@ -73,8 +73,21 @@ def query(url, prediction, seq, allele, length, results,
     if length is not None:
         if prediction == 'bcell':
             params['window_size'] = str(length).encode()
-        else:
+        elif length == 'asis':
             params['length'] = str(length).encode()
+        else:
+            slen = len(seq)
+            alleles = []
+            lengths = []
+            for i in zip(length.split(','), allele.split(',')):
+                if int(i[0]) <= slen:  
+                    lengths.append(i[0])
+                    alleles.append(i[1])
+            if lengths:
+                params['length'] = str(','.join(lengths)).encode()
+                params['allele'] = str(','.join(alleles)).encode()
+            else:
+                return results
     req_data = urlencode(params)
     if debug:
         print('url %s %s' % (url, unquote(req_data)), file=sys.stderr)
