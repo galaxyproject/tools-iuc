@@ -2,9 +2,10 @@
 
 import argparse
 import json
-import pandas as pd
 import sys
 from json.decoder import JSONDecodeError
+
+import pandas as pd
 
 
 def __main__():
