@@ -400,6 +400,14 @@ class JbrowseConnector(object):
     def _jbrowse_bin(self, command):
         return os.path.realpath(os.path.join(self.jbrowse, 'bin', command))
 
+    def symlink_or_copy(self, src, dest):
+        if 'GALAXY_JBROWSE_SYMLINKS' in os.environ and bool(os.environ['GALAXY_JBROWSE_SYMLINKS']):
+            cmd = ['ln', '-s', src, dest]
+        else:
+            cmd = ['cp', src, dest]
+
+        return self.subprocess_check_call(cmd)
+
     def process_genomes(self):
         for genome_node in self.genome_paths:
             # We only expect one input genome per run. This for loop is just
@@ -507,8 +515,7 @@ class JbrowseConnector(object):
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bw')
-        cmd = ['cp', data, dest]
-        self.subprocess_check_call(cmd)
+        self.symlink_or_copy(os.path.realpath(data), dest)
 
         url = os.path.join('raw', trackData['label'] + '.bw')
         trackData.update({
@@ -535,8 +542,7 @@ class JbrowseConnector(object):
         urls = []
         for idx, bw in enumerate(data):
             dest = os.path.join('data', 'raw', trackData['label'] + '_' + str(idx) + '.bw')
-            cmd = ['ln', '-s', bw[1], dest]
-            self.subprocess_check_call(cmd)
+            self.symlink_or_copy(bw[1], dest)
 
             urls.append({"url": os.path.join('raw', trackData['label'] + '_' + str(idx) + '.bw'), "name": str(idx + 1) + ' - ' + bw[0]})
 
@@ -598,11 +604,8 @@ class JbrowseConnector(object):
 
     def add_bam(self, data, trackData, bamOpts, bam_index=None, **kwargs):
         dest = os.path.join('data', 'raw', trackData['label'] + '.bam')
-        cmd = ['ln', '-s', os.path.realpath(data), dest]
-        self.subprocess_check_call(cmd)
-
-        cmd = ['ln', '-s', os.path.realpath(bam_index), dest + '.bai']
-        self.subprocess_check_call(cmd)
+        self.symlink_or_copy(os.path.realpath(data), dest)
+        self.symlink_or_copy(os.path.realpath(bam_index), dest + '.bai')
 
         url = os.path.join('raw', trackData['label'] + '.bam')
         trackData.update({

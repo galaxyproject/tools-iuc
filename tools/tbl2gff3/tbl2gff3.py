@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import argparse
+import collections
 import csv
 import sys
 
@@ -32,9 +33,10 @@ def tbl2gff3(
     a=None,
     strand_column=None,
     strand_value=None,
+    strand_infer=False,
 ):
 
-    records = {}
+    records = collections.OrderedDict()
 
     for row in csv.reader(table, delimiter="\t"):
         # print(', '.join(row))
@@ -51,22 +53,34 @@ def tbl2gff3(
 
         q["source"] = c(row, source, "tbl2gff3")
 
+        begin_i = int(c(row, begin))
+        end_i = int(c(row, end))
+
+        begin_f = min(begin_i, end_i)
+        end_f = max(begin_i, end_i)
+
         _str = None
         if strand_column is not None:
             _str = int(c(row, strand_column))
         elif strand_value is not None:
             _str = int(strand_value)
-
-        for x in a:
-            k, v = x.split(":", 1)
-            _v = c(row, v)
-            if k in q:
-                q[k].append(_v)
+        if strand_infer:
+            if begin_i > begin_f:
+                _str = -1
             else:
-                q[k] = [_v]
+                _str = 1
+
+        if a is not None:
+            for x in a:
+                k, v = x.split(":", 1)
+                _v = c(row, v)
+                if k in q:
+                    q[k].append(_v)
+                else:
+                    q[k] = [_v]
 
         f = SeqFeature(
-            FeatureLocation(int(c(row, begin)), int(c(row, end))),
+            FeatureLocation(begin_f, end_f),
             type=c(row, type),
             strand=_str,
             qualifiers=q,
@@ -85,6 +99,7 @@ if __name__ == "__main__":
     parser.add_argument("--type", help="feature type column")
     parser.add_argument("--score", help="score column")
     parser.add_argument("--source", help="source column")
+    parser.add_argument("--strand_infer", action='store_true', help="infer strand")
     parser.add_argument("--strand_column", help="strand column")
     parser.add_argument("--strand_value", help="strand value")
     # parser.add_argument('--frame', help='frame column')
