@@ -1,0 +1,549 @@
+<tool id="ena_upload" name="ENA Upload tool" version="0.3" profile="20.01" license="MIT">
+    <macros>
+        <token name="@VERSION@">0.2.4</token>
+        <import>samples_macros.xml</import>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@VERSION@">ena-upload-cli</requirement>
+        <requirement type="package" version="1.2.0">xlrd</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+mkdir ./submission_files; 
+
+#set working_dir = os.getcwd()
+#set $dry_run_option = "False"
+#set viral_submission = "False"
+#if $action_options.input_format_conditional.input_format == "build_tables":
+  python '$__tool_directory__/extract_tables.py' --action $action_options.action --out_dir ./submission_files --studies $studies_json;
+  #set $studies_table_path = './submission_files/studies.tsv'
+  #set $samples_table_path =   './submission_files/samples.tsv'
+  #set $experiments_table_path = './submission_files/experiments.tsv'
+  #set $runs_table_path =  './submission_files/runs.tsv'
+#end if
+
+#if $action_options.input_format_conditional.input_format == "excel_tables":
+    python '$__tool_directory__/process_xlsx.py'
+    #if $action_options.input_format_conditional.viral_submission == "true":
+        --vir 
+    #end if
+    --action '$action_options.action' --form '$action_options.input_format_conditional.xlsx_file' --out_dir ./submission_files ;
+    #set $studies_table_path = './submission_files/studies.tsv'
+    #set $samples_table_path =   './submission_files/samples.tsv'
+    #set $experiments_table_path = './submission_files/experiments.tsv'
+    #set $runs_table_path =  './submission_files/runs.tsv'
+    #if $action_options.input_format_conditional.dry_run == "true":
+      #set $dry_run_option = "True"
+    #end if
+#end if
+
+#if $action_options.input_format_conditional.input_format != "user_generated_tables":
+    cp $studies_table_path $studies_table_out;
+    cp $samples_table_path $samples_table_out;
+    cp $experiments_table_path $experiments_table_out;
+    cp $runs_table_path $runs_table_out;
+    #if $action_options.input_format_conditional.dry_run == "true":
+      #set $dry_run_option = "True"
+    #end if
+#end if
+
+
+#if $dry_run_option == "False" and $action_options.test_submit == "False":
+    webin_id=`grep 'username' $credentials`;
+    if [ "\$webin_id" = "" ]; then
+      ## No credentials in user defined preferences    
+      ## Fallback to global defined credentials (if exist)   
+      #import os
+      #if os.path.isfile(os.environ.get('GALAXY_ENA_SECRETS', '')):
+          credentials_path=\${ENA_SECRETS};     
+          webin_id=`grep 'username' \$GALAXY_ENA_SECRETS`;
+          if [ "\$webin_id" = "" ]; then
+              echo "No global credentials defined. Check your GALAXY_ENA_SECRETS file or set your credentials via: User -> Preferences -> Manage Information";
+              exit 1;
+          fi;
+      #else:
+          echo "No ENA credentials defined. Set your credentials via: User -> Preferences -> Manage Information";
+          exit 1;
+      #end if
+    else
+      credentials_path='$credentials';
+    fi;
+#end if
+
+#if $action_options.test_submit == "True":
+    credentials_path='test_fake_path';
+#end if
+
+## create the list of files to upload and make the symlinks 
+#import re      
+#set $files_to_upload = list()
+#if $action_options.input_format_conditional.input_format == "build_tables":
+    #for $study in $action_options.input_format_conditional.conditional_viral_metadata.rep_study:
+      #for $sample in $study.rep_sample:
+        #for $experiment in $sample.rep_experiment:
+          #for $run in $experiment.rep_runs:
+            #for $file in $run.upload_files:
+                #set $safename_reads_file = re.sub('[^\w\-_\.]', '_', $file.element_identifier)
+                ln -s '$file' $safename_reads_file &&
+                $files_to_upload.append(str($safename_reads_file))
+            #end for
+          #end for
+        #end for
+      #end for
+    #end for
+#else:
+    #for $file in $action_options.input_format_conditional.data:
+        #set $safename_reads_file = re.sub('[^\w\-_\.]', '_', $file.element_identifier)
+        ln -s '$file' $safename_reads_file &&
+        $files_to_upload.append(str($safename_reads_file))
+    #end for
+#end if
+
+
+#if $dry_run_option == "False":
+ena-upload-cli
+    --tool 'ena-upload-cli v@VERSION@ @ Galaxy'
+    --action '$action_options.action'
+    --center '$action_options.center'
+    --secret \${credentials_path}
+    --data
+    #for $dataset in $files_to_upload:
+        '$dataset'
+    #end for
+#if $action_options.input_format_conditional.input_format == "user_generated_tables":
+    --experiment '$action_options.input_format_conditional.experiments_users_table'
+    --study '$action_options.input_format_conditional.studies_users_table'
+    --run '$action_options.input_format_conditional.runs_users_table'
+    --sample '$action_options.input_format_conditional.samples_users_table'
+    #if "$action_options.input_format_conditional.viral_submission" == "true":
+        --vir
+    #end if
+#else:
+    --experiment '$experiments_table_path'
+    --study '$studies_table_path'
+    --run '$runs_table_path'
+    --sample '$samples_table_path'
+    #if $action_options.input_format_conditional.input_format == "build_tables":
+        #if $action_options.input_format_conditional.conditional_viral_metadata.viral_sample == "true":
+          --vir
+        #end if
+    #else:
+        #if $action_options.input_format_conditional.viral_submission == "true":
+          --vir
+        #end if
+    #end if
+#end if
+
+#if $action_options.submit_dev == "true":
+    -d
+#end if
+  > '$output'
+#else:
+    echo ""
+    exit 0;
+#end if
+
+]]></command>
+    <configfiles>
+        <configfile name="credentials"><![CDATA[
+#set $webin_id = $__user__.extra_preferences.get('ena_webin_account|webin_id', "").strip()
+#set $password = $__user__.extra_preferences.get('ena_webin_account|password', "").strip()
+#if $webin_id != "":
+    username: "$webin_id"
+    password: "$password"
+#end if
+        ]]></configfile>
+        <configfile name="studies_json">
+#import json
+#import re
+#if $action_options.input_format_conditional.input_format == "build_tables":
+  #set $files_to_upload = list()
+  #set $studies = list()
+  #for $study in $action_options.input_format_conditional.conditional_viral_metadata.rep_study:
+    #set samples = list()
+    #for $sample in $study.rep_sample:
+      #set experiments = list()
+      #for $experiment in $sample.rep_experiment:
+        #set runs = list()
+        #for $run in $experiment.rep_runs:
+            #set run_files = list()
+            #for $file in $run.upload_files:
+              #set $safename_reads_file = re.sub('[^\w\-_\.]', '_', $file.element_identifier)
+              $run_files.append(str($safename_reads_file))
+            #end for
+            $runs.append($run_files)
+        #end for
+
+$experiments.append({'title':str($experiment.experiment_title),'experiment_design':str($experiment.experiment_design),'library_strategy':str($experiment.library_strategy),'library_source':str($experiment.library_source),'library_selection':str($experiment.library_selection),'library_layout':str($experiment.library_layout),'insert_size':str($experiment.insert_size),'library_construction_protocol':str($experiment.library_construction_protocol),'platform':str($experiment.platform),'instrument_model':str($experiment.instrument_model),'runs':$runs})
+      #end for
+      #if $action_options.input_format_conditional.conditional_viral_metadata.viral_sample == "true":
+
+$samples.append({'title':str($sample.sample_title),'description':str($sample.sample_description),'tax_name':str($sample.scientific_name),'tax_id':str($sample.tax_id),'collection_date':str($sample.collection_date),'geo_location':str($sample.geo_location_country),'host_common_name':str($sample.host_common_name),'host_subject_id':str($sample.host_subject_id),'host_health_state':str($sample.host_health_state),'host_sex':str($sample.host_sex),'host_scientific_name':str($sample.host_scientific_name),'collector_name':str($sample.collector_name),'collecting_institution':str($sample.collecting_institution),'isolate':str($sample.isolate),'experiments':$experiments})
+      #else:
+
+$samples.append({'title':str($sample.sample_title),'description':str($sample.sample_description),'tax_name':str($sample.scientific_name),'tax_id':str($sample.tax_id),'experiments':$experiments})
+      #end if
+    #end for
+    $studies.append({'title':str($study.study_title),'type':str($study.study_type),'abstract':str($study.study_abstract),'pubmed_id':str($study.study_pubmed_id),'samples':$samples})
+  #end for
+  #echo $json.dumps($studies)
+#end if
+        </configfile>
+    </configfiles>
+    <inputs>
+        <conditional name="action_options">
+            <param name="action" type="select" label="Action to execute">
+                <option value="add" selected="True">Add new data</option>
+                <option value="modify">Modify metadata</option>
+            </param>
+            <when value="add">
+                <param name="submit_dev" type="boolean" label="Submit to test ENA server?" help="By selecting yes the reads will be submitted " />
+                <param name="test_submit" type="hidden" value="False" />
+                <expand macro="table_inputs_macro" />
+            </when>
+            <when value="modify">
+                <expand macro="table_inputs_macro" />
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="output" format="data" label="${tool.name} on ${on_string}: Upload summary"/>
+        <data name="studies_table_out" format="tabular" label="Studies table">
+            <filter> action_options['input_format_conditional']['input_format'] == "build_tables" or action_options['input_format_conditional']['input_format'] == "excel_tables"</filter>
+        </data>
+        <data name="samples_table_out" format="tabular" label="Samples table">
+            <filter> action_options['input_format_conditional']['input_format'] == "build_tables" or action_options['input_format_conditional']['input_format'] == "excel_tables"</filter>
+        </data>
+        <data name="experiments_table_out" format="tabular" label="Experiments table">
+            <filter> action_options['input_format_conditional']['input_format'] == "build_tables" or action_options['input_format_conditional']['input_format'] == "excel_tables"</filter>
+        </data>
+        <data name="runs_table_out" format="tabular" label="Runs table">
+            <filter> action_options['input_format_conditional']['input_format'] == "build_tables" or action_options['input_format_conditional']['input_format'] == "excel_tables"</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!--Test excel input of VIRAL samples -->
+        <test>
+            <conditional name="action_options">
+                <param name="action" value="add"/>
+                <param name="submit_dev" value="False"/>
+                <conditional name="input_format_conditional">
+                    <param name="input_format" value="excel_tables"/>
+                    <param name="viral_submission" value="True"/>
+                    <param name="dry_run" value="True"/>
+                    <param name="xlsx_file" value="metadata_test_viral.xlsx"/>
+                    <param name="data" value="sample.fq"/>
+                </conditional>
+            </conditional>
+            <param name="center" value="Some research center"/>
+            <output name="experiments_table_out">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_n_columns n="17"/>
+                    <has_line_matching expression="alias\tstatus\taccession\ttitle\tstudy_alias\tsample_alias\tdesign_description\tlibrary_name\tlibrary_strategy\tlibrary_source\tlibrary_selection\tlibrary_layout\tinsert_size\tlibrary_construction_protocol\tplatform\tinstrument_model\tsubmission_date" />
+                    <has_line_matching expression="e_(.*)_026\tadd\taccession_ena\tNanopore sequencing\tSARS-CoV-2_genomes_01\ts_(.*)"/>
+                </assert_contents>
+            </output>
+            <output name="studies_table_out">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="8"/>
+                    <has_line_matching expression="alias\tstatus\taccession\ttitle\tstudy_type\tstudy_abstract\tpubmed_id\tsubmission_date"/>
+                    <has_line_matching expression="SARS-CoV-2_genomes_01\tadd\tENA_accession\tWhole-genome sequencing of SARS-CoV-2 from Covid-19 patients\tWhole Genome Sequencing\tWhole-genome sequences of SARS-CoV-2 from oro-pharyngeal swabs obtained from Covid-19 patients(.*)"/>
+                </assert_contents>
+            </output>
+            <output name="samples_table_out">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_n_columns n="18"/>
+                    <has_line_matching expression="alias\tstatus\taccession\ttitle\tscientific_name\ttaxon_id\tsample_description\tcollection_date\tgeographic_location\thost_common_name\thost_subject_id\thost_health_state\thost_sex\thost_scientific_name\tcollector_name\tcollecting_institution\tisolate\tsubmission_date"/>
+                </assert_contents>
+            </output>
+            <output name="runs_table_out">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_n_columns n="8"/>
+                    <has_line_matching expression="alias\tstatus\taccession\texperiment_alias\tfile_name\tfile_format\tfile_checksum\tsubmission_date"/>
+                    <has_line_matching expression="r_(.*)_026\tadd\tena_run_accession\te_(.*)_026\tC026_exp5_clean.fastq.gz\tfastq\tfile_checksum\tsubmission_date_ENA"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!--Test excel input of NON-VIRAL samples-->
+        <test>
+            <conditional name="action_options">
+                <param name="action" value="add"/>
+                <param name="submit_dev" value="False"/>
+                <conditional name="input_format_conditional">
+                    <param name="input_format" value="excel_tables"/>
+                    <param name="viral_submission" value="False"/>
+                    <param name="dry_run" value="True"/>
+                    <param name="xlsx_file" value="metadata_test_nonviral.xlsx"/>
+                    <param name="data" value="sample.fq"/>
+                </conditional>
+            </conditional>
+            <param name="center" value="Some research center"/>
+            <output name="experiments_table_out">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_n_columns n="17"/>
+                    <has_line_matching expression="alias\tstatus\taccession\ttitle\tstudy_alias\tsample_alias\tdesign_description\tlibrary_name\tlibrary_strategy\tlibrary_source\tlibrary_selection\tlibrary_layout\tinsert_size\tlibrary_construction_protocol\tplatform\tinstrument_model\tsubmission_date" />
+                </assert_contents>
+            </output>
+            <output name="studies_table_out">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="8"/>
+                    <has_line_matching expression="alias\tstatus\taccession\ttitle\tstudy_type\tstudy_abstract\tpubmed_id\tsubmission_date"/>
+                </assert_contents>
+            </output>
+            <output name="samples_table_out">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_n_columns n="8"/>
+                        <has_line_matching expression="alias\tstatus\taccession\ttitle\tscientific_name\ttaxon_id\tsample_description\tsubmission_date"/>
+                </assert_contents>
+            </output>
+            <output name="runs_table_out">
+                <assert_contents>
+                    <has_n_lines n="5"/>
+                    <has_n_columns n="8"/>
+                    <has_line_matching expression="alias\tstatus\taccession\texperiment_alias\tfile_name\tfile_format\tfile_checksum\tsubmission_date"/>
+                    <has_line_matching expression="r_(.*)_026\tadd\tena_run_accession\te_(.*)_026\tC026_exp5_clean.fastq.gz\tfastq\tfile_checksum\tsubmission_date_ENA"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!--Test build tables from user input fields NON-VIRAL samples-->
+        <test>
+            <conditional name="action_options">
+                <param name="action" value="add"/>
+                <param name="submit_dev" value="False"/>
+                <conditional name="input_format_conditional">
+                    <param name="input_format" value="build_tables"/>
+                    <param name="dry_run" value="True"/>
+                    <conditional name="conditional_viral_metadata">
+                        <param name="viral_sample" value="False"/>
+                        <repeat name="rep_study">
+                            <param name="study_title" value="Test study title"/>
+                            <param name="study_abstract" value="Test study abstract"/>
+                            <param name="study_type" value="Epigenetics"/>
+                            <param name="study_pubmed_id" value="Test study pubmedID"/>
+                            <repeat name="rep_sample">
+                                <param name="sample_title" value="Test Sample title"/>
+                                <param name="sample_description" value="Test Sample description"/>
+                                <param name="scientific_name" value="Test Sample scientific name"/>
+                                <param name="tax_id" value="Test Sample tax_id"/>
+                                <repeat name="rep_experiment">
+                                    <param name="experiment_title" value="Test experiment title"/>
+                                    <param name="experiment_design" value="Test experiment design description"/>
+                                    <param name="library_strategy" value="CTS"/>
+                                    <param name="library_source" value="GENOMIC"/>
+                                    <param name="library_selection" value="PCR"/>
+                                    <param name="library_layout" value="SINGLE"/>
+                                    <param name="insert_size" value="150"/>
+                                    <param name="library_construction_protocol" value="Test library construction"/>
+                                    <param name="platform" value="ILLUMINA"/>
+                                    <param name="instrument_model" value="Illumina HiSeq 4000"/>
+                                    <repeat name="rep_runs">
+                                        <param name="upload_files" value="1.fastqsanger.gz,sample.fq" ftype="fastqsanger"/>
+                                    </repeat>
+                                </repeat>
+                            </repeat>
+                        </repeat>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <param name="center" value="Some research center"/>
+            <output name="experiments_table_out">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="17"/>
+                </assert_contents>
+            </output>
+            <output name="studies_table_out">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="8"/>
+                    <has_line_matching expression="alias\tstatus\taccession\ttitle\tstudy_type\tstudy_abstract\tpubmed_id\tsubmission_date"/>
+                </assert_contents>
+            </output>
+            <output name="samples_table_out">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+            <output name="runs_table_out">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_n_columns n="8"/>
+                    <has_line_matching expression="alias\tstatus\taccession\texperiment_alias\tfile_name\tfile_format\tfile_checksum\tsubmission_date"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!--Test RUN failing build tables from user input fields NON-VIRAL samples-->
+        <test expect_failure="true">
+            <conditional name="action_options">
+                <param name="action" value="add"/>
+                <param name="submit_dev" value="True"/>
+                <conditional name="input_format_conditional">
+                    <param name="input_format" value="build_tables"/>
+                    <param name="dry_run" value="False"/>
+                    <conditional name="conditional_viral_metadata">
+                        <param name="viral_sample" value="False"/>
+                        <repeat name="rep_study">
+                            <param name="study_title" value="Test study title"/>
+                            <param name="study_abstract" value="Test study abstract"/>
+                            <param name="study_type" value="Epigenetics"/>
+                            <param name="study_pubmed_id" value="Test study pubmedID"/>
+                            <repeat name="rep_sample">
+                                <param name="sample_title" value="Test Sample title"/>
+                                <param name="sample_description" value="Test Sample description"/>
+                                <param name="scientific_name" value="Test Sample scientific name"/>
+                                <param name="tax_id" value="Test Sample tax_id"/>
+                                <repeat name="rep_experiment">
+                                    <param name="experiment_title" value="Test experiment title"/>
+                                    <param name="experiment_design" value="Test experiment design description"/>
+                                    <param name="library_strategy" value="CTS"/>
+                                    <param name="library_source" value="GENOMIC"/>
+                                    <param name="library_selection" value="PCR"/>
+                                    <param name="library_layout" value="SINGLE"/>
+                                    <param name="insert_size" value="150"/>
+                                    <param name="library_construction_protocol" value="Test library construction"/>
+                                    <param name="platform" value="ILLUMINA"/>
+                                    <param name="instrument_model" value="Illumina HiSeq 4000"/>
+                                    <repeat name="rep_runs">
+                                        <param name="upload_files" value="1.fastqsanger.gz,sample.fq" ftype="fastqsanger"/>
+                                    </repeat>
+                                </repeat>
+                            </repeat>
+                        </repeat>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <param name="center" value="Some research center"/>
+            <assert_stdout>
+                <has_text_matching expression="No ENA credentials defined"/>
+            </assert_stdout>
+        </test>
+        <!--Test with submit_test to skip credentials checksRUN failing build tables from user input fields NON-VIRAL samples-->
+        <test expect_failure="true">
+            <conditional name="action_options">
+                <param name="action" value="add"/>
+                <param name="submit_dev" value="True"/>
+                <param name="test_submit" value="True"/>
+                <conditional name="input_format_conditional">
+                    <param name="input_format" value="build_tables"/>
+                    <param name="dry_run" value="False"/>
+                    <conditional name="conditional_viral_metadata">
+                        <param name="viral_sample" value="False"/>
+                        <repeat name="rep_study">
+                            <param name="study_title" value="Test study title"/>
+                            <param name="study_abstract" value="Test study abstract"/>
+                            <param name="study_type" value="Epigenetics"/>
+                            <param name="study_pubmed_id" value="Test study pubmedID"/>
+                            <repeat name="rep_sample">
+                                <param name="sample_title" value="Test Sample title"/>
+                                <param name="sample_description" value="Test Sample description"/>
+                                <param name="scientific_name" value="Test Sample scientific name"/>
+                                <param name="tax_id" value="Test Sample tax_id"/>
+                                <repeat name="rep_experiment">
+                                    <param name="experiment_title" value="Test experiment title"/>
+                                    <param name="experiment_design" value="Test experiment design description"/>
+                                    <param name="library_strategy" value="CTS"/>
+                                    <param name="library_source" value="GENOMIC"/>
+                                    <param name="library_selection" value="PCR"/>
+                                    <param name="library_layout" value="SINGLE"/>
+                                    <param name="insert_size" value="150"/>
+                                    <param name="library_construction_protocol" value="Test library construction"/>
+                                    <param name="platform" value="ILLUMINA"/>
+                                    <param name="instrument_model" value="Illumina HiSeq 4000"/>
+                                    <repeat name="rep_runs">
+                                        <param name="upload_files" value="1.fastqsanger.gz,sample.fq" ftype="fastqsanger"/>
+                                    </repeat>
+                                </repeat>
+                            </repeat>
+                        </repeat>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <param name="center" value="Some research center"/>
+            <assert_command>
+                <has_text_matching expression="ena-upload-cli"/>
+                <has_text_matching expression="--data '1.fastqsanger.gz' 'sample.fq'"/>
+                <has_text_matching expression="--action 'add' --center 'Some research center'"/>
+            </assert_command>
+            <assert_stderr>
+                <has_text_matching expression="ENA_upload: error: Oops, the file test_fake_path does not exist"/>
+            </assert_stderr>
+        </test>
+        <!--test viral submission - User input metadata-->
+        <test expect_failure="true">
+            <conditional name="action_options">
+                <param name="action" value="add"/>
+                <param name="submit_dev" value="False"/>
+                <param name="test_submit" value="True"/>
+                <conditional name="input_format_conditional">
+                    <param name="input_format" value="build_tables"/>
+                    <param name="dry_run" value="False"/>
+                    <conditional name="conditional_viral_metadata">
+                        <param name="viral_sample" value="True"/>
+                        <repeat name="rep_study">
+                            <param name="study_title" value="Test study title"/>
+                            <param name="study_abstract" value="Test study abstract"/>
+                            <param name="study_type" value="Epigenetics"/>
+                            <param name="study_pubmed_id" value="Test study pubmedID"/>
+                            <repeat name="rep_sample">
+                                <param name="sample_title" value="Test Sample title"/>
+                                <param name="sample_description" value="Test Sample description"/>
+                                <param name="scientific_name" value="Test Sample scientific name"/>
+                                <param name="tax_id" value="Test Sample tax_id"/>
+                                <param name="collection_date" value="2020"/>
+                                <param name="geo_location_country" value="Belgium"/>
+                                <param name="host_common_name" value="Human"/>
+                                <param name="host_subject_id" value="Patient_001"/>
+                                <param name="host_health_state" value="healthy"/>
+                                <param name="host_sex" value="female"/>
+                                <param name="host_scientific_name" value="homo sapiens"/>
+                                <param name="collector_name" value="John The Collector"/>
+                                <param name="collecting_institution" value="Hospital 01"/>
+                                <param name="isolate" value="sample_001"/>
+                                <repeat name="rep_experiment">
+                                    <param name="experiment_title" value="Test experiment title"/>
+                                    <param name="experiment_design" value="Test experiment design description"/>
+                                    <param name="library_strategy" value="CTS"/>
+                                    <param name="library_source" value="GENOMIC"/>
+                                    <param name="library_selection" value="PCR"/>
+                                    <param name="library_layout" value="SINGLE"/>
+                                    <param name="insert_size" value="150"/>
+                                    <param name="library_construction_protocol" value="Test library construction"/>
+                                    <param name="platform" value="ILLUMINA"/>
+                                    <param name="instrument_model" value="Illumina HiSeq 4000"/>
+                                    <repeat name="rep_runs">
+                                        <param name="upload_files" value="1.fastqsanger.gz,sample.fq" ftype="fastqsanger"/>
+                                    </repeat>
+                                </repeat>
+                            </repeat>
+                        </repeat>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <param name="center" value="Some research center"/>
+            <assert_command>
+                <has_text_matching expression="ena-upload-cli"/>
+                <has_text_matching expression="--data '1.fastqsanger.gz' 'sample.fq'"/>
+                <has_text_matching expression="--action 'add' --center 'Some research center'"/>
+                <has_text_matching expression="--vir"/>
+            </assert_command>
+            <assert_stderr>
+                <has_text_matching expression="ENA_upload: error: Oops, the file test_fake_path does not exist"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help><![CDATA[
+        This is a wrapper for the ENA upload tool in https://github.com/usegalaxy-eu/ena-upload-cli
+        The input metadata can be submitted following the tabular format of the templates in https://github.com/usegalaxy-eu/ena-upload-cli/tree/master/example_tables
+        It is also possible to submit an excel file by following the template in https://drive.google.com/file/d/1ncC22--tW2v-EI-te_r86sAZujIPAjlX/view?usp=sharing
+        For viral submissions a larger set of metadata is required, you can find the template in https://drive.google.com/file/d/1U4VdcczsIecIXxseV8svE1zO_CBUadog/view?usp=sharing 
+    ]]></help>
+    <citations>
+    </citations>
+</tool>

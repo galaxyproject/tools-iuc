@@ -38,7 +38,8 @@ def read_input_json(jsonfile):
     to create it if necessary.
 
     """
-    params = json.loads(open(jsonfile).read())
+    with open(jsonfile) as fh:
+        params = json.load(fh)
     return (params['param_dict'],
             params['output_data'][0]['extra_files_path'])
 
@@ -50,7 +51,7 @@ def read_input_json(jsonfile):
 # >>> add_data_table(d,'my_data')
 # >>> add_data_table_entry(dict(dbkey='hg19',value='human'))
 # >>> add_data_table_entry(dict(dbkey='mm9',value='mouse'))
-# >>> print str(json.dumps(d))
+# >>> print(json.dumps(d))
 def create_data_tables_dict():
     """Return a dictionary for storing data table information
 
@@ -109,10 +110,10 @@ def download_humann2_db(data_tables, table_name, database, build, target_dir):
       target_dir: directory to put copy or link to the data file
 
     """
-    value = "%s-%s-%s" % (database, build, datetime.date.today().isoformat())
+    value = "{}-{}-{}".format(database, build, datetime.date.today().isoformat())
     db_target_dir = os.path.join(target_dir, database)
     build_target_dir = os.path.join(db_target_dir, build)
-    cmd = "humann2_databases --download %s %s %s --update-config no" % (
+    cmd = "humann2_databases --download {} {} {} --update-config no".format(
         database,
         build,
         db_target_dir)
@@ -171,6 +172,6 @@ if __name__ == "__main__":
 
     # Write output JSON
     print("Outputting JSON")
-    print(str(json.dumps(data_tables)))
-    open(jsonfile, 'wb').write(json.dumps(data_tables))
+    with open(jsonfile, 'w') as fh:
+        json.dump(data_tables, fh, sort_keys=True)
     print("Done.")

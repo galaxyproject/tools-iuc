@@ -82,7 +82,7 @@ class LineFilter(object):
 
     def replace_add(self, line, pat, rep, col, pos):
         fields = line.rstrip('\r\n').split('\t')
-        i = pos if pos else len(fields)
+        i = pos if pos is not None else len(fields)
         val = ''
         if col < len(fields) and re.search(pat, fields[col]):
             val = re.sub(pat, rep, fields[col]).replace('\t', ' ')

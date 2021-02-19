@@ -160,7 +160,8 @@ def read_input_json(jsonfile):
     to create it if necessary.
 
     """
-    params = json.loads(open(jsonfile).read())
+    with open(jsonfile) as fh:
+        params = json.load(fh)
     return (params['param_dict'],
             params['output_data'][0]['extra_files_path'])
 
@@ -172,7 +173,7 @@ def read_input_json(jsonfile):
 # >>> add_data_table(d,'my_data')
 # >>> add_data_table_entry(dict(dbkey='hg19',value='human'))
 # >>> add_data_table_entry(dict(dbkey='mm9',value='mouse'))
-# >>> print str(json.dumps(d))
+# >>> print(json.dumps(d))
 def create_data_tables_dict():
     """Return a dictionary for storing data table information
 
@@ -235,7 +236,8 @@ def download_file(url, target=None, wd=None):
     if wd:
         target = os.path.join(wd, target)
     print("Saving to %s" % target)
-    open(target, 'wb').write(urllib2.urlopen(url).read())
+    with open(target, 'wb') as fh:
+        fh.write(urllib2.urlopen(url).read())
     return target
 
 
@@ -258,31 +260,32 @@ def unpack_zip_archive(filen, wd=None):
         print("%s: not ZIP formatted file")
         return [filen]
     file_list = []
-    z = zipfile.ZipFile(filen)
-    for name in z.namelist():
-        if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
-            print("Ignoring %s" % name)
-            continue
-        if wd:
-            target = os.path.join(wd, name)
-        else:
-            target = name
-        if name.endswith('/'):
-            # Make directory
-            print("Creating dir %s" % target)
-            try:
-                os.makedirs(target)
-            except OSError:
-                pass
-        else:
-            # Extract file
-            print("Extracting %s" % name)
-            try:
-                os.makedirs(os.path.dirname(target))
-            except OSError:
-                pass
-            open(target, 'wb').write(z.read(name))
-            file_list.append(target)
+    with zipfile.ZipFile(filen) as z:
+        for name in z.namelist():
+            if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
+                print("Ignoring %s" % name)
+                continue
+            if wd:
+                target = os.path.join(wd, name)
+            else:
+                target = name
+            if name.endswith('/'):
+                # Make directory
+                print("Creating dir %s" % target)
+                try:
+                    os.makedirs(target)
+                except OSError:
+                    pass
+            else:
+                # Extract file
+                print("Extracting %s" % name)
+                try:
+                    os.makedirs(os.path.dirname(target))
+                except OSError:
+                    pass
+                with open(target, 'wb') as fh:
+                    fh.write(z.read(name))
+                file_list.append(target)
     print("Removing %s" % filen)
     os.remove(filen)
     return file_list
@@ -308,20 +311,20 @@ def unpack_tar_archive(filen, wd=None):
     if not tarfile.is_tarfile(filen):
         print("%s: not TAR file")
         return [filen]
-    t = tarfile.open(filen)
-    for name in t.getnames():
-        # Check for unwanted files
-        if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
-            print("Ignoring %s" % name)
-            continue
-        # Extract file
-        print("Extracting %s" % name)
-        t.extract(name, wd)
-        if wd:
-            target = os.path.join(wd, name)
-        else:
-            target = name
-        file_list.append(target)
+    with tarfile.open(filen) as t:
+        for name in t.getnames():
+            # Check for unwanted files
+            if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
+                print("Ignoring %s" % name)
+                continue
+            # Extract file
+            print("Extracting %s" % name)
+            t.extract(name, wd)
+            if wd:
+                target = os.path.join(wd, name)
+            else:
+                target = name
+            file_list.append(target)
     print("Removing %s" % filen)
     os.remove(filen)
     return file_list
@@ -556,6 +559,6 @@ if __name__ == "__main__":
         import_from_server(data_tables, target_dir, paths, description, link_to_data=options.link_to_data)
     # Write output JSON
     print("Outputting JSON")
-    print(json.dumps(data_tables))
-    open(jsonfile, 'w').write(json.dumps(data_tables, sort_keys=True))
+    with open(jsonfile, 'w') as fh:
+        json.dump(data_tables, fh, sort_keys=True)
     print("Done.")
