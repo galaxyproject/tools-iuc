@@ -33,7 +33,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
     to_skip = set(['SC', 'SR'])
     for i, line in enumerate(in_vcf):
         if i == 1:
-            out_vcf.write("##convert_VCF_info_fields=0.1\n")
+            out_vcf.write("##convert_VCF_info_fields=0.2\n")
         if line[0:2] == "##":
             if line[0:11] == "##INFO=<ID=":
                 id_ = line[11:].split(',')[0]
@@ -66,7 +66,10 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
                     dp4 = (sr_list[ref_fwd], sr_list[ref_rev], sr_list[i], sr_list[i + 1])
                     dp2x2 = [[dp4[0], dp4[1]], [dp4[2], dp4[3]]]
                     _, p_val = fisher_exact(dp2x2)
-                    sb = pval_to_phredqual(p_val)
+                    if p_val == 0.0:
+                        sb = 2147483647  # Max signed 32 bit int
+                    else:
+                        sb = pval_to_phredqual(p_val)
 
                     as_ = (sc_list[ref_fwd], sc_list[ref_rev], sc_list[i], sc_list[i + 1])
 
