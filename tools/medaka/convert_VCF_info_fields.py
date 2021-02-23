@@ -86,7 +86,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
                     if dpsp == 0:
                         info.append("AF=NaN")
                     else:
-                        af = dp4[2] + dp4[3] / dpsp
+                        af = (dp4[2] + dp4[3]) / dpsp
                         info.append("AF=%.6f" % (af))
                     if dpspf == 0:
                         info.append("FAF=NaN")
