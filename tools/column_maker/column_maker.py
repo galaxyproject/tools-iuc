@@ -10,14 +10,14 @@ import argparse
 import json
 import re
 import sys
-# functions that may be used in the compute expression
+# Functions that may be used in the compute expression
 from math import (  # noqa: F401
     ceil,
     exp,
     floor,
     log,
     log10,
-    sqrt
+    sqrt,
 )
 
 from numpy import format_float_positional  # noqa: F401
@@ -141,15 +141,15 @@ valid_expr = True
 try:
     exec(code)
 except Exception as e:
-    out.close()
     if str(e).startswith('invalid syntax'):
         valid_expr = False
         sys.exit('Expression "%s" likely invalid. See tool tips, syntax and examples.' % expr)
     else:
         sys.exit(str(e))
+finally:
+    out.close()
 
 if valid_expr:
-    out.close()
     valid_lines = total_lines - skipped_lines
     print('Creating column %d with expression %s' % (in_columns + 1, expr))
     if valid_lines > 0:
