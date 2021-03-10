@@ -15,7 +15,11 @@ from scipy.stats import fisher_exact
 
 
 def pval_to_phredqual(pval):
-    return round(-10 * log10(pval))
+    try:
+        ret = round(-10 * log10(pval))
+    except ValueError:
+        ret = 2147483647  # transform pval of 0.0 to max signed 32 bit int
+    return ret
 
 
 def parseInfoField(info):
@@ -33,7 +37,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
     to_skip = set(['SC', 'SR'])
     for i, line in enumerate(in_vcf):
         if i == 1:
-            out_vcf.write("##convert_VCF_info_fields=0.1\n")
+            out_vcf.write("##convert_VCF_info_fields=0.2\n")
         if line[0:2] == "##":
             if line[0:11] == "##INFO=<ID=":
                 id_ = line[11:].split(',')[0]
@@ -82,7 +86,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
                     if dpsp == 0:
                         info.append("AF=NaN")
                     else:
-                        af = dp4[2] + dp4[3] / dpsp
+                        af = (dp4[2] + dp4[3]) / dpsp
                         info.append("AF=%.6f" % (af))
                     if dpspf == 0:
                         info.append("FAF=NaN")
