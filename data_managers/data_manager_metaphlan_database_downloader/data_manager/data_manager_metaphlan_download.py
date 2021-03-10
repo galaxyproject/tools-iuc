@@ -1,15 +1,16 @@
 #!/usr/bin/env python
 #
-# Data manager for reference data for the 'humann2' Galaxy tools
+# Data manager for reference data for the MetaPhlAn Galaxy tools
+import argparse
 import json
-import optparse
-import os
 import subprocess
-import sys
+
+from datetime import date
+from pathlib import Path
 
 
 # Utility functions for interacting with Galaxy JSON
-def read_input_json(jsonfile):
+def read_input_json(json_fp):
     """Read the JSON supplied from the data manager tool
 
     Returns a tuple (param_dict,extra_files_path)
@@ -24,10 +25,10 @@ def read_input_json(jsonfile):
     to create it if necessary.
 
     """
-    with open(jsonfile) as fh:
+    with open(json_fp) as fh:
         params = json.load(fh)
     return (params['param_dict'],
-            params['output_data'][0]['extra_files_path'])
+            Path(params['output_data'][0]['extra_files_path']))
 
 
 # Utility functions for creating data table dictionaries
@@ -47,8 +48,9 @@ def create_data_tables_dict():
     the data manager.
 
     """
-    d = {}
-    d['data_tables'] = {}
+    d = {
+        'data_tables': {}
+    }
     return d
 
 
@@ -78,8 +80,8 @@ def add_data_table_entry(d, table, entry):
         raise Exception("add_data_table_entry: no table '%s'" % table)
 
 
-def download_metaphlan2_db(data_tables, build, table_name, target_dir):
-    """Download MetaPhlAn2 database
+def download_metaphlan_db(data_tables, index, table_name, target_dp):
+    """Download MetaPhlAn database
 
     Creates references to the specified file(s) on the Galaxy
     server in the appropriate data table (determined from the
@@ -90,61 +92,56 @@ def download_metaphlan2_db(data_tables, build, table_name, target_dir):
 
     Arguments:
       data_tables: a dictionary containing the data table info
+      index: version
       table_name: name of the table
-      target_dir: directory to put copy or link to the data file
+      target_dp: directory to put copy or link to the data file
 
     """
-    cmd = "download_metaphlan2_db.py --output %s" % (target_dir)
-    db_dir = os.path.join(target_dir, build)
+    db_dp = target_dp / Path(index)
+    cmd = "metaphlan --install --index %s --bowtie2db %s" % (index, db_dp)
     subprocess.check_call(cmd, shell=True)
-    os.rename(os.path.join(target_dir, "db_v20"), db_dir)
     add_data_table_entry(
         data_tables,
         table_name,
         dict(
-            dbkey=build,
-            value="mpa_v20_m200",
-            name="MetaPhlAn2 clade-specific marker genes",
-            path=db_dir))
+            dbkey=index,
+            value='%s-%s' %(index, date.today().strftime("%d%m%Y")),
+            name="MetaPhlAn clade-specific marker genes (%s)" % index,
+            path=str(db_dp)))
 
 
 if __name__ == "__main__":
     print("Starting...")
 
     # Read command line
-    parser = optparse.OptionParser(description='Download MetaPhlan2 database')
-    parser.add_option('--database', help="Database name")
-    options, args = parser.parse_args()
+    parser = argparse.ArgumentParser(description='Download and build MetaPhlan database')
+    parser.add_argument('--index', help="Version of the database")
+    parser.add_argument('--json', help="Path to JSON file")
+    args = parser.parse_args()
     print("args   : %s" % args)
 
-    # Check for JSON file
-    if len(args) != 1:
-        sys.stderr.write("Need to supply JSON file name")
-        sys.exit(1)
-
-    jsonfile = args[0]
-
     # Read the input JSON
-    params, target_dir = read_input_json(jsonfile)
+    json_fp = Path(args.json)
+    params, target_dp = read_input_json(json_fp)
 
     # Make the target directory
-    print("Making %s" % target_dir)
-    os.mkdir(target_dir)
+    print("Making %s" % target_dp)
+    target_dp.mkdir(parents=True, exist_ok=True)
 
     # Set up data tables dictionary
     data_tables = create_data_tables_dict()
-    add_data_table(data_tables, "metaphlan2_database")
+    add_data_table(data_tables, "metaphlan_database")
 
     # Fetch data from specified data sources
-    if options.database == "db_v20":
-        download_metaphlan2_db(
-            data_tables,
-            "v20",
-            "metaphlan2_database",
-            target_dir)
+    print("Download and build database")
+    download_metaphlan_db(
+        data_tables,
+        args.index,
+        "metaphlan_database",
+        target_dp)
 
     # Write output JSON
     print("Outputting JSON")
-    with open(jsonfile, 'w') as fh:
+    with open(json_fp, 'w') as fh:
         json.dump(data_tables, fh, sort_keys=True)
     print("Done.")
