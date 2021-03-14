@@ -1,24 +1,23 @@
-<tool id="hicexplorer_hicbuildmatrix" name="@BINARY@" version="@WRAPPER_VERSION@.0">
+<tool id="hicexplorer_hicbuildmatrix" name="@BINARY@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
     <description>create a contact matrix</description>
     <macros>
         <token name="@BINARY@">hicBuildMatrix</token>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements" >
+    <expand macro="requirements">
         <requirement type="package" version="1.9">samtools</requirement>
     </expand>
     <command detect_errors="exit_code"><![CDATA[
 
         mkdir ./QCfolder &&
-        mkdir $qc.files_path &&
+        mkdir '$qc.files_path' &&
         @BINARY@
-
             --samFiles
             #for $repeat in $samFiles:
                 '${repeat.samFile}'
             #end for
 
-            --restrictionCutFile $restrictionCutFile
+            --restrictionCutFile '$restrictionCutFile'
             
             #if $restrictionSequence:
                 --restrictionSequence '$restrictionSequence'
@@ -30,7 +29,7 @@
             --minDistance $minDistance
             #end if
             #if $maxLibraryInsertSize:
-            --maxLibraryInsertSize $maxLibraryInsertSize
+                --maxLibraryInsertSize $maxLibraryInsertSize
             #end if
            
             #if $binSizes:
@@ -40,9 +39,7 @@
                 #end for
             #end if
 
-            #if $genomeAssembly:
-                --genomeAssembly $genomeAssembly
-            #end if
+            --genomeAssembly $samFiles[0].samFile.metadata.dbkey
 
             #if $region:
                 --region '$region'
@@ -50,8 +47,8 @@
 
             --outFileName matrix.$outputFormat
 
-            #if $outBam_Boolean:
-                $outBam_Boolean ./unsorted.bam
+            #if $outBam:
+                $outBam ./unsorted.bam
             #end if
 
             $keepSelfCircles
@@ -63,7 +60,7 @@
             #end if
 
             #if $chromosomeSizes:
-                --chromosomeSizes $chromosomeSizes
+                --chromosomeSizes '$chromosomeSizes'
             #end if
 
             --threads @THREADS@
@@ -72,92 +69,57 @@
         &&
         mv ./QCfolder/* $qc.files_path/
         &&
-        mv $qc.files_path/hicQC.html $qc
-        && mv $qc.files_path/*.log raw_qc
+        mv '$qc.files_path/hicQC.html' '$qc'
+        && mv "$qc.files_path"/*.log raw_qc
         && mv matrix.$outputFormat matrix
-        #if $outBam_Boolean:
-            && samtools sort -T "\${TMPDIR:-.}" ./unsorted.bam -o sorted.bam
+        #if $outBam:
+            && samtools sort -@ @THREADS@ -T "\${TMPDIR:-.}" ./unsorted.bam -o sorted.bam
         #end if
-
 ]]>
     </command>
     <inputs>
-        <repeat max="2" min="2" name="samFiles" title="Sam/Bam files to process (forward/reverse)"
-                help="Please use the special BAM datatype: qname_input_sorted.bam and use for 'bowtie2' the '--reorder' option to create a BAM file.">
-            <param name="samFile" type="data" format="sam,qname_input_sorted.bam"/>
+        <!-- can we use multiple=True here with min="2" and max="2" ? -->
+        <repeat max="2" min="2" name="samFiles" title="Sam/Bam files to process (forward/reverse)" help="Please use the special BAM datatype: qname_input_sorted.bam and use for 'bowtie2' the '--reorder' option to create a BAM file.">
+            <param name="samFile" type="data" format="sam,qname_input_sorted.bam">
+                <validator type="unspecified_build" />
+            </param>
         </repeat>
 
+        <expand macro="restrictionCutFile" />
+        <expand macro="restrictionSequence" />
+        <expand macro="danglingSequence" />
 
-        <param argument="--restrictionCutFile" type="data" format="bed" optional="false" label="BED file with all restriction cut places"
-                help="Should contaion only  mappable restriction sites. If given, the bins are set to match the restriction fragments
-                (i.e. the region between one restriction site and the next)." />
-        <param argument="--restrictionSequence" type="text" optional="false" label="Sequence of the restriction site"
-            help="This is used to discard reads that end/start with such sequence and that are considered un-ligated fragments or
-            &quot;dangling-ends&quot;. If not given, such statistics will not be available." />
-        <param argument="--danglingSequence" type="text" optional="false" label="Dangling sequence"
-            help="Sequence left by the restriction enzyme after cutting.
-                    Each restriction enzyme recognizes a different DNA sequence and,
-                    after cutting, they leave behind a specific ‘sticky’ end or dangling end sequence.
-                    For example, for HindIII the restriction site is AAGCTT and the dangling end is AGCT.
-                    For DpnII, the restriction site and dangling end sequence are the same: GATC.
-                    This information is easily found on the description of the restriction enzyme.
-                    The dangling sequence is used to classify and report reads whose 5’ end starts with such sequence as dangling-end reads.
-                    A significant portion of dangling-end reads in a sample are indicative of a problem with the re-ligation step of the protocol. "/>
-
-
-        <param argument="--minDistance" type="integer" value="" optional="true" label="Minimum distance between restriction sites"
-                help="Restriction sites that are closer that this distance are merged into one.
-                This option only applies if --restrictionCutFile is given."/>
-        <param argument="--maxLibraryInsertSize" type="integer" value="" optional="true"
-                label="Maximum library insert size defines different cut offs based on the maximum expected library size"
-                help="*This is not the average fragment size* but the higher end of the fragment size distribution (obtained using for example Fragment Analyzer)
+        <param argument="--minDistance" type="integer" optional="true" value="" label="Minimum distance between restriction sites" help="Restriction sites that are closer that this distance are merged into one.
+                This option only applies if --restrictionCutFile is given." />
+        <param argument="--maxLibraryInsertSize" type="integer" optional="true" value="" label="Maximum library insert size defines different cut offs based on the maximum expected library size" help="*This is not the average fragment size* but the higher end of the fragment size distribution (obtained using for example Fragment Analyzer)
                         which usually is between 800 to 1500 bp. If this value if not known use the default of 1000. The insert value is used to decide if two mates
                         belong to the same fragment (by checking if they are within this max insert size) and to decide if a mate
                         is too far away from the nearest restriction site." />
-    
-        <repeat  name='binSizes' title='Bin size in bp' min="1" help="If used, the restriction cut places (if given) are used to only consider reads that are in the vicinity of the resctriction sites.
+
+        <repeat name='binSizes' title='Bin size in bp' min="1" help="If used, the restriction cut places (if given) are used to only consider reads that are in the vicinity of the resctriction sites.
                 Otherwise all reads in the interval are considered. Use multiple ones to create a mcool file.">
-            <param argument="--binSize" type="integer" value="" optional="true" label="Bin size in bp"/>
+            <param argument="--binSize" type="integer" optional="true" value="" label="Bin size in bp" />
         </repeat>
-        
-        <param argument="--genomeAssembly" type="text" value="" optional="true" label="Genome assembly"
-                help="The genome the reads were mapped to. Used for metadata of cool file."/> 
-
-
-       
 
         <expand macro="region" />
-
-        <param argument="--keepSelfCircles" type="boolean" truevalue="--keepSelfCircles" falsevalue=""
-            label="Keep self circles"
-            help="If set, outward facing reads without any restriction fragment (self circles) are kept. They will be counted and shown in the QC plots." />
-
-        <param argument="--removeSelfLigation" type="boolean" truevalue="--removeSelfLigation" falsevalue=""
-            label="remove self ligation"
-            help="If set, inward facing reads less than 1000 bp apart and having a restriction site in between are removed. Although this reads do not contribute to any distant contact, they are useful to account for bias in the data" />
-
+        <param argument="--keepSelfCircles" type="boolean" truevalue="--keepSelfCircles" falsevalue="" label="Keep self circles" help="If set, outward facing reads without any restriction fragment (self circles) are kept. They will be counted and shown in the QC plots." />
+        <param argument="--removeSelfLigation" type="boolean" truevalue="--removeSelfLigation" falsevalue="" label="remove self ligation" help="If set, inward facing reads less than 1000 bp apart and having a restriction site in between are removed. Although this reads do not contribute to any distant contact, they are useful to account for bias in the data" />
         <expand macro="minMappingQuality" />
-
-        <param argument="--skipDuplicationCheck" type="boolean" truevalue="--skipDuplicationCheck" falsevalue=""
-            label="Skip duplication check"
-            help="Identification of duplicated read pairs is memory consuming. Thus, in case of memory errors this check can be skipped." />
-
-         <param argument="--chromosomeSizes" type="data" format="txt" optional="true" label="Chromosome sizes for your genome"
-                help="File with the chromosome sizes for your genome. A tab-delimited two column layout 'chr_name size' is expected
+        <param argument="--skipDuplicationCheck" type="boolean" truevalue="--skipDuplicationCheck" falsevalue="" label="Skip duplication check" help="Identification of duplicated read pairs is memory consuming. Thus, in case of memory errors this check can be skipped." />
+        <param argument="--chromosomeSizes" type="data" format="tabular" optional="true" label="Chromosome sizes for your genome" help="File with the chromosome sizes for your genome. A tab-delimited two column layout 'chr_name size' is expected
                     Usually the sizes can be determined from the SAM/BAM input files, however, 
                     for cHi-C or scHi-C it can be that at the start or end no data is present. 
                     Please consider that this option causes that only reads are considered which are on the listed chromosomes.
                     Use this option to guarantee fixed sizes. An example file is available via UCSC: 
                     http://hgdownload.soe.ucsc.edu/goldenPath/dm3/bigZips/dm3.chrom.sizes" />
 
-        <param name='outBam_Boolean' type='boolean' truevalue='--outBam'  falsevalue="" checked="false" label="Save valid Hi-C reads in BAM file"
-                    help="A bam
+        <param argument='--outBam' type='boolean' truevalue='--outBam' falsevalue="" checked="false" label="Save valid Hi-C reads in BAM file" help="A bam
                     file containing all valid Hi-C reads can be created
                     using this option. This bam file could be useful to
                     inspect the distribution of valid Hi-C reads pairs or
                     for other downstream analyses, but is not used by any
                     HiCExplorer tool. Computation will be significantly
-                    longer if this option is set."/>
+                    longer if this option is set." />
 
         <param name='outputFormat' type='select' label="Output file format">
             <option value='h5'>HiCExplorer format</option>
@@ -165,68 +127,63 @@
         </param>
     </inputs>
     <outputs>
-        <data name="outBam" from_work_dir="sorted.bam" format="bam" label="${tool.name} BAM file on ${on_string}">
-            <filter>outBam_Boolean</filter>
+        <data name="outfileBam" from_work_dir="sorted.bam" format="bam" label="${tool.name} BAM file on ${on_string}">
+            <filter>outBam</filter>
         </data>
         <data name="outFileName" from_work_dir="matrix" format="h5" label="${tool.name} MATRIX on ${on_string}">
             <change_format>
                 <when input="outputFormat" value="cool" format="cool" />
             </change_format>
         </data>
-        <data name="qc" format="html" label="${tool.name} QC on ${on_string}"/>
-
+        <data name="qc" format="html" label="${tool.name} QC on ${on_string}" />
         <data name="raw_qc" from_work_dir='raw_qc' format='txt' label="${tool.name} raw QC on ${on_string}" />
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="4">
             <repeat name="samFiles">
-                <param name="samFile" value="small_test_R1_unsorted.sam"/>
+                <param name="samFile" value="small_test_R1_unsorted.sam" dbkey="hg38" />
             </repeat>
             <repeat name="samFiles">
-                <param name="samFile" value="small_test_R2_unsorted.sam"/>
+                <param name="samFile" value="small_test_R2_unsorted.sam" dbkey="hg38" />
             </repeat>
-            <param name='outputFormat' value='h5'/>
+            <param name='outputFormat' value='h5' />
             <repeat name='binSizes'>
-                <param name="binSize" value="5000"/>
+                <param name="binSize" value="5000" />
             </repeat>
-
-            <param name='restrictionCutFile' value='DpnII_10k.bed'/>
-            <param name='restrictionSequence' value='GATC'/>
-            <param name='danglingSequence' value='GATC'/>
-
-
-            <param name='outBam_Boolean' value="True" />
-            <output name="outBam" file="small_test_matrix_result_sorted.bam" ftype="bam"/>
+            <param name='restrictionCutFile' value='DpnII_10k.bed' />
+            <param name='restrictionSequence' value='GATC' />
+            <param name='danglingSequence' value='GATC' />
+            <param name='outBam' value="True" />
+            <output name="outfileBam" file="small_test_matrix_result_sorted.bam" ftype="bam" />
             <output name="outFileName" ftype="h5">
                 <assert_contents>
-                    <has_h5_keys keys='intervals,matrix'/>
+                    <has_h5_keys keys='intervals,matrix' />
                 </assert_contents>
             </output>
-            <output name="raw_qc" file='raw_qc_report' compare='diff' lines_diff='2'/>
+            <output name="raw_qc" file='raw_qc_report' compare='diff' lines_diff='2' />
         </test>
-         <test>
+        <test expect_num_outputs="4">
             <repeat name="samFiles">
-                <param name="samFile" value="small_test_R1_unsorted.sam"/>
+                <param name="samFile" value="small_test_R1_unsorted.sam" dbkey="hg38" />
             </repeat>
             <repeat name="samFiles">
-                <param name="samFile" value="small_test_R2_unsorted.sam"/>
+                <param name="samFile" value="small_test_R2_unsorted.sam" dbkey="hg38" />
             </repeat>
-
             <repeat name='binSizes'>
-                <param name="binSize" value="5000"/>
+                <param name="binSize" value="5000" />
             </repeat>
-            <param name='restrictionCutFile' value='DpnII_10k.bed'/>
-            <param name='restrictionSequence' value='GATC'/>
-            <param name='danglingSequence' value='GATC'/>
-            <param name='outputFormat' value='cool'/>
-            <param name='outBam_Boolean' value="True" />
-            <output name="outBam" file="small_test_matrix_result_sorted.bam" ftype="bam"/>
+            <param name='restrictionCutFile' value='DpnII_10k.bed' />
+            <param name='restrictionSequence' value='GATC' />
+            <param name='danglingSequence' value='GATC' />
+            <param name='outputFormat' value='cool' />
+            <param name='outBam' value="True" />
+            <output name="outfileBam" file="small_test_matrix_result_sorted.bam" ftype="bam" />
             <output name="outFileName" ftype="cool">
                 <assert_contents>
-                    <has_h5_keys keys='bins,chroms,indexes,pixels'/>
+                    <has_h5_keys keys='bins,chroms,indexes,pixels' />
                 </assert_contents>
             </output>
-            <output name="raw_qc" file='raw_qc_report' compare='diff' lines_diff='2'/>
+            <output name="raw_qc" file='raw_qc_report' compare='diff' lines_diff='2' />
         </test>
     </tests>
     <help><![CDATA[
@@ -325,6 +282,6 @@ _________________
 | For more information about HiCExplorer please consider our documentation on readthedocs.io_.
 
 .. _readthedocs.io: http://hicexplorer.readthedocs.io/en/latest/index.html
-]]></help>
+]]>    </help>
     <expand macro="citations" />
 </tool>
