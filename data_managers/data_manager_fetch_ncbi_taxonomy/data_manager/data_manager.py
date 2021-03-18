@@ -92,8 +92,8 @@ def main(args):
     with open(args.output) as fh:
         params = json.load(fh)
 
-    target_directory = params['output_data'][0]['extra_files_path']
-    os.mkdir(target_directory)
+    target_directory = os.path.join(params['output_data'][0]['extra_files_path'], "taxonomy")
+    os.makedirs(target_directory)
 
     move_files_to_final_dir(workdir, target_directory)
 
@@ -101,7 +101,11 @@ def main(args):
         workdir_a2t = os.path.join(os.getcwd(), 'accession2taxid')
         download_name_maps("ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/accession2taxid/", workdir_a2t)
 
-        move_files_to_final_dir(workdir_a2t, target_directory)
+        target_directory_a2t = os.path.join(params['output_data'][0]['extra_files_path'], "accession2taxid")
+        os.makedirs(target_directory_a2t)
+        move_files_to_final_dir(workdir_a2t, target_directory_a2t)
+
+        data_manager_json['data_tables']['ncbi_accession2taxid'] = data_manager_entry
 
     with open(args.output, 'w') as fh:
         json.dump(data_manager_json, fh, sort_keys=True)
