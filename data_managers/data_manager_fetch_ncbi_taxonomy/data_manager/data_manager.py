@@ -37,21 +37,72 @@ def url_download(url, workdir):
     os.remove(file_path)
 
 
+def download_name_maps(url, workdir):
+
+    map_files = [
+        'dead_nucl.accession2taxid.gz',
+        'dead_prot.accession2taxid.gz',
+        'dead_wgs.accession2taxid.gz',
+        'nucl_gb.accession2taxid.gz',
+        'nucl_wgs.accession2taxid.gz',
+        'pdb.accession2taxid.gz',
+        'prot.accession2taxid.gz',
+        'prot.accession2taxid.FULL.gz'
+    ]
+
+    if not os.path.exists(workdir):
+        os.makedirs(workdir)
+
+    for map in map_files:
+        src = "{}{}".format(url, map)
+        dest = os.path.join(workdir, map)
+
+        print("Downloading taxonomy accession2taxid file from {} to {}".format(src, dest))
+
+        try:
+            req = Request(src)
+            src = urlopen(req)
+            with open(dest, 'wb') as dst:
+                while True:
+                    chunk = src.read(2**10)
+                    if chunk:
+                        dst.write(chunk)
+                    else:
+                        break
+        finally:
+            if src:
+                src.close()
+
+
+def move_files_to_final_dir(workdir, target_directory):
+    for filename in os.listdir(workdir):
+        shutil.move(os.path.join(workdir, filename), target_directory)
+
+
 def main(args):
-    workdir = os.path.join(os.getcwd(), 'taxonomy')
+    workdir = os.path.abspath(os.path.join(os.getcwd(), 'taxonomy'))
     url_download(args.url, workdir)
+
     data_manager_entry = {}
     data_manager_entry['value'] = args.name.lower()
     data_manager_entry['name'] = args.name
     data_manager_entry['path'] = '.'
     data_manager_json = dict(data_tables=dict(ncbi_taxonomy=data_manager_entry))
+
     with open(args.output) as fh:
         params = json.load(fh)
+
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
-    output_path = os.path.abspath(os.path.join(os.getcwd(), 'taxonomy'))
-    for filename in os.listdir(workdir):
-        shutil.move(os.path.join(output_path, filename), target_directory)
+
+    move_files_to_final_dir(workdir, target_directory)
+
+    if args.name_maps:
+        workdir_a2t = os.path.join(os.getcwd(), 'accession2taxid')
+        download_name_maps("ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/accession2taxid/", workdir_a2t)
+
+        move_files_to_final_dir(workdir_a2t, target_directory)
+
     with open(args.output, 'w') as fh:
         json.dump(data_manager_json, fh, sort_keys=True)
 
@@ -61,6 +112,7 @@ if __name__ == '__main__':
     parser.add_argument('--out', dest='output', action='store', help='JSON filename')
     parser.add_argument('--name', dest='name', action='store', default=str(datetime.date.today()), help='Data table entry unique ID')
     parser.add_argument('--url', dest='url', action='store', default='ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz', help='Download URL')
+    parser.add_argument('--name-maps', dest='name_maps', action='store_true', help='')
     args = parser.parse_args()
 
     main(args)
