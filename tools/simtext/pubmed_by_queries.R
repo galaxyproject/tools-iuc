@@ -45,10 +45,10 @@ parser$add_argument("--install_packages", action = "store_true", default = FALSE
                     help = "If you want to auto install missing required packages.")
 args <- parser$parse_args()
 
-if(!is.null(args$key)){
-  if(file.exists(args$key)){
-    credentials <- read.table(args$key, quote="\"", comment.char="")
-    args$key = credentials[1,1]
+if (!is.null(args$key)) {
+  if (file.exists(args$key)) {
+    credentials <- read.table(args$key, quote = "\"", comment.char = "")
+    args$key <- credentials[1, 1]
   }
 }
 
