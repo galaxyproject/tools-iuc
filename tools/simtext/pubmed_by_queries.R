@@ -19,7 +19,8 @@
 # -o OUTPUT, --output OUTPUT  output file name. [default "pubmed_by_queries_output"]
 # -n NUMBER, --number NUMBER  number of PMIDs or abstracts to save per ID [default "5"]
 # -a, --abstract              if abstracts instead of PMIDs should be retrieved use --abstracts
-# -k KEY, --key KEY           if NCBI API key is available, add it to speed up the fetching of pubmed data
+# -k KEY, --key KEY           if ncbi API key is available, add it to speed up the download of PubMed data. 
+#                             For usage in Galaxy add the API key to the Galaxy user-preferences (User/ Preferences/ Manage Information).
 
 if ("--install_packages" %in% commandArgs()) {
   print("Installing packages")
@@ -32,15 +33,16 @@ suppressPackageStartupMessages(library("easyPubMed"))
 
 parser <- ArgumentParser()
 parser$add_argument("-i", "--input",
-                    help = "input fie name. add path if file is not in working directory")
+                    help = "Input fie name. add path if file is not in working directory")
 parser$add_argument("-o", "--output", default = "pubmed_by_queries_output",
-                    help = "output file name. [default \"%(default)s\"]")
+                    help = "Output file name. [default \"%(default)s\"]")
 parser$add_argument("-n", "--number", type = "integer", default = 5,
                     help = "Number of PMIDs (or abstracts) to save per  ID. [default \"%(default)s\"]")
 parser$add_argument("-a", "--abstract", action = "store_true", default = FALSE,
-                    help = "if abstracts instead of PMIDs should be retrieved use --abstracts ")
+                    help = "If abstracts instead of PMIDs should be retrieved use --abstracts ")
 parser$add_argument("-k", "--key", type = "character",
-                    help = "if ncbi API key is available, add it to speed up the download of pubmed data")
+                    help = "If ncbi API key is available, add it to speed up the download of PubMed data. 
+                    For usage in Galaxy add the API key to the Galaxy user-preferences (User/ Preferences/ Manage Information).")
 parser$add_argument("--install_packages", action = "store_true", default = FALSE,
                     help = "If you want to auto install missing required packages.")
 args <- parser$parse_args()

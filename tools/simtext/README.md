@@ -55,7 +55,7 @@ $ git clone https://github.com/dlal-group/simtext
 
 ## pubmed_by_queries
 
-This tool uses a set of search queries to download a defined number of abstracts or PMIDs for each search query from PubMed. PubMed's search rules and syntax apply. Users can obtain an API key from the Settings page of their NCBI account (to create an account, visit http://www.ncbi.nlm.nih.gov/account/).
+This tool uses a set of search queries to download a defined number of abstracts or PMIDs for each search query from PubMed. PubMed's search rules and syntax apply. Users can obtain an API key from the Settings page of their NCBI account (to create an account, visit http://www.ncbi.nlm.nih.gov/account/). If the tool is used as command-line tool the API key is passed as an argument. For usage in Galaxy the API key is added to the Galaxy user-preferences (User/ Preferences/ Manage Information).
 
 Input:
 
@@ -73,7 +73,7 @@ Optional arguments:
  -o OUTPUT, --output OUTPUT  output file name [default "pubmed_by_queries_output"]
  -n NUMBER, --number NUMBER  number of PMIDs or abstracts to save per ID [default "5"]
  -a, --abstract              if abstracts instead of PMIDs should be retrieved use --abstracts 
- -k KEY, --key KEY           if NCBI API key is available, add it to speed up the download of PubMed data
+ -k KEY, --key KEY           if NCBI API key is available, add it to speed up the download of PubMed data. For usage in Galaxy add the API key to the Galaxy user-preferences (User/ Preferences/ Manage Information).
  --install_packages          if you want to auto install missing required packages
 ```
 
@@ -96,10 +96,10 @@ $ Rscript abstracts_by_pmid.R [-h] [-i INPUT] [-o OUTPUT]
 
 Optional arguments: 
 ```
- -h, --help                    show help message
+ -h, --help                 show help message
  -i INPUT, --input INPUT    input file name. add path if file is not in working directory
  -o OUTPUT, --output OUTPUT output file name [default "abstracts_by_pmids_output"]
- --install_packages           if you want to auto install missing required packages
+ --install_packages         if you want to auto install missing required packages
 ```
 
 Output: 
@@ -189,7 +189,7 @@ Optional arguments:
  -i INPUT,  --input INPUT      input file name. add path if file is not in working directory
  -m MATRIX, --matrix MATRIX    matrix file name. add path if file is not in working directory
  -p PORT,   --port PORT        specify port, otherwise randomly selected
- --host						   specify host
+ --host					specify host
  -- install_packages           if you want to auto install missing required packages
 ```
 
