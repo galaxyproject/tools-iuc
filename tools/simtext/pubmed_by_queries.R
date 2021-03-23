@@ -19,8 +19,8 @@
 # -o OUTPUT, --output OUTPUT  output file name. [default "pubmed_by_queries_output"]
 # -n NUMBER, --number NUMBER  number of PMIDs or abstracts to save per ID [default "5"]
 # -a, --abstract              if abstracts instead of PMIDs should be retrieved use --abstracts
-# -k KEY, --key KEY           if ncbi API key is available, add it to speed up the download of PubMed data. 
-#                             For usage in Galaxy add the API key to the Galaxy user-preferences (User/ Preferences/ Manage Information).
+# -k KEY, --key KEY           if ncbi API key is available, add it to speed up the download of PubMed data.
+# For usage in Galaxy add the API key to the Galaxy user-preferences (User/ Preferences/ Manage Information).
 
 if ("--install_packages" %in% commandArgs()) {
   print("Installing packages")
@@ -41,8 +41,7 @@ parser$add_argument("-n", "--number", type = "integer", default = 5,
 parser$add_argument("-a", "--abstract", action = "store_true", default = FALSE,
                     help = "If abstracts instead of PMIDs should be retrieved use --abstracts ")
 parser$add_argument("-k", "--key", type = "character",
-                    help = "If ncbi API key is available, add it to speed up the download of PubMed data. 
-                    For usage in Galaxy add the API key to the Galaxy user-preferences (User/ Preferences/ Manage Information).")
+                    help = "If ncbi API key is available, add it to speed up the download of PubMed data. For usage in Galaxy add the API key to the Galaxy user-preferences (User/ Preferences/ Manage Information).")
 parser$add_argument("--install_packages", action = "store_true", default = FALSE,
                     help = "If you want to auto install missing required packages.")
 args <- parser$parse_args()
