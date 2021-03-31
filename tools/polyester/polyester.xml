@@ -1,0 +1,218 @@
+<tool id="polyester_simulate" name="Polyester" version="@TOOL_VERSION@+galaxy0">
+    <description>Simulate RNA-seq data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#if $annotation_type.annotation_type_select == 'gtf+fasta':
+    mkdir reference_fastas/ &&
+    cat '$split_fasta' &&
+    python '$split_fasta' &&
+#end if
+cat '$script' &&
+Rscript '$script' &&
+#set $counter = 1
+#for $i, $group in enumerate($num_reps_repeat):
+    #for $j in range(int($group.replicates))
+        #set $current_prefix = 'sample_%02d' % ($counter)
+        #set $new_prefix = 'group%02d_rep%02d' % ($i + 1, $j + 1)
+        #if $paired == 'FALSE':
+            mv '${current_prefix}.fasta' '${new_prefix}.fasta' &&
+        #else:
+            mv '${current_prefix}_1.fasta' '${new_prefix}_1.fasta' &&
+            mv '${current_prefix}_2.fasta' '${new_prefix}_2.fasta' &&
+        #end if
+        #set $counter = $counter + 1
+    #end for
+#end for
+echo " " &&
+cat '$json' > $test &&
+cp '$json' galaxy.json &&
+ls -lh
+    ]]></command>
+    <configfiles>
+        <configfile name="split_fasta"><![CDATA[
+#if $annotation_type.annotation_type_select == 'gtf+fasta'
+@SPLIT_FASTA@
+#end if
+]]></configfile>
+        <configfile name="script"><![CDATA[
+@R_INIT@
+
+library(polyester)
+library(Biostrings)
+
+#if $annotation_type.annotation_type_select == 'fasta':
+fasta <- '$annotation_type.input_fasta'
+fasta_file <- readDNAStringSet(fasta)
+seqpath <- NULL
+gtf <- NULL
+#end if
+#if $annotation_type.annotation_type_select == 'gtf+fasta':
+fasta <- NULL
+seqpath <- 'reference_fastas/'
+gtf <- '${annotation_type.input_gtf}'
+#end if
+
+num_reps = c(
+#for $i, $group in enumerate($num_reps_repeat):
+    #if $i != len($num_reps_repeat) - 1:
+        $group.replicates,
+    #else:
+        $group.replicates
+    #end if
+#end for
+)
+
+#if $reads_per_transcript.reads_per_transcript_select == 'integer':
+reads_per_transcript <- matrix(rep(${reads_per_transcript.reads_per_transcript}, length(fasta_file)), ncol=1)
+#end if
+
+#if $size_conditional.size_conditional_select == 'default':
+size <- NULL
+#end if
+
+## Assuming that files don't have headers. Can in theory add test or variable for this later
+## But for now, users can reformat before inputting to this tool if need be.
+#if $fold_changes.is_of_type('tabular'):
+temp <- read.delim('${fold_changes}', header=FALSE)
+fold_changes <- as.matrix(temp)
+#elif $fold_changes.is_of_type('csv'):
+temp <- read.csv('${fold_changes}', header=FALSE)
+fold_changes <- as.matrix(temp)
+#end if
+
+paired <- ${paired}
+
+reportCoverage <- ${report_coverage}
+
+print(dim(fold_changes))
+
+simulate_experiment(fasta=fasta,
+                    gtf=gtf,
+                    seqpath=seqpath,
+                    num_reps=num_reps,
+                    reads_per_transcript=reads_per_transcript,
+                    size=size,
+                    fold_changes=fold_changes,
+                    paired=paired,
+                    reportCoverage = reportCoverage)
+
+]]></configfile>
+    <configfile name="json"><![CDATA[#if $paired == 'FALSE':
+{   "list_output": {
+        "type": "dataset",
+        "elements": [
+    #for $i, $group in enumerate($num_reps_repeat):
+        #set $group_name = "group%02d" % ($i + 1)
+        {"name" : "${group_name}", "type": "dataset", "elements": [
+        #for $j in range(int($group.replicates)):
+            #set $rep_name = "rep%02d" % ($j + 1)
+            {"name": "${rep_name}",
+             "type": "new_primary_dataset",
+             "filename": "${group_name}_${rep_name}.fasta"
+            #if $j != int($group.replicates) - 1:
+            },
+            #else:
+            }
+            #end if
+        #end for
+        #if $i != len($num_reps_repeat) - 1:
+        ]},
+        #else:
+        ]}
+        #end if
+    #end for
+        ]}
+#else:
+{   "paired_output": {
+        "type": "dataset",
+        "elements": [
+    #for $i, $group in enumerate($num_reps_repeat):
+        #set $group_name = "group%02d" % ($i + 1)
+        {"name" : "${group_name}", "type": "dataset", "elements": [
+        #for $j in range(int($group.replicates)):
+            #set $rep_name = "rep%02d" % ($j + 1)
+            {"name": "${rep_name}", "type": "dataset", "elements": [
+                {"name": "forward", "type": "new_primary_dataset", "filename": "${group_name}_${rep_name}_1.fasta"},
+                {"name": "reverse", "type": "new_primary_dataset", "filename": "${group_name}_${rep_name}_2.fasta"}
+            #if $j != int($group.replicates) - 1:
+            ]},
+            #else:
+            ]}
+            #end if
+        #end for
+        #if $i != len($num_reps_repeat) - 1:
+        ]},
+        #else:
+        ]}
+        #end if
+    #end for
+        ]}
+#end if
+}
+]]></configfile>
+</configfiles>
+    <inputs>
+        <conditional name="annotation_type">
+            <param name="annotation_type_select" type="select">
+                <option value="fasta">Transcripts FASTA File</option>
+                <option value="gtf+fasta">GTF + Genome FASTA File</option>
+            </param>
+            <when value="fasta">
+                <param name="input_fasta" type="data" format="fasta"/>
+            </when>
+            <when value="gtf+fasta">
+                <param name="input_gtf" type="data" format="gtf"/>
+                <param name="input_reference" type="data" format="fasta,fasta.gz"/>
+            </when>
+        </conditional>
+        <repeat name="num_reps_repeat" title="Sequencing Groups" min="1">
+            <param name="replicates" type="integer" min="1" value="10"/>
+        </repeat>
+        <conditional name="reads_per_transcript">
+            <param name="reads_per_transcript_select" type="select">
+                <option value="integer">Select integer value</option>
+                <option value="meanmodel">Draw baseline mean numbers from a model based on transcript length</option>
+                <!-- <option value="integer_vec"></option> -->
+                <!-- TODO -->
+            </param>
+            <when value="integer">
+                <param name="reads_per_transcript" type="integer" value="300"/>
+            </when>
+            <when value="meanmodel"/>
+        </conditional>
+        <conditional name="size_conditional">
+            <param name="size_conditional_select" type="select">
+                <option value="integer">Select integer value</option>
+                <option value="default" selected="true">Use default of reads_per_transcript times fold_changes divided by 3</option>
+                <!-- TODO -->
+                <!-- <option value="matrixfile">Provide matrix file for size parameter per transcript per group</option> -->
+                <!-- <option value="vectorfile">Provide vector file for size parameter per transcript</option> -->
+            </param>
+            <when value="integer">
+                <param name="size" type="integer" value="300"/>
+            </when>
+            <when value="default"/>
+        </conditional>
+        <param name="fold_changes" type="data" format="tabular,csv"/>
+        <param name="paired" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" />
+        <param name="report_coverage" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" />
+    </inputs>
+    <outputs>
+        <data name="test" format="txt"/>
+        <collection name="paired_output" type="list:list:paired" label="Paired Output data">
+            <discover_datasets from_provided_metadata="true" ext="fasta" visible="true" />
+        </collection>
+    </outputs>
+    <!-- <tests>
+        <test>
+            
+        </test>
+    </tests>
+    <help><![CDATA[
+
+    ]]></help> -->
+    <!-- <expand macro="citations"/> -->
+</tool>
