@@ -7,23 +7,59 @@
         <requirement type="package" version="2.4.2">bowtie2</requirement>
     </expand>
     <version_command>metaphlan -v</version_command>
-    <command detect_error="aggressive"><![CDATA[
+    <command detect_errors="aggressive"><![CDATA[
 #if $in.selector == 'raw'
     #if $in.raw_in.selector == 'paired'
-        #if $in.raw_in.in_f.datatype.file_ext != $in.raw_in.in_r.datatype.file_ext
+        #set full_ext=$in.raw_in.in_f.datatype.file_ext
+        #if $full_ext != $in.raw_in.in_r.datatype.file_ext
     echo "Different datatypes for input paired-end files"
     &&
     exit 1
         #end if
+        #if $full_ext.endswith("gz")
+    zcat '$in.raw_in.in_f' > 'in_f'
+    &&
+    zcat '$in.raw_in.in_r' > 'in_r'
+    &&
+            #set file_paths="in_f,in_r"
+        #else if $full_ext.endswith("gz")
+    bzcat '$in.raw_in.in_f' > 'in_f'
+    &&
+    bzcat '$in.raw_in.in_r' > 'in_r'
+    &&
+            #set file_paths="in_f,in_r"
+        #end if
     #else if $in.raw_in.selector == 'multiple'
-        #set $type=$in.raw_in.in[0].datatype.file_ext
-        #for $f in $in.raw_in.in
-            #if $f.datatype.file_ext != $type
+        #set full_ext=$in.raw_in.in[0].datatype.file_ext
+        #set file_paths=""
+        #set sep=""
+        #for $i, $f in enumerate($in.raw_in.in)
+            #if $f.datatype.file_ext != $full_ext
     echo "Different datatypes for input files"
     &&
     exit 1
             #end if
+            #set fp="input_%s" % ($i)
+            #set $file_paths+="%s%s" % ($sep, $fp)
+            #set $sep=","
+            #if $full_ext.endswith("gz")          
+    zcat '$f' > '$fp'
+    &&
+            #else if $full_ext.endswith("gz")
+    bzcat '$f' > '$fp'
+    &&
+            #end if
         #end for
+    #else
+        #set full_ext=$in.raw_in.in.datatype.file_ext
+    #end if
+
+    #if $full_ext.startswith("fastq")
+        #set ext='fastq'
+    #else if $full_ext.startswith("fasta") and $full_ext.endswith(("gz","bz2"))
+        #set ext='fasta'
+    #else
+        #set ext=$full_ext
     #end if
 #end if
 
@@ -32,33 +68,53 @@
     &&
     bowtie2-build '$mapping.db.bowtie2db' 'ref_db/custom_db'
     &&
-    python '$__tool_directory__/transform_json_to_pkl.py'
-        --json_input '$mapping.db.mpa_pkl'
-        --pkl_output 'ref_db/custom_db.pkl'
+    python '$__tool_directory__/customizemetadata.py'
+        transform_json_to_pkl
+        --json '$mapping.db.mpa_pkl'
+        --pkl 'ref_db/custom_db.pkl'
     &&
 #end if
 
 metaphlan
     #if $in.selector == 'raw'
-        #if $in.raw_in.selector == 'single' 
-    --input_type '$in.raw_in.in.datatype.file_ext'
+        #if $in.raw_in.selector == 'single'
+            #set input='$in.raw_in.in'
+            #if $full_ext.endswith(".gz")
+    <(zcat '$input')
+            #else if $full_ext.endswith(".bz2")
+    <(bzcat '$input')
+            #else
+    '$input'
+            #end if
         #else if $in.raw_in.selector == 'multiple'
-    --input_type '$in.raw_in.in[0].datatype.file_ext'
+            #if $full_ext.endswith((".gz",".bz2"))
+    '$file_paths'
+            #else
+    '$in.raw_in.in'
+            #end if
         #else
-    --input_type '$in.raw_in.in_f.datatype.file_ext'
+            #if $full_ext.endswith((".gz",".bz2"))
+    '$file_paths'
+            #else
+    '$in.raw_in.in_f','$in.raw_in.in_r'
+            #end if
         #end if
+    #else
+    '$in.selector'
+    #end if
+
+    #if $in.selector == 'raw'
+    --input_type '$ext'
     --read_min_len $in.read_min_len
     #else
     --input_type '$in.selector'
     #end if
 
-    --input_type '${input_file.datatype.file_ext}'
-
     #if $mapping.db.db_selector == "cached"
         --bowtie2db '$mapping.db.cached_db.fields.path'
         --index '$mapping.db.cached_db.fields.dbkey'
     #else
-        --bowtie2db 'ref_db/ref_db'
+        --bowtie2db 'ref_db/'
         --index 'custom_db'
     #end if
 
@@ -67,7 +123,7 @@ metaphlan
 
     -t '$analysis.analysis_type.t'
     #if $analysis.analysis_type.t == "rel_ab" or $analysis.analysis_type.t == "rel_ab_w_read_stats"
-    --tax_lev '$analysis_type.tax_lev'
+    --tax_lev '$analysis.analysis_type.tax_lev'
     #else if $analysis.analysis_type.t == "clade_specific_strain_tracker"
     --clade '$analysis.analysis_type.clade'
         #if str($analysis.analysis_type.min_ab) != ''
@@ -89,7 +145,7 @@ metaphlan
     $analysis.ignore_archaea
     --stat_q $analysis.stat_q
     --perc_nonzero $analysis.perc_nonzero
-    #if str($analysis.ignore_markers) != ''
+    #if $analysis.ignore_markers
     --ignore_markers '$analysis.ignore_markers'
     #end if
     $analysis.avoid_disqm
@@ -97,27 +153,19 @@ metaphlan
     --sample_id_key '$out.sample_id_key'
     --sample_id '$out.sample_id'
     $out.use_group_representative
-    $out.legacy-output
+    $out.legacy_output
     $out.CAMI_format_output
     $out.unknown_estimation
 
     -o '$output_file'
-    --bowtieout '$bowtie2out'
+    --bowtie2out 'bowtie2out'
     -s '$sam_output_file'
     --biom '$biom_output_file'
 
     --nproc \${GALAXY_SLOTS:-4}
-
-    #if $in.selector == 'raw'
-        #if $in.raw_in.selector != 'paired'
-    '$in.raw_in.in'
-        #else
-    '$in.raw_in.in_f','$in.raw_in.in_r'
-        #end if
-    #else
-    '$in.selector'
-    #end if
     
+&&
+mv 'bowtie2out' '$bowtie2out'
     ]]></command>
     <inputs>
         <conditional name="in">
@@ -134,14 +182,14 @@ metaphlan
                         <option value="paired">Paired-end files</option>
                     </param>
                     <when value="single">
-                        <param name="in" type="data" format="fastq,fasta" label="Single-end Fasta/FastQ file with metagenomic reads"/>
+                        <param name="in" type="data" format="fastq,fastq.gz,fastq.bz2,fasta,fasta.gz,fasta.bz2" label="Single-end Fasta/FastQ file with metagenomic reads"/>
                     </when>
                     <when value="multiple">
-                        <param name="in" type="data" format="fastq,fasta" multipe="true" label="Single-end Fasta/FastQ files with metagenomic reads"/>
+                        <param name="in" type="data" format="fastq,fastq.gz,fastq.bz2,fasta,fasta.gz,fasta.bz2" multiple="true" label="Single-end Fasta/FastQ files with metagenomic reads"/>
                     </when>
                     <when value="paired">
-                        <param name="in_f" type="data" format="fastq,fasta" label="Forward paired-end Fasta/FastQ file with metagenomic reads"/>
-                        <param name="in_r" type="data" format="fastq,fasta" label="Reverse paired-end Fasta/FastQ file with metagenomic reads"/>
+                        <param name="in_f" type="data" format="fastq,fastq.gz,fastq.bz2,fasta,fasta.gz,fasta.bz2" label="Forward paired-end Fasta/FastQ file with metagenomic reads"/>
+                        <param name="in_r" type="data" format="fastq,fastq.gz,fastq.bz2,fasta,fasta.gz,fasta.bz2" label="Reverse paired-end Fasta/FastQ file with metagenomic reads"/>
                     </when>
                 </conditional>
                 <param argument="--read_min_len" type="integer" value="70" label="Minimum length of the reads to be considered when parsing the input file"/>
@@ -154,7 +202,7 @@ metaphlan
                     help="File needs to be generated with MetaPhlAn versions >3.0"/>
             </when>
         </conditional>
-        <section name="mapping" title="Mapping" expand="true">
+        <section name="mapping" title="Mapping" expanded="true">
             <conditional name="db">
                 <param name="db_selector" type="select" label="Database with clade-specific marker genes">
                     <option value="cached" selected="true">Locally cached</option>
@@ -180,7 +228,7 @@ metaphlan
             </param>
             <param argument="--min_mapq_val" type="integer" value="5" label="Minimum mapping quality value (MAPQ)"/>
         </section>
-        <section name="analysis" title="Analysis" expand="true">
+        <section name="analysis" title="Analysis" expanded="true">
             <conditional name="analysis_type">
                 <param argument="-t" type="select" label="Type of analysis to perform">
                     <option value="rel_ab" selected="true">rel_ab: Profiling a metagenomes in terms of relative abundances</option>
@@ -233,17 +281,17 @@ metaphlan
             </param>
             <param argument="--stat_q" type="float" value="0.2" label="Quantile value for the robust average"/>
             <param argument="--perc_nonzero" type="float" value="0.33" label="Percentage of markers with a non zero relative abundance for misidentify a species"/>
-            <param argument="--ignore_markers" type="data" format="txt,tabular" label="File containing a list of markers to ignore" help="One marker per line"/>
+            <param argument="--ignore_markers" type="data" format="txt,tabular" optional="true" label="File containing a list of markers to ignore" help="One marker per line"/>
             <param argument="--avoid_disqm" type='boolean' checked="true" truevalue='--avoid_disqm' falsevalue='' 
                 label="Deactivate the procedure of disambiguating the quasi-markers based on the marker abundance pattern found in the sample?"
                 help="It is generally recommended to keep the disambiguation procedure in order to minimize false positives"/>
         </section>
-        <section name="out" title="Outputs" expand="true">
+        <section name="out" title="Outputs" expanded="true">
             <param argument="--sample_id_key" type="text" value="SampleID" label="Sample ID key for this analysis"/>
             <param argument="--sample_id" type="text" value="Metaphlan_Analysis" label="Sample ID for this analysis"/>
             <param argument="--use_group_representative" type='boolean' checked="false" truevalue='--use_group_representative' falsevalue='' 
                 label="Use a species as representative for species groups?"/>
-            <param argument="--legacy-output" type='boolean' checked="false" truevalue='--legacy-output' falsevalue='' 
+            <param name="legacy_output" argument="--legacy-output" type='boolean' checked="false" truevalue='--legacy-output' falsevalue='' 
                 label="Old MetaPhlAn2 two columns output?"/>
             <param argument="--CAMI_format_output" type='boolean' checked="false" truevalue='--CAMI_format_output' falsevalue='' 
                 label="Report the profiling using the CAMI output format?"/>
