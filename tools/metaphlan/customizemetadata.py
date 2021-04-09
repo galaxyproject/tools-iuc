@@ -22,6 +22,10 @@ def load_from_json(json_fp):
 
     for m in data['markers']:
         data['markers'][m]['ext'] = set(data['markers'][m]['ext'])
+
+    for t in data['taxonomy']:
+        if isinstance(data['taxonomy'][t],list):
+            data['taxonomy'][t] = tuple(data['taxonomy'][t])
     return data
 
 
@@ -85,7 +89,7 @@ def transform_json_to_pkl(json_fp, pkl_fp):
 
     # dump metadata to Pickle file
     with bz2.BZ2File(pkl_fp, 'w') as pkl_f:
-        pickle.dump(out_metadata, pkl_f, pickle.HIGHEST_PROTOCOL)
+        pickle.dump(out_metadata, pkl_f)
 
 
 def add_marker(in_json_fp, out_json_fp, name, m_length, g_length, gca, k_name, k_id, p_name, p_id, c_name, c_id, o_name, o_id, f_name, f_id, g_name, g_id, s_name, s_id, t_name):
@@ -262,21 +266,42 @@ def check_not_found_markers(found_markers, original_markers):
                 print('- "%s"' % m)
 
 
-def prune_taxonomy(in_taxonomy, gca_s):
+def prune_taxonomy(in_taxonomy, taxon_s, gca_s):
     '''
-    Prune taxonomy to keep only taxonomy in list of GCAs
+    Prune taxonomy to keep only listed taxonomy 
 
     :param in_taxonomy: dictionary with list of taxonomy
+    :param taxon_s: set of taxons to keep
     :param gca_s: set of GCA ids to keep
     '''
     out_taxonomy = {}
+    kept_taxonomy = set()
+    kept_taxons = set()
+    kept_gca = set()
     for t,v in in_taxonomy.items():
+        # check if t match element in list of taxon_s
+        kept_taxon = False
+        for t_k in taxon_s:
+            if t_k in t:
+                kept_taxon = True
+                out_taxonomy[t] = v
+                kept_taxonomy.add(t)
+                kept_taxons.add(t_k)
+                break
+        # check if GCA in the taxon id
         s = re.search("GCA_\d+$", t)
-        if not s:
-            continue
-        gca = s[0]
-        if gca in gca_s:
-            out_taxonomy[t] = v
+        if s:
+            gca = s[0]
+            # check if GCA in taxon id is in the list GCA to keep
+            if gca in gca_s:
+                kept_gca.add(gca)
+                if not kept_taxon:
+                    out_taxonomy[t] = v
+                    kept_taxonomy.add(t)
+                    
+    print('%s kept taxonomy' % len(kept_taxonomy))
+    print('%s / %s taxons not found' % (len(taxon_s) - len(kept_taxons), len(taxon_s)))
+    print('%s / %s GCA taxons not found' % (len(gca_s) - len(kept_gca), len(gca_s)))
     return out_taxonomy
 
 
@@ -292,25 +317,27 @@ def remove_markers(in_json_fp, marker_fp, out_json_fp, kept_marker_fp):
     in_metadata = load_from_json(in_json_fp)
     
     # load markers
-    markers_to_remove = get_markers(marker_fp)
+    markers_to_remove = set(get_markers(marker_fp))
     print('%s markers to remove' % len(markers_to_remove))
 
     # keep 
     out_metadata = {
         'markers': {},
-        'taxonomy': in_metadata['taxonomy'],
+        'taxonomy': {},
         'merged_taxon': in_metadata['merged_taxon']
     }
 
     # parse markers to keep
     removed_markers = []
     kept_markers = []
-    kept_gca = set()
+    taxons_to_keep = set()
+    gca_to_keep = set()
     for m, v in in_metadata['markers'].items():
         if m not in markers_to_remove:
             out_metadata['markers'][m] = v
             kept_markers.append(m)
-            kept_gca.update(v['ext'])
+            taxons_to_keep.add(v['taxon'])
+            gca_to_keep.update(v['ext'])
         else:
             removed_markers.append(m)
     print('%s removed markers' % len(removed_markers))
@@ -318,8 +345,13 @@ def remove_markers(in_json_fp, marker_fp, out_json_fp, kept_marker_fp):
     # check markers that are not found
     check_not_found_markers(removed_markers, markers_to_remove)
 
+    # keep only taxonomy in taxons_to_keep or with GCA in gca_to_keep
+    out_metadata['taxonomy'] = prune_taxonomy(in_metadata['taxonomy'], taxons_to_keep, gca_to_keep)
+
+    # save to JSON
     dump_to_json(out_metadata, out_json_fp)
 
+    # write list of kept markers
     with open(kept_marker_fp, 'w') as kept_marker_f:
         for m in kept_markers:
             kept_marker_f.write("%s\n" % m)
@@ -336,7 +368,7 @@ def keep_markers(in_json_fp, marker_fp, out_json_fp):
     in_metadata = load_from_json(in_json_fp)
     
     # load markers
-    markers_to_keep = get_markers(marker_fp)
+    markers_to_keep = set(get_markers(marker_fp))
     print('%s markers to keep' % len(markers_to_keep))
 
     # keep 
@@ -348,20 +380,23 @@ def keep_markers(in_json_fp, marker_fp, out_json_fp):
 
     # parse markers to keep
     kept_markers = []
-    kept_gca = set()
+    taxons_to_keep = set()
+    gca_to_keep = set()
     for m, v in in_metadata['markers'].items():
         if m in markers_to_keep:
             out_metadata['markers'][m] = v
             kept_markers.append(m)
-            kept_gca.update(v['ext'])
-    print('%s kepts markers' % len(kept_markers))
+            taxons_to_keep.add(v['taxon'])
+            gca_to_keep.update(v['ext'])
+    print('%s kept markers' % len(kept_markers))
 
     # check markers that are not found
     check_not_found_markers(kept_markers, markers_to_keep)
 
-    # keep only taxonomy with GCA in kept_gca
-    out_metadata['taxonomy'] = prune_taxonomy(in_metadata['taxonomy'], kept_gca)
+    # keep only taxonomy in taxons_to_keep or with GCA in gca_to_keep
+    out_metadata['taxonomy'] = prune_taxonomy(in_metadata['taxonomy'], taxons_to_keep, gca_to_keep)
 
+    # save to JSON
     dump_to_json(out_metadata, out_json_fp)
 
 
