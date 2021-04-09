@@ -5,6 +5,7 @@
     </macros>
     <expand macro="requirements">
         <requirement type="package" version="3.8.5">python</requirement>
+        <requirement type="package" version="4.0.3">r-base</requirement>
     </expand>
     <command detect_errors="exit_code"><![CDATA[
 #if $annotation_type.annotation_type_select == 'gtf+fasta':
@@ -17,8 +18,7 @@
     @TRANSCRIPTOME_FASTA@
 #end if
 cat '$script' &&
-Rscript '$script' &&
-ls -lh
+Rscript '$script'
 #set $counter = 1
 #if $simulation_type.simulation_type_select == 'simulate_experiment':
     #for $i, $group in enumerate($simulation_type.num_reps_repeat):
@@ -146,19 +146,27 @@ temp <- read.delim('${simulation_type.readmat}', header=FALSE)
     #elif $simulation_type.readmat.is_of_type('csv'):
 temp <- read.csv('${simulation_type.readmat}', header=FALSE)
     #end if
-readmat <- temp
+readmat <- as.matrix(temp)
 
 #elif $simulation_type.simulation_type_select == 'simulate_experiment_empirical':
     #if $simulation_type.fpkmMat.is_of_type('tabular'):
-temp <- read.delim('${simulation_type.fpkmMat}', header=FALSE)
+temp <- read.delim('${simulation_type.fpkmMat}', header=FALSE, row.names = 1)
     #elif $simulation_type.readmat.is_of_type('csv'):
-temp <- read.csv('${simulation_type.fpkmMat}', header=FALSE)
+temp <- read.csv('${simulation_type.fpkmMat}', header=FALSE, row.names = 1)
+    #end if
+colclasses <- c('character', rep(NA, length(temp)))
+
+    #if $simulation_type.fpkmMat.is_of_type('tabular'):
+temp <- read.delim('${simulation_type.fpkmMat}', header=FALSE, row.names = 1, colClasses = colclasses)
+    #elif $simulation_type.readmat.is_of_type('csv'):
+temp <- read.csv('${simulation_type.fpkmMat}', header=FALSE, row.names = 1, colClasses = colclasses)
     #end if
 fpkmMat <- as.matrix(temp)
 
 mean_rps <- ${simulation_type.mean_rps}
 
 decut <- ${simulation_type.decut}
+
     #if $simulation_type.grouplabels.is_of_type('tabular'):
 temp <- read.delim('${simulation_type.grouplabels}', header=FALSE)
     #elif $simulation_type.grouplabels.is_of_type('csv'):
@@ -257,6 +265,9 @@ simulate_experiment(num_reps = num_reps,
                     reads_per_transcript = reads_per_transcript,
                     size = size,
                     fold_changes=fold_changes,
+    #if $simulation_type.reads_per_transcript.reads_per_transcript_select == 'meanmodel':
+                    meanmodel = meanmodel,
+    #end if
 #elif $simulation_type.simulation_type_select == 'simulate_experiment_countmat':
 simulate_experiment_countmat(readmat = readmat,
 #elif $simulation_type.simulation_type_select == 'simulate_experiment_empirical':
@@ -297,9 +308,6 @@ simulate_experiment_empirical(bg = NULL,
                     frag_GC_bias = frag_GC_bias,
 #end if
                     strand_specific = strand_specific,
-#if $simulation_type.reads_per_transcript.reads_per_transcript_select == 'meanmodel':
-                    meanmodel = meanmodel,
-#end if
                     write_info = write_info,
 #if $transcriptid:
                     transcriptid = transcriptid,
@@ -307,7 +315,7 @@ simulate_experiment_empirical(bg = NULL,
                     gzip = gzip,
                     seed = seed
                     )
-#if $write_info == 'TRUE':
+#if $write_info == 'TRUE' and $simulation_type.simulation_type_select == 'simulate_experiment':
 load(file = 'sim_counts_matrix.rda')
 write.csv(counts_matrix, '${counts_matrix}')
 #end if
@@ -315,6 +323,7 @@ write.csv(counts_matrix, '${counts_matrix}')
 ]]></configfile>
 
     <configfile name="json"><![CDATA[#slurp
+#if $simulation_type.simulation_type_select == 'simulate_experiment':
 {
 #if $paired == 'FALSE':
 #if $gzip == 'TRUE':
@@ -391,6 +400,7 @@ write.csv(counts_matrix, '${counts_matrix}')
         ]}
 #end if
 }
+#end if
 ]]></configfile>
 </configfiles>
     <inputs>
@@ -606,17 +616,17 @@ This file should not have a header.
     </inputs>
     <outputs>
         <data name="counts_matrix" format="csv" label="${tool.name} on ${on_string}: Counts Matrix (CSV)">
-            <filter>write_info</filter>
+            <filter>write_info and simulation_type['simulation_type_select'] == 'simulate_experiment'</filter>
         </data>
         <data name="sim_rep_info" format="tabular" label="${tool.name} on ${on_string}: Rep Info (txt)" from_work_dir="sim_rep_info.txt" >
-            <filter>write_info</filter>
+            <filter>simulation_type['simulation_type_select'] != 'simulate_experiment_countmat' and write_info</filter>
         </data>
         <data name="sim_tx_info" format="tabular" label="${tool.name} on ${on_string}: Tx Info (txt)" from_work_dir="sim_tx_info.txt" >
-            <filter>write_info</filter>
+            <filter>simulation_type['simulation_type_select'] != 'simulate_experiment_countmat' and write_info</filter>
         </data>
         <!-- Is there a better way to output this data? -->
         <data name="coverages" format="rdata" label="${tool.name} on ${on_string}: Coverage Matrices (Rdata)" from_work_dir="sample_coverages.rda">
-            <filter>report_coverage</filter>
+            <filter>simulation_type['simulation_type_select'] == 'simulate_experiment' and report_coverage</filter>
         </data>
         <collection name="paired_output" type="list:list:paired" label="${tool.name}: Simulated Paired-end output">
             <discover_datasets from_provided_metadata="true" ext="fasta" visible="false" />
@@ -627,11 +637,11 @@ This file should not have a header.
             <filter>simulation_type['simulation_type_select'] == 'simulate_experiment' and (not paired) and (not gzip)</filter>
         </collection>
         <collection name="paired_list_output_unknown_elements" type="list" label="${tool.name}: Simulated Paired-end Output">
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_(?P&lt;identifier_1&gt;[^_]+)\.fasta" ext="fasta" visible="false" />
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^.]+)_(?P&lt;identifier_1&gt;[^_]+)\.fasta" ext="fasta" visible="false" />
             <filter>simulation_type['simulation_type_select'] != 'simulate_experiment' and paired and (not gzip)</filter>
         </collection>
         <collection name="list_output_unknown_elements" type="list" label="${tool.name}: Simulated Single-end Output">
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)\.fasta" ext="fasta" visible="false" />
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^.]+)\.fasta" ext="fasta" visible="false" />
             <filter>simulation_type['simulation_type_select'] != 'simulate_experiment' and (not paired) and (not gzip)</filter>
         </collection>
         <collection name="paired_output_gzip" type="list:list:paired" label="${tool.name}: Simulated Paired-end output">
@@ -643,11 +653,11 @@ This file should not have a header.
             <filter>simulation_type['simulation_type_select'] == 'simulate_experiment' and (not paired) and gzip</filter>
         </collection>
         <collection name="paired_list_output_unknown_elements_gzip" type="list:paired" label="${tool.name}: Simulated Paired-end Output">
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)_(?P&lt;identifier_1&gt;[^_]+)\.fasta.gz" ext="fasta.gz" visible="false" />
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^.]+)_(?P&lt;identifier_1&gt;[^_]+)\.fasta.gz" ext="fasta.gz" visible="false" />
             <filter>simulation_type['simulation_type_select'] != 'simulate_experiment' and paired and gzip</filter>
         </collection>
         <collection name="list_output_unknown_elements_gzip" type="list" label="${tool.name}: Simulated Single-end Output">
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^_]+)\.fasta.gz" ext="fasta.gz" visible="false" />
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^.]+)\.fasta.gz" ext="fasta.gz" visible="false" />
             <filter>simulation_type['simulation_type_select'] != 'simulate_experiment' and (not paired) and gzip</filter>
         </collection>
     </outputs>
@@ -681,8 +691,8 @@ This file should not have a header.
                 <conditional name="size_conditional">
                     <param name="size_conditional_select" value="default" />
                 </conditional>
+                <param name="fold_changes" value="fold_changes.csv" ftype="csv"/>
             </conditional>
-            <param name="fold_changes" value="fold_changes.csv" ftype="csv"/>
             <conditional name="distr_conditional">
                 <param name="distr" value="normal-integer" />
             </conditional>
@@ -750,8 +760,8 @@ This file should not have a header.
                 <conditional name="size_conditional">
                     <param name="size_conditional_select" value="default" />
                 </conditional>
+                <param name="fold_changes" value="fold_changes.csv" ftype="csv"/>
             </conditional>
-            <param name="fold_changes" value="fold_changes.csv" ftype="csv"/>
             <conditional name="distr_conditional">
                 <param name="distr" value="normal-integer" />
             </conditional>
@@ -825,8 +835,8 @@ This file should not have a header.
                 <conditional name="size_conditional">
                     <param name="size_conditional_select" value="default" />
                 </conditional>
+                <param name="fold_changes" value="fold_changes.tabular" ftype="tabular"/>
             </conditional>
-            <param name="fold_changes" value="fold_changes.tabular" ftype="tabular"/>
             <conditional name="distr_conditional">
                 <param name="distr" value="normal-vector" />
                 <param name="fraglen" value="fraglen.csv" ftype="csv"/>
@@ -886,8 +896,8 @@ This file should not have a header.
                 <conditional name="size_conditional">
                     <param name="size_conditional_select" value="default" />
                 </conditional>
+                <param name="fold_changes" value="fold_changes.tabular" ftype="tabular"/>
             </conditional>
-            <param name="fold_changes" value="fold_changes.tabular" ftype="tabular"/>
             <conditional name="distr_conditional">
                 <param name="distr" value="normal-vector" />
                 <param name="fraglen" value="fraglen.csv" ftype="csv"/>
@@ -947,8 +957,8 @@ This file should not have a header.
                     <param name="size_conditional_select" value="integer" />
                     <param name="size" value="10"/>
                 </conditional>
+                <param name="fold_changes" value="fold_changes.tabular" ftype="tabular"/>
             </conditional>
-            <param name="fold_changes" value="fold_changes.tabular" ftype="tabular"/>
             <conditional name="distr_conditional">
                 <param name="distr" value="empirical" />
             </conditional>
@@ -969,6 +979,79 @@ This file should not have a header.
                     <element name="rep01" value="test2-fasta-output/group02/rep01.fasta.gz" decompress="true"/>
                     <element name="rep02" value="test2-fasta-output/group02/rep02.fasta.gz" decompress="true"/>
                 </element>
+            </output_collection>
+        </test>
+        <!--
+            Test 3
+            Only FASTA output
+            Txome FASTA Input from history
+            Countmat input
+            Default size conditional
+            CSV fold_changes
+        -->
+        <test>
+            <param name="gzip" value="true" />
+            <conditional name="reference_transcriptome">
+                <param name="reference_transcriptome_source" value="history"/>
+                <param name="input_fasta" value="txome.fa" />
+            </conditional>
+            <conditional name="simulation_type">
+                <param name="simulation_type_select" value="simulate_experiment_countmat" />
+                <param name="readmat" value="test3-counts-matrix.csv" ftype="csv"/>
+            </conditional>
+            
+            <conditional name="distr_conditional">
+                <param name="distr" value="normal-integer" />
+            </conditional>
+            <conditional name="error_model_conditional">
+                <param name="error_model_select" value="uniform" />
+            </conditional>
+            <param name="paired" value="false" />
+            <param name="report_coverage" value="false" />
+            <param name="write_info" value="false" />
+            <param name="seed" value="42" />
+            <output_collection name="paired_output_gzip">
+                <element name="sample_01" value="test3-fasta-output/sample_01.fasta.gz" decompress="true"/>
+                <element name="sample_02" value="test3-fasta-output/sample_02.fasta.gz" decompress="true"/>
+                <element name="sample_03" value="test3-fasta-output/sample_03.fasta.gz" decompress="true"/>
+                <element name="sample_04" value="test3-fasta-output/sample_04.fasta.gz" decompress="true"/>
+            </output_collection>
+        </test>
+        <!--
+            Test 4
+            Only FASTA output
+            Txome FASTA Input from history
+            FPKM matrix input
+            Default size conditional
+            CSV fold_changes
+        -->
+        <test>
+            <param name="gzip" value="true" />
+            <conditional name="reference_transcriptome">
+                <param name="reference_transcriptome_source" value="history"/>
+                <param name="input_fasta" value="txome.fa" />
+            </conditional>
+            <conditional name="simulation_type">
+                <param name="simulation_type_select" value="simulate_experiment_empirical" />
+                <param name="fpkmMat" value="test4-fpkm-matrix.tabular" ftype="tabular"/>
+                <param name="mean_rps" value="1000000"/>
+                <param name="grouplabels" value="group_labels.tabular" ftype="tabular"/>
+            </conditional>
+            <conditional name="distr_conditional">
+                <param name="distr" value="normal-integer" />
+            </conditional>
+            <conditional name="error_model_conditional">
+                <param name="error_model_select" value="uniform" />
+            </conditional>
+            <param name="paired" value="false" />
+            <param name="report_coverage" value="false" />
+            <param name="write_info" value="false" />
+            <param name="seed" value="42" />
+            <output_collection name="paired_output_gzip">
+                <element name="sample_01" value="test4-fasta-output/sample_01.fasta.gz" decompress="true"/>
+                <element name="sample_02" value="test4-fasta-output/sample_02.fasta.gz" decompress="true"/>
+                <element name="sample_03" value="test4-fasta-output/sample_03.fasta.gz" decompress="true"/>
+                <element name="sample_04" value="test4-fasta-output/sample_04.fasta.gz" decompress="true"/>
             </output_collection>
         </test>
     </tests>
