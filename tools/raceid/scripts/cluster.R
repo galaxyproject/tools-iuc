@@ -3,7 +3,7 @@ VERSION = "0.5"
 
 args = commandArgs(trailingOnly = T)
 
-if (length(args) != 1){
+if (length(args) != 1) {
      message(paste("VERSION:", VERSION))
      stop("Please provide the config file")
 }
@@ -13,11 +13,11 @@ suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
 source(args[1])
 
 
-do.filter <- function(sc){
-    if (!is.null(filt.lbatch.regexes)){
+do.filter <- function(sc) {
+    if (!is.null(filt.lbatch.regexes)) {
         lar <- filt.lbatch.regexes
         nn <- colnames(sc@expdata)
-        filt$LBatch <- lapply(1:length(lar), function(m){ return( nn[grep(lar[[m]], nn)] ) })
+        filt$LBatch <- lapply(1:length(lar), function(m) { return( nn[grep(lar[[m]], nn)] ) })
     }
 
     sc <- do.call(filterdata, c(sc, filt))
@@ -28,7 +28,7 @@ do.filter <- function(sc){
     filt.lib <- log10(colSums(as.matrix(getfdata(sc))))
     filt.feat <- log10(colSums(as.matrix(getfdata(sc)>0)))
 
-    if (filt.geqone){
+    if (filt.geqone) {
         filt.feat <- log10(colSums(as.matrix(getfdata(sc)>=1)))
     }
 
@@ -37,7 +37,7 @@ do.filter <- function(sc){
     ## (doesn't work, R rejects limits and norm data is too different to compare to exp data
     ##  so let them keep their own ranges)
 
-    ## betterrange <- function(floatval){
+    ## betterrange <- function(floatval) {
     ##     return(10 * (floor(floatval / 10) + 1))
     ## }
 
@@ -58,12 +58,12 @@ do.filter <- function(sc){
     print(tmp)
     ## required, for extracting midpoint
     unq <- unique(filt.feat)
-    if (length(unq) == 1){
+    if (length(unq) == 1) {
         abline(v=unq, col="red", lw=2)
         text(tmp$mids, table(filt.feat)[[1]] - 100, pos=1, paste(10^unq, "\nFeatures\nin remaining\nCells", sep=""), cex=0.8)
     }
 
-    if (filt.use.ccorrect){
+    if (filt.use.ccorrect) {
         par(mfrow=c(2,2))
         sc <- do.call(CCcorrect, c(sc, filt.ccc))
         print(plotdimsat(sc, change=T))
@@ -72,10 +72,10 @@ do.filter <- function(sc){
     return(sc)
 }
 
-do.cluster <- function(sc){
+do.cluster <- function(sc) {
     sc <- do.call(compdist, c(sc, clust.compdist))
     sc <- do.call(clustexp, c(sc, clust.clustexp))
-    if (clust.clustexp$sat){
+    if (clust.clustexp$sat) {
         print(plotsaturation(sc, disp=F))
         print(plotsaturation(sc, disp=T))
     }
@@ -83,9 +83,9 @@ do.cluster <- function(sc){
     return(sc)
 }
 
-do.outlier <- function(sc){
+do.outlier <- function(sc) {
     sc <- do.call(findoutliers, c(sc, outlier.findoutliers))
-    if (outlier.use.randomforest){
+    if (outlier.use.randomforest) {
         sc <- do.call(rfcorrect, c(sc, outlier.rfcorrect))
     }
     print(plotbackground(sc))
@@ -103,7 +103,7 @@ do.outlier <- function(sc){
     return(sc)
 }
 
-do.clustmap <- function(sc){
+do.clustmap <- function(sc) {
     sc <- do.call(comptsne, c(sc, cluster.comptsne))
     sc <- do.call(compfr, c(sc, cluster.compfr))
     sc <- do.call(compumap, c(sc, cluster.compumap))
@@ -111,7 +111,7 @@ do.clustmap <- function(sc){
 }
 
 
-mkgenelist <- function(sc){
+mkgenelist <- function(sc) {
     ## Layout
     test <- list()
     test$side = 4
@@ -121,7 +121,7 @@ mkgenelist <- function(sc){
     df <- c()
     options(cex = 1)
     plot.new()
-    lapply(unique(sc@cpart), function(n){
+    lapply(unique(sc@cpart), function(n) {
         dg <- clustdiffgenes(sc, cl=n, pvalue=genelist.pvalue)$dg
 
         dg.goi <- dg[dg$fc > genelist.foldchange,]
@@ -142,7 +142,7 @@ mkgenelist <- function(sc){
 }
 
 
-writecellassignments <- function(sc){
+writecellassignments <- function(sc) {
     dat <- sc@cluster$kpart
     tab <- data.frame(row.names = NULL,
                       cells = names(dat),
@@ -156,7 +156,7 @@ writecellassignments <- function(sc){
 
 pdf(out.pdf)
 
-if (use.filtnormconf){
+if (use.filtnormconf) {
     sc <- do.filter(sc)
     message(paste(" - Source:: genes:",nrow(sc@expdata),", cells:",ncol(sc@expdata)))
     message(paste(" - Filter:: genes:",nrow(as.matrix(getfdata(sc))),", cells:",ncol(as.matrix(getfdata(sc)))))
@@ -166,7 +166,7 @@ if (use.filtnormconf){
     write.table(as.matrix(sc@ndata), file=out.table, col.names=NA, row.names=T, sep="\t", quote=F)
 }
 
-if (use.cluster){
+if (use.cluster) {
     par(mfrow=c(2,2))
     sc <- do.cluster(sc)
 

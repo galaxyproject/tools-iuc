@@ -3,7 +3,7 @@ VERSION = "0.1"
 
 args = commandArgs(trailingOnly = T)
 
-if (length(args) != 1){
+if (length(args) != 1) {
      message(paste("VERSION:", VERSION))
      stop("Please provide the config file")
 }
@@ -19,7 +19,7 @@ second$cex = 0.5
 second$line = 2.5
 
 
-do.pseudotemp <- function(sc){
+do.pseudotemp <- function(sc) {
     pdf(out.pdf)
     ltr <- Ltree(sc)
     ltr <- compentropy(ltr)

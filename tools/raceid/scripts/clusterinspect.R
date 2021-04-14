@@ -3,7 +3,7 @@ VERSION = "0.5"
 
 args = commandArgs(trailingOnly = T)
 
-if (length(args) != 1){
+if (length(args) != 1) {
      message(paste("VERSION:", VERSION))
      stop("Please provide the config file")
 }
@@ -16,12 +16,12 @@ test <- list()
 test$side = 3
 test$line = 3
 
-do.plotting <- function(sc){
+do.plotting <- function(sc) {
 
     sc.tmp <- sc
 
     ## If it's a subset, we need to get clever and subset specific parts
-    if (!(is.null(plotting.cln) || is.na(plotting.cln))){
+    if (!(is.null(plotting.cln) || is.na(plotting.cln))) {
         cellstokeep <- names(sc.tmp@cpart[sc.tmp@cpart %in% plotting.cln])
 
         ## Subselect partitions for initial and final clusters
@@ -50,11 +50,11 @@ do.plotting <- function(sc){
 }
 
 
-do.inspect.symbolmap <- function(sc){
-    if (!is.null(plotsym.use.typeremoveregex)){
+do.inspect.symbolmap <- function(sc) {
+    if (!is.null(plotsym.use.typeremoveregex)) {
         plotsym$types = sub(plotsym.use.typeremoveregex, "", colnames(sc@ndata))
 
-        if (!is.null(plotsym.use.typeremoveregex.subselect)){
+        if (!is.null(plotsym.use.typeremoveregex.subselect)) {
             plotsym$subset = plotsym$types[grep(plotsym.use.typeremoveregex.subselect, plotsym$types)]
         }
     }
@@ -66,21 +66,21 @@ do.inspect.symbolmap <- function(sc){
     print(do.call(mtext, c("Symbols FR", test)))
 }
 
-do.inspect.diffgene <- function(sc){
+do.inspect.diffgene <- function(sc) {
 
-    getSubNames <- function(lob, sc){
+    getSubNames <- function(lob, sc) {
         use.names <- NULL
-        if (!is.null(lob$manual)){
+        if (!is.null(lob$manual)) {
             use.names <- lob$manual
         }
-        else if (!is.null(lob$regex)){
+        else if (!is.null(lob$regex)) {
             nm <- colnames(sc@ndata)
             use.names <- nm[grep(lob$regex, nm)]
         }
-        else if (!is.null(lob$cln)){
+        else if (!is.null(lob$cln)) {
             use.names <- names(sc@cpart)[sc@cpart %in% lob$cln]
         }
-        if (is.null(use.names)){
+        if (is.null(use.names)) {
             stop("A or B names not given!")
         }
         return(use.names)
@@ -98,9 +98,9 @@ do.inspect.diffgene <- function(sc){
 }
 
 
-do.inspect.genesofinterest <- function(sc){
-    if (is.null(plotexp$n)){ ## No title, and one gene? Use gene name
-        if (length(plotexp$g) == 1){
+do.inspect.genesofinterest <- function(sc) {
+    if (is.null(plotexp$n)) { ## No title, and one gene? Use gene name
+        if (length(plotexp$g) == 1) {
             plotexp$n <- plotexp$g
         } else {
             plotexp$n <- paste(plotexp$g, collapse=", ")
@@ -126,7 +126,7 @@ do.inspect.genesofinterest <- function(sc){
     print(do.call(plotexpmap, c(sc, plotexp)))
     print(do.call(mtext, c(paste("FR (Log)", title), test)))
 
-    if (!is.null(plotmarkg$samples)){
+    if (!is.null(plotmarkg$samples)) {
         reg <- plotmarkg$samples
         plotmarkg$samples <- sub("(\\_\\d+)$","", colnames(sc@ndata))
     }

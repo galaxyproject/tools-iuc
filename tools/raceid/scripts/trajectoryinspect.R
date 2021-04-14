@@ -3,7 +3,7 @@ VERSION = "0.2"
 
 args = commandArgs(trailingOnly = T)
 
-if (length(args) != 1){
+if (length(args) != 1) {
      message(paste("VERSION:", VERSION))
      stop("Please provide the config file")
 }
@@ -19,8 +19,8 @@ second <- test
 second$cex = 0.5
 second$line = 2.5
 
-do.trajectoryinspection.stemID <- function(ltr){
-    makeBranchLink <- function(i,j,k){
+do.trajectoryinspection.stemID <- function(ltr) {
+    makeBranchLink <- function(i,j,k) {
         ingoing <- paste(sort(c(i,j)), collapse=".")
         outgoing <- paste(sort(c(j,k)), collapse=".")
         messed <- sort(c(ingoing,outgoing))
@@ -51,7 +51,7 @@ do.trajectoryinspection.stemID <- function(ltr){
     print(do.call(mtext, c("Final Clusters (F-R)", test)))
 }
 
-do.trajectoryinspection.fateID <- function(ltr){
+do.trajectoryinspection.fateID <- function(ltr) {
     n <- do.call(cellsfromtree, c(ltr, trjfid.cellsfrom))
     x <- getfdata(ltr@sc)
 
@@ -97,14 +97,14 @@ do.trajectoryinspection.fateID <- function(ltr){
     return(list(fs=fs,ps=ps,y=y,fcol=fcol,nf=n$f))
 }
 
-do.trajectoryinspection.fateID.sominspect <- function(domo){
+do.trajectoryinspection.fateID.sominspect <- function(domo) {
     g <- trjfidsomi.use.genes
-    if (class(g) == "numeric"){
+    if (class(g) == "numeric") {
         g <- names(ps$nodes)[ps$nodes %in% g]
     }
 
     typ = NULL
-    if (!is.null(trjfidsomi.use.types)){
+    if (!is.null(trjfidsomi.use.types)) {
         typ = sub(trjfidsomi.use.types,"", domo$nf)
     }
 
