@@ -31,6 +31,7 @@ do.plotting <- function(sc){
         ## Subselect tSNE and FR data
         ## - Note: no names in tsne, so we assume it follows the ndata naming
         sc.tmp@tsne <- sc.tmp@tsne[colnames(sc.tmp@ndata) %in% cellstokeep,]
+        sc.tmp@umap <- sc.tmp@umap[colnames(sc.tmp@ndata) %in% cellstokeep,]
         sc.tmp@fr <- sc.tmp@fr[cellstokeep,]
     }
 

@@ -106,6 +106,7 @@ do.outlier <- function(sc){
 do.clustmap <- function(sc){
     sc <- do.call(comptsne, c(sc, cluster.comptsne))
     sc <- do.call(compfr, c(sc, cluster.compfr))
+    sc <- do.call(compumap, c(sc, cluster.compumap))
     return(sc)
 }
 
