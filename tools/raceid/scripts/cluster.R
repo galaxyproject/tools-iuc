@@ -120,7 +120,7 @@ mkgenelist <- function(sc){
     df <- c()
     options(cex = 1)
     lapply(unique(sc@cpart), function(n){
-        dg <- clustdiffgenes(sc, cl=n, pvalue=genelist.pvalue)
+        dg <- clustdiffgenes(sc, cl=n, pvalue=genelist.pvalue)$dg
 
         dg.goi <- dg[dg$fc > genelist.foldchange,]
         dg.goi.table <- head(dg.goi, genelist.tablelim)
