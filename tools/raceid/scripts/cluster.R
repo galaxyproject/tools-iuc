@@ -9,7 +9,7 @@ if (length(args) != 1){
 }
 
 suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
-suppressWarnings(suppressPackageStartupMessages(require(scran)))
+## suppressWarnings(suppressPackageStartupMessages(require(scran)))
 source(args[1])
 
 
