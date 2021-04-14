@@ -1,7 +1,7 @@
 #!/usr/bin/env R
-VERSION = "0.5"
+VERSION <- "0.5"
 
-args = commandArgs(trailingOnly = T)
+args <- commandArgs(trailingOnly = T)
 
 if (length(args) != 1) {
      message(paste("VERSION:", VERSION))
@@ -9,7 +9,7 @@ if (length(args) != 1) {
 }
 
 suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
-## suppressWarnings(suppressPackageStartupMessages(require(scran)))
+## suppressWarnings(suppressPackageStartupMessages(require(scran)))  # nolint
 source(args[1])
 
 
@@ -29,45 +29,28 @@ do.filter <- function(sc) {
     filt.feat <- log10(colSums(as.matrix(getfdata(sc)>0)))
 
     if (filt.geqone) {
-        filt.feat <- log10(colSums(as.matrix(getfdata(sc)>=1)))
+        filt.feat <- log10(colSums(as.matrix(getfdata(sc)> = 1)))
     }
 
     br <- 50
-    ## Determine limits on plots based on the unfiltered data
-    ## (doesn't work, R rejects limits and norm data is too different to compare to exp data
-    ##  so let them keep their own ranges)
-
-    ## betterrange <- function(floatval) {
-    ##     return(10 * (floor(floatval / 10) + 1))
-    ## }
-
-    ## tmp.lib <- hist(raw.lib, breaks=br, plot=F)
-    ## tmp.feat <- hist(raw.feat, breaks=br, plot=F)
-
-    ## lib.y_lim <- c(0,betterrange(max(tmp.lib$counts)))
-    ## lib.x_lim <- c(0,betterrange(max(tmp.lib$breaks)))
-
-    ## feat.y_lim <- c(0,betterrange(max(tmp.feat$counts)))
-    ## feat.x_lim <- c(0,betterrange(max(tmp.feat$breaks)))
-
-    par(mfrow=c(2,2))
-    print(hist(raw.lib, breaks=br, main="RawData Log10 LibSize")) # , xlim=lib.x_lim, ylim=lib.y_lim)
-    print(hist(raw.feat, breaks=br, main="RawData Log10 NumFeat")) #, xlim=feat.x_lim, ylim=feat.y_lim)
-    print(hist(filt.lib, breaks=br, main="FiltData Log10 LibSize")) # , xlim=lib.x_lim, ylim=lib.y_lim)
-    tmp <- hist(filt.feat, breaks=br, main="FiltData Log10 NumFeat") # , xlim=feat.x_lim, ylim=feat.y_lim)
+    par(mfrow = c(2, 2))
+    print(hist(raw.lib, breaks = br, main = "RawData Log10 LibSize")) # , xlim = lib.x_lim, ylim = lib.y_lim)
+    print(hist(raw.feat, breaks = br, main = "RawData Log10 NumFeat")) #, xlim = feat.x_lim, ylim = feat.y_lim)
+    print(hist(filt.lib, breaks = br, main = "FiltData Log10 LibSize")) # , xlim = lib.x_lim, ylim = lib.y_lim)
+    tmp <- hist(filt.feat, breaks = br, main = "FiltData Log10 NumFeat") # , xlim = feat.x_lim, ylim = feat.y_lim)
     print(tmp)
     ## required, for extracting midpoint
     unq <- unique(filt.feat)
-    if (length(unq) == 1) {
-        abline(v=unq, col="red", lw=2)
-        text(tmp$mids, table(filt.feat)[[1]] - 100, pos=1, paste(10^unq, "\nFeatures\nin remaining\nCells", sep=""), cex=0.8)
+    if (length(unq) = = 1) {
+        abline(v = unq, col = "red", lw = 2)
+        text(tmp$mids, table(filt.feat)[[1]] - 100, pos = 1, paste(10^unq, "\nFeatures\nin remaining\nCells", sep = ""), cex = 0.8)
     }
 
     if (filt.use.ccorrect) {
-        par(mfrow=c(2,2))
+        par(mfrow = c(2, 2))
         sc <- do.call(CCcorrect, c(sc, filt.ccc))
-        print(plotdimsat(sc, change=T))
-        print(plotdimsat(sc, change=F))
+        print(plotdimsat(sc, change = T))
+        print(plotdimsat(sc, change = F))
     }
     return(sc)
 }
@@ -76,8 +59,8 @@ do.cluster <- function(sc) {
     sc <- do.call(compdist, c(sc, clust.compdist))
     sc <- do.call(clustexp, c(sc, clust.clustexp))
     if (clust.clustexp$sat) {
-        print(plotsaturation(sc, disp=F))
-        print(plotsaturation(sc, disp=T))
+        print(plotsaturation(sc, disp = F))
+        print(plotsaturation(sc, disp = T))
     }
     print(plotjaccard(sc))
     return(sc)
@@ -96,9 +79,9 @@ do.outlier <- function(sc) {
     test1$side = 3
     test1$line = 0  #1 #3
 
-    x <- clustheatmap(sc, final=FALSE)
+    x <- clustheatmap(sc, final = FALSE)
     print(do.call(mtext, c(paste("(Initial)"), test1)))  ## spacing is a hack
-    x <- clustheatmap(sc, final=TRUE)
+    x <- clustheatmap(sc, final = TRUE)
     print(do.call(mtext, c(paste("(Final)"), test1)))  ## spacing is a hack
     return(sc)
 }
@@ -122,35 +105,35 @@ mkgenelist <- function(sc) {
     options(cex = 1)
     plot.new()
     lapply(unique(sc@cpart), function(n) {
-        dg <- clustdiffgenes(sc, cl=n, pvalue=genelist.pvalue)$dg
+        dg <- clustdiffgenes(sc, cl = n, pvalue = genelist.pvalue)$dg
 
-        dg.goi <- dg[dg$fc > genelist.foldchange,]
+        dg.goi <- dg[dg$fc > genelist.foldchange, ]
         dg.goi.table <- head(dg.goi, genelist.tablelim)
         df <<- rbind(df, cbind(n, dg.goi.table))
 
         goi <- head(rownames(dg.goi.table), genelist.plotlim)
 
         print(plotmarkergenes(sc, goi))
-        buffer <- paste(rep("", 36), collapse=" ")
-        print(do.call(mtext, c(paste(buffer, "Cluster ",n), test)))  ## spacing is a hack
-        test$line=-1
+        buffer <- paste(rep("", 36), collapse = " ")
+        print(do.call(mtext, c(paste(buffer, "Cluster ", n), test)))  ## spacing is a hack
+        test$line = -1
         print(do.call(mtext, c(paste(buffer, "Sig. Genes"), test)))  ## spacing is a hack
-        test$line=0
-        print(do.call(mtext, c(paste(buffer, "(fc > ", genelist.foldchange,")"), test)))  ## spacing is a hack
+        test$line = 0
+        print(do.call(mtext, c(paste(buffer, "(fc > ", genelist.foldchange, ")"), test)))  ## spacing is a hack
     })
-    write.table(df, file=out.genelist, sep="\t", quote=F)
+    write.table(df, file = out.genelist, sep = "\t", quote = F)
 }
 
 
 writecellassignments <- function(sc) {
     dat <- sc@cluster$kpart
-    tab <- data.frame(row.names = NULL,
-                      cells = names(dat),
-                      cluster.initial = dat,
-                      cluster.final = sc@cpart,
+    tab <- data.frame(row.names = NULL, 
+                      cells = names(dat), 
+                      cluster.initial = dat, 
+                      cluster.final = sc@cpart, 
                       is.outlier = names(dat) %in% sc@out$out)
 
-    write.table(tab, file=out.assignments, sep="\t", quote=F, row.names = F)
+    write.table(tab, file = out.assignments, sep = "\t", quote = F, row.names = F)
 }
 
 
@@ -158,22 +141,22 @@ pdf(out.pdf)
 
 if (use.filtnormconf) {
     sc <- do.filter(sc)
-    message(paste(" - Source:: genes:",nrow(sc@expdata),", cells:",ncol(sc@expdata)))
-    message(paste(" - Filter:: genes:",nrow(as.matrix(getfdata(sc))),", cells:",ncol(as.matrix(getfdata(sc)))))
-    message(paste("         :: ",
-                  sprintf("%.1f", 100 * nrow(as.matrix(getfdata(sc)))/nrow(sc@expdata)), "% of genes remain,",
+    message(paste(" - Source:: genes:", nrow(sc@expdata), ", cells:", ncol(sc@expdata)))
+    message(paste(" - Filter:: genes:", nrow(as.matrix(getfdata(sc))), ", cells:", ncol(as.matrix(getfdata(sc)))))
+    message(paste("         :: ", 
+                  sprintf("%.1f", 100 * nrow(as.matrix(getfdata(sc)))/nrow(sc@expdata)), "% of genes remain, ", 
                   sprintf("%.1f", 100 * ncol(as.matrix(getfdata(sc)))/ncol(sc@expdata)), "% of cells remain"))
-    write.table(as.matrix(sc@ndata), file=out.table, col.names=NA, row.names=T, sep="\t", quote=F)
+    write.table(as.matrix(sc@ndata), file = out.table, col.names = NA, row.names = T, sep = "\t", quote = F)
 }
 
 if (use.cluster) {
-    par(mfrow=c(2,2))
+    par(mfrow = c(2, 2))
     sc <- do.cluster(sc)
 
-    par(mfrow=c(2,2))
+    par(mfrow = c(2, 2))
     sc <- do.outlier(sc)
 
-    par(mfrow=c(2,2), mar=c(1,1,6,1))
+    par(mfrow = c(2, 2), mar = c(1, 1, 6, 1))
     sc <- do.clustmap(sc)
 
     mkgenelist(sc)
