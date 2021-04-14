@@ -69,6 +69,9 @@ do.trajectoryinspection.fateID <- function(ltr){
     trjfid.plotheat$xpart = y
     trjfid.plotheat$xcol = fcol
 
+    test$side = 3
+    test$line = 3
+
     ##Plot average z-score for all modules derived from the SOM:
     trjfid.plotheat$x = ps$nodes.z
     trjfid.plotheat$ypart = unique(ps$nodes)
