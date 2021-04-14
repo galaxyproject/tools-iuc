@@ -38,7 +38,7 @@ do.pseudotemp <- function(sc){
     print(do.call(mtext, c("Colour = Level of Significance, Width = Link Score                                                                                                          ", second)))
     plotspantree(ltr)
     print(do.call(mtext, c("Minimum Spanning Tree", test)))
-    plotprojections(ltr)
+    plotspantree(ltr, projections=TRUE)
     print(do.call(mtext, c("Minimum Spanning Tree", test)))
     print(do.call(mtext, c("Cells Projected onto Links", second)))
     test$side = 4
