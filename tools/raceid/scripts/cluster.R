@@ -25,11 +25,11 @@ do.filter <- function(sc){
     ## Get histogram metrics for library size and number of features
     raw.lib <- log10(colSums(as.matrix(sc@expdata)))
     raw.feat <- log10(colSums(as.matrix(sc@expdata)>0))
-    filt.lib <- log10(colSums(getfdata(sc)))
-    filt.feat <- log10(colSums(getfdata(sc)>0))
+    filt.lib <- log10(colSums(as.matrix(getfdata(sc))))
+    filt.feat <- log10(colSums(as.matrix(getfdata(sc)>0)))
 
     if (filt.geqone){
-        filt.feat <- log10(colSums(getfdata(sc)>=1))
+        filt.feat <- log10(colSums(as.matrix(getfdata(sc)>=1)))
     }
 
     br <- 50
@@ -157,10 +157,10 @@ pdf(out.pdf)
 if (use.filtnormconf){
     sc <- do.filter(sc)
     message(paste(" - Source:: genes:",nrow(sc@expdata),", cells:",ncol(sc@expdata)))
-    message(paste(" - Filter:: genes:",nrow(getfdata(sc)),", cells:",ncol(getfdata(sc))))
+    message(paste(" - Filter:: genes:",nrow(as.matrix(getfdata(sc))),", cells:",ncol(as.matrix(getfdata(sc)))))
     message(paste("         :: ",
-                  sprintf("%.1f", 100 * nrow(getfdata(sc))/nrow(sc@expdata)), "% of genes remain,",
-                  sprintf("%.1f", 100 * ncol(getfdata(sc))/ncol(sc@expdata)), "% of cells remain"))
+                  sprintf("%.1f", 100 * nrow(as.matrix(getfdata(sc)))/nrow(sc@expdata)), "% of genes remain,",
+                  sprintf("%.1f", 100 * ncol(as.matrix(getfdata(sc)))/ncol(sc@expdata)), "% of cells remain"))
     write.table(as.matrix(sc@ndata), file=out.table, col.names=NA, row.names=T, sep="\t", quote=F)
 }
 
