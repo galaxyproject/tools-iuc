@@ -4,7 +4,6 @@
 import argparse
 import json
 import subprocess
-
 from datetime import date
 from pathlib import Path
 
@@ -105,7 +104,7 @@ def download_metaphlan_db(data_tables, index, table_name, target_dp):
         table_name,
         dict(
             dbkey=index,
-            value='%s-%s' %(index, date.today().strftime("%d%m%Y")),
+            value='%s-%s' % (index, date.today().strftime("%d%m%Y")),
             name="MetaPhlAn clade-specific marker genes (%s)" % index,
             path=str(db_dp)))
 

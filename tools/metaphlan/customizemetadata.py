@@ -5,9 +5,7 @@ import argparse
 import bz2
 import json
 import pickle
-import pprint
 import re
-
 from pathlib import Path
 
 
@@ -24,7 +22,7 @@ def load_from_json(json_fp):
         data['markers'][m]['ext'] = set(data['markers'][m]['ext'])
 
     for t in data['taxonomy']:
-        if isinstance(data['taxonomy'][t],list):
+        if isinstance(data['taxonomy'][t], list):
             data['taxonomy'][t] = tuple(data['taxonomy'][t])
     return data
 
@@ -170,7 +168,7 @@ def add_marker(in_json_fp, out_json_fp, name, m_length, g_length, gca, k_name, k
     # parse genomes
     for i in range(genome_n):
         # add taxonomy of new genome
-        g_taxo_names = "k__%s|p__%s|c__%s|o__%s|f__%s|g__%s|s__%s|t__%s" %(
+        g_taxo_names = "k__%s|p__%s|c__%s|o__%s|f__%s|g__%s|s__%s|t__%s" % (
             k_name[i],
             p_name[i],
             c_name[i],
@@ -180,7 +178,7 @@ def add_marker(in_json_fp, out_json_fp, name, m_length, g_length, gca, k_name, k
             s_name[i],
             t_name[i]
         )
-        g_taxo_ids = "%s|%s|%s|%s|%s|%s|%s" %(
+        g_taxo_ids = "%s|%s|%s|%s|%s|%s|%s" % (
             k_id[i],
             p_id[i],
             c_id[i],
@@ -201,13 +199,13 @@ def add_marker(in_json_fp, out_json_fp, name, m_length, g_length, gca, k_name, k
         taxonomy['t'].add(t_name[i])
 
     # extract clade and taxon of marker
-    clade = '' # last level before taxomy of genomes diverge
-    taxon = '' # combination of levels before divergence
-    for l in ['k', 'p', 'c', 'o', 'f', 'g', 's','t']:
-        taxo = list(taxonomy[l])
+    clade = ''  # last level before taxomy of genomes diverge
+    taxon = ''  # combination of levels before divergence
+    for level in ['k', 'p', 'c', 'o', 'f', 'g', 's', 't']:
+        taxo = list(taxonomy[level])
         if len(taxo) == 1:
             clade = taxo[0]
-            taxon = "%s|%s__%s" % (taxon, l, taxo)
+            taxon = "%s|%s__%s" % (taxon, level, taxo)
 
     # add information about the new marker
     metadata['markers'][name] = {
@@ -245,7 +243,7 @@ def get_markers(marker_fp):
     # load markers
     with open(marker_fp, 'r') as marker_f:
         markers = marker_f.readlines()
-    
+
     # format markers
     markers = format_markers(markers)
 
@@ -268,7 +266,7 @@ def check_not_found_markers(found_markers, original_markers):
 
 def prune_taxonomy(in_taxonomy, taxon_s, gca_s):
     '''
-    Prune taxonomy to keep only listed taxonomy 
+    Prune taxonomy to keep only listed taxonomy
 
     :param in_taxonomy: dictionary with list of taxonomy
     :param taxon_s: set of taxons to keep
@@ -278,7 +276,7 @@ def prune_taxonomy(in_taxonomy, taxon_s, gca_s):
     kept_taxonomy = set()
     kept_taxons = set()
     kept_gca = set()
-    for t,v in in_taxonomy.items():
+    for t, v in in_taxonomy.items():
         # check if t match element in list of taxon_s
         kept_taxon = False
         for t_k in taxon_s:
@@ -289,7 +287,7 @@ def prune_taxonomy(in_taxonomy, taxon_s, gca_s):
                 kept_taxons.add(t_k)
                 break
         # check if GCA in the taxon id
-        s = re.search("GCA_\d+$", t)
+        s = re.search(r'GCA_\d+$', t)
         if s:
             gca = s[0]
             # check if GCA in taxon id is in the list GCA to keep
@@ -298,7 +296,7 @@ def prune_taxonomy(in_taxonomy, taxon_s, gca_s):
                 if not kept_taxon:
                     out_taxonomy[t] = v
                     kept_taxonomy.add(t)
-                    
+
     print('%s kept taxonomy' % len(kept_taxonomy))
     print('%s / %s taxons not found' % (len(taxon_s) - len(kept_taxons), len(taxon_s)))
     print('%s / %s GCA taxons not found' % (len(gca_s) - len(kept_gca), len(gca_s)))
@@ -315,12 +313,12 @@ def remove_markers(in_json_fp, marker_fp, out_json_fp, kept_marker_fp):
     :param kept_marker_fp: Path to file with kept markers
     '''
     in_metadata = load_from_json(in_json_fp)
-    
+
     # load markers
     markers_to_remove = set(get_markers(marker_fp))
     print('%s markers to remove' % len(markers_to_remove))
 
-    # keep 
+    # keep merged_taxon
     out_metadata = {
         'markers': {},
         'taxonomy': {},
@@ -366,12 +364,12 @@ def keep_markers(in_json_fp, marker_fp, out_json_fp):
     :param out_json_fp: Path to output JSON file
     '''
     in_metadata = load_from_json(in_json_fp)
-    
+
     # load markers
     markers_to_keep = set(get_markers(marker_fp))
     print('%s markers to keep' % len(markers_to_keep))
 
-    # keep 
+    # keep merged_taxon
     out_metadata = {
         'markers': {},
         'taxonomy': {},
