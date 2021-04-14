@@ -36,11 +36,15 @@ do.trajectoryinspection.stemID <- function(ltr){
         head(bra$diffgenes$z, trjsid.numdiffgenes),
         file=out.diffgenes)
 
-    par(mfrow = c(2,2), cex=0.5)
+    par(mfrow = c(3,2), cex=0.5)
     print(do.call(plotmap, c(bra$scl, final=FALSE, fr=FALSE)))
     print(do.call(mtext, c("Initial Clusters (tSNE)", test)))
     print(do.call(plotmap, c(bra$scl, final=TRUE, fr=FALSE)))
     print(do.call(mtext, c("Final Clusters (tSNE)", test)))
+    print(do.call(plotmap, c(bra$scl, final=FALSE, um=TRUE)))
+    print(do.call(mtext, c("Initial Clusters (UMAP)", test)))
+    print(do.call(plotmap, c(bra$scl, final=TRUE, um=TRUE)))
+    print(do.call(mtext, c("Final Clusters (UMAP)", test)))
     print(do.call(plotmap, c(bra$scl, final=FALSE, fr=TRUE)))
     print(do.call(mtext, c("Initial Clusters (F-R)", test)))
     print(do.call(plotmap, c(bra$scl, final=TRUE, fr=TRUE)))
