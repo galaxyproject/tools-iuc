@@ -88,8 +88,8 @@ do.inspect.diffgene <- function(sc) {  # nolint
         return(use_names)
     }
 
-    A <- getSubNames(gfdat_A_use, sc) # nolint
-    B <- getSubNames(gfdat_B_use, sc) # nolint
+    A <- getSubNames(gfdat.A.use, sc) # nolint
+    B <- getSubNames(gfdat.B.use, sc) # nolint
 
     fdat <- getfdata(sc, n = c(A, B))
     dexp <- diffexpnb(fdat, A = A, B = B)
