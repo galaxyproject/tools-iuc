@@ -17,7 +17,7 @@ do.filter <- function(sc) {
     if (!is.null(filt.lbatch.regexes)) {
         lar <- filt.lbatch.regexes
         nn <- colnames(sc@expdata)
-        filt$LBatch <- lapply(seq_len(lar), function(m) {
+        filt$LBatch <- lapply(1:length(lar), function(m) {  # nolint
             return(nn[grep(lar[[m]], nn)])})
     }
 
@@ -152,7 +152,7 @@ if (use.filtnormconf) {
     message(paste("         :: ",
                   sprintf("%.1f", 100 * nrow(as.matrix(
                                             getfdata(sc))) / nrow(sc@expdata)),
-                  "% of genes remain, ",
+                  "% of genes remain,",
                   sprintf("%.1f", 100 * ncol(as.matrix(
                                             getfdata(sc))) / ncol(sc@expdata)),
                   "% of cells remain"))
