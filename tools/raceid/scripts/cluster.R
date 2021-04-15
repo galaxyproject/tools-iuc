@@ -1,5 +1,5 @@
 #!/usr/bin/env R
-VERSION <- "0.5"
+VERSION <- "0.5" # nolint
 
 args <- commandArgs(trailingOnly = T)
 
@@ -13,7 +13,7 @@ suppressWarnings(suppressPackageStartupMessages(require(RaceID)))
 source(args[1])
 
 
-do.filter <- function(sc) {
+do.filter <- function(sc) { # nolint
     if (!is.null(filt.lbatch.regexes)) {
         lar <- filt.lbatch.regexes
         nn <- colnames(sc@expdata)
@@ -24,28 +24,29 @@ do.filter <- function(sc) {
     sc <- do.call(filterdata, c(sc, filt))
 
     ## Get histogram metrics for library size and number of features
-    raw.lib <- log10(colSums(as.matrix(sc@expdata)))
-    raw.feat <- log10(colSums(as.matrix(sc@expdata) > 0))
-    filt.lib <- log10(colSums(as.matrix(getfdata(sc))))
-    filt.feat <- log10(colSums(as.matrix(getfdata(sc) > 0)))
+    raw_lib <- log10(colSums(as.matrix(sc@expdata)))
+    raw_feat <- log10(colSums(as.matrix(sc@expdata) > 0))
+    filt_lib <- log10(colSums(as.matrix(getfdata(sc))))
+    filt_feat <- log10(colSums(as.matrix(getfdata(sc) > 0)))
 
     if (filt.geqone) {
-        filt.feat <- log10(colSums(as.matrix(getfdata(sc) >= 1)))
+        filt_feat <- log10(colSums(as.matrix(getfdata(sc) >= 1))) # nolint
     }
 
     br <- 50
     par(mfrow = c(2, 2))
-    print(hist(raw.lib, breaks = br, main = "RawData Log10 LibSize"))
-    print(hist(raw.feat, breaks = br, main = "RawData Log10 NumFeat"))
-    print(hist(filt.lib, breaks = br, main = "FiltData Log10 LibSize"))
-    tmp <- hist(filt.feat, breaks = br, main = "FiltData Log10 NumFeat")
+    print(hist(raw_lib, breaks = br, main = "RawData Log10 LibSize"))
+    print(hist(raw_feat, breaks = br, main = "RawData Log10 NumFeat"))
+    print(hist(filt_lib, breaks = br, main = "FiltData Log10 LibSize"))
+    tmp <- hist(filt_feat, breaks = br, main = "FiltData Log10 NumFeat")
     print(tmp)
     ## required, for extracting midpoint
-    unq <- unique(filt.feat)
+    unq <- unique(filt_feat)
     if (length(unq) == 1) {
         abline(v = unq, col = "red", lw = 2)
-        text(tmp$mids, table(filt.feat)[[1]] - 100, pos = 1,
-             paste(10^unq, "\nFeatures\nin remaining\nCells", sep = ""), cex = 0.8)
+        text(tmp$mids, table(filt_feat)[[1]] - 100, pos = 1,
+             paste(10^unq, "\nFeatures\nin remaining\nCells",
+                   sep = ""), cex = 0.8)
     }
 
     if (filt.use.ccorrect) {
@@ -57,7 +58,7 @@ do.filter <- function(sc) {
     return(sc)
 }
 
-do.cluster <- function(sc) {
+do.cluster <- function(sc) { # nolint
     sc <- do.call(compdist, c(sc, clust.compdist))
     sc <- do.call(clustexp, c(sc, clust.clustexp))
     if (clust.clustexp$sat) {
@@ -68,7 +69,7 @@ do.cluster <- function(sc) {
     return(sc)
 }
 
-do.outlier <- function(sc) {
+do.outlier <- function(sc) { # nolint
     sc <- do.call(findoutliers, c(sc, outlier.findoutliers))
     if (outlier.use.randomforest) {
         sc <- do.call(rfcorrect, c(sc, outlier.rfcorrect))
@@ -88,7 +89,7 @@ do.outlier <- function(sc) {
     return(sc)
 }
 
-do.clustmap <- function(sc) {
+do.clustmap <- function(sc) { # nolint
     sc <- do.call(comptsne, c(sc, cluster.comptsne))
     sc <- do.call(compfr, c(sc, cluster.compfr))
     sc <- do.call(compumap, c(sc, cluster.compumap))
@@ -109,11 +110,11 @@ mkgenelist <- function(sc) {
     lapply(unique(sc@cpart), function(n) {
         dg <- clustdiffgenes(sc, cl = n, pvalue = genelist.pvalue)$dg
 
-        dg.goi <- dg[dg$fc > genelist.foldchange, ]
-        dg.goi.table <- head(dg.goi, genelist.tablelim)
-        df <<- rbind(df, cbind(n, dg.goi.table))
+        dg_goi <- dg[dg$fc > genelist.foldchange, ]
+        dg_goi_table <- head(dg_goi, genelist.tablelim)
+        df <<- rbind(df, cbind(n, dg_goi_table))
 
-        goi <- head(rownames(dg.goi.table), genelist.plotlim)
+        goi <- head(rownames(dg_goi_table), genelist.plotlim)
 
         print(plotmarkergenes(sc, goi))
         buffer <- paste(rep("", 36), collapse = " ")
