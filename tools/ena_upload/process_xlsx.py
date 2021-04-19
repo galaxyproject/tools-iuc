@@ -3,7 +3,7 @@ import pathlib
 import sys
 
 import xlrd
-
+import yaml
 
 FILE_FORMAT = 'fastq'
 
@@ -40,11 +40,36 @@ def extract_data(xl_sheet, expected_columns):
     return data_dict
 
 
+def paste_xls2yaml(xlsx_path):
+    print('YAML -------------')
+    xls = xlrd.open_workbook(xlsx_path)
+    content_dict = {}
+    for sheet_name in xls.sheet_names():
+        if sheet_name == 'controlled_vocabulary':
+            continue
+        xls_sheet = xls.sheet_by_name(sheet_name)
+        sheet_contents_dict = {}
+        colnames = []
+        for col in range(xls_sheet.ncols):
+            colnames.append(xls_sheet.cell(0, col).value)
+        # skip first 2 rows (column names and suggestions)
+        for row_id in range(2, xls_sheet.nrows):
+            row_dict = {}
+            for col_id in range(0, xls_sheet.ncols):
+                row_dict[colnames[col_id]] = xls_sheet.cell(row_id, col_id).value
+            # should check for duplicate alias/ids?
+            sheet_contents_dict[row_id] = row_dict
+        content_dict[sheet_name] = sheet_contents_dict
+    yaml.dump(content_dict, sys.stdout)
+    print('YAML -------------')
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--form', dest='xlsx_path', required=True)
 parser.add_argument('--out_dir', dest='out_path', required=True)
 parser.add_argument('--action', dest='action', required=True)
 parser.add_argument('--vir', dest='viral_submission', required=False, action='store_true')
+parser.add_argument('--verbose', dest='verbose', required=False, action='store_true')
 args = parser.parse_args()
 
 xl_workbook = xlrd.open_workbook(args.xlsx_path)
@@ -171,3 +196,6 @@ studies_table.close()
 samples_table.close()
 experiments_table.close()
 runs_table.close()
+
+if args.verbose:
+    paste_xls2yaml(args.xlsx_path)
