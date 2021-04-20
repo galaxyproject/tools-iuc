@@ -148,6 +148,8 @@ action = args.action
 # ADD A TIMESTAMP TO THE ALIAS? SEEMS LIKE ENA REQUIRES ALL ENTRIES FOR A WEBIN TO HAVE UNIQUE IDS?
 # dt_oobj = datetime.now(tz=None)
 # timestamp = dt_oobj.strftime("%Y%m%d_%H:%M:%S")
+runs_included = []
+exp_included = []
 for study_alias, study in studies_dict.items():
     # study_alias = study_alias + '_' + timestamp
     studies_table.write('\t'.join([study_alias, action, 'ENA_accession', study['title'],
@@ -187,11 +189,23 @@ for sample_alias, sample in samples_dict.items():
                                                exp['library_construction_protocol'],
                                                exp['platform'], exp['instrument_model'],
                                                'submission_date_ENA']) + '\n')
+            exp_included.append(exp_alias)
             for run_alias, run in runs_dict.items():
                 if run['experiment_alias'] == exp_alias:
                     runs_table.write('\t'.join([run_alias, action, 'ena_run_accession', exp_alias,
                                                 run['file_name'], FILE_FORMAT, 'file_checksum',
                                                 'submission_date_ENA']) + '\n')
+                    runs_included.append(run_alias)
+
+# check if any experiment or run was not associated with any sample
+for run in runs_dict.keys():
+    if run not in runs_included:
+        print(f'The run {run} is listed in the runs section but not associated with any used experiment')
+
+for exp in experiments_dict.keys():
+    if exp not in exp_included:
+        print(f'The experiment {exp} is listed in the experiments section but not associated with any used sample')
+
 studies_table.close()
 samples_table.close()
 experiments_table.close()
