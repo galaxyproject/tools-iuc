@@ -1,10 +1,10 @@
+import argparse
 import json
 import os
-import argparse
-import sys
 import shlex
 import shutil
 import subprocess
+import sys
 
 
 def cluster_to_fasta(json_file, fasta_file, reference_name=None):
