@@ -2,22 +2,47 @@
 #
 # Data manager for reference data for the 'humann' Galaxy tools
 import argparse
-import datetime
 import json
-import shutil
 import subprocess
-import sys
 from datetime import date
 from pathlib import Path
 
-HUMANN2_REFERENCE_DATA = {
-    "full": "Full ChocoPhlAn for HUManN",
-    "DEMO": "Demo ChocoPhlAn for HUManN",
-    "uniref50_diamond": "Full UniRef50 for HUManN",
-    "uniref50_ec_filtered_diamond": "EC-filtered UniRef50 for HUManN",
-    "uniref90_diamond": "Full UniRef90 for HUManN",
-    "uniref90_ec_filtered_diamond": "EC-filtered UniRef90 for HUManN",
-    "DEMO_diamond": "Demo UniRef for HUManN"
+HUMANN_REFERENCE_DATA = {
+    "chocophlan": {
+        "full": "Full ChocoPhlAn for HUManN",
+        "DEMO": "Demo ChocoPhlAn for HUManN"
+    },
+    "uniref": {
+        "uniref50_diamond": "Full UniRef50 for HUManN",
+        "uniref50_ec_filtered_diamond": "EC-filtered UniRef50 for HUManN",
+        "uniref90_diamond": "Full UniRef90 for HUManN",
+        "uniref90_ec_filtered_diamond": "EC-filtered UniRef90 for HUManN",
+        "DEMO_diamond": "Demo UniRef for HUManN"
+    },
+    "utility_mapping": {
+        "full": {
+            "map_uniref50_uniref90": "Mapping (full) for UniRef50 from UniRef90",
+            "map_ko_uniref90": "Mapping (full) for KEGG Orthogroups (KOs) from UniRef90",
+            "map_eggnog_name": "Mapping (full) between EggNOG (including COGs) ids and names",
+            "map_uniref90_name": "Mapping (full) between UniRef90 ids and names",
+            "map_go_uniref90": "Mapping (full) for Gene Ontology (GO) from UniRef90",
+            "uniref90-tol-lca": "Mapping (full) for LCA for UniRef90",
+            "uniref50-tol-lca": "Mapping (full) for LCA for UniRef50",
+            "map_eggnog_uniref50": "Mapping (full) for EggNOG (including COGs) from UniRef50",
+            "map_pfam_uniref90": "Mapping (full) for Pfam domains from UniRef90",
+            "map_go_uniref50": "Mapping (full) for Gene Ontology (GO) from UniRef50",
+            "map_ko_name": "Mapping (full) between KEGG Orthogroups (KOs) ids and names",
+            "map_level4ec_uniref90": "Mapping (full) for Level-4 enzyme commission (EC) categories from UniRef90",
+            "map_go_name": "Mapping (full) between Gene Ontology (GO) ids and names",
+            "map_ko_uniref50": "Mapping (full) for KEGG Orthogroups (KOs) from UniRef50",
+            "map_level4ec_uniref50": "Mapping (full) for Level-4 enzyme commission (EC) categories from UniRef90",
+            "map_pfam_uniref50": "Mapping (full) for Pfam domains from UniRef50",
+            "map_eggnog_uniref90": "Mapping (full) for EggNOG (including COGs) from UniRef90",
+            "map_uniref50_name": "Mapping (full) between UniRef50 ids and names",
+            "map_ec_name": "Mapping (full) between Level-4 enzyme commission (EC) categories ids and names",
+            "map_pfam_name": "Mapping (full) between Pfam domains ids and names"
+        }
+    }
 }
 
 
@@ -118,14 +143,27 @@ def download_humann_db(data_tables, table_name, database, build, version, target
     # move db
     db_dp.rename(build_target_dp)
     # add details to data table
-    add_data_table_entry(
-        data_tables,
-        table_name,
-        dict(
-            dbkey=build,
-            value="%s-%s-%s-%s" %(database, build, version, date.today().strftime("%d%m%Y")),
-            name=HUMANN2_REFERENCE_DATA[build],
-            path=str(build_target_dp)))
+    if database != "utility_mapping":
+        add_data_table_entry(
+            data_tables,
+            table_name,
+            dict(
+                value="%s-%s-%s-%s" % (database, build, version, date.today().strftime("%d%m%Y")),
+                name=HUMANN_REFERENCE_DATA[database][build],
+                dbkey=build,
+                path=str(build_target_dp)))
+    elif args.database == "utility_mapping":
+        for x in build_target_dp.iterdir():
+            name = str(x.stem).split('.')[0]
+            dbkey = "%s-%s" % (build, name)
+            add_data_table_entry(
+                data_tables,
+                table_name,
+                dict(
+                    value="%s-%s-%s-%s" % (database, dbkey, version, date.today().strftime("%d%m%Y")),
+                    name=HUMANN_REFERENCE_DATA["utility_mapping"][build][name],
+                    dbkey=dbkey,
+                    path=str(x)))
 
 
 if __name__ == "__main__":
@@ -152,8 +190,10 @@ if __name__ == "__main__":
     data_tables = create_data_tables_dict()
     if args.database == "chocophlan":
         table_name = 'humann_nucleotide_database'
-    else:
+    elif args.database == "uniref":
         table_name = 'humann_protein_database'
+    elif args.database == "utility_mapping":
+        table_name = 'humann_utility_mapping'
     add_data_table(data_tables, table_name)
 
     # Fetch data from specified data sources
@@ -165,7 +205,6 @@ if __name__ == "__main__":
         args.build,
         args.version,
         target_dp)
-    print(data_tables)
 
     # Write output JSON
     print("Outputting JSON")
