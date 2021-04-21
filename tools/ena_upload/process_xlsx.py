@@ -107,9 +107,11 @@ samples_dict = extract_data(xl_sheet, samples_cols)
 xl_sheet = xl_workbook.sheet_by_name('ENA_experiment')
 if xl_sheet.nrows < 3:
     raise ValueError('No experiments found in experiments sheet')
-exp_columns = ['alias', 'title', 'study_alias', 'sample_alias', 'design_description', 'library_name',
-               'library_strategy', 'library_source', 'library_selection', 'library_layout',
-               'insert_size', 'library_construction_protocol', 'platform', 'instrument_model']
+exp_columns = ['alias', 'title', 'study_alias', 'sample_alias', 'design_description',
+               'library_name', 'library_strategy', 'library_source', 'library_selection',
+               'library_layout', 'insert_size', 'library_construction_protocol',
+               'platform', 'instrument_model']
+
 experiments_dict = extract_data(xl_sheet, exp_columns)
 
 # PARSE RUNS SHEET
@@ -196,28 +198,30 @@ for sample_alias, sample in samples_dict.items():
                                                'submission_date_ENA']) + '\n')
             exp_included.append(exp_alias)
             for run_alias, run in runs_dict.items():
-                # multiple 
-                # TODO check that the experiments library_layout is set to paired
+                # check that the experiments library_layout is set to paired
                 # when multiple entries are associated with the same run alias
                 if not isinstance(run, list):
                     runs_list = [run]
                 else:
-                    runs_list = run 
+                    runs_list = run
                 for run_entry in runs_list:
                     if run_entry['experiment_alias'] == exp_alias:
-                        runs_table.write('\t'.join([run_alias, action, 'ena_run_accession', exp_alias,
-                                                    run_entry['file_name'], FILE_FORMAT, 'file_checksum',
+                        runs_table.write('\t'.join([run_alias, action, 'ena_run_accession',
+                                                    exp_alias, run_entry['file_name'],
+                                                    FILE_FORMAT, 'file_checksum',
                                                     'submission_date_ENA']) + '\n')
                 runs_included.append(run_alias)
 
 # check if any experiment or run was not associated with any sample
 for run in runs_dict.keys():
     if run not in runs_included:
-        print(f'The run {run} is listed in the runs section but not associated with any used experiment')
+        print(f'The run {run} is listed in the runs section but not associated with any \
+              used experiment')
 
 for exp in experiments_dict.keys():
     if exp not in exp_included:
-        print(f'The experiment {exp} is listed in the experiments section but not associated with any used sample')
+        print(f'The experiment {exp} is listed in the experiments section but not associated \
+              with any used sample')
 
 studies_table.close()
 samples_table.close()
