@@ -36,7 +36,12 @@ def extract_data(xl_sheet, expected_columns):
             sheet_col_index = sheet_columns[expected_columns[col]]
             row_dict[expected_columns[col]] = xl_sheet.cell(row_id, sheet_col_index).value
         # should check for duplicate alias/ids?
-        data_dict[xl_sheet.cell(row_id, index_col).value] = row_dict
+        if xl_sheet.cell(row_id, index_col).value in data_dict.keys():
+            tmp = data_dict[xl_sheet.cell(row_id, index_col).value]
+            data_dict[xl_sheet.cell(row_id, index_col).value] = [tmp]
+            data_dict[xl_sheet.cell(row_id, index_col).value].append(row_dict)
+        else:
+            data_dict[xl_sheet.cell(row_id, index_col).value] = row_dict
     return data_dict
 
 
@@ -191,11 +196,19 @@ for sample_alias, sample in samples_dict.items():
                                                'submission_date_ENA']) + '\n')
             exp_included.append(exp_alias)
             for run_alias, run in runs_dict.items():
-                if run['experiment_alias'] == exp_alias:
-                    runs_table.write('\t'.join([run_alias, action, 'ena_run_accession', exp_alias,
-                                                run['file_name'], FILE_FORMAT, 'file_checksum',
-                                                'submission_date_ENA']) + '\n')
-                    runs_included.append(run_alias)
+                # multiple 
+                # TODO check that the experiments library_layout is set to paired
+                # when multiple entries are associated with the same run alias
+                if not isinstance(run, list):
+                    runs_list = [run]
+                else:
+                    runs_list = run 
+                for run_entry in runs_list:
+                    if run_entry['experiment_alias'] == exp_alias:
+                        runs_table.write('\t'.join([run_alias, action, 'ena_run_accession', exp_alias,
+                                                    run_entry['file_name'], FILE_FORMAT, 'file_checksum',
+                                                    'submission_date_ENA']) + '\n')
+                runs_included.append(run_alias)
 
 # check if any experiment or run was not associated with any sample
 for run in runs_dict.keys():
