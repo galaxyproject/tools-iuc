@@ -30,7 +30,6 @@ def get_model_list(
     url="https://api.github.com/repos/cov-lineages/pangoLEARN/releases",
 ):
     response = requests.get(url)
-    print(existing_release_tags)
     if response.status_code == 200:
         release_list = json.loads(response.text)
         release_info = [
@@ -43,7 +42,6 @@ def get_model_list(
             for e in release_list
             if e["tag_name"] not in existing_release_tags
         ]
-        print(release_info)
         return release_info
     else:
         response.raise_for_status()
@@ -95,6 +93,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_date", type=parse_date)
     parser.add_argument("--end_date", type=parse_date)
     parser.add_argument("--overwrite", default=False, action="store_true")
+    parser.add_argument('--pangolearn_format_version', default="1.0")
     parser.add_argument("datatable_name")
     parser.add_argument("galaxy_datamanager_filename")
     args = parser.parse_args()
@@ -144,6 +143,7 @@ if __name__ == "__main__":
             dict(
                 value=tag,
                 description=release["name"],
+                format_version=args.pangolearn_format_version,
                 path=output_directory + "/" + tag,
             )
         )
