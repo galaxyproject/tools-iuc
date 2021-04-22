@@ -82,7 +82,7 @@ def download_and_unpack(url, output_directory):
 
 
 def parse_date(d):
-    datetime.datetime.strptime(d, "%Y-%m-%d")
+    return datetime.datetime.strptime(d, "%Y-%m-%d")
 
 
 if __name__ == "__main__":
