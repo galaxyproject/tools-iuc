@@ -77,7 +77,7 @@ def download_and_unpack(url, output_directory):
             output_directory + "/" + pl_path + "/" + "pangoLEARN",
             output_directory + "/" + tmp_filename,
         )
-        shutil.rmtree(output_directory + '/' + pl_path)
+        shutil.rmtree(output_directory + "/" + pl_path)
         return tmp_filename
     else:
         response.raise_for_status()
@@ -110,8 +110,8 @@ if __name__ == "__main__":
         "data_tables"
     ].get(args.datatable_name, [])
 
-    # NOTE: the data_manager_dict["data_tables"][args.datatable_name] is not actually populated with the 
-    # contents of the existing data table, so the "no-overwrite" logic and the 
+    # NOTE: the data_manager_dict["data_tables"][args.datatable_name] is not actually populated with the
+    # contents of the existing data table, so the "no-overwrite" logic and the
     # only-download-what-we-don't-have logic does not in fact work. It is left but unused for now.
     if not args.overwrite:
         existing_release_tags = set(
