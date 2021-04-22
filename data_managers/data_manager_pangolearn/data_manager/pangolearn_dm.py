@@ -84,11 +84,13 @@ def download_and_unpack(url, output_directory):
 
 
 if __name__ == "__main__":
+    
+    parse_date = lambda d: datetime.datetime.strptime(d, '%Y-%m-%d')
     parser = argparse.ArgumentParser()
     parser.add_argument("--testmode", default=False, action="store_true")
     parser.add_argument("--latest", default=False, action="store_true")
-    parser.add_argument("--start_date", type=datetime.datetime.fromisoformat)
-    parser.add_argument("--end_date", type=datetime.datetime.fromisoformat)
+    parser.add_argument("--start_date", type=parse_date)
+    parser.add_argument("--end_date", type=parse_date)
     parser.add_argument("--overwrite", default=False, action="store_true")
     parser.add_argument("datatable_name")
     parser.add_argument("galaxy_datamanager_filename")
