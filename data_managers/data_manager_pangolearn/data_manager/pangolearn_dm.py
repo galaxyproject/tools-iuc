@@ -83,9 +83,12 @@ def download_and_unpack(url, output_directory):
         response.raise_for_status()
 
 
+def parse_date(d):
+    datetime.datetime.strptime(d, "%Y-%m-%d")
+
+
 if __name__ == "__main__":
-    
-    parse_date = lambda d: datetime.datetime.strptime(d, '%Y-%m-%d')
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--testmode", default=False, action="store_true")
     parser.add_argument("--latest", default=False, action="store_true")
