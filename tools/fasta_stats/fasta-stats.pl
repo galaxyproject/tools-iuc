@@ -47,7 +47,7 @@ process($seq) if $n;
 # sort length array 
 # (should use hash here for efficiency with huge no of short reads?)
 
-@len = sort { $a <=> $b } @len;
+@len = sort { $b <=> $a } @len;
 
 # compute more stats
 
@@ -62,12 +62,12 @@ if (@len) {
   
   # calculate n50
   my $thresh = int 0.5 * $stat{'num_bp'};
-  $stat{'len_N50'} = &calc_x50(@len, $thresh);
+  ($stat{'len_N50'}, $stat{'L50'}) = &calc_x50(\@len, $thresh);
   
   #calculate NG50
   if ($calc_ng50) {
-    my $thresh = int 0.5 * $genome_size * 1000000;
-    $stat{'len_NG50'} = &calc_x50(@len, $thresh);
+    my $thresh = int 0.5 * $genome_size;
+    ($stat{'len_NG50'}, $stat{'LG50'}) = &calc_x50(\@len, $thresh);
   }
 }
 
@@ -101,15 +101,16 @@ sub process {
 # N50/NG50 calculation sub
 
 sub calc_x50{
-  my @x = shift;
+  my $ref = shift;
+  my @x = @$ref;
   my $thresh = shift;
   my $cum=0;
   for my $i (0 .. $#x) {
     $cum += $x[$i];
     if ($cum >= $thresh) {
-      return $x[$i];
+      return $x[$i], $i+1;
     }
   }
-  return 0;
+  return (0,0);
 }
 
