@@ -66,7 +66,7 @@ if (@len) {
   
   #calculate NG50
   if ($calc_ng50) {
-    my $thresh = int 0.5 * $genome_size * 1000000;
+    my $thresh = int 0.5 * $genome_size;
     $stat{'len_NG50'} = &calc_x50(\@len, $thresh);
   }
 }
