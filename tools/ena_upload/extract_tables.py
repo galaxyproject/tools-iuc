@@ -83,11 +83,15 @@ for study_index, study in enumerate(studies_dict):
                                                'submission_date_ENA']) + '\n')
             run_index = 0
             # exp['runs'] is a list of lists
-            for run in exp['runs']:
+            for (base_run,run_files) in exp['runs']:
                 run_index += 1
-                run_alias = '.'.join(['run_' + str(run_index), str(exp_index), str(sample_index)]) \
+                if base_run != '':
+                    run_alias = '_'.join([str(base_run), str(run_index), str(exp_index), str(sample_index)]) \
                             + '_' + timestamp
-                for file_entry in run:
+                else:
+                    run_alias = '_'.join(['run_' + str(run_index), str(exp_index), str(sample_index)]) \
+                            + '_' + timestamp
+                for file_entry in run_files:
                     runs_table.write('\t'.join([run_alias, action, 'ena_run_accession', exp_alias,
                                                 file_entry, FILE_FORMAT, 'file_checksum',
                                                 'submission_date_ENA']) + '\n')
