@@ -86,9 +86,9 @@ for study_index, study in enumerate(studies_dict):
             for (base_run, run_files) in exp['runs']:
                 run_index += 1
                 if base_run != '':
-                    run_alias = '_'.join([str(base_run), str(run_index), str(exp_index),
-                                          str(sample_index)]) + '_' + timestamp
+                    run_alias = base_run
                 else:
+                    # no alias provided, generated a unique one
                     run_alias = '_'.join(['run_' + str(run_index), str(exp_index),
                                           str(sample_index)]) + '_' + timestamp
                 for file_entry in run_files:
