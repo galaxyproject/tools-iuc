@@ -150,19 +150,18 @@ def download_humann_db(data_tables, table_name, database, build, version, target
             dict(
                 value="%s-%s-%s-%s" % (database, build, version, date.today().strftime("%d%m%Y")),
                 name=HUMANN_REFERENCE_DATA[database][build],
-                dbkey=build,
+                dbkey=version,
                 path=str(build_target_dp)))
     elif args.database == "utility_mapping":
         for x in build_target_dp.iterdir():
             name = str(x.stem).split('.')[0]
-            dbkey = "%s-%s" % (build, name)
             add_data_table_entry(
                 data_tables,
                 table_name,
                 dict(
-                    value="%s-%s-%s-%s" % (database, dbkey, version, date.today().strftime("%d%m%Y")),
+                    value="%s-%s-%s-%s-%s" % (database, build, name, version, date.today().strftime("%d%m%Y")),
                     name=HUMANN_REFERENCE_DATA["utility_mapping"][build][name],
-                    dbkey=dbkey,
+                    dbkey=version,
                     path=str(x)))
 
 
