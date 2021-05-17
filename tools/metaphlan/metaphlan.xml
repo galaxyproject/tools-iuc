@@ -2,6 +2,32 @@
     <description>to profile the composition of microbial communities</description>
     <macros>
         <import>macros.xml</import>
+        <xml name="tax_lev">
+            <conditional name="tax_lev">
+                <param argument="--tax_lev" type="select" label="Taxonomic level for the relative abundance output">
+                    <option value="a" selected="true">All taxonomic levels</option>
+                    <option value="k">Kingdoms only</option>
+                    <option value="p">Phyla only</option>
+                    <option value="c">Classes only</option>
+                    <option value="o">Orders only</option>
+                    <option value="f">Families only</option>
+                    <option value="g">Genera only</option>
+                    <option value="s">Species only</option>
+                </param>
+                <when value="a">
+                    <param name="split_levels" type='boolean' checked="false" truevalue='true' falsevalue='false' 
+                        label="Generate a report for each taxonomic level?" help="It will be in addition to the default output"/>
+                </when>
+                <when value="k"/>
+                <when value="p"/>
+                <when value="c"/>
+                <when value="o"/>
+                <when value="f"/>
+                <when value="g"/>
+                <when value="s"/>
+            </conditional>
+        </xml>
+        <token name="@FILE_FORMATS@">fastq,fastq.gz,fastq.bz2,fasta,fasta.gz,fasta.bz2</token>
     </macros>
     <expand macro="edam_ontology"/>
     <expand macro="requirements"/>
@@ -110,7 +136,7 @@ metaphlan
 #end if
     -t '$analysis.analysis_type.t'
 #if $analysis.analysis_type.t == "rel_ab" or $analysis.analysis_type.t == "rel_ab_w_read_stats"
-    --tax_lev '$analysis.analysis_type.tax_lev'
+    --tax_lev '$analysis.analysis_type.tax_lev.tax_lev'
 #else if $analysis.analysis_type.t == "clade_specific_strain_tracker"
     --clade '$analysis.analysis_type.clade'
     #if str($analysis.analysis_type.min_ab) != ''
@@ -158,6 +184,27 @@ metaphlan
 #if $inputs.in.selector == "raw"
 &&
 mv 'bowtie2out' '$bowtie2out'
+#end if
+
+#if $analysis.analysis_type.tax_lev.tax_lev == 'a' and $analysis.analysis_type.tax_lev.split_levels
+&&
+mkdir 'split_levels'
+&&
+python '$__tool_directory__/formatoutput.py'
+    split_levels
+    --metaphlan_output '$output_file'
+    --outdir 'split_levels'
+    $out.legacy_output
+&&
+ls split_levels
+#end if
+
+#if $out.krona_output
+&&
+python '$__tool_directory__/formatoutput.py'
+    format_for_krona
+    --metaphlan_output '$output_file'
+    --krona_output '$krona_output_file'
 #end if
     ]]></command>
     <inputs>
@@ -294,6 +341,7 @@ mv 'bowtie2out' '$bowtie2out'
                 label="Report the profiling using the CAMI output format?"/>
             <param argument="--unknown_estimation" type='boolean' checked="false" truevalue='--unknown_estimation' falsevalue='' 
                 label="Scale relative abundances to the number of reads mapping to known clades in order to estimate unknowness?"/>
+            <param name="krona_output" type='boolean' checked="false" truevalue='true' falsevalue='false' label="Output for Krona?"/>
         </section>
     </inputs>
     <outputs>
@@ -305,9 +353,16 @@ mv 'bowtie2out' '$bowtie2out'
             <filter>inputs['in']['selector'] == "raw"</filter>
         </data>
         <data name="biom_output_file" format="biom1" label="${tool.name} on ${on_string}: BIOM file" />
+        <collection name="levels" type="list" label="${tool.name} on ${on_string}: Predicted taxon relative abundances at each taxonomic levels" >
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)" directory="split_levels/" format="tabular"/>
+            <filter>analysis['analysis_type']['tax_lev']['tax_lev'] == "a" and analysis['analysis_type']['tax_lev']['split_levels']</filter>
+        </collection>
+        <data name="krona_output_file" format="tabular" label="${tool.name} on ${on_string}: Predicted taxon relative abundances for Krona">
+            <filter>out['krona_output']</filter>
+        </data>
     </outputs>
     <tests>
-        <test expect_num_outputs="4">
+        <test expect_num_outputs="6">
             <section name="inputs">
                 <conditional name="in">
                     <param name="selector" value="raw"/>
@@ -329,6 +384,13 @@ mv 'bowtie2out' '$bowtie2out'
                 </conditional>
             </section>
             <section name="analysis">
+                <conditional name="analysis_type">
+                    <param name="t" value="rel_ab"/>
+                    <conditional name="tax_lev">
+                        <param name="tax_lev" value="a"/>
+                        <param name="split_levels" value="true"/>
+                    </conditional>
+                </conditional>
                 <param name="min_cu_len" value="2000"/>
                 <param name="organism_profiling" value="add_viruses"/>
                 <param name="stat" value="avg_g"/>
@@ -343,6 +405,7 @@ mv 'bowtie2out' '$bowtie2out'
                 <param name="legacy_output" value="false"/>
                 <param name="CAMI_format_output" value="false"/>
                 <param name="unknown_estimation" value="false"/>
+                <param name="krona_output" value="true"/>
             </section>
             <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-abundances.tabular" compare="sim_size">
                 <assert_contents>
@@ -363,6 +426,84 @@ mv 'bowtie2out' '$bowtie2out'
             <output name="biom_output_file" ftype="biom1" file="SRS014464-Anterior_nares.biom" compare="sim_size">
                 <assert_contents>
                     <has_text text="k__Bacteria|p__Proteobacteria|c__Gammaproteobacteria|o__Pseudomonadales|f__Moraxellaceae|g__Moraxella|s__Moraxella_lacunata"/>
+                </assert_contents>
+            </output>
+            <output_collection name="levels" type="list" >
+                <element name="all" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="Gammaproteobacteria"/>
+                        <has_text text="Corynebacterium accolens"/>
+                        <has_n_columns n="17"/>
+                    </assert_contents>
+                </element>
+                <element name="kingdom" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="kingdom_id"/>
+                        <has_text text="Bacteria"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+                <element name="phylum" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="phylum_id"/>
+                        <not_has_text text="kingdom_id"/>
+                        <has_text text="Firmicutes"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+                <element name="class" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="class_id"/>
+                        <not_has_text text="phylum_id"/>
+                        <has_text text="Actinobacteria"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+                <element name="order" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="order_id"/>
+                        <not_has_text text="class_id"/>
+                        <has_text text="Propionibacteriales"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+                <element name="family" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="family_id"/>
+                        <not_has_text text="order"/>
+                        <has_text text="Propionibacteriaceae"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+                <element name="genus" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="genus_id"/>
+                        <not_has_text text="family"/>
+                        <has_text text="Cutibacterium"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+                <element name="species" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="species_id"/>
+                        <not_has_text text="genus"/>
+                        <has_text text="Corynebacterium accolens"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+                <element name="strains" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="strains_id"/>
+                        <not_has_text text="species_id"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="krona_output_file" ftype="tabular">
+                <assert_contents>
+                    <not_has_text text="k__Bacteria"/>
+                    <has_text text="Corynebacterium accolens"/>
+                    <has_n_columns n="9"/>
                 </assert_contents>
             </output>
         </test>
@@ -389,6 +530,13 @@ mv 'bowtie2out' '$bowtie2out'
                 </conditional>
             </section>
             <section name="analysis">
+                <conditional name="analysis_type">
+                    <param name="t" value="rel_ab"/>
+                    <conditional name="tax_lev">
+                        <param name="tax_lev" value="a"/>
+                        <param name="split_levels" value="false"/>
+                    </conditional>
+                </conditional>
                 <param name="min_cu_len" value="2000"/>
                 <param name="organism_profiling" value="add_viruses"/>
                 <param name="stat" value="avg_g"/>
@@ -403,6 +551,7 @@ mv 'bowtie2out' '$bowtie2out'
                 <param name="legacy_output" value="false"/>
                 <param name="CAMI_format_output" value="false"/>
                 <param name="unknown_estimation" value="false"/>
+                <param name="krona_output" value="false"/>
             </section>
             <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-abundances.tabular" compare="sim_size">
                 <assert_contents>
@@ -452,6 +601,13 @@ mv 'bowtie2out' '$bowtie2out'
                 </conditional>
             </section>
             <section name="analysis">
+                <conditional name="analysis_type">
+                    <param name="t" value="rel_ab"/>
+                    <conditional name="tax_lev">
+                        <param name="tax_lev" value="a"/>
+                        <param name="split_levels" value="false"/>
+                    </conditional>
+                </conditional>
                 <param name="min_cu_len" value="2000"/>
                 <param name="organism_profiling" value="add_viruses"/>
                 <param name="stat" value="avg_g"/>
@@ -466,6 +622,7 @@ mv 'bowtie2out' '$bowtie2out'
                 <param name="legacy_output" value="false"/>
                 <param name="CAMI_format_output" value="false"/>
                 <param name="unknown_estimation" value="false"/>
+                <param name="krona_output" value="false"/>
             </section>
             <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-abundances.tabular" compare="sim_size">
                 <assert_contents>
@@ -506,6 +663,13 @@ mv 'bowtie2out' '$bowtie2out'
                 </conditional>
             </section>
             <section name="analysis">
+                <conditional name="analysis_type">
+                    <param name="t" value="rel_ab"/>
+                    <conditional name="tax_lev">
+                        <param name="tax_lev" value="a"/>
+                        <param name="split_levels" value="false"/>
+                    </conditional>
+                </conditional>
                 <param name="min_cu_len" value="2000"/>
                 <param name="organism_profiling" value="add_viruses"/>
                 <param name="stat" value="avg_g"/>
@@ -520,6 +684,7 @@ mv 'bowtie2out' '$bowtie2out'
                 <param name="legacy_output" value="false"/>
                 <param name="CAMI_format_output" value="false"/>
                 <param name="unknown_estimation" value="false"/>
+                <param name="krona_output" value="false"/>
             </section>
             <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-abundances.tabular" compare="sim_size">
                 <assert_contents>
@@ -557,6 +722,13 @@ mv 'bowtie2out' '$bowtie2out'
                 <param name="min_mapq_val" value="5"/>
             </section>
             <section name="analysis">
+                <conditional name="analysis_type">
+                    <param name="t" value="rel_ab"/>
+                    <conditional name="tax_lev">
+                        <param name="tax_lev" value="a"/>
+                        <param name="split_levels" value="false"/>
+                    </conditional>
+                </conditional>
                 <param name="min_cu_len" value="2000"/>
                 <param name="organism_profiling" value="add_viruses"/>
                 <param name="stat" value="avg_g"/>
@@ -571,6 +743,7 @@ mv 'bowtie2out' '$bowtie2out'
                 <param name="legacy_output" value="false"/>
                 <param name="CAMI_format_output" value="false"/>
                 <param name="unknown_estimation" value="false"/>
+                <param name="krona_output" value="false"/>
             </section>
             <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-abundances.tabular" compare="sim_size">
                 <assert_contents>
@@ -586,7 +759,7 @@ mv 'bowtie2out' '$bowtie2out'
                 </assert_contents>
             </output>
         </test>
-        <test expect_num_outputs="4">
+        <test expect_num_outputs="6">
             <section name="inputs">
                 <conditional name="in">
                     <param name="selector" value="raw"/>
@@ -608,6 +781,13 @@ mv 'bowtie2out' '$bowtie2out'
                 </conditional>
             </section>
             <section name="analysis">
+                <conditional name="analysis_type">
+                    <param name="t" value="rel_ab"/>
+                    <conditional name="tax_lev">
+                        <param name="tax_lev" value="a"/>
+                        <param name="split_levels" value="true"/>
+                    </conditional>
+                </conditional>
                 <param name="min_cu_len" value="2000"/>
                 <param name="organism_profiling" value="add_viruses"/>
                 <param name="stat" value="avg_g"/>
@@ -623,6 +803,7 @@ mv 'bowtie2out' '$bowtie2out'
                 <param name="legacy_output" value="true"/>
                 <param name="CAMI_format_output" value="false"/>
                 <param name="unknown_estimation" value="false"/>
+                <param name="krona_output" value="true"/>
             </section>
             <output name="output_file" ftype="tabular" file="SRS014464-Anterior_nares-legacy-abundances.tabular" compare="sim_size">
                 <assert_contents>
@@ -645,6 +826,77 @@ mv 'bowtie2out' '$bowtie2out'
             <output name="biom_output_file" ftype="biom1" file="SRS014464-Anterior_nares.biom" compare="sim_size">
                 <assert_contents>
                     <has_text text="k__Bacteria|p__Proteobacteria|c__Gammaproteobacteria|o__Pseudomonadales|f__Moraxellaceae|g__Moraxella|s__Moraxella_lacunata"/>
+                </assert_contents>
+            </output>
+            <output_collection name="levels" type="list" >
+                <element name="all" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="Gammaproteobacteria"/>
+                        <has_text text="Corynebacterium accolens"/>
+                        <has_n_columns n="9"/>
+                    </assert_contents>
+                </element>
+                <element name="kingdom" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="kingdom"/>
+                        <has_text text="Bacteria"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+                <element name="phylum" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="phylum"/>
+                        <has_text text="Firmicutes"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+                <element name="class" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="class"/>
+                        <has_text text="Actinobacteria"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+                <element name="order" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="order"/>
+                        <has_text text="Propionibacteriales"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+                <element name="family" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="family"/>
+                        <has_text text="Propionibacteriaceae"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+                <element name="genus" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="genus"/>
+                        <has_text text="Cutibacterium"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+                <element name="species" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="species"/>
+                        <has_text text="Corynebacterium accolens"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+                <element name="strains" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="strains"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="krona_output_file" ftype="tabular">
+                <assert_contents>
+                    <not_has_text text="k__Bacteria"/>
+                    <has_text text="Corynebacterium accolens"/>
+                    <has_n_columns n="9"/>
                 </assert_contents>
             </output>
         </test>
