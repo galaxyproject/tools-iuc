@@ -159,7 +159,7 @@ def download_humann_db(data_tables, table_name, database, build, version, target
                 data_tables,
                 table_name,
                 dict(
-                    value="%s-%s-%s-%s-%s" % (database, build, name, version, date.today().strftime("%d%m%Y")),
+                    value="%s-%s-%s-%s-%s%s" % (database, build, name, version, date.today().strftime("%d%m%Y"), x.suffix),
                     name=HUMANN_REFERENCE_DATA["utility_mapping"][build][name],
                     dbkey=version,
                     path=str(x)))
