@@ -47,8 +47,8 @@ with open(sys.argv[2]) as i:
                 last = pname
         if first == last:
             sys.exit(
-                line +
-                'is not a proper amplicon info line.'
+                line
+                + 'is not a proper amplicon info line.'
             )
         ret_lines.append(f'{first}\t{last}\n')
 
