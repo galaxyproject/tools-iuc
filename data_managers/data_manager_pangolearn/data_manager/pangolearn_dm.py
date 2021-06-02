@@ -93,7 +93,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_date", type=parse_date)
     parser.add_argument("--end_date", type=parse_date)
     parser.add_argument("--overwrite", default=False, action="store_true")
-    parser.add_argument('--pangolearn_format_version', default="1.0")
+    parser.add_argument('--pangolearn_format_version')
     parser.add_argument("datatable_name")
     parser.add_argument("galaxy_datamanager_filename")
     args = parser.parse_args()
@@ -139,11 +139,20 @@ if __name__ == "__main__":
     ]
     for release in releases_to_download:
         tag = download_and_unpack(release["tarball_url"], output_directory)
+        release_date = parse_date(tag)
+        if args.pangolearn_format_version is not None:
+            version = args.pangolearn_format_version
+        else:
+            # 2021-05-27 was the first release of pangoLEARN for pangolin 3, which changed DB format
+            if release_date >= datetime.datetime(2021, 5, 27):
+                version = '2.0'
+            else:
+                version = '1.0'
         data_manager_dict["data_tables"][args.datatable_name].append(
             dict(
                 value=tag,
                 description=release["name"],
-                format_version=args.pangolearn_format_version,
+                format_version=version,
                 path=output_directory + "/" + tag,
             )
         )
