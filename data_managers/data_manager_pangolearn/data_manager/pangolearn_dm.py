@@ -145,7 +145,7 @@ if __name__ == "__main__":
         else:
             # 2021-05-27 was the first release of pangoLEARN for pangolin 3, which changed DB format
             if release_date >= datetime.datetime(2021, 5, 27):
-                version = '2.0'
+                version = '3.0'
             else:
                 version = '1.0'
         data_manager_dict["data_tables"][args.datatable_name].append(
