@@ -563,7 +563,7 @@ filtered_count <- prefilter_count - postfilter_count
 print("Generating DGEList object")
 data$samples <- sampleanno
 data$samples$lib.size <- colSums(data$counts) # nolint
-data$samples$norm.factors <- 1 
+data$samples$norm.factors <- 1
 row.names(data$samples) <- colnames(data$counts)
 y <- new("DGEList", data)
 
