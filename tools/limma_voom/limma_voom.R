@@ -483,7 +483,7 @@ if (filt_cpm || filt_smpcount || filt_totcount) {
             pdf(cpm_pdf, width = 6.5, height = 10)
             par(mfrow = c(3, 2))
             for (i in seq_len(nsamples)) {
-                plot(data$counts[, i], myCPM[, i], xlim = c(0,50), ylim = c(0, 3), main = samplenames[i], xlab = "Raw counts", ylab = "CPM")
+                plot(data$counts[, i], myCPM[, i], xlim = c(0, 50), ylim = c(0, 3), main = samplenames[i], xlab = "Raw counts", ylab = "CPM")
                 abline(v = 10, col = "red", lty = 2, lwd = 2)
                 abline(h = opt$cpmReq, col = 4)
             }
@@ -557,13 +557,13 @@ if (filt_cpm || filt_smpcount || filt_totcount) {
 }
 
 postfilter_count <- nrow(data$counts)
-filtered_count <- prefilter_count-postfilter_count
+filtered_count <- prefilter_count - postfilter_count
 
 # Generating the DGEList object "y"
 print("Generating DGEList object")
 data$samples <- sampleanno
-data$samples$lib.size <- colSums(data$counts)
-data$samples$norm.factors <- 1
+data$samples$lib.size <- colSums(data$counts) # nolint
+data$samples$norm.factors <- 1 
 row.names(data$samples) <- colnames(data$counts)
 y <- new("DGEList", data)
 
@@ -671,7 +671,7 @@ for (i in 2L:(nsamples)) {
 }
 
 a1 <- suppressWarnings(cmdscale(as.dist(dd), k = min(ndim, 8), eig = TRUE))
-eigen <- data.frame(name = 1:min(ndim, 8), eigen = round(a1$eig[1:min(ndim, 8)]/sum(a1$eig), 2))
+eigen <- data.frame(name = 1:min(ndim, 8), eigen = round(a1$eig[1:min(ndim, 8)] / sum(a1$eig), 2))
 
 png(mdsscree_png, width = 1000, height = 500)
 par(mfrow = c(1, 2))
@@ -851,10 +851,10 @@ invisible(dev.off())
 if (want_libinfo) {
     efflibsize <- round(y$samples$lib.size * y$samples$norm.factors)
     libsizeinfo <- cbind(y$samples, EffectiveLibrarySize = efflibsize)
-    libsizeinfo$lib.size <- round(libsizeinfo$lib.size)
-    names(libsizeinfo)[names(libsizeinfo)=="sampleID"] <- "SampleID"
-    names(libsizeinfo)[names(libsizeinfo)=="lib.size"] <- "LibrarySize"
-    names(libsizeinfo)[names(libsizeinfo)=="norm.factors"] <- "NormalisationFactor"
+    libsizeinfo$lib.size <- round(libsizeinfo$lib.size) # nolint
+    names(libsizeinfo)[names(libsizeinfo) == "sampleID"] <- "SampleID"
+    names(libsizeinfo)[names(libsizeinfo) == "lib.size"] <- "LibrarySize"
+    names(libsizeinfo)[names(libsizeinfo) == "norm.factors"] <- "NormalisationFactor"
     write.table(libsizeinfo, file = "libsizeinfo", row.names = FALSE, sep = "\t", quote = FALSE)
 }
 
@@ -1213,14 +1213,14 @@ if (opt$pAdjOpt != "none") {
         list_item(temp_str)
     } else if (opt$pAdjOpt == "holm") {
         temp_str <- paste0("MD Plot highlighted genes are significant at adjusted ",
-                        "p-value of ", opt$pValReq,"  by the Holm(1979) ",
+                        "p-value of ", opt$pValReq, "  by the Holm(1979) ",
                         "method, and exhibit log2-fold-change of at least ",
                         opt$lfcReq, ".")
         list_item(temp_str)
     }
   } else {
         temp_str <- paste0("MD Plot highlighted genes are significant at p-value ",
-                      "of ", opt$pValReq," and exhibit log2-fold-change of at ",
+                      "of ", opt$pValReq, " and exhibit log2-fold-change of at ",
                       "least ", opt$lfcReq, ".")
         list_item(temp_str)
 }
