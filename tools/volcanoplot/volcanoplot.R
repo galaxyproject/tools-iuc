@@ -41,14 +41,14 @@ spec <- matrix(c(
 opt <- getopt(spec)
 
 # check if header is present by checking if P value column is numeric or not
-first_line <- read.delim(opt$input, header=FALSE, nrow=1)
+first_line <- read.delim(opt$input, header = FALSE, nrow = 1)
 pvalue <- first_line[, opt$pval_col]
 if (is.numeric(pvalue)) {
   print("No header row detected")
-  results = read.delim(opt$input, header=FALSE, sep="\t")
+  results <- read.delim(opt$input, header = FALSE)
 } else {
   print("Header row detected")
-  results = read.delim(opt$input, header=TRUE, sep="\t")
+  results <- read.delim(opt$input, header = TRUE)
 }
 
 # Below modified from http://www.gettinggeneticsdone.com/2016/01/repel-overlapping-text-labels-in-ggplot2.html
