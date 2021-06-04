@@ -9,6 +9,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from BioExt.uds import _align_par
 
+
 class HyPhySummary(object):
 
     def __init__(self, arguments, summary_json=None, annotation_json=None):
