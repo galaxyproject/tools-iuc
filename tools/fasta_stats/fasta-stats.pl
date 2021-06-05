@@ -8,6 +8,16 @@ use strict;
 use warnings;
 use List::Util qw(sum min max);
 
+
+#Parameters
+my $file = shift;
+my $calc_ng50 = 0;
+my $genome_size = 0;
+if (scalar(@ARGV) > 0){
+  $genome_size = $ARGV[0];
+  $calc_ng50 = 1;
+}
+
 # stat storage
 
 my $n=0;
@@ -17,7 +27,10 @@ my @len;
 
 # MAIN LOOP collecting sequences
 
-while (my $line = <ARGV>) {
+#open the file first
+open IN, $file or die{ "Couldn't open $file for reading\n$!" };
+
+while (my $line = <IN>) {
   chomp $line;
   if ($line =~ m/^\s*>/) {
     process($seq) if $n;
@@ -34,7 +47,7 @@ process($seq) if $n;
 # sort length array 
 # (should use hash here for efficiency with huge no of short reads?)
 
-@len = sort { $a <=> $b } @len;
+@len = sort { $b <=> $a } @len;
 
 # compute more stats
 
@@ -46,17 +59,15 @@ if (@len) {
   $stat{'len_max'} = $len[-1];
   $stat{'len_median'} = $len[int(@len/2)];
   $stat{'len_mean'} = int( $stat{'num_bp'} / $stat{'num_seq'} ); 
+  
   # calculate n50
-
-  $stat{'len_N50'} = 0;
-  my $cum=0;
   my $thresh = int 0.5 * $stat{'num_bp'};
-  for my $i (0 .. $#len) {
-    $cum += $len[$i];
-    if ($cum >= $thresh) {
-      $stat{'len_N50'} = $len[$i];
-      last;
-    }
+  ($stat{'len_N50'}, $stat{'L50'}) = &calc_x50(\@len, $thresh);
+  
+  #calculate NG50
+  if ($calc_ng50) {
+    my $thresh = int 0.5 * $genome_size;
+    ($stat{'len_NG50'}, $stat{'LG50'}) = &calc_x50(\@len, $thresh);
   }
 }
 
@@ -85,5 +96,21 @@ sub process {
   }
   # keep list of all lengths encountered
   push @len, length($s);    
+}
+
+# N50/NG50 calculation sub
+
+sub calc_x50{
+  my $ref = shift;
+  my @x = @$ref;
+  my $thresh = shift;
+  my $cum=0;
+  for my $i (0 .. $#x) {
+    $cum += $x[$i];
+    if ($cum >= $thresh) {
+      return $x[$i], $i+1;
+    }
+  }
+  return (0,0);
 }
 

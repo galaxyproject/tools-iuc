@@ -11,11 +11,16 @@ import sys
 from collections import OrderedDict
 from math import log10
 
-from scipy.stats import fisher_exact
+import scipy
+import scipy.stats
 
 
 def pval_to_phredqual(pval):
-    return round(-10 * log10(pval))
+    try:
+        ret = round(-10 * log10(pval))
+    except ValueError:
+        ret = 2147483647  # transform pval of 0.0 to max signed 32 bit int
+    return ret
 
 
 def parseInfoField(info):
@@ -33,7 +38,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
     to_skip = set(['SC', 'SR'])
     for i, line in enumerate(in_vcf):
         if i == 1:
-            out_vcf.write("##convert_VCF_info_fields=0.1\n")
+            out_vcf.write("##convert_VCF_info_fields=0.2\n")
         if line[0:2] == "##":
             if line[0:11] == "##INFO=<ID=":
                 id_ = line[11:].split(',')[0]
@@ -65,7 +70,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
                 for j, i in enumerate(range(2, len(sr_list), 2)):
                     dp4 = (sr_list[ref_fwd], sr_list[ref_rev], sr_list[i], sr_list[i + 1])
                     dp2x2 = [[dp4[0], dp4[1]], [dp4[2], dp4[3]]]
-                    _, p_val = fisher_exact(dp2x2)
+                    _, p_val = scipy.stats.fisher_exact(dp2x2)
                     sb = pval_to_phredqual(p_val)
 
                     as_ = (sc_list[ref_fwd], sc_list[ref_rev], sc_list[i], sc_list[i + 1])
@@ -82,7 +87,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
                     if dpsp == 0:
                         info.append("AF=NaN")
                     else:
-                        af = dp4[2] + dp4[3] / dpsp
+                        af = (dp4[2] + dp4[3]) / dpsp
                         info.append("AF=%.6f" % (af))
                     if dpspf == 0:
                         info.append("FAF=NaN")

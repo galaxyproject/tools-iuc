@@ -314,12 +314,20 @@ if user_mode == "single":
             out_table = pd.melt(data, id_vars=melt_ids, value_vars=melt_values)
         elif general_mode == "pivot":
             pivot_index = params["PIVOT"]["pivot_index"]
-            pivot_column = params["PIVOT"]["pivot_column"]
+            pivot_column = params["PIVOT"]["pivot_columns"]
             pivot_values = params["PIVOT"]["pivot_values"]
+            pivot_aggfunc = params["PIVOT"]["pivot_aggfunc"]
 
-            out_table = data.pivot(
-                index=pivot_index, columns=pivot_column, values=pivot_values
-            )
+            if not(pivot_aggfunc):
+                out_table = data.pivot(
+                    index=pivot_index, columns=pivot_column, values=pivot_values
+                )
+            else:
+                out_table = data.pivot_table(
+                    index=pivot_index, columns=pivot_column, values=pivot_values,
+                    aggfunc=pivot_aggfunc
+                )
+
         elif general_mode == "custom":
             custom_func = params["fulltable_customop"]
 

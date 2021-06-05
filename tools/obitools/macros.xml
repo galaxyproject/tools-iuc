@@ -6,12 +6,87 @@
         </requirements>
     </xml>
 
-    <token name="@TOOL_VERSION@">1.2.11</token>
+    <token name="@TOOL_VERSION@">1.2.13</token>
+    <token name="@PROFILE@">21.01</token>
 
     <xml name="stdio">
         <stdio>
             <exit_code range="1:" level="fatal" description="Error in Obitools execution" />
         </stdio>
+    </xml>
+
+    <token name="@INPUT_FORMATS@">fastqsanger,fastqsanger.gz,fastqsolexa,fastqsolexa.gz,fasta,fasta.gz</token>
+    <token name="@GUNZIP_INPUT@"><![CDATA[
+        #if $input.ext.endswith(".gz")
+            gunzip -c '$input' > input &&
+        #else
+            ln -s '$input' input &&
+        #end if
+    ]]></token>
+    <token name="@GZIP_OUTPUT@"><![CDATA[
+        #if $input.ext.endswith(".gz")
+        | gzip -c 
+    #end if
+    ]]></token>
+    
+    <!-- generate galaxy.json to determine output format
+        - by default same as input
+        - if out_format can be specified 
+          - fasta/fastq depending on $out_format (if != "")
+          - or fasta if the tool does not support choosing the output format, e.g. obiuniq which always outputs fasta
+        - gz if $input is zipped 
+    
+        A list of outputs to include in the json can be given by
+        setting a variable $outputs = [...] listing pairs of output names and the actual output
+        (defaults to [("output", $output)])
+    -->
+    <token name="@GENERATE_GALAXY_JSON@"><![CDATA[
+        #import json
+
+        #try:
+            #silent $outputs[0]
+        #except 
+            #set outputs = [("output", $output)]
+        #end try
+
+        #if $input.ext.startswith("fastq")
+            #set ext = "fastqsanger"
+        #else if $input.ext.startswith("fasta")
+            #set ext = "fasta"
+        #end if
+
+        #try
+            #if $out_format == "fasta"
+                #set ext = "fasta"
+            #else if $out_format == "fastq"
+                #set ext = "fastqsanger"
+            #end if
+        #except
+            #set ext = "fasta"
+        #end try
+
+        #if $input.ext.endswith(".gz")
+            #set ext = ext + ".gz"
+        #end if
+
+        #set gxy_json = {}
+        #for oname, o in $outputs
+            #silent gxy_json[oname] = {"ext": ext}
+        #end for
+        && echo '${json.dumps(gxy_json)}' >> galaxy.json
+    ]]></token>
+    
+    <token name="@OUT_FORMAT@"><![CDATA[
+        #if $out_format
+            --${out_format}-output
+        #end if
+    ]]></token>
+    
+    <xml name="out_format_macro">
+        <param name="out_format" type="select" optional="true" label="Output data type" help="For FASTA/Q the the default output type is the same as the input type">
+            <option value="fasta">fasta</option>
+            <option value="fastq">fastq</option>
+        </param>
     </xml>
 
     <token name="@OBITOOLS_LINK@">
@@ -105,15 +180,43 @@
         <option value="taxid">taxid</option>
     </xml>
 
-    <xml name="inputtype">
-        <option value="--genbank">genbank</option>
-        <option value="--embl">embl</option>
-        <option value="--sanger">sanger</option>
-        <option value="--solexa">solexa</option>
-        <option value="--ecopcr">ecopcr</option>
-        <option value="--ecopcrdb">ecopcrdb</option>
-        <option value="--fasta" selected="true">fasta</option>
+    <xml name="input_format_options_macro">
+        <section name="input_format_options" title="Input format options" expanded="false">
+            <param name="options_inputtype" type="select"  optional="true" label="Specify the input datatype" help="default: determine automatically (should only be necessay for non FASTA/FASTQ datasets)">
+                <option value="--genbank">genbank</option>
+                <option value="--embl">embl</option>
+                <option value="--sanger">sanger</option>
+                <option value="--solexa">solexa</option>
+                <option value="--ecopcr">ecopcr</option>
+                <option value="--ecopcrdb">ecopcrdb</option>
+                <option value="--fasta">fasta (including obitools fasta extentions)</option>
+                <option value="--raw-fasta">raw fasta (more tolerant format variant)</option>
+            </param>
+            <param name="options_seqtype" type="select" optional="true" label="Specify the sequence datatype" >
+                <option value="--nuc">nucleic</option>
+                <option value="--prot">protein</option>
+            </param>
+        </section>
     </xml>
+    
+    <token name="@INPUT_FORMAT@"><![CDATA[
+        #if $input_format_options.options_inputtype
+            $input_format_options.options_inputtype
+        #else
+            #if $input.ext.startswith("fasta")
+                --fasta
+            #else if $input.ext.startswith("fastqsolexa")
+                ## input file is in fastq nucleic format produced by solexa sequencer
+                --solexa
+            #else
+                ## input file is in sanger fastq nucleic format (standard fastq)
+                --sanger
+            #end if
+        #end if
+        #if $input_format_options.options_seqtype
+            $input_format_options.options_seqtype
+        #end if
+    ]]></token>
 
     <xml name="sanitizer">
         <sanitizer invalid_char="test">
