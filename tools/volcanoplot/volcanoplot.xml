@@ -1,61 +1,180 @@
-<tool id="volcanoplot" name="Volcano Plot" version="0.0.3">
+<tool id="volcanoplot" name="Volcano Plot" version="0.0.4">
     <description>create a volcano plot</description>
+    <edam_topics>
+        <edam_topic>topic_0092</edam_topic>
+    </edam_topics>
+    <edam_operations>
+        <edam_operation>operation_0337</edam_operation>
+    </edam_operations>
     <requirements>
-        <requirement type="package" version="3.1.0">r-ggplot2</requirement>
-        <requirement type="package" version="0.8.0">r-ggrepel</requirement>
-        <requirement type="package" version="0.7.8">r-dplyr</requirement>
-        <requirement type="package" version="1.20.2">r-getopt</requirement>
+        <requirement type="package" version="3.3.3">r-ggplot2</requirement>
+        <requirement type="package" version="0.9.1">r-ggrepel</requirement>
+        <requirement type="package" version="1.0.6">r-dplyr</requirement>
     </requirements>
     <version_command><![CDATA[
-echo $(R --version | grep version | grep -v GNU)", ggplot2 version" $(R --vanilla --slave -e "library(ggplot2); cat(sessionInfo()\$otherPkgs\$ggplot2\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", ggrepel version" $(R --vanilla --slave -e "library(ggrepel); cat(sessionInfo()\$otherPkgs\$ggrepel\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", dplyr version" $(R --vanilla --slave -e "library(dplyr); cat(sessionInfo()\$otherPkgs\$dplyr\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", getopt version" $(R --vanilla --slave -e "library(getopt); cat(sessionInfo()\$otherPkgs\$getopt\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
+echo $(R --version | grep version | grep -v GNU)", ggplot2 version" $(R --vanilla --slave -e "library(ggplot2); cat(sessionInfo()\$otherPkgs\$ggplot2\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", ggrepel version" $(R --vanilla --slave -e "library(ggrepel); cat(sessionInfo()\$otherPkgs\$ggrepel\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", dplyr version" $(R --vanilla --slave -e "library(dplyr); cat(sessionInfo()\$otherPkgs\$dplyr\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
     ]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
-
-Rscript '${__tool_directory__}/volcanoplot.R'
-
-    -i '$input'
-    -a $fdr_col
-    -p $pval_col
-    -c $lfc_col
-    -l $label_col
-    -s $signif_thresh
-    -x $lfc_thresh
-    #if $labels.label_select == 'file':
-        -f '$labels.label_file'
-    #else if $labels.label_select == 'signif':
-        #if $labels.top_num:
-            -t $labels.top_num
-        #end if
-    #else
-        -t 0
+    #if $out_options.rscript_out:
+        cp '${volcanoplot_script}' rscript.txt &&
     #end if
-    #if $plot_options.boxes:
-        -b
-    #end if
-    #if $plot_options.title:
-        -T '$plot_options.title'
-    #end if
-    #if $plot_options.xlab:
-        -X '$plot_options.xlab'
-    #end if
-    #if $plot_options.ylab:
-        -Y '$plot_options.ylab'
-    #end if
-    #if $plot_options.xmin:
-        -m '$plot_options.xmin'
-    #end if
-    #if $plot_options.xmax:
-        -M '$plot_options.xmax'
-    #end if
-    #if $plot_options.ymax:
-        -W '$plot_options.ymax'
-    #end if
-    #if $plot_options.legend:
-        -L '$plot_options.legend'
-    #end if
-    -z '$plot_options.legend_labs'
-
+    Rscript '${volcanoplot_script}'
 ]]></command>
+    <configfiles>
+        <configfile name="volcanoplot_script"><![CDATA[
+# Galaxy settings start ---------------------------------------------------
+
+# setup R error handling to go to stderr
+options(show.error.messages = F, error = function() {cat(geterrmessage(), file = stderr()); q("no", 1, F)})
+
+# we need that to not crash galaxy with an UTF8 error on German LC settings.
+loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
+
+
+# Load packages -----------------------------------------------------------
+
+suppressPackageStartupMessages({
+    library(dplyr)
+    library(ggplot2)
+    library(ggrepel)
+})
+
+
+# Import data  ------------------------------------------------------------
+
+# Check if header is present by checking if P value column is numeric or not
+
+first_line <- read.delim('$input', header = FALSE, nrow = 1)
+
+first_pvalue <- first_line[, $pval_col]
+
+if (is.numeric(first_pvalue)) {
+  print("No header row detected")
+  results <- read.delim('$input', header = FALSE)
+} else {
+  print("Header row detected")
+  results <- read.delim('$input', header = TRUE)
+}
+
+
+# Format data  ------------------------------------------------------------
+
+# Create columns from the column numbers specified
+results <- results %>% mutate(fdr = .[[$fdr_col]],
+                              pvalue = .[[$pval_col]],
+                              logfc = .[[$lfc_col]],
+                              labels = .[[$label_col]])
+
+# Get names for legend
+down <- unlist(strsplit('$plot_options.legend_labs', split = ","))[1]
+notsig <- unlist(strsplit('$plot_options.legend_labs', split = ","))[2]
+up <- unlist(strsplit('$plot_options.legend_labs', split = ","))[3]
+
+# Set colours
+colours <- setNames(c("cornflowerblue", "grey", "firebrick"), c(down, notsig, up))
+
+# Create significant (sig) column
+results <- mutate(results, sig = case_when(
+                                fdr < $signif_thresh & logfc > $lfc_thresh ~ up, 
+                                fdr < $signif_thresh & logfc < -$lfc_thresh ~ down, 
+                                TRUE ~ notsig))
+
+## R code below is left aligned for R script output
+
+#if $labels.label_select != "none"
+# Specify genes to label --------------------------------------------------
+    #if $labels.label_select == "file" 
+labelfile <- read.delim('$labels.label_file')
+results <- mutate(results, labels = ifelse(labels %in% labelfile[, 1], labels, ""))
+    #elif $labels.label_select == "signif"
+        #if $labels.top_num <= 0
+results <- mutate(results, labels = "")
+        #elif $labels.top_num > 0
+top <- results %>% 
+    filter(sig != notsig) %>% 
+    slice_min(order_by = pvalue, n = $labels.top_num)
+toplabels <- pull(top, labels)
+results <- mutate(results, labels = ifelse(labels %in% toplabels, labels, ""))
+        #else 
+results <- mutate(results, labels = ifelse(sig != notsig, labels, ""))
+        #end if
+     #end if
+#end if
+
+
+# Create plot -------------------------------------------------------------
+
+pdf("out.pdf")
+p <- ggplot(results, aes(x = logfc, y = -log10(pvalue))) +
+    geom_point(aes(colour = sig)) +
+    scale_color_manual(values = colours) +
+    scale_fill_manual(values = colours) +
+    theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        legend.key = element_blank())
+
+#if not '$plot_options.title'
+p <- p + ggtitle('$plot_options.title')
+#end if
+
+#if not '$plot_options.xlab'
+p <- p + xlab('$plot_options.xlab')
+#end if
+
+#if not '$plot_options.ylab'
+p <- p + ylab('$plot_options.ylab')
+#end if
+
+#if not '$plot_options.xmin' and '$plot_options.xmax'
+p <- p + xlim('$plot_options.xmin', '$plot_options.xmax')
+#end if
+
+#if not '$plot_options.ymax'
+p <- p + ylim(0, '$plot_options.ymax')
+#end if
+
+# Set legend title
+#if not '$plot_options.legend'
+p <- p + labs(colour = '$plot_options.legend')
+#else
+p <- p + labs(colour = "")
+#end if
+
+#if $labels.label_select != "none" 
+# Add gene labels in boxes
+    #if $plot_options.boxes 
+p <- p + geom_label_repel(aes(label = labels, fill = sig), 
+                          segment.colour = "black", 
+                          colour = "white", 
+                          min.segment.length = 0, 
+                          show.legend = FALSE)
+    #else
+# Add gene labels
+p <- p + geom_text_repel(aes(label = labels, col = sig), 
+                         min.segment.length = 0, 
+                         box.padding = 0.3, 
+                         point.padding = 0.3, 
+                         show.legend = FALSE)
+    #end if
+#end if
+
+print(p)
+dev.off()
+
+
+#if $out_options.rdata_out
+# Save RData -------------------------------------------------------------
+save.image(file="volcanoplot.RData")
+#end if
+
+
+# R and Package versions -------------------------------------------------
+sessionInfo()
+
+]]></configfile>
+</configfiles>
     <inputs>
         <param name="input" type="data" format="tabular" label="Specify an input file" />
         <param name="fdr_col" type="data_column" data_ref="input" label="FDR (adjusted P value)" />
@@ -89,12 +208,25 @@ Rscript '${__tool_directory__}/volcanoplot.R'
             <param name="legend" type="text" optional="True" label="Label for Legend Title"/>
             <param name="legend_labs" type="text" value="Down,Not Sig,Up" label="Labels for Legend" help="Labels in the legend can be specified. Default: Down,Not Sig,Up"/>
         </section>
+        <section name="out_options" expanded="false" title="Output Options">
+            <param name="rscript_out" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Output Rscript?" 
+                help="Output the R code used by the tool, can view and edit in R. Default: No"/>
+            <param name="rdata_out" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Output RData file?"
+                help="Output the data generated by the RScript code, can be loaded into R with load(). Default: No">
+            </param>
+        </section>
     </inputs>
     <outputs>
-        <data name="plot" format="pdf" from_work_dir="out.pdf" label="Volcano plot on ${on_string}"/>
+        <data name="plot" format="pdf" from_work_dir="out.pdf" label="${tool.name} on ${on_string}: PDF"/>
+        <data name="rscript" format="txt" from_work_dir="rscript.txt" label="${tool.name} on ${on_string}: Rscript">
+            <filter>out_options['rscript_out']</filter>
+        </data>
+        <data name="rdata" format="rdata" from_work_dir="volcanoplot.RData" label="${tool.name} on ${on_string}: RData">
+            <filter>out_options['rdata_out']</filter>
+        </data>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="1">
             <!-- Ensure default output works -->
             <param name="input" ftype="tabular" value="input.tab"/>
             <param name="fdr_col" value="4" />
@@ -102,9 +234,13 @@ Rscript '${__tool_directory__}/volcanoplot.R'
             <param name="lfc_col" value="2" />
             <param name="label_col" value="1" />
             <param name="lfc_thresh" value="0" />
-            <output name="plot" value= "out.pdf" compare="sim_size" />
+            <output name="plot">
+                <assert_contents>
+                    <has_size value= "933447" delta="1000" />
+                </assert_contents>
+            </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <!-- Ensure input labels and plot options work -->
             <param name="input" ftype="tabular" value="input.tab"/>
             <param name="fdr_col" value="4" />
@@ -114,7 +250,35 @@ Rscript '${__tool_directory__}/volcanoplot.R'
             <param name="lfc_thresh" value="0" />
             <param name="label_select" value="file"/>
             <param name="label_file" ftype="tabular" value="labels.tab" />
-            <output name="plot" value= "out2.pdf" compare="sim_size" />
+            <output name="plot">
+                <assert_contents>
+                    <has_size value= "936522" delta="1000" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="3">
+            <!-- Ensure rscript and rdata outputs work -->
+            <param name="input" ftype="tabular" value="input.tab"/>
+            <param name="fdr_col" value="4" />
+            <param name="pval_col" value="3" />
+            <param name="lfc_col" value="2" />
+            <param name="label_col" value="1" />
+            <param name="lfc_thresh" value="0" />
+            <param name="label_select" value="file"/>
+            <param name="label_file" ftype="tabular" value="labels.tab" />
+            <param name="rscript_out" value="True"/>
+            <param name="rdata_out" value="True"/>
+            <output name="plot">
+                <assert_contents>
+                    <has_size value= "936522" delta="1000" />
+                </assert_contents>
+            </output>
+            <output name="rscript" value= "out.rscript" lines_diff="8"/>
+            <output name="rdata">
+                <assert_contents>
+                    <has_size value= "589613" delta="1000" />
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -122,7 +286,7 @@ Rscript '${__tool_directory__}/volcanoplot.R'
 
 **What it does**
 
-This tool creates a Volcano plot using ggplot2. Points can be labelled via ggrepel.
+This tool creates a Volcano plot using ggplot2. Points can be labelled via ggrepel. It was inspired by this Getting Genetics Done `blog post`_.
 
 In statistics, a `Volcano plot`_ is a type of scatter-plot that is used to quickly identify changes in large data sets composed of replicate data. It plots significance versus fold-change on the y and x axes, respectively. These plots are increasingly common in omic experiments such as genomics, proteomics, and metabolomics where one often has a list of many thousands of replicate data points between two conditions and one wishes to quickly identify the most meaningful changes. A volcano plot combines a measure of statistical significance from a statistical test (e.g., a p value from an ANOVA model) with the magnitude of the change, enabling quick visual identification of those data-points (genes, etc.) that display large magnitude changes that are also statistically significant.
 
@@ -134,12 +298,14 @@ Source: Wikipedia
 
 **Inputs**
 
-A tabular file with a header row containing the columns below (additional columns may be present):
+A tabular file containing the columns below (additional columns may be present):
 
     * P value
     * FDR / adjusted P value
     * Log fold change
     * Labels (e.g. Gene symbols or IDs)
+
+The tool will auto-detect if a header is present, by checking if the first row in the P value column is a number or not. 
 
 All significant points, those meeting the specified FDR and Log Fold Change thresholds, will be coloured, red for upregulated, blue for downregulated. Users can choose to apply labels to the points (such as gene symbols) from the Labels column. To label all significant points, select "Significant" for the **Points to label** option, or to only label the top most significant specify a number under "Only label top most significant". Users can label any points of interest through selecting **Points to label** "Input from file" and providing a tabular labels file. The labels file must contain a header row and have the labels in the first column. These labels must match the labels in the main input file.
 
@@ -150,6 +316,7 @@ A PDF containing a Volcano plot like below.
 .. image:: $PATH_TO_IMAGES/volcano_plot.png
 
 .. _Volcano plot: https://en.wikipedia.org/wiki/Volcano_plot_(statistics)
+.. _blog post: https://gettinggeneticsdone.blogspot.com/2016/01/
 
     ]]></help>
     <citations>
