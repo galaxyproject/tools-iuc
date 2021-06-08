@@ -74,16 +74,26 @@ class HyPhySummary(object):
             if self.summary_json is not None:
                 if self.gene not in self.summary_json:
                     self.summary_json[self.gene] = {}
-            self.cfel_summary()
-            self.relax_summary()
-            self.busted_summary()
-            self.slac_summary()
-            self.fel_summary()
-            self.meme_summary()
-            self.meme_full_summary()
-            self.prime_summary()
-            self.fade_summary()
-            self.bgm_summary()
+            if self.cfel is not None:
+                self.cfel_summary()
+            if self.relax is not None:
+                self.relax_summary()
+            if self.busted is not None:
+                self.busted_summary()
+            if self.slac is not None:
+                self.slac_summary()
+            if self.fel is not None:
+                self.fel_summary()
+            if self.meme is not None:
+                self.meme_summary()
+            if self.meme_full is not None:
+                self.meme_full_summary()
+            if self.prime is not None:
+                self.prime_summary()
+            if self.fade is not None:
+                self.fade_summary()
+            if self.bgm is not None:
+                self.bgm_summary()
         except Exception:
             if self.gene:
                 del self.summary_json[self.gene]
@@ -94,6 +104,8 @@ class HyPhySummary(object):
 
     def cfel_summary(self):
         self.cfel = self._load_json(self.arguments.cfel)
+        if self.cfel is None:
+            return
         node_tags = {}
         _ = self._newick_parser(self.cfel['input']['trees']['0'], False, node_tags, self.cfel)['json']
         if self.summary_json is not None:
@@ -148,6 +160,8 @@ class HyPhySummary(object):
 
     def relax_summary(self):
         self.relax = self._load_json(self.arguments.relax)
+        if self.relax is None:
+            return
         if self.summary_json is not None:
             relax_d = {}
         for r, rr in self.summary_json[self.gene]['rates']['mean-omega'].items():
@@ -162,12 +176,16 @@ class HyPhySummary(object):
 
     def busted_summary(self):
         self.busted = self._load_json(self.arguments.busted)
+        if self.busted is None:
+            return
         if self.summary_json is not None:
             self.summary_json[self.gene]['rates']['busted'] = self.busted['fits']['Unconstrained model']['Rate Distributions']
             self.summary_json[self.gene]['busted'] = {'p': self.busted['test results']['p-value'], }
 
     def slac_summary(self):
         self.slac = self._load_json(self.arguments.slac)
+        if self.slac is None:
+            return
 
         def def_value():
             return defaultdict(int)
@@ -212,6 +230,8 @@ class HyPhySummary(object):
 
     def fel_summary(self):
         self.fel = self._load_json(self.arguments.fel)
+        if None in [self.fel, self.cfel]:
+            return
         for i, row in enumerate(self.fel['MLE']['content']['0']):
             if i in self.include_in_annotation:
                 self.annotation_json[self.include_in_annotation[i]]['bFEL'] = {'a': row[0], 'b': row[1], 'p': row[4]}
@@ -224,6 +244,8 @@ class HyPhySummary(object):
 
     def meme_summary(self):
         self.meme = self._load_json(self.arguments.meme)
+        if None in [self.fel, self.cfel, self.meme]:
+            return
         for i, row in enumerate(self.meme['MLE']['content']['0']):
             if i in self.include_in_annotation:
                 self.annotation_json[self.include_in_annotation[i]]['bMEME'] = {
@@ -255,6 +277,8 @@ class HyPhySummary(object):
 
     def meme_full_summary(self):
         self.meme_full = self._load_json(self.arguments.meme_full)
+        if None in [self.fel, self.cfel, self.meme, self.meme_full]:
+            return
         for i, row in enumerate(self.meme_full['MLE']['content']['0']):
             if i in self.include_in_annotation:
                 self.annotation_json[self.include_in_annotation[i]]['lMEME'] = {
@@ -286,6 +310,8 @@ class HyPhySummary(object):
 
     def prime_summary(self):
         self.prime = self._load_json(self.arguments.prime)
+        if self.prime is None:
+            return
         if self.summary_json is not None:
             h = self.prime['MLE']['headers']
             self.summary_json[self.gene]['prime-properties'] = [h[k][1].replace('Importance for ', '') for k in range(6, len(h), 3)]
@@ -303,6 +329,8 @@ class HyPhySummary(object):
 
     def fade_summary(self):
         self.fade = self._load_json(self.arguments.fade)
+        if self.fade is None:
+            return
         if len(self.include_in_annotation):
             for i in self.include_in_annotation:
                 report = self.annotation_json[self.include_in_annotation[i]]
@@ -313,6 +341,8 @@ class HyPhySummary(object):
 
     def bgm_summary(self):
         self.bgm = self._load_json(self.arguments.bgm)
+        if self.bgm is None:
+            return
         if self.summary_json is not None:
             try:
                 self.summary_json[self.gene]['bgm'] = self.bgm['MLE']['content']
@@ -320,6 +350,8 @@ class HyPhySummary(object):
                 self.summary_json[self.gene]['bgm'] = []
 
     def _load_json(self, filename):
+        if filename is None:
+            return None
         try:
             with open(filename, 'r') as fh:
                 return json.load(fh)
