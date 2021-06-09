@@ -30,6 +30,7 @@ options(show.error.messages = F, error = function() {cat(geterrmessage(), file =
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
 loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
+# Galaxy settings end -----------------------------------------------------
 
 # Load packages -----------------------------------------------------------
 
@@ -42,12 +43,14 @@ suppressPackageStartupMessages({
 
 # Import data  ------------------------------------------------------------
 
-# Check if header is present by checking if P value column is numeric or not
-
+#if $header.header_select == "yes"
+results <- read.delim('$input', header = TRUE)
+#elif $header.header_select == "no"
+results <- read.delim('$input', header = FALSE)
+#else
+# Auto-detect header by checking if P value column is numeric or not
 first_line <- read.delim('$input', header = FALSE, nrow = 1)
-
 first_pvalue <- first_line[, $pval_col]
-
 if (is.numeric(first_pvalue)) {
   print("No header row detected")
   results <- read.delim('$input', header = FALSE)
@@ -55,7 +58,7 @@ if (is.numeric(first_pvalue)) {
   print("Header row detected")
   results <- read.delim('$input', header = TRUE)
 }
-
+#end if
 
 # Format data  ------------------------------------------------------------
 
@@ -83,19 +86,23 @@ results <- mutate(results, sig = case_when(
 
 #if $labels.label_select != "none"
 # Specify genes to label --------------------------------------------------
+
     #if $labels.label_select == "file" 
 labelfile <- read.delim('$labels.label_file')
+# Label the genes of interest in results table
 results <- mutate(results, labels = ifelse(labels %in% labelfile[, 1], labels, ""))
     #elif $labels.label_select == "signif"
         #if $labels.top_num <= 0
 results <- mutate(results, labels = "")
         #elif $labels.top_num > 0
-top <- results %>% 
-    filter(sig != notsig) %>% 
-    slice_min(order_by = pvalue, n = $labels.top_num)
+# Get top genes by P value        
+top <- slice_min(results, order_by = pvalue, n = $labels.top_num)
+# Extract into vector
 toplabels <- pull(top, labels)
+# Label just the top genes in results table
 results <- mutate(results, labels = ifelse(labels %in% toplabels, labels, ""))
-        #else 
+        #else
+# Label all significant genes in results table
 results <- mutate(results, labels = ifelse(sig != notsig, labels, ""))
         #end if
      #end if
@@ -104,8 +111,11 @@ results <- mutate(results, labels = ifelse(sig != notsig, labels, ""))
 
 # Create plot -------------------------------------------------------------
 
-pdf("out.pdf")
-p <- ggplot(results, aes(x = logfc, y = -log10(pvalue))) +
+# Open PDF graphics device
+pdf("volcano_plot.pdf")
+
+# Set up base plot
+p <- ggplot(data = results, aes(x = logfc, y = -log10(pvalue))) +
     geom_point(aes(colour = sig)) +
     scale_color_manual(values = colours) +
     theme(panel.grid.major = element_blank(),
@@ -113,6 +123,21 @@ p <- ggplot(results, aes(x = logfc, y = -log10(pvalue))) +
         panel.background = element_blank(),
         axis.line = element_line(colour = "black"),
         legend.key = element_blank())
+
+#if $labels.label_select != "none"
+# Add gene labels
+    #if $plot_options.boxes 
+p <- p + geom_label_repel(data = filter(results, labels != ""), aes(label = labels),
+                          min.segment.length = 0,
+                          max.overlaps = Inf,
+                          show.legend = FALSE)
+    #else
+p <- p + geom_text_repel(data = filter(results, labels != ""), aes(label = labels),
+                         min.segment.length = 0,
+                         max.overlaps = Inf,
+                         show.legend = FALSE)
+    #end if
+#end if
 
 #if not '$plot_options.title'
 p <- p + ggtitle('$plot_options.title')
@@ -136,28 +161,14 @@ p <- p + ylim(0, '$plot_options.ymax')
 
 # Set legend title
 #if not '$plot_options.legend'
-p <- p + labs(colour = '$plot_options.legend')
+p <- p + theme(legend.title = '$plot_options.legend')
 #else
-p <- p + labs(colour = "")
-#end if
-
-#if $labels.label_select != "none" 
-# Add gene labels in boxes
-    #if $plot_options.boxes 
-p <- p + geom_label_repel(data = filter(results, labels != ""), aes(label = labels),
-                          min.segment.length = 0,
-                          max.overlaps = Inf,
-                          show.legend = FALSE)
-    #else
-# Add gene labels
-p <- p + geom_text_repel(data = filter(results, labels != ""), aes(label = labels),
-                         min.segment.length = 0,
-                         max.overlaps = Inf,
-                         show.legend = FALSE)
-    #end if
+p <- p + theme(legend.title = element_blank())
 #end if
 
 print(p)
+
+# Close PDF graphics device
 dev.off()
 
 
@@ -174,6 +185,13 @@ sessionInfo()
 </configfiles>
     <inputs>
         <param name="input" type="data" format="tabular" label="Specify an input file" />
+        <conditional name="header">
+            <param name="header_select" type="select" label="File has header?" help="Select to label significant points or input labels from file. Default: None">
+                <option value="auto" selected="True">Auto-detect</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+            </param>
+        </conditional>
         <param name="fdr_col" type="data_column" data_ref="input" label="FDR (adjusted P value)" />
         <param name="pval_col" type="data_column" data_ref="input" label="P value (raw)" />
         <param name="lfc_col" type="data_column" data_ref="input" label="Log Fold Change" />
@@ -215,7 +233,7 @@ sessionInfo()
         </section>
     </inputs>
     <outputs>
-        <data name="plot" format="pdf" from_work_dir="out.pdf" label="${tool.name} on ${on_string}: PDF"/>
+        <data name="plot" format="pdf" from_work_dir="volcano_plot.pdf" label="${tool.name} on ${on_string}: PDF"/>
         <data name="rscript" format="txt" from_work_dir="rscript.txt" label="${tool.name} on ${on_string}: Rscript">
             <filter>out_options['rscript_out']</filter>
         </data>
