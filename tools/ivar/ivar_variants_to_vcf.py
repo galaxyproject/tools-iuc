@@ -69,13 +69,12 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
         '##INFO=<ID=ALT_DP,Number=1,Type=Integer,Description="Depth of alternate base">\n'
         '##INFO=<ID=ALT_RV,Number=1,Type=Integer,Description="Deapth of alternate base on reverse reads">\n'
         '##INFO=<ID=ALT_QUAL,Number=1,Type=String,Description="Mean quality of alternate base">\n'
-        '##INFO=<ID=ALT_FREQ,Number=1,Type=String,Description="Frequency of alternate base">\n'
+        '##INFO=<ID=AF,Number=1,Type=String,Description="Frequency of alternate base">\n'
         '##FILTER=<ID=PASS,Description="Result of p-value <= 0.05">\n'
         '##FILTER=<ID=FAIL,Description="Result of p-value > 0.05">\n'
-        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
     )
     header += (
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + filename + "\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
     )
 
     varList = []
@@ -115,11 +114,9 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
                     'ALT_DP': line[7],
                     'ALT_RV': line[8],
                     'ALT_QUAL': line[9],
-                    'ALT_FREQ': line[10]
+                    'AF': line[10]
                 })
 
-                FORMAT = "GT"
-                SAMPLE = "1"
                 oline = (
                     CHROM
                     + "\t"
@@ -136,10 +133,6 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
                     + FILTER
                     + "\t"
                     + INFO
-                    + "\t"
-                    + FORMAT
-                    + "\t"
-                    + SAMPLE
                     + "\n"
                 )
                 writeLine = True
