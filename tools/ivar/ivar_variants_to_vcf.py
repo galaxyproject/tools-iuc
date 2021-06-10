@@ -20,14 +20,6 @@ def parse_args(args=None):
         help="Only output variants that PASS all filters.",
         action="store_true",
     )
-    parser.add_argument(
-        "-af",
-        "--allele_freq_thresh",
-        type=float,
-        dest="ALLELE_FREQ_THRESH",
-        default=0,
-        help="Only output variants where allele frequency greater than this number (default: 0).",
-    )
 
     return parser.parse_args(args)
 
@@ -60,7 +52,7 @@ def info_line(info_keys, kv):
     return ';'.join(info_strings)
 
 
-def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
+def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False):
     filename = os.path.splitext(FileIn)[0]
     header = (
         "##fileformat=VCFv4.2\n"
@@ -118,7 +110,7 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
             else:
                 FILTER = "FAIL"
 
-            if (passOnly and FILTER != "PASS") or (float(line[10]) < minAF):
+            if (passOnly and FILTER != "PASS"):
                 continue
             var = (CHROM, POS, REF, ALT)
             if var in vars_seen:
@@ -158,7 +150,7 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
 def main(args=None):
     args = parse_args(args)
     ivar_variants_to_vcf(
-        args.FILE_IN, args.FILE_OUT, args.PASS_ONLY, args.ALLELE_FREQ_THRESH
+        args.FILE_IN, args.FILE_OUT, args.PASS_ONLY
     )
 
 
