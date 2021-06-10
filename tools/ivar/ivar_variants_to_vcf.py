@@ -41,22 +41,38 @@ def make_dir(path):
                 raise
 
 
+def info_line(header, kv):
+    header_lines = header.split('\n')
+    info_keys = []
+    for line in header_lines:
+        if line.startswith('##INFO='):
+            match = re.match(r'##INFO=<ID=([^,]+),', line)
+            if match is not None:
+                info_keys.append(match.group(1))
+    info_strings = []
+    for key in info_keys:
+        if key not in kv:
+            raise ValueError("key {} missing from key value pairs".format(key))
+        info_strings.append('{}={}'.format(key, kv[key]))
+    return ';'.join(info_strings)
+
+
 def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
     filename = os.path.splitext(FileIn)[0]
     header = (
         "##fileformat=VCFv4.2\n"
         "##source=iVar\n"
         '##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">\n'
+        '##INFO=<ID=REF_DP,Number=1,Type=Integer,Description="Depth of reference base">\n'
+        '##INFO=<ID=REF_RV,Number=1,Type=Integer,Description="Depth of reference base on reverse reads">\n'
+        '##INFO=<ID=REF_QUAL,Number=1,Type=Integer,Description="Mean quality of reference base">\n'
+        '##INFO=<ID=ALT_DP,Number=1,Type=Integer,Description="Depth of alternate base">\n'
+        '##INFO=<ID=ALT_RV,Number=1,Type=Integer,Description="Deapth of alternate base on reverse reads">\n'
+        '##INFO=<ID=ALT_QUAL,Number=1,Type=String,Description="Mean quality of alternate base">\n'
+        '##INFO=<ID=ALT_FREQ,Number=1,Type=String,Description="Frequency of alternate base">\n'
         '##FILTER=<ID=PASS,Description="Result of p-value <= 0.05">\n'
         '##FILTER=<ID=FAIL,Description="Result of p-value > 0.05">\n'
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
-        '##FORMAT=<ID=REF_DP,Number=1,Type=Integer,Description="Depth of reference base">\n'
-        '##FORMAT=<ID=REF_RV,Number=1,Type=Integer,Description="Depth of reference base on reverse reads">\n'
-        '##FORMAT=<ID=REF_QUAL,Number=1,Type=Integer,Description="Mean quality of reference base">\n'
-        '##FORMAT=<ID=ALT_DP,Number=1,Type=Integer,Description="Depth of alternate base">\n'
-        '##FORMAT=<ID=ALT_RV,Number=1,Type=Integer,Description="Deapth of alternate base on reverse reads">\n'
-        '##FORMAT=<ID=ALT_QUAL,Number=1,Type=String,Description="Mean quality of alternate base">\n'
-        '##FORMAT=<ID=ALT_FREQ,Number=1,Type=String,Description="Frequency of alternate base">\n'
     )
     header += (
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + filename + "\n"
@@ -91,24 +107,19 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
                     FILTER = "PASS"
                 else:
                     FILTER = "FAIL"
-                INFO = "DP=" + line[11]
-                FORMAT = "GT:REF_DP:REF_RV:REF_QUAL:ALT_DP:ALT_RV:ALT_QUAL:ALT_FREQ"
-                SAMPLE = (
-                    "1:"
-                    + line[4]
-                    + ":"
-                    + line[5]
-                    + ":"
-                    + line[6]
-                    + ":"
-                    + line[7]
-                    + ":"
-                    + line[8]
-                    + ":"
-                    + line[9]
-                    + ":"
-                    + line[10]
-                )
+                INFO = info_line(header, {
+                    'DP': line[11],
+                    'REF_DP': line[4],
+                    'REF_RV': line[5],
+                    'REF_QUAL': line[6],
+                    'ALT_DP': line[7],
+                    'ALT_RV': line[8],
+                    'ALT_QUAL': line[9],
+                    'ALT_FREQ': line[10]
+                })
+
+                FORMAT = "GT"
+                SAMPLE = "1"
                 oline = (
                     CHROM
                     + "\t"
