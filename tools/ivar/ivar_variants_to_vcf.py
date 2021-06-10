@@ -117,11 +117,11 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
                 FILTER = "PASS"
             else:
                 FILTER = "FAIL"
-            var = (CHROM, POS, REF, ALT)
 
-            if (passOnly and FILTER != "PASS") or (
-                float(line[10]) < minAF) or (var in vars_seen
-            ):
+            if (passOnly and FILTER != "PASS") or (float(line[10]) < minAF):
+                continue
+            var = (CHROM, POS, REF, ALT)
+            if var in vars_seen:
                 continue
 
             info_elements = {
@@ -140,6 +140,7 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
             else:
                 info_elements['INDEL'] = False
             INFO = info_line(info_keys, info_elements)
+
             vars_seen.add(var)
             varCountDict[var_type] += 1
             fout.write(
