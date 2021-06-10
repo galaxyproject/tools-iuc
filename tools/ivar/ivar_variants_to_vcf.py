@@ -41,19 +41,22 @@ def make_dir(path):
                 raise
 
 
-def info_line(header, kv):
-    header_lines = header.split('\n')
-    info_keys = []
-    for line in header_lines:
-        if line.startswith('##INFO='):
-            match = re.match(r'##INFO=<ID=([^,]+),', line)
-            if match is not None:
-                info_keys.append(match.group(1))
+def info_line(info_keys, kv):
     info_strings = []
     for key in info_keys:
         if key not in kv:
-            raise ValueError("key {} missing from key value pairs".format(key))
-        info_strings.append('{}={}'.format(key, kv[key]))
+            raise KeyError(
+                'Expected key {} missing from INFO field key value pairs'
+                .format(key)
+            )
+        if kv[key] is False:
+            # a FLAG element, which should not be set
+            continue
+        if kv[key] is True:
+            # a FLAG element => write the key only
+            info_strings.append(key)
+        else:
+            info_strings.append('{}={}'.format(key, kv[key]))
     return ';'.join(info_strings)
 
 
@@ -68,86 +71,82 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False, minAF=0):
         '##INFO=<ID=REF_QUAL,Number=1,Type=Integer,Description="Mean quality of reference base">\n'
         '##INFO=<ID=ALT_DP,Number=1,Type=Integer,Description="Depth of alternate base">\n'
         '##INFO=<ID=ALT_RV,Number=1,Type=Integer,Description="Deapth of alternate base on reverse reads">\n'
-        '##INFO=<ID=ALT_QUAL,Number=1,Type=String,Description="Mean quality of alternate base">\n'
-        '##INFO=<ID=AF,Number=1,Type=String,Description="Frequency of alternate base">\n'
+        '##INFO=<ID=ALT_QUAL,Number=1,Type=Integer,Description="Mean quality of alternate base">\n'
+        '##INFO=<ID=AF,Number=1,Type=Float,Description="Frequency of alternate base">\n'
+        '##INFO=<ID=INDEL,Number=0,Type=Flag,Description="Indicates that the variant is an INDEL.">\n'
         '##FILTER=<ID=PASS,Description="Result of p-value <= 0.05">\n'
         '##FILTER=<ID=FAIL,Description="Result of p-value > 0.05">\n'
     )
+    info_keys = [
+        re.match(r'##INFO=<ID=([^,]+),', line).group(1)
+        for line in header.splitlines()
+        if line.startswith('##INFO=')
+    ]
     header += (
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
     )
 
-    varList = []
+    vars_seen = set()
     varCountDict = {"SNP": 0, "INS": 0, "DEL": 0}
     OutDir = os.path.dirname(FileOut)
     make_dir(OutDir)
-    fout = open(FileOut, "w")
-    fout.write(header)
-    with open(FileIn) as f:
+    with open(FileIn) as f, open(FileOut, "w") as fout:
+        fout.write(header)
         for line in f:
-            if not re.match("REGION", line):
-                line = re.split("\t", line)
-                CHROM = line[0]
-                POS = line[1]
-                ID = "."
-                REF = line[2]
-                ALT = line[3]
-                var_type = "SNP"
-                if ALT[0] == "+":
-                    ALT = REF + ALT[1:]
-                    var_type = "INS"
-                elif ALT[0] == "-":
-                    REF += ALT[1:]
-                    ALT = line[2]
-                    var_type = "DEL"
-                QUAL = "."
-                pass_test = line[13]
-                if pass_test == "TRUE":
-                    FILTER = "PASS"
-                else:
-                    FILTER = "FAIL"
-                INFO = info_line(header, {
-                    'DP': line[11],
-                    'REF_DP': line[4],
-                    'REF_RV': line[5],
-                    'REF_QUAL': line[6],
-                    'ALT_DP': line[7],
-                    'ALT_RV': line[8],
-                    'ALT_QUAL': line[9],
-                    'AF': line[10]
-                })
+            if line.startswith("REGION"):
+                continue
 
-                oline = (
-                    CHROM
-                    + "\t"
-                    + POS
-                    + "\t"
-                    + ID
-                    + "\t"
-                    + REF
-                    + "\t"
-                    + ALT
-                    + "\t"
-                    + QUAL
-                    + "\t"
-                    + FILTER
-                    + "\t"
-                    + INFO
-                    + "\n"
-                )
-                writeLine = True
-                if passOnly and FILTER != "PASS":
-                    writeLine = False
-                if float(line[10]) < minAF:
-                    writeLine = False
-                if (CHROM, POS, REF, ALT) in varList:
-                    writeLine = False
-                else:
-                    varList.append((CHROM, POS, REF, ALT))
-                if writeLine:
-                    varCountDict[var_type] += 1
-                    fout.write(oline)
-    fout.close()
+            line = line.split("\t")
+            CHROM = line[0]
+            POS = line[1]
+            ID = "."
+            REF = line[2]
+            ALT = line[3]
+            if ALT[0] == "+":
+                ALT = REF + ALT[1:]
+                var_type = "INS"
+            elif ALT[0] == "-":
+                REF += ALT[1:]
+                ALT = line[2]
+                var_type = "DEL"
+            else:
+                var_type = "SNP"
+            QUAL = "."
+            pass_test = line[13]
+            if pass_test == "TRUE":
+                FILTER = "PASS"
+            else:
+                FILTER = "FAIL"
+            var = (CHROM, POS, REF, ALT)
+
+            if (passOnly and FILTER != "PASS") or (
+                float(line[10]) < minAF) or (var in vars_seen
+            ):
+                continue
+
+            info_elements = {
+                'DP': line[11],
+                'REF_DP': line[4],
+                'REF_RV': line[5],
+                'REF_QUAL': line[6],
+                'ALT_DP': line[7],
+                'ALT_RV': line[8],
+                'ALT_QUAL': line[9],
+                'AF': line[10]
+            }
+            if var_type in ['INS', 'DEL']:
+                # add INDEL FLAG
+                info_elements['INDEL'] = True
+            else:
+                info_elements['INDEL'] = False
+            INFO = info_line(info_keys, info_elements)
+            vars_seen.add(var)
+            varCountDict[var_type] += 1
+            fout.write(
+                '\t'.join(
+                    [CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO]
+                ) + '\n'
+            )
 
     # Print variant counts to pass to MultiQC
     varCountList = [(k, str(v)) for k, v in sorted(varCountDict.items())]
