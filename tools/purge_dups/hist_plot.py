@@ -3,11 +3,12 @@
 
 # imported from https://github.com/dfguan/purge_dups/blob/master/scripts/hist_plot.py
 
+import argparse
+
 import matplotlib as mpl
+import matplotlib.pyplot as plt
 
 mpl.use("Agg")
-import matplotlib.pyplot as plt
-import sys, argparse
 
 
 def col_hist(stat_fn, delim):
