@@ -18,7 +18,6 @@ def col_hist(stat_fn, delim):
         for ln in f:
             lnlist = ln.strip().split(delim)
             hists.append(int(lnlist[1]))
-        f.close()
     return hists
 
 
