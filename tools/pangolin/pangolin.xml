@@ -1,0 +1,201 @@
+<tool id="pangolin" name="Pangolin" version="@TOOL_VERSION@+galaxy0" profile="20.01">
+    <description>Phylogenetic Assignment of Outbreak Lineages</description>
+    <macros>
+        <token name="@TOOL_VERSION@">3.0.3</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">pangolin</requirement>
+        <requirement type="package" version="0.22.0">csvtk</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        #if str($db.source) == "download"
+            python '$__tool_directory__/fetch_latest_pangolearn.py' &&
+        #else if str($db.source) == "builtin"
+            ln -s $db.db_release.fields.path datadir &&
+        #end if
+        pangolin
+        --threads \${GALAXY_SLOTS:-1}
+        #if str($db.source) == "download" or str($db.source) == "builtin"
+            --datadir 'datadir'
+        #end if
+        $usher
+        $alignment
+        --outfile report.csv 
+        --max-ambig $max_ambig
+        --min-length $min_length
+        '$input1'
+        && csvtk csv2tab report.csv
+        #if not $include_header:
+            | tail -n+2 
+        #end if
+        > '$output1'
+        #if $alignment
+            && mv sequences.aln.fasta '$align1'
+        #end if 
+    ]]></command>
+    <inputs>
+        <param type="data" name="input1" format="fasta" label="Input FASTA File(s)" /> 
+        <param argument="--usher" type="boolean" label="Use UShER model" truevalue="--usher" falsevalue="" help="Use UShER model instead of default pangoLEARN model" />
+        <param argument="--alignment" type="boolean" label="Generate output alignment" 
+            truevalue="--alignment" falsevalue="" /> 
+        <param argument="--max-ambig" type="float" label="Maximum proportion of Ns allowed" 
+            value="0.5" min="0" max="1" help="Maximum proportion of Ns allowed for pangolin to attempt assignment" />
+        <param argument="--min-length" type="integer" label="Minimum query length allowed" 
+            value="10000" min="0" help="Minimum query length allowed for pangolin to attempt assignment"/>
+        <param name="include_header" type="boolean" label="Include header line in output file" 
+            truevalue="true" falsevalue="false" />
+        <conditional name="db">
+            <param type="select" name="source" label="pangoLEARN source" help="Where to find the pangoLEARN database">
+                <option value="download">Download latest from web</option>
+                <option value="builtin">Use database from Galaxy server</option>
+                <option value="default">Use default database built in to pangolin (not recommended)</option>
+            </param>
+            <when value="download">
+            </when>
+            <when value="builtin">
+                <param name="db_release" label="pangoLEARN release" type="select">
+                    <options from_data_table="pangolearn">
+                        <column name="value" index="0" />
+                        <column name="name" index="1" />
+                        <column name="path" index="3" />
+                        <filter type="sort_by" column="0" />
+                        <filter type="static_value" column="2" value="3.0" />
+                    </options>
+                </param>
+            </when>
+            <when value="default">
+            </when>
+      </conditional>
+    </inputs>
+    <outputs>
+        <data name="output1" format="tabular" label="pangolin on ${on_string}">
+            <actions>
+                <action name="column_names" type="metadata" default="taxon,lineage,conflict,ambiguity_score,scorpio_call,scorpio_support,scorpio_conflict,version,pangolin_version,pangoLEARN_version,pango_version,status,note" />
+            </actions>
+        </data>
+        <data name="align1" format="fasta" label="pangolin alignment on ${on_string}">
+            <filter>alignment</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input1" value="test1.fasta"/>
+            <conditional name="db">
+                <param name="source" value="download" />
+            </conditional>
+            <output name="output1" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="B.1.1\t0.0" />
+                    <has_text text="passed_qc" />
+                    <has_n_lines n="1" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test UShER mode -->
+        <test expect_num_outputs="1">
+            <param name="input1" value="test1.fasta"/>
+            <param name="usher" value="true" />
+            <conditional name="db">
+                <param name="source" value="download" />
+            </conditional>
+            <output name="output1" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="B.1.1.409\t\t*PUSHER" />
+                    <has_text text="passed_qc" />
+                    <has_n_lines n="1" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="alignment" value="--alignment" />
+            <param name="input1" value="test1.fasta" />
+            <conditional name="db">
+                <param name="source" value="download" />
+            </conditional>
+            <output name="output1" ftype="tabular">
+                <assert_contents>
+                    <has_text_matching expression="B.1.1\t0.0" />
+                    <has_text text="passed_qc" />
+                    <has_n_lines n="1" />
+                </assert_contents>
+            </output>
+            <output name="align1" file="aln1.fasta" ftype="fasta">
+                <assert_contents>
+                    <has_text text="Consensus_EB232-crude-prep_S297" />
+                    <has_n_lines n="2" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- testing with builtin data is too large -->
+        <!-- <test expect_num_outputs="1">
+            <param name="input1" value="test1.fasta"/>
+            <conditional name="db">
+                <param name="source" value="builtin" />
+            </conditional>
+            <output name="output1" ftype="tabular">
+                <assert_contents>
+                    <has_text text="Consensus_EB232-crude-prep_S297" />
+                    <has_n_lines n="1" />
+                </assert_contents>
+            </output>
+        </test> 
+        <test expect_num_outputs="1">
+            <param name="input1" value="multiple_alignment.fasta.gz"/>
+            <conditional name="db">
+                <param name="source" value="builtin" />
+            </conditional>
+            <output name="output1" ftype="tabular">
+                <assert_contents>
+                    <has_text text="Serbia" />
+                    <has_text text="Poland" />
+                    <has_text text="USA" />
+                    <has_n_lines n="34" />
+                </assert_contents>
+            </output>
+        </test> -->
+        <!-- test include-header option -->
+        <test expect_num_outputs="1">
+            <param name="input1" value="multiple_alignment.fasta.gz"/>
+            <param name="include_header" value="true" />
+            <conditional name="db">
+                <param name="source" value="download" />
+            </conditional>
+            <output name="output1" ftype="tabular">
+                <assert_contents>
+                    <has_text text="pangoLEARN_version" />
+                    <has_text text="lineage" />
+                    <has_text text="Serbia" />
+                    <has_text text="Poland" />
+                    <has_text text="USA" />
+                    <has_n_lines n="35" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+`Pangolin <https://cov-lineages.org/pangolin.html>`_ (Phylogenetic Assignment of Named Global Outbreak LINeages) 
+is used to assign a SARS-CoV-2 genome sequence the most likely lineage based on the PANGO nomenclature system.
+
+Pangolin uses the `pangoLEARN <https://github.com/cov-lineages/pangoLEARN>`_ stored model for lineage assignment. This
+model is updated more frequently than the pangolin tool is. In general one should use the most recent model for lineage
+assignment, and the default option for this tool is to download the latest version of the model before the pangolin
+tool runs. A pangoLEARN data manager exists so that the Galaxy admin can download specific versions of the pangoLEARN
+model as required. Finally the pangolin tool can use its default built-in model, but this is **not recommended** as the
+default model rapidly becomes out of date.
+
+    ]]></help>
+    <citations>
+      <citation type="bibtex">
+      @misc{githubpangolin,
+        author = {O'Toole, Áine},
+        year = {2020},
+        title = {pangolin},
+        publisher = {GitHub},
+        journal = {GitHub repository},
+        url = {https://github.com/cov-lineages/pangolin},
+      }</citation>
+    </citations>
+</tool>

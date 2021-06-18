@@ -1,7 +1,8 @@
-<tool id="table_compute" name="Table Compute" version="@VERSION@">
+<tool id="table_compute" name="Table Compute" version="@VERSION@+galaxy@WRAPPER_VERSION@">
     <description>computes operations on table data</description>
     <macros>
-        <token name="@VERSION@">0.9.2</token>
+        <token name="@VERSION@">1.2.4</token>
+        <token name="@WRAPPER_VERSION@">0</token>
         <token name="@COPEN@"><![CDATA[<code>]]></token>
         <token name="@CCLOSE@"><![CDATA[</code>]]></token>
         <import>allowed_functions.xml</import>
@@ -92,8 +93,8 @@
         </macro>
     </macros>
     <requirements>
-        <requirement type="package" version="0.25">pandas</requirement>
-        <requirement type="package" version="1.17">numpy</requirement>
+        <requirement type="package" version="1.2.4">pandas</requirement>
+        <requirement type="package" version="1.19.2">numpy</requirement>
     </requirements>
 
     <version_command><![CDATA[
@@ -260,27 +261,68 @@ Data = {
             "melt_values": $melt_values,
         },
       #elif str($singtabop.user.general.use) == 'pivot':
-        #set $pivot_index = str($singtabop.user.general.index).strip()
-        #if $pivot_index:
-          #set $pivot_index = "'" + $pivot_index + "'"
-        #else:
+        #set $pivot_index = None
+        #set $pivot_columns = None
+        #set $pivot_values = None
+        #set $pivot_aggfunc = None
+
+        #if str($singtabop.user.general.index).strip()
+          #set $pivot_index = [i.strip() for i in str($singtabop.user.general.index).split(',')]
+          #if len($pivot_index)==1
+            #set $pivot_index = "'"+$pivot_index[0]+"'"
+          #end if
+        #else
           #set $pivot_index = 'None'
         #end if
-        #set $pivot_column = "'" + str($singtabop.user.general.column).strip() + "'"
-        #if str($singtabop.user.general.values).strip():
+        #if str($singtabop.user.general.column).strip()
+          #set $pivot_columns = [i.strip() for i in str($singtabop.user.general.column).split(',')]
+          #if len($pivot_columns)==1
+            #set $pivot_columns = "'"+$pivot_columns[0]+"'"
+          #end if
+        #else
+          #set $pivot_columns = 'None'
+        #end if
+        #if str($singtabop.user.general.values).strip()
           #set $pivot_values = [i.strip() for i in str($singtabop.user.general.values).split(',')]
+          #if len($pivot_values)==1
+            #set $pivot_values = "'"+$pivot_values[0]+"'"
+          #end if
         #else
           #set $pivot_values = 'None'
         #end if
+
+        ## The aggfunc is either a - column : [array] map
+        ## or just an [array]
+        #if str($singtabop.user.general.aggfunc).strip() == 'None'
+          #set $pivot_aggfunc = 'None'
+        #end if
+        #if not($pivot_aggfunc)
+          #set $pivot_aggfunc = [i.strip() for i in str($singtabop.user.general.aggfunc).split(',')]
+          #if len($pivot_aggfunc)==1
+            #set $pivot_aggfunc = "'"+$pivot_aggfunc[0]+"'"
+          #end if
+        #end if
+
         "PIVOT": {
             "pivot_index": $pivot_index,
-            "pivot_column": $pivot_column,
+            "pivot_columns": $pivot_columns,
             "pivot_values": $pivot_values,
+            #if $pivot_aggfunc == 'None':
+            "pivot_aggfunc": {
+                #for $i, $s in enumerate($singtabop.user.general.colfun_map)
+                #echo 16*' ' + "'" + str($s.column) + "'" + ' : ['
+                #echo ','.join([ "'%s'" % $t.aggfunc for $j, $t in enumerate($s.functions) ])
+                #echo '],\n'
+                #end for
+            }
+            #else
+            "pivot_aggfunc": $pivot_aggfunc
+            #end if
         },
+
       #elif str($singtabop.user.general.use) == 'custom':
         #set $custom_func = str($singtabop.user.general.fulltable_custom_expr).strip()
         "fulltable_customop": '$custom_func',
-
       #end if
     },
     #end if
@@ -447,25 +489,53 @@ Data = {
                             </when>
                             <when value="pivot" >
                                 <param name="index" type="text" value=""
-                                label="Index"
-                                help="Name of the column to use as new index" >
+                                       label="Index"
+                                       help="Name of the column to use as new index" >
                                     <expand macro="validator_text" />
                                 </param>
                                 <param name="column" type="text" value=""
-                                label="Column"
-                                help="Name of the column to use to generate the columns of the new table from" >
+                                       label="Column"
+                                       help="Name of the column to use to generate the columns of the new table from.
+                                             Cannot be used in conjunction with the Column-Function Mapping parameter."
+                                       optional="true">
                                     <expand macro="validator_text_required" />
                                 </param>
                                 <param name="values" type="text" value=""
-                                label="Values"
-                                help="Names of the columns to use for populating the cells of the new table. Leave blank to use all." >
+                                       label="Values"
+                                       help="Names of the columns to use for populating the cells of the new table. Leave blank to use all." >
                                     <expand macro="validator_index_identifiers" />
                                 </param>
+                                <param name="aggfunc" type="select" optional="true"
+                                       label="Aggregator Function"
+                                       help="The function used to aggregate the values for each unique index.
+                                             Cannot be used with the Column-Function Mapping parameter below.
+                                             By default this value is np.mean. Leave blank for default behaviour.
+                                             See Example 10 for more information on its usage." >
+                                    <expand macro="select_vectorops">
+                                        <option value="all">All</option>
+                                        <option value="any">Any</option>
+                                    </expand>
+                                </param>
+                                <repeat name="colfun_map" title="Column-Function Mapping" min="0">
+                                    <param name="column" type="text" label="Value Column"
+                                           help="Either a numeric index, or a value column name." />
+                                    <repeat name="functions" title="Aggregator Function" min="0" >
+                                        <!-- if zero, then this defaults to np.mean -->
+                                        <param name="aggfunc" type="select" label="Function"
+                                               help="The function used to aggregate the values for each unique index.
+                                                     By default this is np.mean. See Example 11 for more information on its usage." >
+                                            <expand macro="select_vectorops">
+                                                <option value="all">All</option>
+                                                <option value="any">Any</option>
+                                            </expand>
+                                        </param>
+                                    </repeat>
+                                </repeat>
                             </when>
                             <when value="custom" >
                                 <param name="fulltable_custom_expr" type="text"
-                                label="Custom expression on 'table', along 'axis' (0 or 1)"
-                                help="The parameter name is @COPEN@table@CCLOSE@ and @COPEN@axis@CCLOSE@, referring to the table being acted on and the column (@COPEN@0@CCLOSE@) or row (@COPEN@1@CCLOSE@) to perform the operation on. Numpy, math, Pandas DataFrame operators, and inline @COPEN@if else@CCLOSE@ are supported (e.g. @COPEN@np.log(table) - table.mean(0) / table.std(1)@CCLOSE@). See Example #5 in the Help section. ">
+                                       label="Custom expression on 'table', along 'axis' (0 or 1)"
+                                       help="The parameter name is @COPEN@table@CCLOSE@ and @COPEN@axis@CCLOSE@, referring to the table being acted on and the column (@COPEN@0@CCLOSE@) or row (@COPEN@1@CCLOSE@) to perform the operation on. Numpy, math, Pandas DataFrame operators, and inline @COPEN@if else@CCLOSE@ are supported (e.g. @COPEN@np.log(table) - table.mean(0) / table.std(1)@CCLOSE@). See Example #5 in the Help section. ">
                                     <expand macro="validator_functiondef" />
                                 </param>
                             </when>
@@ -1295,6 +1365,60 @@ Data = {
                 </conditional>
             </conditional>
         </test>
+        <test expect_num_outputs="1" >
+            <!-- Pivot aggregator operations -->
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="pivot.tsv" />
+                <param name="col_row_names" value="has_col_names,has_row_names" />
+                <conditional name="user" >
+                    <param name="mode" value="fulltable" />
+                    <conditional name="general" >
+                        <param name="use" value="pivot" />
+                        <param name="index" value="Position" />
+                        <repeat name="colfun_map" >
+                            <param name="column" value="Age" />
+                            <repeat name="functions"><param name="aggfunc" value="mean" /></repeat>
+                        </repeat>
+                        <repeat name="colfun_map" >
+                            <param name="column" value="Random" />
+                            <repeat name="functions"><param name="aggfunc" value="mean" /></repeat>
+                            <repeat name="functions"><param name="aggfunc" value="std" /></repeat>
+                        </repeat>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="table" >
+                <assert_contents>
+                    <has_n_columns n="4" />
+                    <has_line_matching expression="^Manager\s+34.3\d+\s+0.325\d+\s+0.306\d+" />
+                    <has_line_matching expression="^Programmer\s+32.3\d+\s+0.423\d+\s+0.477\d+" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1" >
+            <!-- Pivot table operations from PR 3480 -->
+            <conditional name="singtabop" >
+                <param name="use_type" value="single" />
+                <param name="input" value="table1.tsv" />
+                <param name="col_row_names" value="has_col_names" />
+                <conditional name="user" >
+                    <param name="mode" value="fulltable" />
+                    <conditional name="general" >
+                        <param name="use" value="pivot" />
+                        <param name="index" value="A" />
+                        <param name="column" value="C" />
+                        <param name="values" value="D" />
+                        <param name="aggfunc" value="max" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <output name="table" >
+                <assert_contents>
+                    <has_text_matching expression="bar\t7\t6" />
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 Table Compute
@@ -1776,6 +1900,103 @@ If we wanted to instead add "chr" to the ALL elements in column 2 and rows 2 and
  g3      4      8    12
  g4  chr81   chr6  chr3
  === =====  ===== =====
+
+
+Example 10: Pivot Table with unified Aggregator
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For an input table of:
+
+=== === ===== === ===
+  A   B     C   D   E
+=== === ===== === ===
+foo one small   1   2
+foo one large   2   4
+foo one large   2   5
+foo two small   3   5
+foo two small   3   6
+bar one large   4   6
+bar one small   5   8
+bar two small   6   9
+bar two large   7   9
+=== === ===== === ===
+
+we wish to pivot the table with the 'A' column as the new row index and use the values of the column 'C' as the new column indexes, based on the aggregated values of 'D'. By default the aggregator function is the mean, but here we will instead pick the max, to yield:
+
+=== == ==
+C    l  s
+A
+=== == ==
+bar  7  6
+foo  2  3
+=== == ==
+
+In Galaxy we would select the following:
+
+ * *Input Single or Multiple Tables* → **Single Table**
+ * *Column names on first row?* → **Yes**
+ * *Row names on first column?* → **Yes**
+ * *Type of table operation* →  **Perform a Full Table Operation**
+
+   * *Operation* → **Pivot**
+   * *Index* → ``A``
+   * *Column* → ``C``
+   * *Values* → ``D``
+   * *Aggregator Function* → ``max``
+
+
+Example 11: Pivot Table with custom Aggregrator
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For an input table of:
+
+
+====  ==========  ===========  ===  ========
+Name    Position         City  Age    Random
+====  ==========  ===========  ===  ========
+Mary     Manager       Boston   34  0.678577
+Josh  Programmer     New York   37  0.973168
+ Jon     Manager      Chicago   29  0.146668
+Lucy     Manager  Los Angeles   40  0.150120
+Jane  Programmer      Chicago   29  0.112769
+ Sue  Programmer       Boston   31  0.185198
+====  ==========  ===========  ===  ========
+
+we wish to pivot the table with the 'Position' column as the new index and transform the 'Age' and 'Random' columns to have mean and standard deviation values
+
+==========  =========  ========  ========
+Position       Age      Random    Random
+.             mean       mean      std
+==========  =========  ========  ========
+Manager     34.333333  0.325122  0.306106
+Programmer  32.333333  0.423712  0.477219
+==========  =========  ========  ========
+
+In Galaxy we would select the following:
+
+ * *Input Single or Multiple Tables* → **Single Table**
+ * *Column names on first row?* → **Yes**
+ * *Row names on first column?* → **Yes**
+ * *Type of table operation* →  **Perform a Full Table Operation**
+
+   * *Operation* → **Pivot**
+   * *Index* → ``Position``
+   * *Column-Function Mapping*
+
+     * *Value Column* → ``Age``
+
+       * *Function* → ``mean``
+
+     * *Value Column* → ``Random``
+
+       * *Function* → ``mean``
+       * *Function* → ``std``
+
+
+This splits the matrix using "foo" and "bar" using only the values from "baz". Header values
+ may contain extra information.
+
+
 
 ]]></help>
     <citations></citations>
