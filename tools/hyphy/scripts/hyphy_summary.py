@@ -336,6 +336,9 @@ class HyPhySummary(object):
                 report = self.annotation_json[self.include_in_annotation[i]]
                 report['fade'] = {}
                 for residue, info in self.fade['MLE']['content'].items():
+                    # Skip anything past the end of this section.
+                    if i >= len(info['0']):
+                        continue
                     if len(residue) == 1:
                         report['fade'][residue] = {'rate': info['0'][i][1], 'BF': info['0'][i][-1]}
 
@@ -373,11 +376,13 @@ class HyPhySummary(object):
 
                 def ignore_record(x):
                     pass
+
                 for s in self.ref_genes:
                     _align_par(SeqRecord(Seq(s[1]), id=s[0]), [SeqRecord(Seq(ref_seq), id='ref')],
                                self.score_matrix_, False, False, 0.8, ignore_record, output_record)
                     if (self.aligned_str is not None):
                         break
+
                 self.ref_map = self.aligned_str.seq.strip('-')
                 c = 0
                 i = 0
