@@ -447,7 +447,7 @@ def fetch_from_mothur_website(data_tables, target_dir, datasets):
                     ref_data_file = os.path.basename(f)
                     f1 = os.path.join(target_dir, ref_data_file)
                     print(("Moving %s to %s" % (f, f1)))
-                    os.rename(f, f1)
+                    shutil.move(f, f1)
                     # Add entry to data table
                     table_name = "mothur_%s" % type_
                     add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
