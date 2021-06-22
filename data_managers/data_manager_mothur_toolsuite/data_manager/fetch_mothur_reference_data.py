@@ -8,7 +8,9 @@ import shutil
 import sys
 import tarfile
 import tempfile
-import urllib.request, urllib.error, urllib.parse
+import urllib.error
+import urllib.parse
+import urllib.request
 import zipfile
 from functools import reduce
 
