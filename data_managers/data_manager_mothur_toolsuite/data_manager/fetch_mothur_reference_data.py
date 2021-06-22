@@ -38,6 +38,14 @@ MOTHUR_REFERENCE_DATA = {
     },
     # RDP reference files
     # http://www.mothur.org/wiki/RDP_reference_files
+    "RDP_v18": {
+        "16S rRNA RDP training set 18":
+            [
+                "https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset18_062020.rdp.tgz", ],
+        "16S rRNA PDS training set 18":
+            [
+                "https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset18_062020.pds.tgz", ],
+    },
     "RDP_v16": {
         "16S rRNA RDP training set 16":
         ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset16_022016.rdp.tgz", ],
@@ -76,6 +84,12 @@ MOTHUR_REFERENCE_DATA = {
     },
     # Silva reference files
     # http://www.mothur.org/wiki/Silva_reference_files
+    "silva_release_138.1": {
+        "SILVA release 138.1":
+            [
+                "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v138_1.tgz",
+                "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v138_1.tgz", ],
+    },
     "silva_release_128": {
         "SILVA release 128":
         ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v128.tgz",
