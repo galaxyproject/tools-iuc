@@ -67,7 +67,8 @@ spec <- matrix(c(
   "outlier_replace_off", "a", 0, "logical",
   "outlier_filter_off", "b", 0, "logical",
   "auto_mean_filter_off", "c", 0, "logical",
-  "beta_prior_off", "d", 0, "logical"
+  "beta_prior_off", "d", 0, "logical",
+  "alpha_ma","A", 1, "numeric"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -200,7 +201,7 @@ generate_specific_plots <- function(res, threshold, title_suffix) {
     text(x = c(0, length(h1$counts)), y = 0, label = paste(c(0, 1)), adj = c(0.5, 1.7), xpd = NA)
     legend("topright", fill = rev(colori), legend = rev(names(colori)), bg = "white")
   }
-    plotMA(res, main = paste("MA-plot for", title_suffix), ylim = range(res$log2FoldChange, na.rm = TRUE))
+    plotMA(res, main = paste("MA-plot for", title_suffix), ylim = range(res$log2FoldChange, na.rm = TRUE), alpha = opt$alpha_ma)
 }
 
 if (verbose) {
