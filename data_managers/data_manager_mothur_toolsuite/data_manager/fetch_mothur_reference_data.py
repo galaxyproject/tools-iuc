@@ -449,7 +449,7 @@ def fetch_from_mothur_website(data_tables, target_dir, datasets):
             for f in fetch_files(MOTHUR_REFERENCE_DATA[dataset][name], wd=wd):
                 type_ = identify_type(f)
                 name_from_file = os.path.splitext(os.path.basename(f))[0]
-                entry_name = f"{name_from_file} {name}"
+                entry_name = f"{name_from_file} ({name})"
                 print(f"{type_}\t\'{entry_name}'\t.../{os.path.basename(f)}")
                 if type_ is not None:
                     # Move to target dir
