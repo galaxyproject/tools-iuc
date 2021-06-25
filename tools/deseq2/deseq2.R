@@ -68,7 +68,7 @@ spec <- matrix(c(
   "outlier_filter_off", "b", 0, "logical",
   "auto_mean_filter_off", "c", 0, "logical",
   "beta_prior_off", "d", 0, "logical",
-  "alpha_ma","A", 1, "numeric"
+  "alpha_ma", "A", 1, "numeric"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
