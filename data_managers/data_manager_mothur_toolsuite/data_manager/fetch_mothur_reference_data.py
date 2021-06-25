@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 #
 # Data manager for reference data for the 'mothur_toolsuite' Galaxy tools
+import io
 import json
 import optparse
 import os
@@ -253,7 +254,12 @@ def download_file(url, target=None, wd=None):
         target = os.path.join(wd, target)
     print(("Saving to %s" % target))
     with open(target, 'wb') as fh:
-        fh.write(urllib.request.urlopen(url).read())
+        url_h = urllib.request.urlopen(url)
+        while True:
+            buffer = url_h.read(io.DEFAULT_BUFFER_SIZE)
+            if buffer == b"":
+                break
+            fh.write(buffer)
     return target
 
 
