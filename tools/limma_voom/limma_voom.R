@@ -316,7 +316,7 @@ if (!is.null(opt$filesPath)) {
 
     # Process factors
     if (is.null(opt$factInput)) {
-        factordata <- read.table(opt$factFile, header = TRUE, sep = "\t", strip.white = TRUE)
+        factordata <- read.table(opt$factFile, header = TRUE, sep = "\t", strip.white = TRUE, stringsAsFactors = TRUE)
         if (!setequal(factordata[, 1], colnames(counts)))
             stop("Sample IDs in counts and factors files don't match")
         # order samples as in counts matrix
@@ -345,7 +345,7 @@ if (nrow(factors) != ncol(counts)) {
 }
 # make groups valid R names, required for makeContrasts
 factors <- sapply(factors, make.names)
-factors <- data.frame(factors)
+factors <- data.frame(factors, stringsAsFactors = TRUE)
 
  # if annotation file provided
 if (have_anno) {
@@ -475,15 +475,16 @@ if (filt_cpm || filt_smpcount || filt_totcount) {
     } else if (filt_smpcount) {
         keep <- rowSums(data$counts >= opt$cntReq) >= opt$sampleReq
     } else if (filt_cpm) {
-
-        keep <- rowSums(cpm(data$counts) >= opt$cpmReq) >= opt$sampleReq
+        cpms <- cpm(data$counts)
+        thresh <- cpms >= opt$cpmReq
+        keep <- rowSums(thresh) >= opt$sampleReq
 
         if ("c" %in% plots) {
             # Plot CPM vs raw counts (to check threshold)
             pdf(cpm_pdf, width = 6.5, height = 10)
             par(mfrow = c(3, 2))
             for (i in seq_len(nsamples)) {
-                plot(data$counts[, i], myCPM[, i], xlim = c(0, 50), ylim = c(0, 3), main = samplenames[i], xlab = "Raw counts", ylab = "CPM")
+                plot(data$counts[, i], cpms[, i], xlim = c(0, 50), ylim = c(0, 3), main = samplenames[i], xlab = "Raw counts", ylab = "CPM")
                 abline(v = 10, col = "red", lty = 2, lwd = 2)
                 abline(h = opt$cpmReq, col = 4)
             }
@@ -672,7 +673,6 @@ for (i in 2L:(nsamples)) {
 
 a1 <- suppressWarnings(cmdscale(as.dist(dd), k = min(ndim, 8), eig = TRUE))
 eigen <- data.frame(name = 1:min(ndim, 8), eigen = round(a1$eig[1:min(ndim, 8)] / sum(a1$eig), 2))
-
 png(mdsscree_png, width = 1000, height = 500)
 par(mfrow = c(1, 2))
 plotMDS(y, labels = samplenames, col = as.numeric(factors[, 1]), main = "MDS Plot: Dims 1 and 2")
