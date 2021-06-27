@@ -39,25 +39,25 @@ pasteListName <- function(string) {
 ## Input Processing
 
 option_list <- list(
-    make_option(c("-threads", "--threads"), default=2, type="integer", help="Number of threads for egsea"),
-    make_option(c("-filesPath", "--filesPath"), type="character", help="JSON list object if multiple files input"),
-    make_option(c("-matrixPath", "--matrixPath"), type="character", help="Path to count matrix"),
-    make_option(c("-factFile", "--factFile"), type="character", help="Path to factor information file"),
-    make_option(c("-factInput", "--factInput"), type="character", help="String containing factors if manually input"),
-    make_option(c("-contrastData", "--contrastData"), type="character", help="Contrasts of Interest (Groups to compare)"),
-    make_option(c("-genes", "--genes"), type="character", help="Path to genes file"),
-    make_option(c("-species", "--species"), type="character"),
-    make_option(c("-base_methods", "--base_methods"), type="character", help="Gene set testing methods"),
-    make_option(c("-msigdb", "--msigdb"), type="character", help="MSigDB Gene Set Collections"),
-    make_option(c("-keggdb", "--keggdb"), type="character", help="KEGG Pathways"),
-    make_option(c("-keggupdated", "--keggupdated"), type="logical", help="Use updated KEGG"),
-    make_option(c("-gsdb", "--gsdb"), type="character", help = "GeneSetDB Gene Sets"),
-    make_option(c("-display_top", "--display_top"), type="integer", help = "Number of top Gene Sets to display"),
-    make_option(c("-min_size", "--min_size"), type="integer", help = "Minimum Size of Gene Set"),
-    make_option(c("-fdr_cutoff", "--fdr_cutoff"), type="double", help = "FDR cutoff"),
-    make_option(c("-combine_method", "--combine_method"), type="character", help="Method to use to combine the p-values"),
-    make_option(c("-sort_method", "--sort_method"), type="character", help="Method to sort the results"),
-    make_option(c("-rdaOpt", "--rdaOpt"), type="character", help="Output RData file")
+    make_option("--threads", default=2, type="integer", help="Number of threads for egsea"),
+    make_option("--filesPath", type="character", help="JSON list object if multiple files input"),
+    make_option("--matrixPath", type="character", help="Path to count matrix"),
+    make_option("--factFile", type="character", help="Path to factor information file"),
+    make_option("--factInput", type="character", help="String containing factors if manually input"),
+    make_option("--contrastData", type="character", help="Contrasts of Interest (Groups to compare)"),
+    make_option("--genes", type="character", help="Path to genes file"),
+    make_option("--species", type="character"),
+    make_option("--base_methods", type="character", help="Gene set testing methods"),
+    make_option("--msigdb", type="character", help="MSigDB Gene Set Collections"),
+    make_option("--keggdb", type="character", help="KEGG Pathways"),
+    make_option("--keggupdated", type="logical", help="Use updated KEGG"),
+    make_option("--gsdb", type="character", help = "GeneSetDB Gene Sets"),
+    make_option("--display_top", type="integer", help = "Number of top Gene Sets to display"),
+    make_option("--min_size", type="integer", help = "Minimum Size of Gene Set"),
+    make_option("--fdr_cutoff", type="double", help = "FDR cutoff"),
+    make_option("--combine_method", type="character", help="Method to use to combine the p-values"),
+    make_option("--sort_method", type="character", help="Method to sort the results"),
+    make_option("--rdaOpt", type="character", help="Output RData file")
     )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list=option_list)
