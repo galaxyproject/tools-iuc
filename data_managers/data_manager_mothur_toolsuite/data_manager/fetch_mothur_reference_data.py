@@ -162,7 +162,7 @@ MOTHUR_REFERENCE_DATA = {
 }
 
 
-def _is_ignored_path(path: str):
+def _is_ignored_path(path: str) -> bool:
     for ignore_path in IGNORE_PATHS:
         if path.startswith(ignore_path):
             return True
@@ -288,19 +288,6 @@ def unpack_archive(filen: str, wd: str = None) -> Generator[str, None, None]:
         yield filen
 
 
-# Utility functions specific to the Mothur reference data
-def identify_type(filen: str):
-    """Return the data table name based on the file name
-
-    """
-    ext = os.path.splitext(filen)[1]
-    try:
-        return MOTHUR_FILE_TYPES[ext]
-    except KeyError:
-        print(f"WARNING: unknown file type for {filen}, skipping")
-        return None
-
-
 def fetch_from_mothur_website(data_tables: dict,
                               target_dir: str,
                               datasets: List[str]):
@@ -329,20 +316,21 @@ def fetch_from_mothur_website(data_tables: dict,
             for url in urls:
                 filen = download_file(url, wd=wd)
                 for f in unpack_archive(filen, wd=wd):
-                    type_ = identify_type(f)
-                    name_from_file = os.path.splitext(os.path.basename(f))[0]
+                    name_from_file, ext = os.path.splitext(os.path.basename(f))
+                    type_ = MOTHUR_FILE_TYPES.get(ext)
+                    if type_ is None:
+                        print(f"WARNING: unknown file type for {filen}, skipping")
+                        continue
                     entry_name = f"{name_from_file} ({name})"
                     print(f"{type_}\t\'{entry_name}'\t.../{os.path.basename(f)}")
-                    if type_ is not None:
-                        # Move to target dir
-                        ref_data_file = os.path.basename(f)
-                        f1 = os.path.join(target_dir, ref_data_file)
-                        print(f"Moving {f} to {f1}")
-                        shutil.move(f, f1)
-                        print(f"Removing {f}")
-                        os.remove(f)
-                        data_tables['data_tables'][f"mothur_{type_}"].append(
-                            dict(name=entry_name, value=ref_data_file))
+                    ref_data_file = os.path.basename(f)
+                    f1 = os.path.join(target_dir, ref_data_file)
+                    print(f"Moving {f} to {f1}")
+                    shutil.move(f, f1)
+                    print(f"Removing {f}")
+                    os.remove(f)
+                    data_tables['data_tables'][f"mothur_{type_}"].append(
+                        dict(name=entry_name, value=ref_data_file))
     print(f"Removing {wd}")
     shutil.rmtree(wd)
 
@@ -388,13 +376,13 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
 
     """
     for f in files_from_filesystem_paths(paths):
-        type_ = identify_type(f)
+        ref_data_file = os.path.basename(f)
+        target_file = os.path.join(target_dir, ref_data_file)
+        entry_name, ext = os.path.splitext(ref_data_file)
+        type_ = MOTHUR_FILE_TYPES.get(ext)
         if type_ is None:
             print(f"{f}: unrecognised type, skipped")
             continue
-        ref_data_file = os.path.basename(f)
-        target_file = os.path.join(target_dir, ref_data_file)
-        entry_name = os.path.splitext(ref_data_file)[0]
         if description:
             entry_name += f" ({description})"
         print(f"{type_}\t\'{entry_name}'\t.../{ref_data_file}")
