@@ -183,54 +183,6 @@ def read_input_json(jsonfile):
             params['output_data'][0]['extra_files_path'])
 
 
-# Utility functions for creating data table dictionaries
-#
-# Example usage:
-# >>> d = create_data_tables_dict()
-# >>> add_data_table(d,'my_data')
-# >>> add_data_table_entry(dict(dbkey='hg19',value='human'))
-# >>> add_data_table_entry(dict(dbkey='mm9',value='mouse'))
-# >>> print(json.dumps(d))
-def create_data_tables_dict():
-    """Return a dictionary for storing data table information
-
-    Returns a dictionary that can be used with 'add_data_table'
-    and 'add_data_table_entry' to store information about a
-    data table. It can be converted to JSON to be sent back to
-    the data manager.
-
-    """
-    d = {}
-    d['data_tables'] = {}
-    return d
-
-
-def add_data_table(d, table):
-    """Add a data table to the data tables dictionary
-
-    Creates a placeholder for a data table called 'table'.
-
-    """
-    d['data_tables'][table] = []
-
-
-def add_data_table_entry(d, table, entry):
-    """Add an entry to a data table
-
-    Appends an entry to the data table 'table'. 'entry'
-    should be a dictionary where the keys are the names of
-    columns in the data table.
-
-    Raises an exception if the named data table doesn't
-    exist.
-
-    """
-    try:
-        d['data_tables'][table].append(entry)
-    except KeyError:
-        raise Exception("add_data_table_entry: no table '%s'" % table)
-
-
 # Utility functions for downloading and unpacking archive files
 def download_file(url, target=None, wd=None):
     """Download a file from a URL
@@ -457,9 +409,8 @@ def fetch_from_mothur_website(data_tables, target_dir, datasets):
                     f1 = os.path.join(target_dir, ref_data_file)
                     print(f"Moving {f} to {f1}")
                     shutil.move(f, f1)
-                    # Add entry to data table
-                    table_name = f"mothur_{type_}"
-                    add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
+                    data_tables['data_tables'][f"mothur_{type_}"].append(
+                        dict(name=entry_name, value=ref_data_file))
     # Remove working dir
     print(f"Removing {wd}")
     shutil.rmtree(wd)
@@ -529,9 +480,8 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
             os.symlink(f, target_file)
         else:
             shutil.copyfile(f, target_file)
-        # Add entry to data table
-        table_name = f"mothur_{type_}"
-        add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
+        data_tables['data_tables'][f"mothur_{type_}"].append(
+            dict(name=entry_name, value=ref_data_file))
 
 
 if __name__ == "__main__":
@@ -563,11 +513,13 @@ if __name__ == "__main__":
     os.mkdir(target_dir)
 
     # Set up data tables dictionary
-    data_tables = create_data_tables_dict()
-    add_data_table(data_tables, 'mothur_lookup')
-    add_data_table(data_tables, 'mothur_aligndb')
-    add_data_table(data_tables, 'mothur_map')
-    add_data_table(data_tables, 'mothur_taxonomy')
+    data_tables = {
+        "data_tables": {
+            "mothur_lookup": [],
+            "mothur_aligndb": [],
+            "mothur_map": [],
+            "mothur_taxonomy": []
+        }}
 
     # Fetch data from specified data sources
     if options.data_source == 'mothur_website':
