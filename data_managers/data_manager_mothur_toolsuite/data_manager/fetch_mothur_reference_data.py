@@ -431,9 +431,9 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
             continue
         ref_data_file = os.path.basename(f)
         target_file = os.path.join(target_dir, ref_data_file)
-        entry_name = "%s" % os.path.splitext(ref_data_file)[0]
+        entry_name = os.path.splitext(ref_data_file)[0]
         if description:
-            entry_name += " (%s)" % description
+            entry_name += f" ({description})"
         print(f"{type_}\t\'{entry_name}'\t.../{ref_data_file}")
         # Link to or copy the data
         if link_to_data:
