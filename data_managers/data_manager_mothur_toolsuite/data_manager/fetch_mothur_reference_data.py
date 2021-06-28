@@ -5,6 +5,7 @@ import io
 import json
 import optparse
 import os
+import pathlib
 import shutil
 import sys
 import tarfile
@@ -392,20 +393,15 @@ def files_from_filesystem_paths(paths):
 
     """
     # Collect files to add
-    files = []
-    for path in paths:
-        path = os.path.abspath(path)
-        print(f"Examining '{path}'...")
-        if os.path.isfile(path):
-            # Store full path for file
-            files.append(path)
-        elif os.path.isdir(path):
-            # Descend into directory and collect the files
-            for f in os.listdir(path):
-                files.extend(files_from_filesystem_paths((os.path.join(path, f), )))
+    for raw_path in paths:
+        path = pathlib.Path(raw_path).absolute()
+        print(f"Examining '{str(path)}'...")
+        if path.is_file():
+            yield str(path)
+        elif path.is_dir():
+            yield from files_from_filesystem_paths(path.iterdir())
         else:
             print("Not a file or directory, ignored")
-    return files
 
 
 def import_from_server(data_tables, target_dir, paths, description, link_to_data=False):
@@ -428,10 +424,7 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
         the data file
 
     """
-    # Collect list of files based on input paths
-    files = files_from_filesystem_paths(paths)
-    # Handle each file individually
-    for f in files:
+    for f in files_from_filesystem_paths(paths):
         type_ = identify_type(f)
         if type_ is None:
             print(f"{f}: unrecognised type, skipped")
