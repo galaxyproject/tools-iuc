@@ -9,11 +9,9 @@ import pathlib
 import shutil
 import tarfile
 import tempfile
-import urllib.error
-import urllib.parse
 import urllib.request
 import zipfile
-from typing import Generator, List
+from typing import Generator, List, Iterable, Union, Optional, Dict
 
 # When extracting files from archives, skip names that
 # start with the following strings
@@ -201,7 +199,7 @@ def download_file(url: str, target: str = None, wd: str = None) -> str:
     return target
 
 
-def unpack_zip_archive(filen: str, wd: str = None) -> Generator[str, None, None]:
+def unpack_zip_archive(filen: str, wd: Optional[str] = None) -> Generator[str, None, None]:
     """Extract files from a ZIP archive
 
     Given a ZIP archive, extract the files it contains
@@ -235,7 +233,7 @@ def unpack_zip_archive(filen: str, wd: str = None) -> Generator[str, None, None]
                 yield target
 
 
-def unpack_tar_archive(filen: str, wd: str = None) -> Generator[str, None, None]:
+def unpack_tar_archive(filen: str, wd: Optional[str] = None) -> Generator[str, None, None]:
     """Extract files from a TAR archive
 
     Given a TAR archive (which optionally can be
@@ -259,12 +257,15 @@ def unpack_tar_archive(filen: str, wd: str = None) -> Generator[str, None, None]
                 continue
             # Extract file
             print(f"Extracting {name}")
-            t.extract(name, wd)
-            target = os.path.join(wd, name) if wd else name
-            yield target
+            if wd:
+                t.extract(name, wd)
+                yield os.path.join(wd, name)
+            else:
+                t.extract(name)
+                yield name
 
 
-def unpack_archive(filen: str, wd: str = None) -> Generator[str, None, None]:
+def unpack_archive(filen: str, wd: Optional[str] = None) -> Generator[str, None, None]:
     """Extract files from an archive
 
     Wrapper function that calls the appropriate
@@ -315,27 +316,28 @@ def fetch_from_mothur_website(data_tables: dict,
         for name, urls in MOTHUR_REFERENCE_DATA[dataset].items():
             for url in urls:
                 filen = download_file(url, wd=wd)
-                for f in unpack_archive(filen, wd=wd):
-                    name_from_file, ext = os.path.splitext(os.path.basename(f))
+                for unpacked_file in unpack_archive(filen, wd=wd):
+                    ref_data_file = os.path.basename(unpacked_file)
+                    name_from_file, ext = os.path.splitext(ref_data_file)
                     type_ = MOTHUR_FILE_TYPES.get(ext)
                     if type_ is None:
                         print(f"WARNING: unknown file type for {filen}, skipping")
                         continue
                     entry_name = f"{name_from_file} ({name})"
-                    print(f"{type_}\t\'{entry_name}'\t.../{os.path.basename(f)}")
-                    ref_data_file = os.path.basename(f)
-                    f1 = os.path.join(target_dir, ref_data_file)
-                    print(f"Moving {f} to {f1}")
-                    shutil.move(f, f1)
-                    print(f"Removing {f}")
-                    os.remove(f)
+                    print(f"{type_}\t\'{entry_name}'\t.../{ref_data_file}")
+                    target = os.path.join(target_dir, ref_data_file)
+                    print(f"Moving {unpacked_file} to {target}")
+                    shutil.move(unpacked_file, target)
+                    print(f"Removing {unpacked_file}")
+                    os.remove(unpacked_file)
                     data_tables['data_tables'][f"mothur_{type_}"].append(
                         dict(name=entry_name, value=ref_data_file))
     print(f"Removing {wd}")
     shutil.rmtree(wd)
 
 
-def files_from_filesystem_paths(paths):
+def files_from_filesystem_paths(paths: Iterable[Union[str, os.PathLike]]
+                                ) -> Generator[str, None, None]:
     """Return list of file paths from arbitrary input paths
 
     Given a list of filesystem paths, return a list of
@@ -418,7 +420,7 @@ if __name__ == "__main__":
     os.mkdir(target_dir)
 
     # Set up data tables dictionary
-    data_tables = {
+    data_tables: Dict[str, Dict[str, List[str]]] = {
         "data_tables": {
             "mothur_lookup": [],
             "mothur_aligndb": [],
