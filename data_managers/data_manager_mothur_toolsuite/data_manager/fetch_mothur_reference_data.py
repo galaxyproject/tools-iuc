@@ -307,16 +307,6 @@ def identify_type(filen):
         return None
 
 
-def get_name(filen):
-    """Generate a descriptive name based on the file name
-    """
-    # type_ = identify_type(filen)
-    name = os.path.splitext(os.path.basename(filen))[0]
-    for delim in ('.', '_'):
-        name = name.replace(delim, ' ')
-    return name
-
-
 def fetch_from_mothur_website(data_tables, target_dir, datasets):
     """Fetch reference data from the Mothur website
 
