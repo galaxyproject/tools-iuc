@@ -316,29 +316,6 @@ def unpack_archive(filen, wd=None):
         return [filen]
 
 
-def fetch_files(urls, wd=None, files=None):
-    """Download and unpack files from a list of URLs
-
-    Given a list of URLs, download and unpack each
-    one, and return a list of the extracted files.
-
-    'wd' specifies the working directory to extract
-    the files to, otherwise they are extracted to the
-    current working directory.
-
-    If 'files' is given then the list of extracted
-    files will be appended to this list before being
-    returned.
-
-    """
-    if files is None:
-        files = []
-    for url in urls:
-        filen = download_file(url, wd=wd)
-        files.extend(unpack_archive(filen, wd=wd))
-    return files
-
-
 # Utility functions specific to the Mothur reference data
 def identify_type(filen):
     """Return the data table name based on the file name
@@ -385,20 +362,22 @@ def fetch_from_mothur_website(data_tables, target_dir, datasets):
     # Iterate over all requested reference data URLs
     for dataset in datasets:
         print(f"Handling dataset '{dataset}'")
-        for name in MOTHUR_REFERENCE_DATA[dataset]:
-            for f in fetch_files(MOTHUR_REFERENCE_DATA[dataset][name], wd=wd):
-                type_ = identify_type(f)
-                name_from_file = os.path.splitext(os.path.basename(f))[0]
-                entry_name = f"{name_from_file} ({name})"
-                print(f"{type_}\t\'{entry_name}'\t.../{os.path.basename(f)}")
-                if type_ is not None:
-                    # Move to target dir
-                    ref_data_file = os.path.basename(f)
-                    f1 = os.path.join(target_dir, ref_data_file)
-                    print(f"Moving {f} to {f1}")
-                    shutil.move(f, f1)
-                    data_tables['data_tables'][f"mothur_{type_}"].append(
-                        dict(name=entry_name, value=ref_data_file))
+        for name, urls in MOTHUR_REFERENCE_DATA[dataset].items():
+            for url in urls:
+                filen = download_file(url, wd=wd)
+                for f in unpack_archive(filen, wd=wd):
+                    type_ = identify_type(f)
+                    name_from_file = os.path.splitext(os.path.basename(f))[0]
+                    entry_name = f"{name_from_file} ({name})"
+                    print(f"{type_}\t\'{entry_name}'\t.../{os.path.basename(f)}")
+                    if type_ is not None:
+                        # Move to target dir
+                        ref_data_file = os.path.basename(f)
+                        f1 = os.path.join(target_dir, ref_data_file)
+                        print(f"Moving {f} to {f1}")
+                        shutil.move(f, f1)
+                        data_tables['data_tables'][f"mothur_{type_}"].append(
+                            dict(name=entry_name, value=ref_data_file))
     # Remove working dir
     print(f"Removing {wd}")
     shutil.rmtree(wd)
