@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 #
 # Data manager for reference data for the 'mothur_toolsuite' Galaxy tools
+import argparse
 import io
 import json
-import optparse
 import os
 import pathlib
 import shutil
-import sys
 import tarfile
 import tempfile
 import urllib.error
@@ -160,28 +159,6 @@ MOTHUR_REFERENCE_DATA = {
         ["https://mothur.s3.us-east-2.amazonaws.com/wiki/lane1349.silva.filter", ]
     },
 }
-
-
-# Utility functions for interacting with Galaxy JSON
-def read_input_json(jsonfile):
-    """Read the JSON supplied from the data manager tool
-
-    Returns a tuple (param_dict,extra_files_path)
-
-    'param_dict' is an arbitrary dictionary of parameters
-    input into the tool; 'extra_files_path' is the path
-    to a directory where output files must be put for the
-    receiving data manager to pick them up.
-
-    NB the directory pointed to by 'extra_files_path'
-    doesn't exist initially, it is the job of the script
-    to create it if necessary.
-
-    """
-    with open(jsonfile) as fh:
-        params = json.load(fh)
-    return (params['param_dict'],
-            params['output_data'][0]['extra_files_path'])
 
 
 # Utility functions for downloading and unpacking archive files
@@ -448,25 +425,19 @@ if __name__ == "__main__":
     print("Starting...")
 
     # Read command line
-    parser = optparse.OptionParser()
-    parser.add_option('--source', action='store', dest='data_source')
-    parser.add_option('--datasets', action='store', dest='datasets', default='')
-    parser.add_option('--paths', action='store', dest='paths', default=[])
-    parser.add_option('--description', action='store', dest='description', default='')
-    parser.add_option('--link', action='store_true', dest='link_to_data')
-    options, args = parser.parse_args()
-    print(f"options: {options}")
-    print(f"args   : {args}")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("json", metavar="JSON")
+    parser.add_argument('--source', action='store', dest='data_source')
+    parser.add_argument('--datasets', action='store', dest='datasets', default='')
+    parser.add_argument('--paths', action='store', dest='paths', default=[])
+    parser.add_argument('--description', action='store', dest='description', default='')
+    parser.add_argument('--link', action='store_true', dest='link_to_data')
+    options = parser.parse_args()
 
-    # Check for JSON file
-    if len(args) != 1:
-        sys.stderr.write("Need to supply JSON file name")
-        sys.exit(1)
-
-    jsonfile = args[0]
-
-    # Read the input JSON
-    params, target_dir = read_input_json(jsonfile)
+    with open(options.json, "rt") as fh:
+        json_params = json.load(fh)
+    params = json_params["param_dict"]
+    target_dir = json_params["output_data"][0]["extra_files_path"]
 
     # Make the target directory
     print(f"Making {target_dir}")
@@ -494,6 +465,6 @@ if __name__ == "__main__":
         import_from_server(data_tables, target_dir, paths, description, link_to_data=options.link_to_data)
     # Write output JSON
     print("Outputting JSON")
-    with open(jsonfile, 'w') as fh:
+    with open(options.json, 'w') as fh:
         json.dump(data_tables, fh, sort_keys=True)
     print("Done.")
