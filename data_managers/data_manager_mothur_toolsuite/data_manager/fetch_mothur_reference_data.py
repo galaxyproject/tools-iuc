@@ -239,10 +239,7 @@ def unpack_zip_archive(filen, wd=None):
             if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
                 print(f"Ignoring {name}")
                 continue
-            if wd:
-                target = os.path.join(wd, name)
-            else:
-                target = name
+            target = os.path.join(wd, name) if wd else name
             if name.endswith('/'):
                 # Make directory
                 print(f"Creating dir {target}")
@@ -294,10 +291,7 @@ def unpack_tar_archive(filen, wd=None):
             # Extract file
             print(f"Extracting {name}")
             t.extract(name, wd)
-            if wd:
-                target = os.path.join(wd, name)
-            else:
-                target = name
+            target = os.path.join(wd, name) if wd else name
             file_list.append(target)
     print(f"Removing {filen}")
     os.remove(filen)
