@@ -229,7 +229,12 @@ def unpack_zip_archive(filen: str, wd: Optional[str] = None) -> Generator[str, N
                 print("Extracting {target}")
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 with open(target, 'wb') as fh:
-                    fh.write(z.read(name))
+                    with z.open(name) as zh:
+                        while True:
+                            block = zh.read(io.DEFAULT_BUFFER_SIZE)
+                            if block == b"":
+                                break
+                            fh.write(block)
                 yield target
 
 
