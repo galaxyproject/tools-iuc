@@ -13,11 +13,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from functools import reduce
+from typing import Generator, List
 
 # When extracting files from archives, skip names that
 # start with the following strings
-from typing import Generator, List
 
 IGNORE_PATHS = ('.', '__MACOSX/', '__')
 
@@ -163,6 +162,13 @@ MOTHUR_REFERENCE_DATA = {
 }
 
 
+def _is_ignored_path(path: str):
+    for ignore_path in IGNORE_PATHS:
+        if path.startswith(ignore_path):
+            return True
+    return False
+
+
 # Utility functions for downloading and unpacking archive files
 def download_file(url: str, target: str = None, wd: str = None) -> str:
     """Download a file from a URL
@@ -212,7 +218,7 @@ def unpack_zip_archive(filen: str, wd: str = None) -> Generator[str, None, None]
     """
     with zipfile.ZipFile(filen) as z:
         for name in z.namelist():
-            if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
+            if _is_ignored_path(name):
                 print(f"Ignoring {name}")
                 continue
             target = os.path.join(wd, name) if wd else name
@@ -248,7 +254,7 @@ def unpack_tar_archive(filen: str, wd: str = None) -> Generator[str, None, None]
     with tarfile.open(filen) as t:
         for name in t.getnames():
             # Check for unwanted files
-            if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
+            if _is_ignored_path(name):
                 print(f"Ignoring {name}")
                 continue
             # Extract file
