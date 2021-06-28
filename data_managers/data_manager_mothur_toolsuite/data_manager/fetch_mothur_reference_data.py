@@ -243,17 +243,11 @@ def unpack_zip_archive(filen, wd=None):
             if name.endswith('/'):
                 # Make directory
                 print(f"Creating dir {target}")
-                try:
-                    os.makedirs(target)
-                except OSError:
-                    pass
+                os.makedirs(target, exist_ok=True)
             else:
                 # Extract file
                 print("Extracting {target}")
-                try:
-                    os.makedirs(os.path.dirname(target))
-                except OSError:
-                    pass
+                os.makedirs(os.path.dirname(target), exist_ok=True)
                 with open(target, 'wb') as fh:
                     fh.write(z.read(name))
                 file_list.append(target)
