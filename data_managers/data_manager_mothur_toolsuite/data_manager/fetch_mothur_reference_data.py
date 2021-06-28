@@ -17,6 +17,8 @@ from functools import reduce
 
 # When extracting files from archives, skip names that
 # start with the following strings
+from typing import Generator, List
+
 IGNORE_PATHS = ('.', '__MACOSX/', '__')
 
 # Map file extensions to data table names
@@ -162,7 +164,7 @@ MOTHUR_REFERENCE_DATA = {
 
 
 # Utility functions for downloading and unpacking archive files
-def download_file(url, target=None, wd=None):
+def download_file(url: str, target: str = None, wd: str = None) -> str:
     """Download a file from a URL
 
     Fetches a file from the specified URL.
@@ -193,7 +195,7 @@ def download_file(url, target=None, wd=None):
     return target
 
 
-def unpack_zip_archive(filen, wd=None):
+def unpack_zip_archive(filen: str, wd: str = None) -> Generator[str, None, None]:
     """Extract files from a ZIP archive
 
     Given a ZIP archive, extract the files it contains
@@ -208,10 +210,6 @@ def unpack_zip_archive(filen, wd=None):
     file is deleted from the file system.
 
     """
-    if not zipfile.is_zipfile(filen):
-        print(f"{filen}: not ZIP formatted file")
-        return [filen]
-    file_list = []
     with zipfile.ZipFile(filen) as z:
         for name in z.namelist():
             if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
@@ -228,13 +226,10 @@ def unpack_zip_archive(filen, wd=None):
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 with open(target, 'wb') as fh:
                     fh.write(z.read(name))
-                file_list.append(target)
-    print(f"Removing {filen}")
-    os.remove(filen)
-    return file_list
+                yield target
 
 
-def unpack_tar_archive(filen, wd=None):
+def unpack_tar_archive(filen: str, wd: str = None) -> Generator[str, None, None]:
     """Extract files from a TAR archive
 
     Given a TAR archive (which optionally can be
@@ -250,10 +245,6 @@ def unpack_tar_archive(filen, wd=None):
     file is deleted from the file system.
 
     """
-    file_list = []
-    if not tarfile.is_tarfile(filen):
-        print(f"{filen}: not TAR file")
-        return [filen]
     with tarfile.open(filen) as t:
         for name in t.getnames():
             # Check for unwanted files
@@ -264,13 +255,10 @@ def unpack_tar_archive(filen, wd=None):
             print(f"Extracting {name}")
             t.extract(name, wd)
             target = os.path.join(wd, name) if wd else name
-            file_list.append(target)
-    print(f"Removing {filen}")
-    os.remove(filen)
-    return file_list
+            yield target
 
 
-def unpack_archive(filen, wd=None):
+def unpack_archive(filen: str, wd: str = None) -> Generator[str, None, None]:
     """Extract files from an archive
 
     Wrapper function that calls the appropriate
@@ -286,16 +274,16 @@ def unpack_archive(filen, wd=None):
     print(f"Unpack {filen}")
     ext = os.path.splitext(filen)[1]
     print(f"Extension: {ext}")
-    if ext == ".zip":
-        return unpack_zip_archive(filen, wd=wd)
-    elif ext == ".tgz":
-        return unpack_tar_archive(filen, wd=wd)
+    if ext == ".zip" and zipfile.is_zipfile(filen):
+        yield from unpack_zip_archive(filen, wd=wd)
+    elif ext == ".tgz" and tarfile.is_tarfile(filen):
+        yield from unpack_tar_archive(filen, wd=wd)
     else:
-        return [filen]
+        yield filen
 
 
 # Utility functions specific to the Mothur reference data
-def identify_type(filen):
+def identify_type(filen: str):
     """Return the data table name based on the file name
 
     """
@@ -307,7 +295,9 @@ def identify_type(filen):
         return None
 
 
-def fetch_from_mothur_website(data_tables, target_dir, datasets):
+def fetch_from_mothur_website(data_tables: dict,
+                              target_dir: str,
+                              datasets: List[str]):
     """Fetch reference data from the Mothur website
 
     For each dataset in the list 'datasets', download (and if
@@ -324,7 +314,6 @@ def fetch_from_mothur_website(data_tables, target_dir, datasets):
       datasets: a list of dataset names corresponding to keys in
         the MOTHUR_REFERENCE_DATA dictionary
     """
-    # Make working dir
     wd = tempfile.mkdtemp(suffix=".mothur", dir=os.getcwd())
     print(f"Working dir {wd}")
     # Iterate over all requested reference data URLs
@@ -344,9 +333,10 @@ def fetch_from_mothur_website(data_tables, target_dir, datasets):
                         f1 = os.path.join(target_dir, ref_data_file)
                         print(f"Moving {f} to {f1}")
                         shutil.move(f, f1)
+                        print(f"Removing {f}")
+                        os.remove(f)
                         data_tables['data_tables'][f"mothur_{type_}"].append(
                             dict(name=entry_name, value=ref_data_file))
-    # Remove working dir
     print(f"Removing {wd}")
     shutil.rmtree(wd)
 
