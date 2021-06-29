@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 import urllib.request
 import zipfile
-from typing import Generator, List, Iterable, Union, Optional, Dict
+from typing import Dict, Generator, Iterable, List, Optional, Union
 
 # When extracting files from archives, skip names that
 # start with the following strings
