@@ -333,10 +333,14 @@ def fetch_from_mothur_website(data_tables: dict,
                     target = os.path.join(target_dir, ref_data_file)
                     print(f"Moving {unpacked_file} to {target}")
                     shutil.move(unpacked_file, target)
-                    print(f"Removing {unpacked_file}")
-                    os.remove(unpacked_file)
                     data_tables['data_tables'][f"mothur_{type_}"].append(
                         dict(name=entry_name, value=ref_data_file))
+                print(f"Removing downloaded file: {filen}")
+                # check if file was not moved and therefore already deleted.
+                if os.path.exists(filen):
+                    # Removing file early here minimizes temporary storage
+                    # needed on the server.
+                    os.remove(filen)
     print(f"Removing {wd}")
     shutil.rmtree(wd)
 
