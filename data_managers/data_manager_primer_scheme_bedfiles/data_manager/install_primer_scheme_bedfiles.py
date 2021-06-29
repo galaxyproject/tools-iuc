@@ -8,7 +8,6 @@ try:
 except ImportError:
     from StringIO import StringIO
 import json
-from operator import itemgetter
 import os
 import os.path
 import re
@@ -41,11 +40,10 @@ def write_artic_style_bed(input_file, bed_output_filename):
             bed_output_file.write("\t".join(fields))
 
 
-
 def primer_info_to_position(name):
     position = 0
-    re_match = re.match('.*_\d+_(LEFT|RIGHT)(_alt(\d+))?', name)
-    if re_match is None:    
+    re_match = re.match(r'.*_\d+_(LEFT|RIGHT)(_alt(\d+))?', name)
+    if re_match is None:
         raise ValueError("{} does not match expected amplicon name format".format(name))
     (side, _, num) = re_match.groups()
     if side == 'RIGHT':
@@ -53,6 +51,7 @@ def primer_info_to_position(name):
     if num is not None:
         position += int(num)
     return position
+
 
 def write_amplicon_info_file(bed_filename, amplicon_info_filename):
     amplicon_sets = {}
@@ -68,7 +67,7 @@ def write_amplicon_info_file(bed_filename, amplicon_info_filename):
         amplicon_set.append(name)
         amplicon_sets[amplicon_id] = amplicon_set
         amplicon_ids.add(amplicon_id)
-    
+
     amplicon_info_file = open(amplicon_info_filename, 'w')
     for id in sorted(list(amplicon_ids)):
         amplicon_info = '\t'.join([name for name in sorted(amplicon_sets[id], key=primer_info_to_position)]) + '\n'
