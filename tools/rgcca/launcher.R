@@ -1,3 +1,5 @@
+#!/usr/bin/env Rscript
+
 # Author: Etienne CAMENEN
 # Date: 2020
 # Contact: arthur.tenenhaus@centralesupelec.fr
@@ -22,6 +24,7 @@ get_args <- function() {
             opt_str = c("-d", "--datasets"),
             type = "character",
             metavar = "path list",
+            default = opt[18],
             help = "List of comma-separated file paths corresponding to the
             blocks to be analyzed (one per block and without spaces between
             them; e.g., path/file1.txt,path/file2.txt) [required]"
@@ -74,11 +77,12 @@ get_args <- function() {
             type = "character",
             metavar = "character",
             default = opt[2],
-            help = "Type of analysis [default: %default] (among: rgcca, pca,
-            cca, gcca, cpca-w, hpca, maxbet-b, maxbet, maxdiff-b, maxdiff,
-            maxvar-a, maxvar-b, maxvar, niles, r-maxvar, rcon-pca, ridge-gca,
-            sabscor, ssqcor, ssqcor, ssqcov-1, ssqcov-2, ssqcov, sum-pca,
-            sumcor, sumcov-1, sumcov-2, sumcov)"
+            help = "Type of analysis [default: %default] (among: rgcca, sgcca, 
+            pca, spca, pls, spls, cca, ifa, ra, gcca, maxvar, maxvar-b, 
+            maxvar-a, mcoa,cpca-1, cpca-2, cpca-4, hpca, maxbet-b, maxbet, 
+            maxdiff-b, maxdiff, maxvar-a, sabscor, ssqcor, ssqcov-1, ssqcov-2, 
+            ssqcov, sumcor, sumcov-1, sumcov-2, sumcov, sabscov, sabscov-1, 
+            sabscov-2)" 
         ),
         make_option(
             opt_str = "--ncomp",
@@ -245,10 +249,6 @@ get_args <- function() {
     return(optparse::OptionParser(option_list = option_list))
 }
 
-char_to_list <- function(x) {
-    strsplit(gsub(" ", "", as.character(x)), ",")[[1]]
-}
-
 check_arg <- function(opt) {
     # Check the validity of the arguments opt : an optionParser object
 
@@ -318,71 +318,6 @@ post_check_arg <- function(opt, rgcca) {
     return(opt)
 }
 
-check_integer <- function(x, y = x, type = "scalar", float = FALSE, min = 1) {
-
-    if (is.null(y))
-        y <- x
-
-    if (type %in% c("matrix", "data.frame"))
-        y_temp <- y
-
-    y <- suppressWarnings(as.double(as.matrix(y)))
-
-    if (any(is.na(y)))
-        stop_rgcca(paste(x, "should not be NA."))
-
-    if (!is(y, "numeric"))
-        stop_rgcca(paste(x, "should be numeric."))
-
-    if (type == "scalar" && length(y) != 1)
-        stop_rgcca(paste(x, "should be of length 1."))
-
-    if (!float)
-        y <- as.integer(y)
-
-    if (all(y < min))
-        stop_rgcca(paste0(x, " should be higher than or equal to ", min, "."))
-
-    if (type %in% c("matrix", "data.frame"))
-        y <- matrix(
-            y,
-            dim(y_temp)[1],
-            dim(y_temp)[2],
-            dimnames = dimnames(y_temp)
-        )
-
-    if (type == "data.frame")
-        as.data.frame(y)
-
-    return(y)
-}
-
-load_libraries <- function(librairies) {
-    for (l in librairies) {
-        if (!(l %in% installed.packages()[, "Package"]))
-            utils::install.packages(l, repos = "cran.us.r-project.org")
-        suppressPackageStartupMessages(
-            library(
-                l,
-                character.only = TRUE,
-                warn.conflicts = FALSE,
-                quietly = TRUE
-        ))
-    }
-}
-
-stop_rgcca <- function(
-    message,
-    exit_code = "1",
-    call = NULL) {
-
-    base::stop(
-        structure(
-            class = c(exit_code, "simpleError", "error", "condition"),
-            list(message = message, call. = NULL)
-    ))
- }
-
 ########## Main ##########
 
 # Get arguments : R packaging install, need an opt variable with associated
@@ -411,7 +346,12 @@ opt <- list(
         collapse = ",")
 )
 
-load_libraries(c("ggplot2", "optparse", "scales", "igraph", "MASS", "rlang", "Deriv"))
+# Load functions
+all_funcs <- unclass(lsf.str(envir = asNamespace("RGCCA"), all = TRUE))
+for (i in all_funcs)
+    eval(parse(text = paste0(i, "<-RGCCA:::", i)))
+
+load_libraries(c("ggplot2", "optparse", "scales", "igraph", "MASS", "Deriv"))
 try(load_libraries("ggrepel"), silent = TRUE)
 
 tryCatch(
@@ -423,16 +363,17 @@ tryCatch(
         stop_rgcca(w[[1]], exit_code = 141)
 )
 
-# Load functions
-all_funcs <- unclass(lsf.str(envir = asNamespace("RGCCA"), all = T))
-for (i in all_funcs)
-    eval(parse(text = paste0(i, "<-RGCCA:::", i)))
-
 # Set missing parameters by default
 opt$header <- !("header" %in% names(opt))
 opt$superblock <- !("superblock" %in% names(opt))
 opt$scale <- !("scale" %in% names(opt))
 opt$text <- !("text" %in% names(opt))
+CEX_LAB <- 20
+CEX_MAIN <- 25
+CEX_POINT <- 3
+CEX_SUB <- 20
+CEX_AXIS <- 10
+CEX <- 1.25
 
 status <- 0
 tryCatch({
@@ -450,7 +391,7 @@ tryCatch({
             ncomp = opt$ncomp,
             scheme = opt$scheme,
             scale = opt$scale,
-            type = opt$type
+            method = opt$type
         )
     )
     if (tolower(opt$type) %in% c("sgcca", "spca", "spls")) {
@@ -477,7 +418,11 @@ tryCatch({
                 opt$block,
                 opt$text,
                 opt$block_y,
-                "Response"
+                get_filename(opt$group),
+                cex_lab = CEX_LAB, 
+                cex_point = CEX_POINT,
+                cex_main = CEX_MAIN,
+                cex = CEX
             )
         )
         save_plot(opt$o1, individual_plot)
@@ -491,7 +436,11 @@ tryCatch({
                 opt$compy,
                 opt$block,
                 opt$text,
-                n_mark = opt$nmark
+                n_mark = opt$nmark,
+                cex_lab = CEX_LAB, 
+                cex_point = CEX_POINT,
+                cex_main = CEX_MAIN,
+                cex = CEX
             )
         )
         save_plot(opt$o2, corcircle)
@@ -502,20 +451,34 @@ tryCatch({
             opt$compx,
             opt$nmark,
             opt$block,
-            type = "cor"
+            type = "loadings",
+            title = paste0("Variable correlations", ": ", names(rgcca_out$call$blocks)[opt$block], " with "),
+            cex_sub = CEX_SUB,
+            cex_main = CEX_MAIN,
+            cex_axis = CEX_AXIS,
+            cex = CEX
         )
     save_plot(opt$o3, top_variables)
 
     # Average Variance Explained
-    (ave <- plot_ave(rgcca_out))
+    (ave <- plot_ave(
+        rgcca_out, 
+        cex_main = CEX_MAIN,
+        cex_sub = CEX_SUB,
+        cex_axis = CEX_AXIS,
+        cex = CEX))
     save_plot(opt$o4, ave)
 
     # Creates design scheme
-    design <- function() plot_network(rgcca_out)
+    design <- function() plot_network(
+        rgcca_out,
+        cex_main = CEX_MAIN,
+        cex_point = CEX_POINT,
+        cex = CEX)
     save_plot(opt$o5, design)
 
-    save_ind(rgcca_out, opt$compx, opt$compy, opt$o6)
-    save_var(rgcca_out, opt$compx, opt$compy, opt$o7)
+    save_ind(rgcca_out, opt$o6)
+    save_var(rgcca_out, opt$o7)
     save(rgcca_out, file = opt$o8)
 
     }, error = function(e) {
@@ -523,6 +486,10 @@ tryCatch({
             status <<- 1
         else
             status <<- class(e)[1]
+        msg <- "The design matrix C"
+        if (grepl(msg, e$message)) {
+            e$message <- gsub(msg, "The connection file", e$message)
+        }
         message(e$message)
 })
 quit(status = status)
