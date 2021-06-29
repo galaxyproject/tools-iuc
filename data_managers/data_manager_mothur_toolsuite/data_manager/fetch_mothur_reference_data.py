@@ -226,7 +226,7 @@ def unpack_zip_archive(filen: str, wd: Optional[str] = None) -> Generator[str, N
                 os.makedirs(target, exist_ok=True)
             else:
                 # Extract file
-                print("Extracting {target}")
+                print(f"Extracting {target}")
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 with open(target, 'wb') as fh:
                     with z.open(name) as zh:
