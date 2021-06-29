@@ -277,7 +277,7 @@ if (!is.null(opt$filesPath)) {
 
   # Process factors
   if (is.null(opt$factInput)) {
-    factordata <- read.table(opt$factFile, header = TRUE, sep = "\t", strip.white = TRUE)
+    factordata <- read.table(opt$factFile, header = TRUE, sep = "\t", strip.white = TRUE, stringsAsFactors = TRUE)
     # check samples names match
     if (!any(factordata[, 1] %in% colnames(counts))) {
       stop("Sample IDs in factors file and count matrix don't match")
