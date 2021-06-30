@@ -40,39 +40,30 @@ def write_artic_style_bed(input_file, bed_output_filename):
             bed_output_file.write("\t".join(fields))
 
 
-def primer_info_to_position(name):
-    position = 0
-    re_match = re.match(r'.*_\d+_(LEFT|RIGHT)(_alt(\d+))?', name)
-    if re_match is None:
-        raise ValueError("{} does not match expected amplicon name format".format(name))
-    (side, _, num) = re_match.groups()
-    if side == 'RIGHT':
-        position += 1000
-    if num is not None:
-        position += int(num)
-    return position
-
-
 def write_amplicon_info_file(bed_filename, amplicon_info_filename):
+    pat = re.compile(r'.*_(\d+)_(LEFT|RIGHT)($|_alt\d+)')
     amplicon_sets = {}
-    amplicon_ids = set()
     for line in open(bed_filename):
         fields = line.strip().split('\t')
         name = fields[3]
-        re_match = re.match(r'.*_(\d+)_(LEFT|RIGHT)', name)
+        re_match = pat.match(name)
         if re_match is None:
-            raise ValueError("{} does not match expected amplicon name format".format(name))
+            raise ValueError(
+                "{} does not match expected amplicon name format".format(name)
+            )
         amplicon_id = int(re_match.group(1))
         amplicon_set = amplicon_sets.get(amplicon_id, [])
         amplicon_set.append(name)
         amplicon_sets[amplicon_id] = amplicon_set
-        amplicon_ids.add(amplicon_id)
 
-    amplicon_info_file = open(amplicon_info_filename, 'w')
-    for id in sorted(list(amplicon_ids)):
-        amplicon_info = '\t'.join([name for name in sorted(amplicon_sets[id], key=primer_info_to_position)]) + '\n'
-        amplicon_info_file.write(amplicon_info)
-    amplicon_info_file.close()
+    with open(amplicon_info_filename, 'w') as amplicon_info_file:
+        for id in sorted(amplicon_sets):
+            amplicon_info = '\t'.join(
+                [name for name in sorted(
+                    amplicon_sets[id], key=lambda x: pat.match(x).groups()
+                )]
+            ) + '\n'
+            amplicon_info_file.write(amplicon_info)
 
 
 def fetch_artic_primers(output_directory, primers):
