@@ -15,7 +15,7 @@ parser.add_argument('--timeout', type=float, default=60.0, help="Timeout for con
 parser.add_argument('--max_retries', type=int, default=5, help="How many times to retry fetching the pangoLEARN database")
 args = parser.parse_args()
 
-try: 
+try:
     s = requests.Session()
     s.mount('http://stackoverflow.com', HTTPAdapter(max_retries=args.max_retries))
     response = s.get(
@@ -38,6 +38,5 @@ try:
         response.raise_for_status()
 except (requests.ConnectionError, requests.HTTPError, requests.TooManyRedirects) as e:
     sys.exit('Failed to download pangoLEARN database: {}'.format(e))
-except requests.Timeout as e:
+except requests.Timeout:
     sys.exit('Timeout while trying to download pangoLEARN database')
-
