@@ -17,7 +17,7 @@ args = parser.parse_args()
 
 try:
     s = requests.Session()
-    s.mount('http://stackoverflow.com', HTTPAdapter(max_retries=args.max_retries))
+    s.mount('https://', HTTPAdapter(max_retries=args.max_retries))
     response = s.get(
         "https://api.github.com/repos/cov-lineages/pangoLEARN/releases/latest"
     )
