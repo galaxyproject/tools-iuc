@@ -1,8 +1,8 @@
 #!/usr/bin/env Rscript
 
 # Author: Etienne CAMENEN
-# Date: 2020
-# Contact: arthur.tenenhaus@centralesupelec.fr
+# Date: 2021
+# Contact: etienne.camenen@gmail.com
 # Key-words: omics, RGCCA, multi-block
 # EDAM operation: analysis, correlation, visualisation
 #
@@ -24,7 +24,6 @@ get_args <- function() {
             opt_str = c("-d", "--datasets"),
             type = "character",
             metavar = "path list",
-            default = opt[18],
             help = "List of comma-separated file paths corresponding to the
             blocks to be analyzed (one per block and without spaces between
             them; e.g., path/file1.txt,path/file2.txt) [required]"
