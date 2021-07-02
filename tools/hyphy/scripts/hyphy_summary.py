@@ -447,11 +447,11 @@ def traverse_tree_in_order(node, labels, slac_data, i, parent_tag, root):
     if nn in slac_data:
         node_tag = slac_data[nn]["codon"][0][i]
         if (parent_tag != node_tag):
-            labels [nn] = node_tag
+            labels[nn] = node_tag
             labels[node["name"]] = node_tag
     if "children" in node:
         for c in node["children"]:
-            traverse_tree_in_order (c, labels, slac_data,i, node_tag, root)
+            traverse_tree_in_order(c, labels, slac_data, i, node_tag, root)
 
 
 def newick_parser(nwk_str, bootstrap_values, track_tags, json_map, import_settings, tags):
@@ -469,15 +469,14 @@ def newick_parser(nwk_str, bootstrap_values, track_tags, json_map, import_settin
     def add_new_tree_level():
         new_level = {
             "name": None
-        };
+        }
         the_parent = clade_stack[len(clade_stack) - 1]
-        if (not "children" in the_parent):
-            the_parent["children"] = [];
+        if "children" not in the_parent:
+            the_parent["children"] = []
 
-        clade_stack.append (new_level);
-        the_parent["children"].append(clade_stack[len(clade_stack) - 1]);
-        clade_stack[len(clade_stack)-1]["original_child_order"] = len(the_parent["children"])
-
+        clade_stack.append(new_level)
+        the_parent["children"].append(clade_stack[len(clade_stack) - 1])
+        clade_stack[len(clade_stack) - 1]["original_child_order"] = len(the_parent["children"])
 
     def finish_node_definition():
         nonlocal current_node_name
@@ -495,7 +494,7 @@ def newick_parser(nwk_str, bootstrap_values, track_tags, json_map, import_settin
 
         try:
 
-            if not 'children' in this_node:
+            if 'children' not in this_node:
                 node_tag = import_settings.default_tag
                 if json_map:
                     tn = json_map["branch attributes"]["0"][this_node["name"]]
@@ -503,7 +502,7 @@ def newick_parser(nwk_str, bootstrap_values, track_tags, json_map, import_settin
                     tn = this_node
                 nn = tn["original name"] if "original name" in tn else tn["name"]
                 for k, v in tags.items():
-                    if nn.find (k) >= 0:
+                    if nn.find(k) >= 0:
                         node_tag = v
                         break
             else:
@@ -511,12 +510,13 @@ def newick_parser(nwk_str, bootstrap_values, track_tags, json_map, import_settin
                 node_tag = ""
                 for n in this_node['children']:
                     counts[n["tag"]] = 1 + (counts[n["tag"]] if n["tag"] in counts else 0)
-                if len (counts) == 1:
-                    node_tag = list (counts.keys())[0]
+                if len(counts) == 1:
+                    node_tag = list(counts.keys())[0]
 
             this_node["tag"] = node_tag
         except Exception as e:
             pass
+            print(e)
 
         if track_tags is not None:
             track_tags[this_node["name"]] = [this_node["tag"], 'children' in this_node]
@@ -525,43 +525,35 @@ def newick_parser(nwk_str, bootstrap_values, track_tags, json_map, import_settin
         current_node_attribute = ""
         current_node_annotation = ""
 
-
     def generate_error(location):
         return {
             'json': None,
             'error':
-                "Unexpected '" +
-                nwk_str[location] +
-                "' in '" +
-                nwk_str[location - 20 : location + 1] +
-                "[ERROR HERE]" +
-                nwk_str[location + 1 : location + 20] +
-                "'"
+                "Unexpected '%s' in '%s[ERROR HERE]%s'" % (nwk_str[location], nwk_str[location - 20:location + 1], nwk_str[location + 1:location + 20])
         }
 
-
     tree_json = {
-        "name" : "root"
+        "name": "root"
     }
 
-    clade_stack.append(tree_json);
+    clade_stack.append(tree_json)
 
-    space = re.compile("\s")
+    space = re.compile(r"\s")
 
-    for char_index in range (len(nwk_str)):
+    for char_index in range(len(nwk_str)):
         try:
             current_char = nwk_str[char_index]
             if automaton_state == 0:
-                #look for the first opening parenthesis
+                # look for the first opening parenthesis
                 if (current_char == "("):
                     add_new_tree_level()
                     automaton_state = 1
             elif automaton_state == 1 or automaton_state == 3:
-                #case 1: // name
-                #case 3: { // branch length
-                #reading name
+                # case 1: // name
+                # case 3: { // branch length
+                # reading name
                 if (current_char == ":"):
-                    automaton_state = 3;
+                    automaton_state = 3
                 elif current_char == "," or current_char == ")":
                     try:
                         finish_node_definition()
@@ -570,65 +562,67 @@ def newick_parser(nwk_str, bootstrap_values, track_tags, json_map, import_settin
                             add_new_tree_level()
                     except Exception as e:
                         return generate_error(char_index)
+                        print(e)
 
                 elif (current_char == "("):
                     if len(current_node_name) > 0:
-                        return generate_error(char_index);
+                        return generate_error(char_index)
                     else:
                         add_new_tree_level()
 
                 elif (current_char in name_quotes):
-                    if automaton_state == 1 and len(current_node_name) == 0 and len (current_node_attribute) == 0 and len (current_node_annotation) == 0:
+                    if automaton_state == 1 and len(current_node_name) == 0 and len(current_node_attribute) == 0 and len(current_node_annotation) == 0:
                         automaton_state = 2
                         quote_delimiter = current_char
                         continue
                     return generate_error(char_index)
                 else:
                     if (current_char == "["):
-                        if len (current_node_annotation):
+                        if len(current_node_annotation):
                             return generate_error(char_index)
                         else:
                             automaton_state = 4
                     else:
                         if (automaton_state == 3):
-                            current_node_attribute += current_char;
+                            current_node_attribute += current_char
                         else:
                             if (space.search(current_char)):
-                                continue;
-                            if (current_char == ";"):
+                                continue
+                            if (current_char == ""):
                                 char_index = len(nwk_str)
                                 break
-                            current_node_name += current_char;
+                            current_node_name += current_char
             elif automaton_state == 2:
                 # inside a quoted expression
                 if (current_char == quote_delimiter):
-                    if (char_index < len (nwk_str - 1)):
+                    if (char_index < len(nwk_str - 1)):
                         if (nwk_str[char_index + 1] == quote_delimiter):
-                            char_index+=1
-                            current_node_name += quote_delimiter;
-                            continue;
+                            char_index += 1
+                            current_node_name += quote_delimiter
+                            continue
 
                     quote_delimiter = 0
                     automaton_state = 1
                     continue
                 else:
-                    current_node_name += current_char;
+                    current_node_name += current_char
             elif automaton_state == 4:
-                ##inside a comment / attribute
+                # inside a comment / attribute
                 if (current_char == "]"):
                     automaton_state = 3
                 else:
                     if (current_char == "["):
-                        return generate_error(char_index);
-                    current_node_annotation += current_char;
+                        return generate_error(char_index)
+                    current_node_annotation += current_char
         except Exception as e:
-            return generate_error(char_index);
+            return generate_error(char_index)
+            print(e)
 
-    if (len (clade_stack) != 1):
-        return generate_error(len (nwk_str) - 1);
+    if (len(clade_stack) != 1):
+        return generate_error(len(nwk_str) - 1)
 
-    if (len (current_node_name)):
-            tree_json['name'] = current_node_name;
+    if (len(current_node_name)):
+        tree_json['name'] = current_node_name
 
     return {
         'json': tree_json,
