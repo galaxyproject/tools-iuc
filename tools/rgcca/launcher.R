@@ -417,7 +417,7 @@ tryCatch({
                 opt$block,
                 opt$text,
                 opt$block_y,
-                get_filename(opt$group),
+                "Response",
                 cex_lab = cex_lab,
                 cex_point = cex_point,
                 cex_main = cex_main,
