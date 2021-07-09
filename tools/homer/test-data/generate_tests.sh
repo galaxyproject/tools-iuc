@@ -37,3 +37,5 @@ annotatePeaks.pl test-data/CTCF_peaks.bed none -ann test-data/annotations_defaul
 annotatePeaks.pl test-data/CTCF_peaks.bed none -gtf test-data/small_simplified.gtf > test-data/CTCF_peaks_third.txt
 ## Fourth test
 annotatePeaks.pl test-data/fake_phix_peaks.bed test-data/phiX174.fasta -CpG > test-data/phiXcpg.txt
+## Fifth test
+annotatePeaks.pl test-data/fake_phix_peaks.bed none > test-data/phiX_nothing.txt
