@@ -167,9 +167,23 @@ for sample_alias, sample in samples_dict.items():
     if args.viral_submission:
         if sample['collector name'] == '':
             sample['collector name'] = 'unknown'
+        if isinstance(sample['collection date'], float):
+            # excel saved it as date
+            year, month, day, hour, minute, second = xlrd.xldate_as_tuple(sample['collection date'],
+                                                                          xl_workbook.datemode)
+            month = "{:02d}".format(month)
+            day = "{:02d}".format(day)
+            hour = "{:02d}".format(hour)
+            minute = "{:02d}".format(minute)
+            second = "{:02d}".format(second)
+            # format it as 2008-01-23T19:23:10
+            collection_date_str = str(year) + '-' + str(month) + '-' + str(day) + 'T' + str(hour) + \
+                ':' + str(minute) + ':' + str(second)
+        else:
+            collection_date_str = str(sample['collection date'])
         samples_table.write('\t'.join([sample_alias, action, 'ena_accession', sample['title'],
                                        sample['scientific_name'], 'tax_id_updated_by_ENA',
-                                       sample['sample_description'], sample['collection date'],
+                                       sample['sample_description'], collection_date_str,
                                        sample['geographic location (country and/or sea)'],
                                        sample['host common name'], 'host subject id',
                                        sample['host health state'], sample['host sex'],
