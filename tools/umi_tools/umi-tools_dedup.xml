@@ -1,4 +1,4 @@
-<tool id="umi_tools_dedup" name="UMI-tools deduplicate" version="@VERSION@+galaxy2">
+<tool id="umi_tools_dedup" name="UMI-tools deduplicate" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Extract UMI from fastq files</description>
     <macros>
         <import>macros.xml</import>
@@ -17,20 +17,34 @@
 
         umi_tools dedup
             '$output_stats_bool'
+            $whole_contig
+            ## TODO do not hardcode random seed
             --random-seed 0
-            --extract-umi-method $extract_umi_method
-            #if str($extract_umi_method) != 'read_id':
-                --umi-separator '$umi_separator' --umi-tag '$umi_tag'
+            ## Barcode extraction options
+            --extract-umi-method $bc.extract_umi_method
+            #if str($bc.extract_umi_method) != 'read_id':
+                --umi-separator '$bc.umi_separator'
+                --umi-tag '$bc.umi_tag'
             #end if
-            --method $method --edit-distance-threshold $edit_distance_threshold
-            $paired $spliced_is_unique --soft-clip-threshold $soft_clip_threshold
-            $read_length $whole_contig --subset $subset $per_contig $per_gene
-            #if $gene_transcript_map:
-                --gene-transcript-map '$gene_transcript_map'
+            ## UMI grouping options
+            --method $umi.method
+            --edit-distance-threshold
+            $umi.edit_distance_threshold
+            $umi.read_length
+            $umi.spliced_is_unique
+            --soft-clip-threshold $umi.soft_clip_threshold
+            ## Single-cell RNA-Seq options
+            $sc.per_contig $sc.per_gene
+            #if $sc.gene_transcript_map:
+                --gene-transcript-map '$sc.gene_transcript_map'
             #end if
-            #if len(str($gene_tag)) > 0:
-                --gene-tag '$gene_tag'
+            #if len(str($sc.gene_tag)) > 0:
+                --gene-tag '$sc.gene_tag'
             #end if
+            ## SAM/BAM options
+            $sambam.paired
+            --subset $sambam.subset
+            ##TODO add missing chrom option
             #if $input.is_of_type("sam"):
                 --in-sam
             #end if
@@ -42,34 +56,64 @@
             ## may be dropped in the future
             --no-sort-output
             && samtools sort --no-PG deduped.bam -@ \${GALAXY_SLOTS:-1} -T "\${TMPDIR:-.}" -o '$output' -O BAM
+
     ]]></command>
     <inputs>
         <param name="input" type="data" format="sam,bam" label="Reads to deduplicate in SAM or BAM format" />
-        <param name="extract_umi_method" argument="--extract-umi-method" type="select">
-            <option value="read_id" selected="True">Read ID</option>
-            <option value="tag">Tag</option>
-        </param>
-        <param name="umi_separator" argument="--umi-separator" type="text" label="Separator between read id and UMI." help="Ignored unless extracting by tag" />
-        <param name="umi_tag" argument="--umi-tag" type="text" label="Tag which contains UMI." />
-        <param argument="--method" type="select" label="Method used to identify PCR duplicates within reads." help="All methods start by identifying the reads with the same mapping position">
-            <option value="unique">Reads group share the exact same UMI</option>
-            <option value="percentile">Reads group share the exact same UMI. UMIs with counts less than 1% of the median counts for UMIs at the same position are ignored</option>
-            <option value="cluster">Identify clusters based on hamming distance</option>
-            <option value="adjacency">Identify clusters based on hamming distance and resolve networks by using the node counts</option>
-            <option value="directional">Identify clusters based on distance and counts, restrict network expansion by threshold</option>
-        </param>
-        <param name="edit_distance_threshold" argument="--edit-distance-threshold" type="integer" value="1" label="Edit distance threshold" help="For the adjacency and cluster methods the threshold for the edit distance to connect two UMIs in the network can be increased. The default value of 1 works best unless the UMI is very long (&gt;14bp)" />
-        <param argument="--paired" type="boolean" truevalue="--paired" falsevalue="" label="BAM is paired end" help="This will also force the use of the template length to determine reads with the same mapping coordinates." />
-        <param name="spliced_is_unique" argument="--spliced-is-unique" type="boolean" truevalue="--spliced-is-unique" falsevalue="" label="Spliced reads are unique" help="Causes two reads that start in the same position on the same strand and having the same UMI to be considered unique if one is spliced and the other is not. (Uses the 'N' cigar operation to test for splicing)" />
-        <param name="soft_clip_threshold" argument="--soft-clip-threshold" type="integer" value="4" label="Soft clip threshold" help="Mappers that soft clip, will sometimes do so rather than mapping a spliced read if there is only a small overhang over the exon junction. By setting this option, you can treat reads with at least this many bases soft-clipped at the 3' end as spliced." />
-        <param name="read_length" argument="--read-length" type="boolean" truevalue="--read-length" falsevalue="" label="Use the read length as as a criterion when deduping" />
-        <param name="whole_contig" argument="--whole-contig" type="boolean" truevalue="--whole-contig" falsevalue="" label="Consider all alignments to a single contig together" help="This is useful if you have aligned to a transcriptome multi-fasta" />
-        <param argument="--subset" type="float" min="0.0" max="1.0" value="1.0" label="Only consider a random selection of the reads" />
-        <param argument="--chrom" type="boolean" truevalue="--chrom" falsevalue="" label="Only consider a single chromosome" />
-        <param name="per_contig" argument="--per-contig" type="boolean" truevalue="--per-contig" falsevalue="" label="Deduplicate per contig" help="Field 3 in BAM; RNAME. All reads with the same contig will be considered to have the same alignment position. This is useful if your library prep generates PCR duplicates with non identical alignment positions such as CEL-Seq. In this case, you would align to a reference transcriptome with one transcript per gene" />
-        <param name="per_gene" argument="--per-gene" type="boolean" truevalue="--per-gene" falsevalue="" label="Deduplicate per gene" help="As above except with this option you can align to a reference transcriptome with more than one transcript per gene. You need to also provide a map of genes to transcripts. This will also add a metacontig ('MC') tag to the output BAM file." />
-        <param name="gene_transcript_map" argument="--gene-transcript-map" type="data" format="tabular" optional="True" label="Tabular file mapping genes to transripts" />
-        <param name="gene_tag" argument="--gene-tag" type="text" optional="True" label="Deduplicate by this gene tag" help="As --per-gene except here the gene information is encoded in the bam read tag specified so you do not need to supply the mapping file." />
+        <param argument="--whole-contig" type="boolean" truevalue="--whole-contig" falsevalue="" label="Consider all alignments to a single contig together" help="This is useful if you have aligned to a transcriptome multi-fasta" />
+        <section name="bc" title="Barcode extraction options">
+            <param name="extract_umi_method" argument="--extract-umi-method" type="select">
+                <option value="read_id" selected="True">Read ID</option>
+                <option value="tag">Tag</option>
+            </param>
+            <param argument="--umi-separator" type="text" label="Separator between read id and UMI." help="Ignored unless extracting by tag" />
+            <param argument="--umi-tag" type="text" label="Tag which contains UMI." />
+            <!-- umi-tag-split=UMI_TAG_SPLIT -->
+            <!-- umi-tag-delimiter=UMI_TAG_DELIM -->
+            <!-- cell-tag=CELL_TAG -->
+            <!-- cell-tag-split=CELL_TAG_SPLIT -->
+            <!-- cell-tag-delimiter=CELL_TAG_DELIM -->
+        </section>
+        <section name="umi" title="UMI grouping options">
+            <param argument="--method" type="select" label="Method used to identify PCR duplicates within reads." help="All methods start by identifying the reads with the same mapping position">
+                <option value="unique">Reads group share the exact same UMI</option>
+                <option value="percentile">Reads group share the exact same UMI. UMIs with counts less than 1% of the median counts for UMIs at the same position are ignored</option>
+                <option value="cluster">Identify clusters based on hamming distance</option>
+                <option value="adjacency">Identify clusters based on hamming distance and resolve networks by using the node counts</option>
+                <option value="directional">Identify clusters based on distance and counts, restrict network expansion by threshold</option>
+            </param>
+            <param argument="--edit-distance-threshold" type="integer" value="1" label="Edit distance threshold" help="For the adjacency and cluster methods the threshold for the edit distance to connect two UMIs in the network can be increased. The default value of 1 works best unless the UMI is very long (&gt;14bp)" />
+            <param argument="--spliced-is-unique" type="boolean" truevalue="--spliced-is-unique" falsevalue="" label="Spliced reads are unique" help="Causes two reads that start in the same position on the same strand and having the same UMI to be considered unique if one is spliced and the other is not. (Uses the 'N' cigar operation to test for splicing)" />
+            <param argument="--soft-clip-threshold" type="integer" value="4" label="Soft clip threshold" help="Mappers that soft clip, will sometimes do so rather than mapping a spliced read if there is only a small overhang over the exon junction. By setting this option, you can treat reads with at least this many bases soft-clipped at the 3' end as spliced." />
+            <param argument="--read-length" type="boolean" truevalue="--read-length" falsevalue="" label="Use the read length as as a criterion when deduping" />
+        </section>
+        <section name="sc" title="Single-cell RNA-Seq options">
+            <param argument="--per-gene" type="boolean" truevalue="--per-gene" falsevalue="" label="Deduplicate per gene" help="As above except with this option you can align to a reference transcriptome with more than one transcript per gene. You need to also provide a map of genes to transcripts. This will also add a metacontig ('MC') tag to the output BAM file." />
+            <param argument="--gene-tag" type="text" optional="True" label="Deduplicate by this gene tag" help="As --per-gene except here the gene information is encoded in the bam read tag specified so you do not need to supply the mapping file." />
+            <!--assigned-status-->
+            <!--skip-tags-regex-->
+            <param argument="--per-contig" type="boolean" truevalue="--per-contig" falsevalue="" label="Deduplicate per contig" help="Field 3 in BAM; RNAME. All reads with the same contig will be considered to have the same alignment position. This is useful if your library prep generates PCR duplicates with non identical alignment positions such as CEL-Seq. In this case, you would align to a reference transcriptome with one transcript per gene" />
+            <param argument="--gene-transcript-map" type="data" format="tabular" optional="True" label="Tabular file mapping genes to transripts" />
+            <!--per-cell-->
+        </section>
+        <section name="gd" title="group/dedup options">
+            <!--buffer-whole-contig-->
+            <!--multimapping-detection-method=DETECTION_METHOD-->
+        </section>
+        <section name="sambam" title="SAM/BAM options">
+            <!-- mapping-quality -->
+            <!-- unmapped-read -->
+            <!-- chimeric-pairs -->
+            <!-- unpaired-reads -->
+            <!-- ignore-umi -->
+            <!-- ignore-tlen -->
+            <param argument="--chrom" type="boolean" truevalue="--chrom" falsevalue="" label="Only consider a single chromosome" />
+            <param argument="--subset" type="float" min="0.0" max="1.0" value="1.0" label="Only consider a random selection of the reads" />
+            <!--in-sam is set automatically-->
+            <param argument="--paired" type="boolean" truevalue="--paired" falsevalue="" label="BAM is paired end" help="This will also force the use of the template length to determine reads with the same mapping coordinates." />
+
+        </section>
+        <!--output-stats=STATS-->
         <param name="output_stats_bool" type="boolean" truevalue="--output-stats=stats_outputs" falsevalue="" checked="false" label="Output UMI related statistics files?"/>
     </inputs>
     <outputs>
