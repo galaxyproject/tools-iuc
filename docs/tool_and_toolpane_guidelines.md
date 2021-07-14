@@ -33,7 +33,7 @@ Author of every new tool should specify which category her/his tool should go to
 
 ## Help section style
 
-Help section of the tools vary widely in content. However, just liek we cannot accept tools without tests we should not be accepting tools with rudimentary tool sections. 
+Help section of the tools vary widely in content. However, just like we cannot accept tools without tests we should not be accepting tools with rudimentary tool sections. 
 
 ### Proposed guidelines
 
@@ -58,7 +58,7 @@ After:
 
 ## Tool Categories
 
-Tool section need to be completely reworked. The existing sections data back to 2012/2013 and no longer reflect the breadth of Galaxy's toolset. 
+Tool section need to be completely reworked. The existing section dates back to 2012/2013 and no longer reflects the breadth of Galaxy's toolset. 
 
 ### Proposed toolpane structure
 
