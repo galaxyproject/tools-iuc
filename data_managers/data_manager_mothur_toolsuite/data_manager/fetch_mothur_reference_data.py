@@ -357,8 +357,7 @@ def fetch_from_mothur_website(data_tables: dict,
                     shutil.move(unpacked_file, target)
                     table_entry = dict(name=entry_name, value=ref_data_file)
                     if type_ == "aligndb":
-                        # TODO: Why is 'aligned' not a boolean value?
-                        table_entry["aligned"] = "seq" if ext == ".fasta" else "align"
+                        table_entry["aligned"] = str(ext != ".fasta")
                     data_tables['data_tables'][f"mothur_{type_}"].append(table_entry)
                 print(f"Removing downloaded file: {filen}")
                 # check if file was not moved and therefore already deleted.
@@ -429,7 +428,7 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
             shutil.copyfile(f, target_file)
         table_entry = dict(name=entry_name, value=ref_data_file)
         if type_ == "aligndb":
-            table_entry["aligned"] = "seq" if ext == ".fasta" else "align"
+            table_entry["aligned"] = str(ext != ".fasta")
         data_tables['data_tables'][f"mothur_{type_}"].append(table_entry)
 
 
