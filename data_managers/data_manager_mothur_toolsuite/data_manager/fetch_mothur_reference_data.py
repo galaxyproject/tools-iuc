@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #
 # Data manager for reference data for the 'mothur_toolsuite' Galaxy tools
 import argparse
@@ -15,13 +15,13 @@ from typing import Dict, Generator, Iterable, List, Optional, Union
 
 # When extracting files from archives, skip names that
 # start with the following strings
-
 IGNORE_PATHS = ('.', '__MACOSX/', '__')
 
 # Map file extensions to data table names
 MOTHUR_FILE_TYPES = {".map": "map",
                      ".fasta": "aligndb",
                      ".align": "aligndb",
+                     ".refalign": "aligndb",
                      ".pat": "lookup",
                      ".tax": "taxonomy"}
 
@@ -92,6 +92,11 @@ MOTHUR_REFERENCE_DATA = {
                 "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v138_1.tgz",
                 "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v138_1.tgz", ],
     },
+    "silva_release_132": {
+        "SILVA release 132":
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v132.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v132.tgz", ],
+    },
     "silva_release_128": {
         "SILVA release 128":
         ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v128.tgz",
@@ -137,6 +142,23 @@ MOTHUR_REFERENCE_DATA = {
     "greengenes_gold_alignment": {
         "Greengenes gold alignment":
         ["https://mothur.s3.us-east-2.amazonaws.com/wiki/greengenes.gold.alignment.zip", ],
+    },
+    # UNITE https://unite.ut.ee/repository.php
+    "UNITE_2018-11-18_fungi": {
+        "UNITE Fungi v8 singletons set as RefS (in dynamic files) (2018-11-18)":
+        ["https://files.plutof.ut.ee/public/orig/56/25/5625BDC830DC246F5B8C7004220089E032CC33EEF515C76CD0D92F25BDFA9F78.zip"],
+    },
+    "UNITE_2018-11-18_fungi_s": {
+        "UNITE Fungi v8 global and 97% singletons (2018-11-18)":
+        ["https://files.plutof.ut.ee/doi/7B/05/7B05C7CFD5F16459EDCC5A897C26A725C3CFC3AD3FDA1314CA56020681D993BD.zip"],
+    },
+    "UNITE_2018-11-18_euk": {
+        "UNITE Eukaryotes v8 singletons set as RefS (in dynamic files) (2018-11-18)":
+        ["https://files.plutof.ut.ee/public/orig/B3/9B/B39B0C26364A56759FBAE9A488E22C712BC4627A8C16601C4A5268BD044656B3.zip"],
+    },
+    "UNITE_2018-11-18_euk_s": {
+        "UNITE Eukaryotes v8 global and 97% singletons (2018-11-18)":
+        ["https://files.plutof.ut.ee/doi/DC/92/DC92B7C050E9DEE3D0611D4327C71534363135C66FECAC94EE9236A5D0223FB1.zip"],
     },
     # Secondary structure maps
     # http://www.mothur.org/wiki/Secondary_structure_map
@@ -333,8 +355,11 @@ def fetch_from_mothur_website(data_tables: dict,
                     target = os.path.join(target_dir, ref_data_file)
                     print(f"Moving {unpacked_file} to {target}")
                     shutil.move(unpacked_file, target)
-                    data_tables['data_tables'][f"mothur_{type_}"].append(
-                        dict(name=entry_name, value=ref_data_file))
+                    table_entry = dict(name=entry_name, value=ref_data_file)
+                    if type_ == "aligndb":
+                        # TODO: Why is 'aligned' not a boolean value?
+                        table_entry["aligned"] = "seq" if ext == ".fasta" else "align"
+                    data_tables['data_tables'][f"mothur_{type_}"].append(table_entry)
                 print(f"Removing downloaded file: {filen}")
                 # check if file was not moved and therefore already deleted.
                 if os.path.exists(filen):
@@ -364,6 +389,7 @@ def files_from_filesystem_paths(paths: Iterable[Union[str, os.PathLike]]
             yield from files_from_filesystem_paths(path.iterdir())
         else:
             print("Not a file or directory, ignored")
+    return files
 
 
 def import_from_server(data_tables, target_dir, paths, description, link_to_data=False):
@@ -402,8 +428,10 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
             os.symlink(f, target_file)
         else:
             shutil.copyfile(f, target_file)
-        data_tables['data_tables'][f"mothur_{type_}"].append(
-            dict(name=entry_name, value=ref_data_file))
+        table_entry = dict(name=entry_name, value=ref_data_file)
+        if type_ == "aligndb":
+            table_entry["aligned"] = "seq" if ext == ".fasta" else "align"
+        data_tables['data_tables'][f"mothur_{type_}"].append(table_entry)
 
 
 if __name__ == "__main__":
