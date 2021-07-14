@@ -58,11 +58,11 @@ After:
 
 ## Tool Categories
 
-Tool section need to be completely reworked. The existing section dates back to 2012/2013 and no longer reflects the breadth of Galaxy's toolset. 
+Tool section needs to be completely reworked. The existing section dates back to 2012/2013 and no longer reflects the breadth of Galaxy's toolset. 
 
 ### Proposed toolpane structure
 
-Here top level sections (e.g., `Get Data`) are labels such as, for example, **GENERAL TEXT TOOLS** on usegalaxy.org. The next level are expandable tool categories containing actual tools. One open question is how handle tool from different disciplines (e.g., genomics vs. climate science).
+Here top level sections (e.g., `Get Data`) are labels such as, for example, **GENERAL TEXT TOOLS** on usegalaxy.org. The next level are expandable tool categories containing actual tools. One open question is how to handle tool from different disciplines (e.g., genomics vs. climate science).
 
 - Get data
     - NCBI SRA
