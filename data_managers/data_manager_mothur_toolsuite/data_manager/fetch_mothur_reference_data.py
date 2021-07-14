@@ -389,7 +389,6 @@ def files_from_filesystem_paths(paths: Iterable[Union[str, os.PathLike]]
             yield from files_from_filesystem_paths(path.iterdir())
         else:
             print("Not a file or directory, ignored")
-    return files
 
 
 def import_from_server(data_tables, target_dir, paths, description, link_to_data=False):
