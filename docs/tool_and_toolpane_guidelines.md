@@ -29,7 +29,7 @@ Author of every new tool should specify which category her/his tool should go to
 |--------------|---------------|
 |**Select first** lines from a dataset | **Select first** lines |
 |**Sort** data in ascending and descending order | **Sort** data|
-|**Samtools fastx** extract FASTA or FASTQ from alignment files | SAMTools should have a dedicated category within the toolpane (see **Tool categories** below). The suggested name then would be: "**fastx**: extract FASTA or FASTQ"|
+|**Samtools fastx** extract FASTA or FASTQ from alignment files | SAMTools should have a dedicated category within the tool panel (see **Tool categories** below). The suggested name then would be: "**fastx**: extract FASTA or FASTQ"|
 
 ## Help section style
 
