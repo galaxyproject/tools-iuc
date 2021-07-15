@@ -33,7 +33,7 @@ Author of every new tool should specify which category her/his tool should go to
 
 ## Help section style
 
-Help section of the tools vary widely in content. However, just like we cannot accept tools without tests we should not be accepting tools with rudimentary tool sections. 
+The Help section of tools vary widely in content. However, just like we cannot accept tools without tests, we should not be accepting tools with rudimentary tool sections. 
 
 ### Proposed guidelines
 
