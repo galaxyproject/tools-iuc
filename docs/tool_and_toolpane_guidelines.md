@@ -37,7 +37,7 @@ The Help section of tools vary widely in content. However, just like we cannot a
 
 ### Proposed guidelines
 
-These guidelines partially inspired by `man` pages structure:
+These guidelines were partially inspired by the structure of `man` pages:
 
 - Each tool should include `Synopsis` section with a brief, one line phrase ending with a period. It prescribes what the tool does and is not a tool description.
 - `Synopsis` should be followed by `Description` section
