@@ -12,7 +12,7 @@ The amount of tools is overwhelming and we were not doing a very consistent job 
 
 ## Tool panel naming conventions
 
-Toolpane is narrow and long names do not work well. Tool names need to be to the point, so all unnecessary words, articles, punctuation signed must be avoided. All this information should be provided in the `<help>` section instead.
+The tool panel is narrow and long names do not work well. Tool names need to be to the point, so all unnecessary words, articles, punctuation signs must be avoided. All this information should be provided in the `<help>` section instead.
 
 Author of every new tool should specify which category her/his tool should go to. The tools should ideally be tagged to facilitate search and alternative rendering of tool panel for field-specific instances or individual users.
 
