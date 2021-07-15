@@ -44,7 +44,7 @@ These guidelines were partially inspired by the structure of `man` pages:
 - If this is a homegrown tool, the `Description` section can be free form
 - If this is an external package (e.g., SAMTools), the `Description` section should be a copy of help section for this tool adopted for Galaxy. This means that it should only describe CLI flags that are present within `<inputs>` section.
 - When appropriate, the help section should include images preferably in [SVG](https://en.wikipedia.org/wiki/Scalable_Vector_Graphics) format.
-- For complex tools `<help>` section should include examples.
+- For complex tools the `<help>` section should include examples.
 
 ### Examples
 
