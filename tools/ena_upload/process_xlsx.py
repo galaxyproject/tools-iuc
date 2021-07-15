@@ -5,6 +5,7 @@ import sys
 import xlrd
 import yaml
 
+from mappings import optional_samples_cols_mapping
 FILE_FORMAT = 'fastq'
 
 
@@ -105,18 +106,15 @@ xl_sheet = xl_workbook.sheet_by_name('ENA_sample')
 if xl_sheet.nrows < 3:
     raise ValueError('No entries found in samples')
 
-samples_cols = ['alias', 'title', 'scientific_name', 'sample_description']
-optional_samples_cols_mapping = {}
+samples_cols_excel = ['alias', 'title', 'scientific_name', 'sample_description']
+# optional_samples_cols_mapping = {}
 if args.viral_submission:
     # load columns names from the table
-    with open('sheet_sample_columns_vir.txt') as excel_cols:
-        samples_cols_mapping_tuples = [(line.strip().split('\t')[0],line.strip().split('\t')[1]) for line in excel_cols.readlines()]
-    optional_samples_cols_mapping = dict(samples_cols_mapping_tuples)
-    samples_cols = samples_cols + ['geographic location (country and/or sea)', 'host common name',
+    samples_cols_excel = samples_cols_excel + ['geographic location (country and/or sea)', 'host common name',
                          'host health state', 'host sex', 'host scientific name', 'collector name',
                          'collecting institution', 'isolate']
 
-samples_dict, samples_optional_cols_loaded = extract_data(xl_sheet, samples_cols, optional_samples_cols_mapping.keys())
+samples_dict, samples_optional_cols_loaded = extract_data(xl_sheet, samples_cols_excel, optional_samples_cols_mapping.keys())
 # PARSE EXPERIMENTS
 #################
 xl_sheet = xl_workbook.sheet_by_name('ENA_experiment')
@@ -143,15 +141,15 @@ studies_table.write('\t'.join(['alias', 'status', 'accession', 'title', 'study_t
                                'study_abstract', 'pubmed_id', 'submission_date']) + '\n')
 samples_table = open(pathlib.Path(args.out_path) / 'samples.tsv', 'w')
 
+samples_cols = ['alias', 'title', 'scientific_name', 'sample_description']
 # extend the samples_cols list to add the ones that are filled by the CLI
-samples_cols = samples_cols + ['status', 'accession', 'taxon_id', 'sample_description', 'submission_date']
+samples_cols = samples_cols + ['status', 'accession', 'taxon_id', 'submission_date']
 if args.viral_submission:
-    samples_cols =  samples_cols + ['alias', 'status', 'accession', 'title', 'scientific_name',
-                                   'taxon_id', 'sample_description',
-                                   'geographic_location', 'host_common_name', 'host_subject_id',
-                                   'host_health_state', 'host_sex', 'host_scientific_name',
-                                   'collector_name', 'collecting_institution', 'isolate',
-                                    'submission_date']
+    # extend the samples columns with the viral specific data
+    samples_cols = samples_cols + ['geographic_location', 'host_common_name',
+                                    'host_subject_id', 'host_health_state', 'host_sex',
+                                    'host_scientific_name', 'collector_name',
+                                    'collecting_institution', 'isolate']
     if len(samples_optional_cols_loaded) > 0:
         for optional_cols_excel in samples_optional_cols_loaded:
             samples_cols.append(optional_samples_cols_mapping[optional_cols_excel])
@@ -183,25 +181,26 @@ for study_alias, study in studies_dict.items():
                                    'ENA_submission_data']) + '\n')  # assuming no pubmed_id
 for sample_alias, sample in samples_dict.items():
     # sample_alias = sample_alias + '_' + timestamp
+    samples_row_values = [sample_alias,sample['title'], sample['scientific_name'],
+                              sample['sample_description'],
+                              action, 'ena_accession',
+                              'tax_id_updated_by_ENA', 'ENA_submission_date']
     if args.viral_submission:
+        # add the values that are unique for the viral samples
         if sample['collector name'] == '':
             sample['collector name'] = 'unknown'
-        # need to create the row contents first because it depends on
-        samples_row_values = [sample_alias, action, 'ena_accession', sample['title'],
-                              sample['scientific_name'], 'tax_id_updated_by_ENA',
-                              sample['sample_description'],
-                              sample['geographic location (country and/or sea)'],
+        samples_row_values = samples_row_values + \
+                              [sample['geographic location (country and/or sea)'],
                               sample['host common name'], 'host subject id',
                               sample['host health state'], sample['host sex'],
                               sample['host scientific name'], sample['collector name'],
-                              sample['collecting institution'], sample['isolate'],
-                              'ENA_submission_date']
-
+                              sample['collecting institution'], sample['isolate']]
         # add the (possible) optional columns values
         if len(samples_optional_cols_loaded) > 0:
             for optional_col in samples_optional_cols_loaded:
                 # parse values stored as in excel date format (=float) 
                 if optional_col == 'collection date' or optional_col == 'receipt date':
+                    # if optional_col not 'geographic location (latitude)' and not 'geographic location (longitude)'
                     if isinstance(sample[optional_col], float):
                         # excel saved it as date
                         year, month, day, hour, minute, second = xlrd.xldate_as_tuple(sample[optional_col],
@@ -220,11 +219,8 @@ for sample_alias, sample in samples_dict.items():
                         # it is not really a float but an int
                         sample[optional_col] = int(sample[optional_col])
                 samples_row_values.append(str(sample[optional_col]))
-        samples_table.write('\t'.join(samples_row_values) + '\n')
-    else:
-        samples_table.write('\t'.join([sample_alias, action, 'ena_accession', sample['title'],
-                                       sample['scientific_name'], 'tax_id_updated_by_ENA',
-                                       sample['sample_description']]) + '\n')
+    samples_table.write('\t'.join(samples_row_values) + '\n')
+
     for exp_alias, exp in experiments_dict.items():
         # should I check here if any experiment has a study or sample alias that is incorrect?
         # (not listed in the samples or study dict)
