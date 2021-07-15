@@ -147,7 +147,7 @@ Here top level sections (e.g., `Get Data`) are labels such as, for example, **GE
 - Computational chemistry
     - Chemical tool box
 - Evolution
-    - Phylogenetic Tree Reconstruction
+    - Phylogenetic tree reconstruction
     - Selection analysis
     - PlantTribes
 - Climate science
