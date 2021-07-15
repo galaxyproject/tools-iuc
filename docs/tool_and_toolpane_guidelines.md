@@ -39,7 +39,7 @@ Help section of the tools vary widely in content. However, just like we cannot a
 
 These guidelines partially inspired by `man` pages structure:
 
-- Each tool should include `Synopsis` section with a very brief description.
+- Each tool should include `Synopsis` section with a brief, one line phrase ending with a period. It prescribes what the tool does and is not a tool description.
 - `Synopsis` should be followed by `Description` section
 - If this is a homegrown tool, the `Description` section can be free form
 - If this is an external package (e.g., SAMTools), the `Description` section should be a copy of help section for this tool adopted for Galaxy. This means that it should only describe CLI flags that are present within `<inputs>` section.
