@@ -145,7 +145,7 @@ Here top level sections (e.g., `Get Data`) are labels such as, for example, **GE
 - Machine learning
     - [A ML expert will need to set categories here]
 - Computational chemistry
-    - Chemical Tool Box
+    - Chemical tool box
 - Evolution
     - Phylogenetic Tree Reconstruction
     - Selection analysis
