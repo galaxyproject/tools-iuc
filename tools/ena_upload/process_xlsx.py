@@ -20,8 +20,8 @@ def extract_data(xl_sheet, expected_columns, optional_cols=None):
         optional_cols = []
     optional_cols_loaded = []
     for sh_col in range(xl_sheet.ncols):
-        col_value_is = xl_sheet.cell(0, sh_col).value
-        if (xl_sheet.cell(0, sh_col).value in expected_columns) or (xl_sheet.cell(0, sh_col).value in optional_cols):
+        if (xl_sheet.cell(0, sh_col).value in expected_columns) \
+           or (xl_sheet.cell(0, sh_col).value in optional_cols):
             if xl_sheet.cell(0, sh_col).value in sheet_columns.keys():
                 sys.exit("Duplicated columns found")
             else:
@@ -110,11 +110,13 @@ samples_cols_excel = ['alias', 'title', 'scientific_name', 'sample_description']
 # optional_samples_cols_mapping = {}
 if args.viral_submission:
     # load columns names from the table
-    samples_cols_excel = samples_cols_excel + ['geographic location (country and/or sea)', 'host common name',
-                         'host health state', 'host sex', 'host scientific name', 'collector name',
-                         'collecting institution', 'isolate']
+    samples_cols_excel = samples_cols_excel + ['geographic location (country and/or sea)',
+                                               'host common name', 'host health state',
+                                               'host sex', 'host scientific name', 'collector name',
+                                               'collecting institution', 'isolate']
 
-samples_dict, samples_optional_cols_loaded = extract_data(xl_sheet, samples_cols_excel, optional_samples_cols_mapping.keys())
+samples_dict, samples_optional_cols_loaded = extract_data(xl_sheet, samples_cols_excel,
+                                                          optional_samples_cols_mapping.keys())
 # PARSE EXPERIMENTS
 #################
 xl_sheet = xl_workbook.sheet_by_name('ENA_experiment')
@@ -147,9 +149,9 @@ samples_cols = samples_cols + ['status', 'accession', 'taxon_id', 'submission_da
 if args.viral_submission:
     # extend the samples columns with the viral specific data
     samples_cols = samples_cols + ['geographic_location', 'host_common_name',
-                                    'host_subject_id', 'host_health_state', 'host_sex',
-                                    'host_scientific_name', 'collector_name',
-                                    'collecting_institution', 'isolate']
+                                   'host_subject_id', 'host_health_state', 'host_sex',
+                                   'host_scientific_name', 'collector_name',
+                                   'collecting_institution', 'isolate']
     if len(samples_optional_cols_loaded) > 0:
         for optional_cols_excel in samples_optional_cols_loaded:
             samples_cols.append(optional_samples_cols_mapping[optional_cols_excel])
@@ -181,39 +183,37 @@ for study_alias, study in studies_dict.items():
                                    'ENA_submission_data']) + '\n')  # assuming no pubmed_id
 for sample_alias, sample in samples_dict.items():
     # sample_alias = sample_alias + '_' + timestamp
-    samples_row_values = [sample_alias,sample['title'], sample['scientific_name'],
-                              sample['sample_description'],
-                              action, 'ena_accession',
-                              'tax_id_updated_by_ENA', 'ENA_submission_date']
+    samples_row_values = [sample_alias, sample['title'], sample['scientific_name'],
+                          sample['sample_description'], action, 'ena_accession',
+                          'tax_id_updated_by_ENA', 'ENA_submission_date']
     if args.viral_submission:
         # add the values that are unique for the viral samples
         if sample['collector name'] == '':
             sample['collector name'] = 'unknown'
         samples_row_values = samples_row_values + \
-                              [sample['geographic location (country and/or sea)'],
-                              sample['host common name'], 'host subject id',
-                              sample['host health state'], sample['host sex'],
-                              sample['host scientific name'], sample['collector name'],
-                              sample['collecting institution'], sample['isolate']]
+            [sample['geographic location (country and/or sea)'], sample['host common name'],
+             'host subject id', sample['host health state'], sample['host sex'],
+             sample['host scientific name'], sample['collector name'],
+             sample['collecting institution'], sample['isolate']]
         # add the (possible) optional columns values
         if len(samples_optional_cols_loaded) > 0:
             for optional_col in samples_optional_cols_loaded:
-                # parse values stored as in excel date format (=float) 
-                if optional_col == 'collection date' or optional_col == 'receipt date':
-                    # if optional_col not 'geographic location (latitude)' and not 'geographic location (longitude)'
+                # parse values stored as in excel date format (=float)
+                if optional_col in ('collection date', 'receipt date'):
+                    # check if excel stored it as date
                     if isinstance(sample[optional_col], float):
-                        # excel saved it as date
-                        year, month, day, hour, minute, second = xlrd.xldate_as_tuple(sample[optional_col],
-                                                                                      xl_workbook.datemode)
+                        year, month, day, hour, minute, second = xlrd.xldate_as_tuple(
+                            sample[optional_col], xl_workbook.datemode)
                         month = "{:02d}".format(month)
                         day = "{:02d}".format(day)
                         hour = "{:02d}".format(hour)
                         minute = "{:02d}".format(minute)
                         second = "{:02d}".format(second)
                         # format it as 2008-01-23T19:23:10
-                        sample[optional_col] = str(year) + '-' + str(month) + '-' + str(day) + 'T' + str(hour) + \
-                            ':' + str(minute) + ':' + str(second)
-                # excel stores everything as float so I need to check if the value was actually an int
+                        sample[optional_col] = str(year) + '-' + str(month) + '-' + str(day) + \
+                            'T' + str(hour) + ':' + str(minute) + ':' + str(second)
+                # excel stores everything as float so I need to check if
+                # the value was actually an int and keep it as int
                 if isinstance(sample[optional_col], float):
                     if int(sample[optional_col]) == sample[optional_col]:
                         # it is not really a float but an int
