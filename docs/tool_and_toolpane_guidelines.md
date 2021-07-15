@@ -6,7 +6,7 @@ The amount of tools is overwhelming and we were not doing a very consistent job 
 
 ## Table of contents
 
-- Toolpane naming conventions
+- Tool panel naming conventions
 - Help section style
 - Tool categories
 
