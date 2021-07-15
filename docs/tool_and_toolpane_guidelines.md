@@ -10,7 +10,7 @@ The amount of tools is overwhelming and we were not doing a very consistent job 
 - Help section style
 - Tool categories
 
-## Toolpane naming conventions
+## Tool panel naming conventions
 
 Toolpane is narrow and long names do not work well. Tool names need to be to the point, so all unnecessary words, articles, punctuation signed must be avoided. All this information should be provided in the `<help>` section instead.
 
