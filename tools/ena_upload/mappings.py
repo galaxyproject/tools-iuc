@@ -27,4 +27,3 @@ optional_samples_cols_mapping = {
     "host description": "host_description",
     "gravidity": "gravidity"
 }
-

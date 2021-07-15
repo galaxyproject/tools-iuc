@@ -4,8 +4,8 @@ import sys
 
 import xlrd
 import yaml
-
 from mappings import optional_samples_cols_mapping
+
 FILE_FORMAT = 'fastq'
 
 
