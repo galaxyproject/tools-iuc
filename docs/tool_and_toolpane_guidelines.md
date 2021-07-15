@@ -19,7 +19,7 @@ Authors of new tools should specify which category their tool should go to. The 
 ### Proposed guidelines
 
 - Tool names should be as short and as expressive as possible 
-- The bold portion of the tool name (defined by `name` attribute within `<tool>` tag) should be short 
+- The bold portion of the tool name (defined by the `name` attribute within the `<tool>` tag) should be short 
 - No parentheses are allowed in tool names
 - Only the first word is capitalized
 
