@@ -62,13 +62,13 @@ Tool section needs to be completely reworked. The existing section dates back to
 
 ### Proposed tool panel structure
 
-Here top level sections (e.g., `Get Data`) are labels such as, for example, **GENERAL TEXT TOOLS** on usegalaxy.org. The next level are expandable tool categories containing actual tools. One open question is how to handle tool from different disciplines (e.g., genomics vs. climate science).
+Here top level sections (e.g., `Get Data`) are labels such as, for example, **GENERAL TEXT TOOLS** on usegalaxy.org. The next level are expandable tool categories containing actual tools. One open question is how to handle tool from different disciplines (e.g., genomics vs. climate science). Within each section categories and tools must be alphabetically listed.
 
 - Get data
+    - EBI
     - NCBI SRA
     - NCBI Datasets
     - UCSC Table Browsers
-    - EBI
 - Interactive tools
     - Notebook environments
     - Other IEs
@@ -128,7 +128,7 @@ Here top level sections (e.g., `Get Data`) are labels such as, for example, **GE
     - Mixed/Haploid callers
     - MiModD
     - DuNovo
-- RNAseq
+- RNA-seq
     - Mapping
     - Transcript assembly
     - Quantification
