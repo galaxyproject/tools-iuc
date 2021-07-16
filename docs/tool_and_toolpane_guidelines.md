@@ -146,7 +146,9 @@ Here top level sections (e.g., `Get Data`) are labels such as, for example, **GE
     - MS data analysis
     - Docking modeling
 - Computational chemistry
-    - Chemical tool box
+    - Cheminformatics
+    - Protein-ligand docking
+    - Molecular dynamics
 - Evolution
     - Phylogenetic tree reconstruction
     - Selection analysis
