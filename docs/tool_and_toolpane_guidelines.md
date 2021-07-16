@@ -142,7 +142,7 @@ Here top level sections (e.g., `Get Data`) are labels such as, for example, **GE
     -  Motif analysis
 - Immunology
     - Presto
-- Protein analysis
+- Proteomics
     - MS data analysis
     - Docking modeling
 - Computational chemistry
