@@ -87,12 +87,13 @@ Here top level sections (e.g., `Get Data`) are labels such as, for example, **GE
 - Format conversion
     - FASTA/FASTQ
     - BED, GFF
-- FASTA/FASTQ
+- Sequence data 
     - FASTA manipulation
     - SeqTk
     - FASTQ manipulation
     - QC
     - EMBOSS
+    - Fast5
 - Genomic intervals
     - BEDTools
 - Read mapping
