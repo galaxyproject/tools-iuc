@@ -135,7 +135,7 @@ Here top level sections (e.g., `Get Data`) are labels such as, for example, **GE
     - Quantification
     - SingleCell
     - RSeQC
--  ChIP-seq
+- ChIP-seq
     -  Peak calling
     -  Motif analysis
 - Immunology
