@@ -83,7 +83,9 @@ Here top level sections (e.g., `Get Data`) are labels such as, for example, **GE
     - Misc text tools
     - Statistical operations
     - Datamash
-    - IWTomics
+- Statistics and ML
+    -  IWTomics
+    -  ML
 - Format conversion
     - FASTA/FASTQ
     - BED, GFF
@@ -143,8 +145,6 @@ Here top level sections (e.g., `Get Data`) are labels such as, for example, **GE
 - Protein analysis
     - MS data analysis
     - Docking modeling
-- Machine learning
-    - [A ML expert will need to set categories here]
 - Computational chemistry
     - Chemical tool box
 - Evolution
