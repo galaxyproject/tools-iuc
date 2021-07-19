@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Data manager for reference data for the 'mothur_toolsuite' Galaxy tools
 import argparse
