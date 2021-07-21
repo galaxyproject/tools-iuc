@@ -2,22 +2,6 @@
     <description>Extract UMI from fastq files</description>
     <macros>
         <import>macros.xml</import>
-        <macro name="out_conditional">
-            <actions>
-                <conditional name="input_type_cond.input_type">
-                    <when value="paired_collection" >
-                        <action type="format">
-                            <option type="from_param" name="input_type_cond.input_readpair" param_attribute="forward.ext" />
-                        </action>
-                    </when>
-                    <when value="paired" >
-                        <action type="format">
-                            <option type="from_param" name="input_type_cond.input_read1"  param_attribute="ext" />
-                        </action>
-                    </when>
-                </conditional>
-            </actions>
-        </macro>
     </macros>
     <expand macro="requirements" />
     <command detect_errors="exit_code"><![CDATA[
@@ -44,8 +28,13 @@
             #else:
                 --stdin=input_read1.txt
                 --read2-in=input_read2.txt
-                --stdout '$out1'
-                --read2-out='$out2'
+                #if $input_type_cond.input_type == 'paired'
+                    --stdout '$out'
+                    --read2-out='$out2'
+                #else
+                    --stdout '$out_paired_collection.forward'
+                    --read2-out='$out_paired_collection.reverse'
+                #end if
             #end if
             #if $input_type_cond.bc_pattern2 != '':
                 --bc-pattern2='$input_type_cond.bc_pattern2'
@@ -71,9 +60,12 @@
         #if $gz:
             #if $input_type_cond.input_type == 'single':
                 && mv out.gz '$out'
-            #else
-                && mv out1.gz '$out1'
+            #else if $input_type_cond.input_type == 'paired' 
+                && mv out1.gz '$out'
                 && mv out2.gz '$out2'
+            #else
+                && mv out1.gz '$out_paired_collection.forward'
+                && mv out2.gz '$out_paired_collection.reverse'
             #end if
         #end if
     ]]></command>
@@ -126,18 +118,18 @@
         </conditional>
     </inputs>
     <outputs>
-        <data name="out" format_source="input_single" label="${tool.name} on ${on_string}: Reads" >
-            <filter>input_type_cond['input_type'] == "single"</filter>
-        </data>
-        <data name="out1" format_source="input_read1" label="${tool.name} on ${on_string}: Reads1" >
-            <filter>input_type_cond['input_type'] != "single"</filter>
-            <expand macro="out_conditional" />
+        <data name="out" format_source="input_read1" label="${tool.name} on ${on_string}: Reads" >
+            <filter>input_type_cond['input_type'] in ['single', 'paired']</filter>
         </data>
         <data name="out2" format_source="input_read2" label="${tool.name} on ${on_string}: Reads2" >
-            <filter>input_type_cond['input_type'] != "single"</filter>
-            <expand macro="out_conditional" />
+            <filter>input_type_cond['input_type'] == 'paired'</filter>
         </data>
-        
+        <collection name="out_paired_collection" type="paired" label="${tool.name} on ${on_string}: Reads">
+            <data name="forward" format_source="input_readpair" />
+            <data name="reverse" format_source="input_readpair" />
+            <filter>input_type_cond['input_type'] == 'paired_collection'</filter>
+        </collection>
+
         <data name="out_log" format="txt">
             <filter>print_log</filter>
         </data>
@@ -146,7 +138,7 @@
         <test expect_num_outputs="2">
             <conditional name="input_type_cond">
                 <param name="input_type" value="single" />
-                <param name="input_single" value="t_R1.fastq" ftype="fastq" />
+                <param name="input_read1" value="t_R1.fastq" ftype="fastq" />
                 <param name="bc_pattern" value="XXXNNN" />
             </conditional>
             <param name="prime3" value="0" />
@@ -169,7 +161,7 @@
                 <param name="input_read2" value="t_R2.fastq.gz" ftype="fastq.gz" />
                 <param name="bc_pattern" value="NNNXXX" />
             </conditional>
-            <output name="out1" file="out_R1.fastq.gz" decompress="true" lines_diff="2" ftype="fastq.gz" />
+            <output name="out" file="out_R1.fastq.gz" decompress="true" lines_diff="2" ftype="fastq.gz" />
             <output name="out2" file="out_R2.fastq.gz" decompress="true" lines_diff="2" ftype="fastq.gz" />
             <output name="out_log" >
                 <assert_contents>
@@ -178,11 +170,11 @@
                 </assert_contents>
             </output>
         </test>
-        <test expect_num_outputs="3">
+        <test expect_num_outputs="4">
             <conditional name="input_type_cond">
                 <param name="input_type" value="paired_collection" /> <!-- same as before, but uncompressed -->
                 <param name="paired_type" value="no" />
-                <param name="input_readpair" >
+                <param name="input_readpair">
                     <collection type="paired" >
                         <element name="forward" ftype="fastq" value="t_R1.fastq" />
                         <element name="reverse" ftype="fastq" value="t_R2.fastq" />
@@ -190,8 +182,10 @@
                 </param>
                 <param name="bc_pattern" value="NNNXXX" />
             </conditional>
-            <output name="out1" file="out_R1.fastq" ftype="fastq" />
-            <output name="out2" file="out_R2.fastq" ftype="fastq" />
+            <output_collection name="out_paired_collection" type="paired">
+                <element name="forward" file="out_R1.fastq" ftype="fastq" />
+                <element name="reverse" file="out_R2.fastq" ftype="fastq" />
+            </output_collection>
             <output name="out_log" >
                 <assert_contents>
                     <has_text text="Input Reads: 100" />
@@ -231,7 +225,7 @@
                 <param name="bc_pattern" value="NNNNNNCCCCCC" />
             </conditional>
             <param name="extract_method" value="string" />
-            <output name="out1" file="read_R1.200_extracted.fastq.gz" ftype="fastq.gz" decompress="true" lines_diff="1" />
+            <output name="out" file="read_R1.200_extracted.fastq.gz" ftype="fastq.gz" decompress="true" lines_diff="1" />
             <output name="out2" file="read_R2.200_extracted.fastq.gz" ftype="fastq.gz" decompress="true" lines_diff="1" />
             <param name="print_log" value="false"/>
         </test>

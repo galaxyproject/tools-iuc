@@ -5,10 +5,11 @@
     </macros>
     <expand macro="requirements" />
     <command detect_errors="exit_code"><![CDATA[
+        #import json
         @COMMAND_LINK@
         umi_tools whitelist
             --bc-pattern='$input_type_cond.bc_pattern'
-            --extract-method='$extract_method'
+            --extract-method='$extract_method_cond.extract_method'
             --subset-reads='$subset_reads'
             $allow_threshold_error
             #if $ed_above_threshold
@@ -46,13 +47,23 @@
             --plot-prefix=OUT
 
             $prime3
-
+            $ignore_read_pair_suffixes
             #if $log:
                 --log='$out_log'
             #end if
 
             --log2stderr
-
+            #if $extract_method_cond.extract_method == 'regex' and $extract_method_cond.filtered_out_bool
+                #if $input_type_cond.input_type == 'single':
+                    --filtered-out='$filtered_out'
+                #else if $input_type_cond.input_type == 'paired':
+                    --filtered-out='$filtered_out'
+                    --filtered-out2='$filtered_out_paired'
+                #else
+                    --filtered-out='$filtered_out_paired_collection.forward'
+                    --filtered-out2='$filtered_out_paired_collection.reverse'
+                #end if
+            #end if
             > '$out_whitelist' &&
 
             mkdir '${ out_html_report.files_path }' &&
@@ -70,11 +81,17 @@
     ]]></command>
     <inputs>
         <expand macro="input_types" />
-        <param argument="--extract-method" type="select" label="Barcode Extraction Method"
-               help="If bracketed expressions are used in the above barcode pattern, then set this to 'regex'. Otherwise leave as 'string'" >
-            <option value="string" selected="true" />
-            <option value="regex" />
-        </param>
+        <conditional name="extract_method_cond">
+            <param argument="--extract-method" type="select" label="Barcode Extraction Method"
+                   help="If bracketed expressions are used in the above barcode pattern, then set this to 'regex'. Otherwise leave as 'string'" >
+                <option value="string" selected="true" />
+                <option value="regex" />
+            </param>
+            <when value="string"/>
+            <when value="regex">
+                <param name="filtered_out_bool" type="boolean" label="Write out reads not matching regex pattern"/>
+            </when>
+        </conditional>
         <param argument="--method" type="select" label="Count reads or UMIs"
                help="Many published protocols rank CBs by the number of reads the CBs appear in. However you could also use the number of unique UMIs a CB is associated with. Note that this is still and approximation to the number of transcripts captured because the same UMI could be associated with two different transcripts and be counted as independent." >
             <option value="reads" selected="true" />
@@ -107,11 +124,24 @@
                 <param argument="--error-correct-threshold" type="integer" min="0" value="1" label="Hamming distance for correction of barcodes to whitelist barcodes. Set to zero to generate no error correcting metrics." />
             </when>
         </conditional>
-        <param argument="--log" type="boolean" label="Output log?" truevalue="--log" falsevalue=""
-            help="Choose if you want to generate a text file containing logging information." />
+        <param argument="--ignore-read-pair-suffixes" type="boolean" truevalue="--ignore-read-pair-suffixes" falsevalue="" label="Ignore '\1' and '\2' read name suffixes"/>
+        <param argument="--log" type="boolean" label="Output log?" truevalue="--log" falsevalue="" help="Choose if you want to generate a text file containing logging information." />
     </inputs>
     <outputs>
         <data name="out_whitelist" format="tabular" label="${tool.name} on ${on_string}: Whitelist"/>
+        
+        <data name="filtered_out" format_source="input_read1" label="${tool.name} on ${on_string}: reads not matching regex pattern">
+            <filter>extract_method_cond['extract_method'] == 'regex' and extract_method_cond['filtered_out_bool'] and input_type_cond['input_type'] in ['single', 'paired']</filter>
+        </data>
+        <data name="filtered_out_paired" format_source="input_read2" label="${tool.name} on ${on_string}: reads not matching regex pattern">
+            <filter>extract_method_cond['extract_method'] == 'regex' and extract_method_cond['filtered_out_bool'] and input_type_cond['input_type'] == 'paired'</filter>
+        </data>
+        <collection name="filtered_out_paired_collection" type="paired" label="${tool.name} on ${on_string}: reads not matching regex pattern">
+            <data name="forward" format_source="input_readpair" />
+            <data name="reverse" format_source="input_readpair" />
+            <filter>extract_method_cond['extract_method'] == 'regex' and extract_method_cond['filtered_out_bool'] and input_type_cond['input_type'] == 'paired_collection'</filter>
+        </collection>
+
         <data name="out_log" format="txt" label="${tool.name} on ${on_string}: logfile" >
             <filter>log</filter>
         </data>
@@ -122,7 +152,7 @@
         <test expect_num_outputs="3">
             <conditional name="input_type_cond" >
                 <param name="input_type" value="single" />
-                <param name="input_single" value="t_R2.fastq.gz" ftype="fastq.gz" />
+                <param name="input_read1" value="t_R2.fastq.gz" ftype="fastq.gz" />
                 <param name="bc_pattern" value="CCCCCCCCNNNNNNNN" />
             </conditional>
             <param name="method" value="reads" />
@@ -171,25 +201,32 @@
             <param name="expect_cells" value="5" />
             <param name="error_correct_threshold" value="3" />
             <param name="log" value="true" />
+            <param name="filtered_out_bool" value="true"/>
             <output name="out_whitelist" file="out_wl_paired.txt" />
             <output name="out_log" file="out_wl_paired.log" lines_diff="50" />
             <output name="out_html_report" file="out_wl_paired.html" />
             <output name="out_thresh" file="out_wl_paired.tresh.tab" />
         </test>
         <!-- Error report on not accepting regex and lt and gt symbols -->
-        <test expect_num_outputs="3">
+        <test expect_num_outputs="4">
             <conditional name="input_type_cond" >
                 <param name="input_type" value="single" />
-                <param name="input_single" value="testYYY.40k.fastq.gz" ftype="fastq.gz" />
+                <param name="input_read1" value="testYYY.40k.fastq.gz" ftype="fastq.gz" />
             </conditional>
             <param name="bc_pattern" value="(?P&#60;cell_1&#62;.{8,10})(?P&#60;discard_1&#62;ACTGGCCTGCGA){s&#60;=3}(?P&#60;cell_2&#62;.{9})(?P&#60;discard_2&#62;GGTAGCGGTGACA){s&#60;=3}(?P&#60;cell_3&#62;.{9})(?P&#60;umi_1&#62;.{8})T{3}.*" />
             <param name="extract_method" value="regex" />
             <param name="method" value="umis" />
             <param name="knee_method" value="density"/>
             <param name="prime3" value="true" />
+            <param name="filtered_out_bool" value="true"/>
             <output name="out_whitelist" file="out_wl_user.single.txt" />
             <output name="out_thresh" file="out_wl_user.single.tresh.tab" />
             <output name="out_html_report" file="out_wl_user.single.html" />
+            <output name="filtered_out">
+                <assert_contents>
+                    <has_text text="@A00250:74:HFMFVDSXX:2:1101:1027:1016 1:N:0:GTAGAGGA"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
