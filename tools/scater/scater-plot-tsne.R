@@ -51,19 +51,18 @@ option_list <- list(
 )
 
 opt <- wsc_parse_args(option_list, mandatory = c("input_loom", "output_plot_file"))
+
 # Check parameter values
 
 if (! file.exists(opt$input_loom)) {
   stop((paste("File", opt$input_loom, "does not exist")))
 }
 
+# Filter out unexpressed features
 
-# Input from Loom format
-
-scle <- import(opt$input_loom, format = "loom", type = "SingleCellLoomExperiment")
-scle <- normalize(scle, exprs_values = 1)
-scle <- runTSNE(scle, perplexity = 10)
-plot <- plotTSNE(scle, colour_by = opt$colour_by, size_by = opt$size_by, shape_by = opt$shape_by)
-
+sce <- import(opt$input_loom, format = "loom", type = "SingleCellLoomExperiment")
+sce <- logNormCounts(sce)
+sce <- runTSNE(sce, perplexity = 10)
+plot <- plotTSNE(sce, colour_by = opt$colour_by, size_by = opt$size_by, shape_by = opt$shape_by)
 
 ggsave(opt$output_plot_file, plot, device = "pdf")
