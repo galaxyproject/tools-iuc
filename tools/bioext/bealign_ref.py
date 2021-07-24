@@ -1,6 +1,6 @@
 import sys
 
-from BioExt.references import hxb2, nl4_3, cov2
+from BioExt.references import cov2, hxb2, nl4_3
 
 
 references = {
