@@ -8,9 +8,8 @@
     @COMMAND_LINK@
 
     umi_tools extract
-        --extract-method='$extract_method.value'
-        --bc-pattern='$input_type_cond.bc_pattern'
-
+        
+        @FASTQ_BARCODE_EXTRACTION_OPTIONS@
         #if $input_type_cond.input_type == 'single':
             #if $gz:
                 --stdin=input_single.gz
@@ -36,9 +35,6 @@
                     --read2-out='$out_paired_collection.reverse'
                 #end if
             #end if
-            #if $input_type_cond.bc_pattern2 != '':
-                --bc-pattern2='$input_type_cond.bc_pattern2'
-            #end if
         #end if
 
         #if $barcodes.use_barcodes.value == 'yes':
@@ -47,9 +43,6 @@
             '$barcodes.error_correct_cell.value'
         #end if
 
-        #if not $prime3:
-            --3prime
-        #end if
         #if $quality.quality_selector =='true':
             --quality-filter-threshold '$quality.quality_filter_threshold'
             --quality-encoding '$quality.quality_encoding'
@@ -71,6 +64,7 @@
     ]]></command>
     <inputs>
         <expand macro="input_types" />
+        <expand macro="fastq_barcode_extraction_options_macro"/>
 
         <conditional name="barcodes" >
             <!-- filter-cell-barcode can be removed option is hidden anyway in the tool https://github.com/CGATOxford/UMI-tools/blob/c3ead0792ad590822ca72239ef01b8e559802da9/umi_tools/extract.py#L303-->
@@ -85,15 +79,6 @@
             </when>
         </conditional>
 
-        <param argument="--extract-method" type="select" label="Method to extract barcodes" >
-            <option value="regex">Regular Expressions</option>
-            <option value="string" selected="true">String</option>
-        </param>
-            
-        <param name="prime3" argument="--3prime" type="boolean" label="Is the barcode at the 5' end?"
-            truevalue="1" falsevalue="0" checked="true"
-            help="By default the barcode is assumed to be on the 5' end of the read, but
-                use this option to sepecify that it is on the 3' end instead" />
         <param name="print_log" argument="-L" type="boolean" label="Output log?"
             truevalue="1" falsevalue="0" checked="true"
             help="Choose if you want to generate a text file containing logging information" />
@@ -141,7 +126,9 @@
                 <param name="input_read1" value="t_R1.fastq" ftype="fastq" />
                 <param name="bc_pattern" value="XXXNNN" />
             </conditional>
-            <param name="prime3" value="0" />
+            <conditional name="extract_method_cond">
+                <param name="prime3" value="true" />
+            </conditional>
             <param name="quality_selector" value="true" />
             <param name="quality_filter_threshold" value="10" />
             <param name="quality_encoding" value="phred33" />
@@ -232,81 +219,128 @@
     </tests>
     <help><![CDATA[
 
-
-UMI-tools extract.py - Extract UMI from fastq
-=============================================
-
-Purpose
--------
+extract - Extract UMI from fastq
+================================
 
 Extract UMI barcode from a read and add it to the read name, leaving
-any sample barcode in place. Can deal with paired end reads and UMIs
-split across the paired ends
+any sample barcode in place
 
-Options
--------
+Can deal with paired end reads and UMIs
+split across the paired ends. Can also optionally extract cell
+barcodes and append these to the read name also. See the section below
+for an explanation for how to encode the barcode pattern(s) to
+specficy the position of the UMI +/- cell barcode.
 
---split-barcode
-       By default the UMI is assumed to be on the first read. Use this
-       option if the UMI is contained on both reads and specify the
-       pattern of the barcode/UMI on the second read using the option
-       ``--bc-pattern2``
 
---bc-pattern
-       Use this option to specify the format of the UMI/barcode. Use Ns to
-       represent the random positions and Xs to indicate the bc positions.
-       Bases with Ns will be extracted and added to the read name. Remaining
-       bases, marked with an X will be reattached to the read.
+Filtering and correcting cell barcodes
+--------------------------------------
 
-       E.g. If the pattern is NNXXNN,
-       Then the read:
+``umi_tools extract`` can optionally filter cell barcodes against a user-supplied
+whitelist (``--whitelist``). If a whitelist is not available for your data,
+e.g
+if you have performed droplet-based scRNA-Seq, you can use the
+whitelist tool.
 
-       @HISEQ:87:00000000 read1
-       AAGGTTGCTGATTGGATGGGCTAG
-       DA1AEBFGGCG01DFH00B1FF0B
-       +
+Cell barcodes which do not match the whitelist (user-generated or
+automatically generated) can also be optionally corrected using the
+``--error-correct-cell`` option.
 
-       will become:
-       @HISEQ:87:00000000_AATT read1
-       GGGCTGATTGGATGGGCTAG
-       1AFGGCG01DFH00B1FF0B
-       +
+The whitelist should be in  the following format (tab-separated)::
 
---bc-pattern2
-       Use this option to specify the format of the UMI/barcode for
-       the second read pair if required. If --bc-pattern2 is not
-       supplied, this defaults to the same pattern as --bc-pattern
+        AAAAAA    AGAAAA
+        AAAATC
+        AAACAT
+        AAACTA    AAACTN,GAACTA
+        AAATAC
+        AAATCA    GAATCA
+        AAATGT    AAAGGT,CAATGT
 
---3prime
-       By default the barcode is assumed to be on the 5' end of the read, but
-       use this option to sepecify that it is on the 3' end instead
+Where column 1 is the whitelisted cell barcodes and column 2 is
+the list (comma-separated) of other cell barcodes which should be
+corrected to the barcode in column 1. If the ``--error-correct-cell``
+option is not used, this column will be ignored. Any additional columns
+in the whitelist input, such as the counts columns from the output of
+umi_tools whitelist, will be ignored.
 
--L
-       Specify a log file to retain logging information and final statistics
 
---split-barcode
-       barcode is split across read pair
+Barcode extraction methods 
+--------------------------
 
---quality-filter-threshold=QUALITY_FILTER_THRESHOLD
-       Remove reads where any UMI base quality score falls
-       below this threshold
---quality-encoding=QUALITY_ENCODING
-       Quality score encoding. Choose from phred33[33-77]
-       phred64 [64-106] or solexa [59-106]
+There are two methods enabled to extract the umi barcode (+/-
+cell barcode). For both methods, the patterns should be provided
+using the ``--bc-pattern`` and ``--bc-pattern2`` options.x
 
-Usage:
-------
+- ``string``
+       This should be used where the barcodes are always in the same
+       place in the read.
 
-For single ended reads:
-        umi_tools extract --bc-pattern=[PATTERN] -L extract.log [OPTIONS]
+       - N = UMI position (required)
+       - C = cell barcode position (optional)
+       - X = sample position (optional)
 
-reads from stdin and outputs to stdout.
+       Bases with Ns and Cs will be extracted and added to the read
+       name. The corresponding sequence qualities will be removed from
+       the read. Bases with an X will be reattached to the read.
 
-For paired end reads:
-        umi_tools extract --bc-pattern=[PATTERN] --read2-in=[FASTQIN] --read2-out=[FASTQOUT] -L extract.log [OPTIONS]
+       E.g. If the pattern is `NNNNCC`,
+       Then the read::
 
-reads end one from stdin and end two from FASTQIN and outputs end one to stdin
-and end two to FASTQOUT.
+           @HISEQ:87:00000000 read1
+           AAGGTTGCTGATTGGATGGGCTAG
+           +
+           DA1AEBFGGCG01DFH00B1FF0B
+
+       will become::
+
+           @HISEQ:87:00000000_TT_AAGG read1
+           GCTGATTGGATGGGCTAG
+           +
+           1AFGGCG01DFH00B1FF0B
+
+       where 'TT' is the cell barcode and 'AAGG' is the UMI.
+
+- ``regex``
+       This method allows for more flexible barcode extraction and
+       should be used where the cell barcodes are variable in
+       length. Alternatively, the regex option can also be used to
+       filter out reads which do not contain an expected adapter
+       sequence. UMI-tools uses the regex module rather than the more
+       standard re module since the former also enables fuzzy matching
+
+       The regex must contain groups to define how the barcodes are
+       encoded in the read. The expected groups in the regex are:
+
+       umi_n = UMI positions, where n can be any value (required)
+       cell_n = cell barcode positions, where n can be any value (optional)
+       discard_n = positions to discard, where n can be any value (optional)
+
+       UMI positions and cell barcode positions will be extracted and
+       added to the read name. The corresponding sequence qualities
+       will be removed from the read.
+
+       Discard bases and the corresponding quality scores will be
+       removed from the read. All bases matched by other groups or
+       components of the regex will be reattached to the read sequence
+
+       For example, the following regex can be used to extract reads
+       from the Klein et al inDrop data::
+
+           (?P<cell_1>.{8,12})(?P<discard_1>GAGTGATTGCTTGTGACGCCTT)(?P<cell_2>.{8})(?P<umi_1>.{6})T{3}.*
+
+       Where only reads with a 3' T-tail and `GAGTGATTGCTTGTGACGCCTT` in
+       the correct position to yield two cell barcodes of 8-12 and 8bp
+       respectively, and a 6bp UMI will be retained.
+
+       You can also specify fuzzy matching to allow errors. For example if
+       the discard group above was specified as below this would enable
+       matches with up to 2 errors in the discard_1 group.
+
+       ::
+
+           (?P<discard_1>GAGTGATTGCTTGTGACGCCTT){s<=2}
+
+       Note that all UMIs must be the same length for downstream
+       processing with dedup, group or count commands
 
     ]]></help>
     <expand macro="citations" />
