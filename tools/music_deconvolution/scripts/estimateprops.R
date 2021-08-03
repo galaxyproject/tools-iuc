@@ -95,5 +95,5 @@ for (meth in methods){
     lm.beta.meth = lm(as.formula(paste("ct.prop", paste(phenotype_factors, collapse=" + "), sep=" ~ ")),
                       data = subset(m.prop.ana, Method == meth))
     print(paste0("Summary: ", meth))
-    capture.output(summary(lm.beta.meth), file = paste0(meth, ".txt"))
+    capture.output(summary(lm.beta.meth), file = paste0("report_data/summ_", meth, ".txt"))
 }
