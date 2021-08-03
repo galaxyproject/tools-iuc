@@ -4,10 +4,9 @@ suppressPackageStartupMessages(library(reshape2))
 suppressPackageStartupMessages(library(cowplot))
 ## We use this script to estimate the effectiveness of proportion methods
 
-##source()
-
-bulk_eset = readRDS('test-data/GSE50244bulkeset.rds')
-scrna_eset = readRDS('test-data/EMTABesethealthy.rds')
+## Load Conf
+args = commandArgs(trailingOnly=TRUE)
+source(args[1])
 
 clusters_label = 'cellType'
 samples_label = 'sampleID'
@@ -21,14 +20,12 @@ sample_disease_group_scale = 5
 healthy_phenotype = "Normal"
 
 compare_title="HbA1c vs Beta Cell Type Proportion"
-outfile_pdf="test.pdf"
-
 
 print(bulk_eset)
 print(scrna_eset)
 
 ## Estimate cell type proportions
-est.prop = music_prop(bulk_eset = bulk_eset, sc.eset = scrna_eset,
+est.prop = music_prop(bulk.eset = bulk_eset, sc.eset = scrna_eset,
                       clusters = clusters_label,
                       samples = samples_label, select.ct = celltypes, verbose = T)
 
