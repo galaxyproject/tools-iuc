@@ -8,18 +8,20 @@ suppressPackageStartupMessages(library(cowplot))
 args = commandArgs(trailingOnly=TRUE)
 source(args[1])
 
-clusters_label = 'cellType'
-samples_label = 'sampleID'
-phenotype_factors = c('age', 'bmi', 'hba1c', 'gender')
-celltypes = c('alpha', 'beta', 'delta', 'gamma', 'acinar', 'ductal')
-methods = c('MuSiC', 'NNLS')
-phenotype_gene = 'hba1c' ## *must* be in list of phenotype_factors
-sample_groups = c('Normal', 'T2D')
-sample_disease_group = "T2D"
-sample_disease_group_scale = 5
-healthy_phenotype = "Normal"
+##bulk_eset = readRDS('test-data/GSE50244bulkeset.rds')
+##scrna_eset = readRDS('test-data/EMTABesethealthy.rds')
 
-compare_title="HbA1c vs Beta Cell Type Proportion"
+## clusters_label = 'cellType'
+## samples_label = 'sampleID'
+## phenotype_factors = c('age', 'bmi', 'hba1c', 'gender')
+## celltypes = c('alpha', 'beta', 'delta', 'gamma', 'acinar', 'ductal')
+## methods = c('MuSiC', 'NNLS')
+## phenotype_gene = 'hba1c' ## *must* be in list of phenotype_factors
+## sample_groups = c('Normal', 'T2D')
+## sample_disease_group = "T2D"
+## sample_disease_group_scale = 5
+## healthy_phenotype = "Normal"
+## compare_title=""
 
 print(bulk_eset)
 print(scrna_eset)
