@@ -1,7 +1,7 @@
-suppressPackageStartupMessages(library(xbioc))
-suppressPackageStartupMessages(library(MuSiC))
-suppressPackageStartupMessages(library(reshape2))
-suppressPackageStartupMessages(library(cowplot))
+suppressWarnings(suppressPackageStartupMessages(library(xbioc)))
+suppressWarnings(suppressPackageStartupMessages(library(MuSiC)))
+suppressWarnings(suppressPackageStartupMessages(library(reshape2)))
+suppressWarnings(suppressPackageStartupMessages(library(cowplot)))
 ## We use this script to estimate the effectiveness of proportion methods
 
 ## Load Conf
