@@ -40,20 +40,6 @@ def write_artic_style_bed(input_file, bed_output_filename):
             bed_output_file.write("\t".join(fields))
 
 
-def primer_info_to_position(name):
-    position = 0
-    re_match = re.match(r'.*_\d+_(LEFT|RIGHT)(_alt(\d+))?', name)
-    if re_match is None:
-        raise ValueError("{} does not match expected amplicon name format".format(name))
-    (side, _, num) = re_match.groups()
-    if side == 'RIGHT':
-        position += 1000
-    if num is not None:
-        position += int(num)
-    return position
-
-
-
 def fetch_artic_primers(output_directory, primers):
     primer_sets = {
         "SARS-CoV-2-ARTICv1": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V1/nCoV-2019.bed",
