@@ -53,27 +53,6 @@ def primer_info_to_position(name):
     return position
 
 
-def write_amplicon_info_file(bed_filename, amplicon_info_filename):
-    amplicon_sets = {}
-    amplicon_ids = set()
-    for line in open(bed_filename):
-        fields = line.strip().split('\t')
-        name = fields[3]
-        re_match = re.match(r'.*_(\d+)_(LEFT|RIGHT)', name)
-        if re_match is None:
-            raise ValueError("{} does not match expected amplicon name format".format(name))
-        amplicon_id = int(re_match.group(1))
-        amplicon_set = amplicon_sets.get(amplicon_id, [])
-        amplicon_set.append(name)
-        amplicon_sets[amplicon_id] = amplicon_set
-        amplicon_ids.add(amplicon_id)
-
-    amplicon_info_file = open(amplicon_info_filename, 'w')
-    for id in sorted(list(amplicon_ids)):
-        amplicon_info = '\t'.join([name for name in sorted(amplicon_sets[id], key=primer_info_to_position)]) + '\n'
-        amplicon_info_file.write(amplicon_info)
-    amplicon_info_file.close()
-
 
 def fetch_artic_primers(output_directory, primers):
     primer_sets = {
@@ -193,14 +172,6 @@ if __name__ == "__main__":
             args.primer_name,
             args.primer_description,
         )
-
-    for i, entry in enumerate(data):
-
-        bed_output_filename = entry['path']
-        amplicon_info_filename = bed_output_filename.replace('.bed', '_info.tsv')
-        write_amplicon_info_file(bed_output_filename, amplicon_info_filename)
-        entry['amplicon_info_path'] = amplicon_info_filename
-        data[i] = entry
 
     data_manager_dict["data_tables"][DATA_TABLE_NAME].extend(data)
     with open(args.galaxy_datamanager_filename, "w") as fh:
