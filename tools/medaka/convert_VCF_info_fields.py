@@ -11,7 +11,8 @@ import sys
 from collections import OrderedDict
 from math import log10
 
-from scipy.stats import fisher_exact
+import scipy
+import scipy.stats
 
 
 def pval_to_phredqual(pval):
@@ -69,7 +70,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
                 for j, i in enumerate(range(2, len(sr_list), 2)):
                     dp4 = (sr_list[ref_fwd], sr_list[ref_rev], sr_list[i], sr_list[i + 1])
                     dp2x2 = [[dp4[0], dp4[1]], [dp4[2], dp4[3]]]
-                    _, p_val = fisher_exact(dp2x2)
+                    _, p_val = scipy.stats.fisher_exact(dp2x2)
                     sb = pval_to_phredqual(p_val)
 
                     as_ = (sc_list[ref_fwd], sc_list[ref_rev], sc_list[i], sc_list[i + 1])
