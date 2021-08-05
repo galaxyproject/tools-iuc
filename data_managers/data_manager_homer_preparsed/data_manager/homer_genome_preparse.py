@@ -29,7 +29,6 @@ def get_id_name(params, dbkey, fasta_description=None):
 def homer_preparse(data_manager_dict, fasta_filename, params, target_directory, dbkey, sequence_id,
                    sequence_name, size, mask,
                    data_table_name=DEFAULT_DATA_TABLE_NAME):
-
     args = ['preparseGenome.pl', fasta_filename, '-size', str(size), '-preparsedDir', target_directory]
     if mask:
         args.append('-mask')
@@ -42,7 +41,8 @@ def homer_preparse(data_manager_dict, fasta_filename, params, target_directory, 
     mask_suffix_name = ' masked' if mask else ''
     data_table_entry = dict(value=sequence_id + mask_suffix + '_' + str(size), dbkey=dbkey,
                             mask=str(mask), size=str(size), name=sequence_name + mask_suffix_name + ' (' + str(size) + 'bp)',
-                            path=sequence_id + mask_suffix + '_' + str(size))
+                            path=sequence_id + mask_suffix + '_' + str(size),
+                            path_fasta=fasta_filename)
     _add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
 
 
