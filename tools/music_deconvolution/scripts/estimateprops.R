@@ -23,9 +23,6 @@ source(args[1])
 ## healthy_phenotype = "Normal"
 ## compare_title=""
 
-print(bulk_eset)
-print(scrna_eset)
-
 ## Estimate cell type proportions
 est.prop = music_prop(bulk.eset = bulk_eset, sc.eset = scrna_eset,
                       clusters = clusters_label,
