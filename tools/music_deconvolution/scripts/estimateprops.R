@@ -11,7 +11,7 @@ source(args[1])
 ##bulk_eset = readRDS('test-data/GSE50244bulkeset.rds')
 ##scrna_eset = readRDS('test-data/EMTABesethealthy.rds')
 
-## clusters_label = 'cellType'
+## celltypes_label = 'cellType'
 ## samples_label = 'sampleID'
 ## phenotype_factors = c('age', 'bmi', 'hba1c', 'gender')
 ## celltypes = c('alpha', 'beta', 'delta', 'gamma', 'acinar', 'ductal')
@@ -25,7 +25,7 @@ source(args[1])
 
 ## Estimate cell type proportions
 est.prop = music_prop(bulk.eset = bulk_eset, sc.eset = scrna_eset,
-                      clusters = clusters_label,
+                      clusters = celltypes_label,
                       samples = samples_label, select.ct = celltypes, verbose = T)
 
 
