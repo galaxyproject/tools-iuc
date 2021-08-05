@@ -41,7 +41,7 @@ def homer_preparse(data_manager_dict, fasta_filename, params, target_directory, 
     mask_suffix = 'r' if mask else ''
     mask_suffix_name = ' masked' if mask else ''
     data_table_entry = dict(value=sequence_id + mask_suffix + '_' + str(size), dbkey=dbkey,
-                            mask=mask, size=size, name=sequence_name + mask_suffix_name + ' (' + str(size) + 'bp)',
+                            mask=str(mask), size=str(size), name=sequence_name + mask_suffix_name + ' (' + str(size) + 'bp)',
                             path=sequence_id + mask_suffix + '_' + str(size))
     _add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
 
