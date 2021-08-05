@@ -15,7 +15,6 @@ read_list <- function(lfile){
 args = commandArgs(trailingOnly=TRUE)
 source(args[1])
 
-
 ## bulk_eset = readRDS('../test-data/Mousebulkeset.rds')
 ## scrna_eset = readRDS('../test-data/Mousesubeset.rds')
 
@@ -25,13 +24,14 @@ source(args[1])
 ## celltypes_label = 'cellType'
 ## clustertype_label = 'clusterType'
 ## samples_label = 'sampleID'
-## We then perform bulk tissue cell type estimation with pre-grouping of cell types.
-## CN, list_of_cell_types, marker genes name, marker genes list
-## e.g.
-##   C1, c("Neutro"), NULL, NULL
-##   C2, c("Podo"), NULL, NULL
-##   C3, c("Endo","CD-PC","LOH","CD-IC","DCT","PT"), Epith.marker, <data>
-##   C4, c("Macro","Fib","B lymph","NK","T lymph"), Immune.marker, <data>
+## ## We then perform bulk tissue cell type estimation with pre-grouping of cell types.
+## ## CN, list_of_cell_types, marker genes name, marker genes list
+## ## e.g.
+## ##   C1, c("Neutro"), NULL, NULL
+## ##   C2, c("Podo"), NULL, NULL
+## ##   C3, c("Endo","CD-PC","LOH","CD-IC","DCT","PT"), Epith.marker, <data>
+## ##   C4, c("Macro","Fib","B lymph","NK","T lymph"), Immune.marker, <data>
+
 ## data.to.use = list(
 ##     "C1" = list(cell.types = c("Neutro"),
 ##                 marker.names=NULL,
@@ -57,20 +57,19 @@ sub.basis = music_basis(scrna_eset, clusters = celltypes_label,
                         samples = samples_label,
                         select.ct = celltypes)
 
-# Plot the dendrogram of design matrix and cross-subject mean of realtive abundance
+## Plot the dendrogram of design matrix and cross-subject mean of realtive abundance
 par(mfrow = c(1, 2))
 d <- dist(t(log(sub.basis$Disgn.mtx + 1e-6)), method = "euclidean")
-# Hierarchical clustering using Complete Linkage
+## Hierarchical clustering using Complete Linkage
 hc1 <- hclust(d, method = "complete" )
-# Plot the obtained dendrogram
+## Plot the obtained dendrogram
 plot(hc1, cex = 0.6, hang = -1, main = 'Cluster log(Design Matrix)')
 d <- dist(t(log(sub.basis$M.theta + 1e-8)), method = "euclidean")
-# Hierarchical clustering using Complete Linkage
+## Hierarchical clustering using Complete Linkage
 hc2 <- hclust(d, method = "complete")
 ## Plot the obtained dendrogram
 pdf(file=outfile_pdf, width=8, height=8)
 plot(hc2, cex = 0.6, hang = -1, main = 'Cluster log(Mean of RA)')
-dev.off()
 
 cl.type = as.character(scrna_eset[[celltypes_label]])
 
@@ -79,14 +78,11 @@ for(cl in 1:length(grouped_celltypes)){
 }
 pData(scrna_eset)[[clustertype_label]] = factor(cl.type, levels = c(names(grouped_celltypes), 'CD-Trans', 'Novel1', 'Novel2'))
 
-# 13 selected cell types
-##cell_types_flattened = unlist(grouped_celltypes)
-##cell_types_flattened
-#       C1        C2       C31       C32       C33       C34       C35       C36       C41       C42
-# "Neutro"    "Podo"    "Endo"   "CD-PC"     "LOH"   "CD-IC"     "DCT"      "PT"   "Macro"     "Fib"
-#      C43       C44       C45
-##"B lymph"      "NK" "T lymph"
-Est.mouse.bulk = music_prop.cluster(bulk.eset = bulk_eset, sc.eset = scrna_eset,
-                                    group.markers = marker_groups, clusters = celltypes_label,
-                                    groups = clustertype_label, samples = samples_label,
-                                    clusters.type = grouped_celltypes)
+Est.bulk = music_prop.cluster(bulk.eset = bulk_eset, sc.eset = scrna_eset,
+                              group.markers = marker_groups, clusters = celltypes_label,
+                              groups = clustertype_label, samples = samples_label,
+                              clusters.type = grouped_celltypes)
+
+print(Est.bulk)
+
+dev.off()
