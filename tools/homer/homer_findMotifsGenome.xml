@@ -8,13 +8,17 @@
   <command detect_errors="exit_code"><![CDATA[
     ## Taken from fastqc:
     #import re
+    #import os
     #set input_name = re.sub('[^\w\-\s]', '_', str($input.element_identifier))
     ln -s '${input}' '${input_name}' &&
     #set output = $input_name + '_motif'
     ## Process the genome:
     #if str( $genome.source ) == "installed":
         #set genome_file = re.sub('[^\w\-\s]', '_', str($genome.all_fasta_source.fields.value)) + '.fa'
-        ln -s $genome.all_fasta_source.fields.path '$genome_file' &&
+        ln -s '$genome.all_fasta_source.fields.path' '$genome_file' &&
+    #elif str( $genome.source ) == "preparsed":
+        #set genome_file = os.path.split(str($genome.homer_preparse_source.fields.path_fasta))[-1]
+        ln -s '$genome.homer_preparse_source.fields.path_fasta' '$genome_file' &&
     #elif str( $genome.source ) == "history":
         #set genome_file = re.sub('[^\w\-\s]', '_', str($genome.fasta.name)) + '.fa'
         ln -s '$genome.fasta' '$genome_file' &&
@@ -28,14 +32,18 @@
     ## Ouptut folder:
     '${output}'
     ## Options
-    $mask
+    #if $mask:
+      -mask
+    #end if
+    #if str( $genome.source ) == "preparsed":
+      -preparsedDir '$genome.homer_preparse_source.fields.path'
+    #end if
     -len '$len'
-    #if str( $choose_size.fixed_size ) == "centered":
-        -size '$choose_size.size'
-    #elif str( $choose_size.fixed_size ) == "manual":
-        -size '$choose_size.sizes','$choose_size.sizee'
-    #elif str( $choose_size.fixed_size ) == "False":
-        -size given
+    #if str( $choose_center.center ) == "manual":
+        #set sizee = int($choose_center.sizes) + int($size)
+        -size '$choose_center.sizes','${sizee}'
+    #else:
+        -size '$size'
     #end if
     -S $S
     -mis $mis
@@ -98,11 +106,36 @@
     ]]></command>
   <inputs>
     <param name="input" type="data" format="bed,encodepeak,tabular" label="Peak file"/>
+    <param argument="-size" type="text" value="200" label="fragment size in bp (alternatively it can be 'given' to use the average size of peaks)">
+      <validator type="regex" message="size must be integer or 'given' without quotes">^(given|\d+)$</validator>
+    </param>
+    <conditional name="choose_center">
+      <param name="center" type="select" label="Do you want to center your sequence on the peak center?">
+        <option value="centered" selected="True">Yes</option>
+        <option value="manual">No, I want asymetric (raise an error if given was chosen above)</option>
+      </param>
+      <when value="centered"/>
+      <when value="manual">
+        <param name="sizes" type="integer" value="-100" label="sequence start relative to center"/>
+      </when>
+    </conditional>
+    <param argument="-mask" type="boolean" truevalue="True" falsevalue="False" label="mask repeats/lower case sequence"/>
     <conditional name="genome">
       <param name="source" type="select" label="Will you select a reference genome from your history or use a installed genome?">
-        <option value="installed">Installed</option>
-        <option value="history">From History</option>
+        <option value="preparsed">Preparsed (fasta is available and has been preparsed to specific size)</option>
+        <option value="installed">Installed (fasta is available but will be preparsed as run time)</option>
+        <option value="history">From History (fasta will be preparsed at run time)</option>
       </param>
+      <when value="preparsed">
+        <param name="homer_preparse_source" type="select" label="Preparsed FASTA">
+          <options from_data_table="homer_preparse">
+            <filter type="sort_by" column="2"/>
+            <filter type="param_value" ref="mask" column="mask" />
+            <filter type="param_value" ref="size" column="size" />
+            <validator type="no_options" message="No preparsed genomes are available"/>
+          </options>
+        </param>
+      </when>
       <when value="installed">
         <param name="all_fasta_source" type="select" label="Source FASTA Sequence">
           <options from_data_table="all_fasta">
@@ -115,25 +148,9 @@
         <param name="fasta" type="data" format="fasta" label="Select reference genome"/>
       </when>
     </conditional>
-    <param argument="-mask" type="boolean" truevalue="-mask" falsevalue="" label="mask repeats/lower case sequence"/>
     <param argument="-len" type="text" value="8,10,12" label="comma-separated motif lengths" help="values greater 12 may cause the program to run out of memory - in these cases decrease the number of sequences analyzed (-N), or try analyzing shorter sequence regions (i.e. -size 100)">
       <validator type="regex" message="motif lengths must be comma-separated integers without space">^(\d+,)*(\d+)$</validator>
     </param>
-    <conditional name="choose_size">
-      <param name="fixed_size" type="select" label="Do you want a fixed fragment size to use for motif finding?">
-        <option value="centered" selected="True">Yes centered on the center</option>
-        <option value="manual">Yes but asymetric</option>
-        <option value="False">No, I want to use the average size of my peaks (-size given)</option>
-      </param>
-      <when value="centered">
-        <param name="size" type="integer" min="0" value="200" label="fragment size"/>
-      </when>
-      <when value="manual">
-        <param name="sizes" type="integer" value="-100" label="sequence start relative to center"/>
-        <param name="sizee" type="integer" value="50" label="sequence end relative to center"/>
-      </when>
-      <when value="False"/>
-    </conditional>
     <param argument="-S" type="integer" min="1" value="25" label="Number of motifs to find"/>
     <param argument="-mis" type="integer" min="0" value="2" label="Number of mismatches during global optimisation"/>
     <param argument="-norevopp" type="boolean" truevalue="-norevopp" falsevalue="" checked="false" label="Don't search reverse strand for motifs"/>
@@ -211,17 +228,20 @@
   <tests>
     <test expect_num_outputs="2">
       <param name="input" value="fake_phix_peaks.bed"/>
+      <conditional name="genome">
+        <param name="source" value="installed"/>
+        <param name="all_fasta_source" value="phiX174"/>
+      </conditional>
       <output name="html_file" file="motif_test1/knownResults.html" ftype="html" lines_diff="2" />
       <output name="html_homer_file" >
         <assert_contents>
-            <has_text text=""/>
             <has_text text="fake_phix_peaks_bed_motif/ - Homer de novo Motif Results"/>
             <has_text text="Total target sequences = 1"/>
             <has_text text="Jaspar"/>
         </assert_contents>
       </output>
   </test>
-    <!--<test expect_num_outputs="2">
+    <test expect_num_outputs="2">
       <param name="input" value="CTCF_peaks_shifted.bed"/>
       <conditional name="genome">
         <param name="source" value="history"/>
@@ -238,7 +258,7 @@
         <assert_contents>
           <has_text text="CTCF_peaks_shifted_bed_motif/ - Homer de novo Motif Results"/>
           <has_text text="Total target sequences = 40"/>
-          <has_text_matching expression="CTCF/MA|BORIS|CTCFL"/>
+          <has_text_matching expression="CTCF(Zf)|CTCF/MA|BORIS|CTCFL"/>
         </assert_contents>
       </output>
     </test>
@@ -260,7 +280,7 @@
         <assert_contents>
           <has_text text="CTCF_peaks_shifted_bed_motif/ - Homer de novo Motif Results"/>
           <has_text text="Total target sequences = 34"/>
-          <has_text_matching expression="CTCF/MA|BORIS|CTCFL"/>
+          <has_text_matching expression="CTCF(Zf)|CTCF/MA|BORIS|CTCFL"/>
         </assert_contents>
       </output>
     </test>
@@ -281,7 +301,7 @@
           <has_text text="RAP26"/>
         </assert_contents>
       </output>
-    </test>-->
+    </test>
   </tests>
   <help><![CDATA[
 
@@ -385,7 +405,5 @@ Original homer specific options::
 
 
     ]]></help>
-  <citations>
-    <citation type="doi"> </citation>
-  </citations>
+  <expand macro="citation"/>
 </tool>
