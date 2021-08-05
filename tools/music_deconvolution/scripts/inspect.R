@@ -19,13 +19,14 @@ printout <- function(text){
     } else {
         ## text
         capture.output(text, file = outfile_tab)
-    }    
+    }
 }
 
-if (inspector %in% c("pData", "fData", "dims", "experimentData", "signature", "annotation", "abstract")){
+if (inspector %in% c("print", "pData", "fData", "dims", "experimentData",
+                     "signature", "annotation", "abstract")){
     op = get(inspector)
     tab = op(rds)
-    printout(tab)    
+    printout(tab)
 } else {
     stop(paste0("No such option:", inspector))
 }
