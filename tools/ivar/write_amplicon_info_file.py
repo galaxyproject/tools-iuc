@@ -5,12 +5,12 @@ import re
 
 AMPLICON_NAME_RE = r'.*_(?P<num>\d+)_[^0-9]*(?P<name>L(?:EFT)?|R(?:IGHT)?)'
 
+
 def primer_info_to_position(name):
     position = 0
     re_match = re.match(AMPLICON_NAME_RE, name)
     if re_match is None:
         raise ValueError("{} does not match expected amplicon name format".format(name))
-    groups = re_match.groups()
     side = re_match.group('name')
     num = re_match.group('num')
     if side == 'RIGHT' or side == 'R':
