@@ -27,7 +27,7 @@ def get_id_name(params, dbkey, fasta_description=None):
 
 
 def homer_preparse(data_manager_dict, fasta_filename, params, target_directory, dbkey, sequence_id,
-                   sequence_name, size, mask,
+                   sequence_name, size, mask, version,
                    data_table_name=DEFAULT_DATA_TABLE_NAME):
     args = ['preparseGenome.pl', fasta_filename, '-size', str(size), '-preparsedDir', target_directory]
     if mask:
@@ -42,7 +42,8 @@ def homer_preparse(data_manager_dict, fasta_filename, params, target_directory, 
     data_table_entry = dict(value=sequence_id + mask_suffix + '_' + str(size), dbkey=dbkey,
                             mask=str(mask), size=str(size), name=sequence_name + mask_suffix_name + ' (' + str(size) + 'bp)',
                             path=sequence_id + mask_suffix + '_' + str(size),
-                            path_fasta=fasta_filename)
+                            path_fasta=fasta_filename,
+                            version=version)
     _add_data_table_entry(data_manager_dict, data_table_name, data_table_entry)
 
 
@@ -61,6 +62,7 @@ def main():
     parser.add_option('-s', '--size', dest='size', action='store', type="int", default=200, help='fragment size')
     parser.add_option('-m', '--mask', dest='mask', action='store_true', default=False, help='mask the lower case bases (repeats)')
     parser.add_option('-n', '--data_table_name', dest='data_table_name', action='store', type="string", default=None, help='data_table_name')
+    parser.add_option('--index_version', dest='index_version', action='store', type="string", default=None, help='index version')
     (options, args) = parser.parse_args()
 
     filename = args[0]
@@ -80,7 +82,7 @@ def main():
 
     # preparse the genome
     homer_preparse(data_manager_dict, options.fasta_filename, params, target_directory, dbkey, sequence_id,
-                   sequence_name, options.size, options.mask,
+                   sequence_name, options.size, options.mask, options.index_version,
                    data_table_name=options.data_table_name or DEFAULT_DATA_TABLE_NAME)
 
     # save info to json file
