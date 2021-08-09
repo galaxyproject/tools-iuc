@@ -1,8 +1,6 @@
 
 suppressWarnings(suppressPackageStartupMessages(library(xbioc)))
 suppressWarnings(suppressPackageStartupMessages(library(MuSiC)))
-suppressWarnings(suppressPackageStartupMessages(library(reshape2)))
-suppressWarnings(suppressPackageStartupMessages(library(cowplot)))
 
 args = commandArgs(trailingOnly=TRUE)
 source(args[1])
