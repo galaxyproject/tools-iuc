@@ -1,3 +1,9 @@
+<<<<<<< HEAD
+=======
+import argparse
+import os
+import shutil
+>>>>>>> 7b5ae4714... Update and fix tests, combine redundant tests.
 import sys
 
 from BioExt.references import cov2, hxb2, nl4_3
@@ -48,5 +54,10 @@ references = {
     'CoV2-S': cov2.S
 }
 
-reference = references[sys.argv[1]]
-print(reference._seqpath)
+parser = argparse.ArgumentParser()
+parser.add_argument('--reference', dest='reference', action='store', type=str)
+parser.add_argument('--dataset', dest='dataset', action='store', type=str)
+args = parser.parse_args()
+reference = os.path.abspath(references[args.reference]._seqpath)
+
+shutil.copy(reference, os.path.abspath(args.dataset))
