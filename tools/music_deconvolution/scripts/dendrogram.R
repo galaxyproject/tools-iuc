@@ -83,6 +83,7 @@ Est.bulk = music_prop.cluster(bulk.eset = bulk_eset, sc.eset = scrna_eset,
                               groups = clustertype_label, samples = samples_label,
                               clusters.type = grouped_celltypes)
 
-print(Est.bulk)
+write.table(Est.bulk, file=outfile_tab, quote=F, col.names=NA, sep="\t")
+##print(Est.bulk)
 
 dev.off()
