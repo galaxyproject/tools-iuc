@@ -1,10 +1,6 @@
-<<<<<<< HEAD
-=======
 import argparse
 import os
 import shutil
->>>>>>> 7b5ae4714... Update and fix tests, combine redundant tests.
-import sys
 
 from BioExt.references import cov2, hxb2, nl4_3
 
