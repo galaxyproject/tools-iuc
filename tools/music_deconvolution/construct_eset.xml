@@ -1,0 +1,185 @@
+<tool id="construct-eset" name="Construct ESet Object" version="@GALAXY_VERSION@+@PACKAGE_VERSION@"
+      python_template_version="3.5" license="GPL-3.0-or-later" >
+    <macros>
+        <token name="@GALAXY_VERSION@">0</token>
+        <!-- The ESet inspector and MuSiC tool can have independent Galaxy versions
+             but should reference the same package version always. -->
+        <token name="@PACKAGE_VERSION@">0.1.1</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@PACKAGE_VERSION@" >music-deconvolution</requirement>
+        <requirement type="package" version="0.9.3" >r-cowplot</requirement>
+        <requirement type="package" version="1.4.4" >r-reshape2</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+Rscript --vanilla '$conf'
+]]></command>
+    <configfiles>
+        <configfile name="conf" >
+
+suppressWarnings(suppressPackageStartupMessages(library(xbioc)))
+suppressWarnings(suppressPackageStartupMessages(library(MuSiC)))
+
+null_str_vec = function(gstr){
+   tokens = unlist(as.vector(strsplit(gstr, split=",")))
+   if (length(tokens) == 0){
+      return(NULL)
+   }
+   if (length(tokens) == 1){
+      return(tokens[[1]])
+   }
+   return(tokens)
+}
+
+## Assay Data
+## F rows of features and S columns of samples
+## - This file is the only non-optional parameter
+exprs_file = '$exprs_file'
+exprs = as.matrix(read.table(exprs_file, header = T, sep = "\t",
+                  row.names = 1, as.is = T))
+## Phenotype Data
+## S rows of samples, and V columns of covariates (e.g. sex, age, etc.)
+pdata = NULL
+#if '$pdata_file':
+pdata_file = '$pdata_file'
+pdata = read.table(pdata_file, row.names = 1, header = T, sep = "\t")
+#end if
+## Annotation and Feature Data, or just a string for type of chip used
+annotation = null_str_vec('$annotation')
+
+stop(all(rownames(pdata) != colnames(exprs)),
+     "Number of Samples between phenotypes and assays are not the same")
+
+##metadata = data.frame(
+##    labelDescription = c(
+##        "Patient gender",
+##        "Case/Control",
+##        "Tumor progress"),
+##    row.names = c("gender", "type", "score"))
+metadata = as.data.frame(do.call(rbind, list(
+#for i, row in enumerate($metadata):
+      #if i==0
+      list(ldesc='$row.label_desc', lname='$row.row_names')
+      #else
+      ,list(ldesc='$row.label_desc', lname='$row.row_names')
+      #end if
+#end for
+)))
+metadata$labelDescription = unlist(metadata$ldesc)
+rownames(metadata) = unlist(metadata$lname)
+metadata$ldesc = NULL
+metadata$lname = NULL
+
+if (nrow(metadata)==0) {
+   metadata = NULL
+}
+
+pheno_data = new("AnnotatedDataFrame", data = pdata, varMetadata = metadata)
+
+## Experiment Description -- using the MIAME object
+experiment_data = new(
+    "MIAME",
+    name = null_str_vec('$expdata.name')
+    lab = null_str_vec('$expdata.lab'),
+    contact = null_str_vec('$expdata.contact'),
+    title = null_str_vec('$expdata.title'),
+    abstract = null_str_vec('$expdata.abstract'),
+    url = null_str_vec('$expdata.url'),
+    other = list(
+#for i, row in enumerate($):
+    #if i==0
+    '$row.field' = null_str_vec('$row.comment')
+    #else
+    ,'$row.field' = null_str_vec('$row.comment')
+    #end if
+    )
+#end for
+)
+
+e_set = ExpressionSet(assayData = exprs,
+                      phenoData = pheno_data,
+                      experimentData = experiment_data,
+                      annotation = annotation)
+
+capture.output(print(e_set), file = '$out_tab')
+saveRDS(e_set, file= '$out_rds')
+
+        </configfile>
+    </configfiles>
+    <inputs>
+        <param name="exprs_file" label="Assay Data" type="data" format="tabular,tsv"
+               help="F rows of features and S columns of samples" />
+        <param name="pdata_file" label="Phenotype Data" type="data" format="tabular,tsv"
+               optional="true"
+               help="S rows of samples, and V columns of covariates (e.g. sex, age)" />
+        <param name="annotation" label="Annotation" type="text"
+               optional="true"
+               help="A string detailing which chip was used"  />
+        <repeat name="metadata" title="Meta Data" min="0" ><!-- optional, so min=0 -->
+            <param name="row_names" label="Label" type="text" />
+            <param name="label_desc" label="Label Description" type="text" />
+        </repeat>
+        <section name="expdata" title="Experiment Data" >
+            <param name="name" label="Experimenter Name" type="text" value="" optional="true" />
+            <param name="lab" label="Lab" type="text" value="" optional="true" />
+            <param name="contact" label="Contact" type="text" value="" optional="true" />
+            <param name="title" label="Title" type="text" value="" optional="true" />
+            <param name="abstract" label="Abstract" type="text" value="" optional="true" />
+            <param name="url" label="URL" type="text" value="" optional="true" />
+            <repeat name="other" title="Other Fields" min="1">
+                <param name="field" label="FieldName" type="text" value="notes" />
+                <param name="comment" label="Comment" type="text" value="Created in Galaxy" />
+            </repeat>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="out_tab" format="tabular" label="${tool.name} on ${on_string}: General Info" />
+        <data name="out_rds" format="rdata.eset" label="${tool.name} on ${on_string}: RData ESet Object" />
+    </outputs>
+    <tests>
+        <!-- <test expect_num_outputs="1" > -->
+        <!--     <!-\- Inspect 0 -\-> -->
+        <!--     <param name="rds_eset" value="EMTABesethealthy.rds" /> -->
+        <!--     <param name="inspector" value="print" /> -->
+        <!--     <output name="out_tab" > -->
+        <!--         <assert_contents> -->
+        <!--             <has_text text="sampleNames: AZ_A10 AZ_A11 ... HP1509101_P9 (1097 total)" /> -->
+        <!--         </assert_contents> -->
+        <!--     </output> -->
+        <!-- </test> -->
+        <!-- <test expect_num_outputs="1" > -->
+        <!--     <!-\- Inspect 1 -\-> -->
+        <!--     <param name="rds_eset" value="EMTABesethealthy.rds" /> -->
+        <!--     <param name="inspector" value="pData" /> -->
+        <!--     <output name="out_tab" > -->
+        <!--         <assert_contents> -->
+        <!--             <has_n_columns n="5" /> -->
+        <!--             <has_text_matching expression="AZ_A10\s+1\s+Non T2D\s+1\s+5\s+delta" /> -->
+        <!--         </assert_contents> -->
+        <!--     </output> -->
+        <!-- </test> -->
+        <!-- <test expect_num_outputs="1" > -->
+        <!--     <!-\- Inspect 2 -\-> -->
+        <!--     <param name="rds_eset" value="EMTABesethealthy.rds" /> -->
+        <!--     <param name="inspector" value="dims" /> -->
+        <!--     <output name="out_tab" > -->
+        <!--         <assert_contents> -->
+        <!--             <has_n_columns n="1" /> -->
+        <!--             <has_text_matching expression="Samples\s+1097"/> -->
+        <!--         </assert_contents> -->
+        <!--     </output> -->
+        <!-- </test> -->
+    </tests>
+    <help><![CDATA[
+        TODO: Fill in help.
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+            @misc{falcon2007introduction,
+            title={An introduction to bioconductor’s expressionset class},
+            author={Falcon, Seth and Morgan, Martin and Gentleman, Robert},
+            year={2007}
+            }
+        </citation>
+    </citations>
+</tool>
