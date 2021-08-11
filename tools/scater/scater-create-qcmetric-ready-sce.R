@@ -32,13 +32,6 @@ option_list <- list(
   ),
   #The scater-specific options
   make_option(
-    c("-e", "--exprs-values"),
-    action = "store",
-    default = "counts",
-    type = "character",
-    help = "String indicating slot of the 'assays' of the 'object' that should be used to define expression."
-  ),
-  make_option(
     c("-f", "--mt-controls"),
     action = "store",
     default = NULL,
