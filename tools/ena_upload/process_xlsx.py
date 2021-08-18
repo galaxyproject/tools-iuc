@@ -226,10 +226,9 @@ for sample_alias, sample in samples_dict.items():
         # (not listed in the samples or study dict)
         # process the experiments for this sample
         if exp['sample_alias'] == sample_alias:
-            lib_alias = 'library_' + exp_alias + '_' + exp['sample_alias']
             experiments_table.write('\t'.join([exp_alias, action, 'accession_ena', exp['title'],
                                                exp['study_alias'], sample_alias,
-                                               exp['design_description'], lib_alias,
+                                               exp['design_description'], exp['library_name'],
                                                exp['library_strategy'], exp['library_source'],
                                                exp['library_selection'],
                                                exp['library_layout'].lower(),
