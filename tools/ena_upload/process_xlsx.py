@@ -212,7 +212,7 @@ for sample_alias, sample in samples_dict.items():
                         if optional_col in ('collection date'):
                             # collection date uses the format 2008-01-23T19:23:10
                             sample[optional_col] = str(year) + '-' + str(month) + '-' + str(day) + \
-                            'T' + str(hour) + ':' + str(minute) + ':' + str(second)
+                                'T' + str(hour) + ':' + str(minute) + ':' + str(second)
                         if optional_col in ('receipt date'):
                             # receipt date uses forma: 2008-01-23
                             sample[optional_col] = str(year) + '-' + str(month) + '-' + str(day)
