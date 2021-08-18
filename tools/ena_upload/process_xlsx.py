@@ -209,9 +209,13 @@ for sample_alias, sample in samples_dict.items():
                         hour = "{:02d}".format(hour)
                         minute = "{:02d}".format(minute)
                         second = "{:02d}".format(second)
-                        # format it as 2008-01-23T19:23:10
-                        sample[optional_col] = str(year) + '-' + str(month) + '-' + str(day) + \
+                        if optional_col in ('collection date'):
+                            # collection date uses the format 2008-01-23T19:23:10
+                            sample[optional_col] = str(year) + '-' + str(month) + '-' + str(day) + \
                             'T' + str(hour) + ':' + str(minute) + ':' + str(second)
+                        if optional_col in ('receipt date'):
+                            # receipt date uses forma: 2008-01-23
+                            sample[optional_col] = str(year) + '-' + str(month) + '-' + str(day)
                 # excel stores everything as float so I need to check if
                 # the value was actually an int and keep it as int
                 if isinstance(sample[optional_col], float):
