@@ -1,8 +1,7 @@
 #!/bin/sh
 
-NEXTCLADE_INPUTS_DIR=$1
-NEXTCLADE_VERSION=$2
-NEXTCLADE_INPUTS_URL_BASE="https://raw.githubusercontent.com/nextstrain/nextclade/${NEXTCLADE_VERSION}/data/sars-cov-2"
+NEXTCLADE_INPUTS_DIR=db
+NEXTCLADE_INPUTS_URL_BASE="https://raw.githubusercontent.com/nextstrain/nextclade/master/data/sars-cov-2"
 echo "[ INFO] ${0}:${LINENO}: Downloading Nextclade input data:"
 echo "[ INFO] ${0}:${LINENO}:   From: \"${NEXTCLADE_INPUTS_URL_BASE}\""
 echo "[ INFO] ${0}:${LINENO}:   To:   \"${NEXTCLADE_INPUTS_DIR}\""
