@@ -9,7 +9,7 @@ import sys
 import uuid
 import zipfile
 
-from six.moves.urllib.request import urlretrieve
+from urllib.request import urlretrieve
 
 # Nice solution to opening compressed files (zip/bz2/gz) transparently
 # https://stackoverflow.com/a/13045892/638445
