@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import re
 import sys
+from itertools import chain
 
 
 class LineFilter(object):
@@ -13,6 +14,15 @@ class LineFilter(object):
         self.func = lambda i, l: l.rstrip('\r\n') if l else None
         self.src_lines = []
         self.src_line_cnt = 0
+
+        def xint(x):
+            if isinstance(x, int):
+                return x
+            try:
+                return int(x)
+            except Exception:
+                return x if x else None
+
         if not filter_dict:
             return
         if filter_dict['filter'] == 'regex':
@@ -28,6 +38,13 @@ class LineFilter(object):
         elif filter_dict['filter'] == 'select_columns':
             cols = [int(c) - 1 for c in filter_dict['columns']]
             self.func = lambda i, l: self.select_columns(l, cols)
+        elif filter_dict['filter'] == 'select_column_slices':
+            cols = [x if isinstance(x, int) else [y if y is not None else None for y in [xint(k) for k in x.split(':')]] for x in [xint(c) for c in filter_dict['columns']]]
+            if all([isinstance(x, int) for x in cols]):
+                self.func = lambda i, l: self.select_columns(l, cols)
+            else:
+                cols = [slice(x[0], x[1], x[2] if len(x) > 2 else None) if isinstance(x, list) else x for x in cols]
+                self.func = lambda i, l: self.select_slices(l, cols)
         elif filter_dict['filter'] == 'replace':
             p = filter_dict['pattern']
             r = filter_dict['replace']
@@ -79,6 +96,10 @@ class LineFilter(object):
     def select_columns(self, line, cols):
         fields = line.split('\t')
         return '\t'.join([fields[x] for x in cols])
+
+    def select_slices(self, line, cols):
+        fields = line.split('\t')
+        return '\t'.join(chain.from_iterable([y if isinstance(y, list) else [y] for y in [fields[x] for x in cols]]))
 
     def replace_add(self, line, pat, rep, col, pos):
         fields = line.rstrip('\r\n').split('\t')
