@@ -8,7 +8,6 @@ import shutil
 import sys
 import uuid
 import zipfile
-
 from urllib.request import urlretrieve
 
 # Nice solution to opening compressed files (zip/bz2/gz) transparently
