@@ -55,14 +55,18 @@ $stat{'num_seq'} = scalar(@len);
 
 if (@len) {
   $stat{'num_bp'} = sum(@len);
-  $stat{'len_min'} = $len[0];
-  $stat{'len_max'} = $len[-1];
+  $stat{'len_min'} = $len[-1];
+  $stat{'len_max'} = $len[0];
   $stat{'len_median'} = $len[int(@len/2)];
   $stat{'len_mean'} = int( $stat{'num_bp'} / $stat{'num_seq'} ); 
   
   # calculate n50
   my $thresh = int 0.5 * $stat{'num_bp'};
   ($stat{'len_N50'}, $stat{'L50'}) = &calc_x50(\@len, $thresh);
+
+  #calculate n90
+  my $thresh = int 0.9 * $stat{'num_bp'};
+  ($stat{'len_N90'}, $stat{'L90'}) = &calc_x50(\@len, $thresh);
   
   #calculate NG50
   if ($calc_ng50) {
