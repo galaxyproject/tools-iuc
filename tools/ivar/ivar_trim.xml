@@ -1,4 +1,4 @@
-<tool id="ivar_trim" name="ivar trim" version="@VERSION@+galaxy0">
+<tool id="ivar_trim" name="ivar trim" version="@VERSION@+galaxy2">
     <description>Trim reads in aligned BAM</description>
     <macros>
         <import>macros.xml</import>
@@ -14,8 +14,13 @@
             cp '$primer.cached_bed.fields.path' bed.bed &&
         #end if
         python '$__tool_directory__/sanitize_bed.py' bed.bed &&
-        #if $amplicons.filter_by == 'yes'
-            python '$__tool_directory__/prepare_amplicon_info.py' bed.bed '$amplicons.amplicon_info' amplicon_info.tsv &&
+        #if $amplicons.filter_by == 'yes' or $amplicons.filter_by == 'yes_computed'
+            #if $amplicons.filter_by == 'yes_computed':
+                python '$__tool_directory__/write_amplicon_info_file.py' bed.bed amplicon_info_raw.tsv &&
+            #else
+                ln -s '$amplicons.amplicon_info' amplicon_info_raw.tsv &&
+            #end if
+            python '$__tool_directory__/prepare_amplicon_info.py' bed.bed amplicon_info_raw.tsv amplicon_info.tsv &&
         #end if
         ln -s '$input_bam' sorted.bam &&
         ln -s '${input_bam.metadata.bam_index}' sorted.bam.bai &&
@@ -56,10 +61,12 @@
         <conditional name="amplicons">
             <param name="filter_by" type="select"
             label="Filter reads based on amplicon info"
-            help="When you select Yes you will need to provide an additional amplicon info dataset. Reads that are not fully contained in any amplicon will be dropped before primer trimming. This option is currently marked as [Experimental] in ivar, but nevertheless recommended here.">
+            help="When you select Yes, reads that are not fully contained in any amplicon will be dropped before primer trimming. This option is currently marked as [Experimental] in ivar, but nevertheless recommended here. Info on amplicons can be computed from suitable primer BED files (see tool help below) or provided by the user. ">
                 <option value="">No, allow reads to extend beyond amplicon boundaries</option>
-                <option value="yes">Yes, drop reads that extend beyond amplicon boundaries</option>
+                <option value="yes_compute">Yes, drop reads that extend beyond amplicon boundaries</option>
+                <option value="yes">Yes, drop reads that extend beyond amplicon boundaries and use my amplicon info file</option>
             </param>
+            <when value="yes_compute" />
             <when value="yes">
                 <param name="amplicon_info" argument="-f" type="data" format="tabular" />
             </when>
@@ -116,6 +123,17 @@
             <param name="input_bam" value="sars-cov-2/sars_cov2_untrimmed.bam" ftype="bam" />
             <output name="output_bam" file="sars-cov-2/sars_cov2_trimmed.bam" compare="sim_size" delta="100000"/>
         </test>
+        <test>
+            <conditional name="primer">
+                <param name="source" value="cached" />
+                <param name="cached_bed" value="SARS-CoV-2-ARTICv1" />
+            </conditional>
+            <conditional name="amplicons">
+                <param name="filter_by" value="yes_compute" />
+            </conditional>
+            <param name="input_bam" value="sars-cov-2/sars_cov2_untrimmed.bam" ftype="bam" />
+            <output name="output_bam" file="sars-cov-2/sars_cov2_trimmed.bam" compare="sim_size" delta="100000"/>
+        </test>
     </tests>
     <help><![CDATA[
 iVar uses primer positions supplied in a BED file to soft clip primer
@@ -132,10 +150,25 @@ soft-clipped.
 Optionally, the tool can also discard reads that do not fully map to within any
 amplicon. Such reads are likely to be wet-lab or mapping artefacts and removing
 them can increase variant calling precision. To calculate the extent of
-expected amplicons the tool requires an additional amplicon info dataset that
-lists the names of primers that together form any given amplicon. Primer names
-(exactly matching those in the primer info dataset) need to be TAB-separated
-with one line per amplicon.
+expected amplicons the tool needs to know which primers work together to form
+an amplicon. The tool can try to deduce this info from the names of the primers
+found in the primer info dataset. This will require a primer naming scheme
+following the regex pattern::
+
+  .*_(?P<amplicon_number>\d+).*_(?P<primer_orientation>L(?:EFT)?|R(?:IGHT)?)
+
+*i.e.*, the following schemes will work (and get parsed as):
+
+- ``nCoV-2019_1_LEFT`` (forward primer of amplicon 1)
+
+- ``400_2_out_R`` (reverse primer of amplicon 2)
+
+- ``QIAseq_163-2_LEFT`` (forward primer of amplicon 163)
+
+Alternatively, you can specify the amplicon information explicitly through a
+dataset that lists the names of primers that together form any given amplicon.
+In it, primer names (exactly matching those in the primer info dataset) need to
+be TAB-separated with one line per amplicon.
 If the primer scheme has more than two primers contributing to a given amplicon
 (in schemes using alternate primers), you can (in this Galaxy tool only)
 specify all of them on one line and the tool will calculate the maximum extent
