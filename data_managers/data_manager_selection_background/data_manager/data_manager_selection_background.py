@@ -125,7 +125,7 @@ def main():
     # Update Data Manager JSON and write to file
     data_manager_entry = {
         'data_tables': {
-            'bealign_selection': {'value': args.dbkey, 'label': args.label, 'path': table_entry}
+            'selection_background': {'value': args.dbkey, 'label': args.label, 'path': table_entry}
         }
     }
 
