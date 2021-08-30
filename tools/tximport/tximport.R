@@ -75,7 +75,7 @@ if (!is.null(opt$gff_file)) {
     k <- keys(txdb, keytype = "TXNAME")
     tx2gene <- select(txdb, keys = k, columns = "GENEID", keytype = "TXNAME")
     # Remove 'transcript:' from transcript IDs (when gffFile is a GFF3 from Ensembl and the transcript does not have a Name)
-    tx2gene$TXNAME <- sub("^transcript:", "", tx2gene$TXNAME)
+    tx2gene$TXNAME <- sub("^transcript:", "", tx2gene$TXNAME)  # nolint
 
 } else {
         tx2gene <- read.table(opt$tx2gene, header = FALSE)
