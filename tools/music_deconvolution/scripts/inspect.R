@@ -16,7 +16,7 @@ printout <- function(text) {
 }
 
 if (inspector %in% c("print", "pData", "fData", "dims", "experimentData",
-                     "signature", "annotation", "abstract")) {
+                     "exprs", "signature", "annotation", "abstract")) {
     op <- get(inspector)
     tab <- op(rds_eset)
     printout(tab)
