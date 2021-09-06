@@ -1,5 +1,9 @@
 name: Galaxy Tool Linting and Tests for push and PR
-on: [push, pull_request]
+on:
+  push
+  pull_request
+  repository_dispatch:
+    types: [update-test-data-command]
 env:
   GALAXY_FORK: galaxyproject
   GALAXY_BRANCH: release_21.05
@@ -21,10 +25,27 @@ jobs:
       tool-list: ${{ steps.discover.outputs.tool-list }}
       chunk-count: ${{ steps.discover.outputs.chunk-count }}
       chunk-list: ${{ steps.discover.outputs.chunk-list }}
+      output-test-data: ${{ steps.output-test-data.outputs.output-test-data }}
     strategy:
       matrix:
         python-version: ['3.7']
     steps:
+    - name: Add reaction
+      if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
+      uses: peter-evans/create-or-update-comment@v1
+      with:
+        token: ${{ secrets.PAT }}
+        repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+        comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
+        reaction-type: hooray
+    - name: Set update-test-data for slash commands
+      id: update-test-data
+      run: |
+        if [ -n "${{ github.event.client_payload.slash_command.command}}" ]; then
+          echo "::set-output name=update-test-data::true"
+        else
+          echo "::set-output name=update-test-data::false"
+        fi
     - name: Print github context properties
       run: |
         echo 'event: ${{ github.event_name }}'
@@ -70,6 +91,7 @@ jobs:
         galaxy-branch: ${{ env.GALAXY_BRANCH }}
         max-chunks: ${{ env.MAX_CHUNKS }}
         python-version: ${{ matrix.python-version }}
+        update-test-data: ${{ steps.update-test-data.outputs.update-test-data }}
     - name: Show commit range
       run: echo '${{ steps.discover.outputs.commit-range }}'
     - name: Show repository list
@@ -262,6 +284,7 @@ jobs:
         galaxy-branch: ${{ env.GALAXY_BRANCH }}
         chunk: ${{ matrix.chunk }}
         chunk-count: ${{ needs.setup.outputs.chunk-count }}
+        update-test-data: ${{ needs.setup.outputs.update-test-date }}
     - uses: actions/upload-artifact@v2
       with:
         name: 'Tool test output ${{ matrix.chunk }}'
@@ -353,6 +376,25 @@ jobs:
     if: ${{ always() && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
+    - name: Create URL to the run output
+      if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
+      id: vars
+      run: echo "::set-output name=run-url::https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+    - name: Create comment
+      if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
+      uses: peter-evans/create-or-update-comment@v1
+      with:
+        token: ${{ secrets.PAT }}
+        repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+        issue-number: ${{ github.event.client_payload.github.payload.issue.number }}
+        body: |
+          Summary:
+
+          ${{ steps.combine.outputs.statistics }}
+
+          [Find all tool test results here][1]
+
+          [1]: ${{ steps.vars.outputs.run-url }}
     - name: Check tool lint status
       if: ${{ needs.lint.result != 'success' && needs.flake8.result != 'skipped' }}
       run: exit 1
