@@ -33,7 +33,8 @@ with open(sys.argv[2]) as i:
     ret_lines = []
     for line in i:
         first = last = None
-        for pname in line.strip().split('\t'):
+        pnames = line.strip().split('\t')[3]
+        for pname in pnames.split('|'):
             try:
                 primer_start = primer_starts[pname]
             except KeyError:
