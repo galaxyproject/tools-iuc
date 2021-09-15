@@ -44,14 +44,8 @@ spec <- matrix(c(
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
-# path to example config file
-config <- system.file("extdata", "config.csv", package = "amplican")
-# path to example fastq files
-fastq_folder <- system.file("extdata", package = "amplican")
-# output folder
-results_folder <- tempdir()
 
-#full analysis, not knitting files automatically
+#full analysis
 amplicanPipeline(opt$config, 
   opt$fastq_folder,
   opt$results_folder,
