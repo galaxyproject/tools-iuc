@@ -22,26 +22,25 @@ spec <- matrix(c(
   "config", "c", 1, "character",
   "fastq_folder", "i", 1, "character",
   "results_folder", "o", 1, "character",
+  "match_scoring", "M", 1, "integer",
+  "mismatch_scoring", "s", 1, "integer",
+  "base_only", "b", 1, "logical",
+  "type", "t", 1, "character",
   "knit_reports", "k", 1, "logical",
   "write_alignments_format", "f", 1, "character",
   "average_quality", "a", 1, "integer",
   "min_quality", "m", 1, "integer",
   "use_parallel", "u", 1, "logical",
-  "match_scoring", "M", 1, "integer",
-  "mismatch_scoring", "s", 1, "integer",
-  "base_only", "b", 1, "logical",
-  "type", "t", 1, "character",
-  "gap_opening", "O", 1, "character",
-  "gap_extension", "e", 1, "character",
+  "gap_opening", "O", 1, "integer",
+  "gap_extension", "e", 1, "integer",
   "fastqfiles", "T", 1, "character",
   "primer_mismatch", "P", 1, "integer",
   "donor_mismatch", "A", 1, "integer",
   "primer_dimer", "B", 1, "integer",
   "event_filter", "F", 1, "logical",
   "cut_buffer", "d", 1, "integer",
-  "promiscuous_consensus", "C", 1, "logical",
-  "min_freq", "Q", 1, "numerical"
-), byrow = TRUE, ncol = 4)
+  "promiscuous_consensus", "C", 1, "logical"
+  ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
 
@@ -50,7 +49,7 @@ amplicanPipeline(opt$config,
   opt$fastq_folder,
   opt$results_folder,
   knit_reports = opt$knit_reports,
-  write_alignments_format = c(opt$write_alignments_format),
+  write_alignments_format = opt$write_alignments_format,
   average_quality = opt$average_quality,
   min_quality = opt$min_quality,
   use_parallel = opt$use_parallel,
@@ -67,5 +66,4 @@ amplicanPipeline(opt$config,
   event_filter = opt$event_filter,
   cut_buffer = opt$cut_buffer, 
   promiscuous_consensus = opt$promiscuous_consensus,
-  normalize = c("guideRNA", "Group"), 
-  min_freq = opt$min_freq)
+  normalize = c("guideRNA", "Group"))
