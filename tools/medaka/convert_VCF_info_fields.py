@@ -98,7 +98,7 @@ def annotateVCF(in_vcf_filepath, out_vcf_filepath):
         '##INFO=<ID=AS,Number=4,Type=Integer,Description="Total alignment score to ref and alt allele of spanning reads by strand (ref fwd, ref rev, alt fwd, alt rev) aligned with parasail match 5, mismatch -4, open 5, extend 3">\n',
         line
     ]
-    # TO DO: skip to_skip lines
+
     with open(out_vcf_filepath, 'w') as out_vcf:
         out_vcf.writelines(header_lines)
         for line in in_vcf:
