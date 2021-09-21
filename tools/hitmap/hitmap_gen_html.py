@@ -1,7 +1,7 @@
 
 import os
+import subprocess
 import sys
-import subprocess 
 
 
 class Segment:
@@ -10,18 +10,16 @@ class Segment:
         self.imgpaths = {}
         self.set_img_paths(details_folder, sample_name)
 
-
     def set_img_paths(self, details_folder, sample_name):
         imgs = self.imgpaths
         imgs['spectrum_PMF'] = f'{details_folder}/{sample_name} {self.id} PMF spectrum match.png'
-        imgs['peptide_FDR'] = f'{details_folder}/{self.id}/FDR.png' 
-        imgs['protein_FDR'] = f'{details_folder}/{self.id}/Protein_FDR.png' 
-        imgs['target_decoy_matched_scores'] = f'{details_folder}/{self.id}/Matching_Score_vs_mz_target-decoy.png' 
-        imgs['target_decoy_histogram'] = f'{details_folder}/{self.id}/Peptide_Score_histogram_target-decoy.png' 
-        imgs['protein_score_cutoff'] = f'{details_folder}/{self.id}/PROTEIN_Score_histogram.png' 
-        imgs['unique_peptide_ranks'] = f'{details_folder}/{self.id}/unique_peptide_ranking_vs_mz_feature.png' 
-        imgs['unique_peptide_ranks_2'] = f'{details_folder}/{self.id}/unique_peptide_ranking_vs_mz_feature_2nd.png' 
-
+        imgs['peptide_FDR'] = f'{details_folder}/{self.id}/FDR.png'
+        imgs['protein_FDR'] = f'{details_folder}/{self.id}/Protein_FDR.png'
+        imgs['target_decoy_matched_scores'] = f'{details_folder}/{self.id}/Matching_Score_vs_mz_target-decoy.png'
+        imgs['target_decoy_histogram'] = f'{details_folder}/{self.id}/Peptide_Score_histogram_target-decoy.png'
+        imgs['protein_score_cutoff'] = f'{details_folder}/{self.id}/PROTEIN_Score_histogram.png'
+        imgs['unique_peptide_ranks'] = f'{details_folder}/{self.id}/unique_peptide_ranking_vs_mz_feature.png'
+        imgs['unique_peptide_ranks_2'] = f'{details_folder}/{self.id}/unique_peptide_ranking_vs_mz_feature_2nd.png'
 
 
 class ClusterIonImages:
@@ -31,11 +29,9 @@ class ClusterIonImages:
         self.set_img_directory(summary_folder)
         self.set_images()
 
-
     def set_img_directory(self, dirpath):
         # is this bad? what if author changes folder structure?? Dont like it
-        self.dirpath = f'{dirpath}/cluster Ion images/unique' 
-
+        self.dirpath = f'{dirpath}/cluster Ion images/unique'
 
     def set_images(self):
         if os.path.exists(self.dirpath):
@@ -52,15 +48,13 @@ class GeneralFiles:
         self.imgpaths = {}
         self.set_images()
 
-
     def set_images(self):
         self.set_segment_imgs()
 
         imgs = self.imgpaths
-        imgs['scree'] = f'{self.details_folder}/PCA_plot.png' 
-        imgs['PCA'] = f'{self.details_folder}/PCA_image.png' 
-        imgs['score_outliers'] = f'{self.summary_folder}/Peptide_score_outlier.png' 
-
+        imgs['scree'] = f'{self.details_folder}/PCA_plot.png'
+        imgs['PCA'] = f'{self.details_folder}/PCA_image.png'
+        imgs['score_outliers'] = f'{self.summary_folder}/Peptide_score_outlier.png'
 
     def set_segment_imgs(self):
         imgs = self.imgpaths
@@ -80,7 +74,6 @@ class HTMLRenderer:
         self.ci_images = ci_images
         self.segment_list = segment_list
 
-
     def render(self, page_header, left_nav_static):
         nav = self.generate_nav_segments()
         visualisations = self.gen_visualisations_section()
@@ -91,20 +84,18 @@ class HTMLRenderer:
         main_container = '<div id="maincontent" class="col s10 offset-s2">'
         main_closing = '</div>'
 
-        html = page_header + nav_container + left_nav_static + nav + nav_closing + main_container + visualisations + main_closing + '</div>'
+        html = page_header + nav_container + left_nav_static + nav + \
+            nav_closing + main_container + visualisations + main_closing + '</div>'
 
         self.write_html(html)
 
-
     def gen_text_image_data(self, imgpath):
         return subprocess.run(["base64", imgpath], capture_output=True, text=True).stdout
-
 
     def write_html(self, htmlfile):
         with open('hitmap_report.html', 'w') as fp:
             fp.write(htmlfile)
             print()
-        
 
     def generate_nav_segments(self):
         snippet_lines = []
@@ -120,26 +111,25 @@ class HTMLRenderer:
         snippet = '\n'.join(snippet_lines)
         return snippet
 
-
     def gen_visualisations_section(self):
         imgs = self.gfs.imgpaths
         snippet_lines = []
-
-        snippet_lines += self.gen_image_section('segmentation', 'Sample Segmentation', imgs['segment_pixelart'], stype=1, maxwidth='600px')
-        snippet_lines += self.gen_image_section('pca', 'Principle Component Analysis (PCA)', imgs['PCA'], stype=1, maxwidth='1000px')
-        snippet_lines += self.gen_image_section('scree', 'PCA Scree Plot', imgs['scree'], stype=1, maxwidth='600px')
+        snippet_lines += self.gen_image_section('segmentation', 'Sample Segmentation',
+                                                imgs['segment_pixelart'], stype=1, maxwidth='600px')
+        snippet_lines += self.gen_image_section('pca', 'Principle Component Analysis (PCA)',
+                                                imgs['PCA'], stype=1, maxwidth='1000px')
+        snippet_lines += self.gen_image_section('scree', 'PCA Scree Plot',
+                                                imgs['scree'], stype=1, maxwidth='600px')
         snippet_lines += self.gen_proteins_of_interest()  # proteins of interest (unique)
-        snippet_lines += self.gen_image_section('segment-mean-spectra', 'Segment Mean Spectra', imgs['segment_spectra'], stype=3, maxwidth='900px')
+        snippet_lines += self.gen_image_section('segment-mean-spectra', 'Segment Mean Spectra',
+                                                imgs['segment_spectra'], stype=3, maxwidth='900px')
         snippet_lines += self.gen_segment_spectra(maxwidth='1200px')  # per segment spectra (unique)
-        snippet_lines += self.gen_image_section('outliers', 'Peptide Score Outliers', imgs['score_outliers'], stype=1, maxwidth='600px')
-        
+        snippet_lines += self.gen_image_section('outliers', 'Peptide Score Outliers',
+                                                imgs['score_outliers'], stype=1, maxwidth='600px')
         for seg in self.segment_list:
             snippet_lines += self.gen_segment_qc(seg)  # segment QC: each segment (unique reps)
-
-        
         snippet = '\n'.join(snippet_lines)
         return snippet
-
 
     def gen_segment_qc(self, seg):
         snippet_lines = []
@@ -192,15 +182,13 @@ class HTMLRenderer:
         snippet_lines.append('</div>')
         snippet_lines.append('</div>')
         return snippet_lines
-          
 
     def gen_segment_spectra(self, maxwidth="100%"):
-        
         snippet_lines = []
         snippet_lines.append('<div id="segment-spectra-match" class="row">')
         snippet_lines.append('<div class="spacer"></div>')
         snippet_lines.append('<h4>Segment Spectrum Match</h4>')
-        snippet_lines.append('<div class="divider"></div>') 
+        snippet_lines.append('<div class="divider"></div>')
         snippet_lines.append('<div class="spacer"></div>')
         snippet_lines.append('<div class="col s10">')
 
@@ -211,11 +199,9 @@ class HTMLRenderer:
 
         snippet_lines.append('</div>')
         snippet_lines.append('<div class="col s2"></div>')
-        snippet_lines.append('</div>') 
+        snippet_lines.append('</div>')
 
         return snippet_lines
-        
-
 
     def gen_proteins_of_interest(self):
         snippet_lines = []
@@ -224,18 +210,13 @@ class HTMLRenderer:
         snippet_lines.append("<div class='spacer'></div>")
         snippet_lines.append("<h4>Proteins of Interest</h4>")
         snippet_lines.append("<div class='divider'></div>")
-        
         for imgpath in self.ci_images.imgpaths:
             snippet_lines.append('<div class="ci-image">')  # lol dat trash css tag
             imgdata = self.gen_text_image_data(imgpath)
             snippet_lines.append(f'<img src="data:image/png;base64,{imgdata}">')
-
             snippet_lines.append('</div>')
-
         snippet_lines.append("</div>")
-
         return snippet_lines
-
 
     def gen_image_section(self, ident, title, imagepath, stype=1, maxwidth="100%"):
         snippet_lines = []
@@ -252,22 +233,17 @@ class HTMLRenderer:
                 imgdata = self.gen_text_image_data(imagepath)
                 snippet_lines.append(f'<img src="data:image/png;base64,{imgdata}" width={maxwidth}>')
                 snippet_lines.append('</div>')
-            
-
             if stype == 2:
                 snippet_lines.append('<div class="col s2"></div>')
                 snippet_lines.append('<div class="col s8">')
                 imgdata = self.gen_text_image_data(imagepath)
                 snippet_lines.append(f'<img src="data:image/png;base64,{imgdata}" width={maxwidth}>')
-
                 snippet_lines.append('</div>')
                 snippet_lines.append('<div class="col s2"></div>')
-            
             if stype == 3:
                 snippet_lines.append('<div class="col s10">')
                 imgdata = self.gen_text_image_data(imagepath)
                 snippet_lines.append(f'<img src="data:image/png;base64,{imgdata}" width={maxwidth}>')
-
                 snippet_lines.append('</div>')
                 snippet_lines.append('<div class="col s2"></div>')
 
@@ -275,7 +251,8 @@ class HTMLRenderer:
 
         return snippet_lines
 
-##### html snippets #####
+
+# html snippets #
 
 page_header = """
 <html>
@@ -2880,7 +2857,8 @@ input,
 optgroup,
 select,
 textarea {
-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, \
+Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
 }
 
 ul:not(.browser-default) {
@@ -2919,7 +2897,8 @@ box-shadow: none !important;
 }
 
 /* 2dp elevation modified*/
-.z-depth-1, nav, .card-panel, .card, .toast, .btn, .btn-large, .btn-small, .btn-floating, .dropdown-content, .collapsible, .sidenav {
+.z-depth-1, nav, .card-panel, .card, .toast, .btn, .btn-large, .btn-small, .btn-floating, \
+.dropdown-content, .collapsible, .sidenav {
 -webkit-box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 3px 1px -2px rgba(0, 0, 0, 0.12), 0 1px 5px 0 rgba(0, 0, 0, 0.2);
 box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 3px 1px -2px rgba(0, 0, 0, 0.12), 0 1px 5px 0 rgba(0, 0, 0, 0.2);
 }
@@ -2931,26 +2910,31 @@ box-shadow: 0 3px 3px 0 rgba(0, 0, 0, 0.14), 0 1px 7px 0 rgba(0, 0, 0, 0.12), 0 
 
 /* 6dp elevation modified*/
 .z-depth-2 {
--webkit-box-shadow: 0 4px 5px 0 rgba(0, 0, 0, 0.14), 0 1px 10px 0 rgba(0, 0, 0, 0.12), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+-webkit-box-shadow: 0 4px 5px 0 rgba(0, 0, 0, 0.14), 0 1px 10px 0 rgba(0, 0, 0, 0.12), \
+0 2px 4px -1px rgba(0, 0, 0, 0.3);
 box-shadow: 0 4px 5px 0 rgba(0, 0, 0, 0.14), 0 1px 10px 0 rgba(0, 0, 0, 0.12), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
 }
 
 /* 12dp elevation modified*/
 .z-depth-3 {
--webkit-box-shadow: 0 8px 17px 2px rgba(0, 0, 0, 0.14), 0 3px 14px 2px rgba(0, 0, 0, 0.12), 0 5px 5px -3px rgba(0, 0, 0, 0.2);
+-webkit-box-shadow: 0 8px 17px 2px rgba(0, 0, 0, 0.14), 0 3px 14px 2px rgba(0, 0, 0, 0.12), \
+0 5px 5px -3px rgba(0, 0, 0, 0.2);
 box-shadow: 0 8px 17px 2px rgba(0, 0, 0, 0.14), 0 3px 14px 2px rgba(0, 0, 0, 0.12), 0 5px 5px -3px rgba(0, 0, 0, 0.2);
 }
 
 /* 16dp elevation */
 .z-depth-4 {
--webkit-box-shadow: 0 16px 24px 2px rgba(0, 0, 0, 0.14), 0 6px 30px 5px rgba(0, 0, 0, 0.12), 0 8px 10px -7px rgba(0, 0, 0, 0.2);
+-webkit-box-shadow: 0 16px 24px 2px rgba(0, 0, 0, 0.14), 0 6px 30px 5px rgba(0, 0, 0, 0.12), \
+0 8px 10px -7px rgba(0, 0, 0, 0.2);
 box-shadow: 0 16px 24px 2px rgba(0, 0, 0, 0.14), 0 6px 30px 5px rgba(0, 0, 0, 0.12), 0 8px 10px -7px rgba(0, 0, 0, 0.2);
 }
 
 /* 24dp elevation */
 .z-depth-5, .modal {
--webkit-box-shadow: 0 24px 38px 3px rgba(0, 0, 0, 0.14), 0 9px 46px 8px rgba(0, 0, 0, 0.12), 0 11px 15px -7px rgba(0, 0, 0, 0.2);
-box-shadow: 0 24px 38px 3px rgba(0, 0, 0, 0.14), 0 9px 46px 8px rgba(0, 0, 0, 0.12), 0 11px 15px -7px rgba(0, 0, 0, 0.2);
+-webkit-box-shadow: 0 24px 38px 3px rgba(0, 0, 0, 0.14), 0 9px 46px 8px rgba(0, 0, 0, 0.12), \
+0 11px 15px -7px rgba(0, 0, 0, 0.2);
+box-shadow: 0 24px 38px 3px rgba(0, 0, 0, 0.14), 0 9px 46px 8px rgba(0, 0, 0, 0.12), \
+0 11px 15px -7px rgba(0, 0, 0, 0.2);
 }
 
 .hoverable {
@@ -3080,7 +3064,7 @@ font-size: 24px;
 }
 
 .breadcrumb:before {
-content: '\E5CC';
+content: "\\E5CC";
 color: rgba(255, 255, 255, 0.7);
 vertical-align: top;
 display: inline-block;
@@ -3856,7 +3840,7 @@ border:1px solid blue;
 }
 
 #scroll ul {
-margin:0; 
+margin:0;
 padding:0;
 display:table;
 list-style:none;
@@ -4824,7 +4808,8 @@ margin-left: 15px;
 margin-right: 15px;
 }
 
-nav ul a.btn > .material-icons, nav ul a.btn-large > .material-icons, nav ul a.btn-small > .material-icons, nav ul a.btn-large > .material-icons, nav ul a.btn-flat > .material-icons, nav ul a.btn-floating > .material-icons {
+nav ul a.btn > .material-icons, nav ul a.btn-large > .material-icons, nav ul a.btn-small > .material-icons, \
+    nav ul a.btn-large > .material-icons, nav ul a.btn-flat > .material-icons, nav ul a.btn-floating > .material-icons {
 height: inherit;
 line-height: inherit;
 }
@@ -4853,7 +4838,12 @@ border: none;
 padding-left: 2rem;
 }
 
-nav .input-field input:focus, nav .input-field input[type=text]:valid, nav .input-field input[type=password]:valid, nav .input-field input[type=email]:valid, nav .input-field input[type=url]:valid, nav .input-field input[type=date]:valid {
+nav .input-field input:focus, \
+nav .input-field input[type=text]:valid, \
+nav .input-field input[type=password]:valid, \
+nav .input-field input[type=email]:valid, \
+nav .input-field input[type=url]:valid, \
+nav .input-field input[type=date]:valid {
 border: none;
 -webkit-box-shadow: none;
 box-shadow: none;
@@ -4903,7 +4893,8 @@ text-decoration: none;
 
 html {
 line-height: 1.5;
-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, \
+Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
 font-weight: normal;
 color: rgba(0, 0, 0, 0.87);
 }
@@ -5127,7 +5118,8 @@ font-size: 1.2rem;
 -webkit-transition: -webkit-transform 0.3s cubic-bezier(0.53, 0.01, 0.36, 1.63) !important;
 transition: -webkit-transform 0.3s cubic-bezier(0.53, 0.01, 0.36, 1.63) !important;
 transition: transform 0.3s cubic-bezier(0.53, 0.01, 0.36, 1.63) !important;
-transition: transform 0.3s cubic-bezier(0.53, 0.01, 0.36, 1.63), -webkit-transform 0.3s cubic-bezier(0.53, 0.01, 0.36, 1.63) !important;
+transition: transform 0.3s cubic-bezier(0.53, 0.01, 0.36, 1.63), \
+-webkit-transform 0.3s cubic-bezier(0.53, 0.01, 0.36, 1.63) !important;
 }
 
 .scale-transition.scale-out {
@@ -5184,7 +5176,8 @@ max-height: 60%;
 overflow: hidden;
 }
 
-.card.small .card-image + .card-content, .card.medium .card-image + .card-content, .card.large .card-image + .card-content {
+.card.small .card-image + .card-content, .card.medium .card-image + .card-content, \
+.card.large .card-image + .card-content {
 max-height: 40%;
 }
 
@@ -5225,7 +5218,8 @@ max-height: none;
 overflow: visible;
 }
 
-.card.horizontal.small .card-image img, .card.horizontal.medium .card-image img, .card.horizontal.large .card-image img {
+.card.horizontal.small .card-image img, .card.horizontal.medium .card-image img, \
+.card.horizontal.large .card-image img {
 height: 100%;
 }
 
@@ -6207,7 +6201,8 @@ width: 100%;
 text-align: right;
 }
 
-.modal .modal-footer .btn, .modal .modal-footer .btn-large, .modal .modal-footer .btn-small, .modal .modal-footer .btn-flat {
+.modal .modal-footer .btn, .modal .modal-footer .btn-large, .modal \
+.modal-footer .btn-small, .modal .modal-footer .btn-flat {
 margin: 6px 0;
 }
 
@@ -6820,7 +6815,8 @@ input[type=search]:not(.browser-default):focus.invalid ~ .helper-text[data-error
 textarea.materialize-textarea.valid ~ .helper-text[data-success],
 textarea.materialize-textarea:focus.valid ~ .helper-text[data-success],
 textarea.materialize-textarea.invalid ~ .helper-text[data-error],
-textarea.materialize-textarea:focus.invalid ~ .helper-text[data-error], .select-wrapper.valid .helper-text[data-success],
+textarea.materialize-textarea:focus.invalid ~ .helper-text[data-error], \
+.select-wrapper.valid .helper-text[data-success],
 .select-wrapper.invalid ~ .helper-text[data-error] {
 color: transparent;
 -webkit-user-select: none;
@@ -7511,7 +7507,8 @@ top: -3px;
 -webkit-transition: left 0.3s ease, background .3s ease, -webkit-box-shadow 0.1s ease, -webkit-transform .1s ease;
 transition: left 0.3s ease, background .3s ease, -webkit-box-shadow 0.1s ease, -webkit-transform .1s ease;
 transition: left 0.3s ease, background .3s ease, box-shadow 0.1s ease, transform .1s ease;
-transition: left 0.3s ease, background .3s ease, box-shadow 0.1s ease, transform .1s ease, -webkit-box-shadow 0.1s ease, -webkit-transform .1s ease;
+transition: left 0.3s ease, background .3s ease, box-shadow 0.1s ease, transform .1s ease, \
+-webkit-box-shadow 0.1s ease, -webkit-transform .1s ease;
 }
 
 .switch label .lever:before {
@@ -7520,8 +7517,10 @@ background-color: rgba(38, 166, 154, 0.15);
 
 .switch label .lever:after {
 background-color: #F1F1F1;
--webkit-box-shadow: 0px 3px 1px -2px rgba(0, 0, 0, 0.2), 0px 2px 2px 0px rgba(0, 0, 0, 0.14), 0px 1px 5px 0px rgba(0, 0, 0, 0.12);
-box-shadow: 0px 3px 1px -2px rgba(0, 0, 0, 0.2), 0px 2px 2px 0px rgba(0, 0, 0, 0.14), 0px 1px 5px 0px rgba(0, 0, 0, 0.12);
+-webkit-box-shadow: 0px 3px 1px -2px rgba(0, 0, 0, 0.2), \
+0px 2px 2px 0px rgba(0, 0, 0, 0.14), 0px 1px 5px 0px rgba(0, 0, 0, 0.12);
+box-shadow: 0px 3px 1px -2px rgba(0, 0, 0, 0.2), 0px 2px 2px 0px rgba(0, 0, 0, 0.14), \
+0px 1px 5px 0px rgba(0, 0, 0, 0.12);
 }
 
 input[type=checkbox]:checked:not(:disabled) ~ .lever:active::before,
@@ -8000,11 +7999,13 @@ padding: 0 32px;
 background-color: rgba(0, 0, 0, 0.05);
 }
 
-.sidenav li > a.btn, .sidenav li > a.btn-large, .sidenav li > a.btn-small, .sidenav li > a.btn-large, .sidenav li > a.btn-flat, .sidenav li > a.btn-floating {
+.sidenav li > a.btn, .sidenav li > a.btn-large, .sidenav li > a.btn-small, \
+.sidenav li > a.btn-large, .sidenav li > a.btn-flat, .sidenav li > a.btn-floating {
 margin: 10px 15px;
 }
 
-.sidenav li > a.btn, .sidenav li > a.btn-large, .sidenav li > a.btn-small, .sidenav li > a.btn-large, .sidenav li > a.btn-floating {
+.sidenav li > a.btn, .sidenav li > a.btn-large, .sidenav li > a.btn-small, \
+.sidenav li > a.btn-large, .sidenav li > a.btn-floating {
 color: #fff;
 }
 
@@ -8012,7 +8013,8 @@ color: #fff;
 color: #343434;
 }
 
-.sidenav li > a.btn:hover, .sidenav li > a.btn-large:hover, .sidenav li > a.btn-small:hover, .sidenav li > a.btn-large:hover {
+.sidenav li > a.btn:hover, .sidenav li > a.btn-large:hover, .sidenav li > \
+a.btn-small:hover, .sidenav li > a.btn-large:hover {
 background-color: #2bbbad;
 }
 
@@ -8274,26 +8276,34 @@ border-color: #0f9d58;
 */
 .active .spinner-layer.spinner-blue {
 /* durations: 4 * ARCTIME */
--webkit-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, blue-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, blue-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+-webkit-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, \
+blue-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, \
+blue-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
 .active .spinner-layer.spinner-red {
 /* durations: 4 * ARCTIME */
--webkit-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, red-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, red-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+-webkit-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, \
+red-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, \
+red-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
 .active .spinner-layer.spinner-yellow {
 /* durations: 4 * ARCTIME */
--webkit-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, yellow-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, yellow-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+-webkit-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, \
+yellow-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, \
+yellow-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
 .active .spinner-layer.spinner-green {
 /* durations: 4 * ARCTIME */
--webkit-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, green-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, green-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+-webkit-animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, \
+green-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+animation: fill-unfill-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both, \
+green-fade-in-out 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
 .active .spinner-layer,
@@ -8892,7 +8902,8 @@ opacity: .95;
 -webkit-transition: opacity 0.3s cubic-bezier(0.42, 0, 0.58, 1), -webkit-transform 0.3s cubic-bezier(0.42, 0, 0.58, 1);
 transition: opacity 0.3s cubic-bezier(0.42, 0, 0.58, 1), -webkit-transform 0.3s cubic-bezier(0.42, 0, 0.58, 1);
 transition: transform 0.3s cubic-bezier(0.42, 0, 0.58, 1), opacity 0.3s cubic-bezier(0.42, 0, 0.58, 1);
-transition: transform 0.3s cubic-bezier(0.42, 0, 0.58, 1), opacity 0.3s cubic-bezier(0.42, 0, 0.58, 1), -webkit-transform 0.3s cubic-bezier(0.42, 0, 0.58, 1);
+transition: transform 0.3s cubic-bezier(0.42, 0, 0.58, 1), opacity 0.3s cubic-bezier(0.42, 0, 0.58, 1), \
+-webkit-transform 0.3s cubic-bezier(0.42, 0, 0.58, 1);
 }
 
 .tap-target-wrapper.open .tap-target-wave::before {
@@ -8924,7 +8935,8 @@ position: absolute;
 font-size: 1rem;
 border-radius: 50%;
 background-color: #ee6e73;
--webkit-box-shadow: 0 20px 20px 0 rgba(0, 0, 0, 0.14), 0 10px 50px 0 rgba(0, 0, 0, 0.12), 0 30px 10px -20px rgba(0, 0, 0, 0.2);
+-webkit-box-shadow: 0 20px 20px 0 rgba(0, 0, 0, 0.14), 0 10px 50px 0 rgba(0, 0, 0, 0.12), \
+0 30px 10px -20px rgba(0, 0, 0, 0.2);
 box-shadow: 0 20px 20px 0 rgba(0, 0, 0, 0.14), 0 10px 50px 0 rgba(0, 0, 0, 0.12), 0 30px 10px -20px rgba(0, 0, 0, 0.2);
 width: 100%;
 height: 100%;
@@ -8934,7 +8946,8 @@ transform: scale(0);
 -webkit-transition: opacity 0.3s cubic-bezier(0.42, 0, 0.58, 1), -webkit-transform 0.3s cubic-bezier(0.42, 0, 0.58, 1);
 transition: opacity 0.3s cubic-bezier(0.42, 0, 0.58, 1), -webkit-transform 0.3s cubic-bezier(0.42, 0, 0.58, 1);
 transition: transform 0.3s cubic-bezier(0.42, 0, 0.58, 1), opacity 0.3s cubic-bezier(0.42, 0, 0.58, 1);
-transition: transform 0.3s cubic-bezier(0.42, 0, 0.58, 1), opacity 0.3s cubic-bezier(0.42, 0, 0.58, 1), -webkit-transform 0.3s cubic-bezier(0.42, 0, 0.58, 1);
+transition: transform 0.3s cubic-bezier(0.42, 0, 0.58, 1), opacity 0.3s cubic-bezier(0.42, 0, 0.58, 1), \
+-webkit-transform 0.3s cubic-bezier(0.42, 0, 0.58, 1);
 }
 
 .tap-target-content {
@@ -8994,7 +9007,8 @@ z-index: 10002;
 position: absolute !important;
 }
 
-.tap-target-origin:not(.btn):not(.btn-large):not(.btn-small), .tap-target-origin:not(.btn):not(.btn-large):not(.btn-small):hover {
+.tap-target-origin:not(.btn):not(.btn-large):not(.btn-small), \
+.tap-target-origin:not(.btn):not(.btn-large):not(.btn-small):hover {
 background: none;
 }
 
@@ -9541,9 +9555,7 @@ left_nav_static = """
 </div> </a>
 """
 
-
-
-##### end html snippets #####
+# end html snippets #
 
 
 def main(argv):
@@ -9552,18 +9564,18 @@ def main(argv):
 
     # set cluster ion image paths
     ci_images = ClusterIonImages(summary_folder)
-    
+
     # set general data/image paths
     general_files = GeneralFiles(summary_folder, details_folder)
 
-    # set segment data/image paths 
+    # set segment data/image paths
     num_segments = get_num_segments(details_folder)
-    
+
     segment_list = []
     for i in range(num_segments):
         new_segment = Segment(i + 1, details_folder, sample_name)
         segment_list.append(new_segment)
-    
+
     html_renderer = HTMLRenderer(general_files, ci_images, segment_list)
     html_renderer.render(page_header, left_nav_static)
 
@@ -9590,7 +9602,7 @@ def get_key_folder_names(rootdir):
 
     return sample_name, details_folder, summary_folder
 
-    
+
 def get_direct_subfolders(dirpath):
     folder_contents = os.listdir(dirpath)
     subfolders = [item for item in folder_contents if os.path.isdir(f'{dirpath}/{item}')]  # kinda shit
