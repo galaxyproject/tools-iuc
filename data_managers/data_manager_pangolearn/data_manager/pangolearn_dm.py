@@ -15,6 +15,8 @@ import requests
 def extract_date(tag_str):
     parts = tag_str.split("_")
     assert len(parts) < 3, "expected maximum of two parts, got " + str(parts)
+    # there are tags like: 2021-07-07-2
+    parts[0] = "-".join(parts[0].split("-")[:3])
     tag_date = datetime.datetime.strptime(parts[0], "%Y-%m-%d")
     if len(parts) == 2:
         version = int(parts[1])
