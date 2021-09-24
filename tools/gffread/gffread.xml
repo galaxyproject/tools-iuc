@@ -58,7 +58,11 @@
     #if $reference_genome.source == 'history':
         ln -s '$reference_genome.genome_fasta' genomeref.fa &&
     #end if
+
     gffread '$input'
+    #if $input.ext.startswith("bed")
+        --in-bed
+    #end if
     #if $reference_genome.source == 'cached':
         -g '${reference_genome.fasta_indexes.fields.path}'
         #if $reference_genome.ref_filtering and str($reference_genome.ref_filtering) != '':
@@ -111,14 +115,21 @@
             -t '$gffs.tname'
         #end if
         #if $gffs.gff_fmt == 'gff':
+            ## TODO bug 'gft' -> 'gtf'
             #if $input.datatype.file_ext == 'gft':
                 $gffs.ensembl
             #end if
-            $gffs.output_cmd
-        #elif $gffs.gff_fmt == 'gtf':
-            $gffs.output_cmd
         #end if
+        #if $gffs.gff_fmt == 'gtf'
+            -T
+        #elif $gffs.gff_fmt == 'bed'
+            --bed
+        #end if
+        -o output.$gffs.gff_fmt
     #end if
+
+## Missing options
+##
 ## --ids
 ## --nids
 ## -l 
@@ -160,12 +171,10 @@
 ## -j
 ## --w-add
 ## --w-nocds
-
-## --bed
 ]]>
     </command>
     <inputs>
-        <param name="input" type="data" format="gff3,gtf" label="Input GFF3 or GTF feature file"/>
+        <param name="input" type="data" format="bed,gff3,gtf" label="Input BED, GFF3 or GTF feature file"/>
         <!-- filtering -->
         <param name="filtering" type="select" display="checkboxes" multiple="true" label="filters">
             <option value="-U">discard single-exon transcripts (-U)</option>
@@ -265,16 +274,18 @@
                 <option value="none">none</option>
                 <option value="gff">GFF</option>
                 <option value="gtf">GTF</option>
+                <option value="bed">BED</option>
             </param>
             <when value="none">
             </when>
             <when value="gff">
-                <param name="output_cmd" type="hidden" value="-o output.gff3"/>
                 <param argument="-L" name="ensembl" type="boolean" truevalue="-L" falsevalue="" checked="false" label="Ensembl GTF to GFF3 conversion" help=""/>
                 <expand macro="trackname" />
             </when>
             <when value="gtf">
-                <param name="output_cmd" type="hidden" value="-T -o output.gtf"/>
+                <expand macro="trackname" />
+            </when>
+            <when value="bed">
                 <expand macro="trackname" />
             </when>
         </conditional>
@@ -288,11 +299,14 @@
 
     </inputs>
     <outputs>
-        <data name="output_gff" format="gff3" metadata_source="input" label="${tool.name} on ${on_string}: gff3" from_work_dir="output.gff3">
+        <data name="output_gff" format="gff3" metadata_source="input" label="${tool.name} on ${on_string}: gff3" from_work_dir="output.gff">
             <filter>gffs['gff_fmt'] == 'gff'</filter>
         </data>
         <data name="output_gtf" format="gtf" metadata_source="input" label="${tool.name} on ${on_string}: gtf" from_work_dir="output.gtf">
             <filter>gffs['gff_fmt'] == 'gtf'</filter>
+        </data>
+        <data name="output_bed" format="bed" metadata_source="input" label="${tool.name} on ${on_string}: bed" from_work_dir="output.bed">
+            <filter>gffs['gff_fmt'] == 'bed'</filter>
         </data>
         <data name="output_exons" format="fasta" label="${tool.name} on ${on_string}: exons.fa" from_work_dir="exons.fa">
             <filter>'fa_outputs' in reference_genome and str(reference_genome['fa_outputs']).find('exons.fa') > 0 </filter>
@@ -308,28 +322,46 @@
         </data>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
             <param name="gff_fmt" value="gff"/>
             <output name="output_gff" file="Homo_sapiens.GRCh37_19.71.gff3" ftype="gff3" lines_diff="4" />
         </test>
-        <test>
+        <test expect_num_outputs="1">
+            <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
+            <param name="gff_fmt" value="gff"/>
+            <output name="output_gff" file="Homo_sapiens.GRCh37_19.71.gff3" ftype="gff3" lines_diff="4" />
+        </test>
+        <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="ecoli-k12.gff3"/>
             <param name="gff_fmt" value="gff"/>
             <param name="full_gff_attribute_preservation" value="-F"/>
             <output name="output_gff" file="ecoli-k12.processed.gff3" ftype="gff3" lines_diff="4" />
         </test>
-        <test>
+        <!-- bed output -->
+        <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
-            <param name="filtering" value="--no-pseudo"/>
-            <param name="gff_fmt" value="gtf"/>
-            <output name="output_gtf">
+            <param name="gff_fmt" value="bed"/>
+            <output name="output_bed" ftype="bed">
                 <assert_contents>
-                    <not_has_text text="pseudo" />
+                    <has_n_lines n="42"/>
+                    <has_n_columns n="13"/>
                 </assert_contents>
             </output>
         </test>
-        <test>
+        <!-- bed input -->
+        <test expect_num_outputs="1">
+            <param name="input" ftype="bed" value="Homo_sapiens.GRCh37_19.71.bed"/>
+            <param name="gff_fmt" value="gff"/>
+            <output name="output_bed" ftype="gff">
+                <assert_contents>
+                    <has_n_lines n="388"/>
+                    <!-- this will work with https://github.com/galaxyproject/galaxy/pull/12528 -->
+                    <!-- <has_n_columns n="9" comment="#"/> -->
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
             <param name="region_filter" value="filter"/>
             <param name="range" value="19:496500..504965"/>
@@ -341,7 +373,7 @@
                 </assert_contents>
             </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
             <param name="region_filter" value="filter"/>
             <param name="range" value="19:496500..504965"/>
@@ -354,7 +386,7 @@
                 </assert_contents>
             </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
             <param name="filtering" value="-C"/>
             <param name="region_filter" value="filter"/>
@@ -367,7 +399,7 @@
                 </assert_contents>
             </output>
         </test>
-        <test>
+        <test expect_num_outputs="4">
             <param name="input" ftype="gtf" value="Homo_sapiens.GRCh37_19.71.gtf"/>
             <param name="source" value="history"/>
             <param name="genome_fasta" ftype="fasta" value="Homo_sapiens.GRCh37.71.dna.chromosome.19.fa"/>
@@ -400,7 +432,7 @@
                 </assert_contents>
             </output>
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <param name="input" ftype="gtf" value="stop_codons.gtf"/>
             <param name="source" value="history"/>
             <param name="genome_fasta" ftype="fasta" value="Homo_sapiens.GRCh37.71.dna.chromosome.19.fa"/>
