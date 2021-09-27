@@ -111,21 +111,24 @@ def main():
     parser.add_argument('--dataset', dest='dataset', action='store', help='Path for the sequences')
 
     args = parser.parse_args()
-
-    work_dir = os.getcwd()
+    dbkey = str(args.dbkey)
 
     if args.uri is not None:
         background_fasta = url_download(args.uri)
     else:
         background_fasta = args.dataset
 
-    table_entry = '%s.fa' % args.dbkey
-    shutil.copy(background_fasta, os.path.join(work_dir, table_entry))
+    with open(args.output) as fh:
+        params = json.load(fh)
+    target_directory = params['output_data'][0]['extra_files_path']
+    os.makedirs(target_directory, exist_ok=True)
+    table_entry = '%s.fa' % dbkey
+    shutil.copy(background_fasta, os.path.join(target_directory, table_entry))
 
     # Update Data Manager JSON and write to file
     data_manager_entry = {
         'data_tables': {
-            'bealign_selection': {'value': args.dbkey, 'label': args.label, 'path': table_entry}
+            'selection_background': {'value': dbkey, 'label': args.label, 'path': table_entry}
         }
     }
 
