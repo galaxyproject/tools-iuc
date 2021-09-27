@@ -3,10 +3,11 @@
     <description>to a reference using a codon alignment algorithm</description>
     <macros>
         <import>macros.xml</import>
-        <token name="@VERSION_SUFFIX@">1</token>
+        <token name="@VERSION_SUFFIX@">2</token>
     </macros>
     <expand macro="requirements">
         <requirement type="package" version="5.1.0">gawk</requirement>
+        <requirement type="package" version="1.13">samtools</requirement>
     </expand>
     <version_command>bealign --version</version_command>
     <command detect_errors="exit_code">
@@ -18,7 +19,9 @@
     ## and replace any unwanted characters in the sequence names with underscores.
     ## This should not affect the actual alignment, since any non-standard character
     ## in the sequences is already ignored, but the possibility remains.
-    cat '$input' @SANITIZE@ reads.fa &&
+            cat '$input' @SANITIZE@ reads.fa &&
+    ## bealign's parallel job executor uses the following env variable
+    export NCPU=\${GALAXY_SLOTS:-2} &&
     bealign --reference '$select_reference.reference' --alphabet $advanced.alphabet
         #if $advanced.expected_identity:
             --expected-identity $advanced.expected_identity
@@ -29,26 +32,32 @@
         --score-matrix $advanced.score_matrix
         $advanced.reverse_complement
         $advanced.keep_reference
-        reads.fa '$output'
-        #set $input_background = False
-        #if $background_source.selection == 'history':
-            #if $background_source.sequences:
-                #set $input_background = $background_source.sequences
-            #end if
-        #else:
-            #if $background_source.sequences:
-                #set $input_background = $background_source.sequences.fields.path
-            #end if
+        ## bypass bealign's internal pysam-based, single-threaded BAM sorting
+        --no-sort
+        reads.fa bealign_out.bam &&
+    samtools sort -@\${GALAXY_SLOTS:-2} -T "\${TMPDIR:-.}" -O bam -o '$output' bealign_out.bam
+    #set $input_background = False
+    #if $background_source.selection == 'history':
+        #if $background_source.sequences:
+            #set $input_background = $background_source.sequences
         #end if
-        #if $input_background:
-            && cat '$input_background' @SANITIZE@ background.fa &&
-            bealign --reference '$select_reference.reference' --alphabet $advanced.alphabet
-            #if $advanced.expected_identity:
-                --expected-identity $advanced.expected_identity
-            #end if
-            --keep-reference --score-matrix $advanced.score_matrix $advanced.reverse_complement 
-                background.fa '$background'
+    #else:
+        #if $background_source.sequences:
+            #set $input_background = $background_source.sequences.fields.path
         #end if
+    #end if
+    #if $input_background:
+        && cat '$input_background' @SANITIZE@ background.fa &&
+        bealign --reference '$select_reference.reference' --alphabet $advanced.alphabet
+        #if $advanced.expected_identity:
+            --expected-identity $advanced.expected_identity
+        #end if
+        --keep-reference --score-matrix $advanced.score_matrix $advanced.reverse_complement 
+        ## bypass bealign's internal pysam-based, single-threaded BAM sorting
+        --no-sort
+        background.fa bealign_background.bam &&
+        samtools sort -@\${GALAXY_SLOTS:-2} -T "\${TMPDIR:-.}" -O bam -o '$background' bealign_background.bam
+    #end if
     #set $reference_name = str($select_reference.reference)
     #if $select_reference.reference_type == 'preset' and $select_reference.save_reference:
         && python '$__tool_directory__/copy_reference.py' --reference '$reference_name' --dataset '$saved_reference'
