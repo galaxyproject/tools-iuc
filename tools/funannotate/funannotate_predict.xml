@@ -48,8 +48,8 @@ $force
     --parameters '${parameters}'
 #end if
 
-#if $evidences.rnaseq_evidence.rnaseq_evidence_source == "yes":
-    --rna_bam ${evidences.rnaseq_evidence.rna_bam}
+#if $evidences.rna_bam
+    --rna_bam ${evidences.rna_bam}
 #end if
 
 #set est_list = ""
@@ -73,6 +73,9 @@ $force
 --p2g_pident ${evidences.p2g_pident}
 --p2g_prefilter ${evidences.p2g_prefilter}
 
+--busco_seed_species '${busco.busco_seed_species}'
+--busco_db '${busco.busco_db}'
+
 #if $augustus.augustus_species != 'none':
     --augustus_species '${augustus.augustus_species}'
 #end if
@@ -85,11 +88,6 @@ ${augustus.optimize_augustus}
         --genemark_mod '${genemark.genemark_mod}'
     #end if
     --soft_mask ${genemark.soft_mask}
-#end if
-
-#if $evidences.rnaseq_evidence.rnaseq_evidence_source == "yes":
-    --busco_seed_species '${evidences.rnaseq_evidence.busco_seed_species}'
-    --busco_db '${evidences.rnaseq_evidence.busco_db}'
 #end if
 
 $evm.repeats2evm
@@ -166,23 +164,7 @@ mv output/predict_results/*.stats.json out.stats.json
         </section>
 
         <section name="evidences" expanded="true" title="Evidences">
-            <conditional name="rnaseq_evidence">
-                <param name="rnaseq_evidence_source" type="select" label="Do you have RNA-Seq data?">
-                    <option value="yes" selected="True">Yes</option>
-                    <option value="no">No</option>
-                </param>
-                <when value="yes">
-                    <param argument="--rna_bam" type="data" format="bam" label="RNA-seq mapped to genome to train Augustus/GeneMark-ET" />
-                </when>
-                <when value="no">
-                    <param argument="--busco_seed_species" type="select" label="Initial Augustus species training set for BUSCO alignment" help="Select the closest species. BUSCO will only be used if no RNASeq (bam) data is given as evidence.">
-                        <expand macro="augustus_species"/>
-                    </param>
-                    <param argument="--busco_db" type="select" label="BUSCO models to align" help="BUSCO will only be used if no RNASeq (bam) data is given as evidence.">
-                        <expand macro="busco_species"/>
-                    </param>
-                </when>
-            </conditional>
+            <param argument="--rna_bam" type="data" format="bam" optional="true" label="RNA-seq mapped to genome to train Augustus/GeneMark-ET" />
             <param argument="--transcript_evidence" type="data" format="fasta" multiple="true" optional="true" label="mRNA/ESTs to align to genome" />
             <conditional name="prot_evidence">
                 <param name="prot_evidence_source" type="select" label="Select protein evidences">
@@ -198,6 +180,15 @@ mv output/predict_results/*.stats.json out.stats.json
             <param argument="--p2g_prefilter" type="select" label="Prefilter hists with (for proteins)">
                 <option value="diamond" selected="True">Diamond</option>
                 <option value="tblastn">tblastn (slower)</option>
+            </param>
+        </section>
+
+        <section name="busco" expanded="true" title="Busco">
+            <param argument="--busco_db" type="select" label="BUSCO models to align" help="BUSCO will be used to perform initial training of ab initio predictors (e.g. Augustus).">
+                <expand macro="busco_species"/>
+            </param>
+            <param argument="--busco_seed_species" type="select" label="Initial Augustus species training set for BUSCO alignment" help="Used when BUSCO runs Augustus internally.">
+                <expand macro="augustus_species"/>
             </param>
         </section>
 
@@ -317,12 +308,9 @@ mv output/predict_results/*.stats.json out.stats.json
         <test>
             <param name="input" value="genome_masked.fa" />
             <param name="database" value="2021-07-20-120000" />
-            <section name="evidences">
-                <conditional name="rnaseq_evidence">
-                    <param name="rnaseq_evidence_source" value="no" />
-                    <param name="busco_seed_species" value="fly" />
-                    <param name="busco_db" value="insecta" />
-                </conditional>
+            <section name="busco">
+                <param name="busco_seed_species" value="fly" />
+                <param name="busco_db" value="insecta" />
             </section>
             <section name="organism">
                 <param name="species" value="Genus species" />
@@ -450,7 +438,7 @@ mv output/predict_results/*.stats.json out.stats.json
             </assert_stderr>
         </test>
 
-        <!-- bam -->
+        <!-- bam and transcripts and proteins -->
         <test>
             <param name="input" value="genome_masked.fa" />
             <param name="database" value="2021-07-20-120000" />
@@ -458,14 +446,87 @@ mv output/predict_results/*.stats.json out.stats.json
                 <param name="species" value="Genus species" />
             </section>
             <section name="evidences">
-                <conditional name="rnaseq_evidence">
-                    <param name="rna_bam" value="SRR7458692.bam" />
-                </conditional>
+                <param name="rna_bam" value="SRR7458692.bam" />
                 <param name="transcript_evidence" value="predict_scratch/Genus_species.mrna-transcripts.fa" />
                 <conditional name="prot_evidence">
                     <param name="prot_evidence_source" value="custom" />
                     <param name="protein_evidence" value="predict_scratch/Genus_species.proteins.fa" />
                 </conditional>
+            </section>
+            <section name="busco">
+                <param name="busco_seed_species" value="fly" />
+                <param name="busco_db" value="insecta" />
+            </section>
+            <section name="augustus">
+                <param name="min_training_models" value="3" />
+            </section>
+            <param name="outputs" value="gbk,tbl,gff3,proteins_fa,mrna_transcripts_fa,cds_transcripts_fa,tbl2asn_error,tbl2asn_report,tbl2asn_validation,stats" />
+            <!-- non deterministic results, so can't be more precise here -->
+            <output name="annot_gbk">
+                <assert_contents>
+                    <has_text text="  TITLE     Direct Submission" />
+                    <has_text text="/locus_tag=&quot;FUN_000001&quot;" />
+                </assert_contents>
+            </output>
+            <output name="annot_tbl">
+                <assert_contents>
+                    <has_text text=">Feature sample" />
+                    <has_text text="gnl|ncbi|FUN_000001-T1_mrna" />
+                </assert_contents>
+            </output>
+            <output name="annot_gff3">
+                <assert_contents>
+                    <has_text text="##gff-version 3" />
+                    <has_text text="ID=FUN_000001-T1;Parent=FUN_000001;product=hypothetical protein;" />
+                </assert_contents>
+            </output>
+            <output name="fasta_proteins">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <output name="fasta_transcripts_mrna">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <output name="fasta_transcripts_cds">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="augustus     busco"/>
+                <has_text text="glimmerhmm   busco"/>
+                <has_text text="snap         busco"/>
+                <has_text text="Running BUSCO to find conserved gene models for training ab-initio predictors"/>
+                <not_has_text text="Skipping CodingQuarry as no --rna_bam passed"/>
+                <has_text text="Running Augustus gene prediction using genus_species parameters"/>
+                <has_text text="Training Augustus using BUSCO gene models"/>
+                <has_text text="Aligning transcript evidence to genome with minimap2"/>
+                <has_text text="Found 16 alignments, wrote GFF3 and Augustus hints to file"/>
+                <has_text text="Extracting hints from RNA-seq BAM file using bam2hints"/>
+                <has_text text="Mapping 13 proteins to genome using diamond and exonerate"/>
+                <has_text text="Found 4 preliminary alignments --> aligning with exonerate"/>
+            </assert_stderr>
+        </test>
+
+        <!-- proteins -->
+        <test>
+            <param name="input" value="genome_masked.fa" />
+            <param name="database" value="2021-07-20-120000" />
+            <section name="organism">
+                <param name="species" value="Genus species" />
+            </section>
+            <section name="evidences">
+                <conditional name="prot_evidence">
+                    <param name="prot_evidence_source" value="custom" />
+                    <param name="protein_evidence" value="predict_scratch/Genus_species.proteins.fa" />
+                </conditional>
+            </section>
+            <section name="busco">
+                <param name="busco_seed_species" value="fly" />
+                <param name="busco_db" value="insecta" />
             </section>
             <section name="augustus">
                 <param name="min_training_models" value="3" />
