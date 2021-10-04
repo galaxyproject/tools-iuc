@@ -4,6 +4,7 @@ env:
   GALAXY_FORK: galaxyproject
   GALAXY_BRANCH: release_21.09
   MAX_CHUNKS: 4
+  MAX_FILE_SIZE: 500k
 concurrency:
   # group runs by PR, but keep runs on master separate
   # because we do not want to cancel toolshed uploads
@@ -215,6 +216,35 @@ jobs:
         name: 'R linting output'
         path: rlint_report.txt
 
+  sizes:
+    name: Check file sizes
+    needs: setup
+    if: ${{ needs.setup.outputs.repository-list != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+    - name: Save repositories to file
+      run: echo '${{ needs.setup.outputs.repository-list }}' > repository_list.txt
+    - name: lintr
+      run: |
+        while read repo; do
+          find "$repo" -size +${{ env.MAX_FILE_SIZE }}
+        done < repository_list.txt > file_size_report.txt
+        if [[ -s file_size_report.txt ]]; then
+          echo "Files larger than ${{ env.MAX_FILE_SIZE }} found"
+          cat file_size_report.txt
+          exit 1
+        fi
+    - uses: actions/upload-artifact@v2
+      if: ${{ failure() }}
+      with:
+        name: 'File size report'
+        path: file_size_report.txt
+
   # Planemo test the changed repositories, each chunk creates an artifact
   # containing HTML and JSON reports for the executed tests
   test:
@@ -354,7 +384,7 @@ jobs:
 
   determine-success:
     name: Check workflow success
-    needs: [setup, lint, flake8, lintr, combine_outputs]
+    needs: [setup, lint, flake8, lintr, sizes, combine_outputs]
     if: ${{ always() && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
@@ -366,6 +396,9 @@ jobs:
       run: exit 1
     - name: Indicate R script lint status
       if: ${{ needs.lintr.result != 'success' && needs.lintr.result != 'skipped' }}
+      run: exit 1
+    - name: Indicate file size status
+      if: ${{ needs.sizes.result != 'success' && needs.sizes.result != 'skipped' }}
       run: exit 1
     - name: Check tool test status
       if: ${{ needs.combine_outputs.result != 'success' && needs.combine_outputs.result != 'skipped' }}
