@@ -14,6 +14,12 @@ For Galaxy to display MultiQC's HTML output properly, you need to either:
 1. Deactivate the sanitize_all_html option in galaxy.ini (sanitize_all_html = False), or
 2. Whitelist the tool in "Manage Display Whitelist" after installing
 
+Problems with encodings
+-----------------------
+
+If you observe python Runtime errors because python3 is configured to use ASCII then set 
+`LC_ALL` and `LANG` in your job_conf.xml. See also https://github.com/galaxyproject/tools-iuc/issues/2362.
+
 Support new modules
 -------------------
 

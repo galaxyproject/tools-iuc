@@ -1,138 +1,115 @@
 Scanpy
 ======
 
-## Classification of methods into steps
+1. Inspect & Manipulate (`inspect.xml`)
 
-Steps:
+    Methods | Description
+    --- | ---
+    `pp.calculate_qc_metrics` | Calculate quality control metrics
+    `pp.neighbors` | Compute a neighborhood graph of observations
+    `tl.score_genes` | Score a set of genes
+    `tl.score_genes_cell_cycle` | Score cell cycle gene
+    `tl.rank_genes_groups` | Rank genes for characterizing groups
+    `tl.marker_gene_overlap` | Calculate an overlap score between data-deriven marker genes and provided markers (**not working for now**)
+    `pp.log1p` | Logarithmize the data matrix.
+    `pp.scale` | Scale data to unit variance and zero mean
+    `pp.sqrt` | Square root the data matrix
 
-1. Filtering
+2. Filter (`filter.xml`)
 
     Methods | Description
     --- | ---
     `pp.filter_cells` | Filter cell outliers based on counts and numbers of genes expressed.
     `pp.filter_genes` | Filter genes based on number of cells or counts.
-    `pp.filter_genes_dispersion` | Extract highly variable genes
+    `tl.filter_rank_genes_groups` | Filters out genes based on fold change and fraction of genes expressing the gene within and outside the groupby categories (**to fix**)
     `pp.highly_variable_genes` | Extract highly variable genes
     `pp.subsample` | Subsample to a fraction of the number of observations
-    `queries.gene_coordinates` | (Could not find...)
-    `queries.mitochondrial_genes` | Retrieves Mitochondrial gene symbols for specific organism through BioMart for filtering
+    `pp.downsample_counts` | Downsample counts so that each cell has no more than target_counts
 
-2. Quality Plots
-
-   These are in-between stages used to measure the effectiveness of a Filtering/Normalisation/Conf.Removal stage either after processing or prior to.
-
-    Methods | Description | Notes
-    --- | --- | ---
-    `pp.calculate_qc_metrics` | Calculate quality control metrics
-    `pl.violin` | violin plot of features, lib. size, or subsets of. 
-    `pl.stacked_violin` | Same as above but for multiple series of features or cells
-
-3. Normalization
+3. Normalize (`normalize.xml`)
 
     Methods | Description
     --- | ---
-    `pp.normalize_per_cell` | Normalize total counts per cell
+    `pp.normalize_total` | Normalize counts per cell
     `pp.recipe_zheng17` | Normalization and filtering as of [Zheng17]
     `pp.recipe_weinreb17` | Normalization and filtering as of [Weinreb17]
     `pp.recipe_seurat` | Normalization and filtering as of Seurat [Satija15]
-    `pp.log1p` | Logarithmize the data matrix.
-    `pp.scale` | Scale data to unit variance and zero mean
-    `pp.sqrt` | 
-    `pp.downsample_counts` | Downsample counts so that each cell has no more than target_counts
 
-4. Conf. removal
+4. Remove confounders (`remove_confounder.xml`)
 
     Methods | Description
     --- | ---
    `pp.regress_out` | Regress out unwanted sources of variation
    `pp.mnn_correct` | Correct batch effects by matching mutual nearest neighbors
-   `pp.dca` | Deep count autoencoder to denoise the data
-   `pp.magic` | Markov Affinity-based Graph Imputation of Cells (MAGIC) API to denoise
-   `tl.sim` | Simulate dynamic gene expression data [Wittman09]
-   `pp.calculate_qc_metrics` | Calculate quality control metrics
-   `tl.score_genes` | Score a set of genes
-   `tl.score_genes_cell_cycle` | Score cell cycle genes
-   `tl.cyclone` | Assigns scores and predicted class to observations based on cell-cycle genes [Scialdone15]
-   `tl.sandbag` | Calculates pairs of genes serving as markers for each cell-cycle phase [Scialdone15]
+   `pp.combat` | ComBat function for batch effect correction
 
-5. Clustering and Heatmaps
+5. Clustering, embedding and trajectory inference (`cluster_reduce_dimension.xml`)
 
     Methods | Description
     --- | ---
-    `tl.leiden` | Cluster cells into subgroups [Traag18] [Levine15]
-    `tl.louvain` | Cluster cells into subgroups [Blondel08] [Levine15] [Traag17]
+    `tl.louvain` | Cluster cells into subgroups
+    `tl.leiden` | Cluster cells into subgroups
     `tl.pca` | Principal component analysis
     `pp.pca` | Principal component analysis (appears to be the same func...)
     `tl.diffmap` | Diffusion Maps
     `tl.tsne` | t-SNE
     `tl.umap` | Embed the neighborhood graph using UMAP
-    `tl.phate` | PHATE
-    `pp.neighbors` | Compute a neighborhood graph of observations
-    `tl.rank_genes_groups` | Rank genes for characterizing groups
-    `pl.rank_genes_groups` | 
-    `pl.rank_genes_groups_dotplot` | 
-    `pl.rank_genes_groups_heatmap` | 
-    `pl.rank_genes_groups_matrixplot` | 
-    `pl.rank_genes_groups_stacked_violin` | 
-    `pl.rank_genes_groups_violin` | 
-    `pl.matrix_plot` | 
-    `pl.heatmap` | 
-    `pl.highest_expr_genes` | 
-    `pl.diffmap` | 
+    `tl.draw_graph` | Force-directed graph drawing
+    `tl.dpt` | Infer progression of cells through geodesic distance along the graph
+    `tl.paga` | Mapping out the coarse-grained connectivity structures of complex manifolds
+
+6. Plot (`plot.xml`)
+
+    1. Generic
+
+        Methods | Description
+        --- | ---
+        `pl.scatter` | Scatter plot along observations or variables axes
+        `pl.heatmap` | Heatmap of the expression values of set of genes
+        `pl.dotplot` | Makes a dot plot of the expression values
+        `pl.violin` | Violin plot
+        `pl.stacked_violin` | Stacked violin plots
+        `pl.matrixplot` | Heatmap of the mean expression values per cluster
+        `pl.clustermap` | Hierarchically-clustered heatmap
     
-6. Cluster Inspection and plotting
+    2. Preprocessing
 
-    Methods that draw out the clusters computed in the previous stage, not heatmap or pseudotime related.
+        Methods | Description
+        --- | ---
+        `pl.highest_expr_genes` | Plot the fraction of counts assigned to each gene over all cells
+        `pl.highly_variable_genes` | Plot dispersions versus means for genes
 
-    Methods | Description 
-    --- | --- 
-    `pl.clustermap` |
-    `pl.phate` | 
-    `pl.dotplot` | 
-    `pl.draw_graph` | (really general purpose, would not implement directly)
-    `pl.filter_genes_dispersion` | (depreciated for 'highly_variable_genes')
-    `pl.matrix` | (could not find in API)
-    `pl.pca` | 
-    `pl.pca_loadings` | 
-    `pl.pca_overview` | 
-    `pl.pca_variance_ratio` | 
-    `pl.ranking` | (not sure what this does...)
-    `pl.scatter` | ([very general purpose](https://icb-scanpy.readthedocs-hosted.com/en/latest/api/scanpy.api.pl.scatter.html), would not implement directly)
-    `pl.set_rcParams_defaults` | 
-    `pl.set_rcParams_scanpy` | 
-    `pl.sim` | 
-    `pl.tsne` | 
-    `pl.umap` | 
+    3. PCA
 
-7. Branch/Between-Cluster Inspection
+        Methods | Description
+        --- | ---
+        `pl.pca` | Scatter plot in PCA coordinates
+        `pl.pca_loadings` | Rank genes according to contributions to PCs
+        `pl.pca_variance_ratio` | Scatter plot in PCA coordinates
+        `pl.pca_overview` | Plot PCA results
 
-    Pseudotime analysis, relies on initial clustering.
+    4. Embeddings
 
-    Methods | Description
-    --- | ---
-    `tl.dpt` | Infer progression of cells through geodesic distance along the graph [Haghverdi16] [Wolf17i]
-    `pl.dpt_groups_pseudotime` | 
-    `pl.dpt_timeseries` | 
-    `tl.paga_compare_paths` | 
-    `tl.paga_degrees` | 
-    `tl.paga_expression_entropies` | 
-    `tl.paga` | Generate cellular maps of differentiation manifolds with complex topologies [Wolf17i]
-    `pl.paga` | 
-    `pl.paga_adjacency` | 
-    `pl.paga_compare` | 
-    `pl.paga_path` | 
-    `pl.timeseries` | 
-    `pl.timeseries_as_heatmap` | 
-    `pl.timeseries_subplot` | 
+        Methods | Description
+        --- | ---
+        `pl.tsne` | Scatter plot in tSNE basis
+        `pl.umap` | Scatter plot in UMAP basis
+        `pl.diffmap` | Scatter plot in Diffusion Map basis
+        `pl.draw_graph` | Scatter plot in graph-drawing basis
 
+    5. Branching trajectories and pseudotime, clustering
 
-Methods to sort | Description
---- | --- 
-`tl.ROC_AUC_analysis` | (could not find in API)
-`tl.correlation_matrix` | (could not find in API)
-`rtools.mnn_concatenate` | (could not find in API)
-`utils.compute_association_matrix_of_groups` | (could not find in API) 
-`utils.cross_entropy_neighbors_in_rep` | (could not find in API)
-`utils.merge_groups` | (could not find in API)
-`utils.plot_category_association` | (could not find in API)
-`utils.select_groups` | (could not find in API)
+        Methods | Description
+        --- | ---
+        `pl.dpt_groups_pseudotime` | Plot groups and pseudotime
+        `pl.dpt_timeseries` | Heatmap of pseudotime series
+        `pl.paga` | Plot the abstracted graph through thresholding low-connectivity edges
+        `pl.paga_compare` | Scatter and PAGA graph side-by-side
+        `pl.paga_path` | Gene expression and annotation changes along paths
+
+    6. Marker genes
+
+        Methods | Description
+        --- | ---
+        `pl.rank_genes_groups` | Plot ranking of genes using dotplot plot
+        `pl.rank_genes_groups_violin` | Plot ranking of genes for all tested comparisons

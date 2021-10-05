@@ -25,6 +25,33 @@ likely to change at any time! Beware. ;)
 History
 =======
 
+- 1.16.11+galaxy0
+
+    - UPDATED to JBrowse 1.16.11
+
+- 1.16.10+galaxy0
+
+    - UPDATED to JBrowse 1.16.10
+    - ADDED GALAXY_JBROWSE_SYMLINKS environment variable: if set, the tool will make symlinks to bam/bigwig files instead of copying them
+
+- 1.16.9+galaxy0
+
+    - UPDATED to JBrowse 1.16.9
+
+- 1.16.8+galaxy0
+
+    - UPDATED to JBrowse 1.16.8
+
+- 1.16.5+galaxy0
+
+    - UPDATED to JBrowse 1.16.5
+
+- 1.16.4+galaxy0
+
+    - UPDATED to JBrowse 1.16.4
+    - ADDED filter too big metadata
+    - CHANGED default value for topLevelFeatures (gene subfeatures are now inferred) and style.className (feature style was fixed)
+
 - 1.16.2+galaxy0
 
     - UPDATED to JBrowse 1.16.2

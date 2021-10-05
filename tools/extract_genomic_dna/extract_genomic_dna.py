@@ -112,7 +112,7 @@ for feature in file_iterator:
             nibs[chrom] = nib = bx.seq.nib.NibFile(open("%s/%s.nib" % (seq_path, chrom)))
         try:
             sequence = nib.get(start, end - start)
-        except Exception as e:
+        except Exception:
             warning = "Unable to fetch the sequence from '%d' to '%d' for build '%s'. " % (start, end - start, args.genome)
             warnings.append(warning)
             if not invalid_lines:

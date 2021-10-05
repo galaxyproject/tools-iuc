@@ -56,6 +56,8 @@ if (gmt) {
   pathways <- get(pathways)
 }
 
+# need to set seed for reproducibility https://github.com/ctlab/fgsea/issues/12
+set.seed(42)
 fgseaRes <- fgsea(pathways, ranks, minSize=min_size, maxSize=max_size, nperm=n_perm)
 fgseaRes <- fgseaRes[order(pval), ]
 # Convert leadingEdge column from list to character to output

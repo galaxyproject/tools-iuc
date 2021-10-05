@@ -15,7 +15,7 @@ ORPHANS = 'O'
 # Data output formats
 GFF_EXT = 'gff'
 TABULAR_EXT = 'tabular'
-# Statistics historgrams output directory.
+# Statistics histograms output directory.
 HISTOGRAM = 'H'
 # Statistics outputs
 FINAL_PLOTS = 'F'
@@ -46,7 +46,7 @@ class FrequencyDistribution(object):
 
     def get_bin(self, x):
         """
-        Returns the bin in which a data point falls
+        Returns the centre of the bin in which a data point falls
         """
         return self.start + (x - self.start) // self.binsize * self.binsize + self.binsize / 2.0
 
@@ -64,7 +64,12 @@ class FrequencyDistribution(object):
         return x, y
 
     def mode(self):
-        return max(self.dist.items(), key=lambda data: data[1])[0]
+        # There could be more than one mode for a frequency distribution,
+        # return the median of the modes to be consistent
+        max_frequency = max(self.dist.values())
+        modes = sorted(_[0] for _ in self.dist.items() if _[1] == max_frequency)
+        median_index = len(modes) // 2
+        return modes[median_index]
 
     def size(self):
         return sum(self.dist.values())
@@ -76,7 +81,7 @@ def stop_err(msg):
 
 
 def distance(peak1, peak2):
-    return (peak2[1] + peak2[2]) / 2 - (peak1[1] + peak1[2]) / 2
+    return (peak2[1] + peak2[2]) / 2.0 - (peak1[1] + peak1[2]) / 2.0
 
 
 def gff_row(cname, start, end, score, source, type='.', strand='.', phase='.', attrs={}):
@@ -92,9 +97,11 @@ def gff_attrs(d):
 def parse_chromosomes(reader):
     # This version of cwpair2 accepts only gff format as input.
     chromosomes = {}
-    next(reader)
     for line in reader:
-        cname, junk, junk, start, end, value, strand, junk, junk = line
+        line = line.rstrip("\r\n")
+        if not line or line.startswith('#'):
+            continue
+        cname, _, _, start, end, value, strand, _, _ = line.split("\t")
         start = int(start)
         end = int(end)
         value = float(value)
@@ -118,7 +125,7 @@ def perc95(chromosomes):
     return values[int(len(values) * 0.95)]
 
 
-def filter(chromosomes, threshold=0.05):
+def peak_filter(chromosomes, threshold):
     """
     Filters the peaks to those above a threshold. Threshold < 1.0 is interpreted
     as a proportion of the maximum, >=1.0 as an absolute value.
@@ -139,7 +146,7 @@ def split_strands(chromosome):
 
 def all_pair_distribution(chromosomes, up_distance, down_distance, binsize):
     dist = FrequencyDistribution(-up_distance, down_distance, binsize=binsize)
-    for cname, data in chromosomes.items():
+    for data in chromosomes.values():
         watson, crick = split_strands(data)
         crick.sort(key=lambda data: float(data[1]))
         keys = make_keys(crick)
@@ -256,7 +263,6 @@ def perform_process(dataset_path, galaxy_hid, method, threshold, up_distance,
     output_orphans = output_files in ["all", "matched_pair_orphan", "matched_pair_orphan_detail"]
     # Keep track of statistics for the output file
     statistics = {}
-    input = csv.reader(open(dataset_path, 'rt'), delimiter='\t')
     fpath, fname = os.path.split(dataset_path)
     statistics['fname'] = '%s: data %s' % (method, str(galaxy_hid))
     statistics['dir'] = fpath
@@ -276,12 +282,13 @@ def perform_process(dataset_path, galaxy_hid, method, threshold, up_distance,
     def td_writer(output_type, extension, fname):
         # Returns a tab-delimited writer for a specified output.
         output_file_path = make_path(output_type, extension, fname)
-        return csv.writer(open(output_file_path, 'wt'), delimiter='\t')
+        return csv.writer(open(output_file_path, 'wt'), delimiter='\t', lineterminator="\n")
 
-    try:
-        chromosomes = parse_chromosomes(input)
-    except Exception:
-        stop_err('Unable to parse file "%s".\n%s' % (dataset_path, traceback.format_exc()))
+    with open(dataset_path, 'rt') as input:
+        try:
+            chromosomes = parse_chromosomes(input)
+        except Exception:
+            stop_err('Unable to parse file "%s".\n%s' % (dataset_path, traceback.format_exc()))
     if output_details:
         # Details
         detailed_output = td_writer('data_%s' % DETAILS, TABULAR_EXT, fname)
@@ -303,8 +310,8 @@ def perform_process(dataset_path, galaxy_hid, method, threshold, up_distance,
         statistics['graph_path'] = make_histogram_path(STATS_GRAPH, fname)
     statistics['perc95'] = perc95(chromosomes)
     if threshold > 0:
-        # Apply filter
-        filter(chromosomes, threshold)
+        # Apply peak_filter
+        peak_filter(chromosomes, threshold)
     if method == 'mode':
         freq = all_pair_distribution(chromosomes, up_distance, down_distance, binsize)
         mode = freq.mode()
