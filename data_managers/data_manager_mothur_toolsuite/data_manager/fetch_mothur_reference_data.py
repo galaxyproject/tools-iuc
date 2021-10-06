@@ -19,9 +19,9 @@ IGNORE_PATHS = ('.', '__MACOSX/', '__')
 
 # Map file extensions to data table names
 MOTHUR_FILE_TYPES = {".map": "map",
-                     ".fasta": "aligndb",
-                     ".align": "aligndb",
-                     ".refalign": "aligndb",
+                     ".fasta": "alignandseqdb",
+                     ".align": "alignandseqdb",
+                     ".refalign": "alignandseqdb",
                      ".pat": "lookup",
                      ".tax": "taxonomy"}
 
@@ -356,7 +356,7 @@ def fetch_from_mothur_website(data_tables: dict,
                     print(f"Moving {unpacked_file} to {target}")
                     shutil.move(unpacked_file, target)
                     table_entry = dict(name=entry_name, value=ref_data_file)
-                    if type_ == "aligndb":
+                    if type_ == "alignandseqdb":
                         table_entry["aligned"] = str(ext != ".fasta")
                     data_tables['data_tables'][f"mothur_{type_}"].append(table_entry)
                 print(f"Removing downloaded file: {filen}")
@@ -427,7 +427,7 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
         else:
             shutil.copyfile(f, target_file)
         table_entry = dict(name=entry_name, value=ref_data_file)
-        if type_ == "aligndb":
+        if type_ == "alignandseqdb":
             table_entry["aligned"] = str(ext != ".fasta")
         data_tables['data_tables'][f"mothur_{type_}"].append(table_entry)
 
@@ -458,7 +458,7 @@ if __name__ == "__main__":
     data_tables: Dict[str, Dict[str, List[str]]] = {
         "data_tables": {
             "mothur_lookup": [],
-            "mothur_aligndb": [],
+            "mothur_alignandseqdb": [],
             "mothur_map": [],
             "mothur_taxonomy": []
         }}
