@@ -35,12 +35,20 @@ m_prop <- rbind(estimated_music_props_flat,
                 estimated_nnls_props_flat)
 colnames(m_prop) <- c("Sub", "CellType", "Prop")
 
+## filter out unwanted factors like "sampleID" and "subjectName"
+phenotype_factors = phenotype_factors[!(phenotype_factors %in% phenotype_factors_always_exclude)]
+print("Phenotype Factors to use:")
+print(phenotype_factors)
+
+
 m_prop$CellType <- factor(m_prop$CellType, levels = celltypes) # nolint
 m_prop$Method <- factor(rep(methods, each = nrow(estimated_music_props_flat)), # nolint
                         levels = methods) 
 m_prop$Disease_factor <- rep(bulk_eset[[phenotype_target]], 2 * length(celltypes)) # nolint
 m_prop <- m_prop[!is.na(m_prop$Disease_factor), ]
+## Generate a TRUE/FALSE table of Normal == 1 and Disease == 2
 sample_groups = c("Normal", sample_disease_group)
+m_prop$Disease <- factor(sample_groups[(m_prop$Disease_factor > phenotype_target_threshold) + 1], # nolint
                          levels = sample_groups)
 
 ## Binary to scale: e.g. TRUE / 5 = 0.2
