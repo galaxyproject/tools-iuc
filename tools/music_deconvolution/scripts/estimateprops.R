@@ -59,13 +59,13 @@ m_prop_ana <- data.frame(pData(bulk_eset)[rep(1:89, 2), phenotype_factors],
                         Method = factor(rep(methods, each = 89),
                                         levels = methods))
 colnames(m_prop_ana)[1:4] <- phenotype_factors
-m_prop_ana <- subset(m_prop_ana, !is.na(m_prop_ana[phenotype_gene]))
+m_prop_ana <- subset(m_prop_ana, !is.na(m_prop_ana[phenotype_target]))
 m_prop_ana$Disease <- factor(sample_groups[(  # nolint
-    m_prop_ana[phenotype_gene] > 6.5) + 1], sample_groups)
+    m_prop_ana[phenotype_target] > phenotype_target_threshold) + 1], sample_groups)
 m_prop_ana$D <- (m_prop_ana$Disease ==        # nolint
                  sample_disease_group) / sample_disease_group_scale
 
-jitt_compare <- ggplot(m_prop_ana, aes_string(phenotype_gene, "ct.prop")) +
+jitt_compare <- ggplot(m_prop_ana, aes_string(phenotype_target, "ct.prop")) +
     geom_smooth(method = "lm",  se = FALSE, col = "black", lwd = 0.25) +
     geom_point(aes(fill = Method, color = Disease, stroke = D, shape = Disease),
                size = 2, alpha = 0.7) +  facet_wrap(~ Method) +
