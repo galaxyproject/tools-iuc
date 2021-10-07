@@ -57,7 +57,7 @@ print(phenotype_factors)
 
 m_prop$CellType <- factor(m_prop$CellType, levels = celltypes) # nolint
 m_prop$Method <- factor(rep(methods, each = nrow(estimated_music_props_flat)), # nolint
-                        levels = methods) 
+                        levels = methods)
 m_prop$Disease_factor <- rep(bulk_eset[[phenotype_target]], 2 * length(celltypes)) # nolint
 m_prop <- m_prop[!is.na(m_prop$Disease_factor), ]
 ## Generate a TRUE/FALSE table of Normal == 1 and Disease == 2
@@ -88,7 +88,7 @@ m_prop_ana <- data.frame(pData(bulk_eset)[rep(1:nrow(estimated_music_props), 2),
                                     estimated_nnls_props[, 2]),
                         Method = factor(rep(methods, each = nrow(estimated_music_props)),
                                         levels = methods))
-colnames(m_prop_ana)[1:4] <- phenotype_factors
+colnames(m_prop_ana)[1:length(phenotype_factors)] <- phenotype_factors
 m_prop_ana <- subset(m_prop_ana, !is.na(m_prop_ana[phenotype_target]))
 m_prop_ana$Disease <- factor(sample_groups[(  # nolint
     m_prop_ana[phenotype_target] > phenotype_target_threshold) + 1], sample_groups)
@@ -112,11 +112,22 @@ dev.off()
 ## Summary table
 for (meth in methods) {
     ##lm_beta_meth = lm(ct.prop ~ age + bmi + hba1c + gender, data =
-    ##subset(m_prop_ana, Method == meth))
+    sub_data = subset(m_prop_ana, Method == meth)
+    ## We can only do regression where there are more than 1 factors
+    ## so we must find and exclude the ones which are not
+    gt1_facts = sapply(phenotype_factors, function(facname){
+        return(length(unique(sort(sub_data[[facname]])))==1)
+    })
+    form_factors = phenotype_factors
+    exclude_facts = names(gt1_facts)[gt1_facts]
+    if (length(exclude_facts) > 0){
+        print("Factors with only one level will be excluded:")
+        print(exclude_facts)
+        form_factors = phenotype_factors[!(phenotype_factors %in% exclude_facts)]
+    }
     lm_beta_meth <- lm(as.formula(
-        paste("ct.prop", paste(phenotype_factors, collapse = " + "),
-              sep = " ~ ")),
-        data = subset(m_prop_ana, Method == meth))
+        paste("ct.prop", paste(form_factors, collapse = " + "),
+              sep = " ~ ")), data = sub_data)
     print(paste0("Summary: ", meth))
     capture.output(summary(lm_beta_meth),
                    file = paste0("report_data/summ_", meth, ".txt"))
