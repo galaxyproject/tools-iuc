@@ -33,9 +33,8 @@ colnames(m_prop) <- c("Sub", "CellType", "Prop")
 
 m_prop$CellType <- factor(m_prop$CellType, levels = celltypes) # nolint
 m_prop$Method <- factor(rep(methods, each = 89 * 6), levels = methods) # nolint
-m_prop$HbA1c <- rep(bulk_eset$hba1c, 2 * 6) # nolint
-m_prop <- m_prop[!is.na(m_prop$HbA1c), ]
-m_prop$Disease <- factor(sample_groups[(m_prop$HbA1c > 6.5) + 1], # nolint
+m_prop$Disease_factor <- rep(bulk_eset[[phenotype_target]], 2 * length(celltypes)) # nolint
+m_prop <- m_prop[!is.na(m_prop$Disease_factor), ]
 sample_groups = c("Normal", sample_disease_group)
                          levels = sample_groups)
 
@@ -54,11 +53,11 @@ jitter.new <- ggplot(m_prop, aes(Method, Prop)) +
     scale_shape_manual(values = c(21, 24)) + theme_minimal()
 
 ## Plot to compare method effectiveness
-## Create dataframe for beta cell proportions and HbA1c levels
 m_prop_ana <- data.frame(pData(bulk_eset)[rep(1:89, 2), phenotype_factors],
                         ct.prop = c(est_prop$Est.prop.weighted[, 2],
                                     est_prop$Est.prop.allgene[, 2]),
                         Method = factor(rep(methods, each = 89),
+## Create dataframe for beta cell proportions and Disease_factor levels
                                         levels = methods))
 colnames(m_prop_ana)[1:4] <- phenotype_factors
 m_prop_ana <- subset(m_prop_ana, !is.na(m_prop_ana[phenotype_target]))
