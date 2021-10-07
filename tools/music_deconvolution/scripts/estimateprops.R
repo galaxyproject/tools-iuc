@@ -35,6 +35,20 @@ m_prop <- rbind(estimated_music_props_flat,
                 estimated_nnls_props_flat)
 colnames(m_prop) <- c("Sub", "CellType", "Prop")
 
+if (is.null(celltypes)){
+    celltypes = levels(m_prop$CellType)
+    print("No celltypes declared, using:")
+    print(celltypes)
+}
+
+if (phenotype_target_threshold == -99){
+    phenotype_target_threshold = -Inf
+    print("phenotype target threshold set to -Inf")
+}
+
+if (is.null(phenotype_factors)){
+    phenotype_factors = colnames(pData(bulk_eset))
+}
 ## filter out unwanted factors like "sampleID" and "subjectName"
 phenotype_factors = phenotype_factors[!(phenotype_factors %in% phenotype_factors_always_exclude)]
 print("Phenotype Factors to use:")
