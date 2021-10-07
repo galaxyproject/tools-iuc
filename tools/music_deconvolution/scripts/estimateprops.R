@@ -36,12 +36,14 @@ m_prop$Method <- factor(rep(methods, each = 89 * 6), levels = methods) # nolint
 m_prop$HbA1c <- rep(bulk_eset$hba1c, 2 * 6) # nolint
 m_prop <- m_prop[!is.na(m_prop$HbA1c), ]
 m_prop$Disease <- factor(sample_groups[(m_prop$HbA1c > 6.5) + 1], # nolint
+sample_groups = c("Normal", sample_disease_group)
                          levels = sample_groups)
 
 m_prop$D <- (m_prop$Disease ==   # nolint
              sample_disease_group) / sample_disease_group_scale
-m_prop <- rbind(subset(m_prop, Disease == healthy_phenotype),
-               subset(m_prop, Disease != healthy_phenotype))
+## NA's are not included in the comparison below
+m_prop <- rbind(subset(m_prop, Disease != sample_disease_group),
+               subset(m_prop, Disease == sample_disease_group))
 
 jitter.new <- ggplot(m_prop, aes(Method, Prop)) +
     geom_point(aes(fill = Method, color = Disease, stroke = D, shape = Disease),
