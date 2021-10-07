@@ -14,30 +14,36 @@ est_prop <- music_prop(
     clusters = celltypes_label,
     samples = samples_label, select.ct = celltypes, verbose = T)
 
+estimated_music_props <- est_prop$Est.prop.weighted
+estimated_nnls_props <- est_prop$Est.prop.allgene
 
 ## Show different in estimation methods
 ## Jitter plot of estimated cell type proportions
 jitter.fig <- Jitter_Est(
-    list(data.matrix(est_prop$Est.prop.weighted),
-         data.matrix(est_prop$Est.prop.allgene)),
+    list(data.matrix(estimated_music_props),
+         data.matrix(estimated_nnls_props)),
     method.name = methods, title = "Jitter plot of Est Proportions")
 
 
 ## Make a Plot
 ## A more sophisticated jitter plot is provided as below. We separated
-## the T2D subjects and normal subjects by their HbA1c levels.
-m_prop <- rbind(melt(est_prop$Est.prop.weighted),
-               melt(est_prop$Est.prop.allgene))
+## the T2D subjects and normal subjects by their Disease_Factor levels.
+estimated_music_props_flat = melt(estimated_music_props)
+estimated_nnls_props_flat = melt(estimated_nnls_props)
 
+m_prop <- rbind(estimated_music_props_flat,
+                estimated_nnls_props_flat)
 colnames(m_prop) <- c("Sub", "CellType", "Prop")
 
 m_prop$CellType <- factor(m_prop$CellType, levels = celltypes) # nolint
-m_prop$Method <- factor(rep(methods, each = 89 * 6), levels = methods) # nolint
+m_prop$Method <- factor(rep(methods, each = nrow(estimated_music_props_flat)), # nolint
+                        levels = methods) 
 m_prop$Disease_factor <- rep(bulk_eset[[phenotype_target]], 2 * length(celltypes)) # nolint
 m_prop <- m_prop[!is.na(m_prop$Disease_factor), ]
 sample_groups = c("Normal", sample_disease_group)
                          levels = sample_groups)
 
+## Binary to scale: e.g. TRUE / 5 = 0.2
 m_prop$D <- (m_prop$Disease ==   # nolint
              sample_disease_group) / sample_disease_group_scale
 ## NA's are not included in the comparison below
@@ -53,11 +59,12 @@ jitter.new <- ggplot(m_prop, aes(Method, Prop)) +
     scale_shape_manual(values = c(21, 24)) + theme_minimal()
 
 ## Plot to compare method effectiveness
-m_prop_ana <- data.frame(pData(bulk_eset)[rep(1:89, 2), phenotype_factors],
-                        ct.prop = c(est_prop$Est.prop.weighted[, 2],
-                                    est_prop$Est.prop.allgene[, 2]),
-                        Method = factor(rep(methods, each = 89),
 ## Create dataframe for beta cell proportions and Disease_factor levels
+m_prop_ana <- data.frame(pData(bulk_eset)[rep(1:nrow(estimated_music_props), 2),
+                                          phenotype_factors],
+                        ct.prop = c(estimated_music_props[, 2],
+                                    estimated_nnls_props[, 2]),
+                        Method = factor(rep(methods, each = nrow(estimated_music_props)),
                                         levels = methods))
 colnames(m_prop_ana)[1:4] <- phenotype_factors
 m_prop_ana <- subset(m_prop_ana, !is.na(m_prop_ana[phenotype_target]))
