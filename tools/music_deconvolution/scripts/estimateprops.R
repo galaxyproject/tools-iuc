@@ -162,5 +162,5 @@ for (meth in methods) {
               sep = " ~ ")), data = sub_data)
     message(paste0("Summary: ", meth))
     capture.output(summary(lm_beta_meth),
-                   file = paste0("report_data/summ_", meth, ".txt"))
+                   file = paste0("report_data/summ_Log of ", meth, " fitting.txt"))
 }
