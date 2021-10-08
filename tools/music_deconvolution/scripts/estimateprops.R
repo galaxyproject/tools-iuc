@@ -104,11 +104,28 @@ jitt_compare <- ggplot(m_prop_ana, aes_string(phenotype_target, "ct.prop")) +
     scale_colour_manual(values = c("white", "gray20")) +
     scale_shape_manual(values = c(21, 24))
 
+## BoxPlot
+plot_box <- Boxplot_Est(list(
+    data.matrix(estimated_music_props),
+    data.matrix(est_prop$Est.prop.allgene)),
+    method.name = c("MuSiC", "NNLS")) +
+    theme(axis.text.x = element_text(angle = -90),
+          axis.text.y = element_text(size=8))
+
+## Heatmap
+plot_hmap <- Prop_heat_Est(list(
+    data.matrix(estimated_music_props),
+    data.matrix(est_prop$Est.prop.allgene)),
+    method.name = c("MuSiC", "NNLS")) +
+    theme(axis.text.x = element_text(angle = -90),
+          axis.text.y = element_text(size=8))
 
 pdf(file = outfile_pdf, width = 8, height = 8)
-plot_grid(jitter.fig, jitter.new, labels = "auto", ncol = 1, nrow = 2)
+plot_box
+plot_hmap
+plot_grid(jitter_fig, jitter_new, labels = "auto", ncol = 1, nrow = 2)
 jitt_compare
-dev.off()
+message(dev.off())
 
 ## Summary table
 for (meth in methods) {
