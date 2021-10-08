@@ -107,7 +107,7 @@ jitt_compare <- ggplot(m_prop_ana, aes_string(phenotype_target, "ct.prop")) +
 ## BoxPlot
 plot_box <- Boxplot_Est(list(
     data.matrix(estimated_music_props),
-    data.matrix(est_prop$Est.prop.allgene)),
+    data.matrix(estimated_nnls_props)),
     method.name = c("MuSiC", "NNLS")) +
     theme(axis.text.x = element_text(angle = -90),
           axis.text.y = element_text(size=8))
@@ -115,7 +115,7 @@ plot_box <- Boxplot_Est(list(
 ## Heatmap
 plot_hmap <- Prop_heat_Est(list(
     data.matrix(estimated_music_props),
-    data.matrix(est_prop$Est.prop.allgene)),
+    data.matrix(estimated_nnls_props)),
     method.name = c("MuSiC", "NNLS")) +
     theme(axis.text.x = element_text(angle = -90),
           axis.text.y = element_text(size=8))
