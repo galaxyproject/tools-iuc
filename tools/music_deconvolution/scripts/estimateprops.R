@@ -129,15 +129,20 @@ message(dev.off())
 
 ## Output Proportions
 
-write.table(est_prop$Est.prop.weighted, file = "report_data/prop_Music Estimated Proportions of Cell Types.tabular",
+write.table(est_prop$Est.prop.weighted,
+            file = "report_data/prop_Music Estimated Proportions of Cell Types.tabular",
             quote = F, sep = "\t", col.names = NA)
-write.table(est_prop$Est.prop.allgene, file = "report_data/prop_NNLS Estimated Proportions of Cell Types.tabular",
+write.table(est_prop$Est.prop.allgene,
+            file = "report_data/prop_NNLS Estimated Proportions of Cell Types.tabular",
             quote = F, sep = "\t", col.names = NA)
-write.table(est_prop$Weight.gene, file = "report_data/weightgene_Music Estimated Proportions of Cell Types (by Gene).tabular",
+write.table(est_prop$Weight.gene,
+            file = "report_data/weightgene_Music Estimated Proportions of Cell Types (by Gene).tabular",
             quote = F, sep = "\t", col.names = NA)
-write.table(est_prop$r.squared.full, file = "report_data/rsquared_Music R-squared Estimated Proportions of Each Subject.tabular",
+write.table(est_prop$r.squared.full,
+            file = "report_data/rsquared_Music R-squared Estimated Proportions of Each Subject.tabular",
             quote = F, sep = "\t", col.names = NA)
-write.table(est_prop$Var.prop, file = "report_data/varprop_Matrix of Variance of MuSiC Estimates.tabular",
+write.table(est_prop$Var.prop,
+            file = "report_data/varprop_Matrix of Variance of MuSiC Estimates.tabular",
             quote = F, sep = "\t", col.names = NA)
 
 
