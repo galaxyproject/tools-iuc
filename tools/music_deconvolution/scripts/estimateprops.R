@@ -19,10 +19,11 @@ estimated_nnls_props <- est_prop$Est.prop.allgene
 
 ## Show different in estimation methods
 ## Jitter plot of estimated cell type proportions
-jitter.fig <- Jitter_Est(
+jitter_fig <- Jitter_Est(
     list(data.matrix(estimated_music_props),
          data.matrix(estimated_nnls_props)),
-    method.name = methods, title = "Jitter plot of Est Proportions")
+    method.name = methods, title = "Jitter plot of Est Proportions",
+    size = 2, alpha=0.7) + theme_minimal()
 
 
 ## Make a Plot
@@ -37,13 +38,13 @@ colnames(m_prop) <- c("Sub", "CellType", "Prop")
 
 if (is.null(celltypes)){
     celltypes = levels(m_prop$CellType)
-    print("No celltypes declared, using:")
-    print(celltypes)
+    message("No celltypes declared, using:")
+    message(celltypes)
 }
 
 if (phenotype_target_threshold == -99){
     phenotype_target_threshold = -Inf
-    print("phenotype target threshold set to -Inf")
+    message("phenotype target threshold set to -Inf")
 }
 
 if (is.null(phenotype_factors)){
@@ -51,8 +52,8 @@ if (is.null(phenotype_factors)){
 }
 ## filter out unwanted factors like "sampleID" and "subjectName"
 phenotype_factors = phenotype_factors[!(phenotype_factors %in% phenotype_factors_always_exclude)]
-print("Phenotype Factors to use:")
-print(phenotype_factors)
+message("Phenotype Factors to use:")
+message(phenotype_factors)
 
 
 m_prop$CellType <- factor(m_prop$CellType, levels = celltypes) # nolint
@@ -72,7 +73,7 @@ m_prop$D <- (m_prop$Disease ==   # nolint
 m_prop <- rbind(subset(m_prop, Disease != sample_disease_group),
                subset(m_prop, Disease == sample_disease_group))
 
-jitter.new <- ggplot(m_prop, aes(Method, Prop)) +
+jitter_new <- ggplot(m_prop, aes(Method, Prop)) +
     geom_point(aes(fill = Method, color = Disease, stroke = D, shape = Disease),
                size = 2, alpha = 0.7,
                position = position_jitter(width = 0.25, height = 0)) +
@@ -121,14 +122,14 @@ for (meth in methods) {
     form_factors = phenotype_factors
     exclude_facts = names(gt1_facts)[gt1_facts]
     if (length(exclude_facts) > 0){
-        print("Factors with only one level will be excluded:")
-        print(exclude_facts)
+        message("Factors with only one level will be excluded:")
+        message(exclude_facts)
         form_factors = phenotype_factors[!(phenotype_factors %in% exclude_facts)]
     }
     lm_beta_meth <- lm(as.formula(
         paste("ct.prop", paste(form_factors, collapse = " + "),
               sep = " ~ ")), data = sub_data)
-    print(paste0("Summary: ", meth))
+    message(paste0("Summary: ", meth))
     capture.output(summary(lm_beta_meth),
                    file = paste0("report_data/summ_", meth, ".txt"))
 }
