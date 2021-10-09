@@ -28,7 +28,7 @@ jitter_fig <- Jitter_Est(
 
 ## Make a Plot
 ## A more sophisticated jitter plot is provided as below. We separated
-## the T2D subjects and normal subjects by their Disease_Factor levels.
+## the T2D subjects and normal subjects by their disease factor levels.
 estimated_music_props_flat <- melt(estimated_music_props)
 estimated_nnls_props_flat <- melt(estimated_nnls_props)
 
