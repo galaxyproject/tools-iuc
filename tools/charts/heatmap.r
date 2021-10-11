@@ -37,7 +37,7 @@ matrify <- function(data) {
 
 # flatten data.frame into three column format
 flatten <- function(my_matrix) {
-    summ <-summary(my_matrix)
+    summ <- summary(my_matrix)
     summ <- data.frame(i = rownames(my_matrix)[summ$i], j = colnames(my_matrix)[summ$j], x = summ$x)
     summ
 }

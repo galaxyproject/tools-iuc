@@ -35,10 +35,10 @@ spec <- matrix(c(
     "help",     "h", 0, "",          "Help",
     "verbose",  "v", 0, "",          "Verbose"
 ), byrow = TRUE, ncol = 5);
-opt = getopt(spec);
+opt <- getopt(spec);
 
 # show help
-if ( !is.null(opt$help) ||
+if (!is.null(opt$help) ||
     is.null(opt$module) ||
     is.null(opt$input) ||
     is.null(opt$columns) ||

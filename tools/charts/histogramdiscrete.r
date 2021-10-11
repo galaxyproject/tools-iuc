@@ -1,4 +1,4 @@
-zero <- function(v){
+zero <- function(v) {
     0
 }
 
