@@ -24,7 +24,7 @@ matrify <- function(data) {
     abu <- data[, 3]
     plt_codes <- levels(factor(plt))
     spc_codes <- levels(factor(spc))
-    taxa <- Matrix(0, nrow = length(plt.codes), ncol = length(spc.codes), sparse = TRUE)
+    taxa <- Matrix(0, nrow = length(plt_codes), ncol = length(spc.codes), sparse = TRUE)
     row <- match(plt, plt_codes)
     col <- match(spc, spc_codes)
     for (i in seq_len(abu)) {
