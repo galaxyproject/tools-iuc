@@ -1,7 +1,7 @@
 
-      seqfile = /tmp/tmpr0j4bmyj/files/000/dataset_1.dat * sequence data file name
+      seqfile = /tmp/tmpag83k3gw/files/2/a/5/dataset_2a51ed5b-9c83-455a-bcf6-3f83c1505ff8.dat * sequence data file name
       outfile = run_codeml * main result file name
-     treefile = /tmp/tmpr0j4bmyj/files/000/dataset_2.dat * tree structure file name
+     treefile = /tmp/tmpag83k3gw/files/e/1/9/dataset_e195971f-e59d-4e2c-8b36-ab81d32476dc.dat * tree structure file name
         noisy = 9  * 0,1,2,3,9: how much rubbish on the screen
       verbose = 0  * 1: detailed output, 0: concise output
       runmode = 0  * 0: user tree;  1: semi-automatic;  2: automatic
