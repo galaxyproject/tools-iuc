@@ -6,6 +6,16 @@
     <expand macro='xrefs' />
     <expand macro='requirements' />
     <command detect_errors='exit_code'><![CDATA[
+    #if $mode_conditional.mode_option == 'merge'
+    #set $input_files = list()
+        mkdir merge_files &&
+        #for $i, $j in enumerate($mode_conditional.scaffold_files)
+            #set $out_file = './merge_files/scaffold_%s.agp' % $i
+            ln -s '${j}' $out_file &&
+            $input_files.append($out_file)
+        #end for
+        #set $merge_files = " ".join($input_files)
+    #end if
     ragtag.py $mode_conditional.mode_option -u
     #if $mode_conditional.mode_option == 'correct'
         @INPUTS@
@@ -53,7 +63,7 @@
     #else
         $assembly_fasta
         #if $mode_conditional.scaffold_files
-            $mode_conditional.scaffold_files
+            $merge_files
         #end if
         #if $mode_conditional.merging_options.f
             -f $mode_conditional.merging_options.f
@@ -71,7 +81,9 @@
         #end if 
     #end if
     -o ./
-    -t \${GALAXY_SLOTS:-2}
+    #if $mode_conditional.mode_option != 'merge'
+        -t \${GALAXY_SLOTS:-2}
+    #end if
      && ls -lah
     ]]>    </command>
     <inputs>
@@ -90,13 +102,20 @@
                         <option value="false" selected="true">Disabled</option>
                     </param>
                     <when value="true">
-                        <param argument="-R" type="data" format="fasta, fasta.gz" optional="true" label="Validation reads" />
+                        <param argument="-R" type="data" format="fasta, fasta.gz" optional="true" label="Validation reads" 
+                            help="Without validation, the module will break at any point of reference discordance as defined by the 'correction options'. 
+                                With validation, RagTag maps reads to the query assembly and verifies putative break points if they are near regions of 
+                                exceptionally low or high coverage. The reads used for validation should come from the same genotype as the query 
+                                assembly to ensure that coverage abnormalities don't arise from true biological variation" />
                         <param name="read_type" type="select" label="Read type">
                             <option value="sr">Illumina</option>
                             <option value="ont">Nanopore</option>
                             <option value="corr">Error corrected long-reads</option>
                         </param>
-                        <param argument="-v" type="integer" min="0" value="10000" label="Coverage validation window size" />
+                        <param argument="-v" type="integer" min="0" value="10000" label="Coverage validation window size" 
+                            help="This parameter specifies the window around the putative misassembly break point that RagTag examines 
+                                for exceptionally low or high read coverage. The larger this window size, the more likely 
+                                it is to find an unrelated coverage abnormality"/>
                         <param argument="--max-cov" type="integer" min="0" value="" optional="true" label="Break sequences at regions at or above this coverage level"/>
                         <param argument="--min-cov" type="integer" min="0" value="" optional="true" label="Break sequences at regions at or below this coverage level"/>
                     </when>
@@ -104,12 +123,17 @@
                 </conditional>
                 <section name="advanced_options" title="Advanced options">
                     <expand macro="common_parameters"/>
-                    <param argument="-b" type="integer" min="0" value="5000" label="Minimum break distance from contig ends"/>
-                    <param name="missasembly_break" type="select" optional="true" label="Break misassebly option">
+                    <param argument="-b" type="integer" min="0" value="5000" label="Minimum break distance from contig ends"
+                        help="Breaks will not be made within -b bp of query sequence termini"/>
+                    <param name="missasembly_break" type="select" optional="true" label="Break misassebly option"
+                        help="One can also direct RagTag to only break misassemblies between (--inter, query maps to >1 reference sequence) or within 
+                            (--intra, query maps discordantly to 1 reference sequence) reference sequences">
                         <option value="--inter">Only break misassemblies between reference sequences (--inter)</option>
                         <option value="--intra">Only break missasemblies within reference sequences (--intra)</option>
                     </param>
-                    <param argument="--gff" type="data" format="gff" optional="true" label="Don't break sequences within GFF intervals"/>
+                    <param argument="--gff" type="data" format="gff,gff.gz  " optional="true" label="Don't break sequences within GFF intervals"
+                        help=" If one has annotations associated with the query assembly, provide them with the --gff option to ensure that the query assembly 
+                            is never broken within annotation intervals. "/>
                 </section>
                 <param name="output_correct" type="select"  multiple="true" display="checkboxes" optional='false' label="Output files">
                     <option value="fasta" selected="true">The corrected query assembly in FASTA format (ragtag.correct.fasta)</option>
@@ -122,9 +146,18 @@
                 <expand macro="input_options"/>
                 <section name="advanced_options" title="advanced options">
                     <expand macro="common_parameters"/>
-                    <param argument="-i" type="float" min="0" max="1" value="0.2" label="Minimum grouping confidence score"/>
-                    <param argument="-a" type="float" min="0" max="1" value="0" label="Minimum location confidence score"/>
-                    <param argument="-s" type="float" min="0" max="1" value="0" label="Minimum orientation confidence score"/>
+                    <param argument="-i" type="float" min="0" max="1" value="0.2" label="Minimum grouping confidence score"
+                        help="The grouping confidence score is the number of base pairs a contig covered in its assigned reference chromosome 
+                            divided by the total number of covered base pairs in the entire reference genome"/>
+                    <param argument="-a" type="float" min="0" max="1" value="0" label="Minimum location confidence score"
+                        help="To create a metric associated with contig ordering confidence, Ragtag define a location confidence. First, the smallest 
+                            and largest alignment positions, with respect to the reference, between a contig and its assigned reference chromosome are found. 
+                            The location confidence is then calculated as the number of covered base pairs in this range divided by the total number of 
+                            base pairs in the range"/>
+                    <param argument="-s" type="float" min="0" max="1" value="0" label="Minimum orientation confidence score"
+                        help="To calculate the orientation confidence, each base pair in each alignment between a contig and its assigned reference chromosome 
+                            casts a vote for the orientation of its alignment. The orientation confidence is the number of votes for the assigned orientation of 
+                            the contig divided by the total number of votes"/>
                     <conditional name="gap_conditional">
                         <param name="gap_option" type="select" label="Infer gap sizes" help="When disabled, all gaps are 100 bp (-r)">
                             <option value="true" selected="true">Enabled</option>
@@ -160,8 +193,11 @@
                 <expand macro="input_options"/>
                 <section name="advanced_options" title="advanced options">
                     <expand macro="common_parameters"/>
-                    <param argument="-s" type="integer" min="0" value="50000" label="Minimum merged alignment length"/>
-                    <param argument="-i" type="float" min="0" max="1" value="0.05" label="Maximum merged alignment distance" help="Maximum merged alignment distance from sequence terminus as fraction of the sequence length"/>
+                    <param argument="-s" type="integer" min="0" value="50000" label="Minimum merged alignment length" 
+                        help="After merging, alignments less than -s bp long will be removed"/>
+                    <param argument="-i" type="float" min="0" max="1" value="0.05" label="Maximum merged alignment distance" 
+                        help="Maximum merged alignment distance from sequence terminus as fraction of the sequence length. Alignments must 
+                        be within -i bp of a target sequence terminus or gap to be considered for patchin "/>
                     <param name="patching_mode" type="select" optional="true" label="Patching mode">
                         <option value="--fill-only">Only fill existing target gaps. Do not join target sequences</option>
                         <option value="--join_only">Only join and patch target sequences. DO not fill existing gaps</option>
@@ -170,24 +206,29 @@
                 <param name="output_patch" type="select"  multiple="true" display="checkboxes" optional='false' label="Output files">
                     <option value="final_fasta" selected="true">The final FASTA file containing the patched assembly</option>
                     <option value="final_agp" selected="true">The final AGP file defining how final FASTA is built</option>
-                    <option value="assembly_files" selected="true">Assembly alignment files</option>
+                    <option value="assembly_file" selected="true">Assembly alignment files</option>
                     <option value="split_assembly">The split target assembly and the renamed query assembly combined into one FASTA file</option>
                     <option value="split_description">An AGP file defining how the target assembly was split at gaps</option>
                     <option value="target_gaps">The target assembly split at gaps</option>
-                    <option value="agp_names">An AGP file defining the new names for query sequences</option>
+                    <option value="agp_renamed">An AGP file defining the new names for query sequences</option>
                     <option value="fasta_renamed">A FASTA file with the original query sequence, but with new names</option>
                     <option value="log">Log file</option>
                 </param>
             </when>
             <when value="merge">
                 <param name="assembly_fasta" type="data" format="fasta" label="Assembly FASTA file"/>
-                <param name="scaffold_files" type="data" format="agp" multiple="true" optional="true" label="Scaffold AGP files"/>
+                <param name="scaffold_files" type="data" format="agp,tabular" multiple="true" optional="true" label="Scaffold AGP files"/>
                 <section name="merging_options" title="Merging options">
-                    <param argument="-f" type="data" format="csv" optional="true" label="CSV list of (AGP file,weight)"/>
                     <param argument="-j" type="data" format="txt" optional="true" label="List of query headers to leave unplaced"/>
-                    <param argument="-l" type="integer" min="0" value="100000" label="Minimum assembly sequence length"/>
-                    <param argument="-e" type="float" min="0" value="0" label="Minimum edge weight"/>
-                    <param name="function_merging" type="select" label="Function for merging gap lengths (--gap-func)">
+                    <param argument="-l" type="integer" min="0" value="100000" label="Minimum assembly sequence length" 
+                        help="Assembly sequences shorter than -l will also be left unplaced."/>
+                    <param argument="-e" type="float" min="0" value="0" label="Minimum edge weight" 
+                        help="The edges in the merging graph represent scaffolding adjacencies. If an AGP file supports a particular adjacency, 
+                            its weight is added to the edge weight. Any edges with a weight lower than the minimum edge weigth will be removed from the graph"/>
+                    <param name="function_merging" type="select" label="Function for merging gap lengths" 
+                        help="Scaffold gaps can differ between input AGP files. For example, a Hi-C derived AGP file might place 100 bp gaps between sequences 
+                            while a reference-guided AGP file might infer gap sizes based on a reference genome. Use this parameter to specify how gap sizes 
+                            should be computed from the supporting AGP files (--gap-func)">
                         <option value="min" selected="true">Min</option>
                         <option value="max">Max</option>
                         <option value="mean">Mean</option>
@@ -224,11 +265,6 @@
         <data format="txt" name="correct_log" from_work_dir="ragtag.correct.asm.paf.log" label="${tool.name} on ${on_string}: log">
             <filter>mode_conditional["mode_option"] == "correct" and "log" in mode_conditional["output_correct"]</filter>
         </data>
-        <!-- TO DO: If -gff was used during correction, use this AGP file to update the GFF coordinates to refer to the new broken query assembly.
-        <data format="gff" name="correct_gff" from_work_dir="ragtag.correct.asm.paf.log" label="${tool.name} on ${on_string}: GFF">
-            <filter>mode_conditional["mode_option"] == "correct" and "log" in mode_conditional["output_correct"]</filter>
-        </data>
-        -->
         <!--Scaffold mode outputs-->
         <data format="paf" name="scaffold_paf" from_work_dir="ragtag.scaffold.asm.paf" label="${tool.name} on ${on_string}: PAF">
             <filter>mode_conditional["mode_option"] == "scaffold" and "paf" in mode_conditional["output_scaffold"]</filter>
@@ -248,78 +284,134 @@
         <data format="tabular" name="scaffold_confidence" from_work_dir="ragtag.scaffold.confidence.txt" label="${tool.name} on ${on_string}: confidence">
             <filter>mode_conditional["mode_option"] == "scaffold" and "confidence" in mode_conditional["output_scaffold"]</filter>
         </data>
-        <!--Patch mode outputs TODO-->
-        <data format="tabular" name="scaffold_confidence" from_work_dir="ragtag.scaffold.confidence.txt" label="${tool.name} on ${on_string}: confidence">
-            <filter>mode_conditional["mode_option"] == "scaffold" and "confidence" in mode_conditional["output_scaffold"]</filter>
+        <!--Patch mode outputs-->
+        <data format="agp" name="patch_agp" from_work_dir="ragtag.patch.agp" label="${tool.name} on ${on_string}: final AGP">
+            <filter>mode_conditional["mode_option"] == "patch" and "final_agp" in mode_conditional["output_patch"]</filter>
         </data>
-        <data format="tabular" name="scaffold_confidence" from_work_dir="ragtag.scaffold.confidence.txt" label="${tool.name} on ${on_string}: confidence">
-            <filter>mode_conditional["mode_option"] == "scaffold" and "confidence" in mode_conditional["output_scaffold"]</filter>
+        <data format="paf" name="patch_paf" from_work_dir="ragtag.patch.asm.paf" label="${tool.name} on ${on_string}: final PAF">
+            <filter>mode_conditional["mode_option"] == "patch" and "assembly_file" in mode_conditional["output_patch"]</filter>
         </data>
-        <data format="tabular" name="scaffold_confidence" from_work_dir="ragtag.scaffold.confidence.txt" label="${tool.name} on ${on_string}: confidence">
-            <filter>mode_conditional["mode_option"] == "scaffold" and "confidence" in mode_conditional["output_scaffold"]</filter>
+        <data format="txt" name="patch_log" from_work_dir="ragtaf.patch.asm.paf.log" label="${tool.name} on ${on_string}: log">
+            <filter>mode_conditional["mode_option"] == "patch" and "log" in mode_conditional["output_patch"]</filter>
         </data>
-        <data format="tabular" name="scaffold_confidence" from_work_dir="ragtag.scaffold.confidence.txt" label="${tool.name} on ${on_string}: confidence">
-            <filter>mode_conditional["mode_option"] == "scaffold" and "confidence" in mode_conditional["output_scaffold"]</filter>
+        <data format="fasta" name="patch_comps_fasta" from_work_dir="ragtag.patch.comps.fasta" label="${tool.name} on ${on_string}: components FASTA">
+            <filter>mode_conditional["mode_option"] == "patch" and "split_assembly" in mode_conditional["output_patch"]</filter>
         </data>
-        <data format="tabular" name="scaffold_confidence" from_work_dir="ragtag.scaffold.confidence.txt" label="${tool.name} on ${on_string}: confidence">
-            <filter>mode_conditional["mode_option"] == "scaffold" and "confidence" in mode_conditional["output_scaffold"]</filter>
+        <data format="agp" name="patch_ctg_agp" from_work_dir="ragtag.patch.ctg.agp" label="${tool.name} on ${on_string}: contigs AGP">
+            <filter>mode_conditional["mode_option"] == "patch" and "split_description" in mode_conditional["output_patch"]</filter>
         </data>
-        <data format="tabular" name="scaffold_confidence" from_work_dir="ragtag.scaffold.confidence.txt" label="${tool.name} on ${on_string}: confidence">
-            <filter>mode_conditional["mode_option"] == "scaffold" and "confidence" in mode_conditional["output_scaffold"]</filter>
+        <data format="fasta" name="patch_ctg_fasta" from_work_dir="ragtag.patch.ctg.fasta" label="${tool.name} on ${on_string}: contigs FASTA">
+            <filter>mode_conditional["mode_option"] == "patch" and "target_gaps" in mode_conditional["output_patch"]</filter>
         </data>
-        <data format="tabular" name="scaffold_confidence" from_work_dir="ragtag.scaffold.confidence.txt" label="${tool.name} on ${on_string}: confidence">
-            <filter>mode_conditional["mode_option"] == "scaffold" and "confidence" in mode_conditional["output_scaffold"]</filter>
+        <data format="fasta" name="patch_fasta" from_work_dir="ragtag.patch.fasta" label="${tool.name} on ${on_string}: final FASTA">
+            <filter>mode_conditional["mode_option"] == "patch" and "final_fasta" in mode_conditional["output_patch"]</filter>
         </data>
-        <data format="tabular" name="scaffold_confidence" from_work_dir="ragtag.scaffold.confidence.txt" label="${tool.name} on ${on_string}: confidence">
-            <filter>mode_conditional["mode_option"] == "scaffold" and "confidence" in mode_conditional["output_scaffold"]</filter>
+        <data format="agp" name="patch_rename_agp" from_work_dir="ragtag.patch.rename.agp" label="${tool.name} on ${on_string}: renamed AGP">
+            <filter>mode_conditional["mode_option"] == "patch" and "agp_renamed" in mode_conditional["output_patch"]</filter>
         </data>
-        <data format="txt" name="tmp" label="${tool.name} on ${on_string}: tmp"/>
+        <data format="fasta" name="patch_rename_fasta" from_work_dir="ragtag.patch.rename.fasta" label="${tool.name} on ${on_string}: renamed FASTA">
+            <filter>mode_conditional["mode_option"] == "patch" and "fasta_renamed" in mode_conditional["output_patch"]</filter>
+        </data>
+        <!-- Merge mode outputs-->
+        <data format="agp" name="merge_agp" from_work_dir="ragtag.merge.agp" label="${tool.name} on ${on_string}: merged AGP">
+            <filter>mode_conditional["mode_option"] == "merge"</filter>
+        </data>
+        <data format="fasta" name="merge_fasta" from_work_dir="ragtag.merge.fasta" label="${tool.name} on ${on_string}: merged FASTA">
+            <filter>mode_conditional["mode_option"] == "merge"</filter>
+        </data>
     </outputs>
     <tests>
+        
     </tests>
     <help><![CDATA[
 .. class:: infomark
 
 **Purpose**
 
-Hello!
+RagTag is a collection of software tools for scaffolding and improving modern genome assemblies. Tasks include:
+
+- Homology-based misassembly correction
+- Homology-based assembly scaffolding and patching
+- Scaffold merging
 
 ----
 
 .. class:: infomark
 
+**Correct mode**
+
+RagTag offers a correction module that uses a reference genome to identify and correct potential misassemblies in a query assembly. 
+RagTag also provides the option to verify putative misassemblies by aligning reads (from the same genotype) to the query assembly 
+and observing read coverage near misassembly break points. In all cases, sequence is never added or subtracted. Query sequences 
+are only broken at points of putative misassembly.
+
+*Misassemblies vs true variation*
+
+Reference-guided misassembly signatures are sometimes caused by true biological structural variation if the reference and query assemblies 
+represent distinct genotypes (or haplotypes). The read validation feature should help to avoid some of these misassembly false positives, 
+and the validation sensitivity can be tuned with command line parameters. However, it is ultimately up to the discretion of the user to decide 
+if misassembly correction is appropriate. One should validate all RagTag results with independent data (usually physical, optical, or genetic 
+maps), when possible.
+
+----
+
+.. class:: infomark
+
+**Scaffold mode**
+
+Scaffolding is the process of ordering and orienting draft assembly (query) sequences into longer sequences. Gaps (stretches of "N" characters) 
+are placed between adjacent query sequences to indicate the presence of unknown sequence. RagTag uses whole-genome alignments to a reference 
+assembly to scaffold query sequences. RagTag does not alter input query sequence in any way and only orders and orients sequences, joining them with gaps.
+
+----
+
+.. class:: infomark
+
+**Patch mode**
+
+This mode uses one genome assembly to *patch* another genome assembly. We define two types of patches:
+
+- Fills are patches that fill assembly gaps. This process is like traditional gap-filling, though it uses an assembly instead of WGS sequencing reads.
+- Joins are patches that join distinct contigs. This is essentially scaffolding and gap-filling in a single step.
+
+----
+
+.. class:: infomark
+
+**Merge mode**
+
+Draft genome assemblies are often scaffolded multiple times using different approaches. For example, one might scaffold an assembly using different genome 
+maps (physical, linkage, Hi-C, etc.), different methods, or different method parameters. RagTag merge is a tool to merge and reconcile different scaffoldings 
+of the same assembly. In this way, one can leverage the advantages of multiple techniques to synergistically improve scaffolding.
+
+Most tools write scaffolding results in the AGP file format, which encodes adjacency and gap information in a plain text file. To run RagTag merge, 
+one must supply the assembly in FASTA format and at least two AGP files that define a scaffolding of the assembly. Each AGP file can optionally be 
+assigned a weight, allowing users to assign the relative influence of each AGP on the final result.
+
+If available, users can supply Hi-C alignments to the draft assembly to resolve conflicts in the merging graph. In this scenario, the input AGP 
+files are used to build the initial graph, but then Hi-C alignments are used to re-weight the graph before computing the scaffolding solution.
+
+
 **List of accepted restriction enzymes**
 
-    Below is a list of all accepted restriction enzymes and
-    their restriction sites:
+List of all accepted restriction enzymes and their restriction sites:
 
-        HindIII: AAGCTT
-        Sau3AI: GATC
-        MboI: GATC
-        DpnII: GATC
-        HinfI: GA[ATCG]TC
-        DdeI: CT[ATCG]AG
-        MseI: TTAA
+    - HindIII: AAGCTT
+    - Sau3AI: GATC
+    - MboI: GATC
+    - DpnII: GATC
+    - HinfI: GA[ATCG]TC
+    - DdeI: CT[ATCG]AG
+    - MseI: TTAA
 
-    For RagTag, use a comma separated list of enzymes or
-    sites (or a mix). For example:
-    
-    -- Arima Hi-C v1.0
-        'Sau3AI,HinfI' or 'GATC,GA[ATCG]TC'.
-    
-    -- Arima Hi-C v2.0 ("Arima High Coverage Hi-C")
-        'Sau3AI,HinfI,DdeI,MseI' or 'GATC,GA[ATCG]TC,CT[ATCG]AG,TTAA'.
+For RagTag, use a comma separated list of enzymes or sites (or a mix). For example:
+
+    - Arima Hi-C v1.0: *Sau3AI,HinfI* or *GATC,GA[ATCG]TC*
+    - Arima Hi-C v2.0: *Sau3AI,HinfI,DdeI,MseI* or *GATC,GA[ATCG]TC,CT[ATCG]AG,TTAA*
  
-    Note that for restriction sites, wildcards are
-    represented with python regex syntax, not IUPAC
-    ambiguity codes. e.g. '[ATCG]' instead of 'N'.
+ Note that for restriction sites, wildcards are represented with python regex syntax, not IUPAC ambiguity codes. e.g. '[ATCG]' instead of 'N'.
     
-    Restriction enzymes are not necessarily the enzyme
-    used for sample prep. Each is only a enzyme that
-    cuts at the corresponding restriction site.
-
-    Please contact the developers if you would like to add
-    more enzymes/sites.
+Restriction enzymes are not necessarily the enzyme used for sample prep. Each is only a enzyme that cuts at the corresponding restriction site.
 
     ]]>    </help>
     <expand macro="citations" />
