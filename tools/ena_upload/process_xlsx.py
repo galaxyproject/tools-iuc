@@ -161,10 +161,10 @@ samples_cols = ['alias', 'title', 'scientific_name', 'sample_description']
 samples_cols = samples_cols + ['status', 'accession', 'taxon_id', 'submission_date']
 if args.viral_submission:
     # extend the samples columns with the viral specific data
-    samples_cols = samples_cols + ['geographic_location', 'host_common_name',
-                                   'host_subject_id', 'host_health_state', 'host_sex',
-                                   'host_scientific_name', 'collector_name',
-                                   'collecting_institution', 'isolate']
+    samples_cols = samples_cols + ['geographic location (country and/or sea)', 'host common name',
+                                   'host subject id', 'host health state', 'host sex',
+                                   'host scientific name', 'collector name',
+                                   'collecting institution', 'isolate']
     if len(samples_optional_cols_loaded) > 0:
         for optional_cols_excel in samples_optional_cols_loaded:
             samples_cols.append(optional_samples_cols_mapping[optional_cols_excel])
@@ -206,7 +206,7 @@ for sample_alias, sample in samples_dict.items():
         entry_action = identify_action('sample', sample_alias)
     samples_row_values = [sample_alias, sample['title'], sample['scientific_name'],
                           sample['sample_description'], entry_action, 'ena_accession',
-                          'tax_id_updated_by_ENA', 'ENA_submission_date']
+                          '', 'ENA_submission_date']
     if args.viral_submission:
         # add the values that are unique for the viral samples
         if sample['collector name'] == '':
@@ -282,7 +282,7 @@ for sample_alias, sample in samples_dict.items():
                             entry_action = identify_action('run', run_alias)
                         runs_table.write('\t'.join([run_alias, entry_action, 'ena_run_accession',
                                                     exp_alias, run_entry['file_name'],
-                                                    FILE_FORMAT, 'file_checksum',
+                                                    FILE_FORMAT, '',
                                                     'submission_date_ENA']) + '\n')
                 runs_included.append(run_alias)
 
@@ -304,3 +304,4 @@ runs_table.close()
 
 if args.verbose:
     paste_xls2yaml(args.xlsx_path)
+
