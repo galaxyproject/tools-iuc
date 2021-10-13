@@ -5,9 +5,21 @@ import sys
 import xlrd
 import yaml
 from mappings import optional_samples_cols_mapping
+from check_remote import check_remote_entry
 
 FILE_FORMAT = 'fastq'
 
+
+def identify_action(entry_type, alias):
+    ''' define action ['add' | 'modify'] that needs to be perfomed for this entry '''
+    query = {entry_type + '_alias': alias}
+    remote_accessions = check_remote_entry(entry_type, query)
+    if len(remote_accessions) > 0:
+        print(f'Found: {entry_type} entry with alias {alias}')
+        return 'modify'
+    else:
+        print(f'No {entry_type} entry found with alias {alias}')
+        return 'add'
 
 def extract_data(xl_sheet, expected_columns, optional_cols=None):
     """
@@ -86,6 +98,7 @@ parser.add_argument('--form', dest='xlsx_path', required=True)
 parser.add_argument('--out_dir', dest='out_path', required=True)
 parser.add_argument('--action', dest='action', required=True)
 parser.add_argument('--vir', dest='viral_submission', required=False, action='store_true')
+parser.add_argument('--dev', dest='dev_submission', required=False, action='store_true')
 parser.add_argument('--verbose', dest='verbose', required=False, action='store_true')
 args = parser.parse_args()
 
@@ -168,7 +181,7 @@ runs_table = open(pathlib.Path(args.out_path) / 'runs.tsv', 'w')
 runs_table.write('\t'.join(['alias', 'status', 'accession', 'experiment_alias', 'file_name',
                             'file_format', 'file_checksum', 'submission_date']) + '\n')
 action = args.action
-
+# actionable_items
 # WRITE  DICTIONARIES TO TABLE FILES
 
 # ADD A TIMESTAMP TO THE ALIAS? SEEMS LIKE ENA REQUIRES ALL ENTRIES FOR A WEBIN TO HAVE UNIQUE IDS?
@@ -178,13 +191,21 @@ runs_included = []
 exp_included = []
 for study_alias, study in studies_dict.items():
     # study_alias = study_alias + '_' + timestamp
-    studies_table.write('\t'.join([study_alias, action, 'ENA_accession', study['title'],
+    if args.dev_submission:
+        entry_action = args.action
+    else:
+        entry_action = identify_action('study', study_alias)
+    studies_table.write('\t'.join([study_alias, entry_action, 'ENA_accession', study['title'],
                                    study['study_type'], study['study_abstract'], '',
                                    'ENA_submission_data']) + '\n')  # assuming no pubmed_id
 for sample_alias, sample in samples_dict.items():
     # sample_alias = sample_alias + '_' + timestamp
+    if args.dev_submission:
+        entry_action = args.action
+    else:
+        entry_action = identify_action('sample', sample_alias)
     samples_row_values = [sample_alias, sample['title'], sample['scientific_name'],
-                          sample['sample_description'], action, 'ena_accession',
+                          sample['sample_description'], entry_action, 'ena_accession',
                           'tax_id_updated_by_ENA', 'ENA_submission_date']
     if args.viral_submission:
         # add the values that are unique for the viral samples
@@ -230,7 +251,12 @@ for sample_alias, sample in samples_dict.items():
         # (not listed in the samples or study dict)
         # process the experiments for this sample
         if exp['sample_alias'] == sample_alias:
-            experiments_table.write('\t'.join([exp_alias, action, 'accession_ena', exp['title'],
+            # check the remote status
+            if args.dev_submission:
+                entry_action = args.action
+            else:
+                entry_action = identify_action('experiment', exp_alias)
+            experiments_table.write('\t'.join([exp_alias, entry_action, 'accession_ena', exp['title'],
                                                exp['study_alias'], sample_alias,
                                                exp['design_description'], exp['library_name'],
                                                exp['library_strategy'], exp['library_source'],
@@ -250,7 +276,11 @@ for sample_alias, sample in samples_dict.items():
                     runs_list = run
                 for run_entry in runs_list:
                     if run_entry['experiment_alias'] == exp_alias:
-                        runs_table.write('\t'.join([run_alias, action, 'ena_run_accession',
+                        if args.dev_submission:
+                            entry_action = args.action
+                        else:
+                            entry_action = identify_action('run', run_alias)
+                        runs_table.write('\t'.join([run_alias, entry_action, 'ena_run_accession',
                                                     exp_alias, run_entry['file_name'],
                                                     FILE_FORMAT, 'file_checksum',
                                                     'submission_date_ENA']) + '\n')
