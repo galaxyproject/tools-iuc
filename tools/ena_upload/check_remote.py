@@ -1,7 +1,8 @@
 import json
+
 import requests
 
-url = "https://www.ebi.ac.uk/ena/portal/api/search"
+URL = "https://www.ebi.ac.uk/ena/portal/api/search"
 
 
 def check_remote_entry(entry_type, query_dict, out_format='json'):
@@ -16,7 +17,7 @@ def check_remote_entry(entry_type, query_dict, out_format='json'):
     params_dict['result'] = 'read_' + entry_type
     params_dict['fields'] = entry_type + '_alias'
     params_dict['format'] = out_format
-    response = requests.post(url, data=params_dict)
+    response = requests.post(URL, data=params_dict)
     if response.content != b'':
         return json.loads(response.content)
     return []

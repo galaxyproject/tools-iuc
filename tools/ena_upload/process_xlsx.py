@@ -4,8 +4,8 @@ import sys
 
 import xlrd
 import yaml
-from mappings import optional_samples_cols_mapping
 from check_remote import check_remote_entry
+from mappings import optional_samples_cols_mapping
 
 FILE_FORMAT = 'fastq'
 
@@ -20,6 +20,7 @@ def identify_action(entry_type, alias):
     else:
         print(f'No {entry_type} entry found with alias {alias}')
         return 'add'
+
 
 def extract_data(xl_sheet, expected_columns, optional_cols=None):
     """
@@ -304,4 +305,3 @@ runs_table.close()
 
 if args.verbose:
     paste_xls2yaml(args.xlsx_path)
-
