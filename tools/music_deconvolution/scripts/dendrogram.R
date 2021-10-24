@@ -80,26 +80,25 @@ est_bulk <- music_prop.cluster(
 
 estimated_music_props <- est_bulk$Est.prop.weighted.cluster
 ## NNLS is not calculated here
-##estimated_nnls_props <- est_bulk$Est.prop.allgene
 
 ## Show different in estimation methods
 ## Jitter plot of estimated cell type proportions
 jitter_fig <- Jitter_Est(
     list(data.matrix(estimated_music_props)),
     method.name = c("MuSiC"), title = "Jitter plot of Est Proportions",
-    size = 2, alpha=0.7) + theme_minimal()
+    size = 2, alpha = 0.7) + theme_minimal()
 
 plot_box <- Boxplot_Est(list(
     data.matrix(estimated_music_props)),
     method.name = c("MuSiC")) +
     theme(axis.text.x = element_text(angle = -90),
-          axis.text.y = element_text(size=8))
+          axis.text.y = element_text(size = 8))
 
 plot_hmap <- Prop_heat_Est(list(
     data.matrix(estimated_music_props)),
     method.name = c("MuSiC")) +
     theme(axis.text.x = element_text(angle = -90),
-          axis.text.y = element_text(size=8))
+          axis.text.y = element_text(size = 8))
 
 pdf(file = outfile_pdf, width = 8, height = 8)
 plot(hc2, cex = 0.6, hang = -1, main = "Cluster log(Mean of RA)")
