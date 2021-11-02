@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import sys
 import tarfile
@@ -112,8 +113,22 @@ def download_image_data(
     image_ids,
     channel=None, z_stack=0, frame=0,
     coord=(0, 0), width=0, height=0, region_spec='rectangle',
-    skip_failed=False, download_tar=False, omero_host='idr.openmicroscopy.org', omero_secured=True, omero_username='public', omero_password='public'
+    skip_failed=False, download_tar=False, omero_host='idr.openmicroscopy.org', omero_secured=False, config_file=None
 ):
+
+    if config_file is None:  # IDR connection
+        omero_username = 'public'
+        omero_password = 'public'
+    else:  # other omero instance
+        with open(config_file) as f:
+            cfg = json.load(f)
+            omero_username = cfg['username']
+            omero_password = cfg['password']
+
+            if omero_username == "" or omero_password == "":
+                omero_username = 'public'
+                omero_password = 'public'
+
     # basic argument sanity checks and adjustments
     prefix = 'image-'
     # normalize image ids by stripping off prefix if it exists
@@ -358,13 +373,10 @@ if __name__ == "__main__":
         '-oh', '--omero-host', type=str, default="idr.openmicroscopy.org"
     )
     p.add_argument(
-        '--omero-secured', action='store_false'
+        '--omero-secured', action='store_true', default=True
     )
     p.add_argument(
-        '-u', '--omero-username', type=str, default="public"
-    )
-    p.add_argument(
-        '-p', '--omero-password', type=str, default="public"
+        '-cf', '--config-file', dest='config_file', default=None
     )
     args = p.parse_args()
     if not args.image_ids:

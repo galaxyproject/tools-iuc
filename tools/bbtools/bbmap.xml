@@ -1,0 +1,157 @@
+<tool id="bbtools_bbmap" name="BBTools: BBMap" version="@WRAPPER_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>short-read aligner</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import os
+#import re
+
+#if str($ref_source_cond.ref_source) == 'cached'
+    #set ref = str($ref_source_cond.reference.fields.path)
+#else:
+    #set ref = $ref_source_cond.reference
+#end if
+
+#if str($input_type_cond.input_type) in ['single', 'pair']:
+    #set read1 = $input_type_cond.read1
+    #set read1_identifier = re.sub('[^\s\w\-]', '_', str($read1.element_identifier))
+    ## bbmap uses the file extension to determine the input format.
+    #set ext = $read1_identifier + '.fastq'
+    #if $read1.ext.endswith('.gz'):
+        #set ext = $ext + '.gz'
+    #end if
+    #set read1_file = $read1_identifier + $ext
+    ln -s '${read1}' '${read1_file}' &&
+    #if str($input_type_cond.input_type) == 'pair':
+        #set read2 = $input_type_cond.read2
+        #set read2_identifier = re.sub('[^\s\w\-]', '_', str($read2.element_identifier))
+        #set read2_file = $read2_identifier + $ext
+        ln -s '${read2}' '${read2_file}' &&
+    #end if
+#else:
+    #set read1 = $input_type_cond.reads_collection['forward']
+    #set read1_identifier = re.sub('[^\s\w\-]', '_', str($read1.name))
+    ## bbmap uses the file extension to determine the input format.
+    #set ext = $read1_identifier + '.fastq'
+    #if $read1.ext.endswith('.gz'):
+        #set ext = $ext + '.gz'
+    #end if
+    #set read1_file = $read1_identifier + $ext
+    ln -s '${read1}' '${read1_file}' &&
+    #set read2 = $input_type_cond.reads_collection['reverse']
+    #set read2_identifier = re.sub('[^\s\w\-]', '_', str($read2.name))
+    #set read2_file = $read2_identifier + $ext
+    ln -s '${read2}' '${read2_file}' &&
+#end if
+
+bbmap.sh t=\${GALAXY_SLOTS:-4} ref='${ref}'
+#if str($input_type_cond.input_type) == 'single':
+    in='${read1_file}'
+#else:
+    in1='${read1_file}' in2='${read2_file}'
+#end if
+#if str($output_sort) == 'coordinate':
+    out='mapped.bam'; samtools sort -@\${GALAXY_SLOTS:-4} -T "\${TMPDIR:-.}" -O bam -o '$output' 'mapped.bam'
+#elif str($output_sort) == 'name':
+    out='mapped.bam'; samtools sort -n -@\${GALAXY_SLOTS:-4} -T '\${TMPDIR:-.}' -O bam -o '$output' 'mapped.bam'
+#else:
+    out='mapped.bam' && mv 'mapped.bam' '$output'
+#end if
+]]></command>
+    <inputs>
+        <conditional name="input_type_cond">
+            <param name="input_type" type="select" label="Choose the category of the files to be analyzed">
+                <option value="single" selected="true">Single dataset</option>
+                <option value="pair">Dataset pair</option>
+                <option value="paired">List of dataset pairs</option>
+            </param>
+            <when value="single">
+                <param name="read1" type="data" format="fastqsanger.gz,fastqsanger" label="Read1 fastq file"/>
+            </when>
+            <when value="pair">
+                <param name="read1" type="data" format="fastqsanger.gz,fastqsanger" label="Read1 fastq file"/>
+                <param name="read2" type="data" format="fastqsanger.gz,fastqsanger" label="Read2 fastq file"/>
+            </when>
+            <when value="paired">
+                <param name="reads_collection" type="data_collection" format="fastqsanger,fastqsanger.gz" collection_type="paired" label="Collection of fastqsanger paired read files"/>
+            </when>
+        </conditional>
+        <expand macro="reference_source_cond"/>
+        <param name="output_sort" type="select" label="BAM sorting mode" help="The 'Not sorted' option can significantly extend the run time of the tool (it runs using a single thread).">
+            <option value="coordinate" selected="True">Sort by chromosomal coordinates</option>
+            <option value="name">Sort by read names</option>
+            <option value="unsorted">Not sorted (sorted as input)</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data format="bam" name="output" label="${tool.name} on ${on_string} (mapped reads in BAM format)">
+            <expand macro="dbKeyActionsBBMap"/>
+            <change_format>
+                <when input="output_sort" value="name" format="qname_sorted.bam" />
+                <when input="output_sort" value="unsorted" format="qname_input_sorted.bam" />
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Single file, cached reference, output coordinate sorted -->
+        <test expect_num_outputs="1">
+            <param name="input_type" value="single"/>
+            <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz"/>
+            <output name="output" file="output1.bam" ftype="bam" lines_diff="4">
+                <metadata name="dbkey" value="89" />
+            </output>
+        </test>
+        <!-- Paired reads in separate datasets, cached reference, output name sorted -->
+        <test expect_num_outputs="1">
+            <param name="input_type" value="pair"/>
+            <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz"/>
+            <param name="read2" value="13-1941-6_S4_L001_R2_600000.fastq.gz"/>
+            <param name="output_sort" value="name"/>
+            <output name="output" file="output2.bam" ftype="qname_sorted.bam" lines_diff="4">
+                <metadata name="dbkey" value="89" />
+            </output>
+        </test>
+        <!-- Collection of Paired reads, history reference, output unsorted -->
+        <test expect_num_outputs="1">
+            <param name="input_type" value="paired"/>
+            <param name="reads_collection">
+                <collection type="paired">
+                    <element name="forward" value="13-1941-6_S4_L001_R1_600000.fastq.gz"/>
+                    <element name="reverse" value="13-1941-6_S4_L001_R2_600000.fastq.gz"/>
+                </collection>
+            </param>
+            <param name="ref_source" value="history"/>
+            <param name="reference" value="NC_002945v4.fasta" dbkey="89" ftype="fasta"/>
+            <param name="output_sort" value="unsorted"/>
+            <output name="output" file="output3.bam" ftype="qname_input_sorted.bam" lines_diff="4">
+                <metadata name="dbkey" value="89" />
+            </output>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+BBMap is a splice-aware global aligner for DNA and RNA sequencing reads.  It is fast and extremely accurate, particularly
+with highly mutated genomes or reads with long indels, even whole-gene deletions over 100kbp long. It has no upper limit
+to genome size or number of contigs and has been successfully used for mapping to an 85 gigabase soil metagenome with over
+200 million contigs. the indexing phase is very fast compared to other aligners.
+
+BBMap can output many different statistics files; an empirical read quality histogram, insert-size distribution, and genome
+coverage with or without generating a sam file.  It is useful in quality control of libraries and sequencing runs or
+evaluating new sequencing platforms.
+
+**Options**
+
+  *Bam sorting mode* - the generated bam files can be sorted according to three criteria: coordinates, names and input order.
+
+    * Sort by chromosomal coordinates - the file is sorted by coordinates (i.e., the reads from the beginning of the first
+      chromosome are first in the file.
+    * Sort by read names - the file is sorted by the reference ID (i.e., the QNAME field).
+    * Not sorted (sorted as input) - the file is sorted in the order of the reads in the input file.
+
+    </help>
+    <expand macro="citations"/>
+</tool>
+

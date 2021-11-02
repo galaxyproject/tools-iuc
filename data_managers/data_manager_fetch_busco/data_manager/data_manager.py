@@ -50,14 +50,15 @@ def main(args):
     data_manager_entry['name'] = args.name
     data_manager_entry['path'] = '.'
     data_manager_json = dict(data_tables=dict(busco=data_manager_entry))
-    params = json.loads(open(args.output).read())
+    with open(args.output) as fh:
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
     output_path = os.path.abspath(os.path.join(os.getcwd(), 'busco'))
     for filename in os.listdir(workdir):
         shutil.move(os.path.join(output_path, filename), target_directory)
-    with open(args.output, 'w') as out:
-        out.write(json.dumps(data_manager_json, sort_keys=True))
+    with open(args.output, 'w') as fh:
+        json.dump(data_manager_json, fh, sort_keys=True)
 
 
 if __name__ == '__main__':

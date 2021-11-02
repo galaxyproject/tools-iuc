@@ -1,111 +1,143 @@
-<tool id="mykrobe_predict" name="mkyrobe predict" version="0.7.0">
-  <description>Antibiotic resistance predictions</description>
-  <macros>
-    <import>macro.xml</import>
-  </macros>
-  <expand macro="requirements"/>
-  <command detect_errors="exit_code">
-<![CDATA[
-        @select_inputs@
+<tool id="mykrobe_predict" name="mkyrobe predict" version="@TOOL_VERSION@.1+galaxy0"  profile="@PROFILE@">
+    <description>Antibiotic resistance predictions</description>
+    <xrefs>
+        <xref type="bio.tools">Mykrobe</xref>
+    </xrefs>
+    <macros>
+        <import>macro.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import difflib
+#import re
 
-        mykrobe predict 
-        '${name}'
-        ${select_species.species}
+mykrobe predict
+--species '${select_species.species}'
+--panel '${select_species.panel}'
 
-        #if $select_species.panel == 'custom':
-          #if $adv.custom_probe:
-            --custom_probe_set_path '${adv.custom_probe}'
-          #end if
-          #if $adv.custom_variant_to_resistance:
-            --custom_variant_to_resistance_json '${adv.custom_variant_to_resistance}'
-          #end if
-        #elif $select_species.panel:
-          --panel '${select_species.panel}'
-        #end if
+#if $conf_percent_cutoff:
+    --conf_percent_cutoff '${conf_percent_cutoff}'
+#end if
 
-        #if $conf_percent_cutoff:
-          --conf_percent_cutoff '${conf_percent_cutoff}'
-        #end if
+#if $min_depth:
+    --min_depth ${min_depth}
+#end if
 
-        #if $min_depth:
-          --min_depth '${min_depth}'
-        #end if
+@shared_options@
 
-        @shared_options@
+-q
+-t "\${GALAXY_SLOTS:-1}"
 
-        -q
-        -t "\${GALAXY_SLOTS:-1}"
+#if $data_type.type in ["single", "paired"]:
+    #set read1 = $data_type.seq1
+    #set read1_identifier = re.sub('[^\s\w\-]', '_', str($read1.element_identifier))
+    #if $data_type.type == "single":
+        --sample '${read1_identifier}'
+    --seq '${read1}'
+    #else:
+        #set read2 = $data_type.seq2
+        #set read2_identifier = re.sub('[^\s\w\-]', '_', str($read2.element_identifier))
+        #set matches = difflib.SequenceMatcher(None, read1_identifier, read2_identifier).get_matching_blocks()
+        #set match = $matches[0]
+        #set identifier = re.sub('[^\s\w\-]', '_', str($read1_identifier[match.a:match.a + match.size]))
+    --sample '${identifier}'
+    --seq '${read1}' '${read2}'
+    #end if
+#elif $data_type.type == "collection":
+    #set identifier = re.sub('[^\s\w\-]', '_', str($data_type.collection1.element_identifier))
+    --sample '${identifier}'
+    --seq '${data_type.collection1.forward}' '${data_type.collection1.reverse}'
+#end if
 
-        -1
-        #if $type == 'fastq':
-          *.fastq
-        #else
-          *.bam
-        #end if
+--format '${format}'
 
-        --format '${format}'
-
-        > '$output'
-]]>
-  </command>
-  <inputs>
-    <expand macro="inputs"/>
-    <conditional name="select_species">
-      <param name="species" type="select" label="Specify Species for AMR">
-        <option value="tb">Mycobacterium tuberculosis (tb)</option>
-        <option value="staph">Staphylococcus aureus (staph)</option>
-      </param>
-      <when value="staph">
-        <param name="panel" type="select" optional="true" label="Select panel for Staph only">
-          <option value="custom">Custom</option>
+> '$output']]>
+    </command>
+    <inputs>
+        <expand macro="inputs"/>
+        <conditional name="select_species">
+            <param name="species" type="select" label="Specify Species for AMR">
+                <option value="tb">Mycobacterium tuberculosis (tb)</option>
+                <option value="staph">Staphylococcus aureus (staph)</option>
+                <option value="sonnei">Shigella sonnei (sonnei)</option>
+            </param>
+            <when value="staph">
+                <param name="panel" type="select" label="Select panel for Staph only">
+                    <option value="20170217">20170217</option>
+                </param>
+            </when>
+            <when value="tb">
+                <param name="panel" type="select" label="Select panel for TB only">
+                    <option value="202010">202010</option>
+                    <option value="201901">201901</option>
+                    <option value="bradley-2015">Bradely 2015</option>
+                </param>
+            </when>
+            <when value="sonnei">
+                <param name="panel" type="select" label="Select panel for sonnei only">
+                    <option value="20210201">20210201</option>
+                    <option value="20201012">20201012</option>
+                </param>
+            </when>
+        </conditional>
+        <param argument="--min_depth" optional="True" type="integer" min="0" label="Minimum depth"  help=""/>
+        <param argument="--conf_percent_cutoff" optional="True" type="integer" label="Confidence percent cutoff" help="Number between 0 and 100. Determines --min_variant_conf, by simulating variants and choosing the cutoff that would keep x% of the variants. Default is 90 if --ont, otherwise --min_variant_conf is used as the cutoff">
+            <validator type="in_range" min="0" max="100" message="Confidence percent cutoff should be between 0 and 100" />
         </param>
-      </when>
-      <when value="tb">
-        <param name="panel" type="select" label="Select panel for TB only">
-          <option value="201901">201901</option>
-          <option value="bradley-2015">Bradely 2015</option>
-          <option value="walker-2015">Walker 2015</option>
-          <option value="custom">Custom</option>
+        <expand macro="options"/>
+        <param argument="--format" type="select" label="Select the prefered output format">
+            <option value="csv" >csv</option>
+            <option value="json">json</option>
         </param>
-      </when>
-    </conditional>
-    <section name="adv" title="Custom Panel" expanded="false">
-      <param name="custom_probe" type="data" format="fasta" label="Custom Probe" optional="True" help="Don't include filtered genotypes"/>
-      <param name="custom_variant_to_resistance" type="data" format="json" label="Custom Variant to Resistance" optional="True" help="JSON file with key,value pairs of variant names and induced drug resistance."/>
-    </section>
-    <param argument="--min_depth" optional="True" type="integer" min="0" label="Minimum depth"  help=""/>
-    <param argument="--conf_percent_cutoff" optional="True" type="integer" label="Confidence percent cutoff" help="Number between 0 and 100. Determines --min_variant_conf, by simulating variants and choosing the cutoff that would keep x% of the variants. Default is 90 if --ont, otherwise --min_variant_conf is used as the cutoff">
-      <validator type="in_range" min="0" max="100" message="Confidence percent cutoff should be between 0 and 100" />
-    </param>
-    <expand macro="options"/>
-    <param argument="--format" type="select" label="Select the prefered output format">
-      <option value="csv" >csv</option>
-      <option value="json">json</option>
-    </param>
-  </inputs>
-  <outputs>
-    <data name="output" format="csv" label="prediction">
-      <change_format>
-        <when input="format" value="json" format="json"/>
-      </change_format>
-    </data>
-  </outputs>
-  <tests>
-    <test>
-      <param name="type" value="single"/>
-      <param name="fastq_input1" value="reads.fastq"/>
-      <param name="species" value="tb"/>
-      <param name="panel" value="bradley-2015"/>
-      <param name="format" value="json"/>
-      <output name="output">
-        <assert_contents>
-          <has_text_matching expression="susceptibility"/>
-        </assert_contents>
-      </output>
-    </test>
-  </tests>
-  <help>
-    @ATTRIBUTION@
-  </help>
-  <expand macro="citation" />
+    </inputs>
+    <outputs>
+        <data name="output" format="csv" label="prediction">
+            <change_format>
+                <when input="format" value="json" format="json"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="type" value="single"/>
+            <param name="seq1" ftype="fastq" value="reads.fastq"/>
+            <param name="species" value="tb"/>
+            <param name="panel" value="bradley-2015"/>
+            <param name="format" value="json"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text_matching expression="susceptibility"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="type" value="single"/>
+            <param name="seq1" ftype="fastq" value="reads.fastq"/>
+            <param name="species" value="sonnei"/>
+            <param name="panel" value="20201012"/>
+            <param name="format" value="json"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text_matching expression="susceptibility"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="type" value="single"/>
+            <param name="seq1" ftype="fastq.gz" value="reads.fastq.gz"/>
+            <param name="species" value="sonnei"/>
+            <param name="panel" value="20201012"/>
+            <param name="format" value="json"/>
+            <output name="output">
+                <assert_contents>
+                    <has_text_matching expression="susceptibility"/>
+              </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+        @ATTRIBUTION@
+    </help>
+    <expand macro="citation" />
 </tool>
+

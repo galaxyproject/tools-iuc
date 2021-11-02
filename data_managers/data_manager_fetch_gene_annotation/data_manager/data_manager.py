@@ -135,8 +135,8 @@ def main():
         }
     }
 
-    with open(os.path.join(args.output), 'w+') as f:
-        f.write(json.dumps(data_manager_entry))
+    with open(os.path.join(args.output), 'w+') as fh:
+        json.dump(data_manager_entry, fh, sort_keys=True)
 
 
 if __name__ == '__main__':

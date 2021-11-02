@@ -41,7 +41,8 @@ def main():
             ]
         }
     }
-    open(args.config_file, 'w').write(json.dumps(data_manager_dict, sort_keys=True))
+    with open(args.config_file, 'w') as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

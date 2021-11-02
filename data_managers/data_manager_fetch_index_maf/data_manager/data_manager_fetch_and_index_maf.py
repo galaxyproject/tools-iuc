@@ -202,7 +202,7 @@ def main():
     # Fetch and index the MAFs
     index_maf_files(maf_files, maf_path, options, params, target_directory)
     with open(options.output, 'w') as fh:
-        fh.write(json.dumps(data_manager_entry))
+        json.dump(data_manager_entry, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

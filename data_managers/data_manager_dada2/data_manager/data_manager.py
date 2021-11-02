@@ -100,8 +100,8 @@ def url_download(url, fname, workdir):
 
 def remote_dataset(dataset, outjson):
 
-    with open(outjson) as jf:
-        params = json.loads(jf.read())
+    with open(outjson) as fh:
+        params = json.load(fh)
 
     workdir = params['output_data'][0]['extra_files_path']
     os.mkdir(workdir)
@@ -123,8 +123,8 @@ def remote_dataset(dataset, outjson):
         data_manager_entry['path'] = dataset + ".species"
         data_manager_json["data_tables"]["dada2_species"] = data_manager_entry
 
-    with open(outjson, 'w') as jf:
-        jf.write(json.dumps(data_manager_json, sort_keys=True))
+    with open(outjson, 'w') as fh:
+        json.dump(data_manager_json, fh, sort_keys=True)
 
 
 if __name__ == '__main__':
