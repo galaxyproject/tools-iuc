@@ -147,8 +147,8 @@ def kraken2_build_standard_prebuilt(standard_prebuilt_size, target_directory, da
     standard_prebuilt_size_url = size_to_url_str[standard_prebuilt_size]
     # download the pre-built database
     src = urlopen(
-        's3://genome-idx/kraken/k2_standard%s_%s.tar.gz'
-        % standard_prebuilt_size_url, date_url_str
+        'https://genome-idx.s3.amazonaws.com/kraken/k2_standard%s_%s.tar.gz'
+        % (standard_prebuilt_size_url, date_url_str)
     )
     with open('tmp_data.tar.gz', 'wb') as dst:
         shutil.copyfileobj(src, dst)
@@ -380,7 +380,7 @@ def main():
 
     data_manager_output = {}
 
-    if str(args.database_type) == 'standard':
+    if str(args.database_type) == 'standard_local_build':
         kraken2_args = {
             "kmer_len": args.kmer_len,
             "minimizer_len": args.minimizer_len,
@@ -392,6 +392,11 @@ def main():
         data_manager_output = kraken2_build_standard(
             kraken2_args,
             target_directory,
+        )
+    elif str(args.database_type) == 'standard_prebuilt':
+        data_manager_output = kraken2_build_standard_prebuilt(
+            str(args.standard_prebuilt_size),
+            target_directory
         )
     elif str(args.database_type) == 'minikraken':
         data_manager_output = kraken2_build_minikraken(
