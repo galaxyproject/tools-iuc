@@ -144,6 +144,7 @@ def kraken2_build_standard_prebuilt(standard_prebuilt_size, target_directory, da
         '16': '_16gb',
         '8': '_8gb',
     }
+    # we may need to let the user choose the date when new DBs are posted.
     date_url_str = '20210517'
     standard_prebuilt_size_url = size_to_url_str[standard_prebuilt_size]
     # download the pre-built database
@@ -358,7 +359,7 @@ def main():
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
     parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to --database-type minikraken)')
-    parser.add_argument('--standard-prebuilt-size', dest='standard_prebuilt_size', type=StandardPrebuiltSizes, choices=list(StandardPrebuiltSizes), help='Size of standard prebuilt database to download (only applies to --database-type standard_prebuilt)')
+    parser.add_argument('--standard-prebuilt-size', dest='standard_prebuilt_size', type=StandardPrebuiltSizes, choices=list(StandardPrebuiltSizes), help='Size of standard prebuilt database to download (only applies to --database-type standard_prebuilt. Options are: "8", "16", "full".)')
     parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
     parser.add_argument('--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)')
