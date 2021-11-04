@@ -119,6 +119,7 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
 
     return data_table_entry
 
+
 def kraken2_build_standard_prebuilt(standard_prebuilt_size, target_directory, data_table_name=DATA_TABLE_NAME):
 
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
@@ -137,7 +138,7 @@ def kraken2_build_standard_prebuilt(standard_prebuilt_size, target_directory, da
     ])
 
     database_path = database_value
-    
+
     size_to_url_str = {
         'full': '',
         '16': '_16gb',
