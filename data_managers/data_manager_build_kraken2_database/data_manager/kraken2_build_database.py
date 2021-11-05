@@ -16,8 +16,10 @@ from enum import Enum
 try:
     # Python3
     from urllib.request import urlopen
+    from urllib.error import URLError
 except ImportError:
     from urllib2 import urlopen
+    from urllib2 import URLError
 
 
 DATA_TABLE_NAME = "kraken2_databases"
@@ -55,14 +57,6 @@ class StandardPrebuiltSizes(Enum):
     full = 'full'
     gb_16 = '16'
     gb_8 = '8'
-
-    def __str__(self):
-        return self.value
-
-
-class PrebuiltDates(Enum):
-    date_2021_05_17 = '2021-05-17'
-    date_2020_12_02 = '2020-12-02'
 
     def __str__(self):
         return self.value
@@ -156,10 +150,14 @@ def kraken2_build_standard_prebuilt(standard_prebuilt_size, prebuilt_date, targe
     date_url_str = prebuilt_date.replace('-', '')
     standard_prebuilt_size_url = size_to_url_str[standard_prebuilt_size]
     # download the pre-built database
-    src = urlopen(
-        'https://genome-idx.s3.amazonaws.com/kraken/k2_standard%s_%s.tar.gz'
-        % (standard_prebuilt_size_url, date_url_str)
-    )
+    try:
+        download_url = 'https://genome-idx.s3.amazonaws.com/kraken/k2_standard%s_%s.tar.gz' % (standard_prebuilt_size_url, date_url_str)
+        src = urlopen(download_url)
+    except URLError as e:
+        print('url: ' + download_url, file=sys.stderr)
+        print(e, file=sys.stderr)
+        exit(1)
+
     with open('tmp_data.tar.gz', 'wb') as dst:
         shutil.copyfileobj(src, dst)
     # unpack the downloaded archive to the target directory
@@ -205,10 +203,14 @@ def kraken2_build_minikraken(minikraken2_version, target_directory, data_table_n
     database_path = database_value
 
     # download the minikraken2 data
-    src = urlopen(
-        'https://genome-idx.s3.amazonaws.com/kraken/minikraken2_%s_8GB_201904.tgz'
-        % minikraken2_version
-    )
+    try:
+        download_url = 'https://genome-idx.s3.amazonaws.com/kraken/minikraken2_%s_8GB_201904.tgz' % minikraken2_version
+        src = urlopen(download_url)
+    except URLError as e:
+        print('url: ' + download_url, file=sys.stderr)
+        print(e, file=sys.stderr)
+        exit(1)
+
     with open('tmp_data.tar.gz', 'wb') as dst:
         shutil.copyfileobj(src, dst)
     # unpack the downloaded archive to the target directory
@@ -368,7 +370,7 @@ def main():
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
     parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to --database-type minikraken)')
     parser.add_argument('--standard-prebuilt-size', dest='standard_prebuilt_size', type=StandardPrebuiltSizes, choices=list(StandardPrebuiltSizes), help='Size of standard prebuilt database to download (only applies to --database-type standard_prebuilt. Options are: "8", "16", "full".)')
-    parser.add_argument('--prebuilt-date', dest='prebuilt_date', type=PrebuiltDates, choices=list(PrebuiltDates), help='Database build date (YYYY-MM-DD). Only applies to --database-type standard_prebuilt. Options are: "2021-05-17", "2020-12-02".)')
+    parser.add_argument('--prebuilt-date', dest='prebuilt_date', help='Database build date (YYYY-MM-DD). Only applies to --database-type standard_prebuilt.')
     parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
     parser.add_argument('--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)')
