@@ -33,12 +33,12 @@ inputName <- tools::file_path_sans_ext(opt$input)
 suppressPackageStartupMessages(library(GenomicSuperSignature))
 dat <- as.matrix(read.table(file = opt$input, header = TRUE, sep = "\t"))
 # RAVmodel <- getModel(opt$model)
-RAVmodel <! readRDS(opt$model)
+RAVmodel <- readRDS(opt$model)
 
 
 ### validate -------------------------------------------------------------------
 val_all <- validate(dat, RAVmodel)
-output_fname <- paste0(inputName, "_validate.csv")
+output_fname <- "validate.csv"
 
 write.csv(val_all,
           file = file.path(opt$outDir, output_fname),
@@ -68,7 +68,7 @@ for (i in seq_len(opt$numOut)) {
     RAVnum <- validated_ind[i]
     res <- gsea(RAVmodel)[[RAVnum]]
 
-    output_fname <- paste0(inputName, "_genesets_RAV", RAVnum, ".csv")
+    output_fname <- paste0("genesets_RAV", RAVnum, ".csv")
     write.csv(res,
               file = file.path(opt$outDir, output_fname),
               row.names = TRUE)
@@ -79,7 +79,7 @@ for (i in seq_len(opt$numOut)) {
     RAVnum <- validated_ind[i]
     findStudiesInCluster(RAVmodel, RAVnum)
 
-    output_fname <- paste0(inputName, "_literatures_RAV", RAVnum, ".csv")
+    output_fname <- paste0("literatures_RAV", RAVnum, ".csv")
     write.csv(res,
               file = file.path(opt$outDir, output_fname),
               row.names = TRUE)
