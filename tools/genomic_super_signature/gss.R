@@ -31,8 +31,7 @@ if (is.null(opt$outDir)) stop("Need --outDir.")
 inputName <- tools::file_path_sans_ext(opt$input)
 
 suppressPackageStartupMessages(library(GenomicSuperSignature))
-dat <- as.matrix(read.table(file = opt$input, header = TRUE, sep = "\t"))
-# RAVmodel <- getModel(opt$model)
+dat <- as.matrix(read.table(file = opt$input, header = TRUE, sep = "\t", row.names=1))
 RAVmodel <- readRDS(opt$model)
 
 
