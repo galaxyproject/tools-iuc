@@ -6,11 +6,12 @@ import json
 import operator
 import os
 import re
-import requests
 import shutil
 import subprocess
 import sys
 import tarfile
+
+import requests
 
 
 GH_REPO_API = 'https://api.github.com/repos/ebi-pf-team/interproscan/'
