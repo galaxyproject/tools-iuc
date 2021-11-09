@@ -14,14 +14,17 @@ import urllib.request
 OUTPUT_BASE_NAME = 'RAVmodel.rds'
 
 BUCKET_NAME = "genomic_super_signature"
-RAVMODEL_NAME ="RAVmodel_{prior}.rds"
+RAVMODEL_NAME = "RAVmodel_{prior}.rds"
 PRIOR_URL = "https://storage.googleapis.com/{bucket_name}/{prior_filename}"
+
 
 def get_prior_url(prior):
     return PRIOR_URL.format(bucket_name=BUCKET_NAME, prior_filename=RAVMODEL_NAME.format(prior=prior))
 
+
 def clean(text):
-    return re.sub('[^\w\-_\.]', '_', text)
+    return re.sub(r'[^\w\-_\.]', '-', text)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -37,11 +40,11 @@ def main():
     parser.add_argument('--version', dest='version', action='store', type=str, default="0")
     parser.add_argument('--tablename', dest='tablename', action='store', type=str, default="genomic_super_signature_ravs")
     args = parser.parse_args()
-    
+
     os.makedirs(args.output, exist_ok=True)
     output_filename = os.path.join(args.output, OUTPUT_BASE_NAME)
     if args.symlink:
-        assert(args.input, ValueError("You must provide a filename when using symlink functionality."))
+        assert args.input, "You must provide a filename when using symlink functionality."
         os.symlink(args.input, output_filename)
     else:
         url = args.url
@@ -50,7 +53,7 @@ def main():
         if url:
             urllib.request.urlretrieve(url, output_filename)
         else:
-            assert(args.input, ValueError("You must provide a filename, prior, or URL."))
+            assert args.input, "You must provide a filename, prior, or URL."
             shutil.copyfile(args.input, output_filename)
     data_manager_dict = {'data_tables': {args.tablename: [dict(value=clean(args.id), dbkey=args.dbkey, version=args.version, name=args.name, path=OUTPUT_BASE_NAME)]}}
 
