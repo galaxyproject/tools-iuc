@@ -1,0 +1,241 @@
+<tool id="blast2rma" name="Generate RMA files" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>from BLAST output</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import os
+#import re
+
+#if str($input_type_cond.input_type) in ['single', 'pair']:
+    #set read1 = $input_type_cond.read1
+    #set blast1 = $input_type_cond.blast1
+#else:
+    ## Processing paired reads are tricky if we're
+    ## downstream from MALT.  MALT doesn’t have a
+    ## paired-read mode, so it won’t attempt to analyze
+    ## reads in pairs.  To do paired read processing,
+    ## set MALT to generate SAM files and then import the
+    ## SAM files into MEGAN, specifying paired read mode
+    ## there. If you have multiple SAM files for the same
+    ## sample, then import them all at the same time to
+    ## create one unified rma6 file.
+
+    #set read1 = $input_type_cond.reads_collection['forward']
+    #set blast1 = $input_type_cond.blast_collection['forward']
+#end if
+
+#if $read1.is_of_type('fasta', 'fasta.gz'):
+    #set read_ext = '.fasta'
+#else:
+    #set read_ext = '.fastq'
+#end if
+#if $read1.ext.endswith('.gz'):
+    #set read_ext = $read_ext + '.gz'
+#end if
+
+#if $blast1.is_of_type('daa'):
+    #set blast_format = 'DAA'
+#else if $blast1.is_of_type('txt'):
+    #set blast_format = 'BlastText'
+#else if $blast1.is_of_type('blastxml'):
+    #set blast_format = 'BlastXML'
+#else if $blast1.is_of_type('tabular'):
+    #set blast_format = 'BlastTab'
+#else if $blast1.is_of_type('sam'):
+    #set blast_format = 'SAM'
+#end if
+#set blast_ext = '.' + $blast_format
+#if $blast1.ext.endswith('.gz'):
+    #set blast_ext = $blast_ext + '.gz'
+#end if
+
+#set read1_identifier = $os.path.basename($read1.file_name) + $read_ext
+ln -s '${read1}' '${read1_identifier}' &&
+
+#set blast1_identifier = $os.path.basename($blast1.file_name) + $blast_ext
+ln -s '${blast1}' '${blast1_identifier}' &&
+
+#if str($input_type_cond.input_type) in ['pair', 'paired']:
+    #if str($input_type_cond.input_type) == 'pair':
+        #set read2 = $input_type_cond.read2
+        #set blast2 = $input_type_cond.blast2
+    #else if str($input_type_cond.input_type) == 'paired':
+        #set read2 = $input_type_cond.reads_collection['reverse']
+        #set blast2 = $input_type_cond.blast_collection['reverse']
+    #end if
+    #set read2_identifier = $os.path.basename($read2.file_name) + $read_ext
+    ln -s '${read2}' '${read2_identifier}' &&
+    #set blast2_identifier = $os.path.basename($blast2.file_name) + $blast_ext
+    ln -s '${blast2}' '${blast2_identifier}' &&
+#end if
+
+blast2rma 
+#if str($input_type_cond.input_type) == 'single':
+    --in '${blast1_identifier}'
+    --reads '${read1_identifier}'
+    --out '${rma6_output}'
+#else if str($input_type_cond.input_type) == 'pair':
+    --in '${blast1_identifier}' '${blast2_identifier}'
+    --reads '${read1_identifier}' '${read2_identifier}'
+    --paired
+    --out '${rma6_output}'
+#else if str($input_type_cond.input_type) == 'paired':
+    --in '${blast1_identifier}' '${blast2_identifier}'
+    --reads '${read1_identifier}' '${read2_identifier}'
+    --paired
+    ## Strangely, megan requires an output
+    ## directory when processing paired reads
+    ## even though it produces a single file.
+    ## We'll accommodate thie by prepending ./
+    ## to a temporary output file and then move
+    ## it later.
+    --out './tmp.rma6'
+#end if
+--format '${blast_format}'
+--blastMode '${blast_mode}'
+--threads \${GALAXY_SLOTS:-8}
+--useCompression false
+$advanced_options.long_reads
+--maxMatchesPerRead '$advanced_options.maxMatchesPerRead'
+$advanced_options.classify
+--minScore '$advanced_options.minScore'
+--maxExpected '$advanced_options.maxExpected'
+--minPercentIdentity '$advanced_options.minPercentIdentity'
+--topPercent '$advanced_options.topPercent'
+--minSupportPercent '$advanced_options.minSupportPercent'
+--minSupport '$advanced_options.minSupport'
+--minPercentReadCover '$advanced_options.minPercentReadCover'
+--minPercentReferenceCover '$advanced_options.minPercentReferenceCover'
+--minReadLength '$advanced_options.minReadLength'
+--lcaAlgorithm '$advanced_options.lcaAlgorithm'
+--lcaCoveragePercent '$advanced_options.lcaCoveragePercent'
+--readAssignmentMode '$advanced_options.readAssignmentMode'
+#if str($advanced_options.con_file_cond.con_file) == 'yes':
+    --conFile '$advanced_options.con_file_cond.conFile'
+#end if
+#if str($input_type_cond.input_type) == 'paired':
+    && mv './tmp.rma6' '$rma6_output'
+#end if
+]]></command>
+    <inputs>
+        <expand macro="input_type_cond"/>
+        <param argument="blast_mode" type="select" label="Blast mode">
+            <option value="Unknown" selected="True">Unknown</option>
+            <option value="BlastN">BlastN</option>
+            <option value="BlastP">BlastP</option>
+            <option value="BlastX">BlastX</option>
+            <option value="Classifier">Classifier</option>
+        </param>
+        <section name="advanced_options" title="Advanced options" expanded="false">
+            <param argument="long_reads" type="boolean" truevalue="--longReads" falsevalue="" checked="false" label="Parse and analyse input reads as long reads?"/>
+            <param argument="maxMatchesPerRead" type="integer" value="100" label="Maximum matches per read"/>
+            <param argument="classify" type="boolean" truevalue="--classify" falsevalue="" checked="true" label="Run classification algorithm.?"/>
+            <param argument="minScore" type="float" value="50.0" label="Minimum score"/>
+            <param argument="maxExpected" type="float" value="0.01" label="Maximum expected"/>
+            <param argument="minPercentIdentity" type="float" value="0.0" min="0.0" max="100.0" label="Minimum percent identity"/>
+            <param argument="topPercent" type="float" value="10.0" min="0.0" max="100.0" label="Top percent"/>
+            <param argument="minSupportPercent" type="float" value="0.05" min="0.0" max="100.0" label="Minimum support as percent of assigned reads" help="0 value ignores"/>
+            <param argument="minSupport" type="integer" value="0" label="Minimum support" help="0 value ignores"/>
+            <param argument="minPercentReadCover" type="float" value="0.0" min="0.0" max="100.0" label="Minimum percent of read length to be covered by alignments"/>
+            <param argument="minPercentReferenceCover" type="float" value="0.0" min="0.0" max="100.0" label="Minimum percent of reference length to be covered by alignments"/>
+            <param argument="minReadLength" type="integer" value="0" label="Minimum read length"/>
+            <param argument="lcaAlgorithm" type="select" label="Select the LCA algorithm to use for taxonomic assignment">
+                <option value="naive" selected="True">naive</option>
+                <option value="weighted">weighted</option>
+                <option value="longReads">longReads</option>
+            </param>
+            <param argument="lcaCoveragePercent" type="float" value="100.0" min="0.0" max="100.0" label="Percent for the LCA to cover"/>
+            <param argument="readAssignmentMode" type="select" label="Select the read assignment mode">
+                <option value="alignedBases" selected="True">alignedBases</option>
+                <option value="readCount">readCount</option>
+            </param>
+            <conditional name="con_file_cond">
+                <param name="con_file" type="select" label="Process a file of contaminant taxa" help="One id or name per line">
+                    <option value="no" selected="true">No</option>
+                    <option value="yes">Yes</option>
+                </param>
+                <when value="no"/>
+                <when value="yes">
+                    <param argument="conFile" type="data" format="txt" label="File of contaminant taxa"/>
+                </when>
+            </conditional>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="rma6_output" format="rma6"/>
+    </outputs>
+    <tests>
+        <!-- Single dataset input -->
+        <test expect_num_outputs="1">
+            <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz" ftype="fastqsanger.gz"/>
+            <param name="blast1" value="blast_R1.txt" ftype="txt"/>
+            <param name="blast_mode" value="BlastN"/>
+            <output name="rma6_output" ftype="rma6">
+                <assert_contents>
+                    <has_size value="19596"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Single dataset input, contaminants file -->
+        <test expect_num_outputs="1">
+            <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz" ftype="fastqsanger.gz"/>
+            <param name="blast1" value="blast_R1.txt" ftype="txt"/>
+            <param name="blast_mode" value="BlastN"/>
+            <param name="con_file" value="yes"/>
+            <param name="conFile" value="contaminants.txt" ftype="txt"/>
+            <output name="rma6_output" ftype="rma6">
+                <assert_contents>
+                    <has_size value="19596"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Dataset pair input -->
+        <test expect_num_outputs="1">
+            <param name="input_type" value="pair"/>
+            <param name="read1" value="13-1941-6_S4_L001_R1_600000.fastq.gz" ftype="fastqsanger.gz"/>
+            <param name="read2" value="13-1941-6_S4_L001_R2_600000.fastq.gz" ftype="fastqsanger.gz"/>
+            <param name="blast1" value="blast_R1.txt" ftype="txt"/>
+            <param name="blast1" value="blast_R2.txt" ftype="txt"/>
+            <param name="blast_mode" value="BlastN"/>
+            <output name="rma6_output" ftype="rma6">
+                <assert_contents>
+                    <has_size value="10015"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- List of dataset pairs input -->
+        <test expect_num_outputs="1">
+            <param name="input_type" value="paired"/>
+            <param name="reads_collection">
+                <collection type="paired">
+                    <element name="forward" value="13-1941-6_S4_L001_R1_600000.fastq.gz"/>
+                    <element name="reverse" value="13-1941-6_S4_L001_R2_600000.fastq.gz"/>
+                </collection>
+            </param>
+            <param name="blast_collection">
+                <collection type="paired">
+                    <element name="forward" value="blast_R1.txt"/>
+                    <element name="reverse" value="blast_R2.txt"/>
+                </collection>
+            </param>
+            <param name="blast_mode" value="BlastN"/>
+            <output name="rma6_output" ftype="rma6">
+                <assert_contents>
+                    <has_size value="39806"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+Computes MEGAN RMA files from BLAST (or similar) files.
+
+    </help>
+    <citations>
+        <citation type="doi">https://doi.org/10.1101/050559</citation>
+    </citations>
+</tool>
+
