@@ -37,7 +37,7 @@ def main():
     parser.add_argument('--input', dest='input', action='store', type=str, default=None)
     parser.add_argument('--symlink', dest='symlink', action='store_true', default=False)
     parser.add_argument('--version', dest='version', action='store', type=str, default="0")
-    parser.add_argument('--tablename', dest='tablename', action='store', type=str, default="genomic_super_signature_ravs")
+    parser.add_argument('--tablename', dest='tablename', action='store', type=str, default="genomic_super_signature_ravmodels")
     args = parser.parse_args()
 
     os.makedirs(args.output, exist_ok=True)
