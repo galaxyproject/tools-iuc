@@ -72,7 +72,7 @@ def fetch_artic_primers(output_directory, primers):
 def install_primer_file(
     output_directory, input_filename, primer_name, primer_description
 ):
-    name = re.sub(r"\W", "", str(primer_name).replace(" ", "_"))
+    name = re.sub(r"\W-", "", str(primer_name).replace(" ", "_"))
     output_filename = os.path.join(output_directory, name + ".bed")
     with open(input_filename) as input_file:
         write_artic_style_bed(input_file, output_filename)
