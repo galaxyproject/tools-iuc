@@ -40,12 +40,13 @@ def write_artic_style_bed(input_file, bed_output_filename):
             bed_output_file.write("\t".join(fields))
 
 
-def fetch_artic_primers(output_directory, primers):
+def fetch_primers(output_directory, primers):
     primer_sets = {
         "SARS-CoV-2-ARTICv1": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V1/nCoV-2019.bed",
         "SARS-CoV-2-ARTICv2": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V2/nCoV-2019.bed",
         "SARS-CoV-2-ARTICv3": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V3/nCoV-2019.bed",
-        "SARS-CoV-2-ARTICv4": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V4/SARS-CoV-2.scheme.bed"
+        "SARS-CoV-2-ARTICv4": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V4/SARS-CoV-2.scheme.bed",
+        "VarSkip-V1a": "https://raw.githubusercontent.com/nebiolabs/VarSkip/main/schemes/NEB_VarSkip/V1a/NEB_VarSkip.scheme.bed"
     }
 
     data = []
@@ -64,7 +65,11 @@ def fetch_artic_primers(output_directory, primers):
             exit(response.status_code)
         bed_output_filename = os.path.join(output_directory, name + ".bed")
         write_artic_style_bed(StringIO(response.text), bed_output_filename)
-        description = name[:-2] + " " + name[-2:] + " primer set"
+        if 'ARTIC' in name:
+            # split the vX from the rest of the name in ARTIC primer set description
+            description = name[:-2] + " " + name[-2:] + " primer set"
+        else:
+            description = name + " primer set"
         data.append(dict(value=name, path=bed_output_filename, description=description))
     return data
 
@@ -87,7 +92,7 @@ class SplitArgs(argparse.Action):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Fetch ARTIC SARS-CoV-2 primer files for Galaxy/IRIDA use"
+        description="Fetch ARTIC and VarSkip SARS-CoV-2 primer files for Galaxy/IRIDA use"
     )
     parser.add_argument(
         "--output_directory", default="tmp", help="Directory to write output to"
@@ -150,7 +155,7 @@ if __name__ == "__main__":
     data_manager_dict["data_tables"][DATA_TABLE_NAME] = []
 
     if args.artic_primers:
-        data = fetch_artic_primers(output_directory, args.artic_primers)
+        data = fetch_primers(output_directory, args.artic_primers)
     else:
         data = install_primer_file(
             output_directory,
