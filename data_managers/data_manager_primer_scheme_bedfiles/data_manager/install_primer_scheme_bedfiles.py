@@ -39,7 +39,7 @@ def convert_and_write_bed(input_file, bed_output_filename, scheme_name, force_st
                     exit("invalid format in BED file: {}".format(line.rstrip()))
             # 'BED' format used by ARTIC pipeline uses
             # chrom  start  end  primer_name  pool_name
-            # see this: https://github.com/artic-network/fieldbioinformatics/blob/master/artic/vcftagprimersites.py#L76 
+            # see this: https://github.com/artic-network/fieldbioinformatics/blob/master/artic/vcftagprimersites.py#L76
             # for ARTIC minion and
             # this: https://github.com/andersen-lab/ivar/blob/master/src/primer_bed.cpp#L125
             # for ivar trim (ivar trim treats the file as BED following the standard but also allows the ARTIC format)
