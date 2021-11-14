@@ -18,27 +18,36 @@ import requests
 DATA_TABLE_NAME = "primer_scheme_bedfiles"
 
 
-def write_artic_style_bed(input_file, bed_output_filename):
+def convert_and_write_bed(input_file, bed_output_filename, scheme_name):
     with open(bed_output_filename, "w") as bed_output_file:
         for line in input_file:
-            fields = line.split("\t")
-            if len(fields) < 6:
-                # too short to encode the strand format
-                exit("invalid format in BED file: {}".format(line.rstrip()))
-            try:
-                # try and parse field 5 as a number
-                score = float(fields[4])
-            except ValueError:
-                # Alright, this is an ARTIC-style bed,
-                # which is actually against the specs, but required by the
-                # ARTIC pipeline.
-                pass
+            fields = line.strip().split("\t")
+            if "Midnight" in scheme_name:
+                # Midnight primers are distributed in a tabular file, not a BED file
+                if line.startswith("Primer Name"):
+                    continue
+                if len(fields) != 8:
+                    exit("Unexpected format in Midnight primer file: {}".format(line.rstrip()))
+                (primer_name, _, pool, _, _, _, start, end) = fields
+                strand = '+' if primer_name.endswith('LEFT') else '-'
+                print("MN908947.3", start, end, primer_name, pool, strand, sep="\t", file=bed_output_file)
             else:
-                # This is a regular bed with numbers in the score column.
-                # We need to "fix" it for the ARTIC pipeline.
-                fields[4] = '_{0}'.format(score)
-            bed_output_file.write("\t".join(fields))
-
+                if len(fields) < 6:
+                    # too short to encode the strand format
+                    exit("invalid format in BED file: {}".format(line.rstrip()))
+                try:
+                    # try and parse field 5 as a number
+                    score = float(fields[4])
+                except ValueError:
+                    # Alright, this is an ARTIC-style bed,
+                    # which is actually against the specs, but required by the
+                    # ARTIC pipeline.
+                    pass
+                else:
+                    # This is a regular bed with numbers in the score column.
+                    # We need to "fix" it for the ARTIC pipeline.
+                    fields[4] = '{0}'.format(score)
+                bed_output_file.write("\t".join(fields))
 
 def fetch_primers(output_directory, primers):
     primer_sets = {
@@ -46,7 +55,8 @@ def fetch_primers(output_directory, primers):
         "SARS-CoV-2-ARTICv2": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V2/nCoV-2019.bed",
         "SARS-CoV-2-ARTICv3": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V3/nCoV-2019.bed",
         "SARS-CoV-2-ARTICv4": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V4/SARS-CoV-2.scheme.bed",
-        "VarSkip-V1a": "https://raw.githubusercontent.com/nebiolabs/VarSkip/main/schemes/NEB_VarSkip/V1a/NEB_VarSkip.scheme.bed"
+        "VarSkip-V1a": "https://raw.githubusercontent.com/nebiolabs/VarSkip/main/schemes/NEB_VarSkip/V1a/NEB_VarSkip.scheme.bed",
+        "Midnight-v1": "https://zenodo.org/record/3897530/files/SARS-CoV-2_primer_sets_RBK004_nanopore_sequencing.tab?download=1"
     }
 
     data = []
@@ -64,7 +74,7 @@ def fetch_primers(output_directory, primers):
             )
             exit(response.status_code)
         bed_output_filename = os.path.join(output_directory, name + ".bed")
-        write_artic_style_bed(StringIO(response.text), bed_output_filename)
+        convert_and_write_bed(StringIO(response.text), bed_output_filename, name)
         if 'ARTIC' in name:
             # split the vX from the rest of the name in ARTIC primer set description
             description = name[:-2] + " " + name[-2:] + " primer set"
@@ -75,12 +85,12 @@ def fetch_primers(output_directory, primers):
 
 
 def install_primer_file(
-    output_directory, input_filename, primer_name, primer_description
+    output_directory, input_filename, scheme_name, primer_description
 ):
-    name = re.sub(r"\W-", "", str(primer_name).replace(" ", "_"))
+    name = re.sub(r"\W-", "", str(scheme_name).replace(" ", "_"))
     output_filename = os.path.join(output_directory, name + ".bed")
     with open(input_filename) as input_file:
-        write_artic_style_bed(input_file, output_filename)
+        convert_and_write_bed(input_file, output_filename, scheme_name)
     data = [dict(value=name, description=primer_description, path=output_filename)]
     return data
 
@@ -150,6 +160,7 @@ if __name__ == "__main__":
     if not os.path.isdir(output_directory):
         os.makedirs(output_directory)
 
+    print("EXISTING CONFIG", config, file=sys.stderr)
     data_manager_dict = {}
     data_manager_dict["data_tables"] = config.get("data_tables", {})
     data_manager_dict["data_tables"][DATA_TABLE_NAME] = []
