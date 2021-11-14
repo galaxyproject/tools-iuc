@@ -49,6 +49,7 @@ def convert_and_write_bed(input_file, bed_output_filename, scheme_name):
                     fields[4] = '{0}'.format(score)
                 bed_output_file.write("\t".join(fields))
 
+
 def fetch_primers(output_directory, primers):
     primer_sets = {
         "SARS-CoV-2-ARTICv1": "https://raw.githubusercontent.com/artic-network/artic-ncov2019/master/primer_schemes/nCoV-2019/V1/nCoV-2019.bed",
