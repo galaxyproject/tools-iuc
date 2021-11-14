@@ -18,7 +18,7 @@ import requests
 DATA_TABLE_NAME = "primer_scheme_bedfiles"
 
 
-def convert_and_write_bed(input_file, bed_output_filename, scheme_name):
+def convert_and_write_bed(input_file, bed_output_filename, scheme_name, force_string=True):
     with open(bed_output_filename, "w") as bed_output_file:
         for line in input_file:
             fields = line.strip().split("\t")
@@ -32,24 +32,26 @@ def convert_and_write_bed(input_file, bed_output_filename, scheme_name):
                 strand = '+' if primer_name.endswith('LEFT') else '-'
                 if strand == '-':
                     start, end = end, start
-                print("MN908947.3", start, end, primer_name, pool, strand, sep="\t", file=bed_output_file)
+                fields = ["MN908947.3", start, end, primer_name, pool, strand]
             else:
-                if len(fields) < 6:
-                    # too short to encode the strand format
+                if len(fields) < 5:
+                    # too short to encode the "ARTIC style BED" format
                     exit("invalid format in BED file: {}".format(line.rstrip()))
-                try:
-                    # try and parse field 5 as a number
-                    score = float(fields[4])
-                except ValueError:
-                    # Alright, this is an ARTIC-style bed,
-                    # which is actually against the specs, but required by the
-                    # ARTIC pipeline.
-                    pass
-                else:
-                    # This is a regular bed with numbers in the score column.
-                    # We need to "fix" it for the ARTIC pipeline.
-                    fields[4] = '_{0}'.format(score)
-                bed_output_file.write("\t".join(fields))
+            # 'BED' format used by ARTIC pipeline uses
+            # chrom  start  end  primer_name  pool_name
+            # see this: https://github.com/artic-network/fieldbioinformatics/blob/master/artic/vcftagprimersites.py#L76 
+            # for ARTIC minion and
+            # this: https://github.com/andersen-lab/ivar/blob/master/src/primer_bed.cpp#L125
+            # for ivar trim (ivar trim treats the file as BED following the standard but also allows the ARTIC format)
+            try:
+                float(fields[4])
+            except ValueError:
+                # this is a string, we can leave it as is
+                pass
+            else:
+                # ensure that it is forced to be a string
+                fields[4] = '_{0}'.format(fields[4])
+            print('\t'.join(fields), file=bed_output_file)
 
 
 def fetch_primers(output_directory, primers):
