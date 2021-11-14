@@ -30,6 +30,8 @@ def convert_and_write_bed(input_file, bed_output_filename, scheme_name):
                     exit("Unexpected format in Midnight primer file: {}".format(line.rstrip()))
                 (primer_name, _, pool, _, _, _, start, end) = fields
                 strand = '+' if primer_name.endswith('LEFT') else '-'
+                if strand == '-':
+                    start, end = end, start
                 print("MN908947.3", start, end, primer_name, pool, strand, sep="\t", file=bed_output_file)
             else:
                 if len(fields) < 6:
@@ -46,7 +48,7 @@ def convert_and_write_bed(input_file, bed_output_filename, scheme_name):
                 else:
                     # This is a regular bed with numbers in the score column.
                     # We need to "fix" it for the ARTIC pipeline.
-                    fields[4] = '{0}'.format(score)
+                    fields[4] = '_{0}'.format(score)
                 bed_output_file.write("\t".join(fields))
 
 
@@ -103,7 +105,7 @@ class SplitArgs(argparse.Action):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Fetch ARTIC and VarSkip SARS-CoV-2 primer files for Galaxy/IRIDA use"
+        description="Fetch ARTIC, VarSkip and Midnight SARS-CoV-2 primer files for Galaxy/IRIDA use"
     )
     parser.add_argument(
         "--output_directory", default="tmp", help="Directory to write output to"
@@ -161,7 +163,6 @@ if __name__ == "__main__":
     if not os.path.isdir(output_directory):
         os.makedirs(output_directory)
 
-    print("EXISTING CONFIG", config, file=sys.stderr)
     data_manager_dict = {}
     data_manager_dict["data_tables"] = config.get("data_tables", {})
     data_manager_dict["data_tables"][DATA_TABLE_NAME] = []
