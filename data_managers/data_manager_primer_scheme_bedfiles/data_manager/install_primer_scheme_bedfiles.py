@@ -92,7 +92,10 @@ def fetch_primers(output_directory, primers):
 def install_primer_file(
     output_directory, input_filename, scheme_name, primer_description
 ):
-    name = re.sub(r"\W-", "", str(scheme_name).replace(" ", "_"))
+    # (?!-)\W is all non-word charactes except -,
+    # see https://stackoverflow.com/questions/17327765/exclude-characters-from-a-character-class
+    # i.e. remove all non word characters except -
+    name = re.sub(r"(?!-)\W", "", str(scheme_name).replace(" ", "_"))
     output_filename = os.path.join(output_directory, name + ".bed")
     with open(input_filename) as input_file:
         convert_and_write_bed(input_file, output_filename, scheme_name)
