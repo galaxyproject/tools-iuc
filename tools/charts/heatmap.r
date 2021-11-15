@@ -27,7 +27,7 @@ matrify <- function(data) {
     taxa <- Matrix(0, nrow = length(plt_codes), ncol = length(spc_codes), sparse = TRUE)
     row <- match(plt, plt_codes)
     col <- match(spc, spc_codes)
-    for (i in seq_len(abu)) {
+    for (i in seq_len(length(abu))) {
         taxa[row[i], col[i]] <- abu[i]
     }
     colnames(taxa) <- spc_codes
