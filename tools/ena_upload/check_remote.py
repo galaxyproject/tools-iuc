@@ -12,7 +12,7 @@ def check_remote_entry(entry_type, query_dict, out_format='json'):
     '''
     assert entry_type in ['study', 'sample', 'experiment', 'run']
     params_dict = {}
-    query_str = ' AND '.join(['%s=%s' % (key, value) for (key, value) in query_dict.items()])
+    query_str = ' AND '.join(['%s="%s"' % (key, value) for (key, value) in query_dict.items()])
     params_dict['query'] = query_str
     params_dict['result'] = 'read_' + entry_type
     params_dict['fields'] = entry_type + '_alias'
