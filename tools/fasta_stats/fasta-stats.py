@@ -9,10 +9,8 @@
 
 import click
 import numpy as np
-from tabulate import tabulate
 from Bio import SeqIO
 import re
-import pandas as pd
 from os import path
 
 
@@ -109,48 +107,34 @@ def run(fasta, stats, gap):
     n50_idx = np.where(scaffold_lens > n50_len)[0][0]
     n90_len = scaffold_lens[-1] * 0.9
     n90_idx = np.where(scaffold_lens > n90_len)[0][0]
-    to_csv = {"Fields": [], "Values": []}
-    to_csv["Fields"].append("Scaffold L50")
-    to_csv["Values"].append(n50_idx + 1)
-    to_csv["Fields"].append("Scaffold N50")
-    to_csv["Values"].append(seq_len_list[n50_idx])
-    to_csv["Fields"].append("Scaffold L90")
-    to_csv["Values"].append(n90_idx + 1)
-    to_csv["Fields"].append("Scaffold N90")
-    to_csv["Values"].append(seq_len_list[n90_idx])
-    to_csv["Fields"].append("Scaffold len_max")
-    to_csv["Values"].append(np.max(seq_len_list))
-    to_csv["Fields"].append("Scaffold len_min")
-    to_csv["Values"].append(np.min(seq_len_list))
-    to_csv["Fields"].append("Scaffold len_mean")
-    to_csv["Values"].append(int(np.mean(seq_len_list)))
-    to_csv["Fields"].append("Scaffold len_median")
-    to_csv["Values"].append(int(np.median(seq_len_list)))
-    to_csv["Fields"].append("Scaffold len_std")
-    to_csv["Values"].append(int(np.std(seq_len_list)))
-    to_csv["Fields"].append("Scaffold num_A")
-    to_csv["Values"].append(bases_global["A"])
-    to_csv["Fields"].append("Scaffold num_N")
-    to_csv["Values"].append(bases_global["N"])
-    to_csv["Fields"].append("Scaffold num_T")
-    to_csv["Values"].append(bases_global["T"])
-    to_csv["Fields"].append("Scaffold num_C")
-    to_csv["Values"].append(bases_global["C"])
-    to_csv["Fields"].append("Scaffold num_G")
-    to_csv["Values"].append(bases_global["G"])
-    to_csv["Fields"].append("Scaffold num_bp")
-    to_csv["Values"].append(scaffold_lens[-1])
-    to_csv["Fields"].append("Scaffold num_bp_not_N")
-    to_csv["Values"].append(scaffold_lens[-1] - bases_global["N"])
-    to_csv["Fields"].append("Scaffold num_seq")
-    to_csv["Values"].append(len(seq_len_list))
-    to_csv["Fields"].append("Scaffold GC content overall")
-    to_csv["Values"].append(
-        "%0.2f"
-        % ((bases_global["G"] + bases_global["C"]) * 100.0 / sum(seq_len.values())),
+
+    to_csv = []
+    to_csv.append(["Fields", "Values"])
+    to_csv.append(["Scaffold L50", f"{n50_idx + 1}"])
+    to_csv.append(["Scaffold N50", f"{seq_len_list[n50_idx]}"])
+    to_csv.append(["Scaffold L90", f"{n90_idx + 1}"])
+    to_csv.append(["Scaffold N90", f"{seq_len_list[n90_idx]}"])
+    to_csv.append(["Scaffold len_max", f"{np.max(seq_len_list)}"])
+    to_csv.append(["Scaffold len_min", f"{np.min(seq_len_list)}"])
+    to_csv.append(["Scaffold len_mean", f"{int(np.mean(seq_len_list))}"])
+    to_csv.append(["Scaffold len_median", f"{int(np.median(seq_len_list))}"])
+    to_csv.append(["Scaffold len_std", f"{int(np.std(seq_len_list))}"])
+    to_csv.append(["Scaffold num_N", f'{bases_global["N"]}'])
+    to_csv.append(["Scaffold num_A", f'{bases_global["A"]}'])
+    to_csv.append(["Scaffold num_T", f'{bases_global["T"]}'])
+    to_csv.append(["Scaffold num_C", f'{bases_global["C"]}'])
+    to_csv.append(["Scaffold num_bp", f"{scaffold_lens[-1]}"])
+    to_csv.append(["Scaffold num_bp_not_N",
+                  f'{scaffold_lens[-1] - bases_global["N"]}'])
+    to_csv.append(["Scaffold num_seq", f"{len(seq_len_list)}"])
+    to_csv.append(
+        [
+            "Scaffold GC content overall",
+            "%0.2f"
+            % ((bases_global["G"] + bases_global["C"]) * 100.0 / sum(seq_len.values())),
+        ]
     )
-    to_csv["Fields"].append("Number of gaps")
-    to_csv["Values"].append(gap_count)
+    to_csv.append(["Number of gaps", f"{gap_count}"])
 
     # NOTE: Contig statistics
     seq_len_list = list(contigs_len)
@@ -161,58 +145,41 @@ def run(fasta, stats, gap):
     n50_idx = np.where(contigs_len > n50_len)[0][0]
     n90_len = contigs_len[-1] * 0.9
     n90_idx = np.where(contigs_len > n90_len)[0][0]
-    to_csv["Fields"].append("Contig L50")
-    to_csv["Values"].append(n50_idx + 1)
-    to_csv["Fields"].append("Contig N50")
-    to_csv["Values"].append(seq_len_list[n50_idx])
-    to_csv["Fields"].append("Contig L90")
-    to_csv["Values"].append(n90_idx + 1)
-    to_csv["Fields"].append("Contig N90")
-    to_csv["Values"].append(seq_len_list[n90_idx])
-    to_csv["Fields"].append("Contig len_max")
-    to_csv["Values"].append(np.max(seq_len_list))
-    to_csv["Fields"].append("Contig len_min")
-    to_csv["Values"].append(np.min(seq_len_list))
-    to_csv["Fields"].append("Contig len_mean")
-    to_csv["Values"].append(int(np.mean(seq_len_list)))
-    to_csv["Fields"].append("Contig len_median")
-    to_csv["Values"].append(int(np.median(seq_len_list)))
-    to_csv["Fields"].append("Contig len_std")
-    to_csv["Values"].append(int(np.std(seq_len_list)))
-    to_csv["Fields"].append("Contig num_bp")
-    to_csv["Values"].append(contigs_len[-1])
-    to_csv["Fields"].append("Contig num_seq")
-    to_csv["Values"].append(len(contigs_len))
-    to_csv = pd.DataFrame(to_csv)
-    if stats:
-        to_csv.to_csv(
-            stats,
-            sep="\t",
-            index=False,
-        )
-    else:
-        print("General scaffolds and contigs stats.")
-        print(tabulate(to_csv, headers="keys",
-              tablefmt="psql", disable_numparse=True))
+    to_csv.append(["Contig L50", f"{n50_idx + 1}"])
+    to_csv.append(["Contig N50", f"{seq_len_list[n50_idx]}"])
+    to_csv.append(["Contig L90", f"{n90_idx + 1}"])
+    to_csv.append(["Contig N90", f"{seq_len_list[n90_idx]}"])
+    to_csv.append(["Contig len_max", f"{np.max(seq_len_list)}"])
+    to_csv.append(["Contig len_min", f"{np.min(seq_len_list)}"])
+    to_csv.append(["Contig len_mean", f"{int(np.mean(seq_len_list))}"])
+    to_csv.append(["Contig len_median", f"{int(np.median(seq_len_list))}"])
+    to_csv.append(["Contig len_std", f"{int(np.std(seq_len_list))}"])
+    to_csv.append(["Contig num_bp", f"{contigs_len[-1]}"])
+    to_csv.append(["Contig num_seq", f"{len(contigs_len)}"])
 
-    gaps_csv = {"Scaffold": [], "start": [], "end": []}
+    if stats:
+        with open(stats, "w") as fout:
+            for val in to_csv:
+                print("\t".join(val), file=fout)
+    else:
+        print("General scaffolds and contigs stats.\n")
+        for val in to_csv:
+            print("\t".join(val))
+    gaps_csv = [["Scaffold", "start", "end"]]
     for key in seq_id_Ngaprange:
         if not len(seq_id_Ngaprange[key]):
             continue
         for rng in seq_id_Ngaprange[key]:
-            gaps_csv["Scaffold"].append(key)
-            gaps_csv["start"].append(rng[0])
-            gaps_csv["end"].append(rng[1])
-    gaps_csv = pd.DataFrame(gaps_csv)
+            gaps_csv.append([f"{key}", f"{rng[0]}", f"{rng[1]}"])
     if gap:
-        gaps_csv.to_csv(
-            gap,
-            sep="\t",
-            index=False,
-        )
+        with open(gap, "w") as fout:
+            for gp in gaps_csv:
+                print("\t".join(gp), file=fout)
+
     else:
-        print("\n\nGaps in scaffolds.")
-        print(tabulate(gaps_csv, headers="keys", tablefmt="psql"))
+        print("\n\nGaps in scaffolds.\n")
+        for gp in gaps_csv:
+            print("\t".join(gp))
 
 
 if __name__ == "__main__":
