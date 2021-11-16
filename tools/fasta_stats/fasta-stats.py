@@ -13,18 +13,19 @@ import re
 from os import path
 
 
-def calculate_NG50(estimated_genome,total_length,sequence_lengths):
+def calculate_NG50(estimated_genome, total_length, sequence_lengths):
     temp = 0
-    teoretical_NG50 = estimated_genome/2.0
+    teoretical_NG50 = estimated_genome / 2.0
     NG50 = 0
     for seq in sequence_lengths:
         temp += seq
         if teoretical_NG50 < temp:
             NG50 = seq
             break
-    return(NG50)
+    return NG50
 
-def run(fasta,stats_output,gaps_output,genome_size):
+
+def run(fasta, stats_output, gaps_output, genome_size):
     """Generates scaffold statistics."""
     if not fasta:
         exit("Input file not given.")
@@ -71,8 +72,7 @@ def run(fasta,stats_output,gaps_output,genome_size):
         n_range_len = len(n_range)
         if n_range_len > 0:
             n_range = (
-                [(0, 0)] + n_range +
-                [(seq_len[seq_record.id], seq_len[seq_record.id])]
+                [(0, 0)] + n_range + [(seq_len[seq_record.id], seq_len[seq_record.id])]
             )
             for idx in range(n_range_len + 1):
                 nstart = n_range[idx][1]
@@ -85,19 +85,17 @@ def run(fasta,stats_output,gaps_output,genome_size):
 
     SEQ_LEN_LIST = list(seq_len.values())
     scaffold_lens = list(SEQ_LEN_LIST)
-    
-    
+
     # NOTE: Scaffold statistics
     scaffold_lens.sort(reverse=True)
     scaffold_lens = np.array(scaffold_lens)
     scaffold_lens_sum = np.cumsum(scaffold_lens)
-    tmp=0
+    tmp = 0
     N50_len = scaffold_lens_sum[-1] * 0.5
     N50_idx = np.where(scaffold_lens_sum > N50_len)[0][0]
     N90_len = scaffold_lens_sum[-1] * 0.9
     N90_idx = np.where(scaffold_lens_sum > N90_len)[0][0]
-    NG50 = calculate_NG50(genome_size,scaffold_lens_sum[-1],scaffold_lens)
-
+    NG50 = calculate_NG50(genome_size, scaffold_lens_sum[-1], scaffold_lens)
 
     # NOTE: Contig statistics
     seq_len_list = list(contigs_len)
@@ -108,53 +106,71 @@ def run(fasta,stats_output,gaps_output,genome_size):
     n50_idx = np.where(contigs_len_sum > n50_len)[0][0]
     n90_len = contigs_len_sum[-1] * 0.9
     n90_idx = np.where(contigs_len_sum > n90_len)[0][0]
-    ng50 = calculate_NG50(genome_size,contigs_len_sum[-1],contigs_len)
-    
-    with open(stats_output,"w") as soutput:
-        soutput.write("{}\t{}\n".format("Scaffold L50",N50_idx+1))
-        soutput.write("{}\t{}\n".format("Scaffold N50",SEQ_LEN_LIST[N50_idx]))
-        soutput.write("{}\t{}\n".format("Scaffold L90",N90_idx + 1))
-        soutput.write("{}\t{}\n".format("Scaffold N90",SEQ_LEN_LIST[N90_idx]))
-        if genome_size != 0:
-            soutput.write("{}\t{}\n".format("Scaffold NG50",NG50))
-        soutput.write("{}\t{}\n".format("Scaffold len_max",np.max(SEQ_LEN_LIST)))
-        soutput.write("{}\t{}\n".format("Scaffold len_min",np.min(SEQ_LEN_LIST)))
-        soutput.write("{}\t{}\n".format("Scaffold len_mean",int(np.mean(SEQ_LEN_LIST))))
-        soutput.write("{}\t{}\n".format("Scaffold len_median",int(np.median(SEQ_LEN_LIST))))
-        soutput.write("{}\t{}\n".format("Scaffold len_std",int(np.std(SEQ_LEN_LIST))))
-        soutput.write("{}\t{}\n".format("Scaffold num_A",bases_global["A"]))
-        soutput.write("{}\t{}\n".format("Scaffold num_T",bases_global["T"]))
-        soutput.write("{}\t{}\n".format("Scaffold num_C",bases_global["C"]))
-        soutput.write("{}\t{}\n".format("Scaffold num_G",bases_global["G"]))
-        soutput.write("{}\t{}\n".format("Scaffold num_N",bases_global["N"]))
-        soutput.write("{}\t{}\n".format("Scaffold num_bp",scaffold_lens_sum[-1]))
-        soutput.write("{}\t{}\n".format("Scaffold num_bp_not_N",scaffold_lens_sum[-1] - bases_global["N"]))
-        soutput.write("{}\t{}\n".format("Scaffold num_seq",len(SEQ_LEN_LIST)))
-        soutput.write("{}\t{:.2f}\n".format("Scaffold GC content overall", ((bases_global["G"] + bases_global["C"]) * 100.0 / sum(seq_len.values()))))
-        soutput.write("{}\t{}\n".format("Number of gaps",gap_count))
-        soutput.write("{}\t{}\n".format("Contig L50",n50_idx + 1))
-        soutput.write("{}\t{}\n".format("Contig N50",seq_len_list[n50_idx]))
-        soutput.write("{}\t{}\n".format("Contig L90",n90_idx + 1))
-        soutput.write("{}\t{}\n".format("Contig N90",seq_len_list[n90_idx]))
-        if genome_size != 0:
-            soutput.write("{}\t{}\n".format("Contig NG50",ng50))
-        soutput.write("{}\t{}\n".format("Contig len_max",np.max(seq_len_list)))
-        soutput.write("{}\t{}\n".format("Contig len_min",np.min(seq_len_list)))
-        soutput.write("{}\t{}\n".format("Contig len_mean",int(np.mean(seq_len_list))))
-        soutput.write("{}\t{}\n".format("Contig len_median",int(np.median(seq_len_list))))
-        soutput.write("{}\t{}\n".format("Contig len_std",int(np.std(seq_len_list))))
-        soutput.write("{}\t{}\n".format("Contig num_bp",contigs_len_sum[-1]))
-        soutput.write("{}\t{}\n".format("Contig num_seq",len(contigs_len_sum)))
+    ng50 = calculate_NG50(genome_size, contigs_len_sum[-1], contigs_len)
 
-    #NOTE: generate gaps statistics file
-    with open(gaps_output,"w") as goutput:
+    with open(stats_output, "w") as soutput:
+        soutput.write("{}\t{}\n".format("Scaffold L50", N50_idx + 1))
+        soutput.write("{}\t{}\n".format("Scaffold N50", SEQ_LEN_LIST[N50_idx]))
+        soutput.write("{}\t{}\n".format("Scaffold L90", N90_idx + 1))
+        soutput.write("{}\t{}\n".format("Scaffold N90", SEQ_LEN_LIST[N90_idx]))
+        if genome_size != 0:
+            soutput.write("{}\t{}\n".format("Scaffold NG50", NG50))
+        soutput.write("{}\t{}\n".format("Scaffold len_max", np.max(SEQ_LEN_LIST)))
+        soutput.write("{}\t{}\n".format("Scaffold len_min", np.min(SEQ_LEN_LIST)))
+        soutput.write(
+            "{}\t{}\n".format("Scaffold len_mean", int(np.mean(SEQ_LEN_LIST)))
+        )
+        soutput.write(
+            "{}\t{}\n".format("Scaffold len_median", int(np.median(SEQ_LEN_LIST)))
+        )
+        soutput.write("{}\t{}\n".format("Scaffold len_std", int(np.std(SEQ_LEN_LIST))))
+        soutput.write("{}\t{}\n".format("Scaffold num_A", bases_global["A"]))
+        soutput.write("{}\t{}\n".format("Scaffold num_T", bases_global["T"]))
+        soutput.write("{}\t{}\n".format("Scaffold num_C", bases_global["C"]))
+        soutput.write("{}\t{}\n".format("Scaffold num_G", bases_global["G"]))
+        soutput.write("{}\t{}\n".format("Scaffold num_N", bases_global["N"]))
+        soutput.write("{}\t{}\n".format("Scaffold num_bp", scaffold_lens_sum[-1]))
+        soutput.write(
+            "{}\t{}\n".format(
+                "Scaffold num_bp_not_N", scaffold_lens_sum[-1] - bases_global["N"]
+            )
+        )
+        soutput.write("{}\t{}\n".format("Scaffold num_seq", len(SEQ_LEN_LIST)))
+        soutput.write(
+            "{}\t{:.2f}\n".format(
+                "Scaffold GC content overall",
+                (
+                    (bases_global["G"] + bases_global["C"])
+                    * 100.0
+                    / sum(seq_len.values())
+                ),
+            )
+        )
+        soutput.write("{}\t{}\n".format("Number of gaps", gap_count))
+        soutput.write("{}\t{}\n".format("Contig L50", n50_idx + 1))
+        soutput.write("{}\t{}\n".format("Contig N50", seq_len_list[n50_idx]))
+        soutput.write("{}\t{}\n".format("Contig L90", n90_idx + 1))
+        soutput.write("{}\t{}\n".format("Contig N90", seq_len_list[n90_idx]))
+        if genome_size != 0:
+            soutput.write("{}\t{}\n".format("Contig NG50", ng50))
+        soutput.write("{}\t{}\n".format("Contig len_max", np.max(seq_len_list)))
+        soutput.write("{}\t{}\n".format("Contig len_min", np.min(seq_len_list)))
+        soutput.write("{}\t{}\n".format("Contig len_mean", int(np.mean(seq_len_list))))
+        soutput.write(
+            "{}\t{}\n".format("Contig len_median", int(np.median(seq_len_list)))
+        )
+        soutput.write("{}\t{}\n".format("Contig len_std", int(np.std(seq_len_list))))
+        soutput.write("{}\t{}\n".format("Contig num_bp", contigs_len_sum[-1]))
+        soutput.write("{}\t{}\n".format("Contig num_seq", len(contigs_len_sum)))
+
+    # NOTE: generate gaps statistics file
+    with open(gaps_output, "w") as goutput:
         for key in seq_id_Ngaprange:
             if not len(seq_id_Ngaprange[key]):
                 continue
             for rng in seq_id_Ngaprange[key]:
-                goutput.write("{}\t{}\t{}\n".format(key,rng[0],rng[1]))
+                goutput.write("{}\t{}\t{}\n".format(key, rng[0], rng[1]))
 
-            
 
 if __name__ == "__main__":
 
@@ -165,5 +181,5 @@ if __name__ == "__main__":
         genome_size = int(argv[4])
     except:
         genome_size = 0
-        
-    run(fasta_file,stats_output,gaps_output,genome_size)
+
+    run(fasta_file, stats_output, gaps_output, genome_size)
