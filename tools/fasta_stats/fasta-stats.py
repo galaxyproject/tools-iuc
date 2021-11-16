@@ -6,12 +6,12 @@
 # git: @codemeleon
 # date: 10/11/2021
 
-from os import path
 import re
+from os import path
 from sys import argv
 
-from Bio import SeqIO
 import numpy as np
+from Bio import SeqIO
 
 
 def calculate_NG50(estimated_genome, total_length, sequence_lengths):
