@@ -6,11 +6,12 @@
 # git: @codemeleon
 # date: 10/11/2021
 
-from sys import argv
-import numpy as np
-from Bio import SeqIO
-import re
 from os import path
+import re
+from sys import argv
+
+from Bio import SeqIO
+import numpy as np
 
 
 def calculate_NG50(estimated_genome, total_length, sequence_lengths):
@@ -90,7 +91,6 @@ def run(fasta, stats_output, gaps_output, genome_size):
     scaffold_lens.sort(reverse=True)
     scaffold_lens = np.array(scaffold_lens)
     scaffold_lens_sum = np.cumsum(scaffold_lens)
-    tmp = 0
     N50_len = scaffold_lens_sum[-1] * 0.5
     N50_idx = np.where(scaffold_lens_sum > N50_len)[0][0]
     N90_len = scaffold_lens_sum[-1] * 0.9
@@ -177,9 +177,10 @@ if __name__ == "__main__":
     fasta_file = argv[1]
     stats_output = argv[2]
     gaps_output = argv[3]
-    try:
+
+    if len(argv) == 5:
         genome_size = int(argv[4])
-    except:
+    else:
         genome_size = 0
 
     run(fasta_file, stats_output, gaps_output, genome_size)
