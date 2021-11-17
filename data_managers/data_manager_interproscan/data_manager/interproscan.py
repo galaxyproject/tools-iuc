@@ -97,7 +97,15 @@ def main():
         download_file(DATA_URL.format(version=tag), dest_tar)
 
         print("Finished, now checking md5...")
-        md5_computed = hashlib.md5(open(dest_tar, 'rb').read()).hexdigest()
+        m = hashlib.md5()
+        blocksize = 2**20
+        with open(dest_tar, 'rb') as tarball:
+            while True:
+                buf = tarball.read(blocksize)
+                if not buf:
+                    break
+                m.update(buf)
+        md5_computed = m.hexdigest()
         if not md5.startswith(md5_computed):
             raise RuntimeError("MD5 check failed: computed '%s', expected '%s'" % (md5_computed, md5))
 
