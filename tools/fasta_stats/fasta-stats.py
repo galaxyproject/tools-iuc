@@ -8,7 +8,7 @@
 
 import re
 from os import path
-from sys import argv
+import argparse
 
 import numpy as np
 from Bio import SeqIO
@@ -26,7 +26,7 @@ def calculate_NG50(estimated_genome, total_length, sequence_lengths):
     return NG50
 
 
-def run(fasta, stats_output, gaps_output, genome_size):
+def run(fasta, stats_output, gaps_option, gaps_output, genome_size):
     """Generates scaffold statistics."""
     if not fasta:
         exit("Input file not given.")
@@ -146,7 +146,7 @@ def run(fasta, stats_output, gaps_output, genome_size):
                 ),
             )
         )
-        soutput.write("{}\t{}\n".format("Number of gaps", gap_count))
+        
         soutput.write("{}\t{}\n".format("Contig L50", n50_idx + 1))
         soutput.write("{}\t{}\n".format("Contig N50", seq_len_list[n50_idx]))
         soutput.write("{}\t{}\n".format("Contig L90", n90_idx + 1))
@@ -162,25 +162,23 @@ def run(fasta, stats_output, gaps_output, genome_size):
         soutput.write("{}\t{}\n".format("Contig len_std", int(np.std(seq_len_list))))
         soutput.write("{}\t{}\n".format("Contig num_bp", contigs_len_sum[-1]))
         soutput.write("{}\t{}\n".format("Contig num_seq", len(contigs_len_sum)))
-
-    # NOTE: generate gaps statistics file
-    with open(gaps_output, "w") as goutput:
-        for key in seq_id_Ngaprange:
-            if not len(seq_id_Ngaprange[key]):
-                continue
-            for rng in seq_id_Ngaprange[key]:
-                goutput.write("{}\t{}\t{}\n".format(key, rng[0], rng[1]))
+        if gaps_option == "true":
+            soutput.write("{}\t{}\n".format("Number of gaps", gap_count))
+            # NOTE: generate gaps statistics file
+            with open(gaps_output, "w") as goutput:
+                for key in seq_id_Ngaprange:
+                    for rng in seq_id_Ngaprange[key]:
+                        goutput.write("{}\t{}\t{}\n".format(key, rng[0], rng[1]))
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-f", "--fasta", required=True, help="FASTA file")
+    parser.add_argument("-g", "--gaps_option", required=True, help="Specify if you want to generate the gaps output. Use true or false")
+    parser.add_argument("-z", "--genome_size", required=False, type=int, help="If provided, the NG50 statistic will be computed",default=0)
+    parser.add_argument("-s", "--stats_output", required=True, help="File to store the general statistics")
+    parser.add_argument("-r", "--gaps_output", required=False, help="File to store the gaps statistics",default=None)
+    args = parser.parse_args()
 
-    fasta_file = argv[1]
-    stats_output = argv[2]
-    gaps_output = argv[3]
 
-    if len(argv) == 5:
-        genome_size = int(argv[4])
-    else:
-        genome_size = 0
-
-    run(fasta_file, stats_output, gaps_output, genome_size)
+    run(args.fasta, args.stats_output, args.gaps_option, args.gaps_output, args.genome_size)
