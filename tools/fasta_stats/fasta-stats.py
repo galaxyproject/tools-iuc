@@ -163,7 +163,7 @@ def run(fasta, stats_output, gaps_output, genome_size):
         soutput.write("{}\t{}\n".format("Contig num_bp", contigs_len_sum[-1]))
         soutput.write("{}\t{}\n".format("Contig num_seq", len(contigs_len_sum)))
         soutput.write("{}\t{}\n".format("Number of gaps", gap_count))
-        if gaps_output != None:
+        if gaps_output is not None:
             # NOTE: generate gaps statistics file
             with open(gaps_output, "w") as goutput:
                 for key in seq_id_Ngaprange:
