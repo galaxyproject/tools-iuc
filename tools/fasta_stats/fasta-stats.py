@@ -6,9 +6,9 @@
 # git: @codemeleon
 # date: 10/11/2021
 
+import argparse
 import re
 from os import path
-import argparse
 
 import numpy as np
 from Bio import SeqIO
@@ -146,7 +146,7 @@ def run(fasta, stats_output, gaps_option, gaps_output, genome_size):
                 ),
             )
         )
-        
+
         soutput.write("{}\t{}\n".format("Contig L50", n50_idx + 1))
         soutput.write("{}\t{}\n".format("Contig N50", seq_len_list[n50_idx]))
         soutput.write("{}\t{}\n".format("Contig L90", n90_idx + 1))
@@ -174,11 +174,39 @@ def run(fasta, stats_output, gaps_option, gaps_output, genome_size):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-f", "--fasta", required=True, help="FASTA file")
-    parser.add_argument("-g", "--gaps_option", required=True, help="Specify if you want to generate the gaps output. Use true or false")
-    parser.add_argument("-z", "--genome_size", required=False, type=int, help="If provided, the NG50 statistic will be computed",default=0)
-    parser.add_argument("-s", "--stats_output", required=True, help="File to store the general statistics")
-    parser.add_argument("-r", "--gaps_output", required=False, help="File to store the gaps statistics",default=None)
+    parser.add_argument(
+        "-g",
+        "--gaps_option",
+        required=True,
+        help="Specify if you want to generate the gaps output. Use true or false",
+    )
+    parser.add_argument(
+        "-z",
+        "--genome_size",
+        required=False,
+        type=int,
+        help="If provided, the NG50 statistic will be computed",
+        default=0,
+    )
+    parser.add_argument(
+        "-s",
+        "--stats_output",
+        required=True,
+        help="File to store the general statistics",
+    )
+    parser.add_argument(
+        "-r",
+        "--gaps_output",
+        required=False,
+        help="File to store the gaps statistics",
+        default=None,
+    )
     args = parser.parse_args()
 
-
-    run(args.fasta, args.stats_output, args.gaps_option, args.gaps_output, args.genome_size)
+    run(
+        args.fasta,
+        args.stats_output,
+        args.gaps_option,
+        args.gaps_output,
+        args.genome_size,
+    )
