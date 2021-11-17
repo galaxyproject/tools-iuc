@@ -119,7 +119,7 @@ def main():
         shutil.move(os.path.join(output_directory, 'interproscan-%s' % tag, 'core/jms-implementation/support-mini-x86-32/data/'), os.path.join(output_directory, 'data'))
     else:
         print("Moving data files around...")
-        shutil.move(os.path.join(output_directory, 'interproscan-%s' % tag), os.path.join(output_directory, 'data'))
+        shutil.move(os.path.join(output_directory, 'interproscan-%s' % tag, 'data'), os.path.join(output_directory, 'data'))
 
     print("Done, removing tarball and unneeded files...")
     os.remove(dest_tar)
