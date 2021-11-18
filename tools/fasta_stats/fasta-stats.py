@@ -85,7 +85,7 @@ def run(fasta, stats_output, gaps_output, genome_size):
             contigs_len.append(len(seq))
 
     SEQ_LEN_LIST = sorted(list(seq_len.values()))
-    scaffold_lens = SEQ_LEN_LIST
+    scaffold_lens = list(SEQ_LEN_LIST)
 
     # NOTE: Scaffold statistics
     scaffold_lens.sort(reverse=True)
