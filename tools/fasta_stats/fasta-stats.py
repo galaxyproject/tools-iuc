@@ -95,9 +95,8 @@ def run(fasta, stats_output, gaps_output, genome_size):
     NG50 = calculate_NG50(genome_size, scaffold_lens_sum[-1], scaffold_lens)
 
     # NOTE: Contig statistics
-    contigs_len.sort(reverse=True)
-    seq_len_list = list(contigs_len)
-    contigs_len = np.array(contigs_len)
+    seq_len_list = sorted(contigs_len, reverse=True)
+    contigs_len = np.array(seq_len_list)
     contigs_len_sum = np.cumsum(contigs_len)
     n50_len = contigs_len_sum[-1] * 0.5
     n50_idx = np.where(contigs_len_sum > n50_len)[0][0]
