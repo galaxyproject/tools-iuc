@@ -138,7 +138,7 @@ def run(fasta, stats_output, gaps_output, genome_size):
                 (
                     (bases_global["G"] + bases_global["C"])
                     * 100.0
-                    / sum(seq_len.values())
+                    / scaffold_lens_sum[-1]
                 ),
             )
         )
