@@ -84,7 +84,7 @@ def run(fasta, stats_output, gaps_output, genome_size):
         else:
             contigs_len.append(len(seq))
 
-    SEQ_LEN_LIST = sorted(list(seq_len.values()))
+    SEQ_LEN_LIST = sorted(list(seq_len.values()),reverse=True)
     scaffold_lens = list(SEQ_LEN_LIST)
 
     # NOTE: Scaffold statistics
@@ -98,8 +98,8 @@ def run(fasta, stats_output, gaps_output, genome_size):
     NG50 = calculate_NG50(genome_size, scaffold_lens_sum[-1], scaffold_lens)
 
     # NOTE: Contig statistics
-    seq_len_list = sorted(contigs_len)
     contigs_len.sort(reverse=True)
+    seq_len_list = list(contigs_len)
     contigs_len = np.array(contigs_len)
     contigs_len_sum = np.cumsum(contigs_len)
     n50_len = contigs_len_sum[-1] * 0.5
@@ -117,7 +117,9 @@ def run(fasta, stats_output, gaps_output, genome_size):
             soutput.write("{}\t{}\n".format("Scaffold NG50", NG50))
         soutput.write("{}\t{}\n".format("Scaffold len_max", SEQ_LEN_LIST[0]))
         soutput.write("{}\t{}\n".format("Scaffold len_min", SEQ_LEN_LIST[-1]))
-        soutput.write("{}\t{}\n".format("Scaffold len_mean", int(np.mean(SEQ_LEN_LIST))))
+        soutput.write(
+            "{}\t{}\n".format("Scaffold len_mean", int(np.mean(SEQ_LEN_LIST)))
+        )
         soutput.write(
             "{}\t{}\n".format("Scaffold len_median", int(np.median(SEQ_LEN_LIST)))
         )
