@@ -84,8 +84,8 @@ def run(fasta, stats_output, gaps_output, genome_size):
         else:
             contigs_len.append(len(seq))
 
-    SEQ_LEN_LIST = list(seq_len.values())
-    scaffold_lens = list(SEQ_LEN_LIST)
+    SEQ_LEN_LIST = sorted(list(seq_len.values()))
+    scaffold_lens = SEQ_LEN_LIST
 
     # NOTE: Scaffold statistics
     scaffold_lens.sort(reverse=True)
@@ -98,7 +98,7 @@ def run(fasta, stats_output, gaps_output, genome_size):
     NG50 = calculate_NG50(genome_size, scaffold_lens_sum[-1], scaffold_lens)
 
     # NOTE: Contig statistics
-    seq_len_list = list(contigs_len)
+    seq_len_list = sorted(contigs_len)
     contigs_len.sort(reverse=True)
     contigs_len = np.array(contigs_len)
     contigs_len_sum = np.cumsum(contigs_len)
@@ -115,11 +115,9 @@ def run(fasta, stats_output, gaps_output, genome_size):
         soutput.write("{}\t{}\n".format("Scaffold N90", SEQ_LEN_LIST[N90_idx]))
         if genome_size != 0:
             soutput.write("{}\t{}\n".format("Scaffold NG50", NG50))
-        soutput.write("{}\t{}\n".format("Scaffold len_max", np.max(SEQ_LEN_LIST)))
-        soutput.write("{}\t{}\n".format("Scaffold len_min", np.min(SEQ_LEN_LIST)))
-        soutput.write(
-            "{}\t{}\n".format("Scaffold len_mean", int(np.mean(SEQ_LEN_LIST)))
-        )
+        soutput.write("{}\t{}\n".format("Scaffold len_max", SEQ_LEN_LIST[0]))
+        soutput.write("{}\t{}\n".format("Scaffold len_min", SEQ_LEN_LIST[-1]))
+        soutput.write("{}\t{}\n".format("Scaffold len_mean", int(np.mean(SEQ_LEN_LIST))))
         soutput.write(
             "{}\t{}\n".format("Scaffold len_median", int(np.median(SEQ_LEN_LIST)))
         )
@@ -153,8 +151,8 @@ def run(fasta, stats_output, gaps_output, genome_size):
         soutput.write("{}\t{}\n".format("Contig N90", seq_len_list[n90_idx]))
         if genome_size != 0:
             soutput.write("{}\t{}\n".format("Contig NG50", ng50))
-        soutput.write("{}\t{}\n".format("Contig len_max", np.max(seq_len_list)))
-        soutput.write("{}\t{}\n".format("Contig len_min", np.min(seq_len_list)))
+        soutput.write("{}\t{}\n".format("Contig len_max", seq_len_list[0]))
+        soutput.write("{}\t{}\n".format("Contig len_min", seq_len_list[-1]))
         soutput.write("{}\t{}\n".format("Contig len_mean", int(np.mean(seq_len_list))))
         soutput.write(
             "{}\t{}\n".format("Contig len_median", int(np.median(seq_len_list)))
