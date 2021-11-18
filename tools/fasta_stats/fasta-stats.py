@@ -84,12 +84,9 @@ def run(fasta, stats_output, gaps_output, genome_size):
         else:
             contigs_len.append(len(seq))
 
-    SEQ_LEN_LIST = sorted(list(seq_len.values()), reverse=True)
-    scaffold_lens = list(SEQ_LEN_LIST)
-
     # NOTE: Scaffold statistics
-    scaffold_lens.sort(reverse=True)
-    scaffold_lens = np.array(scaffold_lens)
+    SEQ_LEN_LIST = sorted(seq_len.values(), reverse=True)
+    scaffold_lens = np.array(SEQ_LEN_LIST)
     scaffold_lens_sum = np.cumsum(scaffold_lens)
     N50_len = scaffold_lens_sum[-1] * 0.5
     N50_idx = np.where(scaffold_lens_sum > N50_len)[0][0]
