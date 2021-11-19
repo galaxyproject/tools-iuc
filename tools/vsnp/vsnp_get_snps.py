@@ -440,7 +440,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--ac', action='store', dest='ac', type=int, help='Allele count value'),
-    parser.add_argument('--all_isolates', action='store_true', dest='all_isolates', required=False, default=False, help='Create table with all isolates'),
+    parser.add_argument('--all_isolates', action='store_true', dest='all_isolates', help='Create table with all isolates'),
     parser.add_argument('--input_excel', action='store', dest='input_excel', required=False, default=None, help='Optional Excel filter file'),
     parser.add_argument('--input_vcf_dir', action='store', dest='input_vcf_dir', help='Input vcf directory'),
     parser.add_argument('--min_mq', action='store', dest='min_mq', type=int, help='Minimum map quality value'),
