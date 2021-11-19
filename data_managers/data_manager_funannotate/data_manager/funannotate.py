@@ -224,6 +224,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--partial', dest='partial', action='store_true', help='Only download a small subset of data (for testing)')
+    parser.add_argument('--wget', dest='wget', action='store_true', help='Download using wget (instead of urllib)')
     parser.add_argument("version_id")
     parser.add_argument("datatable_name")
     parser.add_argument("galaxy_datamanager_filename")
@@ -243,6 +244,8 @@ if __name__ == "__main__":
     cmd_args = ['funannotate', 'setup', '-d', output_directory, '-b', 'all']
     if args.partial:
         cmd_args += ['-i', 'merops', '-b', 'eukaryota']
+    if args.wget:
+        cmd_args += ['--wget']
     proc = subprocess.Popen(args=cmd_args, shell=False, cwd=output_directory)
     return_code = proc.wait()
     if return_code:
