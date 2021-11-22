@@ -51,16 +51,12 @@ sub.basis <- music_basis(scrna_eset, clusters = celltypes_label,
 
 ## Plot the dendrogram of design matrix and cross-subject mean of
 ## realtive abundance
-par(mfrow = c(1, 2))
-d <- dist(t(log(sub.basis$Disgn.mtx + 1e-6)), method = "euclidean")
 ## Hierarchical clustering using Complete Linkage
-hc1 <- hclust(d, method = "complete")
-## Plot the obtained dendrogram
-plot(hc1, cex = 0.6, hang = -1, main = "Cluster log(Design Matrix)")
-d <- dist(t(log(sub.basis$M.theta + 1e-8)), method = "euclidean")
+d1 <- dist(t(log(sub.basis$Disgn.mtx + 1e-6)), method = "euclidean")
+hc1 <- hclust(d1, method = "complete")
 ## Hierarchical clustering using Complete Linkage
-hc2 <- hclust(d, method = "complete")
-## Plot the obtained dendrogram later
+d2 <- dist(t(log(sub.basis$M.theta + 1e-8)), method = "euclidean")
+hc2 <- hclust(d2, method = "complete")
 
 cl_type <- as.character(scrna_eset[[celltypes_label]])
 
@@ -92,7 +88,8 @@ plot_box <- Boxplot_Est(list(
     data.matrix(estimated_music_props)),
     method.name = c("MuSiC")) +
     theme(axis.text.x = element_text(angle = -90),
-          axis.text.y = element_text(size = 8))
+          axis.text.y = element_text(size = 8)) +
+    theme_minimal()
 
 plot_hmap <- Prop_heat_Est(list(
     data.matrix(estimated_music_props)),
@@ -101,6 +98,8 @@ plot_hmap <- Prop_heat_Est(list(
           axis.text.y = element_text(size = 8))
 
 pdf(file = outfile_pdf, width = 8, height = 8)
+par(mfrow = c(1, 2))
+plot(hc1, cex = 0.6, hang = -1, main = "Cluster log(Design Matrix)")
 plot(hc2, cex = 0.6, hang = -1, main = "Cluster log(Mean of RA)")
 jitter_fig
 plot_box
