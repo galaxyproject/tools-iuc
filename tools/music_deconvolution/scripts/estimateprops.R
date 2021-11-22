@@ -113,7 +113,8 @@ plot_box <- Boxplot_Est(list(
     data.matrix(estimated_nnls_props)),
     method.name = c("MuSiC", "NNLS")) +
     theme(axis.text.x = element_text(angle = -90),
-          axis.text.y = element_text(size = 8))
+          axis.text.y = element_text(size = 8)) +
+    ggtitle(element_blank()) + theme_minimal()
 
 ## Heatmap
 plot_hmap <- Prop_heat_Est(list(
@@ -121,13 +122,12 @@ plot_hmap <- Prop_heat_Est(list(
     data.matrix(estimated_nnls_props)),
     method.name = c("MuSiC", "NNLS")) +
     theme(axis.text.x = element_text(angle = -90),
-          axis.text.y = element_text(size = 8))
+          axis.text.y = element_text(size = 6))
 
 pdf(file = outfile_pdf, width = 8, height = 8)
-plot_box
+plot_grid(jitter_fig, plot_box, labels = "auto", ncol = 1, nrow = 2)
+plot_grid(jitter_new, jitt_compare, labels = "auto", ncol = 1, nrow = 2)
 plot_hmap
-plot_grid(jitter_fig, jitter_new, labels = "auto", ncol = 1, nrow = 2)
-jitt_compare
 message(dev.off())
 
 ## Output Proportions
