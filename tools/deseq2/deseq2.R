@@ -236,7 +236,6 @@ if (!is.null(opt$sizefactorsfile)){
             size_factors <- estimateSizeFactorsForMatrix(counts(dds))
         }
     }
-    saveRDS(size_factors, "/tmp/spice3.rds")
     write.table(size_factors, file = opt$sizefactorsfile, sep = "\t", col.names = F, quote = FALSE)
 }
 
