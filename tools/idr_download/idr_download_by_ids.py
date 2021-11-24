@@ -110,7 +110,7 @@ def get_image_array(image, tile, z, c, t):
 
 
 def download_image_data(
-    image_ids,
+    image_ids_or_dataset_id, dataset=False,
     channel=None, z_stack=0, frame=0,
     coord=(0, 0), width=0, height=0, region_spec='rectangle',
     skip_failed=False, download_tar=False, omero_host='idr.openmicroscopy.org', omero_secured=False, config_file=None
@@ -128,14 +128,6 @@ def download_image_data(
             if omero_username == "" or omero_password == "":
                 omero_username = 'public'
                 omero_password = 'public'
-
-    # basic argument sanity checks and adjustments
-    prefix = 'image-'
-    # normalize image ids by stripping off prefix if it exists
-    image_ids = [
-        iid[len(prefix):] if iid[:len(prefix)] == prefix else iid
-        for iid in image_ids
-    ]
 
     if region_spec not in ['rectangle', 'center']:
         raise ValueError(
@@ -160,6 +152,47 @@ def download_image_data(
                 TemporaryDirectory()
             )
 
+        if dataset:
+            dataset_warning_id = 'Dataset-ID: {0}'.format(image_ids_or_dataset_id[0])
+            try:
+                dataset_id = int(image_ids_or_dataset_id[0])
+            except ValueError:
+                image_ids = None
+            else:
+                try:
+                    dataset = conn.getObject("Dataset", dataset_id)
+                except Exception as e:
+                    # respect skip_failed on unexpected errors
+                    if skip_failed:
+                        warn(str(e), dataset_warning_id, warn_skip=True)
+                    else:
+                        raise
+                else:
+                    image_ids = [image.id for image in dataset.listChildren()]
+
+            if image_ids is None:
+                if skip_failed:
+                    warn(
+                        'Unable to find a dataset with this ID in the '
+                        'database.',
+                        dataset_warning_id,
+                        warn_skip=True
+                    )
+                else:
+                    raise ValueError(
+                        '{0}: Unable to find a dataset with this ID in the '
+                        'database. Aborting!'
+                        .format(dataset_warning_id)
+                    )
+
+        else:
+            # basic argument sanity checks and adjustments
+            prefix = 'image-'
+            # normalize image ids by stripping off prefix if it exists
+            image_ids = [
+                iid[len(prefix):] if iid[:len(prefix)] == prefix else iid
+                for iid in image_ids_or_dataset_id
+            ]
         for image_id in image_ids:
             image_warning_id = 'Image-ID: {0}'.format(image_id)
             try:
@@ -330,8 +363,9 @@ def _center_to_ul(center_x, center_y, width, height):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument(
-        'image_ids', nargs='*', default=[],
-        help='one or more IDR image ids for which to retrieve data (default: '
+        'image_ids_or_dataset_id', nargs='*', default=[],
+        help='one or more IDR image ids or a single dataset id'
+             'for which to retrieve data (default: '
              'read ids from stdin).'
     )
     p.add_argument(
@@ -378,9 +412,14 @@ if __name__ == "__main__":
     p.add_argument(
         '-cf', '--config-file', dest='config_file', default=None
     )
+    p.add_argument(
+        '--dataset', action='store_true'
+    )
     args = p.parse_args()
-    if not args.image_ids:
-        args.image_ids = sys.stdin.read().split()
+    if not args.image_ids_or_dataset_id:
+        args.image_ids_or_dataset_id = sys.stdin.read().split()
+    if args.dataset and len(args.image_ids_or_dataset_id) > 1:
+        warn("Multiple dataset ids provided. Only the first one will be used.")
     if 'center' in args:
         args.coord, args.width, args.height = (
             args.center[:2], args.center[2], args.center[3]
