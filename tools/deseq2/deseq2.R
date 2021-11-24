@@ -221,14 +221,14 @@ if (!is.null(opt$esf)) {
 
 # estimate size factors for each sample
 # - https://support.bioconductor.org/p/97676/
-if (!is.null(opt$sizefactorsfile)){
+if (!is.null(opt$sizefactorsfile)) {
     nm <- assays(dds)[["avgTxLength"]]
-    if (!is.null(nm)){
+    if (!is.null(nm)) {
         ## Recommended: takes into account tximport data
         size_factors <- estimateSizeFactorsForMatrix(counts(dds) / nm)
     } else {
         norm_factors <- normalizationFactors(dds)
-        if (!is.null(norm_factors)){
+        if (!is.null(norm_factors)) {
             ## In practice, gives same results as above.
             size_factors <- estimateSizeFactorsForMatrix(norm_factors)
         } else {
