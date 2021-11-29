@@ -225,14 +225,17 @@ if (!is.null(opt$sizefactorsfile)) {
     nm <- assays(dds)[["avgTxLength"]]
     if (!is.null(nm)) {
         ## Recommended: takes into account tximport data
+        cat("\nsize factors for samples: taking tximport data into account\n")
         size_factors <- estimateSizeFactorsForMatrix(counts(dds) / nm)
     } else {
         norm_factors <- normalizationFactors(dds)
         if (!is.null(norm_factors)) {
             ## In practice, gives same results as above.
+            cat("\nsize factors for samples: no tximport data, using derived normalization factors\n")
             size_factors <- estimateSizeFactorsForMatrix(norm_factors)
         } else {
             ## If we have no other information, estimate from raw.
+            cat("\nsize factors for samples: no tximport data, no normalization factors, estimating from raw data\n")
             size_factors <- estimateSizeFactorsForMatrix(counts(dds))
         }
     }
