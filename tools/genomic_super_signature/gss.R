@@ -24,7 +24,7 @@ option_list <- list(
     make_option(c("--numOut"), type = "integer",
                 default = 3, help = "The number of top validated RAVs to check"),
     make_option(c("--toolDir"), type = "character",
-                default = NULL, help = "Directory containing the tool scripts (e.g. gss.Rmd")
+                default = '.', help = "Directory containing the tool scripts (e.g. gss.Rmd")
 )
 
 opt <- parse_args(OptionParser(option_list = option_list),
