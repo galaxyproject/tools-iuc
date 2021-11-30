@@ -24,50 +24,44 @@ option_list <- list(
     make_option(c("--numOut"), type = "integer",
                 default = 3, help = "The number of top validated RAVs to check"),
     make_option(c("--toolDir"), type = "character",
-                default = '.', help = "Directory containing the tool scripts (e.g. gss.Rmd")
+                default = ".", help = "Directory containing the tool scripts (e.g. gss.Rmd")
 )
 
 opt <- parse_args(OptionParser(option_list = option_list),
                   args = commandArgs(trailingOnly = TRUE))
 input <- opt$input
 model <- opt$model
-outDir <- opt$outDir
-numOut <- opt$numOut
+out_dir <- opt$outDir
+num_out <- opt$numOut
 
 if (is.null(input)) stop("Need --input.")
 if (is.null(model)) stop("Need --model.")
-if (is.null(outDir)) stop("Need --outDir.")
+if (is.null(out_dir)) stop("Need --outDir.")
 
-inputName <- basename(tools::file_path_sans_ext(input))
-outDir <- normalizePath(outDir)
+input_name <- basename(tools::file_path_sans_ext(input))
+out_dir <- normalizePath(out_dir)
 
 suppressPackageStartupMessages(library(GenomicSuperSignature))
 dat <- as.matrix(read.table(file = input, header = TRUE, sep = "\t",
                             row.names = 1))
 if (model %in% c("C2", "PLIERpriors")) {
-    RAVmodel <- getModel(model)
+    rav_model <- getModel(model)
 } else {
-    RAVmodel <- readRDS(model)
+    rav_model <- readRDS(model)
 }
 
 
 
 ### validate -------------------------------------------------------------------
-val_all <- validate(dat, RAVmodel)
-validated_ind <- validatedSignatures(val_all, num.out = numOut,
+val_all <- validate(dat, rav_model)
+validated_ind <- validatedSignatures(val_all, num.out = num_out,
                                      swCutoff = 0, indexOnly = TRUE)
-n <- min(numOut, length(validated_ind), na.rm = TRUE)
-
-### Save interactive plot in html ----------------------------------------------
-# # interactive plot for validation result
-# plot_val <- plotValidate(val_all, interactive = TRUE)
-# output_fname <- paste0(inputName, "_validate_plot.html")
-# htmltools::save_html(plot_val, file = file.path(outDir, output_fname))
+n <- min(num_out, length(validated_ind), na.rm = TRUE)
 
 ### Save tables in csv ---------------------------------------------------------
 # Validation
 if (is.null(opt$validate)) {
-    output_fname <- file.path(outDir, paste0(inputName, "_validate.csv"))
+    output_fname <- file.path(out_dir, paste0(input_name, "_validate.csv"))
 } else {
     output_fname <- opt$validate
 }
@@ -77,31 +71,31 @@ write.csv(val_all,
 
 # GSEA
 for (i in seq_len(n)) {
-    RAVnum <- validated_ind[i]
-    RAVname <- paste0("RAV", RAVnum)
-    res <- gsea(RAVmodel)[[RAVname]]
+    rav_num <- validated_ind[i]
+    rav_name <- paste0("RAV", rav_num)
+    res <- gsea(rav_model)[[rav_name]]
 
-    output_fname <- paste0(inputName, "_genesets_RAV", RAVnum, ".csv")
+    output_fname <- paste0(input_name, "_genesets_RAV", rav_num, ".csv")
     write.csv(res,
-              file = file.path(outDir, output_fname),
+              file = file.path(out_dir, output_fname),
               row.names = TRUE)
 }
 
 # Related prior studies
 for (i in seq_len(n)) {
-    RAVnum <- validated_ind[i]
-    res <- findStudiesInCluster(RAVmodel, RAVnum)
+    rav_num <- validated_ind[i]
+    res <- findStudiesInCluster(rav_model, rav_num)
 
-    output_fname <- paste0(inputName, "_literatures_RAV", RAVnum, ".csv")
+    output_fname <- paste0(input_name, "_literatures_RAV", rav_num, ".csv")
     write.csv(res,
-              file = file.path(outDir, output_fname),
+              file = file.path(out_dir, output_fname),
               row.names = TRUE)
 }
 
 ### Create a report ------------------------------------------------------------
 if (is.null(opt$html)) {
-    output_fname <- file.path(outDir, paste0("GSS-", inputName, "-",
-                              format(Sys.Date(), format="%Y%m%d"), ".html"))
+    output_fname <- file.path(out_dir, paste0("GSS-", input_name, "-",
+                              format(Sys.Date(), format = "%Y%m%d"), ".html"))
 } else {
     output_fname <- opt$html
 
@@ -110,9 +104,9 @@ rmarkdown::render(
     file.path(opt$toolDir, "gss.Rmd"), params = list(
         val_all = val_all,
         dat = dat,
-        RAVmodel = RAVmodel,
-        inputName = inputName,
-        numOut = numOut
+        RAVmodel = rav_model,
+        inputName = input_name,
+        numOut = num_out
     ),
     output_file = output_fname
 )
