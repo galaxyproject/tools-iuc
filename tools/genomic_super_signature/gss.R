@@ -108,5 +108,7 @@ rmarkdown::render(
         inputName = input_name,
         numOut = num_out
     ),
-    output_file = output_fname
+    output_file = output_fname,
+    intermediates_dir = ".",
+    knit_root_dir = "."
 )
