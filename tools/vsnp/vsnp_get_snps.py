@@ -22,7 +22,7 @@ def get_time_stamp():
 
 
 def set_num_cpus(num_files, processes):
-    num_cpus = int(multiprocessing.cpu_count())
+    num_cpus = len(os.sched_getaffinity(0))
     if num_files < num_cpus and num_files < processes:
         return num_files
     if num_cpus < processes:
