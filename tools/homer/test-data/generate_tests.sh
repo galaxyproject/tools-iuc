@@ -11,7 +11,7 @@ if [ ! -e test-data/CTCF_peaks.bed ]; then
   wget https://raw.githubusercontent.com/lldelisle/scriptsForWilleminEtAl2021/main/CTCF/E12_Limbs_Wt_CTCF_colored.bed -O test-data/CTCF_peaks.bed
 fi
 if [ ! -e test-data/CTCF_peaks_shifted.bed ]; then
-  cat test-data/CTCF_peaks.bed | grep "chr2" | awk -v OFS="\t" '$3<75000000 && $2>74000000{$1="mm10_dna"; $2-=74000000; $3-=74000000; print}' > test-data/CTCF_peaks_shifted.bed
+  cat test-data/CTCF_peaks.bed | grep "chr2" | awk -v OFS="\t" '$3<75000000 && $2>73740000{$1="mm10_dna"; $2-=73740000; $3-=73740000; print}' > test-data/CTCF_peaks_shifted.bed
 fi
 # chr2_subset.fa was downloaded from UCSC
 # https://genome.ucsc.edu/cgi-bin/hgc?hgsid=1136019667_XgAJOvV4a3CY4ibCu6RrUcvGxLNo&g=htcGetDna2&table=&i=mixed&o=56694975&l=56694975&r=56714605&getDnaPos=chr2%3A73740000-75787000&db=mm10&hgSeq.cdsExon=1&hgSeq.padding5=0&hgSeq.padding3=0&hgSeq.casing=upper&hgSeq.maskRepeats=on&boolshad.hgSeq.maskRepeats=0&hgSeq.repMasking=lower&boolshad.hgSeq.revComp=0&submit=get+DNA
