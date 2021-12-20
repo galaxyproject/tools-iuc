@@ -5,7 +5,6 @@ import datetime
 import json
 import os
 import re
-
 from urllib.request import urlretrieve
 
 import yaml
@@ -36,7 +35,7 @@ class PackagedAnnotationMeta():
                 if not record.get(key):
                     raise KeyError(
                         '{0}\n'
-                        'Required info "{0}" missing from record metadata'
+                        'Required info "{1}" missing from record metadata'
                         .format(record, key)
                     )
         self.meta = meta_dict
@@ -122,7 +121,6 @@ if __name__ == "__main__":
     parser.add_argument('-t', '--target-directory', default=None)
     parser.add_argument('--dbkey', default=None)
     args = parser.parse_args()
-
 
     if args.target_directory:
         if not os.path.isdir(args.target_directory):
