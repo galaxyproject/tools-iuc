@@ -1,4 +1,4 @@
-<tool id="cutadapt" name="Cutadapt" version="@TOOL_VERSION@+@GALAXY_TOOL_VERSION@" profile="20.01">
+<tool id="cutadapt" name="Cutadapt" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="20.01">
     <description>Remove adapter sequences from FASTQ/FASTA</description>
     <macros>
         <import>macros.xml</import>
@@ -79,6 +79,10 @@ cutadapt
 
 -j=\${GALAXY_SLOTS:-4}
 
+#if 'json_stats' in $output_selector:
+        --json stats.json
+#end if
+
 #if str( $library.type ) == "single":
     @read1_options@
     #if 'multiple_output' in $output_selector:
@@ -130,7 +134,7 @@ $filter_options.discard_untrimmed
 #if str($filter_options.max_expected_errors):
     --max-expected-errors=$filter_options.max_expected_errors
 #end if
-
+$filter_options.discard_cassava
 
 #if str($read_mod_options.quality_cutoff) != '0':
    --quality-cutoff=$read_mod_options.quality_cutoff
@@ -139,6 +143,9 @@ $filter_options.discard_untrimmed
     --nextseq-trim=$read_mod_options.nextseq_trim
 #end if
 $read_mod_options.trim_n
+#if $read_mod_options.strip_suffix != ''
+    --strip-suffix $read_mod_options.strip_suffix
+#end if
 #if str($read_mod_options.shorten_options.shorten_values) == 'True':
     #if str($read_mod_options.shorten_options.shorten_end) == '3prime'
         --length=$read_mod_options.shorten_options.length
@@ -158,6 +165,9 @@ $read_mod_options.zero_cap
 '${read1}'
 #if $paired:
     '${read2}'
+    #if $library.r2.quality_cutoff2:
+        -Q=$library.r2.quality_cutoff2
+    #end if
 #end if
 
 #if 'report' in $output_selector:
@@ -175,18 +185,18 @@ $read_mod_options.zero_cap
             </param>
 
             <when value="single">
-                <param name="input_1" format="fastq.gz,fastq,fastqsanger,fastqsanger.gz,fastqsanger.bz2,fasta" type="data" label="FASTQ/A file" help="Should be of datatype &quot;fastq.gz&quot; or &quot;fasta&quot;" />
+                <param name="input_1" format="@FASTQ_TYPES@" type="data" label="FASTQ/A file" help="Should be of datatype &quot;fastq.gz&quot; or &quot;fasta&quot;" />
                 <expand macro="single_end_options" />
             </when>
 
             <when value="paired">
-                <param name="input_1" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2,fasta" type="data" label="FASTQ/A file #1" help="Should be of datatype &quot;fastq.gz&quot;or &quot;fasta&quot;" />
-                <param name="input_2" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2,fasta" type="data" label="FASTQ/A file #2" help="Should be of datatype &quot;fastq.gz&quot;or &quot;fasta&quot;" />
+                <param name="input_1" format="@FASTQ_TYPES@" type="data" label="FASTQ/A file #1" help="Should be of datatype &quot;fastq.gz&quot;or &quot;fasta&quot;" />
+                <param name="input_2" format="@FASTQ_TYPES@" type="data" label="FASTQ/A file #2" help="Should be of datatype &quot;fastq.gz&quot;or &quot;fasta&quot;" />
                 <expand macro="paired_end_options" />
             </when>
 
             <when value="paired_collection">
-                <param name="input_1" format="fastqsanger,fastqsanger.gz,fastqsanger.bz2,fasta" type="data_collection" collection_type="paired" label="Paired Collection" help="Should be of datatype &quot;fastq.gz&quot; or &quot;fasta&quot;" />
+                <param name="input_1" format="@FASTQ_TYPES@" type="data_collection" collection_type="paired" label="Paired Collection" help="Should be of datatype &quot;fastq.gz&quot; or &quot;fasta&quot;" />
                 <expand macro="paired_end_options" />
             </when>
 
@@ -248,7 +258,7 @@ $read_mod_options.zero_cap
 
         <!-- Read Modification Options -->
         <section name="read_mod_options" title="Read Modification Options">
-            <param argument="--quality-cutoff" type="text" value="0" label="Quality cutoff" help=" Trim low-quality bases from 5' and/or 3' ends of each read before adapter removal. Applied to both reads if data is paired. If one value is given, only the 3' end is trimmed. If two comma-separated cutoffs are given, the 5' end is trimmed with the first cutoff, the 3' end with the second.">
+            <param argument="--quality-cutoff" type="text" value="0" label="Quality cutoff" help=" Trim low-quality bases from 5' and/or 3' ends of each read before adapter removal. Applied to both reads for paired-end data, unless a separate value for the second read is specified. If one value is given, only the 3' end is trimmed. If two comma-separated cutoffs are given, the 5' end is trimmed with the first cutoff, the 3' end with the second.">
                 <sanitizer>
                     <valid initial="string.digits"><add value="," /></valid>
                 </sanitizer>
@@ -310,6 +320,7 @@ $read_mod_options.zero_cap
             <option value="too_long_file">Too long reads: write reads that are too long (according to maximum length specified)</option>
             <option value="untrimmed_file">Untrimmed reads: write reads that do not contain the adapter to a separate file, instead of writing them to the regular output file (default: output to same file as trimmed)</option>
             <option value="multiple_output">Multiple output: create a separate file for each adapter trimmed (default: all trimmed reads are in a single file)</option>
+            <option value="json_stats">Statistics in JSON format</option>
         </param>
     </inputs>
 
@@ -372,8 +383,10 @@ $read_mod_options.zero_cap
             <filter>output_selector and 'too_long_file' in output_selector</filter>
             <expand macro="inherit_format_2" />
         </data>
-
-        <collection name="split_output" type="list" label="${tool.name} on ${on_string}: Split outputs"  >
+        <data name="json_stats" format="json" from_work_dir="stats.json" label="${tool.name} on ${on_string}: Statistics (JSON)" >
+            <filter>output_selector and 'json_stats' in output_selector</filter>
+        </data>
+        <collection name="split_output" type="list" label="${tool.name} on ${on_string}: Split outputs" format="fastqsanger" >
             <discover_datasets pattern="(?P&lt;designation&gt;.+)\.(?P&lt;ext&gt;fastq.*)" directory="split" />
             <filter>output_selector and 'multiple_output' in output_selector</filter>
         </collection>
@@ -495,18 +508,16 @@ $read_mod_options.zero_cap
                     </conditional>
                 </repeat>
             </section>
-            <param name="output_filtering" value="filter"/>
             <section name="filter_options">
                 <param name="discard_trimmed" value="True"/>
             </section>
-            <param name="read_modification" value="none"/>
             <output name="out1" file="cutadapt_discard.out" ftype="fastq"/>
             <assert_command>
                 <has_text text="--discard-trimmed"/>
             </assert_command>
         </test>
-        <!-- Ensure rest file output works -->
-        <test expect_num_outputs="2">
+        <!-- Ensure rest file output works, test json output -->
+        <test expect_num_outputs="3">
             <param name="input_1" ftype="fasta" value="cutadapt_rest.fa" />
             <section name="r1">
                 <repeat name="adapters">
@@ -516,10 +527,9 @@ $read_mod_options.zero_cap
                     </conditional>
                 </repeat>
             </section>
-            <param name="output_filtering" value="default"/>
-            <param name="read_modification" value="none"/>
-            <param name="output_selector" value="rest_file"/>
+            <param name="output_selector" value="rest_file,json_stats"/>
             <output name="out1" file="cutadapt_rest.out" ftype="fasta"/>
+            <output name="json_stats" file="cutadapt_rest.json" ftype="json"/>
             <output name="rest_output" file="cutadapt_rest2.out" ftype="fasta"/>
         </test>
         <!-- Ensure nextseq-trim option works -->
@@ -534,7 +544,6 @@ $read_mod_options.zero_cap
                     </conditional>
                 </repeat>
             </section>
-            <param name="read_modification" value="modify"/>
             <param name="nextseq_trim" value="20" />
             <output name="out1" decompress="True" file="cutadapt_nextseq_out.fq.gz" ftype="fastq.gz"/>
         </test>
@@ -1081,6 +1090,70 @@ $read_mod_options.zero_cap
             <assert_command>
                 <has_text text="TGTAGGCCX"/>
             </assert_command>
+        </test>
+        <!-- Ensure individual per adapter noindels parameter works -->
+        <test expect_num_outputs="3">
+            <param name="type" value="paired_collection" />
+            <param name="input_1">
+                <collection type="paired">
+                    <element name="forward" ftype="fastq.gz" value="bwa-mem-fastq1.fq.gz" />
+                    <element name="reverse" ftype="fastq.gz" value="bwa-mem-fastq2.fq.gz" />
+                </collection>
+            </param>
+            <section name="r1">
+                <repeat name="adapters">
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="AGATCGGAAGAGC"/>
+                    </conditional>
+                    <param name="single_noindels" value=";noindels" />
+                </repeat>
+            </section>
+            <section name="r2">
+                <repeat name="adapters2">
+                    <conditional name="adapter_source2">
+                        <param name="adapter_source_list2" value="user"/>
+                        <param name="adapter2" value="AGATCGGAAGAGC"/>
+                    </conditional>
+                    <param name="single_noindels" value=";noindels" />
+                </repeat>
+            </section>
+            <output_collection name="out_pairs" type="paired">
+                <element name="forward" decompress="True" file="cutadapt_out1.fq.gz" ftype="fastq.gz" />
+                <element name="reverse" decompress="True" file="cutadapt_out2.fq.gz" ftype="fastq.gz" />
+            </output_collection>
+        </test>
+        <!-- Ensure specifying quality cutoff (for both reads) works -->
+        <test expect_num_outputs="3">
+            <param name="type" value="paired_collection" />
+            <param name="input_1">
+                <collection type="paired">
+                    <element name="forward" ftype="fastq.gz" value="bwa-mem-fastq1.fq.gz" />
+                    <element name="reverse" ftype="fastq.gz" value="bwa-mem-fastq2.fq.gz" />
+                </collection>
+            </param>
+            <param name="quality_cutoff" value="5" />
+            <section name="r1">
+                <repeat name="adapters">
+                    <conditional name="adapter_source">
+                        <param name="adapter_source_list" value="user"/>
+                        <param name="adapter" value="AGATCGGAAGAGC"/>
+                    </conditional>
+                </repeat>
+            </section>
+            <section name="r2">
+                <repeat name="adapters2">
+                    <conditional name="adapter_source2">
+                        <param name="adapter_source_list2" value="user"/>
+                        <param name="adapter2" value="AGATCGGAAGAGC"/>
+                    </conditional>
+                </repeat>
+                <param name="quality_cutoff2" value="15,20"/>
+            </section>
+            <output_collection name="out_pairs" type="paired">
+                <element name="forward" decompress="True" file="cutadapt_out1.fq.gz" ftype="fastq.gz" />
+                <element name="reverse" decompress="True" file="cutadapt_out2_cutoff.fq.gz" ftype="fastq.gz" />
+            </output_collection>
         </test>
     </tests>
 
