@@ -1,5 +1,5 @@
 <tool id="spades_rnaspades" name="rnaSPAdes" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
-    <description>genome assembler for RNA-Seq data</description>
+    <description>de novo transcriptome assembler</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -7,70 +7,85 @@
     <expand macro="stdio"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
-#set $concat = ''
-#set $currentParam = ''
-#set $currentFile = ''
-#if $libcount_cond.libcount_sel == 'single'
-    #for $i, $file in enumerate($libcount_cond.file_rep, 1)
-        #if $file.filetype_cond.filetype_sel == 'separate'
-            #set $currentParam = '-1'
-            #set $currentFile = $file.filetype_cond.fwd_reads
-            @SET_FILENAME_SINGLE@
-            #set $currentParam = '-2'
-            #set $currentFile = $file.filetype_cond.rev_reads
-            #@SET_FILENAME_SINGLE@
-        #else
-            #if $file.filetype_cond.filetype_sel == 'interlaced'
-                #set $currentParam = '--12'
-            #elif $file.filetype_cond.filetype_sel == 'merged'
-                #set $currentParam = '--merged'
-            #elif $file.filetype_cond.filetype_sel == 'unpaired'
-                #set $currentParam = '-s'
-            #end if
-            #set $currentFile = $file.filetype_cond.reads
-            @SET_FILENAME_SINGLE@
-        #end if
+
+#if $singlePaired.sPaired == "single"
+    mkdir -p single_reads &&
+    #set file_paths = []
+    #for $input_file in $singlePaired.input1
+        #set $fname = $input_file.element_identifier.replace("fastqsanger","fastq")
+        #set $file_path = 'single_reads/' + str($fname)
+        ln -s '$input_file' $file_path &&
+        $file_paths.append($file_path)
     #end for
-#elif $libcount_cond.libcount_sel == 'multiple'
-    #for $i, $library in enumerate($libcount_cond.lib_rep, 1)
-        #set $concat += '--pe' + str($i) + str($library.pe_orientation) + ' '
-        #for $j, $file in enumerate($library.file_rep, 1)
-            #set $currentPrefix = '--' + str($file.readtype_cond.readtype_sel) ## s, pe
-            #if $currentPrefix == '--s'
-                #set $currentParam = ''
-                #set $currentFile = $file.readtype_cond.reads
-                @SET_FILENAME_MULTIPLE@
-            #elif $currentPrefix == '--pe'
-                #if $file.readtype_cond.filetype_cond.filetype_sel == 'separate'
-                    #set $currentParam = '-1'
-                    #set $currentFile = $file.readtype_cond.filetype_cond.fwd_reads
-                    @SET_FILENAME_MULTIPLE@
-                    #set $currentParam = '-2'
-                    #set $currentFile = $file.readtype_cond.filetype_cond.rev_reads
-                    @SET_FILENAME_MULTIPLE@
-                #else
-                    #if $file.readtype_cond.filetype_cond.filetype_sel == 'interlaced'
-                        #set $currentParam = '-12'
-                    #elif $file.readtype_cond.filetype_cond.filetype_sel == 'merged'
-                        #set $currentParam = '-m'
-                    #elif $file.readtype_cond.filetype_cond.filetype_sel == 'unpaired'
-                        #set $currentParam = '-s'
-                    #end if
-                    #set $currentFile = $file.readtype_cond.filetype_cond.reads
-                    @SET_FILENAME_MULTIPLE@
-                #end if
-            #end if
-        #end for
+#else if $singlePaired.sPaired == "paired"
+    mkdir -p paired_reads &&
+    #set fw_reads = []
+    #for $input_file in $singlePaired.input1
+        #set fname = $input_file.element_identifier.replace("fastqsanger","fastq")
+        #set $file_path = 'paired_reads/' + str($fname)
+        ln -s '$input_file' $file_path &&
+        $fw_reads.append($file_path)
+    #end for
+    #set rv_reads = []
+    #for $input_file in $singlePaired.input2
+        #set fname = $input_file.element_identifier.replace("fastqsanger","fastq")
+        #set $file_path = 'paired_reads/' + str($fname)
+        ln -s '$input_file' $file_path &&
+        $rv_reads.append($file_path)
+    #end for
+    #silent $fw_reads.sort()
+    #silent $rv_reads.sort()
+#else if $singlePaired.sPaired == "paired_interlaced"
+    mkdir -p interlaced_reads &&
+    #set file_paths = []
+    #for $input_file in $singlePaired.input1
+        #set $fname = $input_file.element_identifier.replace("fastqsanger","fastq")
+        #set $file_path = 'interlaced_reads/' + str($fname)
+        ln -s '$input_file' $file_path &&
+        $file_paths.append($file_path)
+    #end for
+#else
+    mkdir -p paired_reads &&
+    #set fw_reads = []
+    #set rv_reads = []
+    #for $i, $input_file in enumerate($singlePaired.input)
+        #set $ext = $input_file.forward.ext.replace('fastqsanger', 'fastq')
+        #set $file_path = 'paired_reads/fw' + str($i) + '.' + $ext
+        ln -s '$input_file.forward' $file_path &&
+        $fw_reads.append($file_path)
+        #set $file_path = 'paired_reads/rv' + str($i) + '.' + $ext
+        ln -s '$input_file.reverse' $file_path &&
+        $rv_reads.append($file_path)
     #end for
 #end if
+
+
+
 
 ## run
 rnaspades.py
     -o 'output'    
-    @THREADS@
-    @MEMORY@
+    @RESOURCES@
     ## reads
-    $concat
+    #if $singlePaired.sPaired == "single"
+        #for $i, $read in enumerate($file_paths, 1)
+            --s ${i} '${read}'
+        #end for
+    #else if  $singlePaired.sPaired == "paired"
+        #for $i, $read in enumerate($fw_reads, 1)
+            --pe-1 ${i} '${read}'
+        #end for
+        #for $i, $read in enumerate($rv_reads, 1)
+            --pe-2 ${i} '${read}'
+        #end for
+    #else
+        #for $i, $read in enumerate($fw_reads, 1)
+            --pe-1 ${i} '${read}'
+        #end for
+        #for $i, $read in enumerate($rv_reads, 1)
+            --pe-2 ${i} '${read}'
+        #end for
+    #end if
     #for $read in $arf.flrna
         #if $read
             --fl-rna $read.datatype.file_ext.replace('fastqsanger', 'fastq')
@@ -82,7 +97,7 @@ rnaspades.py
     @UNTRUSTEDCONTIGS@
     ## parameter
     @KMER@
-    @MODE@
+    @PIPELINE_OPTIONS@
     @PHREDOFFSET@
     #if $ss != 'no'
         --ss '$ss'
@@ -91,6 +106,7 @@ rnaspades.py
     @CORRECTED@
     ]]></command>
     <inputs>
+        <!--
         <conditional name="libcount_cond">
             <param name="libcount_sel" type="select" label="Library mode">
                 <option value="single">Single</option>
@@ -100,11 +116,11 @@ rnaspades.py
                 <repeat name="file_rep" min="1" title="Read file">
                     <conditional name="filetype_cond">
                         <expand macro="filetype_sel">
-                            <option value="merged">Merged (--merged)</option>
+                            <option value="merged">Merged (-\-merged)</option>
                         </expand>
                         <expand macro="filetype_sel_when">
                             <when value="merged">
-                                <expand macro="reads" label="merged" help="(--merged)"/>
+                                <expand macro="reads" label="merged" help="(-\-merged)"/>
                             </when>
                         </expand>
                     </conditional>
@@ -112,16 +128,16 @@ rnaspades.py
             </when>
             <when value="multiple">
                 <repeat name="lib_rep" min="1" max="9" title="Library">
-                    <!-- ignored if no corresponding read files are used in this library repeat -->
+                    <!-\- ignored if no corresponding read files are used in this library repeat
                     <expand macro="orientation" type="pe" label="paired-end" fr="true"/>
                     <repeat name="file_rep" min="1" title="Files">
                         <conditional name="readtype_cond">
                             <param name="readtype_sel" type="select" label="Select read type">
-                                <option value="s">Single-read (--s)</option>
-                                <option value="pe">Paired-end (--pe)</option>
+                                <option value="s">Single-read (-\-s)</option>
+                                <option value="pe">Paired-end (-\-pe)</option>
                             </param>
                             <when value="s">
-                                <expand macro="reads" label="single" help="(--s)"/>
+                                <expand macro="reads" label="single" help="(-\-s)"/>
                             </when>
                             <when value="pe">
                                 <conditional name="filetype_cond">
@@ -138,6 +154,28 @@ rnaspades.py
                         </conditional>
                     </repeat>
                 </repeat>
+            </when>
+        </conditional>
+        -->
+        <conditional name="singlePaired">
+            <param name="sPaired" type="select" label="Single-end or paired-end reads">
+                <option value="single" selected="true">Single-end</option>
+                <option value="paired">Paired-end: individual datasets</option>
+                <option value="paired_interlaced">Paired-end: interlaced reads</option>
+                <option value="paired_collection">Paired-end: list of dataset pairs</option>
+            </param>
+            <when value="single">
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data"  multiple="true" label="RNA-Seq FASTQ/FASTA file"/>
+            </when>
+            <when value="paired">
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data" multiple="true" label="RNA-Seq FASTQ/FASTA file, forward reads"/>
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input2" type="data" multiple="true" label="RNA-Seq FASTQ/FASTA file, reverse reads"/>
+            </when>
+            <when value="paired_interlaced">
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data"  multiple="true" label="RNA-Seq FASTQ/FASTA file"/>
+            </when>
+            <when value="paired_collection">
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input" type="data_collection" collection_type="list:paired" label="RNA-Seq FASTQ/FASTA paired reads"/>
             </when>
         </conditional>
         <section name="arf" title="Additional read files">
@@ -158,7 +196,6 @@ rnaspades.py
             <option value="--iontorrent">Iontorrent: although rnaSPAdes supports IonTorrent reads, it was not sufficiently tested on such kind of data (--iontorrent)</option>
         </expand>
         <param name="optional_output" type="select" multiple="true" optional="false" label="Select optional output file(s)" help="Only shown in history if selected here and generated by the specific run.">
-            <option value="ag">Assembly graph</option>
             <option value="hft">Hard filtered transcripts</option>
             <option value="l">Log</option>
             <option value="sft">Soft filtered transcripts</option>
@@ -167,7 +204,6 @@ rnaspades.py
         </param>
     </inputs>
     <outputs>
-        <expand macro="out_ag"/>
         <expand macro="out_cr"/>
         <data name="out_hft" format="fasta" from_work_dir="output/hard_filtered_transcripts.fasta" label="${tool.name} on ${on_string}: Hard filtered transcripts">
             <filter>'hft' in optional_output</filter>
@@ -196,14 +232,9 @@ rnaspades.py
 
         <!-- #1 -->
         <test expect_num_outputs="1">
-            <conditional name="libcount_cond">
-                <param name="libcount_sel" value="single"/>
-                <repeat name="file_rep">
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="interlaced"/>
-                        <param name="reads" value="ecoli_1K.fastq.gz"/>
-                    </conditional>
-                </repeat>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_interlaced"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
             </conditional>
             <output name="out_tr">
                 <assert_contents>
@@ -213,26 +244,15 @@ rnaspades.py
             </output>
         </test>
         <!-- #2 single, separate, fastq, all outputs custom parameters-->
-        <test expect_num_outputs="6">
-            <conditional name="libcount_cond">
-                <param name="libcount_sel" value="single"/>
-                <repeat name="file_rep">
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="separate"/>
-                        <param name="fwd_reads" value="ecoli_1K_1.fastq.gz"/>
-                        <param name="rev_reads" value="ecoli_1K_2.fastq.gz"/>
-                    </conditional>
-                </repeat>
+        <test expect_num_outputs="5">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="ecoli_1K_1.fastq.gz"/>
+                <param name="input2" value="ecoli_1K_2.fastq.gz"/>
             </conditional>
             <param name="phred_offset" value="33"/>
             <param name="ss" value="fr"/>
-            <param name="optional_output" value="ag,hft,l,sft,tr,tp"/>
-            <output name="out_ag">
-                <assert_contents>
-                    <has_n_lines n="36"/>
-                    <has_text_matching expression=">EDGE_3_length_1000_cov_163.370137'"/>
-                </assert_contents>
-            </output>
+            <param name="optional_output" value="hft,l,sft,tr,tp"/>
             <output name="out_hft">
                 <assert_contents>
                     <has_n_lines n="18"/>
@@ -261,15 +281,10 @@ rnaspades.py
         </test>
         <!-- #3 single, separate, fasta, default parameters -->
         <test expect_num_outputs="1">
-            <conditional name="libcount_cond">
-                <param name="libcount_sel" value="single"/>
-                <repeat name="file_rep">
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="separate"/>
-                        <param name="fwd_reads" value="ecoli_1K_1.fastq.gz"/>
-                        <param name="rev_reads" value="ecoli_1K_2.fastq.gz"/>
-                    </conditional>
-                </repeat>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="ecoli_1K_1.fasta.gz"/>
+                <param name="input1" value="ecoli_1K_2.fasta.gz"/>
             </conditional>
             <output name="out_tr">
                 <assert_contents>
@@ -278,69 +293,7 @@ rnaspades.py
                 </assert_contents>
             </output>
         </test>
-        <!-- #4 multiple, single & paired-end within same library -->
-        <test expect_num_outputs="1">
-            <conditional name="libcount_cond">
-                <param name="libcount_sel" value="multiple"/>
-                <repeat name="lib_rep">
-                    <repeat name="file_rep">
-                        <conditional name="readtype_cond">
-                            <param name="readtype_sel" value="s"/>
-                            <param name="reads" value="ecoli_1K.fastq.gz"/>
-                        </conditional>
-                    </repeat>
-                    <repeat name="file_rep">
-                        <param name="pe_orientation" value="-fr"/>
-                        <conditional name="readtype_cond">
-                            <param name="readtype_sel" value="pe"/>
-                            <conditional name="filetype_cond">
-                                <param name="filetype_sel" value="separate"/>
-                                <param name="fwd_reads" value="ecoli_1K_1.fastq.gz"/>
-                                <param name="rev_reads" value="ecoli_1K_2.fastq.gz"/>
-                            </conditional>
-                        </conditional>
-                    </repeat>
-                </repeat>
-            </conditional>
-            <output name="out_tr">
-                <assert_contents>
-                    <has_n_lines n="18"/>
-                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
-                </assert_contents>
-            </output>
-        </test>
-        <!-- #5 multiple, single & paired-end in different libraries -->
-        <test expect_num_outputs="1">
-            <conditional name="libcount_cond">
-                <param name="libcount_sel" value="multiple"/>
-                <repeat name="lib_rep">
-                    <repeat name="file_rep">
-                        <conditional name="readtype_cond">
-                            <param name="readtype_sel" value="s"/>
-                            <param name="reads" value="ecoli_1K.fastq.gz"/>
-                        </conditional>
-                    </repeat>
-                </repeat>
-                <repeat name="lib_rep">
-                    <repeat name="file_rep">
-                        <conditional name="readtype_cond">
-                            <param name="readtype_sel" value="pe"/>
-                            <conditional name="filetype_cond">
-                                <param name="filetype_sel" value="separate"/>
-                                <param name="fwd_reads" value="ecoli_1K_1.fastq.gz"/>
-                                <param name="rev_reads" value="ecoli_1K_2.fastq.gz"/>
-                            </conditional>
-                        </conditional>
-                    </repeat>
-                </repeat>
-            </conditional>
-            <output name="out_tr">
-                <assert_contents>
-                    <has_n_lines n="18"/>
-                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
-                </assert_contents>
-            </output>
-        </test>
+
     </tests>
     <help><![CDATA[
 .. class:: infomark
