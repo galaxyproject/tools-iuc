@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-import sys
 import re
+import sys
 
 search_str = r"^>(NODE|\S+)_(\d+)(?:_|\s)length_(\d+)_cov_(\d+\.*\d*).*\$"
 
