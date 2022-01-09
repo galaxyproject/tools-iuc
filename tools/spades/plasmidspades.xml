@@ -1,5 +1,5 @@
 <tool id="spades_plasmidspades" name="plasmidSPAdes" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
-    <description>genome assembler for plasmid data sets</description>
+    <description>extract and assembly plasmids from WGS data</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -8,20 +8,23 @@
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[ 
 
-@PREPROCESS_INPUT_FILES@
+#set $library = 1
+
+@PREPROCESS_INPUT_FILES_MAIN@
 #if $additional_reads.selector == 'true'
     @PREPROCESS_INPUT_FILES_ADDITIONAL@
 #end if
 @PREPROCESS_NANOPORE_PACBIO_FILES@
 @PREPROCESS_SANGER_FILES@
 @PREPROCESS_CONTIGS_FILES@
+@PREPROCESS_ASSEMBLY_GRAPH_FILES@
 
 ## run
 plasmidspades.py
     $operation_mode
     -o 'output'
     @RESOURCES@
-    @INPUT_READS@
+    @INPUT_READS_MAIN@
     #if $additional_reads.selector == 'true'
         @INPUT_READS_ADDITIONAL@
     #end if
@@ -29,6 +32,7 @@ plasmidspades.py
     @NANOPORE_PACBIO@
     @SANGER@
     @CONTIGS@
+    @ASSEMBLY_GRAPH@
     ## parameter
     --cov-cutoff $cov_cond.cov_cutoff
     @KMER@
@@ -40,13 +44,17 @@ plasmidspades.py
     ]]></command>
     <inputs>
         <expand macro="operation_mode"/>
-        <expand macro="input_files" format="fastq, fastq.gz,fastqsanger.gz,fasta,fasta.gz">
+        <expand macro="input_files" format="fastq, fastq.gz,fastqsanger.gz,fasta,fasta.gz" label="FASTA/FASTQ file(s)">
+            <option value="single" selected="true">Single-end</option>
+        </expand>
+        <expand macro="input_additional_files" format="fastq,fastq.gz,fastqsanger.gz,fasta,fasta.gz" label="FASTA/FASTQ file(s)" >
             <option value="single" selected="true">Single-end</option>
         </expand>
         <section name="arf" title="Additional read files">
             <expand macro="nanopore_pacbio"/>
             <expand macro="sanger"/>
             <expand macro="contigs"/>
+            <expand macro="assembly_graph"/>
         </section>
         <expand macro="pipeline_options">
             <option value="--careful">Careful: ties to reduce the number of mismatches and short indels. Only recommended for small genomes (--careful)</option>
@@ -84,16 +92,11 @@ plasmidspades.py
 
         <!-- #1 single, separate, fastq.gz, default parameters -->
          <test expect_num_outputs="4">
-            <repeat name="file_rep">
-                <conditional name="readtype_cond">
-                    <param name="readtype_sel" value="pe"/>
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="separate"/>
-                        <param name="fwd_reads" value="pl1.fq.gz"/>
-                        <param name="rev_reads" value="pl2.fq.gz"/>
-                    </conditional>
-                </conditional>
-            </repeat>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="pl1.fq.gz"/>
+                <param name="input2" value="pl2.fq.gz"/>
+            </conditional>
             <output name="out_ag">
                 <assert_contents>
                     <has_n_lines n="326"/>
@@ -121,16 +124,11 @@ plasmidspades.py
         </test>
         <!-- #2 single, separate, fastq, all outputs and custom parameters -->
         <test expect_num_outputs="10">
-            <repeat name="file_rep">
-                <conditional name="readtype_cond">  
-                    <param name="readtype_sel" value="pe"/>
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="separate"/>
-                        <param name="fwd_reads" value="pl1.fq.gz"/>
-                        <param name="rev_reads" value="pl2.fq.gz"/>
-                    </conditional>
-                </conditional>
-            </repeat>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="pl1.fq.gz"/>
+                <param name="input2" value="pl2.fq.gz"/>
+            </conditional>
             <conditional name="cov_cond">
                 <param name="cov_sel" value="auto"/>
             </conditional>
@@ -161,23 +159,22 @@ plasmidspades.py
             </output>
             <output name="out_cs">
                 <assert_contents>
-                    <has_n_lines n="2"/>
+                    <has_n_lines n="1"/>
                     <has_text_matching expression="#name&#009;length&#009;coverage"/>
-                    <has_text_matching expression="NODE_.+"/>
                 </assert_contents>
             </output>
             <output_collection name="out_cr" type="list" count="3">
-                <element name="pe1-1-1.fastq.00.0_0.cor">
+                <element name="pl1.fq.gz.fastq.00.0_0.cor">
                     <assert_contents>
                         <has_size value="72173" delta="1000"/>
                     </assert_contents>
                 </element>
-                <element name="pe1-2-1.fastq.00.0_0.cor">
+                <element name="pl2.fq.gz.fastq.00.0_0.cor">
                     <assert_contents>
                         <has_size value="72173" delta="1000"/>
                     </assert_contents>
                 </element>
-                <element name="pe1-_unpaired.00.0_0.cor">
+                <element name="pl_unpaired.00.0_0.cor">
                     <assert_contents>
                         <has_size value="392" delta="100"/>
                     </assert_contents>
@@ -200,32 +197,27 @@ plasmidspades.py
             </output>
             <output name="out_ss">
                 <assert_contents>
-                    <has_n_lines n="2"/>
+                    <has_n_lines n="1"/>
                 </assert_contents>
             </output>
         </test>
         <!-- #3 multiple, single & paired-end, test dataset not valid -->
         <test expect_num_outputs="1">
             <param name="operation_mode" value="--only-assembler"/>
-            <repeat name="file_rep">
-                <conditional name="readtype_cond">
-                    <param name="readtype_sel" value="pe"/>
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="interlaced"/>
-                        <param name="reads" value="ecoli_1K.fastq.gz"/>
-                    </conditional>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="interlaced"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <conditional name="additional_reads">
+                <param name="selector" value="true"/>
+                <conditional name="singlePaired">
+                    <param name="sPaired" value="paired"/>
+                    <param name="input1" value="pl1.fq.gz"/>
+                    <param name="input2" value="pl2.fq.gz"/>
                 </conditional>
-            </repeat>
-            <repeat name="file_rep">
-                <conditional name="readtype_cond">
-                    <param name="readtype_sel" value="pe"/>
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="separate"/>
-                        <param name="fwd_reads" value="pl1.fq.gz"/>
-                        <param name="rev_reads" value="pl2.fq.gz"/>
-                    </conditional>
-                </conditional>
-            </repeat>
+                <param name="type_paired" value="mp"/>
+                <param name="orientation" value="rf"/>
+            </conditional>
             <param name="mode_sel" value="--careful"/>
             <param name="optional_output" value="l"/>
             <output name="out_l">
@@ -236,16 +228,11 @@ plasmidspades.py
         </test>
         <!-- #4 test dataset not valid-->
         <test expect_num_outputs="1">
-            <repeat name="file_rep">
-                <conditional name="readtype_cond">
-                    <param name="readtype_sel" value="pe"/>
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="separate"/>
-                        <param name="fwd_reads" value="pl1.fq.gz"/>
-                        <param name="rev_reads" value="pl2.fq.gz"/>
-                    </conditional>
-                </conditional>
-            </repeat>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="pl1.fq.gz"/>
+                <param name="input2" value="pl2.fq.gz"/>
+            </conditional>
             <param name="mode_sel" value="--careful"/>
             <param name="optional_output" value="l"/>
             <output name="out_l">
@@ -257,31 +244,26 @@ plasmidspades.py
         <!-- #5 only corrected reads are created as an output -->
         <test expect_num_outputs="2">
             <param name="operation_mode" value="--only-error-correction"/>
-            <repeat name="file_rep">
-                <conditional name="readtype_cond">
-                    <param name="readtype_sel" value="pe"/>
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="separate"/>
-                        <param name="fwd_reads" value="pl1.fq.gz"/>
-                        <param name="rev_reads" value="pl2.fq.gz"/>
-                    </conditional>
-                </conditional>
-            </repeat>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="pl1.fq.gz"/>
+                <param name="input2" value="pl2.fq.gz"/>
+            </conditional>
             <param name="optional_output" value="cr,l"/>
             <output_collection name="out_cr" type="list" count="3">
-                <element name="pe1-1-1.fastq.00.0_0.cor">
+                <element name="pl1.fq.gz.fastq.00.0_0.cor">
                     <assert_contents>
-                        <has_size value="71743" delta="1000"/>
+                        <has_size value="72173" delta="1000"/>
                     </assert_contents>
                 </element>
-                <element name="pe1-2-1.fastq.00.0_0.cor">
+                <element name="pl2.fq.gz.fastq.00.0_0.cor">
                     <assert_contents>
-                        <has_size value="71743" delta="1000"/>
+                        <has_size value="72173" delta="1000"/>
                     </assert_contents>
                 </element>
-                <element name="pe1-_unpaired.00.0_0.cor">
+                <element name="pl_unpaired.00.0_0.cor">
                     <assert_contents>
-                        <has_size value="392" delta="10"/>
+                        <has_size value="392" delta="100"/>
                     </assert_contents>
                 </element>
             </output_collection>
@@ -294,31 +276,26 @@ plasmidspades.py
         <!-- #6 only corrected reads are created as an output -->
         <test expect_num_outputs="2">
             <param name="operation_mode" value="--only-error-correction"/>
-            <repeat name="file_rep">
-                <conditional name="readtype_cond">
-                    <param name="readtype_sel" value="pe"/>
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="separate"/>
-                        <param name="fwd_reads" value="pl1.fq.gz"/>
-                        <param name="rev_reads" value="pl2.fq.gz"/>
-                    </conditional>
-                </conditional>
-            </repeat>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="pl1.fq.gz"/>
+                <param name="input2" value="pl2.fq.gz"/>
+            </conditional>
             <param name="optional_output" value="cr,l"/>
             <output_collection name="out_cr" type="list" count="3">
-                <element name="pe1-1-1.fastq.00.0_0.cor">
+                <element name="pl1.fq.gz.fastq.00.0_0.cor">
                     <assert_contents>
-                        <has_size value="71743" delta="1000"/>
+                        <has_size value="72173" delta="1000"/>
                     </assert_contents>
                 </element>
-                <element name="pe1-2-1.fastq.00.0_0.cor">
+                <element name="pl2.fq.gz.fastq.00.0_0.cor">
                     <assert_contents>
-                        <has_size value="71743" delta="1000"/>
+                        <has_size value="72173" delta="1000"/>
                     </assert_contents>
                 </element>
-                <element name="pe1-_unpaired.00.0_0.cor">
+                <element name="pl_unpaired.00.0_0.cor">
                     <assert_contents>
-                        <has_size value="392" delta="10"/>
+                        <has_size value="392" delta="100"/>
                     </assert_contents>
                 </element>
             </output_collection>
@@ -328,34 +305,41 @@ plasmidspades.py
                 </assert_contents>
             </output>
         </test>
-        <!-- #7 only corrected reads are created as an output -->
+        <!-- #7 hybrid assembly: nanpopore, pacbio, sanger, untrustedcontigs -->
         <test expect_num_outputs="2">
-            <repeat name="file_rep">
-                <conditional name="readtype_cond">
-                    <param name="readtype_sel" value="pe"/>
-                    <conditional name="filetype_cond">
-                        <param name="filetype_sel" value="separate"/>
-                        <param name="fwd_reads" value="pl1.fq.gz"/>
-                        <param name="rev_reads" value="pl2.fq.gz"/>
-                    </conditional>
-                </conditional>
-            </repeat>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="pl1.fq.gz"/>
+                <param name="input2" value="pl2.fq.gz"/>
+            </conditional>
+            <section name="arf">
+                <param name="nanopore" value="ecoli_1K.fastq.gz"/>
+                <param name="pacbio" value="ecoli_1K.fastq.gz"/>
+                <param name="sanger" value="ecoli_1K.fastq.gz"/>
+                <param name="untrusted_contigs" value="ecoli_1K.fasta.gz"/>
+            </section>
+            <assert_command>
+                <has_text text="--nanopore"/>
+                <has_text text="--pacbio"/>
+                <has_text text="--sanger"/>
+                <has_text text="--untrusted-contigs"/>
+            </assert_command>
             <param name="mode_sel" value="--careful"/>
             <param name="optional_output" value="cr,l"/>
             <output_collection name="out_cr" type="list" count="3">
-                <element name="pe1-1-1.fastq.00.0_0.cor">
+                <element name="pl1.fq.gz.fastq.00.0_0.cor">
                     <assert_contents>
-                        <has_size value="71743" delta="1000"/>
+                        <has_size value="72173" delta="1000"/>
                     </assert_contents>
                 </element>
-                <element name="pe1-2-1.fastq.00.0_0.cor">
+                <element name="pl2.fq.gz.fastq.00.0_0.cor">
                     <assert_contents>
-                        <has_size value="71743" delta="1000"/>
+                        <has_size value="72173" delta="1000"/>
                     </assert_contents>
                 </element>
-                <element name="pe1-_unpaired.00.0_0.cor">
+                <element name="pl_unpaired.00.0_0.cor">
                     <assert_contents>
-                        <has_size value="392" delta="10"/>
+                        <has_size value="392" delta="100"/>
                     </assert_contents>
                 </element>
             </output_collection>
