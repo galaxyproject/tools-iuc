@@ -1,0 +1,224 @@
+<tool id="hypo" name="HyPo" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="20.05">
+    <description>super fast and accurate polisher for long read genome assemblies</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro='requirements' />
+    <expand macro='xrefs'/>
+    <command detect_errors="exit_code"><![CDATA[
+        #for $i, $fastq in enumerate($reads_short):
+            #if $fastq.ext.endswith(".gz")
+                #set $ext='.fastq.gz'
+            #else
+                #set $ext='.fastq'
+            #end if
+            ln -s '$fastq' 'read_$i$ext' &&
+            echo 'read_$i$ext' >>  short_reads.txt &&
+        #end for
+        hypo
+        --reads-short @short_reads.txt
+        --draft '$draft' 
+        --bam-sr '$bam_sr'
+        #if $bam_lr
+            --bam-lr '$bam_lr'
+        #end if
+        --coverage-short $coverage_short
+        --size-ref '$size_ref'
+        --kind-sr $kind_sr
+
+        #if $advanced_options.processing_size
+            --processing-size $advanced_options.processing_size
+        #end if
+        --match-sr $advanced_options.match_sr
+        --mismatch-sr $advanced_options.mismatch_sr
+        --gap-sr $advanced_options.gap_sr
+        --match-lr $advanced_options.match_lr
+        --mismatch-lr $advanced_options.mismatch_lr
+        --gap-lr $advanced_options.gap_lr
+        --ned-th $advanced_options.ned_th
+        --qual-map-th $advanced_options.qual_map_th
+        -o '$out_fasta'
+        -t \${GALAXY_SLOTS:-4} 
+        #if $advanced_options.log == 'true'
+            > '$out_log'
+        #end if
+    ]]></command>
+    <inputs>
+        <param argument="--reads-short" type="data" format="fastq,fastq.gz" multiple="true" label="Illumina FASTQ files" />
+        <param argument="--draft" type="data" format="fasta,fasta.gz,fastq,fastq.gz" label="Draft genome assembly"/>
+        <param argument="--bam-sr" type="data" format="bam" label="BAM with illumina read alignments" 
+            help="Input file name containing the alignments of short reads against the draft (must have CIGAR information)"/>
+        <param argument="--bam-lr" type="data" format="bam" optional="true" label="BAM with ONT reads aligned"     
+            help="Input file name containing the alignments of long reads against the draft (must have CIGAR information).
+                Optional (only Short reads polishing will be performed if this argument is not given)"/>
+        <param argument="--coverage-short" type="integer" value="" min="0" label="Aproximate mean coverage of the short reads"/>
+        <param argument="--size-ref" type="text" label="Aproximate size of the genome" help="A number can be followed by units k/m/g; e.g. 10m, 2.3g.">
+            <sanitizer invalid_char="">
+                <valid initial="string.letters,string.digits">
+                    <add value="." />
+                </valid>
+            </sanitizer>
+            <validator type="regex">[A-Za-z0-9\.]+</validator>
+        </param>
+        <param argument="--kind-sr" type="select"  label="Type of short reads">
+            <option value="sr" selected="true">Corresponding to NGS reads like Illumina reads (sr)</option>
+            <option value="ccs">Corresponding to HiFi reads like PacBio CCS reads (ccs)</option>
+        </param>
+        <section name="advanced_options" title="Advanced options">
+            <param argument="--match-sr" type="integer" value="5" label="Score for matching bases for short reads" help="Default value is 5"/>
+            <param argument="--mismatch-sr" type="integer" value="-4" label="Score for mismatching bases for short reads" help="Default value is -4"/>
+            <param argument="--gap-sr" type="integer" value="-8" max="0" label="Gap penalty for short reads" help="Default value is -8 (must be negative)"/>
+            <param argument="--match-lr" type="integer" min="0" value="3" label="Score for matching bases for long reads" help="Default value is 3"/>
+            <param argument="--mismatch-lr" type="integer" value="-5" label="Score for mismatching bases for long reads" help="Default value is -5"/>
+            <param argument="--gap-lr" type="integer" value="-4" max="0" label="Gap penalty for long reads" help="Default value is -4 (must be negative)"/>
+            <param argument="--ned-th" type="integer" value="20" label="Threshold for NED"
+                help="Threshold for Normalised Edit Distance of long arms allowed in a window (in percentage). Higher number means more arms allowed which 
+                    may slow down the execution. Default value is 20"  />
+            <param argument="--qual-map-th" type="integer" value="2" label="Threshold for mapping quality of reads"
+                help="The reads with mapping quality below this threshold will not be taken into consideration. Default value is 2" />
+            <param argument="--processing-size" type="integer" optional="true" label="Number of contigs to be processed in one batch" help="Lower value means less memory usage but slower speed. By default, all the contigs in the draft"/>
+            <param name="log" type="boolean" truevalue="true" falsevalue="false" label="Generate log file"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="out_fasta" format="fasta" label="${tool.name} on ${on_string}: polished assembly"/>
+        <data name="out_log" format="txt" label="${tool.name} on ${on_string}: log file">
+            <filter>advanced_options['log']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!--Test 01-->
+        <test expect_num_outputs="1">
+            <param name="draft" value="draft_genome.fasta" ftype="fasta"/>
+            <param name="reads_short" value="Illumina_01.fastq.gz,Illumina_02.fastq.gz" ftype="fastq.gz"/>
+            <param name="size_ref" value="10k" />
+            <param name="coverage_short" value="35"/>
+            <param name="bam_sr" value="short_reads.bam" ftype="bam" />
+            <output name="out_fasta" file="test_01.fasta" ftype="fasta" />
+        </test>
+        <!--Test 02: test long-reads BAM-->
+        <test expect_num_outputs="1">
+            <param name="draft" value="draft_genome.fasta" ftype="fasta"/>
+            <param name="reads_short" value="Illumina_01.fastq.gz,Illumina_02.fastq.gz" ftype="fastq.gz"/>
+            <param name="size_ref" value="10k" />
+            <param name="coverage_short" value="35"/>
+            <param name="bam_sr" value="short_reads.bam" ftype="bam" />
+            <param name="bam_lr" value="long_reads.bam" ftype="bam" />
+            <output name="out_fasta" file="test_02.fasta" ftype="fasta" />
+        </test>
+        <!--Test 03: test css option in type of short reads-->
+        <test expect_num_outputs="1">
+            <param name="draft" value="draft_genome.fasta" ftype="fasta"/>
+            <param name="reads_short" value="Illumina_01.fastq.gz,Illumina_02.fastq.gz" ftype="fastq.gz"/>
+            <param name="size_ref" value="10k" />
+            <param name="coverage_short" value="35"/>
+            <param name="bam_sr" value="short_reads.bam" ftype="bam" />
+            <param name="bam_lr" value="long_reads.bam" ftype="bam" />
+            <param name="kind-sr" value="css"/>
+            <output name="out_fasta" file="test_03.fasta" ftype="fasta" />
+        </test>
+        <!--Test 04: test processing-size parameter -->
+        <test expect_num_outputs="1">
+            <param name="draft" value="draft_genome.fasta" ftype="fasta"/>
+            <param name="reads_short" value="Illumina_01.fastq.gz,Illumina_02.fastq.gz" ftype="fastq.gz"/>
+            <param name="size_ref" value="10k" />
+            <param name="coverage_short" value="35"/>
+            <param name="bam_sr" value="short_reads.bam" ftype="bam" />
+            <param name="bam_lr" value="long_reads.bam" ftype="bam" />
+            <section name="advanced_options">
+                <param name="processing-size" value="2"/>
+            </section>
+            <output name="out_fasta" file="test_04.fasta" ftype="fasta" />
+        </test>
+        <!--Test 05: test log option-->
+        <test expect_num_outputs="2">
+            <param name="draft" value="draft_genome.fasta" ftype="fasta"/>
+            <param name="reads_short" value="Illumina_01.fastq.gz,Illumina_02.fastq.gz" ftype="fastq.gz"/>
+            <param name="size_ref" value="10k" />
+            <param name="coverage_short" value="35"/>
+            <param name="bam_sr" value="short_reads.bam" ftype="bam" />
+            <param name="log" value="true"/>
+            <output name="out_fasta" file="test_05.fasta" ftype="fasta" />
+            <output name="out_log" ftype="txt">
+                <assert_contents>
+                    <has_text text="No. of k-mers below min. threshold"/>
+                    <has_text text="Info: Value of K chosen for the given genome size"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!--Test 06: advanced all options-->
+        <test  expect_num_outputs="1">
+            <param name="draft" value="draft_genome.fasta" ftype="fasta"/>
+            <param name="reads_short" value="Illumina_01.fastq.gz,Illumina_02.fastq.gz" ftype="fastq.gz"/>
+            <param name="size_ref" value="10k" />
+            <param name="coverage_short" value="35"/>
+            <param name="bam_sr" value="short_reads.bam" ftype="bam" />
+            <param name="bam_lr" value="long_reads.bam" ftype="bam" />
+            <section name="advanced_options">
+                <param name="match_sr" value="4"/>
+                <param name="mismatch_sr" value="-2"/>
+                <param name="gap_sr" value="-10"/>
+                <param name="match_lr" value="3"/>
+                <param name="mismatch_lr" value="-7"/>
+                <param name="gap_lr" value="-15"/>
+                <param name="ned_th" value="10"/>
+                <param name="qual_map_th" value="4"/>
+            </section>
+            <output name="out_fasta" file="test_06.fasta" ftype="fasta" />
+        </test>
+        <!--Test 07: test fastq files-->
+        <test  expect_num_outputs="1">
+            <param name="draft" value="draft_genome.fasta" ftype="fasta"/>
+            <param name="reads_short" value="Illumina_01.fastq,Illumina_02.fastq" ftype="fastq"/>
+            <param name="size_ref" value="10k" />
+            <param name="coverage_short" value="35"/>
+            <param name="bam_sr" value="short_reads.bam" ftype="bam" />
+            <output name="out_fasta" file="test_07.fasta" ftype="fasta" />
+        </test>
+    </tests>
+    <help><![CDATA[
+ 
+ .. class:: infomark
+
+**Purpose**
+
+HyPo - a Hybrid Polisher - utilizes short as well as long reads within a single run to polish a long reads assembly of small and large genomes.
+It exploits unique genomic kmers to selectively polish segments of contigs using partial order alignment of selective read-segments.
+As demonstrated on human genome assemblies, Hypo generates significantly more accurate polished assembly in about one-third time with
+about half the memory requirements in comparison to contemporary widely used polishers like Racon.
+
+Please note that "short reads" doesn't necessarily have to be NGS short reads; HiFi genomic reads (e.g. CCS) like those generated from PacBio SequelII
+could also be used instead. The requirement is that those reads should be highly accurate (>98% accuracy).
+
+-------------------
+
+ .. class:: infomark
+
+**Input files**
+
+Hypo requires the following as input:
+   * Short reads/HiFi reads (in FASTA/FASTQ format; can be compressed)
+   * Draft contigs (in FASTA/FASTQ format; can be compressed)
+   * Alignments between short reads (or HiFi reads) and the draft (hould contain CIGAR). If long reads are also to be used for polishing, then alignments between long reads and the draft.
+   * Expected mean coverage of short reads (or HiFi reads) and approximate size of the genome.
+
+In what follows, short reads can be replaced with HiFi reads.
+
+-------------------
+
+ .. class:: infomark
+
+**How it works**
+
+Broadly, we (conceptually) divide a draft (uncorrected) contig into two types of regions (segments): strong and weak. 
+
+Strong regions are those which have strong evidence (support) of their correctness and
+thus do not need polishing. Weak regions, on the other hand, will be polished using POA. Each weak region will
+be polished using either short reads or long reads; short reads taking precedence over long reads. To identify
+strong regions, we make use of solid kmers (expected unique genomic kmers). Strong regions also play a role in
+selecting the read-segments to polish their neighbouring weak regions. Furthermore, our approach takes into account
+that the long reads and thus the assemblies generated from them are prone to homopolymer errors as mentioned in the beginning.
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>
