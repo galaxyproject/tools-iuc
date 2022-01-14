@@ -22,7 +22,6 @@ def init_db(dbjson):
     if os.path.isfile(dbfile):
         os.unlink(dbfile)
 
-
     con = sqlite3.connect(dbfile)
     cur = con.cursor()
     cur.execute("CREATE TABLE quartile ("

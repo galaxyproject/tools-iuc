@@ -8,14 +8,14 @@ Created on 27/03/15
 """
 
 import argparse
-import gviewer
 import os
-import ngsqc
 import shutil
 import time
 import zipfile
-
 from datetime import datetime
+
+import gviewer
+import ngsqc
 
 
 def write_html(filename, genome, files, dest, exec_time):
@@ -56,7 +56,7 @@ def write_html(filename, genome, files, dest, exec_time):
         zipf = os.path.basename(rep_files[1])
         html_string += ("<tr><td>Replicate {}</td>"
                         "<td><a href=\"{}\">PDF report</a></td>"
-                        "<td><a href=\"{}\">Supplementary data</a></td></tr>".format(i+1, pdf, zipf))
+                        "<td><a href=\"{}\">Supplementary data</a></td></tr>".format(i + 1, pdf, zipf))
 
     html_string += "</tbody></table></body></html>"
 
