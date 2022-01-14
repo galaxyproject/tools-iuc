@@ -7,8 +7,8 @@ from contextlib import ExitStack
 from tempfile import TemporaryDirectory
 
 from libtiff import TIFF
-from omero.gateway import BlitzGateway  # noqa
 from omero.cli import cli_login
+from omero.gateway import BlitzGateway  # noqa
 from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 
 
