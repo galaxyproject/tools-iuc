@@ -8,8 +8,9 @@ from tempfile import TemporaryDirectory
 
 from libtiff import TIFF
 from omero.gateway import BlitzGateway  # noqa
-from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
 from omero.cli import cli_login
+from omero.constants.namespaces import NSBULKANNOTATIONS  # noqa
+
 
 def warn(message, image_identifier, warn_skip=False):
     message = message.rstrip()
