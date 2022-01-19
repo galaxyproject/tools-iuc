@@ -211,7 +211,7 @@ def list_targets():
     con.close()
 
     for target in sorted(targets, key=lambda s: s.lower()):
-        print '<option value="{0}">{0}</option>'.format(target)
+        print('<option value="{0}">{0}</option>'.format(target))
 
 
 if __name__ == '__main__':

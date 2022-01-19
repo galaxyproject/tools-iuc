@@ -8,7 +8,7 @@ Created on 28/01/15
 """
 
 import argparse
-import ConfigParser
+import configparser
 import libngs
 import libregion
 import os
@@ -18,7 +18,7 @@ import shutil
 import sys
 import tempfile
 
-config = ConfigParser.ConfigParser()
+config = configparser.ConfigParser()
 config.read(os.path.join(os.path.dirname(__file__), 'config.ini'))
 gene_db = os.path.join(os.path.dirname(__file__), 'genes.db')
 
@@ -50,7 +50,7 @@ def gviewer(infile, loqctable, dest, genome, **kwargs):
     bedtools = config.get('softwares', 'bedtools')
     bedutils = os.path.join(os.path.dirname(__file__), 'utils', 'NGSQC_bed_utils')
     gnuplot = config.get('softwares', 'gnuplot')
-    wigit = os.path.join(os.path.dirname(__file__), 'utils', 'wigit', 'wigit')
+    wigit = os.path.join(os.path.dirname(__file__), 'utils', 'wigit')
     sort = config.get('softwares', 'sort')
     ncores = config.getint('performance', 'cores')
     maxmem = config.getint('performance', 'memory')

@@ -77,7 +77,7 @@ def cleanfiles(files):
 
 def echo(quiet, string):
     if not quiet:
-        print string
+        print(string)
 
 
 def gunzip(path, dest, d=False):
@@ -131,7 +131,7 @@ def bedintegrity(bedutils, bed):
         return tuple([None] * 10)
 
     try:
-        cols = out.rstrip().split('\t', 9)
+        cols = out.decode('utf-8').rstrip().split('\t', 9)
         errno = int(cols[0])                    # if equal 0, BED is good
         reads = int(cols[1])                    # Number of reads
         ureads = int(cols[2])                   # Number of considered reads (if a genome file is given)
@@ -143,6 +143,7 @@ def bedintegrity(bedutils, bed):
         chrms = sorted(cols[8].split(','))      # List of chromosomes found in the BED file
         last_line = cols[9]                     # Last processed line
     except Exception as e:
+        print(e)
         return tuple([None] * 10)
     else:
         return (errno, reads, ureads, reads_length_mean, dif_read_size,
@@ -169,8 +170,9 @@ def isbedsorted(bedutils, bed, noheader=False):
         return None
 
     try:
-        code = int(out.rstrip())
-    except:
+        code = int(out.decode('utf-8').rstrip())
+    except Exception as e:
+        print("Error to get sorted {}".format(e))
         return None
     else:
         return bool(code)
@@ -189,7 +191,7 @@ def count_unique_reads(bedutils, bed, noheader=False):
         return None
 
     try:
-        nunique = int(err.rstrip().split('\t')[1])
+        nunique = int(err.decode('utf-8').rstrip().split('\t')[1])
     except:
         return None
     else:
@@ -207,7 +209,7 @@ def filter_unique_reads(bedutils, bed, dest=None, noheader=False):
     out, err = pop.communicate()
 
     try:
-        nunique = int(err.rstrip().split('\t')[1])
+        nunique = int(err.decode('utf-8').rstrip().split('\t')[1])
     except Exception as e:
         nunique = None
 
@@ -328,6 +330,7 @@ def getbackground(nreads, genomesize, binsize, ci):
     :param ci:          Confidence interval
     :return:            int
     """
+    # Lambda = number of reads / (genome size * bins size)
     lambda_l = float(nreads) / genomesize * binsize
 
     for bg in range(int(lambda_l)+1, 10001):

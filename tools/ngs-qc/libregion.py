@@ -29,9 +29,9 @@ def median(lst):
         return None
     elif length % 2 == 0:
         # Even number of elements
-        return (lst[(length+1)/2 - 1] + lst[(length+1)/2]) / 2.0
+        return (lst[int((length+1)/2 - 1)] + lst[int((length+1)/2)]) / 2.0
     else:
-        return lst[(length+1)/2 - 1]
+        return lst[int((length+1)/2 - 1)]
 
 
 def make_region_around_gene(genome, gene, resolution, centerontss=False):
@@ -399,9 +399,9 @@ def get_wigs(wigit, regions, bed):
     pop = Popen(cmd, stdout=PIPE)
     parse= False
     for i, line in enumerate(pop.stdout):
-        if line.startswith('variableStep'):
+        if line.decode('utf-8').startswith('variableStep'):
             # Line like: variableStep chrom=chr21 span=20
-            chrm = line.split()[1][6:]
+            chrm = line.decode('utf-8').split()[1][6:]
 
             if chrm in regions_chrm:
                 parse = True
@@ -409,7 +409,7 @@ def get_wigs(wigit, regions, bed):
                 parse = False
         elif parse:
             try:
-                wig, reads = line.rstrip().split('\t')
+                wig, reads = line.decode('utf-8').rstrip().split('\t')
                 wig = int(wig)
                 reads = int(reads)
             except:
@@ -646,7 +646,10 @@ def plot(region, dest, **kwargs):
                 highest_peak_bin = max([wig[1] for wig in region['wigs'] if wig[0]/500 == idx])
             except ValueError as e:
                 # max() arg is an empty sequence: there is no wig in the selected bin (weird)
-                highest_peak_bin = 0
+                try:
+                    highest_peak_bin = max([wig[1] for wig in region['wigs']])
+                except ValueError as e:
+                    highest_peak_bin = 0
 
             try:
                 highest_peak_region = max([wig[1] for wig in region['wigs']])
@@ -873,8 +876,9 @@ def plot(region, dest, **kwargs):
 
         fo.write('unset multiplot\n')
 
-    pop = Popen([gnuplot, script])
-    pop.wait()
+    with open(os.devnull, 'w') as dn:
+        pop = Popen([gnuplot, script], stdout=dn, stderr=dn)
+        pop.wait()
 
     os.unlink(wigs_file)
     os.unlink(disps_file)
@@ -883,6 +887,6 @@ def plot(region, dest, **kwargs):
     if pop.returncode != 0:
         if os.path.isfile(dest):
             os.unlink(dest)
-        sys.stderr.write('Gnuplot error: local QC displays might not be produced.\n')
+        #sys.stderr.write('Gnuplot error: local QC displays might not be produced.\n')
 
     return pop.returncode

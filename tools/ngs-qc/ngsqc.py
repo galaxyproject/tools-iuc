@@ -8,7 +8,7 @@ Created on 26/03/15
 """
 
 import argparse
-import ConfigParser
+import configparser
 import libngs
 import libquartiles
 import libregion
@@ -25,7 +25,7 @@ from subprocess import Popen, PIPE
 
 VERSION = '1.7.6'
 
-config = ConfigParser.ConfigParser()
+config = configparser.ConfigParser()
 config.read(os.path.join(os.path.dirname(__file__), 'config.ini'))
 
 
@@ -68,6 +68,7 @@ def compute_indicators(bedutils, bed, outdir, genomefile, bg=1, rep=1, gnuplot='
     efiles = [f for f in files if os.path.isfile(f)]
 
     if len(files) != len(efiles) or pop2.returncode != 0:
+        print("{} {} {}".format(files,efiles,pop2.returncode))
         for f in efiles:
             os.unlink(f)
         return None, None
