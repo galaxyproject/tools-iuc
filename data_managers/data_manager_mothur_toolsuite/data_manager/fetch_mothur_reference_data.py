@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Data manager for reference data for the 'mothur_toolsuite' Galaxy tools
+import io
 import json
 import optparse
 import os
@@ -8,8 +9,11 @@ import shutil
 import sys
 import tarfile
 import tempfile
-import urllib2
+import urllib.error
+import urllib.parse
+import urllib.request
 import zipfile
+from functools import reduce
 
 # When extracting files from archives, skip names that
 # start with the following strings
@@ -27,118 +31,132 @@ MOTHUR_REFERENCE_DATA = {
     # Look up data
     # http://www.mothur.org/wiki/Lookup_files
     "lookup_titanium": {
-        "GS FLX Titanium": ["http://www.mothur.org/w/images/9/96/LookUp_Titanium.zip", ]
+        "GS FLX Titanium": ["https://mothur.s3.us-east-2.amazonaws.com/wiki/lookup_titanium.zip", ]
     },
     "lookup_gsflx": {
-        "GSFLX": ["http://www.mothur.org/w/images/8/84/LookUp_GSFLX.zip", ]
+        "GSFLX": ["https://mothur.s3.us-east-2.amazonaws.com/wiki/lookup_gsflx.zip", ]
     },
     "lookup_gs20": {
-        "GS20": ["http://www.mothur.org/w/images/7/7b/LookUp_GS20.zip", ]
+        "GS20": ["https://mothur.s3.us-east-2.amazonaws.com/wiki/lookup_gs20.zip", ]
     },
     # RDP reference files
     # http://www.mothur.org/wiki/RDP_reference_files
+    "RDP_v18": {
+        "16S rRNA RDP training set 18":
+            [
+                "https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset18_062020.rdp.tgz", ],
+        "16S rRNA PDS training set 18":
+            [
+                "https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset18_062020.pds.tgz", ],
+    },
     "RDP_v16": {
         "16S rRNA RDP training set 16":
-        ["https://mothur.org/w/images/d/dc/Trainset16_022016.rdp.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset16_022016.rdp.tgz", ],
         "16S rRNA PDS training set 16":
-        ["https://mothur.org/w/images/c/c3/Trainset16_022016.pds.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset16_022016.pds.tgz", ],
     },
     "RDP_v14": {
         "16S rRNA RDP training set 14":
-        ["https://mothur.org/w/images/6/6c/Trainset14_032015.rdp.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset14_032015.rdp.tgz", ],
         "16S rRNA PDS training set 14":
-        ["https://mothur.org/w/images/8/88/Trainset14_032015.pds.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset14_032015.pds.tgz", ],
     },
     "RDP_v10": {
         "16S rRNA RDP training set 10":
-        ["http://www.mothur.org/w/images/b/b5/Trainset10_082014.rdp.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset10_082014.rdp.tgz", ],
         "16S rRNA PDS training set 10":
-        ["http://www.mothur.org/w/images/2/24/Trainset10_082014.pds.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset10_082014.pds.tgz", ],
     },
     "RDP_v9": {
         "16S rRNA RDP training set 9":
-        ["http://www.mothur.org/w/images/7/72/Trainset9_032012.rdp.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset9_032012.rdp.zip", ],
         "16S rRNA PDS training set 9":
-        ["http://www.mothur.org/w/images/5/59/Trainset9_032012.pds.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset9_032012.pds.zip", ],
     },
     "RDP_v7": {
         "16S rRNA RDP training set 7":
-        ["http://www.mothur.org/w/images/2/29/Trainset7_112011.rdp.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset7_112011.rdp.zip", ],
         "16S rRNA PDS training set 7":
-        ["http://www.mothur.org/w/images/4/4a/Trainset7_112011.pds.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/trainset7_112011.pds.zip", ],
         "8S rRNA Fungi training set 7":
-        ["http://www.mothur.org/w/images/3/36/FungiLSU_train_v7.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/fungilsu_train_v7.zip", ],
     },
     "RDP_v6": {
         "RDP training set 6":
-        ["http://www.mothur.org/w/images/4/49/RDPTrainingSet.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/rdptrainingset.zip", ],
     },
     # Silva reference files
     # http://www.mothur.org/wiki/Silva_reference_files
+    "silva_release_138.1": {
+        "SILVA release 138.1":
+            [
+                "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v138_1.tgz",
+                "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v138_1.tgz", ],
+    },
     "silva_release_128": {
         "SILVA release 128":
-        ["https://mothur.org/w/images/b/b4/Silva.nr_v128.tgz",
-         "https://mothur.org/w/images/a/a4/Silva.seed_v128.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v128.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v128.tgz", ],
     },
     "silva_release_123": {
         "SILVA release 123":
-        ["https://mothur.org/w/images/b/be/Silva.nr_v123.tgz",
-         "https://mothur.org/w/images/1/15/Silva.seed_v123.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v123.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v123.tgz", ],
     },
     "silva_release_119": {
         "SILVA release 119":
-        ["http://www.mothur.org/w/images/2/27/Silva.nr_v119.tgz",
-         "http://www.mothur.org/w/images/5/56/Silva.seed_v119.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.nr_v119.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.seed_v119.tgz", ],
     },
     "silva_release_102": {
         "SILVA release 102":
-        ["http://www.mothur.org/w/images/9/98/Silva.bacteria.zip",
-         "http://www.mothur.org/w/images/3/3c/Silva.archaea.zip",
-         "http://www.mothur.org/w/images/1/1a/Silva.eukarya.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.bacteria.zip",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.archaea.zip",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.eukarya.zip", ],
     },
     "silva_gold_bacteria": {
         "SILVA gold":
-        ["http://www.mothur.org/w/images/f/f1/Silva.gold.bacteria.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva.gold.bacteria.zip", ],
     },
     # Greengenes
     # http://www.mothur.org/wiki/Greengenes-formatted_databases
     "greengenes_August2013": {
         "Greengenes August 2013":
-        ["http://www.mothur.org/w/images/1/19/Gg_13_8_99.refalign.tgz",
-         "http://www.mothur.org/w/images/6/68/Gg_13_8_99.taxonomy.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/gg_13_8_99.refalign.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/gg_13_8_99.taxonomy.tgz", ],
     },
     "greengenes_May2013": {
         "Greengenes May 2013":
-        ["http://www.mothur.org/w/images/c/cd/Gg_13_5_99.refalign.tgz",
-         "http://www.mothur.org/w/images/9/9d/Gg_13_5_99.taxonomy.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/gg_13_5_99.refalign.tgz",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/gg_13_5_99.taxonomy.tgz", ],
     },
     "greengenes_old": {
         "Greengenes pre-May 2013":
-        ["http://www.mothur.org/w/images/7/72/Greengenes.alignment.zip",
-         "http://www.mothur.org/w/images/1/16/Greengenes.tax.tgz", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/greengenes.alignment.zip",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/greengenes.tax.tgz", ],
     },
     "greengenes_gold_alignment": {
         "Greengenes gold alignment":
-        ["http://www.mothur.org/w/images/2/21/Greengenes.gold.alignment.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/greengenes.gold.alignment.zip", ],
     },
     # Secondary structure maps
     # http://www.mothur.org/wiki/Secondary_structure_map
     "secondary_structure_maps_silva": {
         "SILVA":
-        ["http://www.mothur.org/w/images/6/6d/Silva_ss_map.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/silva_ss_map.zip", ],
     },
     "secondary_structure_maps_greengenes": {
         "Greengenes":
-        ["http://www.mothur.org/w/images/4/4b/Gg_ss_map.zip", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/gg_ss_map.zip", ],
     },
     # Lane masks: not used here?
     "lane_masks": {
         "Greengenes-compatible":
-        ["http://www.mothur.org/w/images/2/2a/Lane1241.gg.filter",
-         "http://www.mothur.org/w/images/a/a0/Lane1287.gg.filter",
-         "http://www.mothur.org/w/images/3/3d/Lane1349.gg.filter", ],
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/Lane1241.gg.filter",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/lane1287.gg.filter",
+         "https://mothur.s3.us-east-2.amazonaws.com/wiki/lane1349.gg.filter", ],
         "SILVA-compatible":
-        ["http://www.mothur.org/w/images/6/6d/Lane1349.silva.filter", ]
+        ["https://mothur.s3.us-east-2.amazonaws.com/wiki/lane1349.silva.filter", ]
     },
 }
 
@@ -159,7 +177,8 @@ def read_input_json(jsonfile):
     to create it if necessary.
 
     """
-    params = json.loads(open(jsonfile).read())
+    with open(jsonfile) as fh:
+        params = json.load(fh)
     return (params['param_dict'],
             params['output_data'][0]['extra_files_path'])
 
@@ -171,7 +190,7 @@ def read_input_json(jsonfile):
 # >>> add_data_table(d,'my_data')
 # >>> add_data_table_entry(dict(dbkey='hg19',value='human'))
 # >>> add_data_table_entry(dict(dbkey='mm9',value='mouse'))
-# >>> print str(json.dumps(d))
+# >>> print(json.dumps(d))
 def create_data_tables_dict():
     """Return a dictionary for storing data table information
 
@@ -228,13 +247,19 @@ def download_file(url, target=None, wd=None):
     Returns the name that the file is saved with.
 
     """
-    print "Downloading %s" % url
+    print(f"Downloading {url}")
     if not target:
         target = os.path.basename(url)
     if wd:
         target = os.path.join(wd, target)
-    print "Saving to %s" % target
-    open(target, 'wb').write(urllib2.urlopen(url).read())
+    print(f"Saving to {target}")
+    with open(target, 'wb') as fh:
+        url_h = urllib.request.urlopen(url)
+        while True:
+            buffer = url_h.read(io.DEFAULT_BUFFER_SIZE)
+            if buffer == b"":
+                break
+            fh.write(buffer)
     return target
 
 
@@ -254,35 +279,36 @@ def unpack_zip_archive(filen, wd=None):
 
     """
     if not zipfile.is_zipfile(filen):
-        print "%s: not ZIP formatted file"
+        print(f"{filen}: not ZIP formatted file")
         return [filen]
     file_list = []
-    z = zipfile.ZipFile(filen)
-    for name in z.namelist():
-        if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
-            print "Ignoring %s" % name
-            continue
-        if wd:
-            target = os.path.join(wd, name)
-        else:
-            target = name
-        if name.endswith('/'):
-            # Make directory
-            print "Creating dir %s" % target
-            try:
-                os.makedirs(target)
-            except OSError:
-                pass
-        else:
-            # Extract file
-            print "Extracting %s" % name
-            try:
-                os.makedirs(os.path.dirname(target))
-            except OSError:
-                pass
-            open(target, 'wb').write(z.read(name))
-            file_list.append(target)
-    print "Removing %s" % filen
+    with zipfile.ZipFile(filen) as z:
+        for name in z.namelist():
+            if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
+                print(f"Ignoring {name}")
+                continue
+            if wd:
+                target = os.path.join(wd, name)
+            else:
+                target = name
+            if name.endswith('/'):
+                # Make directory
+                print(f"Creating dir {target}")
+                try:
+                    os.makedirs(target)
+                except OSError:
+                    pass
+            else:
+                # Extract file
+                print("Extracting {target}")
+                try:
+                    os.makedirs(os.path.dirname(target))
+                except OSError:
+                    pass
+                with open(target, 'wb') as fh:
+                    fh.write(z.read(name))
+                file_list.append(target)
+    print(f"Removing {filen}")
     os.remove(filen)
     return file_list
 
@@ -305,23 +331,23 @@ def unpack_tar_archive(filen, wd=None):
     """
     file_list = []
     if not tarfile.is_tarfile(filen):
-        print "%s: not TAR file"
+        print(f"{filen}: not TAR file")
         return [filen]
-    t = tarfile.open(filen)
-    for name in t.getnames():
-        # Check for unwanted files
-        if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
-            print "Ignoring %s" % name
-            continue
-        # Extract file
-        print "Extracting %s" % name
-        t.extract(name, wd)
-        if wd:
-            target = os.path.join(wd, name)
-        else:
-            target = name
-        file_list.append(target)
-    print "Removing %s" % filen
+    with tarfile.open(filen) as t:
+        for name in t.getnames():
+            # Check for unwanted files
+            if reduce(lambda x, y: x or name.startswith(y), IGNORE_PATHS, False):
+                print(f"Ignoring {name}")
+                continue
+            # Extract file
+            print(f"Extracting {name}")
+            t.extract(name, wd)
+            if wd:
+                target = os.path.join(wd, name)
+            else:
+                target = name
+            file_list.append(target)
+    print(f"Removing {filen}")
     os.remove(filen)
     return file_list
 
@@ -339,9 +365,9 @@ def unpack_archive(filen, wd=None):
     current working directory.
 
     """
-    print "Unpack %s" % filen
+    print(f"Unpack {filen}")
     ext = os.path.splitext(filen)[1]
-    print "Extension: %s" % ext
+    print(f"Extension: {ext}")
     if ext == ".zip":
         return unpack_zip_archive(filen, wd=wd)
     elif ext == ".tgz":
@@ -382,7 +408,7 @@ def identify_type(filen):
     try:
         return MOTHUR_FILE_TYPES[ext]
     except KeyError:
-        print "WARNING: unknown file type for " + filen + ", skipping"
+        print(f"WARNING: unknown file type for {filen}, skipping")
         return None
 
 
@@ -415,26 +441,27 @@ def fetch_from_mothur_website(data_tables, target_dir, datasets):
     """
     # Make working dir
     wd = tempfile.mkdtemp(suffix=".mothur", dir=os.getcwd())
-    print "Working dir %s" % wd
+    print(f"Working dir {wd}")
     # Iterate over all requested reference data URLs
     for dataset in datasets:
-        print "Handling dataset '%s'" % dataset
+        print(f"Handling dataset '{dataset}'")
         for name in MOTHUR_REFERENCE_DATA[dataset]:
             for f in fetch_files(MOTHUR_REFERENCE_DATA[dataset][name], wd=wd):
                 type_ = identify_type(f)
-                entry_name = "%s (%s)" % (os.path.splitext(os.path.basename(f))[0], name)
-                print "%s\t\'%s'\t.../%s" % (type_, entry_name, os.path.basename(f))
+                name_from_file = os.path.splitext(os.path.basename(f))[0]
+                entry_name = f"{name_from_file} ({name})"
+                print(f"{type_}\t\'{entry_name}'\t.../{os.path.basename(f)}")
                 if type_ is not None:
                     # Move to target dir
                     ref_data_file = os.path.basename(f)
                     f1 = os.path.join(target_dir, ref_data_file)
-                    print "Moving %s to %s" % (f, f1)
-                    os.rename(f, f1)
+                    print(f"Moving {f} to {f1}")
+                    shutil.move(f, f1)
                     # Add entry to data table
-                    table_name = "mothur_%s" % type_
+                    table_name = f"mothur_{type_}"
                     add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
     # Remove working dir
-    print "Removing %s" % wd
+    print(f"Removing {wd}")
     shutil.rmtree(wd)
 
 
@@ -450,7 +477,7 @@ def files_from_filesystem_paths(paths):
     files = []
     for path in paths:
         path = os.path.abspath(path)
-        print "Examining '%s'..." % path
+        print(f"Examining '{path}'...")
         if os.path.isfile(path):
             # Store full path for file
             files.append(path)
@@ -459,7 +486,7 @@ def files_from_filesystem_paths(paths):
             for f in os.listdir(path):
                 files.extend(files_from_filesystem_paths((os.path.join(path, f), )))
         else:
-            print "Not a file or directory, ignored"
+            print("Not a file or directory, ignored")
     return files
 
 
@@ -489,26 +516,26 @@ def import_from_server(data_tables, target_dir, paths, description, link_to_data
     for f in files:
         type_ = identify_type(f)
         if type_ is None:
-            print "%s: unrecognised type, skipped" % f
+            print(f"{f}: unrecognised type, skipped")
             continue
         ref_data_file = os.path.basename(f)
         target_file = os.path.join(target_dir, ref_data_file)
         entry_name = "%s" % os.path.splitext(ref_data_file)[0]
         if description:
             entry_name += " (%s)" % description
-        print "%s\t\'%s'\t.../%s" % (type_, entry_name, ref_data_file)
+        print(f"{type_}\t\'{entry_name}'\t.../{ref_data_file}")
         # Link to or copy the data
         if link_to_data:
             os.symlink(f, target_file)
         else:
             shutil.copyfile(f, target_file)
         # Add entry to data table
-        table_name = "mothur_%s" % type_
+        table_name = f"mothur_{type_}"
         add_data_table_entry(data_tables, table_name, dict(name=entry_name, value=ref_data_file))
 
 
 if __name__ == "__main__":
-    print "Starting..."
+    print("Starting...")
 
     # Read command line
     parser = optparse.OptionParser()
@@ -518,8 +545,8 @@ if __name__ == "__main__":
     parser.add_option('--description', action='store', dest='description', default='')
     parser.add_option('--link', action='store_true', dest='link_to_data')
     options, args = parser.parse_args()
-    print "options: %s" % options
-    print "args   : %s" % args
+    print(f"options: {options}")
+    print(f"args   : {args}")
 
     # Check for JSON file
     if len(args) != 1:
@@ -532,7 +559,7 @@ if __name__ == "__main__":
     params, target_dir = read_input_json(jsonfile)
 
     # Make the target directory
-    print "Making %s" % target_dir
+    print(f"Making {target_dir}")
     os.mkdir(target_dir)
 
     # Set up data tables dictionary
@@ -554,7 +581,7 @@ if __name__ == "__main__":
         paths = options.paths.replace('__cn__', '\n').replace('__cr__', '\r').split()
         import_from_server(data_tables, target_dir, paths, description, link_to_data=options.link_to_data)
     # Write output JSON
-    print "Outputting JSON"
-    print str(json.dumps(data_tables))
-    open(jsonfile, 'wb').write(json.dumps(data_tables))
-    print "Done."
+    print("Outputting JSON")
+    with open(jsonfile, 'w') as fh:
+        json.dump(data_tables, fh, sort_keys=True)
+    print("Done.")
