@@ -12,5 +12,5 @@ with open(fai, 'r') as infile:
         while start < stop:
             start = max(1, start - overlap)
             print('\t'.join([name, str(start),
-                             str(min(start + chunk_size, stop))])
+                             str(min(start + chunk_size, stop))]))
             start += chunk_size
