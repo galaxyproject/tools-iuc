@@ -3,7 +3,7 @@ import sys
 
 fai = sys.argv[1]
 chunk_size = int(sys.argv[2])
-overlap = 150  # Base pairs
+overlap = int(sys.argv[3])  # Base pairs
 with open(fai, 'r') as infile:
     for line in infile:
         name = line.split('\t')[0]
