@@ -41,27 +41,29 @@ def run_command(command):
 def main(arguments):
     threshold = arguments.threshold
     step = threshold * 0.25
-    shutil.copy(arguments.input, os.path.join(os.getcwd(), 'reference_msa.fa'))
-    shutil.copy(arguments.input, os.path.join(os.getcwd(), 'reference_msa.fa.bak'))
+    shutil.copy(arguments.input, os.path.join(os.getcwd(), 'background_msa.fa'))
+    shutil.copy(arguments.input, os.path.join(os.getcwd(), 'background_msa.fa.bak'))
     with open(arguments.reference) as fh:
         for line in fh:
             if line[0] == '>':
                 _ref_seq_name = line[1:].split(' ')[0].strip()
                 break
     while True and threshold <= 1:
-        command = 'tn93-cluster -o clusters.json -t %g -a %s -c %s -m json -l %d -g %f reference_msa.fa' % (threshold, arguments.ambigs, arguments.cluster_type, arguments.overlap, arguments.fraction)
+        # input_stamp = run_command (task_runners['tn93'], ['-o', tn93_pairwise_calcs, '-s', ref_msa, '-t', "%g" % (threshold*2.0), query_compressed], tn93_pairwise_calcs, "filtering reference sequuences that are closer than %g to any query cluster" % (threshold*2.0))
+
+        command = 'tn93-cluster -o clusters.json -t %g -a %s -c %s -m json -l %d -g %f background_msa.fa' % (threshold, arguments.ambigs, arguments.cluster_type, arguments.overlap, arguments.fraction)
         return_code = run_command(command)
         if return_code != 0:
             return return_code
-        input_stamp, cluster_count = cluster_to_fasta('clusters.json', 'reference_msa.fa.bak', _ref_seq_name)
+        input_stamp, cluster_count = cluster_to_fasta('clusters.json', 'background_msa.fa.bak', _ref_seq_name)
         if cluster_count <= arguments.cluster_count or threshold == 1:
             break
         else:
             threshold += step
         print('Found %d clusters at threshold %f' % (cluster_count, threshold))
-    shutil.copy('reference_msa.fa.bak', arguments.compressed)
+    shutil.copy('background_msa.fa.bak', arguments.compressed)
     shutil.copy('clusters.json', arguments.output)
-    os.remove('reference_msa.fa.bak')
+    os.remove('background_msa.fa.bak')
     return 0
 
 
