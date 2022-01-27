@@ -17,7 +17,8 @@ if __name__ == '__main__':
     while not trimmed:
         line = lines[i].upper().rstrip()
         for j in range(len(line) - 1, -1, -1):
-            if line[j] != 'A':
+            # walk backwards through the line, checking for a non-A (and non-space) character
+            if line[j] not in ['A', ' ']:
                 lines[i] = line[:j + 1] + '\n'
                 trimmed = True
                 break
