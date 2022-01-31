@@ -4,7 +4,7 @@ env:
   GALAXY_FORK: galaxyproject
   GALAXY_BRANCH: release_21.09
   MAX_CHUNKS: 4
-  MAX_FILE_SIZE: 500k
+  MAX_FILE_SIZE: 1M
 concurrency:
   # group runs by PR, but keep runs on master separate
   # because we do not want to cancel toolshed uploads
@@ -27,6 +27,7 @@ jobs:
       tool-list: ${{ steps.discover.outputs.tool-list }}
       chunk-count: ${{ steps.discover.outputs.chunk-count }}
       chunk-list: ${{ steps.discover.outputs.chunk-list }}
+      commit-range: ${{ steps.discover.outputs.commit-range }}
     strategy:
       matrix:
         python-version: ['3.7']
@@ -226,14 +227,14 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        fetch-depth: 1
-    - name: Save repositories to file
-      run: echo '${{ needs.setup.outputs.repository-list }}' > repository_list.txt
+        fetch-depth: 0
     - name: Check file sizes
       run: |
-        while read repo; do
-          find "$repo" -size +${{ env.MAX_FILE_SIZE }}
-        done < repository_list.txt > file_size_report.txt
+        touch file_size_report.txt
+        git diff --diff-filter=d --name-only ${{ needs.setup.outputs.commit-range }} > git.diff
+        while read line; do
+          find "$line" -type f -size +${{ env.MAX_FILE_SIZE }} >> file_size_report.txt
+        done < git.diff
         if [[ -s file_size_report.txt ]]; then
           echo "Files larger than ${{ env.MAX_FILE_SIZE }} found"
           cat file_size_report.txt
@@ -384,7 +385,7 @@ jobs:
 
   determine-success:
     name: Check workflow success
-    needs: [setup, lint, flake8, lintr, combine_outputs]
+    needs: [setup, lint, flake8, lintr, file_sizes, combine_outputs]
     if: ${{ always() && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
@@ -396,6 +397,9 @@ jobs:
       run: exit 1
     - name: Indicate R script lint status
       if: ${{ needs.lintr.result != 'success' && needs.lintr.result != 'skipped' }}
+      run: exit 1
+    - name: Indicate file size check status
+      if: ${{ needs.file_sizes.result != 'success' && needs.file_sizes.result != 'skipped' }}
       run: exit 1
     - name: Check tool test status
       if: ${{ needs.combine_outputs.result != 'success' && needs.combine_outputs.result != 'skipped' }}
