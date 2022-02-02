@@ -65,4 +65,5 @@ def __main__():
     # f.close()
 
 
-if __name__ == "__main__": __main__()
+if __name__ == "__main__":
+    __main__()
