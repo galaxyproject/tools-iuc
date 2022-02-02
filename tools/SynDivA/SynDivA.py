@@ -1,25 +1,21 @@
-#!/usr/bin/env python
-# title           :SynDivA.py
-# description     :This script will analyze fasta files, look for restriction sites, cut the sequences around the restriction sites, translate the nucleic sequences into amino acids sequences.
-# author          :Fabienne Wong Jun Tai
-# date            :20121107
-# version         :1.0
-# usage           :python SynDivA.py -i file.fasta -o /output/dir/ -p pattern -5 seq_restric_5'-3 seq_restric_3'
-# notes           :
-# python_version  :3.7.11
-# biopython_max_version  :1.72
+# !/usr/bin/env python title           :SynDivA.py description     :This script will analyze fasta files, look for restriction sites, cut the sequences around the restriction
+# sites, translate the nucleic sequences into amino acids sequences. author          :Fabienne Wong Jun Tai date            :20121107 version         :1.0 usage
+# :python SynDivA.py -i file.fasta -o /output/dir/ -p pattern -5 seq_restric_5'-3 seq_restric_3' notes           : python_version  :3.7.11 biopython_max_version  :1.72
 # ==============================================================================
-import math
-import matplotlib
-import numpy
 import re
 import subprocess
+
+import math
+import matplotlib
 import matplotlib.pyplot as plot
-from args import *
+import numpy
 from Bio import SeqIO, Seq
-from Bio.SubsMat import MatrixInfo as matlist
 from Bio import pairwise2
+from Bio.SubsMat import MatrixInfo as matlist
 from Bio.pairwise2 import format_alignment
+
+from args import *
+
 matplotlib.use('Agg')
 
 args = Args()
@@ -87,25 +83,41 @@ def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clon
 
     w = open(html_file, 'w')
     w.write(
-        '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN""http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8" /><title>SynDivA Report</title><link href="http://twitter.github.com/bootstrap/assets/css/bootstrap.css" rel="stylesheet" /><style type="text/css">body {padding-top: 40px;}.subhead {padding: 40px 0;}.subhead h1 {font-size: 60px;}.fasta {   font-family: Monaco, Menlo, Consolas, "Courier New", monospace;   font-size: 12px;}code.grey{color: #636D71;}</style></head><body><a id="top"></a><div class="navbar navbar-fixed-top"><div class="navbar-inner"><div class="container"><a class="brand" href="#top">SynDivA Report</a><div class="nav-collapse collapse"><ul class="nav"><li><a href="#input">Input data</a></li><li><a href="#analysis">Sequences analysis</a></li><li><a href="#variable">Variable regions analysis</a></li><li><a href="#cluster">Clustering</a></li><li><a href="#stat">Statistics</a></li><li><a href="#annex">Annex</a></li></ul></div></div></div></div><div class="container-fluid"><header class="subhead"><h1>SynDivA Report</h1></header><div class="page-header"><a id="input"></a><h2>Input data</h2></div>')
+        '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN""http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" '
+        'lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8" /><title>SynDivA Report</title><link '
+        'href="http://twitter.github.com/bootstrap/assets/css/bootstrap.css" rel="stylesheet" /><style type="text/css">body {padding-top: 40px;}.subhead {padding: 40px '
+        '0;}.subhead h1 {font-size: 60px;}.fasta {   font-family: Monaco, Menlo, Consolas, "Courier New", monospace;   font-size: 12px;}code.grey{color: '
+        '#636D71;}</style></head><body><a id="top"></a><div class="navbar navbar-fixed-top"><div class="navbar-inner"><div class="container"><a class="brand" href="#top">SynDivA '
+        'Report</a><div class="nav-collapse collapse"><ul class="nav"><li><a href="#input">Input data</a></li><li><a href="#analysis">Sequences analysis</a></li><li><a '
+        'href="#variable">Variable regions analysis</a></li><li><a href="#cluster">Clustering</a></li><li><a href="#stat">Statistics</a></li><li><a '
+        'href="#annex">Annex</a></li></ul></div></div></div></div><div class="container-fluid"><header class="subhead"><h1>SynDivA Report</h1></header><div '
+        'class="page-header"><a id="input"></a><h2>Input data</h2></div>')
     # Input data
     w.write(
-        '<p>Input file:<br/><code class="grey">%s</code></p><p>Number of sequences in input file:<br/><code class="grey">%d</code></p><p>Pattern of the sequence bank:<br/><code class="grey">%s</code></p><p>5\' restriction site:<br/><code class="grey">%s</code></p><p>3\' restriction site:<br/><code class="grey">%s</code></p>' % (
+        '<p>Input file:<br/><code class="grey">%s</code></p><p>Number of sequences in input file:<br/><code class="grey">%d</code></p><p>Pattern of the sequence bank:<br/><code '
+        'class="grey">%s</code></p><p>5\' restriction site:<br/><code class="grey">%s</code></p><p>3\' restriction site:<br/><code class="grey">%s</code></p>' % (
             input_file, len(all_seq), args.pattern, args.site_res_5, args.site_res_3))
     # Sequence analysis
     w.write(
-        '<div class="page-header"><a id="analysis"></a><h2>Sequences analysis</h2></div><p>Caption:</p><ul><li class="text-success">Valid sequences that will be part of the next analysis </li><li class="text-warning">Good sequences but will not be part of the next analysis</li><li class="text-error">Rejected sequences</li></ul><table class="table table-striped table-bordered"><tr><th class="text-error">Absence of restriction sites</th><th class="text-error">Incorrect number of nucleotides between the restriction sites</th><th class="text-error">Stop codon <u>inside</u> the area of interest</th><th class="text-warning">Mutation in the conserved regions</th><th class="text-success">Valid sequences</th><th>Amber codon in the sequence (<u>inside</u> the area of interest)</th></tr>')
+        '<div class="page-header"><a id="analysis"></a><h2>Sequences analysis</h2></div><p>Caption:</p><ul><li class="text-success">Valid sequences that will be part of the next '
+        'analysis </li><li class="text-warning">Good sequences but will not be part of the next analysis</li><li class="text-error">Rejected sequences</li></ul><table '
+        'class="table table-striped table-bordered"><tr><th class="text-error">Absence of restriction sites</th><th class="text-error">Incorrect number of nucleotides between '
+        'the restriction sites</th><th class="text-error">Stop codon <u>inside</u> the area of interest</th><th class="text-warning">Mutation in the conserved regions</th><th '
+        'class="text-success">Valid sequences</th><th>Amber codon in the sequence (<u>inside</u> the area of interest)</th></tr>')
     w.write(
-        '<tr><td class="text-error">%d sequence(s) (%.2f%%)</td><td class="text-error">%d sequence(s) (%.2f%%)</td><td class="text-error">%d sequence(s) (%.2f%%)</td><td class="text-warning">%d sequence(s) (%.2f%%)</td><td class="text-success">%d sequence(s) (%.2f%%)</td><td>%d sequence(s)</td></tr>' % (
+        '<tr><td class="text-error">%d sequence(s) (%.2f%%)</td><td class="text-error">%d sequence(s) (%.2f%%)</td><td class="text-error">%d sequence(s) (%.2f%%)</td><td '
+        'class="text-warning">%d sequence(s) (%.2f%%)</td><td class="text-success">%d sequence(s) (%.2f%%)</td><td>%d sequence(s)</td></tr>' % (
             len(no_restric), float(len(no_restric)) / float(len(all_seq)) * 100, len(no_multiple), float(len(no_multiple)) / float(len(all_seq)) * 100, len(stop),
             float(len(stop)) / float(len(all_seq)) * 100, len(mut), float(len(mut)) / float(len(all_seq)) * 100, len(good_ids), float(len(good_ids)) / float(len(all_seq)) * 100,
             len(amber)))
     w.write(
-        '<tr><td class="text-error">%s</td><td class="text-error">%s</td><td class="text-error">%s</td><td class="text-warning">%s</td><td class="text-success">%s</td><td>%s</td></tr></table>' % (
+        '<tr><td class="text-error">%s</td><td class="text-error">%s</td><td class="text-error">%s</td><td class="text-warning">%s</td><td '
+        'class="text-success">%s</td><td>%s</td></tr></table>' % (
             '<br/>'.join(no_restric), '<br/>'.join(no_multiple), '<br/>'.join(stop), '<br/>'.join(mut), '<br/>'.join(good_ids), '<br/>'.join(amber)))
     # Variable regions analysis
     w.write(
-        '<div class="page-header"><a id="variable"></a><h2>Variable regions analysis</h2></div><p>The following group of sequences are identical clones on the variable regions:</p>')
+        '<div class="page-header"><a id="variable"></a><h2>Variable regions analysis</h2></div><p>The following group of sequences are identical clones on the variable '
+        'regions:</p>')
     identical_clones_seq = identical_clones.keys()
     if identical_clones_seq:
         for seq in identical_clones_seq:
@@ -127,7 +139,8 @@ def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clon
             if nb > 1:
                 if first:
                     w.write(
-                        '<p>Here\'s the distribution of the repeated sequences in variable regions:</p><table class="table table-striped table-bordered"><thead><tr><th>Variable region</th><th>Repeated sequence</th><th>Number of occurrences (percentage of valid sequences)</th></tr></thead><tbody>')
+                        '<p>Here\'s the distribution of the repeated sequences in variable regions:</p><table class="table table-striped table-bordered"><thead><tr><th>Variable '
+                        'region</th><th>Repeated sequence</th><th>Number of occurrences (percentage of valid sequences)</th></tr></thead><tbody>')
                     first = False
                     keys.append(k)
                 else:
@@ -173,12 +186,14 @@ def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clon
     aln_out = generate_aln(good_seq, good_ids)
     print(str(aln_out))
     w.write(
-        '<p>Multiple sequence alignment of the <strong>valid sequences</strong> generated by Clustal Omega:</p><textarea class="span8 fasta" type="text" rows="20" readonly="readonly">%s</textarea>' % str(
+        '<p>Multiple sequence alignment of the <strong>valid sequences</strong> generated by Clustal Omega:</p><textarea class="span8 fasta" type="text" rows="20" '
+        'readonly="readonly">%s</textarea>' % str(
             aln_out))
 
     if no_multiple:
         w.write(
-            '<p><strong>Protein sequences with an incorrect number of nucleotides between the restriction sites</strong> in FASTA format:</p><textarea class="span8 fasta" type="text" rows="20" readonly="readonly">')
+            '<p><strong>Protein sequences with an incorrect number of nucleotides between the restriction sites</strong> in FASTA format:</p><textarea class="span8 fasta" '
+            'type="text" rows="20" readonly="readonly">')
         for _id in no_multiple:
             w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", all_seq_fasta[_id]['prot'], re.DOTALL)))
         w.write('</textarea>')
@@ -191,7 +206,8 @@ def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clon
         aln_out = generate_aln(all_seq_fasta, mut)
 
         w.write(
-            '<p>Multiple sequence alignment of the <strong>mutated sequences</strong> generated by Clustal Omega:</p><textarea class="span8 fasta" type="text" rows="20" readonly="readonly">%s</textarea>' % str(
+            '<p>Multiple sequence alignment of the <strong>mutated sequences</strong> generated by Clustal Omega:</p><textarea class="span8 fasta" type="text" rows="20" '
+            'readonly="readonly">%s</textarea>' % str(
                 aln_out))
 
     if stop:
@@ -270,18 +286,18 @@ for seq_record in SeqIO.parse(args.input, "fasta"):
                 # If stop codon wasn't found between the restriction sites
                 if not stop:
                     """
-					# Checking if there is a stop codon outside the restriction sites. If yes -> tag ok_stop_ext
-					for i in range(len(pos_stop)):
-						if (pos_stop[i] > length/3):
-							stop_codon_nuc = cut_seq[pos_stop[i]*3:pos_stop[i]*3+3]
-							if stop_codon_nuc != "TAG":
-								tag['ok_stop_ext'].append(seq_id)
-								stop = True
-								break
-							else:
-								if (seq_id not in tag['amber']):
-									tag['amber'].append(seq_id)
-					"""
+                    # Checking if there is a stop codon outside the restriction sites. If yes -> tag ok_stop_ext
+                    for i in range(len(pos_stop)):
+                        if (pos_stop[i] > length/3):
+                            stop_codon_nuc = cut_seq[pos_stop[i]*3:pos_stop[i]*3+3]
+                            if stop_codon_nuc != "TAG":
+                                tag['ok_stop_ext'].append(seq_id)
+                                stop = True
+                                break
+                            else:
+                                if (seq_id not in tag['amber']):
+                                    tag['amber'].append(seq_id)
+                    """
                     # Checking if there was a mutation in the fix part, if yes -> tag mut else retrieve variable parts
                     mut = False
                     pattern_part = args.pattern.split(":")
