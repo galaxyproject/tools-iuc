@@ -1,15 +1,18 @@
 #!/usr/bin/env python
 
 import argparse
+import gzip
 import os
 import sys
+from collections import defaultdict
+from functools import partial
 
 import pandas as pd
 from Bio import SeqIO
-from collections import defaultdict
 
 parser = argparse.ArgumentParser(description=__doc__)
 
+parser.add_argument('--gzipped', action='store_true', dest='gzipped', help='Input files are gzipped')
 parser.add_argument("--input_fasta", action="store", dest="input_fasta", help="Input Fasta file")
 parser.add_argument("--input_cluster", action="store", dest="input_cluster", help="Concoct output cluster file")
 parser.add_argument("--output_path", help="Output directory")
@@ -17,9 +20,17 @@ parser.add_argument("--output_path", help="Output directory")
 args = parser.parse_args()
 
 all_seqs = {}
-for i, seq in enumerate(SeqIO.parse(args.input_fasta, "fasta")):
-    all_seqs[seq.id] = seq
-df = pd.read_csv(args.input_cluster)
+if args.gzipped:
+    _open = partial(gzip.open, mode='rt')
+else:
+    _open = open
+
+with _open(args.input_fasta) as fh:
+    for seq in SeqIO.parse(fh, "fasta"):
+        all_seqs[seq.id] = seq
+
+# Make sure we're reading the file as tabular!
+df = pd.read_csv(args.input_cluster, sep='\t')
 try:
     assert df.columns[0] == 'contig_id'
     assert df.columns[1] == 'cluster_id'
