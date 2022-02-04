@@ -371,6 +371,7 @@ class JbrowseConnector(object):
         self.debug = False
         self.usejson = True
         self.giURL = GALAXY_INFRASTRUCTURE_URL
+        self.cs = ColorScaling()
         self.outdir = outdir
         os.makedirs(self.outdir, exist_ok=True)
         self.genome_paths = genomes
@@ -381,6 +382,9 @@ class JbrowseConnector(object):
         self.config_json = {}
         self.config_json_file = os.path.join(outdir, "config.json")
         self.clone_jbrowse()
+        self.clone_jbrowse(self.jbrowse, self.outdir)
+
+        self.process_genomes()
 
     def subprocess_check_call(self, command, output=None):
         if output:
@@ -451,7 +455,9 @@ class JbrowseConnector(object):
             assemblies.append(assem)
             self.genome_names.append(genome_name)
             if self.genome_name is None:
-                self.genome_name = genome_name  # first one for all tracks - other than paf
+                self.genome_name = (
+                    genome_name  # first one for all tracks - other than paf
+                )
             if self.config_json.get("assemblies", None):
                 self.config_json["assemblies"] += assemblies
             else:
@@ -935,13 +941,17 @@ class JbrowseConnector(object):
         tId = trackData["label"]
         pgname = pafOpts["genome_label"]
         if len(pgname.split() > 1):
-            pgname = pgname.split()[0]  # trouble from spacey names in command lines avoidance
+            pgname = pgname.split()[
+                0
+            ]  # trouble from spacey names in command lines avoidance
         asstrack, gname = self.make_assembly(pafOpts["genome"], pgname)
         self.genome_names.append(pgname)
         if self.config_json.get("assemblies", None):
             self.config_json["assemblies"].append(asstrack)
         else:
-            self.config_json["assemblies"] = [asstrack,]
+            self.config_json["assemblies"] = [
+                asstrack,
+            ]
 
         style_json = self._prepare_track_style(trackData)
         url = "%s.paf" % (trackData["label"])
@@ -1232,9 +1242,7 @@ class JbrowseConnector(object):
         if os.path.exists(config_path):
             with open(config_path, "r") as config_file:
                 config_json = json.load(config_file)
-
         config_data = {}
-
         config_data["disableAnalytics"] = data.get("analytics", "false") == "true"
 
         config_data["theme"] = {
