@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 import argparse
-import sys
 import os
-from Bio import SeqIO
+import sys
+
 import pandas as pd
+from Bio import SeqIO
 from collections import defaultdict
 
 parser = argparse.ArgumentParser(description=__doc__)
