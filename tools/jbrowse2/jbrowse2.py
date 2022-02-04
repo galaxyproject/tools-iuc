@@ -328,15 +328,14 @@ def metadata_from_node(node):
 
 class JbrowseConnector(object):
 
-    def __init__(self, jbrowse, outdir, genomes, standalone=None):
+    def __init__(self, jbrowse, outdir, genomes):
         self.cs = ColorScaling()
         self.jbrowse = jbrowse
         self.outdir = outdir
         self.genome_paths = genomes
-        self.standalone = standalone
         self.tracksToIndex = []
 
-        self.clone_jbrowse(self.jbrowse, self.outdir, minimal=(standalone != "complete"))
+        self.clone_jbrowse(self.jbrowse, self.outdir)
 
         self.process_genomes()
 
@@ -707,18 +706,16 @@ class JbrowseConnector(object):
             # Return non-human label for use in other fields
             yield outputTrackConfig['label']
 
-    def clone_jbrowse(self, jbrowse_dir, destination, minimal=False):
+    def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory.
         """
 
         copytree(jbrowse_dir, destination)
 
-        if minimal:
-            # Should be the absolute minimum required for JBrowse to function.
-            try:
-                shutil.rmtree(os.path.join(destination, 'test_data'))
-            except OSError as e:
-                print("Error: %s - %s." % (e.filename, e.strerror))
+        try:
+            shutil.rmtree(os.path.join(destination, 'test_data'))
+        except OSError as e:
+            print("Error: %s - %s." % (e.filename, e.strerror))
 
         os.makedirs(os.path.join(destination, 'data'))
         print("makedir %s" % (os.path.join(destination, 'data')))
@@ -742,7 +739,6 @@ if __name__ == '__main__':
 
     parser.add_argument('--jbrowse', help='Folder containing a jbrowse release')
     parser.add_argument('--outdir', help='Output directory', default='out')
-    parser.add_argument('--standalone', choices=['complete', 'minimal'], help='Standalone mode includes a copy of JBrowse')
     parser.add_argument('--version', '-V', action='version', version="%(prog)s 0.8.0")
     args = parser.parse_args()
 
@@ -767,8 +763,7 @@ if __name__ == '__main__':
                 'label': x.attrib['label']
             }
             for x in root.findall('metadata/genomes/genome')
-        ],
-        standalone=args.standalone
+        ]
     )
 
     for track in root.findall('tracks/track'):
