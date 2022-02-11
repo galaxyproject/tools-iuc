@@ -528,16 +528,15 @@ class JbrowseConnector(object):
 
     # TODO add sparql
     def add_sparql(self, url, query, trackData):
-        data = {
-            "label": trackData['label'],
-            "key": trackData['key'],
-            "category": trackData['category'],
-            "type": "JBrowse/View/Track/CanvasFeatures",
-            "storeClass": "JBrowse/Store/SeqFeature/SPARQL",
-            "urlTemplate": url,
-            "queryTemplate": query
-        }
-        self._add_track_json(data)
+        self.subprocess_check_call([
+            'jbrowse', 'add-track',
+            '--trackType', 'sparql',
+            '--name', trackData['label'],
+            '--category', trackData['category'],
+            '--target', os.path.join(self.outdir, 'data'),
+            '--trackId', id,
+            '--config', '{"queryTemplate": "%s"}' % query,
+            url])
 
     def _add_track(self, id, label, category, path):
         self.subprocess_check_call([
