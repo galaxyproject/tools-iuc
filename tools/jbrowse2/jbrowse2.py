@@ -799,6 +799,51 @@ class JbrowseConnector(object):
         # trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
+=======
+                log.warn('Could not find a bam index (.bai file) for %s', data)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
+
+    def add_vcf(self, data, trackData, vcfOpts={}, **kwargs):
+
+        rel_dest = os.path.join('data', trackData['label'] + '.vcf')
+        dest = os.path.join(self.outdir, rel_dest)
+        shutil.copy(os.path.realpath(data), dest)
+
+        cmd = ['bgzip', dest]
+        self.subprocess_check_call(cmd)
+        cmd = ['tabix', dest + '.gz']
+        self.subprocess_check_call(cmd)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz')
+
+    def add_gff(self, data, format, trackData, gffOpts, **kwargs):
+        rel_dest = os.path.join('data', trackData['label'] + '.gff')
+        dest = os.path.join(self.outdir, rel_dest)
+
+        self._sort_gff(data, dest)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz')
+
+    def add_bed(self, data, format, trackData, gffOpts, **kwargs):
+        rel_dest = os.path.join('data', trackData['label'] + '.bed')
+        dest = os.path.join(self.outdir, rel_dest)
+
+        self._sort_bed(data, dest)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz')
+
+    # TODO add sparql
+    def add_sparql(self, url, query, trackData):
+        self.subprocess_check_call([
+            'jbrowse', 'add-track',
+            '--trackType', 'sparql',
+            '--name', trackData['label'],
+            '--category', trackData['category'],
+            '--target', os.path.join(self.outdir, 'data'),
+            '--trackId', id,
+            '--config', '{"queryTemplate": "%s"}' % query,
+            url])
 
     def add_vcf(self, data, trackData):
         tId = trackData["label"]
