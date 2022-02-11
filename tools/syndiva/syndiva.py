@@ -14,15 +14,14 @@ import subprocess
 import matplotlib.pyplot as plot
 import numpy
 from Bio import SeqIO
+from Bio import pairwise2
 from Bio.Seq import Seq
 from Bio.Seq import translate
-from Bio import pairwise2
 from Bio.SubsMat import MatrixInfo as matlist
-from Bio.pairwise2 import format_alignment
+
 from args import *
 
 args = Args()
-print(sys.path[0])
 # Variables initialization
 syndiva_script_dir = sys.path[0]
 directory = args.output_dir
@@ -109,7 +108,8 @@ def report_html(_html_file, _tag, _all_seq, _good_seq, _all_seq_fasta, _identica
         '<tr><td class="text-error">%d sequence(s) (%.2f%%)</td><td class="text-error">%d sequence(s) (%.2f%%)</td><td class="text-error">%d sequence(s) (%.2f%%)</td><td '
         'class="text-warning">%d sequence(s) (%.2f%%)</td><td class="text-success">%d sequence(s) (%.2f%%)</td><td>%d sequence(s)</td></tr>' % (
             len(no_restric), float(len(no_restric)) / float(len(_all_seq)) * 100, len(no_multiple), float(len(no_multiple)) / float(len(_all_seq)) * 100, len(_stop),
-            float(len(_stop)) / float(len(_all_seq)) * 100, len(_mut), float(len(_mut)) / float(len(_all_seq)) * 100, len(good_ids), float(len(good_ids)) / float(len(_all_seq)) * 100,
+            float(len(_stop)) / float(len(_all_seq)) * 100, len(_mut), float(len(_mut)) / float(len(_all_seq)) * 100, len(good_ids),
+            float(len(good_ids)) / float(len(_all_seq)) * 100,
             len(amber)))
     w.write(
         '<tr><td class="text-error">%s</td><td class="text-error">%s</td><td class="text-error">%s</td><td class="text-warning">%s</td><td '
