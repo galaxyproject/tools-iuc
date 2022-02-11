@@ -1,32 +1,34 @@
-# !/usr/bin/env python title           :syndiva.py description     :This script will analyze fasta files, look for restriction sites, cut the sequences around the restriction
-# sites, translate the nucleic sequences into amino acids sequences. author          :Fabienne Wong Jun Tai date            :20121107 version         :1.0 usage
-# :python syndiva.py -i file.fasta -o /output/dir/ -p pattern -5 seq_restric_5'-3 seq_restric_3' notes           : python_version  :3.7.11 biopython_max_version  :1.72
+#!/usr/bin/env python
+# title : syndiva.py
+# description : This script will analyze fasta files, look for restriction sites, cut the sequences around the restriction sites,
+# translate the nucleic sequences into amino acids sequences.
+# author : Fabienne Wong Jun Tai
+# date : 20121107
+# version : 1.0
+# usage : python syndiva.py -i file.fasta -o /output/dir/ -p pattern -5 seq_restric_5'-3 seq_restric_3' notes           : python_version  :3.7.11 biopython_max_version  :1.72
 # ==============================================================================
+import math
 import re
 import subprocess
 
-import math
-import matplotlib
 import matplotlib.pyplot as plot
 import numpy
-from Bio import SeqIO, Seq
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.Seq import translate
 from Bio import pairwise2
 from Bio.SubsMat import MatrixInfo as matlist
 from Bio.pairwise2 import format_alignment
-
 from args import *
-
-matplotlib.use('Agg')
 
 args = Args()
 print(sys.path[0])
 # Variables initialization
-SynDivA_script_dir = sys.path[0]
-print(SynDivA_script_dir)
+syndiva_script_dir = sys.path[0]
 directory = args.output_dir
 mcl_file = directory + "mcl.in"
 mcl_output = directory + "mcl.out"
-html_file = directory + "SynDivA_report.html"
+html_file = directory + "syndiva_report.html"
 graph_pic = directory + "distri.png"
 input_file = os.path.basename(args.input)
 site_res_5 = args.site_res_5
@@ -41,47 +43,46 @@ align_scores = []
 nb_var_part = 0
 
 
-def reverse_complement(seq):
-    # Generate the reverse complement
-    complement_nuc = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G'}
-    rev_com = ""
-    for n in (seq[::-1]):
-        rev_com += complement_nuc[n]
-    return rev_com
+def get_identity(str1, str2):
+    if len(str2) > len(str1):
+        return (len(str2) - len([i for i in range(len(str1)) if str1[i] != str2[i]])) / len(str2)
+    else:
+        return (len(str1) - len([i for i in range(len(str1)) if str1[i] != str2[i]])) / len(str1)
 
 
-def generate_aln(seq_dic, ids):
+def reverse_complement(_seq):
+    return str(Seq(_seq).reverse_complement())
+
+
+def generate_aln(seq_dic, ids):  # sourcery skip: use-join
     # Multiple Sequence Alignment via ClustalO
     input = ''
-    for k in ids:
-        input += '>%s\n%s\n' % (k, re.sub("(.{80})", "\\1\n", seq_dic[k]['prot'], re.DOTALL))
+    for sequence_id in ids:
+        input += '>%s\n%s\n' % (sequence_id, re.sub("(.{80})", "\\1\n", seq_dic[sequence_id]['prot'], re.DOTALL))
     p = subprocess.Popen("clustalo -i - --outfmt clu", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True)
     aln_out, aln_err = p.communicate(input=input)
-    print(type(aln_out))
     return aln_out
 
 
-def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clones, nb_var_part, var_seq_common, align_scores, args):
+def report_html(_html_file, _tag, _all_seq, _good_seq, _all_seq_fasta, _identical_clones, _nb_var_part, _var_seq_common, _align_scores, _args):
     # Generate the html file for the report
-    all_seq.sort()
-    no_restric = tag['no_restric']
+    _all_seq.sort()
+    no_restric = _tag['no_restric']
     no_restric.sort()
-    no_multiple = tag['no_multiple']
+    no_multiple = _tag['no_multiple']
     no_multiple.sort()
-    stop = tag['stop']
-    stop.sort()
-    amber = tag['amber']
+    _stop = _tag['stop']
+    _stop.sort()
+    amber = _tag['amber']
     amber.sort()
-    mut = tag['mut']
-    mut.sort()
-    # good_ids = good_seq.keys()
-
-    good_seq = dict(sorted(good_seq.items()))
-    good_ids = good_seq.keys()
+    _mut = _tag['mut']
+    _mut.sort()
+    _good_seq = dict(sorted(_good_seq.items()))
+    good_ids = _good_seq.keys()
 
     # good_ids.sort()
 
-    w = open(html_file, 'w')
+    w = open(_html_file, 'w')
     w.write(
         '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN""http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" '
         'lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8" /><title>SynDivA Report</title><link '
@@ -96,7 +97,7 @@ def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clon
     w.write(
         '<p>Input file:<br/><code class="grey">%s</code></p><p>Number of sequences in input file:<br/><code class="grey">%d</code></p><p>Pattern of the sequence bank:<br/><code '
         'class="grey">%s</code></p><p>5\' restriction site:<br/><code class="grey">%s</code></p><p>3\' restriction site:<br/><code class="grey">%s</code></p>' % (
-            input_file, len(all_seq), args.pattern, args.site_res_5, args.site_res_3))
+            input_file, len(_all_seq), _args.pattern, _args.site_res_5, _args.site_res_3))
     # Sequence analysis
     w.write(
         '<div class="page-header"><a id="analysis"></a><h2>Sequences analysis</h2></div><p>Caption:</p><ul><li class="text-success">Valid sequences that will be part of the next '
@@ -107,35 +108,35 @@ def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clon
     w.write(
         '<tr><td class="text-error">%d sequence(s) (%.2f%%)</td><td class="text-error">%d sequence(s) (%.2f%%)</td><td class="text-error">%d sequence(s) (%.2f%%)</td><td '
         'class="text-warning">%d sequence(s) (%.2f%%)</td><td class="text-success">%d sequence(s) (%.2f%%)</td><td>%d sequence(s)</td></tr>' % (
-            len(no_restric), float(len(no_restric)) / float(len(all_seq)) * 100, len(no_multiple), float(len(no_multiple)) / float(len(all_seq)) * 100, len(stop),
-            float(len(stop)) / float(len(all_seq)) * 100, len(mut), float(len(mut)) / float(len(all_seq)) * 100, len(good_ids), float(len(good_ids)) / float(len(all_seq)) * 100,
+            len(no_restric), float(len(no_restric)) / float(len(_all_seq)) * 100, len(no_multiple), float(len(no_multiple)) / float(len(_all_seq)) * 100, len(_stop),
+            float(len(_stop)) / float(len(_all_seq)) * 100, len(_mut), float(len(_mut)) / float(len(_all_seq)) * 100, len(good_ids), float(len(good_ids)) / float(len(_all_seq)) * 100,
             len(amber)))
     w.write(
         '<tr><td class="text-error">%s</td><td class="text-error">%s</td><td class="text-error">%s</td><td class="text-warning">%s</td><td '
         'class="text-success">%s</td><td>%s</td></tr></table>' % (
-            '<br/>'.join(no_restric), '<br/>'.join(no_multiple), '<br/>'.join(stop), '<br/>'.join(mut), '<br/>'.join(good_ids), '<br/>'.join(amber)))
+            '<br/>'.join(no_restric), '<br/>'.join(no_multiple), '<br/>'.join(_stop), '<br/>'.join(_mut), '<br/>'.join(good_ids), '<br/>'.join(amber)))
     # Variable regions analysis
     w.write(
         '<div class="page-header"><a id="variable"></a><h2>Variable regions analysis</h2></div><p>The following group of sequences are identical clones on the variable '
         'regions:</p>')
-    identical_clones_seq = identical_clones.keys()
+    identical_clones_seq = _identical_clones.keys()
     if identical_clones_seq:
         for seq in identical_clones_seq:
-            ids = list(set(identical_clones[seq]))  # return only one occurrence of each item in the list
+            ids = list(set(_identical_clones[seq]))  # return only one occurrence of each item in the list
             w.write('<div class="row-fluid"><div class="span5"><pre>%d sequences (%.2f%% of valid sequences)<br/>%s</pre></div>' % (
                 len(ids), float(len(ids)) / float(len(good_ids)) * 100, '<br/>'.join(ids)))
             w.write('<div class="span3"><table class="table table-striped table-bordered"><thead><tr><th>Variable region</th><th>Repeated sequence</th></tr></thead><tbody>')
-            for z in range(len(good_seq[ids[0]]['var'])):
-                w.write('<td>%d</td><td>%s</td></tr>' % (z + 1, good_seq[ids[0]]['var'][z]))
+            for z in range(len(_good_seq[ids[0]]['var'])):
+                w.write('<td>%d</td><td>%s</td></tr>' % (z + 1, _good_seq[ids[0]]['var'][z]))
             w.write('</tbody></table></div></div>')
     else:
         w.write('<p>No clone was found.</p>')
 
     first = True
-    for i in range(nb_var_part):
+    for i in range(_nb_var_part):
         keys = []
-        for k in (var_seq_common[str(i + 1)].keys()):
-            nb = var_seq_common[str(i + 1)][k]
+        for k in (_var_seq_common[str(i + 1)].keys()):
+            nb = _var_seq_common[str(i + 1)][k]
             if nb > 1:
                 if first:
                     w.write(
@@ -152,7 +153,7 @@ def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clon
                 if z == 0:
                     w.write('<td rowspan="%d">%d</td>' % (nb, i + 1))
                 w.write('<td>%s</td><td>%d (%.2f%%)</td></tr>' % (
-                    keys[z], var_seq_common[str(i + 1)][keys[z]], float(var_seq_common[str(i + 1)][keys[z]]) / float(len(good_ids)) * 100))
+                    keys[z], _var_seq_common[str(i + 1)][keys[z]], float(_var_seq_common[str(i + 1)][keys[z]]) / float(len(good_ids)) * 100))
     w.write('</tbody></table>')
     # Clustering
     w.write('<div class="page-header"><a id="cluster"></a><h2>Clustering</h2></div><p>The following clusters were generated by MCL:</p>')
@@ -162,18 +163,16 @@ def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clon
     # Statistics
     w.write('<div class="page-header"><a id="stat"></a><h2>Statistics</h2></div>')
     w.write('<p>Here\'s some statistics about the valid sequences:</p><p>Mean for the pairwise alignement scores: %.2f<br/>Standard deviation: %.2f</p>' % (
-        numpy.mean(align_scores), numpy.std(align_scores)))
+        numpy.mean(_align_scores), numpy.std(_align_scores)))
     w.write('<div class="row-fluid"><div class="span6"><img src="%s" alt="Distribution of the pairwise alignment score"></div>' % os.path.basename(graph_pic))
     w.write('<div class="span6"><table class="table table-striped table-bordered"><thead><tr><th>Pairwise Alignment Score</th><th>Number of occurrences</th></tr></thead><tbody>')
-    uniq_scores = sorted(list(set(align_scores)))
+    uniq_scores = sorted(list(set(_align_scores)))
     scores_dic = {}
-    for score in uniq_scores:
-        scores_dic[score] = align_scores.count(score)
-
+    for _score in uniq_scores:
+        scores_dic[_score] = _align_scores.count(_score)
     scores_dic = dict(sorted(scores_dic.items()))
     scores = scores_dic.items()
     # scores.sort()
-
     for el in scores:
         w.write('<tr><td>%.2f</td><td>%d</td></tr>' % (el[0], el[1]))
     w.write('</tbody></table></div></div>')
@@ -181,10 +180,9 @@ def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clon
     w.write('<div class="page-header"><a id="annex"></a><h2>Annex</h2></div>')
     w.write('<p><strong>Valid protein sequences</strong> in FASTA format:</p><textarea class="span8 fasta" type="text" rows="20" readonly="readonly">')
     for _id in good_ids:
-        w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", good_seq[_id]['prot'], re.DOTALL)))
+        w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", _good_seq[_id]['prot'], re.DOTALL)))
     w.write('</textarea>')
-    aln_out = generate_aln(good_seq, good_ids)
-    print(str(aln_out))
+    aln_out = generate_aln(_good_seq, good_ids)
     w.write(
         '<p>Multiple sequence alignment of the <strong>valid sequences</strong> generated by Clustal Omega:</p><textarea class="span8 fasta" type="text" rows="20" '
         'readonly="readonly">%s</textarea>' % str(
@@ -195,31 +193,31 @@ def report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clon
             '<p><strong>Protein sequences with an incorrect number of nucleotides between the restriction sites</strong> in FASTA format:</p><textarea class="span8 fasta" '
             'type="text" rows="20" readonly="readonly">')
         for _id in no_multiple:
-            w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", all_seq_fasta[_id]['prot'], re.DOTALL)))
+            w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", _all_seq_fasta[_id]['prot'], re.DOTALL)))
         w.write('</textarea>')
 
-    if mut:
+    if _mut:
         w.write('<p><strong>Mutated protein sequences</strong> in FASTA format:</p><textarea class="span8 fasta" type="text" rows="20" readonly="readonly">')
-        for _id in mut:
-            w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", all_seq_fasta[_id]['prot'], re.DOTALL)))
+        for _id in _mut:
+            w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", _all_seq_fasta[_id]['prot'], re.DOTALL)))
         w.write('</textarea>')
-        aln_out = generate_aln(all_seq_fasta, mut)
+        aln_out = generate_aln(_all_seq_fasta, _mut)
 
         w.write(
             '<p>Multiple sequence alignment of the <strong>mutated sequences</strong> generated by Clustal Omega:</p><textarea class="span8 fasta" type="text" rows="20" '
             'readonly="readonly">%s</textarea>' % str(
                 aln_out))
 
-    if stop:
+    if _stop:
         w.write('<p><strong>Protein sequences with a stop codon</strong> in FASTA format:</p><textarea class="span8 fasta" type="text" rows="20" readonly="readonly">')
-        for _id in stop:
-            w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", all_seq_fasta[_id]['prot'], re.DOTALL)))
+        for _id in _stop:
+            w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", _all_seq_fasta[_id]['prot'], re.DOTALL)))
         w.write('</textarea>')
 
     if amber:
         w.write('<p><strong>Protein sequences with an amber codon</strong> in FASTA format:</p><textarea class="span8 fasta" type="text" rows="20" readonly="readonly">')
         for _id in amber:
-            w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", all_seq_fasta[_id]['prot'], re.DOTALL)))
+            w.write('>%s\n%s\n' % (_id, re.sub("(.{80})", "\\1\n", _all_seq_fasta[_id]['prot'], re.DOTALL)))
         w.write('</textarea>')
 
     w.write('</div></body></html>')
@@ -250,6 +248,7 @@ for seq_record in SeqIO.parse(args.input, "fasta"):
             valid = length % 3 == 0
             cut_seq = seq[:site_res_5_pos + len(site_res_5)]
             cut_seq = reverse_complement(cut_seq)
+
         # Else if site_res_5_pos < site_res_3_pos, use the sequence as it is
         else:
             # Checking if the number of nucleic acids between the restriction sites is a multiple of 3
@@ -259,12 +258,12 @@ for seq_record in SeqIO.parse(args.input, "fasta"):
         # If the number of nucleic acids between the restriction sites isn't a multiple of 3, put the sequence away
         if not valid:
             tag['no_multiple'].append(seq_id)
-            prot_seq = Seq.translate(cut_seq)
+            prot_seq = translate(cut_seq)
             all_seq_fasta[seq_id] = {}
             all_seq_fasta[seq_id]['prot'] = prot_seq
         else:
             # Translate nucleic sequence into amino acid sequence
-            prot_seq = Seq.translate(cut_seq)
+            prot_seq = translate(cut_seq)
             all_seq_fasta[seq_id] = {}
             all_seq_fasta[seq_id]['prot'] = prot_seq
 
@@ -344,7 +343,7 @@ for seq_record in SeqIO.parse(args.input, "fasta"):
                         good_seq[seq_id]['prot'] = prot_seq
                         good_seq[seq_id]['var'] = var_parts
 
-# If all sequences are invalid, the program will exit as there is no data to continue 
+# If all sequences are invalid, the program will exit as there is no data to continue
 if not good_seq:
     print("All sequences are invalid. At least 2 valid sequences are necessary to proceed to the next step. The program will now exit.")
     sys.exit()
@@ -358,10 +357,10 @@ for n in range(nb_var_part):
 
 # Opening the file where the mcl input will be written
 mcl = open(mcl_file, 'w')
-
-id = good_seq.keys()
-for i in range(len(id)):
-    var_1 = good_seq[list(id)[i]]['var']
+seq_keys = good_seq.keys()
+print(seq_keys)
+for i in range(len(seq_keys)):
+    var_1 = good_seq[list(seq_keys)[i]]['var']
 
     # Classifying variable sequences
     for k in range(len(var_1)):
@@ -370,56 +369,28 @@ for i in range(len(id)):
         except KeyError:
             var_seq_common[str(k + 1)][var_1[k]] = 1
 
-    for j in range(i + 1, len(id)):
-        var_2 = good_seq[list(id)[j]]['var']
+    for j in range(i + 1, len(seq_keys)):
+        var_2 = good_seq[list(seq_keys)[j]]['var']
+        score = 0.0
         # Comparing the sequences' variable parts to find identical clones
         if var_1 == var_2:
             try:
                 s = "".join(var_1)
-                identical_clones[s].extend([id[i], id[j]])
+                identical_clones[s].extend([seq_keys[i], seq_keys[j]])
             except KeyError:
-                identical_clones[s] = [id[i], id[j]]
-
-        # Align the 2 sequences using NWalign_PAM30
+                identical_clones[s] = [seq_keys[i], seq_keys[j]]
+        # Align the 2 sequences using NWalign_PAM30 => replace by pairwise2
         seq_1 = ''.join(var_1)
         seq_2 = ''.join(var_2)
-        print(seq_1)
-        print(seq_2)
         matrix = matlist.pam30
-        cpt = 0
         if len(seq_2) > len(seq_1):
-            print(pairwise2.align.globalds(seq_1, seq_2, matrix, -11, -1))
-            for a in pairwise2.align.globalds(seq_1, seq_2, matrix, -11, -1):
-                for k in range(a[4]):
-                    if a[0][k] == a[1][k]:
-                        cpt += 1
-                print(format_alignment(*a, full_sequences=True))
+            score = get_identity(pairwise2.align.globalds(seq_1, seq_2, matrix, -11, -1)[0][0], pairwise2.align.globalds(seq_1, seq_2, matrix, -11, -1)[0][1]) * 100
         else:
-            print(pairwise2.align.globalds(seq_2, seq_1, matrix, -11, -1))
-            for a in pairwise2.align.globalds(seq_2, seq_1, matrix, -11, -1):
-                for k in range(a[4]):
-                    if a[0][k] == a[1][k]:
-                        cpt += 1
-                print(format_alignment(*a, full_sequences=True))
-        print("######################################@")
-        print(cpt)
-
-        if len(seq_2) > len(seq_1):
-            p = subprocess.Popen(SynDivA_script_dir + "/NWalign_PAM30 %s %s 3" % (seq_1, seq_2), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        else:
-            p = subprocess.Popen(SynDivA_script_dir + "/NWalign_PAM30 %s %s 3" % (seq_2, seq_1), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        out, err = p.communicate()
-
-        print(out)
-        print("######################################@")
-        lines = out.split(bytes("\n", encoding='utf8'))
-        print(lines[5].split(bytes(' ', encoding='utf8'))[5])
-        score = float(lines[5].split(bytes(' ', encoding='utf8'))[5]) * 100
+            score = get_identity(pairwise2.align.globalds(seq_2, seq_1, matrix, -11, -1)[0][0], pairwise2.align.globalds(seq_2, seq_1, matrix, -11, -1)[0][1]) * 100
         align_scores.append(score)
-        mcl.write('%s\t%s\t%0.2f\n' % (list(id)[i], list(id)[j], score))
-mcl.close()
+        mcl.write('%s\t%s\t%0.2f\n' % (list(seq_keys)[i], list(seq_keys)[j], score))
 
+mcl.close()
 # Clusters formation
 subprocess.call("mcl %s --abc -I 6.0 -o %s" % (mcl_file, mcl_output), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -436,5 +407,4 @@ report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clones, 
 
 # Removing intermediate files
 subprocess.call("rm %s %s " % (mcl_file, mcl_output), shell=True)
-
 print("HTML report has been generated in the output directory. The program will now exit.")
