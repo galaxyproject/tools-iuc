@@ -358,7 +358,6 @@ for n in range(nb_var_part):
 # Opening the file where the mcl input will be written
 mcl = open(mcl_file, 'w')
 seq_keys = good_seq.keys()
-print(seq_keys)
 for i in range(len(seq_keys)):
     var_1 = good_seq[list(seq_keys)[i]]['var']
 
