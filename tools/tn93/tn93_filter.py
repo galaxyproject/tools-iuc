@@ -9,7 +9,7 @@ arguments = argparse.ArgumentParser(description='Combine alignments into a singl
 arguments.add_argument('-f', '--reference', help='Reference sequence', required=True, type=str)
 arguments.add_argument('-d', '--distances', help='Calculated pairwise distances', required=True, type=str)
 arguments.add_argument('-r', '--reads', help='Output file for filtered reads', required=True, type=str)
-arguments.add_argument('-q', '--background', help='Compressed background clusters', required=True, type=str)
+arguments.add_argument('-q', '--clusters', help='Compressed background clusters', required=True, type=str)
 settings = arguments.parse_args()
 
 reference_name = 'REFERENCE'
@@ -24,7 +24,7 @@ def unique_id(new_id, existing_ids):
 
 with open(settings.reference) as seq_fh:
     for seq_record in SeqIO.parse(seq_fh, 'fasta'):
-        reference_name = seq_record.name
+        reference_name = seq_record.name.split(' ')[0]
         reference_seq = seq_record.seq
         break
 
@@ -42,12 +42,12 @@ with open(settings.distances) as fh:
 
 with open(settings.reads, "a+") as fh:
     seqs_filtered = list()
-    for seq_record in SeqIO.parse(settings.background, "fasta"):
-        if seq_record.name == reference_name:
+    for seq_record in SeqIO.parse(settings.clusters, "fasta"):
+        if seq_record.name.split(' ')[0] == reference_name:
             continue
         if seq_record.name not in seqs_to_filter:
             unique_name = unique_id(seq_record.name, seqs_filtered)
-            fh.write('\n%s\n%s' % (unique_name, seq_record.seq))
+            fh.write('\n>%s\n%s' % (unique_name, seq_record.seq))
             seqs_filtered.append(unique_name)
     if reference_name not in seqs_filtered:
         fh.write('\n>REFERENCE\n%s' % reference_seq)
