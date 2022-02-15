@@ -3,7 +3,6 @@ import argparse
 import binascii
 import datetime
 import hashlib
-import json
 import logging
 import os
 import shutil
@@ -393,6 +392,7 @@ class JbrowseConnector(object):
             cmd = ['samtools', 'faidx', copied_genome + '.gz']
             self.subprocess_check_call(cmd)
 
+            # TODO handle --assemblyNames when multiple genomes?
             self.subprocess_check_call([
                 'jbrowse', 'add-assembly',
                 '--load', 'inPlace',
@@ -414,26 +414,6 @@ class JbrowseConnector(object):
             args += ['--tracks', tracks]
 
             self.subprocess_check_call(args)
-
-    def _add_json(self, json_data):
-        cmd = [
-            'perl', self._jbrowse_bin('add-json.pl'),
-            json.dumps(json_data),
-            os.path.join('data', 'trackList.json')
-        ]
-        self.subprocess_check_call(cmd)
-
-    def _add_track_json(self, json_data):
-        if len(json_data) == 0:
-            return
-
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        json.dump(json_data, tmp)
-        tmp.close()
-        cmd = ['perl', self._jbrowse_bin('add-track-json.pl'), tmp.name,
-               os.path.join('data', 'trackList.json')]
-        self.subprocess_check_call(cmd)
-        os.unlink(tmp.name)
 
     def _blastxml_to_gff3(self, xml, min_gap=10):
         gff3_unrebased = tempfile.NamedTemporaryFile(delete=False)
@@ -526,17 +506,43 @@ class JbrowseConnector(object):
 
         self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz')
 
-    # TODO add sparql
-    def add_sparql(self, url, query, trackData):
+    def add_sparql(self, url, query, query_refnames, trackData):
+
+        json_track_data = {
+            "type": "FeatureTrack",
+            "trackId": id,
+            "name": trackData['label'],
+            "adapter": {
+                "type": "SPARQLAdapter",
+                "endpoint": {
+                    "uri": url,
+                    "locationType": "UriLocation"
+                },
+                "queryTemplate": query
+            },
+            "category": [
+                trackData['category']
+            ]
+        }
+
+        if query_refnames:
+            json_track_data['adapter']['refNamesQueryTemplate']: query_refnames
+
         self.subprocess_check_call([
-            'jbrowse', 'add-track',
-            '--trackType', 'sparql',
-            '--name', trackData['label'],
-            '--category', trackData['category'],
+            'jbrowse', 'add-track-json',
             '--target', os.path.join(self.outdir, 'data'),
-            '--trackId', id,
-            '--config', '{"queryTemplate": "%s"}' % query,
-            url])
+            json_track_data])
+
+        # Doesn't work as of 1.6.4, might work in the future
+        # self.subprocess_check_call([
+        #     'jbrowse', 'add-track',
+        #     '--trackType', 'sparql',
+        #     '--name', trackData['label'],
+        #     '--category', trackData['category'],
+        #     '--target', os.path.join(self.outdir, 'data'),
+        #     '--trackId', id,
+        #     '--config', '{"queryTemplate": "%s"}' % query,
+        #     url])
 
     def _add_track(self, id, label, category, path):
         self.subprocess_check_call([
@@ -698,7 +704,10 @@ class JbrowseConnector(object):
                 sparql_query = track['conf']['options']['sparql']['query']
                 for key, value in mapped_chars.items():
                     sparql_query = sparql_query.replace(value, key)
-                self.add_sparql(track['conf']['options']['sparql']['url'], sparql_query, outputTrackConfig)
+                sparql_query_refnames = track['conf']['options']['sparql']['query_refnames']
+                for key, value in mapped_chars.items():
+                    sparql_query_refnames = sparql_query_refnames.replace(value, key)
+                self.add_sparql(track['conf']['options']['sparql']['url'], sparql_query, sparql_query_refnames, outputTrackConfig)
             else:
                 log.warn('Do not know how to handle %s', dataset_ext)
 
@@ -765,6 +774,7 @@ if __name__ == '__main__':
         ]
     )
 
+    # TODO is this still needed?
     for track in root.findall('tracks/track'):
         track_conf = {}
         track_conf['trackfiles'] = []
