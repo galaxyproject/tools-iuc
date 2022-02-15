@@ -4,7 +4,6 @@ import argparse
 import binascii
 import datetime
 import hashlib
-import json
 import logging
 import os
 import re
@@ -799,10 +798,6 @@ class JbrowseConnector(object):
         # trackDict["style"] = style_json
         self.tracksToAdd.append(trackDict)
         self.trackIdlist.append(tId)
-=======
-                log.warn('Could not find a bam index (.bai file) for %s', data)
-
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
 
     def add_vcf(self, data, trackData, vcfOpts={}, **kwargs):
 
@@ -833,17 +828,43 @@ class JbrowseConnector(object):
 
         self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz')
 
-    # TODO add sparql
-    def add_sparql(self, url, query, trackData):
+    def add_sparql(self, url, query, query_refnames, trackData):
+
+        json_track_data = {
+            "type": "FeatureTrack",
+            "trackId": id,
+            "name": trackData['label'],
+            "adapter": {
+                "type": "SPARQLAdapter",
+                "endpoint": {
+                    "uri": url,
+                    "locationType": "UriLocation"
+                },
+                "queryTemplate": query
+            },
+            "category": [
+                trackData['category']
+            ]
+        }
+
+        if query_refnames:
+            json_track_data['adapter']['refNamesQueryTemplate']: query_refnames
+
         self.subprocess_check_call([
-            'jbrowse', 'add-track',
-            '--trackType', 'sparql',
-            '--name', trackData['label'],
-            '--category', trackData['category'],
+            'jbrowse', 'add-track-json',
             '--target', os.path.join(self.outdir, 'data'),
-            '--trackId', id,
-            '--config', '{"queryTemplate": "%s"}' % query,
-            url])
+            json_track_data])
+
+        # Doesn't work as of 1.6.4, might work in the future
+        # self.subprocess_check_call([
+        #     'jbrowse', 'add-track',
+        #     '--trackType', 'sparql',
+        #     '--name', trackData['label'],
+        #     '--category', trackData['category'],
+        #     '--target', os.path.join(self.outdir, 'data'),
+        #     '--trackId', id,
+        #     '--config', '{"queryTemplate": "%s"}' % query,
+        #     url])
 
     def add_vcf(self, data, trackData):
         tId = trackData["label"]
@@ -1184,6 +1205,16 @@ class JbrowseConnector(object):
                 )
             elif dataset_ext == "vcf":
                 self.add_vcf(dataset_path, outputTrackConfig)
+            elif dataset_ext == 'rest':
+                self.add_rest(track['conf']['options']['rest']['url'], outputTrackConfig)
+            elif dataset_ext == 'sparql':
+                sparql_query = track['conf']['options']['sparql']['query']
+                for key, value in mapped_chars.items():
+                    sparql_query = sparql_query.replace(value, key)
+                sparql_query_refnames = track['conf']['options']['sparql']['query_refnames']
+                for key, value in mapped_chars.items():
+                    sparql_query_refnames = sparql_query_refnames.replace(value, key)
+                self.add_sparql(track['conf']['options']['sparql']['url'], sparql_query, sparql_query_refnames, outputTrackConfig)
             else:
                 log.warn("Do not know how to handle %s", dataset_ext)
             # Return non-human label for use in other fields
@@ -1363,7 +1394,6 @@ if __name__ == "__main__":
         ],
     )
     jc.process_genomes()
-
     # .add_default_view() replace from https://github.com/abretaud/tools-iuc/blob/jbrowse2/tools/jbrowse2/jbrowse2.py
     default_session_data = {
         "visibility": {
@@ -1374,7 +1404,7 @@ if __name__ == "__main__":
         "style_labels": {},
     }
 
-    for track in root.findall("tracks/track"):
+    for track in root.findall('tracks/track'):
         track_conf = {}
         track_conf["trackfiles"] = []
 
