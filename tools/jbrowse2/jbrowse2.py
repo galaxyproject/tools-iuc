@@ -380,27 +380,28 @@ class JbrowseConnector(object):
             # We only expect one input genome per run. This for loop is just
             # easier to write than the alternative / catches any possible
             # issues.
+            self.add_assembly(genome_node['path'], genome_node['label'])
 
-            copied_genome = os.path.join(self.outdir, 'data', 'genome.fasta')
-            shutil.copy(genome_node['path'], copied_genome)
+    def add_assembly(self, path, label):
+        copied_genome = os.path.join(self.outdir, 'data', 'genome.fasta')
+        shutil.copy(path, copied_genome)
 
-            # Compress with bgzip
-            cmd = ['bgzip', copied_genome]
-            self.subprocess_check_call(cmd)
+        # Compress with bgzip
+        cmd = ['bgzip', copied_genome]
+        self.subprocess_check_call(cmd)
 
-            # FAI Index
-            cmd = ['samtools', 'faidx', copied_genome + '.gz']
-            self.subprocess_check_call(cmd)
+        # FAI Index
+        cmd = ['samtools', 'faidx', copied_genome + '.gz']
+        self.subprocess_check_call(cmd)
 
-            # TODO handle --assemblyNames when multiple genomes?
-            self.subprocess_check_call([
-                'jbrowse', 'add-assembly',
-                '--load', 'inPlace',
-                '--name', genome_node['label'],
-                '--type', 'bgzipFasta',
-                '--target', os.path.join(self.outdir, 'data'),
-                '--skipCheck',
-                os.path.join('data', 'genome.fasta.gz')])
+        self.subprocess_check_call([
+            'jbrowse', 'add-assembly',
+            '--load', 'inPlace',
+            '--name', label,
+            '--type', 'bgzipFasta',
+            '--target', os.path.join(self.outdir, 'data'),
+            '--skipCheck',
+            os.path.join('data', 'genome.fasta.gz')])
 
     def text_index(self):
         # Index tracks
@@ -505,6 +506,16 @@ class JbrowseConnector(object):
         self._sort_bed(data, dest)
 
         self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz')
+
+    def add_paf(self, data, trackData, pafOpts, **kwargs):
+        rel_dest = os.path.join('data', trackData['label'] + '.paf')
+        dest = os.path.join(self.outdir, rel_dest)
+
+        self.symlink_or_copy(os.path.realpath(data), dest)
+
+        self.add_assembly(pafOpts['genome'], pafOpts['genome_label'])
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
 
     def add_sparql(self, url, query, query_refnames, trackData):
 
@@ -700,6 +711,9 @@ class JbrowseConnector(object):
                 self.add_vcf(dataset_path, outputTrackConfig)
             elif dataset_ext == 'rest':
                 self.add_rest(track['conf']['options']['rest']['url'], outputTrackConfig)
+            elif dataset_ext == 'paf':
+                self.add_paf(dataset_path, outputTrackConfig,
+                             track['conf']['options']['paf'])
             elif dataset_ext == 'sparql':
                 sparql_query = track['conf']['options']['sparql']['query']
                 for key, value in mapped_chars.items():
