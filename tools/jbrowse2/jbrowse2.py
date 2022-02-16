@@ -531,6 +531,14 @@ class JbrowseConnector(object):
 
         self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
 
+    def add_hic(self, data, trackData, hicOpts, **kwargs):
+        rel_dest = os.path.join('data', trackData['label'] + '.hic')
+        dest = os.path.join(self.outdir, rel_dest)
+
+        self.symlink_or_copy(os.path.realpath(data), dest)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
+
     def add_sparql(self, url, query, query_refnames, trackData):
 
         json_track_data = {
@@ -745,6 +753,9 @@ class JbrowseConnector(object):
             elif dataset_ext == 'paf':
                 self.add_paf(dataset_path, outputTrackConfig,
                              track['conf']['options']['paf'])
+            elif dataset_ext == 'hic':
+                self.add_paf(dataset_path, outputTrackConfig,
+                             track['conf']['options']['hic'])
             elif dataset_ext == 'sparql':
                 sparql_query = track['conf']['options']['sparql']['query']
                 for key, value in mapped_chars.items():
