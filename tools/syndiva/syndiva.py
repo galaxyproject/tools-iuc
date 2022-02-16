@@ -9,17 +9,18 @@
 # ==============================================================================
 import math
 import re
+import sys
+import os
 import subprocess
 
+from args import Args
 import matplotlib.pyplot as plot
 import numpy
-from Bio import SeqIO
 from Bio import pairwise2
+from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.Seq import translate
 from Bio.SubsMat import MatrixInfo as matlist
-
-from args import *
 
 args = Args()
 # Variables initialization
@@ -269,7 +270,7 @@ for seq_record in SeqIO.parse(args.input, "fasta"):
 
             # Looking for stop codon in the sequence and getting their position in the sequence
             if '*' in prot_seq:
-                pos_stop = [m.start() for m in re.finditer("\*", prot_seq)]
+                pos_stop = [m.start() for m in re.finditer(r"\*", prot_seq)]
                 stop = False
                 # Checking if stop codon is between the restriction sites, also checking if it is an amber codon. if stop codon other than amber codon -> tag stop
                 for i in range(len(pos_stop)):
