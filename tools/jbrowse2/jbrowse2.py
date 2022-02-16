@@ -637,6 +637,7 @@ class JbrowseConnector(object):
             trackConfigOptionParent[splitKey[-1]] = optVal
 
     def process_annotations(self, track):
+
         category = track['category'].replace('__pd__date__pd__', TODAY)
         outputTrackConfig = {
             'style': {
@@ -665,7 +666,7 @@ class JbrowseConnector(object):
             for key, value in mapped_chars.items():
                 track_human_label = track_human_label.replace(value, key)
 
-            log.info('Processing %s / %s', category, track_human_label)
+            log.info('Processing track %s / %s (%s)', category, track_human_label, dataset_ext)
             outputTrackConfig['key'] = track_human_label
             # We add extra data to hash for the case of REST + SPARQL.
             if 'conf' in track and 'options' in track['conf'] and 'url' in track['conf']['options']:
@@ -701,8 +702,6 @@ class JbrowseConnector(object):
             if customTrackConfig:
                 self.set_custom_track_options(customTrackConfig, outputTrackConfig, mapped_chars)
 
-            # import pprint; pprint.pprint(track)
-            # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3'):
                 self.add_gff(dataset_path, dataset_ext, outputTrackConfig,
                              track['conf']['options']['gff'])
@@ -767,9 +766,6 @@ class JbrowseConnector(object):
             else:
                 log.warn('Do not know how to handle %s', dataset_ext)
 
-            # Return non-human label for use in other fields
-            yield outputTrackConfig['label']
-
     def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory.
         """
@@ -779,10 +775,10 @@ class JbrowseConnector(object):
         try:
             shutil.rmtree(os.path.join(destination, 'test_data'))
         except OSError as e:
-            print("Error: %s - %s." % (e.filename, e.strerror))
+            log.error("Error: %s - %s." % (e.filename, e.strerror))
 
         os.makedirs(os.path.join(destination, 'data'))
-        print("makedir %s" % (os.path.join(destination, 'data')))
+        log.info("makedir %s" % (os.path.join(destination, 'data')))
 
         os.symlink('./data/config.json', os.path.join(destination, 'config.json'))
 
@@ -830,7 +826,6 @@ if __name__ == '__main__':
         ]
     )
 
-    # TODO is this still needed?
     for track in root.findall('tracks/track'):
         track_conf = {}
         track_conf['trackfiles'] = []
