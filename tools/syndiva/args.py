@@ -5,7 +5,7 @@ import os
 
 
 def usage(info) -> str:
-    text = "Fibronectin script.\n\n"
+    text = "SynDivA script.\n\n"
     if info:
         text += info
     temp = "Option\t\t\t\tfile\t\t\tDescription\n"
