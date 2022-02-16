@@ -485,18 +485,25 @@ class JbrowseConnector(object):
 
         self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
 
-    def add_vcf(self, data, trackData, vcfOpts={}, **kwargs):
+    def add_vcf(self, data, trackData, vcfOpts={}, zipped=False, **kwargs):
 
-        rel_dest = os.path.join('data', trackData['label'] + '.vcf')
-        dest = os.path.join(self.outdir, rel_dest)
-        shutil.copy(os.path.realpath(data), dest)
+        if zipped:
+            rel_dest = os.path.join('data', trackData['label'] + '.vcf.gz')
+            dest = os.path.join(self.outdir, rel_dest)
+            shutil.copy(os.path.realpath(data), dest)
+        else:
+            rel_dest = os.path.join('data', trackData['label'] + '.vcf')
+            dest = os.path.join(self.outdir, rel_dest)
+            shutil.copy(os.path.realpath(data), dest)
 
-        cmd = ['bgzip', dest]
-        self.subprocess_check_call(cmd)
-        cmd = ['tabix', dest + '.gz']
-        self.subprocess_check_call(cmd)
+            cmd = ['bgzip', dest]
+            self.subprocess_check_call(cmd)
+            cmd = ['tabix', dest + '.gz']
+            self.subprocess_check_call(cmd)
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz')
+            rel_dest = os.path.join('data', trackData['label'] + '.vcf.gz')
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
 
     def add_gff(self, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join('data', trackData['label'] + '.gff')
@@ -731,6 +738,8 @@ class JbrowseConnector(object):
                 self.add_blastxml(dataset_path, outputTrackConfig, track['conf']['options']['blast'])
             elif dataset_ext == 'vcf':
                 self.add_vcf(dataset_path, outputTrackConfig)
+            elif dataset_ext == 'vcf_bgzip':
+                self.add_vcf(dataset_path, outputTrackConfig, zipped=True)
             elif dataset_ext == 'rest':
                 self.add_rest(track['conf']['options']['rest']['url'], outputTrackConfig)
             elif dataset_ext == 'paf':
