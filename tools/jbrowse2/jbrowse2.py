@@ -400,7 +400,7 @@ class JbrowseConnector(object):
             # issues.
             self.add_assembly(genome_node['path'], genome_node['label'])
 
-    def add_assembly(self, path, label):
+    def add_assembly(self, path, label, default=True):
         # Find a non-existing filename for the new genome
         # (to avoid colision when upgrading an existing instance)
         rel_seq_path = os.path.join('data', 'assembly')
@@ -419,8 +419,9 @@ class JbrowseConnector(object):
         while uniq_label in self.assembly_ids:
             uniq_label = label + str(lab_try)
             lab_try += 1
-        self.current_assembly_id = uniq_label
         self.assembly_ids.append(uniq_label)
+        if default:
+            self.current_assembly_id = uniq_label
 
         copied_genome = seq_path + '.fasta'
         shutil.copy(path, copied_genome)
@@ -441,6 +442,8 @@ class JbrowseConnector(object):
             '--target', os.path.join(self.outdir, 'data'),
             '--skipCheck',
             rel_seq_path + '.fasta.gz'])
+
+        return uniq_label
 
     def text_index(self):
         # Index tracks
@@ -567,10 +570,9 @@ class JbrowseConnector(object):
 
         self.symlink_or_copy(os.path.realpath(data), dest)
 
-        self.add_assembly(pafOpts['genome'], pafOpts['genome_label'])
-        # TODO adapt to possibly changed assembly label
+        added_assembly = self.add_assembly(pafOpts['genome'], pafOpts['genome_label'], default=False)
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest, assemblies=[self.current_assembly_id, added_assembly])
 
     def add_hic(self, data, trackData, hicOpts, **kwargs):
         rel_dest = os.path.join('data', trackData['label'] + '.hic')
@@ -621,7 +623,12 @@ class JbrowseConnector(object):
         #     '--config', '{"queryTemplate": "%s"}' % query,
         #     url])
 
-    def _add_track(self, id, label, category, path):
+    def _add_track(self, id, label, category, path, assemblies=[]):
+
+        assemblies_opt = self.current_assembly_id
+        if assemblies:
+            assemblies_opt = ','.join(assemblies)
+
         self.subprocess_check_call([
             'jbrowse', 'add-track',
             '--load', 'inPlace',
@@ -629,7 +636,7 @@ class JbrowseConnector(object):
             '--category', category,
             '--target', os.path.join(self.outdir, 'data'),
             '--trackId', id,
-            '--assemblyNames', self.current_assembly_id,
+            '--assemblyNames', assemblies_opt,
             path])
 
     def _sort_gff(self, data, dest):
