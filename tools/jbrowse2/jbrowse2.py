@@ -3,6 +3,7 @@ import argparse
 import binascii
 import datetime
 import hashlib
+import json
 import logging
 import os
 import shutil
@@ -334,6 +335,13 @@ class JbrowseConnector(object):
         self.genome_paths = genomes
         self.tracksToIndex = []
 
+        # This is the id of the current assembly
+        self.assembly_ids = []
+        self.current_assembly_id = []
+
+        # If upgrading, look at the existing data
+        self.check_existing(self.outdir)
+
         self.clone_jbrowse(self.jbrowse, self.outdir)
 
         self.process_genomes()
@@ -375,6 +383,16 @@ class JbrowseConnector(object):
         else:
             return 'copy'
 
+    def check_existing(self, destination):
+        existing = os.path.join(destination, 'data', "config.json")
+        if os.path.exists(existing):
+            with open(existing, 'r') as existing_conf:
+                conf = json.load(existing_conf)
+                if 'assemblies' in conf:
+                    for assembly in conf['assemblies']:
+                        if 'name' in assembly:
+                            self.assembly_ids.append(assembly['name'])
+
     def process_genomes(self):
         for genome_node in self.genome_paths:
             # We only expect one input genome per run. This for loop is just
@@ -383,7 +401,28 @@ class JbrowseConnector(object):
             self.add_assembly(genome_node['path'], genome_node['label'])
 
     def add_assembly(self, path, label):
-        copied_genome = os.path.join(self.outdir, 'data', 'genome.fasta')
+        # Find a non-existing filename for the new genome
+        # (to avoid colision when upgrading an existing instance)
+        rel_seq_path = os.path.join('data', 'assembly')
+        seq_path = os.path.join(self.outdir, rel_seq_path)
+        fn_try = 1
+        while (os.path.exists(seq_path + '.fasta') or os.path.exists(seq_path + '.fasta.gz')
+               or os.path.exists(seq_path + '.fasta.gz.fai') or os.path.exists(seq_path + '.fasta.gz.gzi')):
+            rel_seq_path = os.path.join('data', 'assembly%s' % fn_try)
+            seq_path = os.path.join(self.outdir, rel_seq_path)
+            fn_try += 1
+
+        # Find a non-existing label for the new genome
+        # (to avoid colision when upgrading an existing instance)
+        lab_try = 1
+        uniq_label = label
+        while uniq_label in self.assembly_ids:
+            uniq_label = label + str(lab_try)
+            lab_try += 1
+        self.current_assembly_id = uniq_label
+        self.assembly_ids.append(uniq_label)
+
+        copied_genome = seq_path + '.fasta'
         shutil.copy(path, copied_genome)
 
         # Compress with bgzip
@@ -397,17 +436,18 @@ class JbrowseConnector(object):
         self.subprocess_check_call([
             'jbrowse', 'add-assembly',
             '--load', 'inPlace',
-            '--name', label,
+            '--name', uniq_label,
             '--type', 'bgzipFasta',
             '--target', os.path.join(self.outdir, 'data'),
             '--skipCheck',
-            os.path.join('data', 'genome.fasta.gz')])
+            rel_seq_path + '.fasta.gz'])
 
     def text_index(self):
         # Index tracks
         args = [
             'jbrowse', 'text-index',
-            '--target', os.path.join(self.outdir, 'data')
+            '--target', os.path.join(self.outdir, 'data'),
+            '--assemblies', self.current_assembly_id,
         ]
 
         tracks = ','.join(self.tracksToIndex)
@@ -528,6 +568,7 @@ class JbrowseConnector(object):
         self.symlink_or_copy(os.path.realpath(data), dest)
 
         self.add_assembly(pafOpts['genome'], pafOpts['genome_label'])
+        # TODO adapt to possibly changed assembly label
 
         self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
 
@@ -555,6 +596,9 @@ class JbrowseConnector(object):
             },
             "category": [
                 trackData['category']
+            ],
+            "assemblyNames": [
+                self.current_assembly_id
             ]
         }
 
@@ -585,6 +629,7 @@ class JbrowseConnector(object):
             '--category', category,
             '--target', os.path.join(self.outdir, 'data'),
             '--trackId', id,
+            '--assemblyNames', self.current_assembly_id,
             path])
 
     def _sort_gff(self, data, dest):
@@ -678,7 +723,7 @@ class JbrowseConnector(object):
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
             # much simpler.
-            hashData = [str(dataset_path), track_human_label, track['category'], rest_url]
+            hashData = [str(dataset_path), track_human_label, track['category'], rest_url, self.current_assembly_id]
             hashData = '|'.join(hashData).encode('utf-8')
             outputTrackConfig['label'] = hashlib.md5(hashData).hexdigest() + '_%s' % i
             outputTrackConfig['metadata'] = extra_metadata
@@ -777,8 +822,10 @@ class JbrowseConnector(object):
         except OSError as e:
             log.error("Error: %s - %s." % (e.filename, e.strerror))
 
-        os.makedirs(os.path.join(destination, 'data'))
-        log.info("makedir %s" % (os.path.join(destination, 'data')))
+        if not os.path.exists(os.path.join(destination, 'data')):
+            # It can already exist if upgrading an instance
+            os.makedirs(os.path.join(destination, 'data'))
+            log.info("makedir %s" % (os.path.join(destination, 'data')))
 
         os.symlink('./data/config.json', os.path.join(destination, 'config.json'))
 
