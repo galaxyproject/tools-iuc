@@ -3,8 +3,10 @@ import argparse
 import binascii
 import datetime
 import hashlib
+import json
 import logging
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -334,6 +336,13 @@ class JbrowseConnector(object):
         self.genome_paths = genomes
         self.tracksToIndex = []
 
+        # This is the id of the current assembly
+        self.assembly_ids = {}
+        self.current_assembly_id = []
+
+        # If upgrading, look at the existing data
+        self.check_existing(self.outdir)
+
         self.clone_jbrowse(self.jbrowse, self.outdir)
 
         self.process_genomes()
@@ -375,6 +384,16 @@ class JbrowseConnector(object):
         else:
             return 'copy'
 
+    def check_existing(self, destination):
+        existing = os.path.join(destination, 'data', "config.json")
+        if os.path.exists(existing):
+            with open(existing, 'r') as existing_conf:
+                conf = json.load(existing_conf)
+                if 'assemblies' in conf:
+                    for assembly in conf['assemblies']:
+                        if 'name' in assembly:
+                            self.assembly_ids[assembly['name']] = None
+
     def process_genomes(self):
         for genome_node in self.genome_paths:
             # We only expect one input genome per run. This for loop is just
@@ -382,8 +401,36 @@ class JbrowseConnector(object):
             # issues.
             self.add_assembly(genome_node['path'], genome_node['label'])
 
-    def add_assembly(self, path, label):
-        copied_genome = os.path.join(self.outdir, 'data', 'genome.fasta')
+    def add_assembly(self, path, label, default=True):
+        # Find a non-existing filename for the new genome
+        # (to avoid colision when upgrading an existing instance)
+        rel_seq_path = os.path.join('data', 'assembly')
+        seq_path = os.path.join(self.outdir, rel_seq_path)
+        fn_try = 1
+        while (os.path.exists(seq_path + '.fasta') or os.path.exists(seq_path + '.fasta.gz')
+               or os.path.exists(seq_path + '.fasta.gz.fai') or os.path.exists(seq_path + '.fasta.gz.gzi')):
+            rel_seq_path = os.path.join('data', 'assembly%s' % fn_try)
+            seq_path = os.path.join(self.outdir, rel_seq_path)
+            fn_try += 1
+
+        # Find a non-existing label for the new genome
+        # (to avoid colision when upgrading an existing instance)
+        lab_try = 1
+        uniq_label = label
+        while uniq_label in self.assembly_ids:
+            uniq_label = label + str(lab_try)
+            lab_try += 1
+
+        # Find a default scaffold to display
+        # TODO this may not be necessary in the future, see https://github.com/GMOD/jbrowse-components/issues/2708
+        with open(path, 'r') as fa_handle:
+            fa_header = fa_handle.readline()[1:].strip().split(' ')[0]
+
+        self.assembly_ids[uniq_label] = fa_header
+        if default:
+            self.current_assembly_id = uniq_label
+
+        copied_genome = seq_path + '.fasta'
         shutil.copy(path, copied_genome)
 
         # Compress with bgzip
@@ -397,17 +444,20 @@ class JbrowseConnector(object):
         self.subprocess_check_call([
             'jbrowse', 'add-assembly',
             '--load', 'inPlace',
-            '--name', label,
+            '--name', uniq_label,
             '--type', 'bgzipFasta',
             '--target', os.path.join(self.outdir, 'data'),
             '--skipCheck',
-            os.path.join('data', 'genome.fasta.gz')])
+            rel_seq_path + '.fasta.gz'])
+
+        return uniq_label
 
     def text_index(self):
         # Index tracks
         args = [
             'jbrowse', 'text-index',
-            '--target', os.path.join(self.outdir, 'data')
+            '--target', os.path.join(self.outdir, 'data'),
+            '--assemblies', self.current_assembly_id,
         ]
 
         tracks = ','.join(self.tracksToIndex)
@@ -527,9 +577,9 @@ class JbrowseConnector(object):
 
         self.symlink_or_copy(os.path.realpath(data), dest)
 
-        self.add_assembly(pafOpts['genome'], pafOpts['genome_label'])
+        added_assembly = self.add_assembly(pafOpts['genome'], pafOpts['genome_label'], default=False)
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest, assemblies=[self.current_assembly_id, added_assembly])
 
     def add_hic(self, data, trackData, hicOpts, **kwargs):
         rel_dest = os.path.join('data', trackData['label'] + '.hic')
@@ -555,6 +605,9 @@ class JbrowseConnector(object):
             },
             "category": [
                 trackData['category']
+            ],
+            "assemblyNames": [
+                self.current_assembly_id
             ]
         }
 
@@ -577,7 +630,12 @@ class JbrowseConnector(object):
         #     '--config', '{"queryTemplate": "%s"}' % query,
         #     url])
 
-    def _add_track(self, id, label, category, path):
+    def _add_track(self, id, label, category, path, assemblies=[]):
+
+        assemblies_opt = self.current_assembly_id
+        if assemblies:
+            assemblies_opt = ','.join(assemblies)
+
         self.subprocess_check_call([
             'jbrowse', 'add-track',
             '--load', 'inPlace',
@@ -585,6 +643,7 @@ class JbrowseConnector(object):
             '--category', category,
             '--target', os.path.join(self.outdir, 'data'),
             '--trackId', id,
+            '--assemblyNames', assemblies_opt,
             path])
 
     def _sort_gff(self, data, dest):
@@ -637,6 +696,7 @@ class JbrowseConnector(object):
             trackConfigOptionParent[splitKey[-1]] = optVal
 
     def process_annotations(self, track):
+
         category = track['category'].replace('__pd__date__pd__', TODAY)
         outputTrackConfig = {
             'style': {
@@ -665,7 +725,7 @@ class JbrowseConnector(object):
             for key, value in mapped_chars.items():
                 track_human_label = track_human_label.replace(value, key)
 
-            log.info('Processing %s / %s', category, track_human_label)
+            log.info('Processing track %s / %s (%s)', category, track_human_label, dataset_ext)
             outputTrackConfig['key'] = track_human_label
             # We add extra data to hash for the case of REST + SPARQL.
             if 'conf' in track and 'options' in track['conf'] and 'url' in track['conf']['options']:
@@ -677,7 +737,7 @@ class JbrowseConnector(object):
             # is intentional. This way re-running the tool on a different date
             # will not generate different hashes and make comparison of outputs
             # much simpler.
-            hashData = [str(dataset_path), track_human_label, track['category'], rest_url]
+            hashData = [str(dataset_path), track_human_label, track['category'], rest_url, self.current_assembly_id]
             hashData = '|'.join(hashData).encode('utf-8')
             outputTrackConfig['label'] = hashlib.md5(hashData).hexdigest() + '_%s' % i
             outputTrackConfig['metadata'] = extra_metadata
@@ -701,8 +761,6 @@ class JbrowseConnector(object):
             if customTrackConfig:
                 self.set_custom_track_options(customTrackConfig, outputTrackConfig, mapped_chars)
 
-            # import pprint; pprint.pprint(track)
-            # import sys; sys.exit()
             if dataset_ext in ('gff', 'gff3'):
                 self.add_gff(dataset_path, dataset_ext, outputTrackConfig,
                              track['conf']['options']['gff'])
@@ -770,6 +828,122 @@ class JbrowseConnector(object):
             # Return non-human label for use in other fields
             yield outputTrackConfig['label']
 
+    def add_default_session(self, data):
+        """
+            Add some default session settings: set some assemblies/tracks on/off
+        """
+        tracks_data = []
+
+        # TODO using the default session for now, but check out session specs in the future https://github.com/GMOD/jbrowse-components/issues/2708
+
+        # We need to know the track type from the config.json generated just before
+        config_path = os.path.join(self.outdir, 'data', 'config.json')
+        track_types = {}
+        with open(config_path, 'r') as config_file:
+            config_json = json.load(config_file)
+
+        for track_conf in config_json['tracks']:
+            track_types[track_conf['trackId']] = track_conf['type']
+
+        # TODO Getting an error when refreshing the page, waiting for https://github.com/GMOD/jbrowse-components/issues/2708
+        for on_track in data['visibility']['default_on']:
+            tracks_data.append({
+                "type": track_types[on_track],
+                "configuration": on_track,
+                "displays": [
+                    {
+                        "type": "LinearBasicDisplay",
+                        "height": 100
+                    }
+                ]
+            })
+
+        # The view for the assembly we're adding
+        view_json = {
+            "type": "LinearGenomeView",
+            "tracks": tracks_data
+        }
+
+        refName = None
+        if data.get('defaultLocation', ''):
+            loc_match = re.search(r'^(\w+):(\d+)\.+(\d+)$', data['defaultLocation'])
+            if loc_match:
+                refName = loc_match.group(1)
+                start = int(loc_match.group(2))
+                end = int(loc_match.group(3))
+        elif self.assembly_ids[self.current_assembly_id] is not None:
+            refName = self.assembly_ids[self.current_assembly_id]
+            start = 0
+            end = 10000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
+
+        if refName is not None:
+            view_json['displayedRegions'] = [{
+                "refName": refName,
+                "start": start,
+                "end": end,
+                "reversed": False,
+                "assemblyName": self.current_assembly_id
+            }]
+
+        session_name = data.get('session_name', "New session")
+        if not session_name:
+            session_name = "New session"
+
+        # Merge with possibly existing defaultSession (if upgrading a jbrowse instance)
+        session_json = {}
+        if 'defaultSession' in config_json:
+            session_json = config_json['defaultSession']
+
+        session_json["name"] = session_name
+
+        if 'views' not in session_json:
+            session_json['views'] = []
+
+        session_json['views'].append(view_json)
+
+        config_json['defaultSession'] = session_json
+
+        with open(config_path, 'w') as config_file:
+            json.dump(config_json, config_file, indent=2)
+
+    def add_general_configuration(self, data):
+        """
+            Add some general configuration to the config.json file
+        """
+
+        config_path = os.path.join(self.outdir, 'data', 'config.json')
+        with open(config_path, 'r') as config_file:
+            config_json = json.load(config_file)
+
+        config_data = {}
+
+        config_data['disableAnalytics'] = data.get('analytics', 'false') == 'true'
+
+        config_data['theme'] = {
+            "palette": {
+                "primary": {
+                    "main": data.get('primary_color', '#0D233F')
+                },
+                "secondary": {
+                    "main": data.get('secondary_color', '#721E63')
+                },
+                "tertiary": {
+                    "main": data.get('tertiary_color', '#135560')
+                },
+                "quaternary": {
+                    "main": data.get('quaternary_color', '#FFB11D')
+                },
+            },
+            "typography": {
+                "fontSize": int(data.get('font_size', 10))
+            },
+        }
+
+        config_json['configuration'].update(config_data)
+
+        with open(config_path, 'w') as config_file:
+            json.dump(config_json, config_file, indent=2)
+
     def clone_jbrowse(self, jbrowse_dir, destination):
         """Clone a JBrowse directory into a destination directory.
         """
@@ -779,10 +953,12 @@ class JbrowseConnector(object):
         try:
             shutil.rmtree(os.path.join(destination, 'test_data'))
         except OSError as e:
-            print("Error: %s - %s." % (e.filename, e.strerror))
+            log.error("Error: %s - %s." % (e.filename, e.strerror))
 
-        os.makedirs(os.path.join(destination, 'data'))
-        print("makedir %s" % (os.path.join(destination, 'data')))
+        if not os.path.exists(os.path.join(destination, 'data')):
+            # It can already exist if upgrading an instance
+            os.makedirs(os.path.join(destination, 'data'))
+            log.info("makedir %s" % (os.path.join(destination, 'data')))
 
         os.symlink('./data/config.json', os.path.join(destination, 'config.json'))
 
@@ -830,7 +1006,14 @@ if __name__ == '__main__':
         ]
     )
 
-    # TODO is this still needed?
+    default_session_data = {
+        'visibility': {
+            'default_on': [],
+            'default_off': [],
+        },
+    }
+
+    # TODO add metadata to tracks
     for track in root.findall('tracks/track'):
         track_conf = {}
         track_conf['trackfiles'] = []
@@ -867,4 +1050,21 @@ if __name__ == '__main__':
         track_conf['conf'] = etree_to_dict(track.find('options'))
         keys = jc.process_annotations(track_conf)
 
+        for key in keys:
+            default_session_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
+
+        default_session_data['defaultLocation'] = root.find('metadata/general/defaultLocation').text
+        default_session_data['session_name'] = root.find('metadata/general/session_name').text
+
+    general_data = {
+        'analytics': root.find('metadata/general/analytics').text,
+        'primary_color': root.find('metadata/general/primary_color').text,
+        'secondary_color': root.find('metadata/general/secondary_color').text,
+        'tertiary_color': root.find('metadata/general/tertiary_color').text,
+        'quaternary_color': root.find('metadata/general/quaternary_color').text,
+        'font_size': root.find('metadata/general/font_size').text,
+    }
+
+    jc.add_default_session(default_session_data)
+    jc.add_general_configuration(general_data)
     jc.text_index()
