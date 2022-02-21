@@ -9,13 +9,12 @@
 # ==============================================================================
 import math
 import re
-import sys
 import os
+import sys
 import subprocess
-
-from args import Args
 import matplotlib.pyplot as plot
 import numpy
+from args import Args
 from Bio import pairwise2
 from Bio import SeqIO
 from Bio.Seq import Seq

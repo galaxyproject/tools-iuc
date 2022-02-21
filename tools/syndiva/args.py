@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-import sys
 import getopt
+import sys
 import os
 
 
@@ -59,12 +59,9 @@ class Args:
         if len(sys.argv) == 1:
             sys.exit(usage(None))
             # Test input file argument
-        if self.input:
-            if not os.path.isfile(self.input):
-                print(self.input)
-                print(os.path.isfile(self.input))
-                # sys.exit(self.usage("Error with \"%s\" : -i required an input file\n" % self.multilist))
-                # Determine les fichiers fournis en arguments
+        if self.input and not os.path.isfile(self.input):
+            print(self.input)
+            print(os.path.isfile(self.input))
 
     def getargs(self):
         """
@@ -72,7 +69,8 @@ class Args:
         @return: Choosen options
         """
         # Sans argument
-        if len(sys.argv) <= 1: sys.exit("Do './fibronectin.py -h' for a usage summary")
+        if len(sys.argv) <= 1:
+            sys.exit("Do './fibronectin.py -h' for a usage summary")
         # options test
         try:
             (opts, args) = getopt.getopt(sys.argv[1:], "i:o:p:5:3:h",
