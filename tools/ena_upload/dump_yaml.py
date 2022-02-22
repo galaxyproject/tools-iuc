@@ -1,5 +1,7 @@
 import sys
+
 import yaml
+
 
 def fetch_table_data(table_path):
     data_dict = {}
@@ -17,6 +19,7 @@ def fetch_table_data(table_path):
             data_dict[row_id] = row_dict
             row_id += 1
         return data_dict
+
 
 all_data_dict = {}
 print('YAML -------------')
