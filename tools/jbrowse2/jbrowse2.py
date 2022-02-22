@@ -665,44 +665,10 @@ class JbrowseConnector(object):
             self.subprocess_check_call(['bgzip', '-f', dest])
             self.subprocess_check_call(['tabix', '-f', '-p', 'bed', dest + '.gz'])
 
-    def traverse_to_option_parent(self, splitKey, outputTrackConfig):
-        trackConfigSubDict = outputTrackConfig
-        for part in splitKey[:-1]:
-            if trackConfigSubDict.get(part) is None:
-                trackConfigSubDict[part] = dict()
-            trackConfigSubDict = trackConfigSubDict[part]
-        assert isinstance(trackConfigSubDict, dict), 'Config element {} is not a dict'.format(trackConfigSubDict)
-        return trackConfigSubDict
-
-    def get_formatted_option(self, valType2ValDict, mapped_chars):
-        assert isinstance(valType2ValDict, dict) and len(valType2ValDict.items()) == 1
-        for valType, value in valType2ValDict.items():
-            if valType == "text":
-                for char, mapped_char in mapped_chars.items():
-                    value = value.replace(mapped_char, char)
-            elif valType == "integer":
-                value = int(value)
-            elif valType == "float":
-                value = float(value)
-            else:  # boolean
-                value = {'true': True, 'false': False}[value]
-            return value
-
-    def set_custom_track_options(self, customTrackConfig, outputTrackConfig, mapped_chars):
-        for optKey, optType2ValDict in customTrackConfig.items():
-            splitKey = optKey.split('.')
-            trackConfigOptionParent = self.traverse_to_option_parent(splitKey, outputTrackConfig)
-            optVal = self.get_formatted_option(optType2ValDict, mapped_chars)
-            trackConfigOptionParent[splitKey[-1]] = optVal
-
     def process_annotations(self, track):
 
         category = track['category'].replace('__pd__date__pd__', TODAY)
         outputTrackConfig = {
-            'style': {
-                'label': track['style'].get('label', 'description'),
-                'description': track['style'].get('description', ''),
-            },
             'category': category,
         }
 
@@ -742,24 +708,9 @@ class JbrowseConnector(object):
             outputTrackConfig['label'] = hashlib.md5(hashData).hexdigest() + '_%s' % i
             outputTrackConfig['metadata'] = extra_metadata
 
-            # Colour parsing is complex due to different track types having
-            # different colour options.
-            colourOptions = self.cs.parse_colours(track['conf']['options'], track['format'], gff3=dataset_path)
-            # This used to be done with a dict.update() call, however that wiped out any previous style settings...
-            for key in colourOptions:
-                if key == 'style':
-                    for subkey in colourOptions['style']:
-                        outputTrackConfig['style'][subkey] = colourOptions['style'][subkey]
-                else:
-                    outputTrackConfig[key] = colourOptions[key]
-
             if 'menus' in track['conf']['options']:
                 menus = self.cs.parse_menus(track['conf']['options'])
                 outputTrackConfig.update(menus)
-
-            customTrackConfig = track['conf']['options'].get('custom_config', {})
-            if customTrackConfig:
-                self.set_custom_track_options(customTrackConfig, outputTrackConfig, mapped_chars)
 
             if dataset_ext in ('gff', 'gff3'):
                 self.add_gff(dataset_path, dataset_ext, outputTrackConfig,
@@ -847,14 +798,29 @@ class JbrowseConnector(object):
 
         # TODO Getting an error when refreshing the page, waiting for https://github.com/GMOD/jbrowse-components/issues/2708
         for on_track in data['visibility']['default_on']:
+            # TODO Make it possible to specify display settings on default_off tracks too
+            # see https://github.com/GMOD/jbrowse-components/issues/2708#issuecomment-1047554606
+            style_data = {
+                "type": "LinearBasicDisplay",
+                "height": 100
+            }
+
+            if on_track in data['style']:
+                if 'display' in data['style'][on_track]:
+                    style_data['type'] = data['style'][on_track]['display']
+                    del data['style'][on_track]['display']
+
+                style_data.update(data['style'][on_track])
+
+            if on_track in data['style_labels']:
+                # TODO fix this: it shoul probably go in a renderer block (SvgFeatureRenderer) but still does not work
+                style_data['labels'] = data['style_labels'][on_track]
+
             tracks_data.append({
                 "type": track_types[on_track],
                 "configuration": on_track,
                 "displays": [
-                    {
-                        "type": "LinearBasicDisplay",
-                        "height": 100
-                    }
+                    style_data
                 ]
             })
 
@@ -874,9 +840,10 @@ class JbrowseConnector(object):
         elif self.assembly_ids[self.current_assembly_id] is not None:
             refName = self.assembly_ids[self.current_assembly_id]
             start = 0
-            end = 10000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
+            end = 1000000  # Booh, hard coded! waiting for https://github.com/GMOD/jbrowse-components/issues/2708
 
         if refName is not None:
+            # TODO displayedRegions is not just zooming to the region, it hides the rest of the chromosome
             view_json['displayedRegions'] = [{
                 "refName": refName,
                 "start": start,
@@ -973,6 +940,16 @@ def copytree(src, dst, symlinks=False, ignore=None):
             shutil.copy2(s, d)
 
 
+def parse_style_conf(item):
+    if 'type' in item.attrib and item.attrib['type'] in ['boolean', 'integer']:
+        if item.attrib['type'] == 'boolean':
+            return item.text in ("yes", "true", "True")
+        elif item.attrib['type'] == 'integer':
+            return int(item.text)
+    else:
+        return item.text
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="", epilog="")
     parser.add_argument('xml', type=argparse.FileType('r'), help='Track Configuration')
@@ -1011,6 +988,8 @@ if __name__ == '__main__':
             'default_on': [],
             'default_off': [],
         },
+        'style': {},
+        'style_labels': {}
     }
 
     # TODO add metadata to tracks
@@ -1042,10 +1021,15 @@ if __name__ == '__main__':
         track_conf['category'] = track.attrib['cat']
         track_conf['format'] = track.attrib['format']
         try:
-            # Only pertains to gff3 + blastxml. TODO?
-            track_conf['style'] = {t.tag: t.text for t in track.find('options/style')}
+            track_conf['style'] = {item.tag: parse_style_conf(item) for item in track.find('options/style')}
         except TypeError:
             track_conf['style'] = {}
+            pass
+
+        try:
+            track_conf['style_labels'] = {item.tag: parse_style_conf(item) for item in track.find('options/style_labels')}
+        except TypeError:
+            track_conf['style_labels'] = {}
             pass
         track_conf['conf'] = etree_to_dict(track.find('options'))
         keys = jc.process_annotations(track_conf)
@@ -1053,8 +1037,11 @@ if __name__ == '__main__':
         for key in keys:
             default_session_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
 
-        default_session_data['defaultLocation'] = root.find('metadata/general/defaultLocation').text
-        default_session_data['session_name'] = root.find('metadata/general/session_name').text
+        default_session_data['style'][key] = track_conf['style']
+        default_session_data['style_labels'][key] = track_conf['style_labels']
+
+    default_session_data['defaultLocation'] = root.find('metadata/general/defaultLocation').text
+    default_session_data['session_name'] = root.find('metadata/general/session_name').text
 
     general_data = {
         'analytics': root.find('metadata/general/analytics').text,
