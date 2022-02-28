@@ -8,12 +8,13 @@
 # usage : python syndiva.py -i file.fasta -o /output/dir/ -p pattern -5 seq_restric_5'-3 seq_restric_3' notes           : python_version  :3.7.11 biopython_max_version  :1.72
 # ==============================================================================
 import math
-import re
 import os
-import sys
 import subprocess
+import sys
+import re
 import matplotlib.pyplot as plot
 import numpy
+
 from args import Args
 from Bio import pairwise2
 from Bio import SeqIO

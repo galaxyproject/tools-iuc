@@ -6,8 +6,8 @@ Wrapper for syndiva.py
 import logging
 import os
 import shutil
-import sys
 import subprocess
+import sys
 
 log = logging.getLogger(__name__)
 
