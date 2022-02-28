@@ -7,7 +7,7 @@ suppressPackageStartupMessages(library("tidyverse"))
 option_list <- list(
     make_option(c("--sequence_table"), action = "store", dest = "sequence_table", help = "Input sequence table"),
     make_option(c("--taxonomy_table"), action = "store", dest = "taxonomy_table", help = "Input taxonomy table"),
-    make_option(c("--output_richness_plot"), action = "store", dest = "output_richness_plot", help = "Output richness plot")
+    make_option(c("--output"), action = "store", dest = "output", help = "RDS output")
 )
 
 parser <- OptionParser(usage = "%prog [options] file", option_list = option_list);
@@ -36,9 +36,4 @@ otu_tab <- otu_table(seq_table_numeric_matrix, taxa_are_rows = TRUE);
 
 # Construct a phyloseq object.
 phyloseq_obj <- phyloseq(otu_tab, tax_tab);
-
-# Start PDF device driver and plot species richness.
-dev.new();
-pdf(file = opt$output_richness_plot);
-plot_richness(phyloseq_obj, x = "samples", color = "samples");
-dev.off()
+saveRDS(phyloseq_obj, file = opt$output, compress = TRUE);
