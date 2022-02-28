@@ -9,18 +9,19 @@
 # ==============================================================================
 import math
 import os
+import re
 import subprocess
 import sys
-import re
+
 import matplotlib.pyplot as plot
 import numpy
-
-from args import Args
-from Bio import pairwise2
 from Bio import SeqIO
+from Bio import pairwise2
 from Bio.Seq import Seq
 from Bio.Seq import translate
 from Bio.SubsMat import MatrixInfo as matlist
+
+from args import Args
 
 args = Args()
 # Variables initialization

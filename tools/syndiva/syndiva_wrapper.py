@@ -31,9 +31,22 @@ def __main__():
         os.makedirs(extra_file_path)
     except Exception as e:
         stop_err('1- Error running SynDivA ' + str(e))
-    cmdline = 'python ./syndiva.py -i %s -o %s -p %s -5 %s -3 %s > /dev/null' % (fasta_file, extra_file_path, pattern, restriction_site_5, restriction_site_3)
+    cmdline = 'python ./syndiva.py ' \
+              '-i %s ' \
+              '-o %s ' \
+              '-p %s ' \
+              '-5 %s ' \
+              '-3 %s > /dev/null' % \
+              (fasta_file,
+               extra_file_path,
+               pattern,
+               restriction_site_5,
+               restriction_site_3)
     try:
-        proc = subprocess.Popen(args=cmdline, shell=True, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(args=cmdline,
+                                shell=True,
+                                stderr=subprocess.PIPE
+                                )
         returncode = proc.wait()
         # get stderr, allowing for case where it's very large
         stderr = b''
