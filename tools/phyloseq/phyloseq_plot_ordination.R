@@ -20,11 +20,11 @@ phyloseq_obj <- readRDS(opt$input);
 
 # Transform data to proportions as appropriate for
 # Bray-Curtis distances.
-phyloseq_obj.prop <- transform_sample_counts(phyloseq_obj, function(otu) otu / sum(otu));
-ordination_obj <- ordinate(phyloseq_obj.prop, method = opt$method, distance = opt$distance);
+proportions_obj <- transform_sample_counts(phyloseq_obj, function(otu) otu / sum(otu));
+ordination_obj <- ordinate(proportions_obj, method = opt$method, distance = opt$distance);
 
 # Start PDF device driver and generate the plot.
 dev.new();
 pdf(file = opt$output);
-plot_ordination(phyloseq_obj.prop, ordination_obj, type = opt$type);
+plot_ordination(proportions_obj, ordination_obj, type = opt$type);
 dev.off();
