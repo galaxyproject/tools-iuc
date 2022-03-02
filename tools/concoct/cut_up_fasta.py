@@ -23,14 +23,12 @@ def cut_up_fasta(input_fasta, chunk_size, overlap, merge_last, bedoutfile, gzipp
                 for split_seq in chunks(record.seq, chunk_size, overlap, merge_last):
                     print(">%s.%i\n%s" % (record.id, i, split_seq))
                     if bedoutfile:
-                        print("{0}\t{2}\t{3}\t{0}.{1}".format(record.id, i, chunk_size * i, chunk_size * i + len(split_seq)),
-                              file=bedoutfile_fh)
+                        print("{0}\t{2}\t{3}\t{0}.{1}".format(record.id, i, chunk_size * i, chunk_size * i + len(split_seq)), file=bedoutfile_fh)
                     i = i + 1
             else:
                 print(">%s\n%s" % (record.id, record.seq))
                 if bedoutfile:
-                    print("{0}\t0\t{1}\t{0}".format(record.id, len(record.seq)),
-                          file=bedoutfile_fh)
+                    print("{0}\t0\t{1}\t{0}".format(record.id, len(record.seq)), file=bedoutfile_fh)
 
     if bedoutfile:
         bedoutfile_fh.close()
@@ -53,7 +51,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--input_fasta", action="store", dest="input_fasta", help="Fasta files with contigs")
 parser.add_argument("--gzipped", action="store_true", dest="gzipped", help="Input file is gzipped")
 parser.add_argument("--chunk_size", action="store", dest="chunk_size", type=int, help="Chunk size\n")
-parser.add_argument("--overlap_size",action="store", dest="overlap_size", type=int, help="Overlap size\n")
+parser.add_argument("--overlap_size", action="store", dest="overlap_size", type=int, help="Overlap size\n")
 parser.add_argument("--merge_last", default=False, action="store_true", dest="merge_last", help="Concatenate final part to last contig\n")
 parser.add_argument("--bedfile", action="store", dest="bedfile", default=None, help="BEDfile to be created with exact regions of the original contigs corresponding to the newly created contigs")
 
