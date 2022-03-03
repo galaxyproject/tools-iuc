@@ -25,16 +25,21 @@ def __main__():
 
     fasta_file = sys.argv[1]
     pattern = sys.argv[2]
-    authorized_pattern_letter = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M',
-                                 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y', ':', '0',
-                                 '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '*']
-    if numpy.array([letter in authorized_pattern_letter for letter in pattern]).sum() < len(pattern):
-        stop_err('1- Pattern Error running SynDivA: Pattern character does not match any allowed characters')
     restriction_site_5 = sys.argv[3]
     restriction_site_3 = sys.argv[4]
     extra_file_path = sys.argv[5] + "/"
     report = sys.argv[6]
+    authorized_pattern_letter = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M',
+                                 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y', ':', '0',
+                                 '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '*']
+    authorized_restriction_site_letter = ['A', 'T', 'G', 'C']
 
+    if numpy.array([letter in authorized_pattern_letter for letter in pattern]).sum() < len(pattern):
+        stop_err('1- Pattern Error running SynDivA: Pattern character does not match any allowed characters')
+    if numpy.array([letter in authorized_restriction_site_letter for letter in restriction_site_5]).sum() < len(restriction_site_5):
+        stop_err('1- restriction site 5\' Error running SynDivA: restriction site 5\' character does not match any allowed characters')
+    if numpy.array([letter in authorized_restriction_site_letter for letter in restriction_site_3]).sum() < len(restriction_site_3):
+        stop_err('1- restriction site 3\' Error running SynDivA: restriction site 3\' character does not match any allowed characters')
     try:  # for test - needs this don
         os.makedirs(extra_file_path)
     except Exception as e:
