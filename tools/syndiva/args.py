@@ -24,6 +24,13 @@ def get_os_path_name(input):
     return os.path.basename(input)
 
 
+def check_pattern(pattern):
+    authorized_pattern_letter = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M',
+                                 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y', ':', '0',
+                                 '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '*']
+    return len([letter in authorized_pattern_letter for letter in pattern]) == len(pattern)
+
+
 class Args:
 
     def __init__(self):

@@ -21,13 +21,20 @@ def stop_err(msg):
 
 def __main__():
     # Parse Command Line
+
     fasta_file = sys.argv[1]
     pattern = sys.argv[2]
+    authorized_pattern_letter = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M',
+                                 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y', ':', '0',
+                                 '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '*']
+    if len([letter in authorized_pattern_letter for letter in pattern]) < len(pattern):
+        stop_err('1- Pattern Error running SynDivA: Pattern character does not match any allowed characters')
     restriction_site_5 = sys.argv[3]
     restriction_site_3 = sys.argv[4]
     extra_file_path = sys.argv[5] + "/"
     report = sys.argv[6]
-    try:  # for test - needs this done
+
+    try:  # for test - needs this don
         os.makedirs(extra_file_path)
     except Exception as e:
         stop_err('1- Error running SynDivA ' + str(e))
