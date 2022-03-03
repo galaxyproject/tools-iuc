@@ -2,9 +2,10 @@
 # title : syndiva.py
 # description : This script will analyze fasta files, look for restriction sites, cut the sequences around the restriction sites,
 # translate the nucleic sequences into amino acids sequences.
-# author : Fabienne Wong Jun Tai
-# date : 20121107
-# version : 1.0
+# author : Fabienne Wong Jun Tai and Benjamin Dartigues
+# creation date : 20121107
+# version : 1.0 - revised November 2012
+# version : 1.1 - revised March 2022
 # usage : python syndiva.py -i file.fasta -o /output/dir/ -p pattern -5 seq_restric_5'-3 seq_restric_3' notes           : python_version  :3.7.11 biopython_max_version  :1.72
 # ==============================================================================
 import math
