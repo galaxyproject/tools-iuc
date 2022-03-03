@@ -9,30 +9,27 @@
 # usage : python syndiva.py -i file.fasta -o /output/dir/ -p pattern -5 seq_restric_5'-3 seq_restric_3' notes           : python_version  :3.7.11 biopython_max_version  :1.72
 # ==============================================================================
 import math
-import os
 import re
 import subprocess
-import sys
-
 import matplotlib.pyplot as plot
 import numpy
-from Bio import SeqIO
 from Bio import pairwise2
+from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.Seq import translate
-from Bio.SubsMat import MatrixInfo as matlist
-
 from args import Args
+from args import get_os_path_name
+from Bio.SubsMat import MatrixInfo
+
 
 args = Args()
 # Variables initialization
-syndiva_script_dir = sys.path[0]
 directory = args.output_dir
 mcl_file = directory + "mcl.in"
 mcl_output = directory + "mcl.out"
 html_file = directory + "syndiva_report.html"
 graph_pic = directory + "distri.png"
-input_file = os.path.basename(args.input)
+input_file = get_os_path_name(args.input)
 site_res_5 = args.site_res_5
 site_res_3 = args.site_res_3
 tag = {'mut': [], 'ok_stop_ext': [], 'stop': [], 'no_restric': [], 'no_multiple': [], 'amber': []}
@@ -167,7 +164,7 @@ def report_html(_html_file, _tag, _all_seq, _good_seq, _all_seq_fasta, _identica
     w.write('<div class="page-header"><a id="stat"></a><h2>Statistics</h2></div>')
     w.write('<p>Here\'s some statistics about the valid sequences:</p><p>Mean for the pairwise alignement scores: %.2f<br/>Standard deviation: %.2f</p>' % (
         numpy.mean(_align_scores), numpy.std(_align_scores)))
-    w.write('<div class="row-fluid"><div class="span6"><img src="%s" alt="Distribution of the pairwise alignment score"></div>' % os.path.basename(graph_pic))
+    w.write('<div class="row-fluid"><div class="span6"><img src="%s" alt="Distribution of the pairwise alignment score"></div>' % get_os_path_name(graph_pic))
     w.write('<div class="span6"><table class="table table-striped table-bordered"><thead><tr><th>Pairwise Alignment Score</th><th>Number of occurrences</th></tr></thead><tbody>')
     uniq_scores = sorted(list(set(_align_scores)))
     scores_dic = {}
@@ -384,7 +381,7 @@ for i in range(len(seq_keys)):
         # Align the 2 sequences using NWalign_PAM30 => replace by pairwise2
         seq_1 = ''.join(var_1)
         seq_2 = ''.join(var_2)
-        matrix = matlist.pam30
+        matrix = MatrixInfo.pam30
         if len(seq_2) > len(seq_1):
             score = get_identity(pairwise2.align.globalds(seq_1, seq_2, matrix, -11, -1)[0][0], pairwise2.align.globalds(seq_1, seq_2, matrix, -11, -1)[0][1]) * 100
         else:

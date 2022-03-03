@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import getopt
-import sys
 import os
+import sys
 
 
 def usage(info) -> str:
@@ -18,6 +18,10 @@ def usage(info) -> str:
     text += "-5, --restriction-site-5\tstring\t\t\tSequence of the restriction site in 5'\n"
     text += "-3, --restriction-site-3\tstring\t\t\tSequence of the restriction site in 3'\n"
     return text
+
+
+def get_os_path_name(input):
+    return os.path.basename(input)
 
 
 class Args:
