@@ -13,7 +13,7 @@ def cut_up_fasta(input_fasta, chunk_size, overlap, merge_last, bedoutfile, gzipp
     else:
         _open = open
 
-    if bedoutfile:
+    if bedoutfile is not None:
         bedoutfile_fh = open(bedoutfile, 'w')
 
     with _open(input_fasta) as fh:
@@ -22,15 +22,15 @@ def cut_up_fasta(input_fasta, chunk_size, overlap, merge_last, bedoutfile, gzipp
                 i = 0
                 for split_seq in chunks(record.seq, chunk_size, overlap, merge_last):
                     print(">%s.%i\n%s" % (record.id, i, split_seq))
-                    if bedoutfile:
+                    if bedoutfile is not None:
                         print("{0}\t{2}\t{3}\t{0}.{1}".format(record.id, i, chunk_size * i, chunk_size * i + len(split_seq)), file=bedoutfile_fh)
                     i = i + 1
             else:
                 print(">%s\n%s" % (record.id, record.seq))
-                if bedoutfile:
+                if bedoutfile is not None:
                     print("{0}\t0\t{1}\t{0}".format(record.id, len(record.seq)), file=bedoutfile_fh)
 
-    if bedoutfile:
+    if bedoutfile is not None:
         bedoutfile_fh.close()
 
 
