@@ -18,11 +18,11 @@ def cut_up_fasta(input_fasta, chunk_size, overlap, merge_last, output_bed, gzipp
         for record in SeqIO.parse(fh, "fasta"):
             if (not merge_last and len(record.seq) > chunk_size) or (merge_last and len(record.seq) >= 2 * chunk_size):
                 for i, split_seq in enumerate(chunks(record.seq, chunk_size, overlap, merge_last)):
-                    print(f">%s.%i\n%s" % (record.id, i, split_seq))
+                    print(">%s.%i\n%s" % (record.id, i, split_seq))
                     if output_bed is not None:
                         bed_fh.write("{0}\t{2}\t{3}\t{0}.{1}\n".format(record.id, i, chunk_size * i, chunk_size * i + len(split_seq)))
             else:
-                print(f">%s\n%s" % (record.id, record.seq))
+                print(">%s\n%s" % (record.id, record.seq))
                 if output_bed is not None:
                     bed_fh.write("{0}\t0\t{1}\t{0}\n".format(record.id, len(record.seq)))
     if output_bed is not None:
