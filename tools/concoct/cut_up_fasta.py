@@ -7,38 +7,32 @@ from functools import partial
 from Bio import SeqIO
 
 
-def cut_up_fasta(input_fasta, chunk_size, overlap, merge_last, bedoutfile, gzipped):
+def cut_up_fasta(input_fasta, chunk_size, overlap, merge_last, output_bed, gzipped):
     if args.gzipped:
         _open = partial(gzip.open, mode='rt')
     else:
         _open = open
-
-    if bedoutfile is not None:
-        bedoutfile_fh = open(bedoutfile, 'w')
-
+    if output_bed is not None:
+        bed_fh = open(output_bed, 'w')
     with _open(input_fasta) as fh:
         for record in SeqIO.parse(fh, "fasta"):
             if (not merge_last and len(record.seq) > chunk_size) or (merge_last and len(record.seq) >= 2 * chunk_size):
-                i = 0
-                for split_seq in chunks(record.seq, chunk_size, overlap, merge_last):
+                for i, split_seq in enumerate(chunks(record.seq, chunk_size, overlap, merge_last)):
                     print(">%s.%i\n%s" % (record.id, i, split_seq))
-                    if bedoutfile is not None:
-                        print("{0}\t{2}\t{3}\t{0}.{1}".format(record.id, i, chunk_size * i, chunk_size * i + len(split_seq)), file=bedoutfile_fh)
-                    i = i + 1
+                    if output_bed is not None:
+                        bed_fh.write("{0}\t{2}\t{3}\t{0}.{1}\n".format(record.id, i, chunk_size * i, chunk_size * i + len(split_seq)))
             else:
                 print(">%s\n%s" % (record.id, record.seq))
-                if bedoutfile is not None:
-                    print("{0}\t0\t{1}\t{0}".format(record.id, len(record.seq)), file=bedoutfile_fh)
-
-    if bedoutfile is not None:
-        bedoutfile_fh.close()
+                if output_bed is not None:
+                    bed_fh.write("{0}\t0\t{1}\t{0}\n".format(record.id, len(record.seq)))
+    if output_bed is not None:
+        bed_fh.close()
 
 
 def chunks(seq, chunk_size, overlap_size, merge_last):
     # Yield successive chunk_size-sized chunks from l
     # with given overlap o between the chunks.
     assert chunk_size > overlap_size
-
     if not merge_last:
         for i in range(0, len(seq), chunk_size - overlap_size):
             yield seq[i:i + chunk_size]
