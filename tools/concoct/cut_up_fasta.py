@@ -32,6 +32,7 @@ def cut_up_fasta(input_fasta, chunk_size, overlap, merge_last, output_fasta, out
     if output_bed is not None:
         bed_fh.close()
 
+
 def chunks(seq, chunk_size, overlap_size, merge_last):
     # Yield successive chunk_size-sized chunks from seq
     # with given overlap overlap_size between the chunks.
