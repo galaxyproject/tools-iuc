@@ -8,7 +8,7 @@ from Bio import SeqIO
 
 
 def cut_up_fasta(input_fasta, chunk_size, overlap, merge_last, output_fasta, output_bed, gzipped):
-    if args.gzipped:
+    if gzipped:
         _open = partial(gzip.open, mode='rt')
     else:
         _open = open
