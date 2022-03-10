@@ -39,26 +39,20 @@ def get_bed_coverage_dict(input_tabular):
     # as key and percentage covered and cov_mean as keys
     # for the inner dict.
     out_dict = {}
-    debug_fh = open("/tmp/coverage.log", "w")
 
     with open(input_tabular, 'r') as fh:
         for line in fh:
             line = line.rstrip('\r\n')
-            debug_fh.write("\nline:\n%s" % str(line))
             cols = line.split('\t')
-            debug_fh.write("\ncols:\n%s" % str(cols))
             try:
                 d = out_dict[cols[0]]
             except KeyError:
                 d = {}
                 out_dict[cols[0]] = d
-            debug_fh.write("\nint(cols[1]): %d" % int(cols[1]))
-            debug_fh.write("\nfloat(cols[4]): %d" % float(cols[4]))
             if int(cols[1]) == 0:
                 d["percentage_covered"] = 100 - float(cols[4]) * 100.0
             else:
                 d["cov_mean"] = d.get("cov_mean", 0) + int(cols[1]) * float(cols[4])
-    debug_fh.close()
     return out_dict
 
 
