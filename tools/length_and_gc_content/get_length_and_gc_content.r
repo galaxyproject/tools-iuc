@@ -72,21 +72,23 @@ if (! is.logical(gc_content)) {
   output <- t(sapply(split(reduced_gtf, elementMetadata(reduced_gtf)$gene_id),
                      calc_gc_length))
   output <- data.frame(setDT(data.frame(output), keep.rownames = TRUE)[])
+  write.table(output[, c(1, 3)], file = gc_content,
+              col.names = FALSE, row.names = FALSE,
+              quote = FALSE, sep = "\t")
 } else {
   all_widths <- sapply(split(reduced_gtf, elementMetadata(reduced_gtf)$gene_id),
                        function(x) {
                          sum(elementMetadata(x)$widths)
                         })
   output <- data.frame(gene_id = names(all_widths),
-                       length = all_widths,
-                       gc_content = NA)
+                       length = all_widths)
 }
 
-
-write.table(output[, c(1, 2)], file = length, col.names = FALSE, row.names = FALSE,
-            quote = FALSE, sep = "\t")
-write.table(output[, c(1, 3)], file = gc_content, col.names = FALSE, row.names = FALSE,
-            quote = FALSE, sep = "\t")
+if (! is.logical(length)) {
+  write.table(output[, c(1, 2)], file = length,
+              col.names = FALSE, row.names = FALSE,
+              quote = FALSE, sep = "\t")
+}
 
 
 sessionInfo()
