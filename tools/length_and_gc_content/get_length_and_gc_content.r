@@ -20,11 +20,11 @@ suppressPackageStartupMessages({
 option_list <- list(
   make_option(c("-g", "--gtf"), type = "character",
               help = "Input gtf file with gene / exon information."),
-  make_option(c("-f", "--fasta"), type = "character", default = FALSE,
+  make_option(c("-f", "--fasta"), type = "character", default = NULL,
               help = "fasta file that corresponds to the supplied gtf."),
-  make_option(c("-l", "--length"), type = "character", default = FALSE,
+  make_option(c("-l", "--length"), type = "character", default = NULL,
               help = "Output file with Gene ID and length."),
-  make_option(c("-c", "--gc_content"), type = "character", default = FALSE,
+  make_option(c("-c", "--gc_content"), type = "character", default = NULL,
               help = "Output file with Gene ID and GC content.")
 )
 
@@ -38,10 +38,10 @@ length <- args$length
 gc_content <- args$gc_content
 
 # Check args:
-if (is.logical(fasta_file) & !is.logical(gc_content)) {
+if (is.null(fasta_file) & !is.null(gc_content)) {
   stop("gc_content output requires fasta input")
 }
-if (is.logical(length) & is.logical(gc_content)) {
+if (is.null(length) & is.null(gc_content)) {
   stop("neither gc_content nor length was set nothing to do.")
 }
 
@@ -51,7 +51,7 @@ grl <- reduce(split(gtf, elementMetadata(gtf)$gene_id))
 reduced_gtf <- unlist(grl, use.names = T)
 elementMetadata(reduced_gtf)$gene_id <- rep(names(grl), elementNROWS(grl))
 
-if (! is.logical(fasta_file)) {
+if (! is.null(gc_content)) {
   #Open the fasta file
   fasta <- FaFile(fasta_file)
   open(fasta)
@@ -63,7 +63,7 @@ if (! is.logical(fasta_file)) {
 elementMetadata(reduced_gtf)$widths <- width(reduced_gtf)
 
 #Create a list of the ensembl_id/GC/length
-if (! is.logical(gc_content)) {
+if (! is.null(gc_content)) {
   calc_gc_length <- function(x) {
     n_gcs <- sum(elementMetadata(x)$n_gcs)
     width <- sum(elementMetadata(x)$widths)
@@ -84,7 +84,7 @@ if (! is.logical(gc_content)) {
                        length = all_widths)
 }
 
-if (! is.logical(length)) {
+if (! is.null(length)) {
   write.table(output[, c(1, 2)], file = length,
               col.names = FALSE, row.names = FALSE,
               quote = FALSE, sep = "\t")
