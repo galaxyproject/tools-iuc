@@ -22,13 +22,13 @@ def cut_up_fasta(input_fasta, chunk_size, overlap, merge_last, output_fasta, out
         for record in SeqIO.parse(input_fh, "fasta"):
             if (not merge_last and len(record.seq) > chunk_size) or (merge_last and len(record.seq) >= 2 * chunk_size):
                 for index, split_seq in enumerate(chunks(record.seq, chunk_size, overlap, merge_last)):
-                    fasta_fh.write(f">{record.id}.{index}\n{split_seq}\n")
+                    fasta_fh.write(f">{record.id}.concoct_part_{index}\n{split_seq}\n")
                     if output_bed is not None:
-                        bed_fh.write(f"{record.id}\t{chunk_size * index}\t{chunk_size * index + len(split_seq)}\t{record.id}.{index}\n")
+                        bed_fh.write(f"{record.id}\t{chunk_size * index}\t{chunk_size * index + len(split_seq)}\t{record.id}.concoct_part_{index}\n")
             else:
-                fasta_fh.write(f">{record.id}\n{record.seq}\n")
+                fasta_fh.write(f">{record.id}.concoct_part_0\n{record.seq}\n")
                 if output_bed is not None:
-                    bed_fh.write(f"{record.id}\t0\t{len(record.seq)}\t{record.id}\n")
+                    bed_fh.write(f"{record.id}\t0\t{len(record.seq)}\t{record.id}.concoct_part_0\n")
     if output_bed is not None:
         bed_fh.close()
 
