@@ -3,7 +3,8 @@
 import argparse
 import re
 import sys
-from collections import defaultdict, Counter
+from collections import Counter
+from collections import defaultdict
 
 
 CONTIG_PART_EXPR = re.compile(r'(.*)\.concoct_part_([0-9]*)')
