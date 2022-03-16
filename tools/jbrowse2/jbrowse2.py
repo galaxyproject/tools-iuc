@@ -763,7 +763,7 @@ class JbrowseConnector(object):
                 self.add_paf(dataset_path, outputTrackConfig,
                              track['conf']['options']['paf'])
             elif dataset_ext == 'hic':
-                self.add_paf(dataset_path, outputTrackConfig,
+                self.add_hic(dataset_path, outputTrackConfig,
                              track['conf']['options']['hic'])
             elif dataset_ext == 'sparql':
                 sparql_query = track['conf']['options']['sparql']['query']
