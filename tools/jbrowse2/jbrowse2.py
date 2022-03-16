@@ -759,9 +759,9 @@ class JbrowseConnector(object):
                 self.add_vcf(dataset_path, outputTrackConfig, zipped=True)
             elif dataset_ext == 'rest':
                 self.add_rest(track['conf']['options']['rest']['url'], outputTrackConfig)
-            elif dataset_ext == 'paf':
+            elif dataset_ext == 'synteny':
                 self.add_paf(dataset_path, outputTrackConfig,
-                             track['conf']['options']['paf'])
+                             track['conf']['options']['synteny'])
             elif dataset_ext == 'hic':
                 self.add_hic(dataset_path, outputTrackConfig,
                              track['conf']['options']['hic'])
