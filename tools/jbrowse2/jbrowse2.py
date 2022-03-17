@@ -475,6 +475,22 @@ class JbrowseConnector(object):
         gff3_unrebased.close()
         return gff3_unrebased.name
 
+    def _prepare_track_style(self, xml_conf):
+
+        style_data = {
+            "type": "LinearBasicDisplay"
+        }
+
+        if 'display' in xml_conf['style']:
+            style_data['type'] = xml_conf['style']['display']
+            del xml_conf['style']['display']
+
+        style_data['displayId'] = "%s_%s" % (xml_conf['label'], style_data['type'])
+
+        style_data.update(xml_conf['style'])
+
+        return {'displays': [style_data]}
+
     def add_blastxml(self, data, trackData, blastOpts, **kwargs):
         gff3 = self._blastxml_to_gff3(data, min_gap=blastOpts['min_gap'])
 
@@ -498,7 +514,9 @@ class JbrowseConnector(object):
         self._sort_gff(gff3, dest)
         os.unlink(gff3)
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz')
+        style_json = self._prepare_track_style(trackData)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz', config=style_json)
 
     def add_bigwig(self, data, trackData, wiggleOpts, **kwargs):
 
@@ -506,7 +524,9 @@ class JbrowseConnector(object):
         dest = os.path.join(self.outdir, rel_dest)
         self.symlink_or_copy(os.path.realpath(data), dest)
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
+        style_json = self._prepare_track_style(trackData)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest, config=style_json)
 
     # Anything ending in "am" (Bam or Cram)
     def add_xam(self, data, trackData, xamOpts, index=None, ext="bam", **kwargs):
@@ -533,7 +553,9 @@ class JbrowseConnector(object):
             else:
                 log.warn('Could not find a bam index (.%s file) for %s', (index_ext, data))
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
+        style_json = self._prepare_track_style(trackData)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest, config=style_json)
 
     def add_vcf(self, data, trackData, vcfOpts={}, zipped=False, **kwargs):
 
@@ -553,7 +575,9 @@ class JbrowseConnector(object):
 
             rel_dest = os.path.join('data', trackData['label'] + '.vcf.gz')
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
+        style_json = self._prepare_track_style(trackData)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest, config=style_json)
 
     def add_gff(self, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join('data', trackData['label'] + '.gff')
@@ -561,7 +585,9 @@ class JbrowseConnector(object):
 
         self._sort_gff(data, dest)
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz')
+        style_json = self._prepare_track_style(trackData)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz', config=style_json)
 
     def add_bed(self, data, format, trackData, gffOpts, **kwargs):
         rel_dest = os.path.join('data', trackData['label'] + '.bed')
@@ -569,7 +595,9 @@ class JbrowseConnector(object):
 
         self._sort_bed(data, dest)
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz')
+        style_json = self._prepare_track_style(trackData)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest + '.gz', config=style_json)
 
     def add_paf(self, data, trackData, pafOpts, **kwargs):
         rel_dest = os.path.join('data', trackData['label'] + '.paf')
@@ -579,7 +607,9 @@ class JbrowseConnector(object):
 
         added_assembly = self.add_assembly(pafOpts['genome'], pafOpts['genome_label'], default=False)
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest, assemblies=[self.current_assembly_id, added_assembly])
+        style_json = self._prepare_track_style(trackData)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest, assemblies=[self.current_assembly_id, added_assembly], config=style_json)
 
     def add_hic(self, data, trackData, hicOpts, **kwargs):
         rel_dest = os.path.join('data', trackData['label'] + '.hic')
@@ -587,7 +617,9 @@ class JbrowseConnector(object):
 
         self.symlink_or_copy(os.path.realpath(data), dest)
 
-        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest)
+        style_json = self._prepare_track_style(trackData)
+
+        self._add_track(trackData['label'], trackData['key'], trackData['category'], rel_dest, config=style_json)
 
     def add_sparql(self, url, query, query_refnames, trackData):
 
@@ -630,21 +662,29 @@ class JbrowseConnector(object):
         #     '--config', '{"queryTemplate": "%s"}' % query,
         #     url])
 
-    def _add_track(self, id, label, category, path, assemblies=[]):
+    def _add_track(self, id, label, category, path, assemblies=[], config=None):
 
         assemblies_opt = self.current_assembly_id
         if assemblies:
             assemblies_opt = ','.join(assemblies)
 
-        self.subprocess_check_call([
+        cmd = [
             'jbrowse', 'add-track',
             '--load', 'inPlace',
             '--name', label,
             '--category', category,
             '--target', os.path.join(self.outdir, 'data'),
             '--trackId', id,
-            '--assemblyNames', assemblies_opt,
-            path])
+            '--assemblyNames', assemblies_opt
+        ]
+
+        if config:
+            cmd.append('--config')
+            cmd.append(json.dumps(config))
+
+        cmd.append(path)
+
+        self.subprocess_check_call(cmd)
 
     def _sort_gff(self, data, dest):
         # Only index if not already done
@@ -707,6 +747,8 @@ class JbrowseConnector(object):
             hashData = '|'.join(hashData).encode('utf-8')
             outputTrackConfig['label'] = hashlib.md5(hashData).hexdigest() + '_%s' % i
             outputTrackConfig['metadata'] = extra_metadata
+
+            outputTrackConfig['style'] = track['style']
 
             if 'menus' in track['conf']['options']:
                 menus = self.cs.parse_menus(track['conf']['options'])
@@ -796,10 +838,11 @@ class JbrowseConnector(object):
         for track_conf in config_json['tracks']:
             track_types[track_conf['trackId']] = track_conf['type']
 
-        # TODO Getting an error when refreshing the page, waiting for https://github.com/GMOD/jbrowse-components/issues/2708
         for on_track in data['visibility']['default_on']:
-            # TODO Make it possible to specify display settings on default_off tracks too
-            # see https://github.com/GMOD/jbrowse-components/issues/2708#issuecomment-1047554606
+            # TODO several problems with this currently
+            # - we are forced to copy the same kind of style config as the per track config from _prepare_track_style (not exactly the same though)
+            # - we get an error when refreshing the page
+            # - this could be solved by session specs, see https://github.com/GMOD/jbrowse-components/issues/2708
             style_data = {
                 "type": "LinearBasicDisplay",
                 "height": 100
@@ -813,7 +856,8 @@ class JbrowseConnector(object):
                 style_data.update(data['style'][on_track])
 
             if on_track in data['style_labels']:
-                # TODO fix this: it shoul probably go in a renderer block (SvgFeatureRenderer) but still does not work
+                # TODO fix this: it should probably go in a renderer block (SvgFeatureRenderer) but still does not work
+                # TODO move this to per track displays?
                 style_data['labels'] = data['style_labels'][on_track]
 
             tracks_data.append({
@@ -1020,24 +1064,19 @@ if __name__ == '__main__':
 
         track_conf['category'] = track.attrib['cat']
         track_conf['format'] = track.attrib['format']
-        try:
-            track_conf['style'] = {item.tag: parse_style_conf(item) for item in track.find('options/style')}
-        except TypeError:
-            track_conf['style'] = {}
-            pass
+        track_conf['style'] = {item.tag: parse_style_conf(item) for item in track.find('options/style')}
 
-        try:
-            track_conf['style_labels'] = {item.tag: parse_style_conf(item) for item in track.find('options/style_labels')}
-        except TypeError:
-            track_conf['style_labels'] = {}
-            pass
+        track_conf['style'] = {item.tag: parse_style_conf(item) for item in track.find('options/style')}
+
+        track_conf['style_labels'] = {item.tag: parse_style_conf(item) for item in track.find('options/style_labels')}
+
         track_conf['conf'] = etree_to_dict(track.find('options'))
         keys = jc.process_annotations(track_conf)
 
         for key in keys:
             default_session_data['visibility'][track.attrib.get('visibility', 'default_off')].append(key)
 
-        default_session_data['style'][key] = track_conf['style']
+        default_session_data['style'][key] = track_conf['style']  # TODO do we need this anymore?
         default_session_data['style_labels'][key] = track_conf['style_labels']
 
     default_session_data['defaultLocation'] = root.find('metadata/general/defaultLocation').text
