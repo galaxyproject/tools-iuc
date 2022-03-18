@@ -6,9 +6,9 @@ import os
 import shutil
 import sys
 import tarfile
+from urllib.parse import urlparse
 from urllib.request import Request
 from urllib.request import urlopen
-from urllib.parse import urlparse
 
 
 def url_download(url, target_directory):
