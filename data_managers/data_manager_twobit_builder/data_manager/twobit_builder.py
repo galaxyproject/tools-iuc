@@ -2,12 +2,12 @@
 # Dan Blankenberg
 from __future__ import print_function
 
+import json
 import optparse
 import os
 import subprocess
 import sys
 import tempfile
-from json import dumps, loads
 
 CHUNK_SIZE = 2**20  # 1mb
 
@@ -75,7 +75,8 @@ def main():
 
     filename = args[0]
 
-    params = loads(open(filename).read())
+    with open(filename) as fh:
+        params = json.load(fh)
 
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
@@ -92,7 +93,8 @@ def main():
     build_twobit(data_manager_dict, options.fasta_filename, params, target_directory, dbkey, sequence_id, sequence_name)
 
     # save info to json file
-    open(filename, 'w').write(dumps(data_manager_dict, sort_keys=True))
+    with open(filename, 'w') as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

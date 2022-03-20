@@ -1,5 +1,4 @@
-
-<tool id="hicexplorer_hicaggregatecontacts" name="@BINARY@" version="@WRAPPER_VERSION@.0">
+<tool id="hicexplorer_hicaggregatecontacts" name="@BINARY@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
     <description>allow plotting of aggregated Hi-C contacts between regions specified in a file</description>
     <macros>
         <token name="@BINARY@">hicAggregateContacts</token>
@@ -10,34 +9,43 @@
     ln -s '$matrix_h5_cooler' 'matrix.$matrix_h5_cooler.ext' &&
     @BINARY@
     --matrix 'matrix.$matrix_h5_cooler.ext'
-    --BED $BED
+    --BED '$BED'
     #if $BED2:
-        --BED2 $BED2
+        --BED2 '$BED2'
     #end if
 
     --range '$range_min:$range_max'
-
     --numberOfBins '$numberOfBins'
 
     --transform $transform
-    --avgType $avgType
-
+    --operationType $operationType
+    --mode $mode
+    $row_wise
+    $perChr
+    --largeRegionsOperation $largeRegionsOperation
     #if $outputs and 'PrefixMatrix' in $outputs:
         --outFilePrefixMatrix 'matrix_values'
     #end if
 
-    #if $outputs and 'ClusterContactPositions' in $outputs:
-        --outFilePrefixClusterContactPositions 'contact_positions'
+    #if $outputs and 'outFileContactPairs' in $outputs:
+        --outFileContactPairs 'contact_positions'
     #end if
 
     #if $outputs and 'HeatmapFile' in $outputs:
         --diagnosticHeatmapFile 'heatmap'
     #end if
 
+    #if $outputs and 'outFileObsExp' in $outputs:
+        --outFileObsExp 'ObsExp.$matrix_h5_cooler.ext'
+    #end if
+
     #if $clustering:
         $clustering
     #end if
-    $clusterOnDiagonal
+
+    #if $howToCluster:
+        --howToCluster $howToCluster
+    #end if
 
     #if $chromosomes:
         --chromosomes #echo "' '".join([ "'%s'" % $chrom.chromosome for $chrom in $chromosomes ])#
@@ -60,17 +68,33 @@
     #end if
 
     --outFileName plot.$image_file_format
-    && mv plot.$image_file_format plot
+    &&
+    mv plot.$image_file_format plot
+    #if $outputs and 'outFileObsExp' in $outputs:
+        && mv 'ObsExp.$matrix_h5_cooler.ext' matrix
+    #end if
 
 ]]>
     </command>
     <inputs>
         <expand macro='matrix_h5_cooler_macro' />
-        <param argument="--BED" type="data" format="bed" label="Interactions between regions in this BED file are plotted"/>
-        <param argument="--BED2" type="data" format="bed" optional="true"
-            label="Interactions between regions in first and second BED file are plotted"/>
+        <param argument="--BED" type="data" format="bed" label="Interactions between regions in this BED file are plotted" />
+        <param argument="--BED2" type="data" format="bed" optional="true" label="Interactions between regions in first and second BED file are plotted" />
 
         <expand macro='range' />
+        <param argument="--mode" type="select" label="Regions to consider.">
+            <option value="inter-chr">inter-chr</option>
+            <option value="intra-chr">intra-chr</option>
+            <option value="all" selected="true">all</option>
+        </param>
+
+        <param argument="--row_wise" type="boolean" truevalue="--row_wise" falsevalue="" label="Row wise" help="If given,the insteractions between each row of the BED file and its 
+                corresponding row of the BED2 file are computed. If intra-chromosomal 
+                contacts are computed, the rows with different chromosomes are ignored. 
+                If inter-chromosomal, the rows with same chromosomes are ignored. 
+                It keeps all the rows if `all`." />
+
+        <param argument="--perChr" type="boolean" truevalue="--perChr" falsevalue="" label="Per chromosome" help="If set, it generates a plot per chromosome. It is only affected if intra-chromosomal contacts are of interest." />
 
         <repeat name="chromosomes" title="List of chromosomes to plot" min="0">
             <param name="chromosome" type="text" label="chromosome (one per field)">
@@ -78,12 +102,9 @@
             </param>
         </repeat>
 
-        <param argument="--numberOfBins" type="integer" optional="true" label="Number of bins to include in the submatrix"
-            help="The bed regions will be centered between -half number of bins
-            and +half number of bins indicated." />
+        <param argument="--numberOfBins" type="integer" optional="true" label="Number of bins to include in the submatrix" help="The bed regions will be centered between -half number of bins and +half number of bins indicated." />
 
-        <param argument="--transform" type="select" label="Type of transformation for the matrix"
-            help="If total counts are selected, then the sub-matrix values
+        <param argument="--transform" type="select" label="Type of transformation for the matrix" help="If total counts are selected, then the sub-matrix values
             are divided by the total counts for normalization. If
             z-score or obs/exp are selected, then H-C matrix is
             converted into a z-score or observed / expected matrix.">
@@ -93,50 +114,61 @@
             <option value="obs/exp">obs/exp</option>
         </param>
 
-        <param argument="--avgType" type="select" label="Type of average to compute final matrix">
+        <param argument="--operationType" type="select" label="Type of operation to compute final matrix">
             <option value="median" selected="true">median</option>
             <option value="mean">mean</option>
+            <option value="sum">sum</option>
         </param>
 
-        <param name="clustering" type="select" optional="true" label="Number of clusters per chromosome"
-            help="When this option is set, then the matrix is split into
+        <param argument="--largeRegionsOperation" type="select" label="Large regions operation" help="If a given coordinate in the bed file is larger than 
+                           a bin of the input matrix, by default only the first bin 
+                           is taken into account. However there are more posibilities 
+                           to handel such a case. Users can ask for the last bin or 
+                           for center of the region. As an example if a region falls into bins [4,5,6] 
+                           and `--numberOfBins = 2` then if first, bins [3,4,5] are kept. 
+                           If last: [5,6,7] and if center: [4,5,6].">
+            <option value="first" selected="true">first</option>
+            <option value="last">last</option>
+            <option value="center">center</option>
+        </param>
+
+        <param name="clustering" type="select" optional="true" label="Number of clusters per chromosome" help="When this option is set, then the matrix is split into
                   clusters using the hierarchical clustering algorithm,
                   using 'ward linkage'. hclust could be very slow if
                   you have >1000 submatrices per chromosome. In those
                   cases, you might prefer kmeans.">
             <option value="--kmeans">kmeans</option>
             <option value="--hclust">hclust (#clusters per chromosome)</option>
+            <option value="--spectral">spectral</option>
         </param>
 
-        <param argument="--clusterOnDiagonal" type="boolean" truevalue="--clusterOnDiagonal" falsevalue=""
-            label="Perform clustering on the submatrix diagonal"
-            help="Clustering is by default carried out on the whole
-                  submatrices. If this parameter is given, the
-                  clustering is only carried out based on the submatrix
-                  diagonal (representing values at the same distance to each other)." />
-
+        <param argument="--howToCluster" type="select" optional="true" label="How to cluster" help="Options are 'full', 'center' and 'diagonal'. The full clustering '
+                'takes all values of each submatrix for clustering. center, takes only a square of '
+                'length 3x3 from each submatrix and uses only  this values for clustering. With the '
+                'diagonal option the clustering is only carried out based on the submatrix diagonal '
+                '(representing values at the same distance to each other)">
+            <option value="full">full</option>
+            <option value="center">center</option>
+            <option value="diagonal">diagonal</option>
+        </param>
         <param argument="--plotType" type="select" optional="true" label="Plot type">
             <option value="2d">2D</option>
             <option value="3d">3D</option>
         </param>
         <expand macro="colormap" />
-        <param argument="--vMin" type="float" optional="true" label="vMin"
-            help= "Minimum value of the plotted score." />
-
-        <param argument="--vMax" type="float" optional="true" label="vMax"
-            help= "Maximum value of the plotted score." />
-
+        <param argument="--vMin" type="float" optional="true" label="vMin" help= "Minimum value of the plotted score." />
+        <param argument="--vMax" type="float" optional="true" label="vMax" help= "Maximum value of the plotted score." />
         <param name="image_file_format" type="select" label="Image output format">
             <option value="png" selected="True">png</option>
             <option value="svg">svg</option>
             <option value="pdf">pdf</option>
-
         </param>
 
         <param name="outputs" type="select" optional="true" multiple="true" label="Optional output files">
             <option value="PrefixMatrix">Save values underlying the final matrix</option>
-            <option value="ClusterContactPositions">Save the position of the contacts</option>
+            <option value="outFileContactPairs">Save the position of the contacts</option>
             <option value="HeatmapFile">Heatmap file per chromosome</option>
+            <option value="outFileObsExp">Save obs/exp matrix</option>
         </param>
 
     </inputs>
@@ -145,7 +177,6 @@
             <change_format>
                 <when input="image_file_format" value="svg" format="svg" />
                 <when input="image_file_format" value="pdf" format="pdf" />
-
             </change_format>
         </data>
         <collection name="matrix_values" type="list" label="${tool.name} on ${on_string}: Matrix values">
@@ -157,19 +188,27 @@
         <collection name="heatmap" type="list" label="${tool.name} on ${on_string}: Matrix values">
             <discover_datasets pattern="heatmap_(?P&lt;designation&gt;.*)\..*" directory="./" format="tabular" />
         </collection>
+        <data name="matrix_obs_exp_output" from_work_dir="matrix" format="h5" label="${tool.name} MATRIX on ${on_string}">
+            <filter>'outFileObsExp' in outputs</filter>
+            <change_format>
+                <when input="matrix_h5_cooler.ext" value="cool" format="cool" />
+            </change_format>
+        </data>
     </outputs>
     <tests>
         <test>
-            <param name="matrix_h5_cooler" value="Li_et_al_2015.cool" ftype="cool"/>
-            <param name="BED" value="hicAggregateContacts/test_regions.bed" ftype="bed"/>
+            <param name="matrix_h5_cooler" value="Li_et_al_2015.cool" ftype="cool" />
+            <param name="BED" value="hicAggregateContacts/test_regions.bed" ftype="bed" />
             <param name="numberOfBins" value="30" />
             <param name="range_max" value="900000" />
             <param name="range_min" value="50000" />
+            <param name="howToCluster" value="center" />
             <param name="image_file_format" value="png" />
-            <output name="outFileName" value="hicAggregateContacts_results1.png" compare="sim_size" delta='35000'/>
+            <output name="outFileName" value="hicAggregateContacts_results1.png" compare="sim_size" />
         </test>
     </tests>
     <help><![CDATA[
+
 Aggregation of Hi-C contacts
 ============================
 
@@ -215,6 +254,6 @@ _________________
 
 .. _readthedocs.io: http://hicexplorer.readthedocs.io/en/latest/index.html
 .. _Colormaps: https://matplotlib.org/examples/color/colormaps_reference.html
-]]></help>
+]]>    </help>
     <expand macro="citations" />
 </tool>

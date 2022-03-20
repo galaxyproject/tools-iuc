@@ -1,11 +1,9 @@
-<tool id="length_and_gc_content" name="Gene length and GC content" version="0.1.1">
+<tool id="length_and_gc_content" name="Gene length and GC content" version="0.1.2">
     <description>from GTF and FASTA file</description>
-    <requirements>
-        <requirement type="package" version="1.3.2">r-optparse</requirement>
-        <requirement type="package" version="1.4.2">r-reshape2</requirement>
-        <requirement type="package" version="1.10.4">r-data.table</requirement>
-        <requirement type="package" version="1.34.2">bioconductor-rtracklayer</requirement>
-    </requirements>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
     <stdio>
         <regex match="Execution halted"
                source="both"
@@ -21,7 +19,7 @@
                description="An undefined error occured, please check your input carefully and contact your administrator." />
     </stdio>
     <version_command><![CDATA[
-        echo $(R --version | grep version | grep -v GNU)", optparse version" $(R --vanilla --slave -e "library(optparse); cat(sessionInfo()\$otherPkgs\$optparse\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", reshape2 version" $(R --vanilla --slave -e "library(reshape2); cat(sessionInfo()\$otherPkgs\$reshape2\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", rtracklayer version" $(R --vanilla --slave -e "library(rtracklayer); cat(sessionInfo()\$otherPkgs\$rtracklayer\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", data.table version" $(R --vanilla --slave -e "library(data.table); cat(sessionInfo()\$otherPkgs\$data.table\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
+        echo $(R --version | grep version | grep -v GNU)", optparse version" $(R --vanilla --slave -e "library(optparse); cat(sessionInfo()\$otherPkgs\$optparse\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", rtracklayer version" $(R --vanilla --slave -e "library(rtracklayer); cat(sessionInfo()\$otherPkgs\$rtracklayer\$Version)" 2> /dev/null | grep -v -i "WARNING: ")", data.table version" $(R --vanilla --slave -e "library(data.table); cat(sessionInfo()\$otherPkgs\$data.table\$Version)" 2> /dev/null | grep -v -i "WARNING: ")
     ]]></version_command>
     <command><![CDATA[
 
@@ -37,24 +35,24 @@
 
 ## Get FASTA
 
-#if $fasta_file.fastaSource == 'indexed':
-    ln -s '$fasta_file.fasta_pre_installed.fields.path' fasta
-#else:
-    ln -s '$fasta_file.fasta_history' fasta
+#if $analysis.analysis_select != "length":
+    #if $analysis.fasta_file.fastaSource == 'indexed':
+        ln -s '$analysis.fasta_file.fasta_pre_installed.fields.path' fasta &&
+    #else:
+        ln -s '$analysis.fasta_file.fasta_history' fasta &&
+    #end if
 #end if
-
-&&
 
 Rscript '$__tool_directory__/get_length_and_gc_content.r'
 
 --gtf gtf
---fasta fasta
 
-#if $length_out:
+#if $analysis.analysis_select != "gc":
     --length '$length'
 #end if
 
-#if $gc_out:
+#if $analysis.analysis_select != "length":
+    --fasta fasta
     --gc_content '$gc_content'
 #end if
 
@@ -79,39 +77,31 @@ Rscript '$__tool_directory__/get_length_and_gc_content.r'
             </when>
         </conditional>
 
-        <conditional name="fasta_file">
-            <param name="fastaSource" type="select" label="Select a built-in FASTA or one from your history" help="Choose history if you don't see the correct FASTA. The FASTA must be the same genome version as the GTF.">
-                <option value="indexed" selected="true">Use a built-in FASTA </option>
-                <option value="history">Use a FASTA from history</option>
+        <conditional name="analysis">
+            <param name="analysis_select" type="select" label="Analysis to perform">
+                <option value="all" selected="true">GC-content and gene lengths</option>
+                <option value="gc">GC-content only</option>
+                <option value="length">gene lengths only</option>
             </param>
-            <when value="indexed">
-                <param name="fasta_pre_installed" type="select" help="Select the FASTA file from a list of pre-installed genomes" label="Select a FASTA file">
-                    <options from_data_table="all_fasta">
-                        <filter type="sort_by" column="2" />
-                    </options>
-                    <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file"/>
-                </param>
+            <when value="all">
+                <expand macro="fasta" />
             </when>
-            <when value="history">
-                <param name="fasta_history" type="data" format="fasta" label="Select a FASTA file that matches the supplied GTF file" />
+            <when value="gc">
+                <expand macro="fasta" />
             </when>
+            <when value="length"/>
         </conditional>
-
-
-        <param name="length_out" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Output length file?" help="Default: Yes" />
-        <param name="gc_out" type="boolean" truevalue="1" falsevalue="0" checked="true" label="Output GC content file?" help="Default: Yes" />
-
     </inputs>
 
     <outputs>
         <data name="length" format="tabular" label="Gene length">
-            <filter>length_out is True</filter>
+            <filter>analysis['analysis_select'] != "gc"</filter>
             <actions>
                 <action name="column_names" type="metadata" default="GeneID,Length" />
             </actions>
         </data>
         <data name="gc_content" format="tabular" label="Gene GC content">
-            <filter>gc_out is True</filter>
+            <filter>analysis['analysis_select'] != "length"</filter>
              <actions>
                 <action name="column_names" type="metadata" default="GeneID,GC_content" />
             </actions>
@@ -119,6 +109,8 @@ Rscript '$__tool_directory__/get_length_and_gc_content.r'
     </outputs>
 
     <tests>
+        <!-- The gtf file was generated by
+        zcat gencode.v39.basic.annotation.gtf.gz | grep "HOXD" | awk -F "\t" -v OFS="\t" '$0~/HOXD10/ || $0~/HOXD9/ {$1="fake_chr2";$4-=176116521;$5-=176116521; print} -->
         <!-- Ensure length and GC files are output -->
         <test expect_num_outputs="2">
             <param name="gtfSource" value="history" />
@@ -138,15 +130,14 @@ Rscript '$__tool_directory__/get_length_and_gc_content.r'
         <!-- Ensure optional gc content works  -->
         <test expect_num_outputs="1">
             <param name="gtfSource" value="cached" />
-            <param name="fastaSource" value="indexed" />
-            <param name="gc_out" value="False" />
+            <param name="analysis_select" value="length" />
             <output name="length" file="length.tab" />
         </test>
         <!-- Ensure optional length works -->
         <test expect_num_outputs="1">
             <param name="gtfSource" value="cached" />
             <param name="fastaSource" value="indexed" />
-            <param name="length_out" value="False" />
+            <param name="analysis_select" value="gc" />
             <output name="gc_content" file="gc.tab" />
         </test>
     </tests>
@@ -156,14 +147,15 @@ Rscript '$__tool_directory__/get_length_and_gc_content.r'
 
 .. class:: infomark
 
-This tool calculates the length and GC content for the genes in a GTF file. It requires a FASTA file that is the same genome version as the GTF.
+This tool calculates the length and/or GC content for the genes in a GTF file.
+For the GC content, it requires a FASTA file that is the same genome version as the GTF.
 
 -----
 
 **Inputs**
 
 - a GTF file
-- a FASTA file
+- a FASTA file (if GC content is requested)
 
 -----
 

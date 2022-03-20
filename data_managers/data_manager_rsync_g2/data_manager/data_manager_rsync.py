@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import base64
 import datetime
+import json
 import logging
 import optparse
 import os
@@ -76,7 +77,7 @@ def exec_before_job(app, inp_data, out_data, param_dict, tool=None, **kwd):
     data_manager = app.data_managers.get_manager(tool.data_manager_id, None)
     data_table_entries = get_data_table_entries(param_dict)
     data_tables = load_data_tables_from_url(data_table_class=app.tool_data_tables.__class__).get('data_tables')
-    for data_table_name, entries in data_table_entries.items():
+    for data_table_name in data_table_entries.keys():
         # get data table managed by this data Manager
         has_data_table = app.tool_data_tables.get_tables().get(str(data_table_name))
         if has_data_table:
@@ -128,7 +129,7 @@ def rsync_urljoin(base, url):
     return "%s/%s" % (base, url)
 
 
-def rsync_list_dir(server, dir=None, skip_names=[]):
+def rsync_list_dir(server, dir=None):
     # drwxr-xr-x          50 2014/05/16 20:58:11 .
     if dir:
         dir = rsync_urljoin(server, dir)
@@ -158,8 +159,6 @@ def rsync_list_dir(server, dir=None, skip_names=[]):
         line = line.strip()
         time, line = line.split(None, 1)
         name = line.strip()
-        if name in skip_names:
-            continue
         size = line.strip()
         rval[name] = dict(name=name, permissions=perms, bytes=size, date=date, time=time)
     rsync_response.close()
@@ -394,7 +393,8 @@ def main():
 
     filename = args[0]
 
-    params = loads(open(filename).read())
+    with open(filename) as fh:
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
     data_manager_dict = {}
@@ -405,7 +405,8 @@ def main():
     data_manager_dict = fulfill_data_table_entries(data_table_entries, data_manager_dict, target_directory)
 
     # save info to json file
-    open(filename, 'w').write(dumps(data_manager_dict, sort_keys=True))
+    with open(filename, 'w') as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

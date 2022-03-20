@@ -47,8 +47,8 @@ def kma_build_index(kma_index_args, index_name, target_directory, data_table_nam
 
 
 def main(args):
-
-    data_manager_input = json.loads(open(args.data_manager_json).read())
+    with open(args.data_manager_json) as fh:
+        data_manager_input = json.load(fh)
 
     target_directory = data_manager_input['output_data'][0]['extra_files_path']
 
@@ -78,7 +78,8 @@ def main(args):
         target_directory,
     )
 
-    open(args.data_manager_json, 'w').write(json.dumps(data_manager_output))
+    with open(args.data_manager_json, 'w') as fh:
+        json.dump(data_manager_output, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

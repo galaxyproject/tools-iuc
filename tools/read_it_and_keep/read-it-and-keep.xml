@@ -1,0 +1,343 @@
+<tool id="read_it_and_keep" name="Read It and Keep" version="@TOOL_VERSION@+galaxy0" profile="20.09">
+    <macros>
+        <token name="@INPUT_FORMATS@">fasta,fastq,fasta.gz,fastq.gz</token>
+        <token name="@TOOL_VERSION@">0.2.2</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">read-it-and-keep</requirement>
+        <requirement type="package" version="3.10">python</requirement>
+    </requirements>
+    <version_command><![CDATA[readItAndKeep -V]]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        #if $ref_source.source == "history"
+            ln -s '$ref_source.ref_fasta' ref${trim_reference}.fasta &&
+        #elif $ref_source.source == "builtin"
+            ln -s '$ref_source.ref_fasta_builtin.path' ref${trim_reference}.fasta &&
+        #end if
+        #if $trim_reference
+            python '$__tool_directory__/trim_reference.py' ref${trim_reference}.fasta ref.fasta &&
+        #end if
+        #if $reads.read_type == "paired"
+            #set $ext_out1 = 'fasta' if $reads.read1.ext in ['fasta', 'fasta.gz'] else 'fastq'
+            #set $ext_out2 = 'fasta' if $reads.read1.ext in ['fasta', 'fasta.gz'] else 'fastq'
+            ln -s '$reads.read1' read1 &&
+            ln -s '$reads.read2' read2 &&
+        #elif $reads.read_type == 'paired_collection'
+        #set $ext_out1 = 'fasta' if $reads.paired_reads.forward.ext in ['fasta', 'fasta.gz'] else 'fastq'
+            #set $ext_out2 = 'fasta' if $reads.paired_reads.reverse.ext in ['fasta', 'fasta.gz'] else 'fastq'
+            ln -s '$reads.paired_reads.forward' read1 &&
+            ln -s '$reads.paired_reads.reverse' read2 &&
+        #elif $reads.read_type == 'single'
+            #set $ext_out1 = 'fasta' if $reads.read1.ext in ['fasta', 'fasta.gz'] else 'fastq'
+            ln -s '$reads.read1' read1 &&
+        #end if
+        readItAndKeep
+            --tech $sequencing_tech
+            --ref_fasta ref.fasta
+            --min_map_length $adv.min_map_length
+            --min_map_length_pc $adv.min_map_length_pc
+            $adv.enumerate_names
+            --reads1 read1
+            #if $reads.read_type != "single"
+                --reads2 read2
+            #end if
+            -o output
+            #if $reads.read_type == 'single':
+                && mv output.reads.${ext_out1}.gz output.reads_1.${ext_out1}.gz
+            #end if
+            #if $reads.read_type == 'paired_collection':
+                #if not $reads.paired_reads.forward.ext.endswith('.gz'):
+                    && gunzip ./output.reads_1.${ext_out1}.gz
+                    && gunzip ./output.reads_2.${ext_out2}.gz
+                #end if
+            #elif not $reads.read1.ext.endswith('.gz'):
+                && gunzip ./output.reads_1.${ext_out1}.gz
+                #if $reads.read_type != 'single' and not $reads.read2.ext.endswith('.gz'):
+                    && gunzip ./output.reads_2.${ext_out2}.gz
+                #end if
+            #end if
+    ]]></command>
+    <inputs>
+        <conditional name="reads">
+            <param type="select" label="Read type" name="read_type">
+                <option value="paired" selected="true">Paired end</option>
+                <option value="paired_collection">Paired collection</option>
+                <option value="single">Single ended</option>
+            </param>
+            <when value="paired">
+                <param type="data" format="@INPUT_FORMATS@" name="read1" label="Read1" />
+                <param type="data" format="@INPUT_FORMATS@" name="read2" label="Read2" />
+            </when>
+            <when value="paired_collection">
+                <param type="data_collection" collection_type="paired" format="@INPUT_FORMATS@" name="paired_reads" label="Reads" />
+            </when>
+            <when value="single">
+                <param type="data" format="@INPUT_FORMATS@" name="read1" label="Read1" />
+            </when>
+        </conditional>
+        <conditional name="ref_source">
+            <param type="select" label="Reference genome source" name="source">
+                <option value="history" selected="true">History</option>
+                <option value="builtin">Built-in</option>
+            </param>
+            <when value="history">
+                <param type="data" format="fasta" name="ref_fasta" label="Reference genome" />
+            </when>
+            <when value="builtin">
+                <param type="select" name="ref_fasta_builtin" label="Reference genome">
+                    <options from_data_table="all_fasta" />
+                </param>
+            </when>
+        </conditional>
+        <param type="boolean" name="trim_reference" label="Trim trailing As from the reference sequence" checked="true" truevalue="_untrimmed" falsevalue="" help="Remove all As at the end of the reference sequence to ensure that the reference has no poly-A tail (see Note in the general help section below)" />
+        <param type="select" argument="--tech" name="sequencing_tech" label="Sequencing technology">
+            <option value="illumina">Illumina</option>
+            <option value="ont">Oxford Nanopore</option>
+        </param>
+        <section name="adv" title="Advanced options">
+            <param argument="--min_map_length" type="integer" min="0" value="50" label="Shortest match required to keep a read (in bp)" />
+            <param argument="--min_map_length_pc" type="float" min="0.0" max="100.0" value="50.0" label="Minimum length of match required to keep a read (as percentage of read length" />
+            <param name="enumerate_names" type="boolean" truevalue="--enumerate_names" falsevalue="" label="Rename the reads 1,2,3,... (for paired reads, will also add /1 or /2 to the end of names)" />
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output_reads1" format_source="read1" label="Filtered reads ${on_string} - reads1" from_work_dir="output.reads_1.fast*">
+            <filter>reads["read_type"] == "single" or reads["read_type"] == "paired"</filter>
+        </data>
+        <data name="output_reads2" format_source="read2" label="Filtered reads ${on_string} - reads2" from_work_dir="output.reads_2.fast*">
+            <filter>reads["read_type"] == "paired"</filter>
+        </data>
+        <collection type="paired" name="output_collection" format_source="paired_reads" label="Filtered reads ${on_string}">
+            <filter>reads["read_type"] == "paired_collection"</filter>
+            <data name="forward" from_work_dir="output.reads_1.fast*" />
+            <data name="reverse" from_work_dir="output.reads_2.fast*" />
+        </collection>
+    </outputs>
+    <tests>
+        <!--Testing uncompressed fastq input-->
+        <test expect_num_outputs="2">
+            <conditional name="reads">
+                <param name="read_type" value="paired" />
+                <param name="read1" value="test1.fastq.gz" ftype="fastqsanger" />
+                <param name="read2" value="test2.fastq.gz" ftype="fastqsanger" />
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="illumina" />
+            <output name="output_reads1" file="output.test1.reads_1.fastq" ftype="fastqsanger"/>
+            <output name="output_reads2" file="output.test1.reads_2.fastq" ftype="fastqsanger"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="reads">
+                <param name="read_type" value="paired_collection" />
+                <param name="paired_reads">
+                    <collection type="paired">
+                        <element name="forward" value="test1.fastq.gz" ftype="fastqsanger" />
+                        <element name="reverse" value="test2.fastq.gz" ftype="fastqsanger" />
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="illumina" />
+            <output_collection name="output_collection" type="paired">
+                <element name="forward" file="output.test1.reads_1.fastq" ftype="fastqsanger"/>
+                <element name="reverse" file="output.test1.reads_2.fastq" ftype="fastqsanger"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="reads">
+                <param name="read_type" value="single" />
+                <param name="read1" value="test3.fastq.gz" ftype="fastqsanger"/>
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="ont" />
+            <param name="enumerate_names" value="True" />
+            <output name="output_reads1" file="output.test3.reads_1.fastq" ftype="fastqsanger"/>
+        </test>
+        <!--Testing uncompressed fasta input-->
+        <test expect_num_outputs="2">
+            <conditional name="reads">
+                <param name="read_type" value="paired" />
+                <param name="read1" value="test1.fasta.gz" ftype="fasta" />
+                <param name="read2" value="test2.fasta.gz" ftype="fasta" />
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="illumina" />
+            <output name="output_reads1" file="output.test1.reads_1.fasta" ftype="fasta"/>
+            <output name="output_reads2" file="output.test1.reads_2.fasta" ftype="fasta"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="reads">
+                <param name="read_type" value="paired_collection" />
+                <param name="paired_reads">
+                    <collection type="paired">
+                        <element name="forward" value="test1.fasta.gz" ftype="fasta" />
+                        <element name="reverse" value="test2.fasta.gz" ftype="fasta" />
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="illumina" />
+            <output_collection name="output_collection" type="paired">
+                <element name="forward" file="output.test1.reads_1.fasta" ftype="fasta"/>
+                <element name="reverse" file="output.test1.reads_2.fasta" ftype="fasta"/>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="reads">
+                <param name="read_type" value="single" />
+                <param name="read1" value="test3.fasta.gz" ftype="fasta"/>
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="ont" />
+            <param name="enumerate_names" value="True" />
+            <output name="output_reads1" file="output.test3.reads_1.fasta" ftype="fasta"/>
+        </test>
+        <!--Testing compressed fasta input-->
+        <test expect_num_outputs="2">
+            <conditional name="reads">
+                <param name="read_type" value="paired" />
+                <param name="read1" value="test1.fasta.gz" ftype="fasta.gz" />
+                <param name="read2" value="test2.fasta.gz" ftype="fasta.gz" />
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="illumina" />
+            <output name="output_reads1" decompress="true" file="output.test1.reads_1.fasta" ftype="fasta.gz"/>
+            <output name="output_reads2" decompress="true" file="output.test1.reads_2.fasta" ftype="fasta.gz"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="reads">
+                <param name="read_type" value="paired_collection" />
+                <param name="paired_reads">
+                    <collection type="paired">
+                        <element name="forward" value="test1.fasta.gz" ftype="fasta.gz" />
+                        <element name="reverse" value="test2.fasta.gz" ftype="fasta.gz" />
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="illumina" />
+            <output_collection name="output_collection" type="paired">
+                <element name="forward" ftype="fasta.gz">
+                    <assert_contents>
+                        <has_size value="680" delta="50" />
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fasta.gz">
+                    <assert_contents>
+                        <has_size value="670" delta="50" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="reads">
+                <param name="read_type" value="single" />
+                <param name="read1" value="test3.fasta.gz" ftype="fasta.gz"/>
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="ont" />
+            <param name="enumerate_names" value="True" />
+            <output name="output_reads1" decompress="true" file="output.test3.reads_1.fasta" ftype="fasta.gz"/>
+        </test>
+        <!--Testing compressed fastq input-->
+        <test expect_num_outputs="2">
+            <conditional name="reads">
+                <param name="read_type" value="paired" />
+                <param name="read1" value="test1.fastq.gz" ftype="fastqsanger.gz" />
+                <param name="read2" value="test2.fastq.gz" ftype="fastqsanger.gz" />
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="illumina" />
+            <output name="output_reads1" decompress="true" file="output.test1.reads_1.fastq" ftype="fastqsanger.gz"/>
+            <output name="output_reads2" decompress="true" file="output.test1.reads_2.fastq" ftype="fastqsanger.gz"/>
+        </test>
+        <test expect_num_outputs="3">
+            <conditional name="reads">
+                <param name="read_type" value="paired_collection" />
+                <param name="paired_reads">
+                    <collection type="paired">
+                        <element name="forward" value="test1.fastq.gz" ftype="fastqsanger.gz" />
+                        <element name="reverse" value="test2.fastq.gz" ftype="fastqsanger.gz" />
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="illumina" />
+            <output_collection name="output_collection" type="paired">
+                <element name="forward" ftype="fastqsanger.gz">
+                    <assert_contents>
+                        <has_size value="995" delta="50" />
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger.gz">
+                    <assert_contents>
+                        <has_size value="960" delta="50" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="reads">
+                <param name="read_type" value="single" />
+                <param name="read1" value="test3.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="reference.fasta" ftype="fasta" />
+            </conditional>
+            <param name="sequencing_tech" value="ont" />
+            <param name="enumerate_names" value="True" />
+            <output name="output_reads1" decompress="true" file="output.test3.reads_1.fastq" ftype="fastqsanger.gz"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+ReadItAndKeep
+-------------
+
+ReadItAndKeep is a tool for filtering viral sequence data to remove host reads, developed for cleaning
+SARS-CoV-2 sequencing data. It maps reads against the SARS-CoV-2 viral genome (with the poly-A tail removed)
+and only keeps those that map well.
+
+**Note**: If the reference genome supplied contains a poly-A tail, reads that contain part of a poly-A tail will map
+to the refence, no matter what species they originate from. If you are not sure if the reference you are using has had
+trailing A's trimmed, enable the `Trim trailing As` option.
+
+Input can be either Illumina or Oxford Nanopore reads.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1101/2022.01.21.477194</citation>
+    </citations>
+</tool>

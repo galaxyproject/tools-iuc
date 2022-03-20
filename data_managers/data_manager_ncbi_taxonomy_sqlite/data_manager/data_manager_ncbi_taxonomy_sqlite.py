@@ -55,7 +55,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    config = json.load(open(args.galaxy_datamanager_filename))
+    with open(args.galaxy_datamanager_filename) as fh:
+        config = json.load(fh)
     output_directory = config.get("output_data", [{}])[0].get("extra_files_path", None)
     if output_directory is None:
         output_directory = args.output_directory
@@ -64,10 +65,7 @@ if __name__ == "__main__":
         os.makedirs(output_directory)
 
     data_manager_dict = {}
-    data_manager_dict["data_tables"] = json.load(
-        open(args.galaxy_datamanager_filename)
-    ).get("data_tables", {})
-    data_manager_dict["data_tables"] = data_manager_dict.get("data_tables", {})
+    data_manager_dict["data_tables"] = config.get("data_tables", {})
     data_manager_dict["data_tables"][DATA_TABLE_NAME] = data_manager_dict[
         "data_tables"
     ].get(DATA_TABLE_NAME, [])
@@ -75,5 +73,5 @@ if __name__ == "__main__":
     data = build_sqlite(args.taxonomy_dir, output_directory, args.name, args.description)
 
     data_manager_dict["data_tables"][DATA_TABLE_NAME].extend(data)
-    print(json.dumps(data_manager_dict))
-    json.dump(data_manager_dict, open(args.galaxy_datamanager_filename, "w"))
+    with open(args.galaxy_datamanager_filename, "w") as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True)

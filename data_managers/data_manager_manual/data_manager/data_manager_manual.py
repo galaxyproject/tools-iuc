@@ -58,7 +58,7 @@ def exec_before_job(app, inp_data, out_data, param_dict, tool=None, **kwd):
                     if tdtm is None:
                         from tool_shed.tools import data_table_manager
                         tdtm = data_table_manager.ToolDataTableManager(app)
-                        target_dir, tool_path, relative_target_dir = tdtm.get_target_install_dir(tool_shed_repository)
+                        target_dir = tool_shed_repository.repo_path(app)
                     # Dynamically add this data table
                     log.debug("Attempting to dynamically create a missing Tool Data Table named %s." % data_table_name)
                     repo_info = tdtm.generate_repository_info_elem_from_repository(tool_shed_repository, parent_elem=None)
@@ -162,14 +162,14 @@ def main():
     filename = args[0]
 
     with open(filename) as fh:
-        params = json.loads(fh.read())
+        params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
 
     data_table_entries = get_data_table_entries(params['param_dict'], options.galaxy_data_manager_data_path)
 
     # save info to json file
     with open(filename, 'w') as fh:
-        fh.write(json.dumps({"data_tables": data_table_entries}, sort_keys=True))
+        json.dump({"data_tables": data_table_entries}, fh, sort_keys=True)
 
     get_file_content(params['param_dict'], target_directory)
 

@@ -11,11 +11,10 @@ Creates fastq file of reads of tags with mutation.
 
 =======  ==========  =================  ================================
 Version  Date        Author             Description
-0.2.1    2019-10-27  Gundula Povysil    -
+2.0.0    2020-10-30  Gundula Povysil    -
 =======  ==========  =================  ================================
 
-USAGE: python mut2read.py DCS_Mutations.tabular DCS.bam Aligned_Families.tabular Interesting_Reads.fastq
-                          tag_count_dict.json
+USAGE: python mut2read.py DCS_Mutations.tabular DCS.bam Aligned_Families.tabular Interesting_Reads.fastq tag_count_dict.json
 """
 
 import argparse
@@ -25,12 +24,13 @@ import sys
 
 import numpy as np
 import pysam
+from cyvcf2 import VCF
 
 
 def make_argparser():
-    parser = argparse.ArgumentParser(description='Takes a tabular file with mutations and a BAM file as input and prints all tags of reads that carry the mutation to a user specified output file and creates a fastq file of reads of tags with mutation.')
+    parser = argparse.ArgumentParser(description='Takes a vcf file with mutations and a BAM file as input and prints all tags of reads that carry the mutation to a user specified output file and creates a fastq file of reads of tags with mutation.')
     parser.add_argument('--mutFile',
-                        help='TABULAR file with DCS mutations.')
+                        help='VCF file with DCS mutations.')
     parser.add_argument('--bamFile',
                         help='BAM file with aligned DCS reads.')
     parser.add_argument('--familiesFile',
@@ -61,71 +61,62 @@ def mut2read(argv):
     if os.path.isfile(file3) is False:
         sys.exit("Error: Could not find '{}'".format(file3))
 
-    # read mut file
-    with open(file1, 'r') as mut:
-        mut_array = np.genfromtxt(mut, skip_header=1, delimiter='\t', comments='#', dtype=str)
-
     # read dcs bam file
-    # pysam.index(file2)
     bam = pysam.AlignmentFile(file2, "rb")
 
     # get tags
     tag_dict = {}
     cvrg_dict = {}
 
-    if len(mut_array) == 13:
-        mut_array = mut_array.reshape((1, len(mut_array)))
-
-    for m in range(len(mut_array[:, 0])):
-        print(str(m + 1) + " of " + str(len(mut_array[:, 0])))
-        chrom = mut_array[m, 1]
-        stop_pos = mut_array[m, 2].astype(int)
+    for variant in VCF(file1):
+        chrom = variant.CHROM
+        stop_pos = variant.start
         chrom_stop_pos = str(chrom) + "#" + str(stop_pos)
-        ref = mut_array[m, 9]
-        alt = mut_array[m, 10]
-
+        ref = variant.REF
+        alt = variant.ALT[0]
         dcs_len = []
-
-        for pileupcolumn in bam.pileup(chrom, stop_pos - 2, stop_pos, max_depth=100000000):
-
-            if pileupcolumn.reference_pos == stop_pos - 1:
-                count_alt = 0
-                count_ref = 0
-                count_indel = 0
-                count_n = 0
-                count_other = 0
-                count_lowq = 0
-                print("unfiltered reads=", pileupcolumn.n, "filtered reads=", len(pileupcolumn.pileups),
-                      "difference= ", len(pileupcolumn.pileups) - pileupcolumn.n)
-                for pileupread in pileupcolumn.pileups:
-                    if not pileupread.is_del and not pileupread.is_refskip:
-                        # query position is None if is_del or is_refskip is set.
-                        nuc = pileupread.alignment.query_sequence[pileupread.query_position]
-                        dcs_len.append(len(pileupread.alignment.query_sequence))
-                        if nuc == alt:
-                            count_alt += 1
-                            tag = pileupread.alignment.query_name
-                            if tag in tag_dict:
-                                tag_dict[tag][chrom_stop_pos] = alt
+        if len(ref) == len(alt):
+            for pileupcolumn in bam.pileup(chrom, stop_pos - 1, stop_pos + 1, max_depth=100000000):
+                if pileupcolumn.reference_pos == stop_pos:
+                    count_alt = 0
+                    count_ref = 0
+                    count_indel = 0
+                    count_n = 0
+                    count_other = 0
+                    count_lowq = 0
+                    print("unfiltered reads=", pileupcolumn.n, "filtered reads=", len(pileupcolumn.pileups),
+                          "difference= ", len(pileupcolumn.pileups) - pileupcolumn.n)
+                    for pileupread in pileupcolumn.pileups:
+                        if not pileupread.is_del and not pileupread.is_refskip:
+                            # query position is None if is_del or is_refskip is set.
+                            nuc = pileupread.alignment.query_sequence[pileupread.query_position]
+                            dcs_len.append(len(pileupread.alignment.query_sequence))
+                            if nuc == alt:
+                                count_alt += 1
+                                tag = pileupread.alignment.query_name
+                                if tag in tag_dict:
+                                    tag_dict[tag][chrom_stop_pos] = alt
+                                else:
+                                    tag_dict[tag] = {}
+                                    tag_dict[tag][chrom_stop_pos] = alt
+                            elif nuc == ref:
+                                count_ref += 1
+                            elif nuc == "N":
+                                count_n += 1
+                            elif nuc == "lowQ":
+                                count_lowq += 1
                             else:
-                                tag_dict[tag] = {}
-                                tag_dict[tag][chrom_stop_pos] = alt
-                        elif nuc == ref:
-                            count_ref += 1
-                        elif nuc == "N":
-                            count_n += 1
-                        elif nuc == "lowQ":
-                            count_lowq += 1
+                                count_other += 1
                         else:
-                            count_other += 1
-                    else:
-                        count_indel += 1
-                dcs_median = np.median(np.array(dcs_len))
-                cvrg_dict[chrom_stop_pos] = (count_ref, count_alt, dcs_median)
+                            count_indel += 1
+                    dcs_median = np.median(np.array(dcs_len))
+                    cvrg_dict[chrom_stop_pos] = (count_ref, count_alt, dcs_median)
 
-                print("coverage at pos %s = %s, ref = %s, alt = %s, other bases = %s, N = %s, indel = %s, low quality = %s, median length of DCS = %s\n" %
-                      (pileupcolumn.pos, count_ref + count_alt, count_ref, count_alt, count_other, count_n,
-                       count_indel, count_lowq, dcs_median))
+                    print("coverage at pos %s = %s, ref = %s, alt = %s, other bases = %s, N = %s, indel = %s, low quality = %s, median length of DCS = %s\n" %
+                          (pileupcolumn.pos, count_ref + count_alt, count_ref, count_alt, count_other, count_n,
+                           count_indel, count_lowq, dcs_median))
+        else:
+            print("indels are currently not evaluated")
     bam.close()
 
     with open(json_file, "w") as f:

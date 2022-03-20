@@ -35,7 +35,7 @@ def url_download(url, workdir):
 def download(dbkey, name, url, out_file):
 
     with open(out_file) as fh:
-        params = json.loads(fh.read())
+        params = json.load(fh)
 
     workdir = params['output_data'][0]['extra_files_path']
     os.makedirs(workdir)
@@ -51,7 +51,7 @@ def download(dbkey, name, url, out_file):
     data_manager_json["data_tables"]["vsnp_excel"] = data_manager_entry
 
     with open(out_file, 'w') as fh:
-        fh.write(json.dumps(data_manager_json, sort_keys=True))
+        json.dump(data_manager_json, fh, sort_keys=True)
 
 
 parser = argparse.ArgumentParser()

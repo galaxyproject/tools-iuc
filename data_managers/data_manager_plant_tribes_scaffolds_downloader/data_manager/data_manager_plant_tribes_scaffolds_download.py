@@ -115,7 +115,7 @@ parser.add_argument('--config_web_url', dest='config_web_url', help='URL for dow
 args = parser.parse_args()
 
 with open(args.out_file) as fh:
-    params = json.loads(fh.read())
+    params = json.load(fh)
 target_directory = params['output_data'][0]['extra_files_path']
 make_directory(target_directory)
 
@@ -128,4 +128,4 @@ else:
 data_manager_dict = download(target_directory, args.web_url, args.config_web_url, description)
 # Write the JSON output dataset.
 with open(args.out_file, 'w') as fh:
-    fh.write(json.dumps(data_manager_dict, sort_keys=True))
+    json.dump(data_manager_dict, fh, sort_keys=True)

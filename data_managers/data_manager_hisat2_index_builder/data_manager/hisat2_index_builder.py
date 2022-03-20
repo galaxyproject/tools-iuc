@@ -3,11 +3,11 @@
 from __future__ import print_function
 
 import argparse
+import json
 import os
 import shlex
 import subprocess
 import sys
-from json import dumps, loads
 
 DEFAULT_DATA_TABLE_NAME = "hisat2_indexes"
 
@@ -66,7 +66,8 @@ def main():
 
     filename = options.output
 
-    params = loads(open(filename).read())
+    with open(filename) as fh:
+        params = json.load(fh)
     data_manager_dict = {}
 
     if options.fasta_dbkey in [None, '', '?']:
@@ -78,7 +79,8 @@ def main():
     build_hisat_index(data_manager_dict, options, params, sequence_id, sequence_name)
 
     # save info to json file
-    open(filename, 'w').write(dumps(data_manager_dict, sort_keys=True))
+    with open(filename, 'w') as fh:
+        json.dump(data_manager_dict, fh, sort_keys=True)
 
 
 if __name__ == "__main__":

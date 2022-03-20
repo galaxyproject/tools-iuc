@@ -10,9 +10,6 @@ import pandas
 import pandas.io.formats.excel
 from Bio import SeqIO
 
-INPUT_JSON_AVG_MQ_DIR = 'input_json_avg_mq_dir'
-INPUT_JSON_DIR = 'input_json_dir'
-INPUT_NEWICK_DIR = 'input_newick_dir'
 # Maximum columns allowed in a LibreOffice
 # spreadsheet is 1024.  Excel allows for
 # 16,384 columns, but we'll set the lower
@@ -21,6 +18,9 @@ INPUT_NEWICK_DIR = 'input_newick_dir'
 # to use LibreOffice for Excel spreadsheets.
 MAXCOLS = 1024
 OUTPUT_EXCEL_DIR = 'output_excel_dir'
+INPUT_JSON_AVG_MQ_DIR = 'input_json_avg_mq_dir'
+INPUT_JSON_DIR = 'input_json_dir'
+INPUT_NEWICK_DIR = 'input_newick_dir'
 
 
 def annotate_table(table_df, group, annotation_dict):
@@ -145,18 +145,12 @@ def get_annotation_dict(gbk_file):
     return annotation_dict
 
 
-def get_base_file_name(file_path):
+def get_sample_name(file_path):
     base_file_name = os.path.basename(file_path)
     if base_file_name.find(".") > 0:
         # Eliminate the extension.
         return os.path.splitext(base_file_name)[0]
-    elif base_file_name.find("_") > 0:
-        # The dot extension was likely changed to
-        # the " character.
-        items = base_file_name.split("_")
-        return "_".join(items[0:-1])
-    else:
-        return base_file_name
+    return base_file_name
 
 
 def output_cascade_table(cascade_order, mqdf, group, annotation_dict):
@@ -169,17 +163,20 @@ def output_excel(df, type_str, group, annotation_dict, count=None):
     # is used by the excel_formatter.
     if count is None:
         if group is None:
-            json_file_name = "%s_order_mq.json" % type_str
+            json_file_name = os.path.join(OUTPUT_EXCEL_DIR, "%s_order_mq.json" % type_str)
             excel_file_name = os.path.join(OUTPUT_EXCEL_DIR, "%s_table.xlsx" % type_str)
         else:
-            json_file_name = "%s_%s_order_mq.json" % (group, type_str)
+            json_file_name = os.path.join(OUTPUT_EXCEL_DIR, "%s_%s_order_mq.json" % (group, type_str))
             excel_file_name = os.path.join(OUTPUT_EXCEL_DIR, "%s_%s_table.xlsx" % (group, type_str))
     else:
+        # The table has more columns than is allowed by the
+        # MAXCOLS setting, so multiple files will be produced
+        # as an output collection.
         if group is None:
-            json_file_name = "%s_order_mq_%d.json" % (type_str, count)
+            json_file_name = os.path.join(OUTPUT_EXCEL_DIR, "%s_order_mq_%d.json" % (type_str, count))
             excel_file_name = os.path.join(OUTPUT_EXCEL_DIR, "%s_table_%d.xlsx" % (type_str, count))
         else:
-            json_file_name = "%s_%s_order_mq_%d.json" % (group, type_str, count)
+            json_file_name = os.path.join(OUTPUT_EXCEL_DIR, "%s_%s_order_mq_%d.json" % (group, type_str, count))
             excel_file_name = os.path.join(OUTPUT_EXCEL_DIR, "%s_%s_table_%d.xlsx" % (group, type_str, count))
     df.to_json(json_file_name, orient='split')
     # Output the Excel file.
@@ -241,7 +238,7 @@ def preprocess_tables(task_queue, annotation_dict, timeout):
         mqdf = avg_mq_series.to_frame(name='MQ')
         mqdf = mqdf.T
         # Get the group.
-        group = get_base_file_name(newick_file)
+        group = get_sample_name(newick_file)
         snps_df = pandas.read_json(json_file, orient='split')
         with open(newick_file, 'r') as fh:
             for line in fh:
@@ -298,7 +295,7 @@ def preprocess_tables(task_queue, annotation_dict, timeout):
 
 
 def set_num_cpus(num_files, processes):
-    num_cpus = int(multiprocessing.cpu_count())
+    num_cpus = len(os.sched_getaffinity(0))
     if num_files < num_cpus and num_files < processes:
         return num_files
     if num_cpus < processes:
