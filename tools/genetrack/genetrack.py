@@ -4,9 +4,10 @@ genetrack.py
 Input: either scidx or gff format of reads
 Output: Called peaks in gff format
 """
-import optparse
 import csv
+import optparse
 import os
+
 import genetrack_util
 
 CHUNK_SIZE = 10000000

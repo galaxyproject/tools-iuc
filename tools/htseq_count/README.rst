@@ -1,21 +1,19 @@
 htseq-count wrapper for Galaxy
 ==============================
 
-Galaxy wrapper for
-`htseq-count <http://www-huber.embl.de/users/anders/HTSeq/doc/count.html>`_
-script from python
-`HTSeq <http://www-huber.embl.de/users/anders/HTSeq/doc/index.html>`_ package.
+Galaxy wrapper for `htseq-count <https://htseq.readthedocs.io/en/release_0.9.1/count.html>`_
+script from the `HTSEQ <https://readthedocs.org/projects/htseq/>`_ python package.
 
 Installation
 ------------
 
-Installation directly from the `Galaxy Toolshed                                                                                                                                                                 <http://toolshed.g2.bx.psu.edu/view/lparsons/htseq_count>`_ is
-recommended.
+Installation directly from the `Galaxy Toolshed <http://toolshed.g2.bx.psu.edu/view/lparsons/htseq_count>`_
+is recommended.
 
 Galaxy Wrapper License
 ----------------------
 
-Copyright (c) 2012-2014, Lance R. Parsons <lparsons@princeton.edu>
+Copyright (c) 2012-2018, Lance R. Parsons <lparsons@princeton.edu>
 All rights reserved.
 
 Licensed under the BSD 2-Clause License: <http://opensource.org/licenses/BSD-2-Clause>

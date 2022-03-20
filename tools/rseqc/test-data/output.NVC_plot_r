@@ -1,0 +1,17 @@
+position=c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50)
+A_count=c(5,6,5,11,5,4,11,9,12,8,9,9,14,10,9,10,8,9,7,12,10,9,14,13,12,9,11,11,13,9,8,7,7,11,6,8,9,11,8,8,12,9,10,7,10,10,7,9,10,8,7)
+C_count=c(7,7,9,9,9,11,7,8,9,9,8,6,8,6,9,10,4,9,5,8,6,9,6,11,8,13,16,8,6,9,6,9,8,11,12,17,8,9,9,12,9,13,12,13,12,10,10,9,6,10,8)
+G_count=c(18,15,18,14,12,19,12,12,11,8,9,11,12,9,7,9,6,10,11,4,9,15,11,11,7,4,7,13,9,12,15,11,14,10,13,11,7,12,10,11,10,11,9,11,6,9,10,12,14,13,9)
+T_count=c(10,8,5,4,14,6,10,9,8,10,14,14,6,15,15,9,14,9,12,10,15,7,9,5,10,8,6,8,12,10,11,13,11,8,9,4,16,8,13,9,9,7,9,9,12,11,13,10,10,9,16)
+N_count=c(0,4,3,2,0,0,0,2,0,5,0,0,0,0,0,2,8,3,5,6,0,0,0,0,3,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+X_count=c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+total= A_count + C_count + G_count + T_count
+ym=max(A_count/total,C_count/total,G_count/total,T_count/total) + 0.05
+yn=min(A_count/total,C_count/total,G_count/total,T_count/total)
+pdf("output.NVC_plot.pdf")
+plot(position,A_count/total,type="o",pch=20,ylim=c(yn,ym),col="dark green",xlab="Position of Read",ylab="Nucleotide Frequency")
+lines(position,T_count/total,type="o",pch=20,col="red")
+lines(position,G_count/total,type="o",pch=20,col="blue")
+lines(position,C_count/total,type="o",pch=20,col="cyan")
+legend(41,ym,legend=c("A","T","G","C"),col=c("dark green","red","blue","cyan"),lwd=2,pch=20,text.col=c("dark green","red","blue","cyan"))
+dev.off()

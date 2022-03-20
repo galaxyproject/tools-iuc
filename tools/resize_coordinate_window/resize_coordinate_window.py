@@ -1,3 +1,5 @@
+
+
 import argparse
 import fileinput
 import sys
@@ -7,8 +9,8 @@ MAX_CHROM_LEN = 2147483647
 
 
 def stop_err(msg):
-    sys.stderr.write(msg)
-    sys.exit(1)
+    sys.exit(msg)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', dest='input', help="Input dataset")
@@ -22,7 +24,7 @@ parser.add_argument('--output', dest='output', help="Output dataset")
 args = parser.parse_args()
 
 extend_existing = args.extend_existing == 'existing'
-out = open(args.output, 'wb')
+out = open(args.output, 'w')
 
 chrom_start = int(args.start_coordinate)
 chrom_lens = dict()
@@ -83,6 +85,6 @@ with open(args.input) as fhi:
 out.close()
 
 if len_file_error is not None:
-    print "All chrom lengths set to %d, error in chrom len file: %s" % (MAX_CHROM_LEN, len_file_error)
+    print("All chrom lengths set to %d, error in chrom len file: %s" % (MAX_CHROM_LEN, len_file_error))
 if len_file_missing:
-    print "All chrom lengths set to %d, chrom len files are not installed." % MAX_CHROM_LEN
+    print("All chrom lengths set to %d, chrom len files are not installed." % MAX_CHROM_LEN)

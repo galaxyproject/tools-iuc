@@ -1,0 +1,248 @@
+<macros>
+    <!-- REMEMBER to bump the version of rna_star_index_builder_data_manager
+    whenever you make changes to the following two version tokens!
+    The data manager uses a symlink to this macro file to keep the STAR and
+    the index versions in sync, but you should manually adjust the +galaxy
+    version number. -->
+    <!-- STAR version to be used -->
+    <token name="@VERSION@">2.7.8a</token>
+    <!-- STAR index version compatible with this version of STAR
+    This is the STAR version that introduced the index structure expected
+    by the current version.
+    It can be found for any specific version of STAR with:
+    STAR -h | grep versionGenome
+    or by looking for the versionGenome parameter in source/parametersDefault
+    of STAR's source code -->
+    <token name="@IDX_VERSION@">2.7.4a</token>
+    <token name="@IDX_DATA_TABLE@">rnastar_index2x_versioned</token>
+
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@VERSION@">star</requirement>
+            <requirement type="package" version="1.9">samtools</requirement>
+            <yield />
+        </requirements>
+    </xml>
+
+    <xml name="edam">
+        <edam_topics>
+            <edam_topic>topic_3170</edam_topic>
+            <edam_topic>topic_3308</edam_topic>
+        </edam_topics>
+        <edam_operations>
+            <edam_operation>operation_0292</edam_operation>
+        </edam_operations>
+    </xml>
+
+    <xml name="index_selection" token_with_gene_model="0">
+        <param argument="--genomeDir" name="genomeDir" type="select"
+        label="Select reference genome"
+        help="If your genome of interest is not listed, contact the Galaxy team">
+            <options from_data_table="@IDX_DATA_TABLE@">
+                <filter type="static_value" column="4" value="@WITH_GENE_MODEL@" />
+                <filter type="static_value" column="5" value="@IDX_VERSION@" />
+                <filter type="sort_by" column="2" />
+                <validator type="no_options" message="No indexes are available for the selected input dataset" />
+            </options>
+        </param>
+    </xml>
+
+    <token name="@FASTQ_GZ_OPTION@">
+        --readFilesCommand zcat
+    </token>
+    <xml name="citations">
+        <citations>
+            <citation type="doi">10.1093/bioinformatics/bts635</citation>
+        </citations>
+    </xml>
+    <xml name="@SJDBOPTIONS@" token_optional="true">
+         <param argument="--sjdbGTFfile" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions" optional="@OPTIONAL@" help="Exon junction information for mapping splices"/>
+         <param argument="--sjdbOverhang" type="integer" min="1" value="100" label="Length of the genomic sequence around annotated junctions" help="Used in constructing the splice junctions database. Ideal value is ReadLength-1"/>
+    </xml>
+    <xml name="dbKeyActions">
+        <actions>
+            <conditional name="refGenomeSource.geneSource">
+                <when value="indexed">
+                    <action type="metadata" name="dbkey">
+                        <option type="from_data_table" name="@IDX_DATA_TABLE@" column="1" offset="0">
+                            <filter type="param_value" column="0" value="#" compare="startswith" keep="False"/>
+                            <filter type="param_value" ref="refGenomeSource.GTFconditional.genomeDir" column="0"/>
+                        </option>
+                    </action>
+                </when>
+                <when value="history">
+                    <action type="metadata" name="dbkey">
+                        <option type="from_param" name="refGenomeSource.genomeFastaFiles" param_attribute="dbkey" />
+                    </action>
+                </when>
+            </conditional>
+        </actions>
+    </xml>
+    <token name="@TEMPINDEX@"><![CDATA[
+    ## Create temporary index for custom reference
+    #if str($refGenomeSource.geneSource) == 'history':
+        mkdir -p tempstargenomedir &&
+        STAR
+            --runMode genomeGenerate
+            --genomeDir 'tempstargenomedir'
+            --genomeFastaFiles '${refGenomeSource.genomeFastaFiles}'
+            ## Handle difference between indices with/without annotations
+            #if 'GTFconditional' in $refGenomeSource:
+                ## GTFconditional exists only in STAR, but not STARsolo
+                #if str($refGenomeSource.GTFconditional.GTFselect) == 'with-gtf':
+                    --sjdbOverhang '${refGenomeSource.GTFconditional.sjdbOverhang}'
+                    --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
+                    #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
+                        --sjdbGTFtagExonParentTranscript Parent
+                    #end if
+                #end if
+            #else:
+                ## ref genome selection is less complex for STARsolo cause
+                ## with-gtf is mandatory there
+                --sjdbOverhang '${refGenomeSource.sjdbOverhang}'
+                --sjdbGTFfile '${refGenomeSource.sjdbGTFfile}'
+                #if str($refGenomeSource.sjdbGTFfile.ext) == 'gff3':
+                    --sjdbGTFtagExonParentTranscript Parent
+                #end if
+            #end if
+            #if str($refGenomeSource.genomeSAindexNbases):
+                --genomeSAindexNbases ${refGenomeSource.genomeSAindexNbases}
+            #end if
+            --runThreadN \${GALAXY_SLOTS:-4}
+        &&
+    #end if
+    ]]></token>
+    <token name="@REFGENOMEHANDLING@" ><![CDATA[
+    --runThreadN \${GALAXY_SLOTS:-4}
+    --genomeLoad NoSharedMemory
+    --genomeDir
+    #if str($refGenomeSource.geneSource) == 'history':
+        tempstargenomedir
+    #else:
+        '${refGenomeSource.GTFconditional.genomeDir.fields.path}'
+        ## Handle difference between indices with/without annotations
+        #if str($refGenomeSource.GTFconditional.GTFselect) == 'without-gtf':
+            #if $refGenomeSource.GTFconditional.sjdbGTFfile:
+                --sjdbOverhang $refGenomeSource.GTFconditional.sjdbOverhang
+                --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
+                #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
+                    --sjdbGTFtagExonParentTranscript Parent
+                #end if
+            #end if
+        #end if
+        #end if
+        ]]></token>
+    <token name="@READSHANDLING@" ><![CDATA[
+    ## Check that the input pairs are of the same type
+    ## otherwise STARsolo will run for a long time and then error out.
+    ## We consume either repeats of two inputs R1 + R2
+    ## or a collection of paired reads.
+    #if str($sc.input_types.use) == "repeat":
+        #set $reads1 = []
+        #set $reads2 = []
+        #for $r1, $r2 in zip($sc.input_types.input1, $sc.input_types.input2):
+            #assert $r1.datatype == $r2.datatype
+            #silent $reads1.append(str($r1))
+            #silent $reads2.append(str($r2))
+        #end for
+        #set $reads1 = ','.join($reads1)
+        #set $reads2 = ','.join($reads2)
+    #elif str($sc.input_types.use) == "list_paired":
+        #set $r1 = $sc.input_types.input_collection.forward
+        #set $r2 = $sc.input_types.input_collection.reverse
+        #set $reads1 = $r1
+        #set $reads2 = $r2
+    #end if
+    ## cDNA sequence(s) [R2] always go first, then barcode(s) [R1]
+    ## see: Section 3.2 of STAR manual for multiple inputs, and Section 13 for STARsolo inputs
+    --readFilesIn $reads2 $reads1
+    --soloCBmatchWLtype $sc.soloCBmatchWLtype
+    #if $r1.is_of_type('fastq.gz', 'fastqsanger.gz'):
+        @FASTQ_GZ_OPTION@
+    #end if
+    ]]></token>
+    <xml name="ref_selection">
+        <param argument="--genomeFastaFiles" type="data" format="fasta" label="Select a reference genome" />
+          <param argument="--genomeSAindexNbases" type="integer" min="2" max="16" value="14" label="Length of the SA pre-indexing string" help="Typically between 10 and 15. Longer strings will use much more memory, but allow faster searches. For small genomes, the parameter --genomeSAindexNbases must be scaled down to min(14, log2(GenomeLength)/2 - 1)"/>
+    </xml>
+    <xml name="stdio" >
+        <stdio>
+            <regex match="FATAL error" source="both" level="fatal"/>
+            <regex match="EXITING: FATAL INPUT ERROR:" source="both" level="fatal"/>
+            <regex match="EXITING: fatal error trying to allocate genome arrays, exception thrown: std::bad_alloc" source="both" level="fatal"/>
+            <regex match="\[sam_read1\] missing header\? Abort!" source="both" level="fatal"/>
+            <yield />
+        </stdio>
+    </xml>
+    <xml name="input_selection">
+        <conditional name="input_types" >
+            <param name="use" type="select" label="Input Type" >
+                <option value="repeat" >Separate barcode and cDNA reads</option>
+                <option value="list_paired" >Paired collection of barcode and cDNA reads</option>
+            </param>
+            <when value="repeat">
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data"  multiple="true"
+                label="RNA-Seq FASTQ/FASTA file, Barcode reads" />
+                <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input2" type="data"  multiple="true"
+                label="RNA-Seq FASTQ/FASTA file, cDNA reads"/>
+            </when>
+            <when value="list_paired">
+                <param name="input_collection" collection_type="paired" type="data_collection" format="fastq,fasta,fastq.gz,fastqsanger.gz" label="Collection of Pairs" />
+            </when>
+        </conditional>
+    </xml>
+    <xml name="input_selection_smart_seq">
+        <conditional name="input_types_smart_seq" >
+            <param name="use" type="select" label="Input Type" >
+                <option value="list_single_end" >Single-end FASTQ collection</option>
+                <option value="list_paired_end" >Paired FASTQ collection</option>
+            </param>
+            <when value="list_single_end">
+                <param name="single_end_collection" collection_type="list" type="data_collection" format="fastq,fasta,fastq.gz,fastqsanger.gz" label="List of single-end FASTQ files" />
+            </when>
+            <when value="list_paired_end">
+                <param name="paired_end_collection" collection_type="list:paired" type="data_collection" format="fastq,fasta,fastq.gz,fastqsanger.gz" label="List of paired-end FASTQ files" />
+            </when>
+        </conditional>
+    </xml>
+    <xml name="umidedup_options">
+        <option value="1MM_All" selected="true">Collapse all UMIs with 1 mismatch distance to each other</option>
+        <option value="1MM_Directional_UMItools" >Directional method from the UMI-tool</option>
+        <option value="1MM_Directional" >Directional with stringent UMI deduplication</option>
+    </xml>
+    <xml name="anchor_types">
+        <option value="0">Read start</option>
+        <option value="1">Read end</option>
+        <option value="2">Adapter start</option>
+        <option value="3">Adapter end</option>
+    </xml>
+    <xml name="cb_match_wl_common">
+        <option value="Exact" >Exact</option>
+        <option value="1MM" >Single match</option>
+    </xml>
+    <xml name="cb_match_wl_cellranger">
+        <option value="1MM_multi" selected="true" >Multiple matches (CellRanger 2)</option>
+        <option value="1MM_multi_pseudocounts" >Multiple matches (CellRanger 3)</option>
+        <option value="1MM_multi_Nbase_pseudocounts" >Multimatching to WL is allowed for CBs with N-bases (CellRanger 3)</option>
+    </xml>
+    <xml name="solo_adapter_params">
+        <param argument="--soloAdapterSequence" type="text" value="-" label="Adapter sequence to anchor barcodes." >
+            <sanitizer>
+                <valid initial="string.digits">
+                    <add value="-"/>
+                    <add value="A"/>
+                    <add value="T"/>
+                    <add value="C"/>
+                    <add value="G"/>
+                    <add value="N"/>
+                </valid>
+            </sanitizer>
+        </param>
+        <param argument="--soloAdapterMismatchesNmax" type="integer" min="1" value="1" label="Maximum number of mismatches allowed in adapter sequence" />
+        <param argument="--clipAdapterType" type="select" >
+            <option value="Hamming" selected="true" >Adapter clipping based on Hamming distance</option>
+            <option value="CellRanger4" >5p and 3p adapter clipping similar to CellRanger4</option>
+            <option value="None" >No adapter clipping</option>
+        </param>
+    </xml>
+</macros>

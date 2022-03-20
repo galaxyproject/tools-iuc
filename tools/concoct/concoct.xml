@@ -1,0 +1,117 @@
+<tool id="concoct" name="CONCOCT" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>metagenome binning</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#set pca_components_file_name = 'PCA_components_data_gt' + str($advanced.length_threshold) + '.csv'
+#set pca_transformed_file_name = 'PCA_transformed_data_gt' + str($advanced.length_threshold) + '.csv'
+#set clustering_file_name = 'clustering_gt' + str($advanced.length_threshold) + '.csv'
+
+## CONCOCT doesn't handle gzipped files.
+#if $composition_file.ext.endswith(".gz")
+    gunzip -c '$composition_file' > composition_file.fa &&
+#else:
+    ln -s '$composition_file' composition_file.fa &&
+#end if
+
+mkdir outdir &&
+concoct
+--coverage_file '$coverage_file'
+--composition_file composition_file.fa
+--clusters $advanced.clusters
+--kmer_length $advanced.kmer_length
+--threads \${GALAXY_SLOTS:-4}
+--length_threshold $advanced.length_threshold
+--read_length $advanced.read_length
+--total_percentage_pca $advanced.total_percentage_pca
+--basename 'outdir/'
+--seed $advanced.seed
+--iterations $advanced.iterations
+--epsilon $advanced.epsilon
+$advanced.no_cov_normalization
+$advanced.no_total_coverage
+--no_original_data
+$advanced.converge_out
+
+## Convert all CONCOCT .csv outputs to tabular.
+&& sed 's/\("\([^"]*\)"\)\?,/\2\t/g' outdir/$pca_components_file_name > '$output_pca_components'
+&& sed 's/\("\([^"]*\)"\)\?,/\2\t/g' outdir/$pca_transformed_file_name > '$output_pca_transformed'
+&& sed 's/\("\([^"]*\)"\)\?,/\2\t/g' outdir/$clustering_file_name > '$output_clustering'
+#if str($advanced.output_process_log) == 'yes':
+    && mv outdir/log.txt '$process_log'
+#end if
+    ]]></command>
+    <inputs>
+        <param argument="--coverage_file" type="data" format="tabular" label="Tabular coverage file" help="Columns correspond to samples and rows to contigs"/>
+        <param argument="--composition_file" type="data" format="fasta,fasta.gz" label="Fasta file" help="Used to calculate the kmer composition (the genomic signature) of each contig"/>
+        <section name="advanced" title="Advanced options">
+            <param argument="--clusters" type="integer" value="400" label="Maximum number of clusters for the Variational Gaussian Mixture Model algorithm"/>
+            <param argument="--kmer_length" type="integer" value="4" label="Kmer length"/>
+            <param argument="--length_threshold" type="integer" value="1000" label="Sequence length threshold" help="Contigs shorter than this value will not be included"/>
+            <param argument="--read_length" type="integer" value="100" label="Read length for coverage"/>
+            <param argument="--total_percentage_pca" type="integer" value="100" label="Percentage of variance explained by the principal components for the combined data"/>
+            <param argument="--seed" type="integer" min="0" value="1" label="Integer to use as seed for clustering" help="Zero value will use random seed"/>
+            <param argument="--iterations" type="integer" value="500" label="Maximum number of iterations for the Variational Bayes Gaussian Mixture Models"/>
+            <param argument="--epsilon" type="float" value="0.000001" label="Epsilon for the Variational Gaussian Mixture Model algorithm"/>
+            <param argument="--no_cov_normalization" type="boolean" truevalue="--no_cov_normalization" falsevalue="" checked="false" label="Skip normalization and only do log transorm of the coverage?" help="By default, the coverage is normalized for samples, then normalized for contigs and finally log transformed"/>
+            <param argument="--no_total_coverage" type="boolean" truevalue="--no_total_coverage" falsevalue="" checked="false" label="Eliminate the total coverage column from the coverage data matrix?" help="By default, total coverage is included, independently of coverage normalization but previous to log transformation"/>
+            <param argument="--converge_out" type="boolean" truevalue="--converge_out" falsevalue="" checked="false" label="Output convergence information?"/>
+            <param name="output_process_log" type="select" label="Output process log file?">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="process_log" format="txt" label="${tool.name} on ${on_string} (process log)">
+            <filter>advanced['output_process_log'] == 'yes'</filter>
+        </data>
+        <data name="output_pca_components" format="tabular" label="${tool.name} on ${on_string} (PCA components)"/>
+        <data name="output_pca_transformed" format="tabular" label="${tool.name} on ${on_string} (PCA transformed)"/>
+        <data name="output_clustering" format="tabular" label="${tool.name} on ${on_string} (Clusters)"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="4">
+            <param name="coverage_file" value="input1.tabular" ftype="tabular"/>
+            <param name="composition_file" value="input1.fa.gz" ftype="fasta.gz"/>
+            <param name="output_process_log" value="yes"/>
+            <output name="process_log" file="process_log.txt" ftype="txt" compare="contains"/>
+            <output name="output_pca_components" ftype="tabular">
+                <assert_contents>
+                    <has_size value="367636"/>
+                    <has_text text="7377051e-02"/>
+                </assert_contents>
+            </output>
+            <output name="output_pca_transformed" ftype="tabular">
+                <assert_contents>
+                    <has_size value="737926"/>
+                    <has_text text="NODE_103_length_20202_cov_8.395357.0"/>
+                </assert_contents>
+            </output>
+            <output name="output_clustering" ftype="tabular">
+                <assert_contents>
+                    <has_size value="12167"/>
+                    <has_text text="NODE_103_length_20202_cov_8.395357"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+CONCOCT (Clustering cONtigs with COverage and ComposiTion) performs unsupervised binning of metagenomic contigs by
+using nucleotide composition - kmer frequencies - and coverage data for multiple samples.  CONCOCT can accurately
+(up to species level) bin metagenomic contigs. 
+
+The tool accepts 2 inputs; a tabular file where each row corresponds to a contig and each column corresponds to a
+sample (the values are the average coverage for this contig in that sample) and a file containing sequences in
+fasta format.
+
+Three outputs are produced; clustering of the > 1000 kmer count, the PCA transformed matrix and the PCA components.
+
+@HELP_OVERVIEW@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

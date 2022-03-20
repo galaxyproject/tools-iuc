@@ -1,15 +1,16 @@
-<tool id="prinseq" name="PRINSEQ" version="0.1.0">
+<tool id="prinseq" name="PRINSEQ" version="@TOOL_VERSION+galaxy2" profile="20.05">
     <description>to process quality of sequences</description>
-    
+    <xrefs>
+        <xref type="bio.tools">prinseq</xref>
+    </xrefs>
+    <macros>
+        <token name="@TOOL_VERSION">0.20.4</token>
+    </macros>
     <requirements>
-        <requirement type="package" version="5.18.1">perl</requirement>
-        <!--<requirement type="package" version="2.90">perl-json</requirement>
-        <requirement type="package" version="1.106">perl-cairo</requirement>-->
-        <requirement type="package" version="0.20.4">prinseq</requirement>
+        <requirement type="package" version="@TOOL_VERSION">prinseq</requirement>
     </requirements>
 
     <stdio>
-        <exit_code range="1:"   level="fatal"   description="" />
         <regex match="ERROR"
                source="stderr"
                level="fatal"
@@ -26,30 +27,57 @@
 ]]>
     </version_command>
 
-    <command>
+    <command detect_errors="exit_code">
 <![CDATA[
-        mkdir tmp/
+        mkdir tmp/ &&
 
-        &&
+        #if $seq_type.seq_type_opt == "single"
+            #set fwd = $seq_type.input_singles
+            #set rev = None
+        #else if $seq_type.seq_type_opt == "paired"
+            #set fwd = $seq_type.input_mate1
+            #set rev = $seq_type.input_mate2
+        #else
+            #set fwd = $seq_type.input_collection.forward
+            #set rev = $seq_type.input_collection.reverse
+        #end if
+
+        #if $rev and $fwd.ext != $rev.ext:
+            >&2 echo 'Both pairs from your paired-end library need to be from the same filetype.' &&
+            exit 1;
+        #end if
+        
+        #if $fwd.ext.endswith(".gz")
+            gunzip -c '$fwd' > fwd.fastq &&
+        #else
+            ln -s '$fwd' fwd.fastq &&
+        #end if
+        
+        #if $rev
+            #if $rev.ext.endswith(".gz")
+                gunzip -c '$rev' > rev.fastq &&
+            #else
+                ln -s '$rev' rev.fastq &&
+            #end if
+        #end if
+
+        ## create empty output files
+        #if $seq_type.seq_type_opt == "single"
+            touch tmp/good_sequences.fastq tmp/rejected_sequences.fastq &&
+        #else
+            touch tmp/good_sequences_1.fastq tmp/good_sequences_1_singletons.fastq tmp/rejected_sequences_1.fastq &&
+            touch tmp/good_sequences_2.fastq tmp/good_sequences_2_singletons.fastq tmp/rejected_sequences_2.fastq &&
+        #end if
+
 
         prinseq-lite.pl
-            #if $seq_type.seq_type_opt == "single":
-                -fastq "$seq_type.input_singles"
-                #if $seq_type.input_singles.ext == "fastqillumina":
-                    -phred64
-                #end if
-            #else:
-                -fastq "$seq_type.input_mate1"
-                -fastq2 "$seq_type.input_mate2"
-                #if $seq_type.input_mate1.ext != $seq_type.input_mate2.ext:
-                    #import sys
-                    #silent sys.stderr.write( 'Both pairs from your paired-end library need to be from the same filetype.' )
-                #end if
-                #if $seq_type.input_mate1.ext == "fastqillumina":
-                    -phred64
-                #end if
+            -fastq fwd.fastq
+            #if $rev
+                -fastq2 rev.fastq
             #end if
-
+            #if $fwd.ext.startswith('fastqillumina'):
+                -phred64
+            #end if
             -out_good "tmp/good_sequences"
             -out_bad "tmp/rejected_sequences"
 
@@ -69,7 +97,7 @@
 
                 #set quality_filter_treatments=$filter_treatments.quality_filter_treatments
                 #if $quality_filter_treatments.apply_quality_filter_treatments == "true":
-                    #set min_quality_filter_treatments=$quality_filter_treatments.min_quality_filter_treatments 
+                    #set min_quality_filter_treatments=$quality_filter_treatments.min_quality_filter_treatments
                     #if $min_quality_filter_treatments.apply_min_quality_filter_treatments == "true":
                         -min_qual_score $min_quality_filter_treatments.min_quality_filter_treatment_value
                     #end if
@@ -211,32 +239,42 @@
                     -trim_qual_step $quality_trimming_treatments.step_quality_trimming_treatments
                 #end if
 
-            #end if    
+            #end if
 
             #*
             -graph_stats "$graph_stats"
             -graph_data tmp/stats.gd
 
-        
-        && 
+        &&
 
         prinseq-graphs-noPCA.pl -i "tmp/stats.gd" -html_all -o stats_html
         *#
-]]> 
-    </command>
 
+        #if $fwd.ext.endswith('.gz')
+            && for f in tmp/*.fastq;
+            do
+                gzip -c \$f > tmp_file &&
+                mv tmp_file \$f;
+            done
+        #end if
+]]>
+    </command>
     <inputs>
         <conditional name="seq_type">
             <param name="seq_type_opt" type="select" label="Is this library paired- or single-end?">
               <option value="single" selected="true">Single-end</option>
               <option value="paired">Paired-end</option>
+              <option value="paired_collection">Paired Collection</option>
             </param>
             <when value="single">
-                <param name="input_singles" type="data" format="fastqsanger,fastqillumina,fastq" label="FASTQ file" help="FASTQ files." />
+                <param name="input_singles" type="data" format="fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="FASTQ file" help="FASTQ files." />
             </when>
             <when value="paired">
-                <param name="input_mate1" type="data" format="fastqsanger,fastqillumina,fastq" label="FASTQ file" help="FASTQ files." />
-                <param name="input_mate2" type="data" format="fastqsanger,fastqillumina,fastq" label="FASTQ file" help="FASTQ files." />
+                <param name="input_mate1" type="data" format="fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="FASTQ file" help="FASTQ files." />
+                <param name="input_mate2" type="data" format="fastqsanger,fastqsanger.gz,fastqillumina,fastqillumina.gz" label="FASTQ file" help="FASTQ files." />
+            </when>
+            <when value="paired_collection">
+                <param name="input_collection" type="data_collection" collection_type="paired" label="FASTQ collection" help="FASTQ data in a paired collection" />
             </when>
         </conditional>
 
@@ -261,7 +299,7 @@
                                 <param name="min_length_filter_treatment_value" type="integer" min="0" max="3000" value="60" label="Minimum length threshold to conserve sequences" help="(-min_len)"/>
                             </when>
                             <when value="false" />
-                        </conditional>  
+                        </conditional>
                         <conditional name="max_length_filter_treatments">
                             <param name="apply_max_length_filter_treatments" type="select" label="Filter too big sequences?" help="By default, no treatment based on a maximal length is made.">
                               <option value="true">Yes</option>
@@ -271,10 +309,10 @@
                                 <param name="max_length_filter_treatment_value" type="integer" min="0" max="3000" value="1000" label="Maximal length threshold to conserve sequences" help="(-max_len)"/>
                             </when>
                             <when value="false" />
-                        </conditional>  
+                        </conditional>
                     </when>
                     <when value="false" />
-                </conditional>  
+                </conditional>
                 <conditional name="quality_filter_treatments">
                     <param name="apply_quality_filter_treatments" type="select" label="Filter sequences based on quality score?" help="By default, sequences with a mean score below 15 are removed.">
                       <option value="true" selected="true">Yes</option>
@@ -312,7 +350,7 @@
                                       <option value="true" selected="true">Yes</option>
                                       <option value="false">No</option>
                                     </param>
-                                    <when value="true">   
+                                    <when value="true">
                                         <param name="min_mean_quality_filter_treatment_value" type="integer" min="0" max="40" value="15" label="Minimum mean score threshold to conserve sequences" help="(-min_qual_mean)"/>
                                     </when>
                                     <when value="false" />
@@ -322,7 +360,7 @@
                                       <option value="true">Yes</option>
                                       <option value="false" selected="true">No</option>
                                     </param>
-                                    <when value="true">   
+                                    <when value="true">
                                         <param name="max_mean_quality_filter_treatment_value" type="integer" min="0" max="40" value="40" label="Maximum mean score threshold to conserve sequences" help="(-max_qual_mean)"/>
                                     </when>
                                     <when value="false" />
@@ -401,14 +439,14 @@
                         <param name="method_complexity_filter_treatments" type="select" display="radio" label="Method to filter low complexity sequences" help="(-lc_method)">
                             <option value="dust">Dust</option>
                             <option value="entropy" >Entropy</option>
-                        </param> 
+                        </param>
                         <param name="threshold_complexity_filter_treatments" type="integer" min="0" max="100" value="2" label="Threshold value used to filter sequences by sequence complexity" help="The dust method uses the threshold as maximum allowed score and the entropy method as minimum allowed value.(-lc_threshold)"/>
                     </when>
                     <when value="false" />
                 </conditional>
             </when>
             <when value="false" />
-        </conditional>  
+        </conditional>
 
         <conditional name="trimming_treatments">
             <param name="apply_trimming_treatments" type="select" label="Apply trimming treatments?" help="">
@@ -622,60 +660,69 @@
     </inputs>
 
     <outputs>
-        <data format="fastq" name="good_sequence_file" 
-            from_work_dir="tmp/good_sequences.fastq"
+        <data name="good_sequence_file" format_source="input_singles" from_work_dir="tmp/good_sequences.fastq"
             label="${tool.name} on ${on_string}: Good sequences" >
             <filter>seq_type['seq_type_opt'] == "single"</filter>
         </data>
-        <data format="fastq" name="rejected_sequence_file" 
-            from_work_dir="tmp/rejected_sequences.fastq"
+        <data name="rejected_sequence_file" format_source="input_singles" from_work_dir="tmp/rejected_sequences.fastq"
             label="${tool.name} on ${on_string}: Rejected sequences" >
             <filter>seq_type['seq_type_opt'] == "single"</filter>
         </data>
 
-        <data format="fastq" name="good_sequences_1_file" 
-            from_work_dir="tmp/good_sequences_1.fastq"
+        <data name="good_sequences_1_file" format_source="input_mate1" from_work_dir="tmp/good_sequences_1.fastq"
             label="${tool.name} on ${on_string}: Good sequences for R1" >
             <filter>seq_type['seq_type_opt'] == "paired"</filter>
         </data>
-        <data format="fastq" name="good_sequences_1_singletons_file" 
-            from_work_dir="tmp/good_sequences_1_singletons.fastq"
+        <data name="good_sequences_1_singletons_file" format_source="input_mate1" from_work_dir="tmp/good_sequences_1_singletons.fastq"
             label="${tool.name} on ${on_string}: Good singleton sequences for R1" >
             <filter>seq_type['seq_type_opt'] == "paired"</filter>
         </data>
-        <data format="fastq" name="rejected_sequence_1_file" 
-            from_work_dir="tmp/rejected_sequences_1.fastq"
+        <data name="rejected_sequence_1_file" format_source="input_mate1" from_work_dir="tmp/rejected_sequences_1.fastq"
             label="${tool.name} on ${on_string}: Rejected sequences for R1" >
             <filter>seq_type['seq_type_opt'] == "paired"</filter>
         </data>
-        <data format="fastq" name="good_sequences_2_file" 
-            from_work_dir="tmp/good_sequences_2.fastq"
+        <data name="good_sequences_2_file" format_source="input_mate2" from_work_dir="tmp/good_sequences_2.fastq"
             label="${tool.name} on ${on_string}: Good sequences for R2" >
             <filter>seq_type['seq_type_opt'] == "paired"</filter>
         </data>
-        <data format="fastq" name="good_sequences_2_singletons_file" 
-            from_work_dir="tmp/good_sequences_2_singletons.fastq"
+        <data name="good_sequences_2_singletons_file" format_source="input_mate2" from_work_dir="tmp/good_sequences_2_singletons.fastq"
             label="${tool.name} on ${on_string}: Good singleton sequences for R2" >
             <filter>seq_type['seq_type_opt'] == "paired"</filter>
         </data>
-        <data format="fastq" name="rejected_sequence_2_file" 
-            from_work_dir="tmp/rejected_sequences_2.fastq"
+        <data name="rejected_sequence_2_file" format_source="input_mate2" from_work_dir="tmp/rejected_sequences_2.fastq"
             label="${tool.name} on ${on_string}: Rejected sequences for R2" >
             <filter>seq_type['seq_type_opt'] == "paired"</filter>
         </data>
 
-        <!--<data format="html" name="html_file" 
-            from_work_dir="stats_html.html"
+        <collection name="good_sequences_collection" format_source="input_collection" type="paired">
+            <data name="forward" from_work_dir="tmp/good_sequences_1.fastq"/>
+            <data name="reverse" from_work_dir="tmp/good_sequences_2.fastq"/>
+            <filter>seq_type['seq_type_opt'] == "paired_collection"</filter>
+        </collection>
+
+        <collection name="singletons_collection" format_source="input_collection" type="paired">
+            <data name="forward" from_work_dir="tmp/good_sequences_1_singletons.fastq"/>
+            <data name="reverse" from_work_dir="tmp/good_sequences_2_singletons.fastq"/>
+            <filter>seq_type['seq_type_opt'] == "paired_collection"</filter>
+        </collection>
+
+        <collection name="rejected_sequences_collection" format_source="input_collection" type="paired">
+            <data name="forward" from_work_dir="tmp/rejected_sequences_1.fastq"/>
+            <data name="reverse" from_work_dir="tmp/rejected_sequences_2.fastq"/>
+            <filter>seq_type['seq_type_opt'] == "paired_collection"</filter>
+        </collection>
+
+        <!--<data format="html" name="html_file" from_work_dir="stats_html.html"
             label="${tool.name} on ${on_string}: Summary" />-->
     </outputs>
 
     <tests>
-        <test>
+        <test expect_num_outputs="2">
             <param name='seq_type_opt' value="single"/>
-            <param name="input_singles" value="prinseq_input_sequences.fastq"/>
+            <param name="input_singles" value="prinseq_input_sequences.fastq.gz" ftype="fastqsanger.gz"/>
             <param name='apply_filter_treatments' value="true"/>
-            <param name='apply_length_filter_treatments' value="true"/> 
-            <param name='apply_min_length_filter_treatments' value="true"/>   
+            <param name='apply_length_filter_treatments' value="true"/>
+            <param name='apply_min_length_filter_treatments' value="true"/>
             <param name="min_length_filter_treatment_value" value="60"/>
             <param name='apply_max_length_filter_treatments' value="false" />
             <param name='apply_quality_filter_treatments' value="true"/>
@@ -688,7 +735,7 @@
             <param name='apply_base_content_filter_treatments' value="true"/>
             <param name='apply_GC_perc_content_filter_treatments' value="false"/>
             <param name='apply_N_number_content_filter_treatments' value="false"/>
-            <param name='apply_N_percentage_content_filter_treatments' value="true"/>  
+            <param name='apply_N_percentage_content_filter_treatments' value="true"/>
             <param name="N_percentage_content_filter_treatment_value" value="2"/>
             <param name='apply_other_base_content_filter_treatments' value="false"/>
             <param name='apply_complexity_filter_treatments' value="false"/>
@@ -704,17 +751,166 @@
             <param name="rule_quality_trimming_treatments" value="lt" />
             <param name="window_quality_trimming_treatments" value="1"/>
             <param name="step_quality_trimming_treatments" value="1"/>
-
-            <output name="good_sequence_file" file="prinseq_good_sequences.fastq"/>
+            <output name="good_sequence_file" ftype="fastqsanger.gz">
+                <assert_contents>
+                    <has_size value="11219" delta="1000"/>
+                </assert_contents>
+            </output>
+            <output name="rejected_sequence_file" ftype="fastqsanger.gz">
+                <assert_contents>
+                    <has_size value="14208" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="6">
+            <param name='seq_type_opt' value="paired"/>
+            <param name="input_mate1" value="pairend_strandspecific_51mer_hg19_chr1_1-100000.R1.fastq" ftype="fastqsanger"/>
+            <param name="input_mate2" value="pairend_strandspecific_51mer_hg19_chr1_1-100000.R2.fastq" ftype="fastqsanger"/>
+            <param name='apply_filter_treatments' value="true"/>
+            <param name='apply_length_filter_treatments' value="true"/>
+            <param name='apply_min_length_filter_treatments' value="true"/>
+            <param name="min_length_filter_treatment_value" value="50"/>
+            <param name='apply_max_length_filter_treatments' value="false" />
+            <param name='apply_quality_filter_treatments' value="true"/>
+            <param name='apply_min_quality_filter_treatments' value="false" />
+            <param name='apply_max_quality_filter_treatments' value="false"/>
+            <param name='apply_mean_quality_filter_treatments' value="true"/>
+            <param name='apply_min_mean_quality_filter_treatments' value="true"/>
+            <param name="min_mean_quality_filter_treatment_value" value="15"/>
+            <param name='apply_max_mean_quality_filter_treatments' value="false"/>
+            <param name='apply_base_content_filter_treatments' value="true"/>
+            <param name='apply_GC_perc_content_filter_treatments' value="false"/>
+            <param name='apply_N_number_content_filter_treatments' value="false"/>
+            <param name='apply_N_percentage_content_filter_treatments' value="true"/>
+            <param name="N_percentage_content_filter_treatment_value" value="2"/>
+            <param name='apply_other_base_content_filter_treatments' value="false"/>
+            <param name='apply_complexity_filter_treatments' value="false"/>
+            <param name='apply_trimming_treatments' value="true" />
+            <param name='apply_length_trimming_treatments' value="false"/>
+            <param name='apply_position_trimming_treatments' value="false"/>
+            <param name='apply_tail_trimming_treatments' value="false"/>
+            <param name='apply_quality_trimming_treatments' value="true"/>
+            <param name='apply_left_quality_trimming_treatments' value="false"/>
+            <param name='apply_right_quality_trimming_treatments' value="true" />
+            <param name="right_quality_trimming_treatment_value" value="20"/>
+            <param name="type_quality_trimming_treatments" value="min"/>
+            <param name="rule_quality_trimming_treatments" value="lt" />
+            <param name="window_quality_trimming_treatments" value="1"/>
+            <param name="step_quality_trimming_treatments" value="1"/>
+            <output name="good_sequences_1_file" ftype="fastqsanger">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                </assert_contents>
+            </output>
+            <output name="good_sequences_1_singletons_file" ftype="fastqsanger">
+                <assert_contents>
+                    <has_n_lines n="44"/>
+                </assert_contents>
+            </output>
+            <output name="rejected_sequence_1_file" ftype="fastqsanger">
+                <assert_contents>
+                    <has_n_lines n="0"/>
+                </assert_contents>
+            </output>
+            <output name="good_sequences_2_file" ftype="fastqsanger">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                </assert_contents>
+            </output>
+            <output name="good_sequences_2_singletons_file" ftype="fastqsanger">
+                <assert_contents>
+                    <has_n_lines n="8"/>
+                </assert_contents>
+            </output>
+            <output name="rejected_sequence_2_file" ftype="fastqsanger">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="9">
+            <param name='seq_type_opt' value="paired_collection"/>
+            <param name="input_collection">
+                <collection type="paired">
+                    <element name="forward" value="pairend_strandspecific_51mer_hg19_chr1_1-100000.R1.fastq.gz" ftype="fastqsanger.gz"/>
+                    <element name="reverse" value="pairend_strandspecific_51mer_hg19_chr1_1-100000.R2.fastq.gz" ftype="fastqsanger.gz"/>
+                </collection>
+            </param>
+            <param name='apply_filter_treatments' value="true"/>
+            <param name='apply_length_filter_treatments' value="true"/>
+            <param name='apply_min_length_filter_treatments' value="true"/>
+            <param name="min_length_filter_treatment_value" value="50"/>
+            <param name='apply_max_length_filter_treatments' value="false" />
+            <param name='apply_quality_filter_treatments' value="true"/>
+            <param name='apply_min_quality_filter_treatments' value="false" />
+            <param name='apply_max_quality_filter_treatments' value="false"/>
+            <param name='apply_mean_quality_filter_treatments' value="true"/>
+            <param name='apply_min_mean_quality_filter_treatments' value="true"/>
+            <param name="min_mean_quality_filter_treatment_value" value="15"/>
+            <param name='apply_max_mean_quality_filter_treatments' value="false"/>
+            <param name='apply_base_content_filter_treatments' value="true"/>
+            <param name='apply_GC_perc_content_filter_treatments' value="false"/>
+            <param name='apply_N_number_content_filter_treatments' value="false"/>
+            <param name='apply_N_percentage_content_filter_treatments' value="true"/>
+            <param name="N_percentage_content_filter_treatment_value" value="2"/>
+            <param name='apply_other_base_content_filter_treatments' value="false"/>
+            <param name='apply_complexity_filter_treatments' value="false"/>
+            <param name='apply_trimming_treatments' value="true" />
+            <param name='apply_length_trimming_treatments' value="false"/>
+            <param name='apply_position_trimming_treatments' value="false"/>
+            <param name='apply_tail_trimming_treatments' value="false"/>
+            <param name='apply_quality_trimming_treatments' value="true"/>
+            <param name='apply_left_quality_trimming_treatments' value="false"/>
+            <param name='apply_right_quality_trimming_treatments' value="true" />
+            <param name="right_quality_trimming_treatment_value" value="20"/>
+            <param name="type_quality_trimming_treatments" value="min"/>
+            <param name="rule_quality_trimming_treatments" value="lt" />
+            <param name="window_quality_trimming_treatments" value="1"/>
+            <param name="step_quality_trimming_treatments" value="1"/>
+            <output_collection name="good_sequences_collection" type="paired">
+                <element name="forward" ftype="fastqsanger.gz">
+                    <assert_contents>
+                        <has_size value="605" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger.gz">
+                    <assert_contents>
+                        <has_size value="667" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="singletons_collection" type="paired">
+                <element name="forward" ftype="fastqsanger.gz">
+                    <assert_contents>
+                        <has_size value="720" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger.gz">
+                    <assert_contents>
+                        <has_size value="219" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="rejected_sequences_collection" type="paired">
+                <element name="forward" ftype="fastqsanger.gz">
+                    <assert_contents>
+                        <has_size value="0" delta="0"/>
+                    </assert_contents>
+                </element>
+                <element name="reverse" ftype="fastqsanger.gz">
+                    <assert_contents>
+                        <has_size value="718" delta="100"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
     </tests>
 
     <help><![CDATA[
-
 **What it does**
 
 PRINSEQ is a tool for easy and rapid quality control and data processing of metagenomic and metatranscriptomic datasets.
-This tool allow to process the sequences with filtering and trimming. 
+This tool allow to process the sequences with filtering and trimming.
 More information on `PRINSEQ manual <http://prinseq.sourceforge.net/manual.html>`_.
 
 -----
@@ -736,7 +932,7 @@ The parameters are numerous in PRINSEQ given the wanted treatments.
 
 Several filter treatments are proposed:
 
-  - Filters based on sequence length 
+  - Filters based on sequence length
   - Filters based on quality score
   - Filters based on base content
 
@@ -754,7 +950,6 @@ All these treaments can be customed using proposed parameters.
 
 The output file is a sequence file with sequences and quality from input file
 which have undergone filter and trimming.
-
     ]]>
     </help>
 

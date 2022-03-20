@@ -1,4 +1,4 @@
-def validate_input( trans, error_map, param_values, page_param_map ):
+def validate_input(trans, error_map, param_values, page_param_map):
     """
         Validates the user input, before execution.
     """
@@ -13,7 +13,7 @@ def validate_input( trans, error_map, param_values, page_param_map ):
         if fn in factor_name_list:
             factor_duplication = True
             break
-        factor_name_list.append( fn )
+        factor_name_list.append(fn)
 
         level_name_list = list()
 
@@ -22,15 +22,15 @@ def validate_input( trans, error_map, param_values, page_param_map ):
             fl = factor[level]
             if fl in level_name_list:
                 level_duplication = True
-            level_name_list.append( fl )
+            level_name_list.append(fl)
 
         if level_duplication:
-            error_map['rep_factorName'] = [ dict() for t in factors ]
-            for i in range( len( factors ) ):
-                error_map['rep_factorName'][i]['FactorLevel1'] = [ {'factorLevel': 'Factor levels for each factor need to be unique'} for t in [factor['factorLevel1'], factor['factorLevel2']] ]
+            error_map['rep_factorName'] = [dict() for t in factors]
+            for i in range(len(factors)):
+                error_map['rep_factorName'][i]['FactorLevel1'] = [{'factorLevel': 'Factor levels for each factor need to be unique'} for t in [factor['factorLevel1'], factor['factorLevel2']]]
             break
 
     if factor_duplication:
-        error_map['rep_factorName'] = [ dict() for t in factors ]
-        for i in range( len( factors ) ):
+        error_map['rep_factorName'] = [dict() for t in factors]
+        for i in range(len(factors)):
             error_map['rep_factorName'][i]['factorName'] = 'Factor names need to be unique.'
