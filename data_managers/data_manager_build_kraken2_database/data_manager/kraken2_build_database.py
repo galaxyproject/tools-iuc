@@ -16,15 +16,18 @@ from enum import Enum
 try:
     # Python3
     from urllib.request import urlopen
+    from urllib.error import URLError
 except ImportError:
     from urllib2 import urlopen
+    from urllib2 import URLError
 
 
 DATA_TABLE_NAME = "kraken2_databases"
 
 
 class KrakenDatabaseTypes(Enum):
-    standard = 'standard'
+    standard_local_build = 'standard_local_build'
+    standard_prebuilt = 'standard_prebuilt'
     minikraken = 'minikraken'
     special = 'special'
     custom = 'custom'
@@ -50,6 +53,15 @@ class Minikraken2Versions(Enum):
         return self.value
 
 
+class StandardPrebuiltSizes(Enum):
+    full = 'full'
+    gb_16 = '16'
+    gb_8 = '8'
+
+    def __str__(self):
+        return self.value
+
+
 def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_TABLE_NAME):
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
 
@@ -63,7 +75,7 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
     ])
 
     database_name = " ".join([
-        "Standard",
+        "Standard (Local Build)",
         "(Created:",
         now + ",",
         "kmer-len=" + str(kraken2_args["kmer_len"]) + ",",
@@ -110,6 +122,66 @@ def kraken2_build_standard(kraken2_args, target_directory, data_table_name=DATA_
     return data_table_entry
 
 
+def kraken2_build_standard_prebuilt(standard_prebuilt_size, prebuilt_date, target_directory, data_table_name=DATA_TABLE_NAME):
+
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+
+    database_value = "_".join([
+        now,
+        "standard_prebuilt",
+        standard_prebuilt_size
+    ])
+
+    database_name = " ".join([
+        "Standard (Prebuilt)",
+        standard_prebuilt_size,
+        "(Downloaded:",
+        now + ")"
+    ])
+
+    database_path = database_value
+
+    size_to_url_str = {
+        'full': '',
+        '16': '_16gb',
+        '8': '_8gb',
+    }
+    # we may need to let the user choose the date when new DBs are posted.
+    date_url_str = prebuilt_date.replace('-', '')
+    standard_prebuilt_size_url = size_to_url_str[standard_prebuilt_size]
+    # download the pre-built database
+    try:
+        download_url = 'https://genome-idx.s3.amazonaws.com/kraken/k2_standard%s_%s.tar.gz' % (standard_prebuilt_size_url, date_url_str)
+        src = urlopen(download_url)
+    except URLError as e:
+        print('url: ' + download_url, file=sys.stderr)
+        print(e, file=sys.stderr)
+        exit(1)
+
+    with open('tmp_data.tar.gz', 'wb') as dst:
+        shutil.copyfileobj(src, dst)
+    # unpack the downloaded archive to the target directory
+    with tarfile.open('tmp_data.tar.gz', 'r:gz') as fh:
+        for member in fh.getmembers():
+            if member.isreg():
+                member.name = os.path.basename(member.name)
+                fh.extract(member, os.path.join(target_directory, database_path))
+
+    data_table_entry = {
+        'data_tables': {
+            data_table_name: [
+                {
+                    "value": database_value,
+                    "name": database_name,
+                    "path": database_path,
+                }
+            ]
+        }
+    }
+
+    return data_table_entry
+
+
 def kraken2_build_minikraken(minikraken2_version, target_directory, data_table_name=DATA_TABLE_NAME):
 
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
@@ -131,10 +203,14 @@ def kraken2_build_minikraken(minikraken2_version, target_directory, data_table_n
     database_path = database_value
 
     # download the minikraken2 data
-    src = urlopen(
-        'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/minikraken2_%s_8GB_201904_UPDATE.tgz'
-        % minikraken2_version
-    )
+    try:
+        download_url = 'https://genome-idx.s3.amazonaws.com/kraken/minikraken2_%s_8GB_201904.tgz' % minikraken2_version
+        src = urlopen(download_url)
+    except URLError as e:
+        print('url: ' + download_url, file=sys.stderr)
+        print(e, file=sys.stderr)
+        exit(1)
+
     with open('tmp_data.tar.gz', 'wb') as dst:
         shutil.copyfileobj(src, dst)
     # unpack the downloaded archive to the target directory
@@ -293,6 +369,8 @@ def main():
     parser.add_argument('--threads', dest='threads', default=1, help='threads')
     parser.add_argument('--database-type', dest='database_type', type=KrakenDatabaseTypes, choices=list(KrakenDatabaseTypes), required=True, help='type of kraken database to build')
     parser.add_argument('--minikraken2-version', dest='minikraken2_version', type=Minikraken2Versions, choices=list(Minikraken2Versions), help='MiniKraken2 version (only applies to --database-type minikraken)')
+    parser.add_argument('--standard-prebuilt-size', dest='standard_prebuilt_size', type=StandardPrebuiltSizes, choices=list(StandardPrebuiltSizes), help='Size of standard prebuilt database to download (only applies to --database-type standard_prebuilt. Options are: "8", "16", "full".)')
+    parser.add_argument('--prebuilt-date', dest='prebuilt_date', help='Database build date (YYYY-MM-DD). Only applies to --database-type standard_prebuilt.')
     parser.add_argument('--special-database-type', dest='special_database_type', type=SpecialDatabaseTypes, choices=list(SpecialDatabaseTypes), help='type of special database to build (only applies to --database-type special)')
     parser.add_argument('--custom-fasta', dest='custom_fasta', help='fasta file for custom database (only applies to --database-type custom)')
     parser.add_argument('--custom-database-name', dest='custom_database_name', help='Name for custom database (only applies to --database-type custom)')
@@ -315,7 +393,7 @@ def main():
 
     data_manager_output = {}
 
-    if str(args.database_type) == 'standard':
+    if str(args.database_type) == 'standard_local_build':
         kraken2_args = {
             "kmer_len": args.kmer_len,
             "minimizer_len": args.minimizer_len,
@@ -327,6 +405,12 @@ def main():
         data_manager_output = kraken2_build_standard(
             kraken2_args,
             target_directory,
+        )
+    elif str(args.database_type) == 'standard_prebuilt':
+        data_manager_output = kraken2_build_standard_prebuilt(
+            str(args.standard_prebuilt_size),
+            str(args.prebuilt_date),
+            target_directory
         )
     elif str(args.database_type) == 'minikraken':
         data_manager_output = kraken2_build_minikraken(

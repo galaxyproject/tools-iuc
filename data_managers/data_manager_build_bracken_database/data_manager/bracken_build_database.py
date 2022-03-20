@@ -13,7 +13,7 @@ import uuid
 DATA_TABLE_NAME = "bracken_databases"
 
 
-def bracken_build_database(target_directory, bracken_build_args, database_name, data_table_name=DATA_TABLE_NAME):
+def bracken_build_database(target_directory, bracken_build_args, database_name, prebuilt=False, data_table_name=DATA_TABLE_NAME):
 
     database_value = str(uuid.uuid4())
 
@@ -21,14 +21,15 @@ def bracken_build_database(target_directory, bracken_build_args, database_name, 
 
     database_path = os.path.join(bracken_build_args['kraken_database'], 'database' + str(bracken_build_args['read_len']) + 'mers.kmer_distrib')
 
-    bracken_build_args_list = [
-        '-t', bracken_build_args['threads'],
-        '-k', bracken_build_args['kmer_len'],
-        '-l', bracken_build_args['read_len'],
-        '-d', bracken_build_args['kraken_database'],
-    ]
+    if not prebuilt:
+        bracken_build_args_list = [
+            '-t', bracken_build_args['threads'],
+            '-k', bracken_build_args['kmer_len'],
+            '-l', bracken_build_args['read_len'],
+            '-d', bracken_build_args['kraken_database'],
+        ]
 
-    subprocess.check_call(['bracken-build'] + bracken_build_args_list)
+        subprocess.check_call(['bracken-build'] + bracken_build_args_list)
 
     data_table_entry = {
         "data_tables": {
@@ -53,6 +54,7 @@ def main():
     parser.add_argument('--read-len', dest='read_len', help='Read length')
     parser.add_argument('--kraken-db', dest='kraken_database', help='Kraken Database')
     parser.add_argument('--database-name', dest='database_name', help='Database Name')
+    parser.add_argument('--prebuilt', action='store_true', dest='prebuilt', help='Use pre-built DB')
     args = parser.parse_args()
 
     with open(args.data_manager_json) as fh:
@@ -60,12 +62,19 @@ def main():
 
     target_directory = data_manager_input['output_data'][0]['extra_files_path']
 
-    bracken_build_args = {
-        'threads': args.threads,
-        'kmer_len': args.kmer_len,
-        'read_len': args.read_len,
-        'kraken_database': args.kraken_database,
-    }
+    if args.prebuilt:
+        bracken_build_args = {
+            'threads': args.threads,
+            'read_len': args.read_len,
+            'kraken_database': args.kraken_database,
+        }
+    else:
+        bracken_build_args = {
+            'threads': args.threads,
+            'kmer_len': args.kmer_len,
+            'read_len': args.read_len,
+            'kraken_database': args.kraken_database,
+        }
 
     try:
         os.mkdir(target_directory)
@@ -81,6 +90,7 @@ def main():
         target_directory,
         bracken_build_args,
         args.database_name,
+        args.prebuilt,
     )
 
     with open(args.data_manager_json, 'w') as fh:

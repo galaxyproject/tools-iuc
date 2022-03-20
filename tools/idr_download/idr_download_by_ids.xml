@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<tool id="idr_download_by_ids" name="IDR/OMERO Download" version="0.43" profile="18.09">
+<tool id="idr_download_by_ids" name="IDR/OMERO Download" version="0.44" profile="18.09">
     <description>- download images from any OMERO instance using image IDs</description>
     <macros>
         <xml name="region_spec" token_pos="upper-left corner">
@@ -16,7 +16,7 @@
         </xml>
     </macros>
     <requirements>
-        <requirement type="package" version="5.7.1">python-omero</requirement>
+        <requirement type="package" version="5.10.1">omero-py</requirement>
         <requirement type="package" version="0.4.2">pylibtiff</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
@@ -37,18 +37,27 @@
         #if str($image_ids.source) == 'link':
             python -c 'print("${image_ids.id_spec}".replace(",", "|").split("?show=")[-1].replace("|", "\n"))'
             ## https://idr.openmicroscopy.org/webclient/?show=image-3426274|image-3426275|image-3426276|image-3426277
-        #else:
+        #elif str($image_ids.source) == 'dataset':
             cat '${image_ids.id_spec}'
+        #else:
+            echo '${image_ids.id_dataset_omero}'
         #end if
         | python '$__tool_directory__/idr_download_by_ids.py' 
-        #set $channel = str($channel).strip()
-        #if $channel:
-            -c '$channel'
+        #if str($image_ids.source) == 'omeroDatasetID':
+            --dataset
         #end if
-        -f $frame
-        -z $z_section
-        #if str($clip_image.select):
-            ${clip_image.select} ${clip_image.x_coord} ${clip_image.y_coord} ${clip_image.width} ${clip_image.height}
+        #if $image_region.original == "original":
+            --download-original
+        #else:
+            #set $channel = str($image_region.channel).strip()
+            #if $channel:
+                -c '$channel'
+            #end if
+            -f $image_region.frame
+            -z $image_region.z_section
+            #if str($image_region.clip_image.select):
+                ${image_region.clip_image.select} ${image_region.clip_image.x_coord} ${image_region.clip_image.y_coord} ${image_region.clip_image.width} ${image_region.clip_image.height}
+            #end if
         #end if
         $skip_failed
         $download_tar
@@ -100,6 +109,7 @@
             <param name="source" type="select" label="How would you like to specify the IDs of images to download?">
                 <option value="link">As text (comma-separated list of IDs or a valid IDR link)</option>
                 <option value="dataset">As a dataset (one image ID per line)</option>
+                <option value="omeroDatasetID">All images from a single Dataset ID</option>
             </param>
             <when value="link">
                 <param name="id_spec" type="text"
@@ -114,27 +124,40 @@
                 <param name="id_spec" type="data" format="txt"
                 label="Select a dataset with image IDs (one per line)" />
             </when>
-        </conditional>
-        <param name="channel" type="text"
-        label="Name of the channel to download"
-        help="For all image IDs only the specified channel will be downloaded. If left empty, the first channel (whatever this is) will be downloaded by default." />
-        <param name="z_section" type="integer" value="0" min="0"
-        label="z-plane of images to download" />
-        <param name="frame" type="integer" value="0" min="0"
-        label="Image frame to download" />
-        <conditional name="clip_image">
-            <param name="select" type="select"
-            label="Limit the download to a selected region of the image?">
-                <option value="">No, download the entire image plane</option>
-                <option value="--rectangle">Specify a region using its upper-left corner</option>
-                <option value="--center">Specify a width x height region around a central point</option>
-            </param>
-            <when value="" />
-            <when value="--rectangle">
-                <expand macro="region_spec" />
+            <when value="omeroDatasetID">
+                <param name="id_dataset_omero" type="integer" min = "0" value = "9059" label="Dataset ID"/>
             </when>
-            <when value="--center">
-                <expand macro="region_spec" pos="center" />
+        </conditional>
+
+        <conditional name="image_region">
+            <param name="original" type="select" label="Which images do you want to download?">
+                <option value="TIFF" selected="true">Exported TIFF (single channel, single stack)</option>
+                <option value="original">Original file (file uploaded to omero, only available for private instances)</option>
+            </param>
+            <when value="original"/>
+            <when value="TIFF">
+                <param name="channel" type="text"
+                    label="Name of the channel to download"
+                    help="For all image IDs only the specified channel will be downloaded. If left empty, the first channel (whatever this is) will be downloaded by default." />
+                <param name="z_section" type="integer" value="0" min="0"
+                    label="z-plane of images to download" />
+                <param name="frame" type="integer" value="0" min="0"
+                    label="Image frame to download" />
+                <conditional name="clip_image">
+                    <param name="select" type="select"
+                        label="Limit the download to a selected region of the image?">
+                            <option value="">No, download the entire image plane</option>
+                            <option value="--rectangle">Specify a region using its upper-left corner</option>
+                            <option value="--center">Specify a width x height region around a central point</option>
+                    </param>
+                    <when value="" />
+                    <when value="--rectangle">
+                        <expand macro="region_spec" />
+                    </when>
+                    <when value="--center">
+                        <expand macro="region_spec" pos="center" />
+                    </when>
+                </conditional>
             </when>
         </conditional>
         <param name="skip_failed" type="boolean" checked="false" truevalue="--skip-failed" falsevalue=""
@@ -162,15 +185,18 @@
             </conditional>
             <param name="source" value="dataset" />
             <param name="id_spec" value="ids.txt" />
-            <param name="channel" value="PCNT" />
-            <conditional name="clip_image">
-                <param name="select" value="--rectangle" />
-                <param name="x_coord" value="3" />
-                <param name="y_coord" value="3" />
-                <param name="width" value="5" />
-                <param name="height" value="5" />
+            <conditional name="image_region">
+                <param name="original" value="TIFF"/>
+                <param name="channel" value="PCNT" />
+                <conditional name="clip_image">
+                    <param name="select" value="--rectangle" />
+                    <param name="x_coord" value="3" />
+                    <param name="y_coord" value="3" />
+                    <param name="width" value="5" />
+                    <param name="height" value="5" />
+                </conditional>
+                <param name="frame" value="0" />
             </conditional>
-            <param name="frame" value="0" />
             <param name="download_tar" value="false" />
             <output_collection name="output_file" type="list">
                 <element name="Centrin_PCNT_Cep215_20110506_Fri-1545_0_SIR_PRJ__1884807__3__3__5__5" ftype="tiff" file="test0.tiff"/>
@@ -182,15 +208,18 @@
             </conditional>
             <param name="source" value="link" />
             <param name="id_spec" value="1884807" />
-            <param name="channel" value="PCNT" />
-            <conditional name="clip_image">
-                <param name="select" value="--rectangle" />
-                <param name="x_coord" value="3" />
-                <param name="y_coord" value="3" />
-                <param name="width" value="5" />
-                <param name="height" value="5" />
+            <conditional name="image_region">
+                <param name="original" value="TIFF"/> 
+                <param name="channel" value="PCNT" />
+                <conditional name="clip_image">
+                    <param name="select" value="--rectangle" />
+                    <param name="x_coord" value="3" />
+                    <param name="y_coord" value="3" />
+                    <param name="width" value="5" />
+                    <param name="height" value="5" />
+                </conditional>
+                <param name="frame" value="2" />
             </conditional>
-            <param name="frame" value="2" />
             <param name="download_tar" value="false" />
             <output_collection name="output_file" type="list">
                 <element name="Centrin_PCNT_Cep215_20110506_Fri-1545_0_SIR_PRJ__1884807__3__3__5__5" ftype="tiff" file="test1.tiff"/>
@@ -202,15 +231,18 @@
             </conditional>
             <param name="source" value="link" />
             <param name="id_spec" value="1884807" />
-            <param name="channel" value="PCNT" />
-            <conditional name="clip_image">
-                <param name="select" value="--center" />
-                <param name="x_coord" value="5" />
-                <param name="y_coord" value="5" />
-                <param name="width" value="5" />
-                <param name="height" value="5" />
+            <conditional name="image_region">
+                <param name="original" value="TIFF"/> 
+                <param name="channel" value="PCNT" />
+                <conditional name="clip_image">
+                    <param name="select" value="--center" />
+                    <param name="x_coord" value="5" />
+                    <param name="y_coord" value="5" />
+                    <param name="width" value="5" />
+                    <param name="height" value="5" />
+                </conditional>
+                <param name="frame" value="2" />
             </conditional>
-            <param name="frame" value="2" />
             <param name="download_tar" value="false" />
             <output_collection name="output_file" type="list">
                 <element name="Centrin_PCNT_Cep215_20110506_Fri-1545_0_SIR_PRJ__1884807__3__3__5__5" ftype="tiff" file="test2.tiff"/>
@@ -222,12 +254,15 @@
             </conditional>
             <param name="source" value="link" />
             <param name="id_spec" value="https://idr.openmicroscopy.org/webclient/?show=image-9036708|image-9036710|image-9036711" />
-            <param name="channel" value="Spo20(51-91)" />
-            <param name="z_section" value="4" />
-            <conditional name="clip_image">
-                <param name="select" value="" />
+            <conditional name="image_region">
+                <param name="original" value="TIFF"/> 
+                <param name="channel" value="Spo20(51-91)" />
+                <param name="z_section" value="4" />
+                <conditional name="clip_image">
+                    <param name="select" value="" />
+                </conditional>
+                <param name="frame" value="20" />
             </conditional>
-            <param name="frame" value="20" />
             <param name="download_tar" value="false" />
             <output_collection name="output_file" type="list" count="3">
                 <element name="171101_LeadingEdgeDeletionPSMMovies01_15_R3D__9036711__0__0__1024__1024">
@@ -250,12 +285,15 @@
             <!-- Test behavior with non-existing image-ID 9036708999 -->
             <param name="source" value="link" />
             <param name="id_spec" value="https://idr.openmicroscopy.org/webclient/?show=image-9036708999|image-9036710|image-9036711" />
-            <param name="channel" value="Spo20(51-91)" />
-            <param name="z_section" value="4" />
-            <conditional name="clip_image">
-                <param name="select" value="" />
+            <conditional name="image_region">
+                <param name="original" value="TIFF"/> 
+                <param name="channel" value="Spo20(51-91)" />
+                <param name="z_section" value="4" />
+                <conditional name="clip_image">
+                    <param name="select" value="" />
+                </conditional>
+                <param name="frame" value="20" />
             </conditional>
-            <param name="frame" value="20" />
             <param name="download_tar" value="false" />
         </test>
         <test>
@@ -266,12 +304,15 @@
             </conditional>
             <param name="source" value="link" />
             <param name="id_spec" value="https://idr.openmicroscopy.org/webclient/?show=image-9036708999|image-9036710|image-9036711" />
-            <param name="channel" value="Spo20(51-91)" />
-            <param name="z_section" value="4" />
-            <conditional name="clip_image">
-                <param name="select" value="" />
+            <conditional name="image_region">
+                <param name="original" value="TIFF"/> 
+                <param name="channel" value="Spo20(51-91)" />
+                <param name="z_section" value="4" />
+                <conditional name="clip_image">
+                    <param name="select" value="" />
+                </conditional>
+                <param name="frame" value="20" />
             </conditional>
-            <param name="frame" value="20" />
             <param name="skip_failed" value="true" />
             <param name="download_tar" value="false" />
             <output_collection name="output_file" type="list" count="2">
@@ -296,15 +337,18 @@
             <!-- Test for download images in a tarball -->
             <param name="source" value="dataset" />
             <param name="id_spec" value="ids_tar.txt" />
-            <param name="channel" value="Hoechst" />
-            <conditional name="clip_image">
-                <param name="select" value="--rectangle" />
-                <param name="x_coord" value="0" />
-                <param name="y_coord" value="0" />
-                <param name="width" value="671" />
-                <param name="height" value="511" />
+            <conditional name="image_region">
+                <param name="original" value="TIFF"/> 
+                <param name="channel" value="Hoechst" />
+                <conditional name="clip_image">
+                    <param name="select" value="--rectangle" />
+                    <param name="x_coord" value="0" />
+                    <param name="y_coord" value="0" />
+                    <param name="width" value="671" />
+                    <param name="height" value="511" />
+                </conditional>
+                <param name="frame" value="0" />
             </conditional>
-            <param name="frame" value="0" />
             <output name="output_tar">
                     <assert_contents>
                         <has_size value="1382400" />
@@ -326,15 +370,18 @@
             </conditional>
             <param name="source" value="dataset" />
             <param name="id_spec" value="ids.txt" />
-            <param name="channel" value="PCNT" />
-            <conditional name="clip_image">
-                <param name="select" value="--rectangle" />
-                <param name="x_coord" value="3" />
-                <param name="y_coord" value="3" />
-                <param name="width" value="5" />
-                <param name="height" value="5" />
+            <conditional name="image_region">
+                <param name="original" value="TIFF"/> 
+                <param name="channel" value="PCNT" />
+                <conditional name="clip_image">
+                    <param name="select" value="--rectangle" />
+                    <param name="x_coord" value="3" />
+                    <param name="y_coord" value="3" />
+                    <param name="width" value="5" />
+                    <param name="height" value="5" />
+                </conditional>
+                <param name="frame" value="0" />
             </conditional>
-            <param name="frame" value="0" />
             <param name="download_tar" value="false" />
             <output_collection name="output_file" type="list">
                 <element name="Centrin_PCNT_Cep215_20110506_Fri-1545_0_SIR_PRJ__1884807__3__3__5__5" file="test0.tiff"/>
@@ -348,19 +395,69 @@
             </conditional>
             <param name="source" value="dataset" />
             <param name="id_spec" value="ids.txt" />
-            <param name="channel" value="PCNT" />
-            <conditional name="clip_image">
-                <param name="select" value="--rectangle" />
-                <param name="x_coord" value="3" />
-                <param name="y_coord" value="3" />
-                <param name="width" value="5" />
-                <param name="height" value="5" />
+            <conditional name="image_region">
+                <param name="original" value="TIFF"/> 
+                <param name="channel" value="PCNT" />
+                <conditional name="clip_image">
+                    <param name="select" value="--rectangle" />
+                    <param name="x_coord" value="3" />
+                    <param name="y_coord" value="3" />
+                    <param name="width" value="5" />
+                    <param name="height" value="5" />
+                </conditional>
+                <param name="frame" value="0" />
             </conditional>
-            <param name="frame" value="0" />
             <param name="download_tar" value="false" />
             <assert_stderr>
                 <has_text text="OMERO connection credentials are empty. Set your credentials via: User -> Preferences -> Manage Information" />
             </assert_stderr >
+        </test>
+        <test>
+            <conditional name="omero_instance_type">
+                 <param name="omero_instance" value="idr" />
+            </conditional>
+            <!-- Test for download all images from a dataset -->
+            <param name="source" value="omeroDatasetID" />
+            <param name="id_dataset_omero" value="9059" />
+            <param name="download_tar" value="false" />
+            <output_collection name="output_file" type="list" count="4">
+                <element name="171101_LeadingEdgeDeletionPSMMovies01_15_R3D__9036711__0__0__1024__1024">
+                    <assert_contents>
+                        <has_size value="2097286" />
+                    </assert_contents>
+                </element>
+                <element name="171101_LeadingEdgeDeletionPSMMovies01_15_R3D_D3D__9036708__0__0__1024__1024">
+                    <assert_contents>
+                        <has_size value="2097286" />
+                    </assert_contents>
+                </element>
+                <element name="171101_LeadingEdgeDeletionPSMMovies01_15_R3D_D3D_zproj__9036710__0__0__1024__1024">
+                    <assert_contents>
+                        <has_size value="2097286" />
+                    </assert_contents>
+                </element>
+                <element name="171101_LeadingEdgeDeletionPSMMovies01_15_R3D_REF__9036709__0__0__1024__1024">
+                    <assert_contents>
+                        <has_size value="2097286" />
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <test>
+            <conditional name="omero_instance_type">
+                 <param name="omero_instance" value="idr" />
+            </conditional>
+            <!-- Test for download all original files from a dataset -->
+            <!-- Impossible in idr: -->
+            <param name="source" value="omeroDatasetID" />
+            <param name="id_dataset_omero" value="9059" />
+            <param name="skip_failed" value="true" />
+            <param name="download_tar" value="false" />
+            <conditional name="image_region">
+                <param name="original" value="original"/> 
+            </conditional>
+            <output_collection name="output_file" type="list" count="0">
+            </output_collection>
         </test>
     </tests>
     <help><![CDATA[
@@ -390,6 +487,9 @@ A set of image IDs as can be obtained from the IDR webclient_ like this:
 Alternatively, you can simply provide a list of known image IDs in the text
 input field (comma or '|'-separated ), or as an input file (each ID on a
 separate line).
+
+Finally, if you want to download all images of a single dataset. Specify the id as 
+All images from a single Dataset ID.
 
 Most images in the IDR have more than two dimensions. Thus, there are
 parameters available which allow you to select a particular recording channel,

@@ -39,5 +39,5 @@ with get_file_handle(gbk_filename) as input_handle, open(fa_filename, "w") as ou
             seq_id = seq_record.id.split('.')[0]
         else:
             seq_id = seq_record.id
-        print('Writing FASTA record: {}'.format( seq_id ))
+        print('Writing FASTA record: {}'.format(seq_id))
         output_handle.write(">{}\n{}\n".format(seq_id, seq_record.seq))
