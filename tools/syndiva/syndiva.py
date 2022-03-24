@@ -30,7 +30,6 @@ from Bio.Seq import translate
 from Bio.SubsMat import MatrixInfo
 
 
-
 args = Args()
 # Variables initialization
 directory = args.output_dir
