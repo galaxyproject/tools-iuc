@@ -19,14 +19,16 @@ import subprocess
 import numpy
 import matplotlib.pyplot as plot
 
+from args import Args
+from args import get_os_path_name
+from args import sys_exit
+
 from Bio import pairwise2
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.Seq import translate
 from Bio.SubsMat import MatrixInfo
-from args import Args
-from args import get_os_path_name
-from args import sys_exit
+
 
 
 args = Args()
