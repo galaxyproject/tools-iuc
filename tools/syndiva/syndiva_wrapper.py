@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+
 import numpy
 
 log = logging.getLogger(__name__)
