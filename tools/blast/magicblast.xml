@@ -46,25 +46,6 @@ magicblast
 -penalty $general_search.penalty
 -max_intron_length $general_search.max_intron_length
 
-## Output options
--out '$output'
--outfmt '$output_options.outfmt_cond.outfmt'
-#if str($output_options.outfmt_cond.outfmt) == 'sam':
-    $output_options.outfmt_cond.md_tag
-    #if $query_mate:
-        $output_options.outfmt_cond.no_query_id_trim
-    #end if
-#end if
-#if str($output_options.report_unaligned_cond.report_unaligned) == 'yes':
-    #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.report_unaligned_separately) == 'yes':
-        -out_unaligned '$output_unaligned'
-        -unaligned_fmt '$output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt'
-    #end if
-#else:
-    -no_unaligned
-#end if
-$output_options.no_discordant
-
 ## Query filtering options
 $query_filtering.lcase_masking
 -validate_seqs $query_filtering.validate_seqs
@@ -99,6 +80,59 @@ $query_filtering.lcase_masking
 #end if
 -splice '$mapping.splice'
 -reftype '$mapping.reftype'
+
+## Output unaligned options
+#if str($output_options.report_unaligned_cond.report_unaligned) == 'yes':
+    #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.report_unaligned_separately) == 'yes':
+        -out_unaligned 'out_unaligned'
+        #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.unaligned_fmt) == 'bam':
+            -unaligned_fmt 'sam'
+        #else:
+            -unaligned_fmt '$output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.unaligned_fmt'
+        #end if
+    #end if
+#else:
+    -no_unaligned
+#end if
+
+## Additional output options
+$output_options.no_discordant
+## Switch default SAM output to be BAM.
+#if str($output_options.outfmt_cond.outfmt) == 'bam':
+    $output_options.outfmt_cond.md_tag
+    #if $query_mate:
+        $output_options.outfmt_cond.no_query_id_trim
+    #end if
+    -out 'output.sam'
+    #if str($output_options.outfmt_cond.output_sort) == 'coordinate':
+        && samtools sort -@\${GALAXY_SLOTS:-4} -O bam 'output.sam' > '$output'
+    #elif str($output_options.outfmt_cond.output_sort) == 'name':
+        && samtools sort -n -@\${GALAXY_SLOTS:-4} -O bam -o 'output.sam' > '$output'
+    #else:
+        && samtools view -@\${GALAXY_SLOTS:-4} -bS 'output.sam' > '$output'
+    #end if
+#else:
+    -out '$output'
+    -outfmt '$output_options.outfmt_cond.outfmt'
+#end if
+
+## Convert out_unaligned from SAM to BAM if necessary
+
+#if str($output_options.report_unaligned_cond.report_unaligned) == 'yes':
+    #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.report_unaligned_separately) == 'yes':
+        #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.unaligned_fmt) == 'bam':
+            #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.output_sort) == 'coordinate':
+                && samtools sort -@\${GALAXY_SLOTS:-4} -O bam -o 'out_unaligned' > '$output_unaligned'
+            #elif str($output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.output_sort) == 'name':
+                && samtools sort -n -@\${GALAXY_SLOTS:-4} -O bam -o 'out_unaligned' > '$output_unaligned'
+            #else:
+                && samtools view -@\${GALAXY_SLOTS:-4} -bS 'out_unaligned' > '$output_unaligned'
+            #end if
+        #else:
+            && mv 'out_unaligned' '$output_unaligned'
+        #end if
+    #end if
+#end if
     ]]></command>
     <inputs>
         <param argument="-query" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz" label="Query file" help="Fasta or fastqsanger, optionally gzipped"/>
@@ -170,11 +204,18 @@ $query_filtering.lcase_masking
                         </param>
                         <when value="no"/>
                         <when value="yes">
-                            <param argument="-unaligned_fmt" type="select" label="Output format for unaligned reads">
-                                <option value="sam" selected="true">sam</option>
-                                <option value="tabular">tabular</option>
-                                <option value="fasta">fasta</option>
-                            </param>
+                            <conditional name="unaligned_fmt_cond">
+                                <param argument="-unaligned_fmt" type="select" label="Output format for unaligned reads">
+                                    <option value="bam" selected="true">bam</option>
+                                    <option value="tabular">tabular</option>
+                                    <option value="fasta">fasta</option>
+                                </param>
+                                <when value="bam">
+                                    <expand macro="output_sort_param"/>
+                                </when>
+                                <when value="tabular"/>
+                                <when value="fasta"/>
+                            </conditional>
                         </when>
                     </conditional>
                 </when>
@@ -182,12 +223,13 @@ $query_filtering.lcase_masking
             </conditional>
             <conditional name="outfmt_cond">
                 <param argument="-outfmt" type="select" label="Output format">
-                    <option value="sam" selected="true">sam</option>
+                    <option value="bam" selected="true">bam</option>
                     <option value="tabular">tabular</option>
                 </param>
-                <when value="sam">
-                    <param argument="-md_tag" type="boolean" truevalue="-md_tag" falsevalue="" checked="false" label="Include MD tag in SAM output?"/>
-                    <param argument="-no_query_id_trim" type="boolean" truevalue="-no_query_id_trim" falsevalue="" checked="false" label="Do not trim '.1', '/1', '.2', or '/2' at the end of read ids in SAM output for paired reads?" help="Ignored if no query mate"/>
+                <when value="bam">
+                    <expand macro="output_sort_param"/>
+                    <param argument="-md_tag" type="boolean" truevalue="-md_tag" falsevalue="" checked="false" label="Include MD tag in BAM output?"/>
+                    <param argument="-no_query_id_trim" type="boolean" truevalue="-no_query_id_trim" falsevalue="" checked="false" label="Do not trim '.1', '/1', '.2', or '/2' at the end of read ids in BAM output for paired reads?" help="Ignored if no query mate"/>
                 </when>
                 <when value="tabular"/>
             </conditional>
@@ -195,16 +237,16 @@ $query_filtering.lcase_masking
         </section>
     </inputs>
     <outputs>
-        <data name="output" format="sam" label="${tool.name} on ${on_string}">
+        <data name="output" format="bam" label="${tool.name} on ${on_string}">
             <change_format>
                 <when input="output.outfmt_cond.outfmt" value="tabular" format="tabular"/>
             </change_format>
         </data>
-        <data name="output_unaligned" format="sam" label="${tool.name} on ${on_string}: unaligned reads">
+        <data name="output_unaligned" format="bam" label="${tool.name} on ${on_string}: unaligned reads">
             <filter>output_options['report_unaligned_cond']['report_unaligned'] == 'yes' and output_options['report_unaligned_cond']['report_unaligned_separately_cond']['report_unaligned_separately'] == 'yes'</filter>
             <change_format>
-                <when input="output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt" value="tabular" format="tabular"/>
-                <when input="output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt" value="fasta" format="fasta"/>
+                <when input="output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.unaligned_fmt" value="tabular" format="tabular"/>
+                <when input="output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.unaligned_fmt" value="fasta" format="fasta"/>
             </change_format>
         </data>
     </outputs>
@@ -214,9 +256,9 @@ $query_filtering.lcase_masking
             <param name="query" value="query1.fasta.gz" ftype="fasta.gz"/>
             <param name="db_opts_selector" value="file"/>
             <param name="subject" value="subject1.fasta.gz" ftype="fasta.gz"/>
-            <output name="output" ftype="sam">
+            <output name="output" ftype="bam">
                 <assert_contents>
-                    <has_text text="magicblast"/>
+                    <has_size value="1247" delta="50"/>
                 </assert_contents>
             </output>
         </test>
@@ -227,15 +269,14 @@ $query_filtering.lcase_masking
             <param name="subject" value="subject1.fasta.gz" ftype="fasta.gz"/>
             <param name="report_unaligned_separately" value="yes"/>
             <param name="unaligned_fmt" value="tabular"/>
-            <output name="output" ftype="sam">
+            <output name="output" ftype="bam">
                 <assert_contents>
-                    <has_text text="magicblast"/>
+                    <has_size value="492" delta="50"/>
                 </assert_contents>
             </output>
             <output name="output_unaligned" ftype="tabular">
                 <assert_contents>
-                    <has_text text="magicblast"/>
-                    <has_text text="ERR550641"/>
+                    <has_size value="959"/>
                 </assert_contents>
             </output>
         </test>
@@ -256,10 +297,9 @@ $query_filtering.lcase_masking
             <param name="query_mate" value="query_reverse1.fastqsanger.gz" ftype="fastqsanger.gz"/>
             <param name="db_opts_selector" value="file"/>
             <param name="subject" value="subject1.fasta.gz" ftype="fasta.gz"/>
-            <output name="output" ftype="sam">
+            <output name="output" ftype="bam">
                 <assert_contents>
-                    <has_text text="magicblast"/>
-                    <has_text text="lane1_fakedata0_0"/>
+                    <has_size value="62080" delta="50"/>
                 </assert_contents>
             </output>
         </test>
@@ -269,10 +309,9 @@ $query_filtering.lcase_masking
             <param name="query_mate" value="query_reverse1.fastqsanger.gz" ftype="fastqsanger.gz"/>
             <param name="db_opts_selector" value="db"/>
             <param name="database" value="phiX174"/>
-            <output name="output" ftype="sam">
+            <output name="output" ftype="bam">
                 <assert_contents>
-                    <has_text text="magicblast"/>
-                    <has_text text="lane1_fakedata0_0"/>
+                    <has_size value="62079" delta="50"/>
                 </assert_contents>
             </output>
         </test>
@@ -296,7 +335,7 @@ Magic-BLAST incorporates within the NCBI BLAST code framework ideas developed in
 extensions by local walk and jump, and recursive clipping of mismatches near the edges of the reads, which avoids accumulating
 artefactual mismatches near splice sites and is needed to distinguish short indels from substitutions near the edges.
 
-The tool accepts a single or paired set of reads in fasta or fastqsanger format and produces sam or tabular output.
+The tool accepts a single or paired set of reads in fasta or fastqsanger format and produces bam or tabular output.
 
 More information about Magic-BLAST is available in the
 `online documentation <https://ncbi.github.io/magicblast/>`_.
