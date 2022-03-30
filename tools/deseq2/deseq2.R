@@ -52,6 +52,7 @@ spec <- matrix(c(
   "batch_factors", "w", 1, "character",
   "outfile", "o", 1, "character",
   "countsfile", "n", 1, "character",
+  "sizefactorsfile", "F", 1, "character",
   "rlogfile", "r", 1, "character",
   "vstfile", "v", 1, "character",
   "header", "H", 0, "logical",
@@ -217,6 +218,30 @@ dds <- get_deseq_dataset(sample_table, header = opt$header, design_formula = des
 if (!is.null(opt$esf)) {
     dds <- estimateSizeFactors(dds, type = opt$esf)
 }
+
+# estimate size factors for each sample
+# - https://support.bioconductor.org/p/97676/
+if (!is.null(opt$sizefactorsfile)) {
+    nm <- assays(dds)[["avgTxLength"]]
+    if (!is.null(nm)) {
+        ## Recommended: takes into account tximport data
+        cat("\nsize factors for samples: taking tximport data into account\n")
+        size_factors <- estimateSizeFactorsForMatrix(counts(dds) / nm)
+    } else {
+        norm_factors <- normalizationFactors(dds)
+        if (!is.null(norm_factors)) {
+            ## In practice, gives same results as above.
+            cat("\nsize factors for samples: no tximport data, using derived normalization factors\n")
+            size_factors <- estimateSizeFactorsForMatrix(norm_factors)
+        } else {
+            ## If we have no other information, estimate from raw.
+            cat("\nsize factors for samples: no tximport data, no normalization factors, estimating from raw data\n")
+            size_factors <- estimateSizeFactorsForMatrix(counts(dds))
+        }
+    }
+    write.table(size_factors, file = opt$sizefactorsfile, sep = "\t", col.names = F, quote = FALSE)
+}
+
 apply_batch_factors <- function(dds, batch_factors) {
   rownames(batch_factors) <- batch_factors$identifier
   batch_factors <- subset(batch_factors, select = -c(identifier, condition))

@@ -44,10 +44,10 @@ for study_index, study in enumerate(studies_dict):
                                    'ENA_submission_data']))
     if "geo_location" in study['samples'][0].keys():           # sample belongs to a viral sample
         samples_table.write('\t'.join(['alias', 'status', 'accession', 'title', 'scientific_name',
-                                       'taxon_id', 'sample_description', 'collection_date',
-                                       'geographic_location', 'host_common_name', 'host_subject_id',
-                                       'host_health_state', 'host_sex', 'host_scientific_name',
-                                       'collector_name', 'collecting_institution', 'isolate',
+                                       'taxon_id', 'sample_description', 'collection date',
+                                       'geographic location (country and/or sea)', 'host common name', 'host subject id',
+                                       'host health state', 'host sex', 'host scientific name',
+                                       'collector name', 'collecting institution', 'isolate',
                                        'submission_date']) + '\n')
     else:
         samples_table.write('\t'.join(['alias', 'status', 'accession', 'title', 'scientific_name',
