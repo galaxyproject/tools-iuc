@@ -14,37 +14,41 @@ import requests
 
 def get_model_list(
     existing_release_tags,
-    url="https://api.github.com/repos/cov-lineages/pangoLEARN/releases",
+    url="https://api.github.com/repos/cov-lineages/pangoLEARN/releases"
 ):
-    response = requests.get(url)
-    if response.status_code == 200:
-        release_list = json.loads(response.text)
-        release_info = [
-            dict(
-                tag_name=e["tag_name"],
-                name=e["name"],
-                date=parse_date(e["tag_name"]),
-                tarball_url=e["tarball_url"],
-            )
-            for e in release_list
-            if e["tag_name"] not in existing_release_tags
-            and not e["prerelease"]
-        ]
-        return release_info
-    else:
-        response.raise_for_status()
+    page_num = 0
+    while True:
+        page_num += 1
+        response = requests.get(url + f'?page={page_num}')
+        if response.status_code == 200:
+            release_list_chunk = json.loads(response.text)
+            if not release_list_chunk:
+                # past the last page of results
+                return
+            for e in release_list_chunk:
+                if e["tag_name"] in existing_release_tags:
+                    continue
+                if e["prerelease"]:
+                    continue
+                yield dict(
+                    tag_name=e["tag_name"],
+                    name=e["name"],
+                    date=parse_date(e["tag_name"]),
+                    tarball_url=e["tarball_url"],
+                )
+        else:
+            response.raise_for_status()
 
 
 def filter_by_date(existing_release_tags, start_date=None, end_date=None):
-    release_list = get_model_list(existing_release_tags)
-    return [
-        element
-        for element in release_list
-        if not (
-            (end_date is not None and element["date"] > end_date)
-            or (start_date is not None and element["date"] < start_date)
-        )
-    ]
+    ret = []
+    for release in get_model_list(existing_release_tags):
+        if start_date and release["date"] < start_date:
+            break
+        if not end_date or release["date"] <= end_date:
+            ret.append(release)
+
+    return ret
 
 
 def download_and_unpack(url, output_directory):
@@ -117,7 +121,7 @@ if __name__ == "__main__":
     else:
         existing_release_tags = set()
     if args.latest:
-        releases = [get_model_list(existing_release_tags)[0]]
+        releases = [next(get_model_list(existing_release_tags))]
     else:
         releases = filter_by_date(
             existing_release_tags, start_date=args.start_date, end_date=args.end_date
