@@ -12,21 +12,6 @@ import tarfile
 import requests
 
 
-def extract_date(tag_str):
-    parts = tag_str.split("_")
-    assert len(parts) < 3, "expected maximum of two parts, got " + str(parts)
-    # there are tags like: 2021-07-07-2
-    parts[0] = "-".join(parts[0].split("-")[:3])
-    tag_date = datetime.datetime.strptime(parts[0], "%Y-%m-%d")
-    if len(parts) == 2:
-        version = int(parts[1])
-        assert (
-            version < 24 * 60
-        )  # because the code stores versions as minutes of the day, it can't handle versions > 1440
-        tag_date += datetime.timedelta(minutes=version)
-    return tag_date
-
-
 def get_model_list(
     existing_release_tags,
     url="https://api.github.com/repos/cov-lineages/pangoLEARN/releases",
@@ -38,11 +23,12 @@ def get_model_list(
             dict(
                 tag_name=e["tag_name"],
                 name=e["name"],
-                date=extract_date(e["tag_name"]),
+                date=parse_date(e["tag_name"]),
                 tarball_url=e["tarball_url"],
             )
             for e in release_list
             if e["tag_name"] not in existing_release_tags
+            and not e["prerelease"]
         ]
         return release_info
     else:
@@ -84,7 +70,9 @@ def download_and_unpack(url, output_directory):
 
 
 def parse_date(d):
-    return datetime.datetime.strptime(d, "%Y-%m-%d")
+    # Tries to parse the first 10 chars of d as a date, which currently
+    # succeeds for all pangolearn model releases.
+    return datetime.datetime.strptime(d[:10], "%Y-%m-%d")
 
 
 if __name__ == "__main__":
@@ -101,9 +89,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.testmode:
-        releases = filter_by_date(start_date=args.start_date, end_date=args.end_date)
+        releases = filter_by_date([], start_date=args.start_date, end_date=args.end_date)
         for release in releases:
-            print(release["tag_name"], release["tarball_url"].split("/")[-1])
+            print(release["tag_name"], release["tarball_url"].split("/")[-1], release["date"])
         sys.exit(0)
 
     with open(args.galaxy_datamanager_filename) as fh:
@@ -140,22 +128,21 @@ if __name__ == "__main__":
         if release["tag_name"] not in existing_release_tags
     ]
     for release in releases_to_download:
-        tag = download_and_unpack(release["tarball_url"], output_directory)
-        release_date = parse_date(tag)
+        fname = download_and_unpack(release["tarball_url"], output_directory)
         if args.pangolearn_format_version is not None:
             version = args.pangolearn_format_version
         else:
             # 2021-05-27 was the first release of pangoLEARN for pangolin 3, which changed DB format
-            if release_date >= datetime.datetime(2021, 5, 27):
+            if release["date"] >= datetime.datetime(2021, 5, 27):
                 version = '3.0'
             else:
                 version = '1.0'
         data_manager_dict["data_tables"][args.datatable_name].append(
             dict(
-                value=tag,
+                value=release["tag_name"],
                 description=release["name"],
                 format_version=version,
-                path=output_directory + "/" + tag,
+                path=output_directory + "/" + fname,
             )
         )
     data_manager_dict["data_tables"][args.datatable_name].sort(
