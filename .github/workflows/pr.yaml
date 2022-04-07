@@ -2,10 +2,13 @@ name: Galaxy Tool Linting and Tests for push and PR
 on: [push, pull_request]
 env:
   GALAXY_FORK: galaxyproject
-  GALAXY_BRANCH: release_21.05
+  GALAXY_BRANCH: release_22.01
   MAX_CHUNKS: 4
+  MAX_FILE_SIZE: 1M
 concurrency:
-  group: pr-${{ github.ref }}
+  # Group runs by PR, but keep runs on the default branch separate
+  # because we do not want to cancel ToolShed uploads
+  group: pr-${{ (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.run_number || github.ref }}
   cancel-in-progress: true
 jobs:
   # the setup job does two things:
@@ -24,6 +27,7 @@ jobs:
       tool-list: ${{ steps.discover.outputs.tool-list }}
       chunk-count: ${{ steps.discover.outputs.chunk-count }}
       chunk-list: ${{ steps.discover.outputs.chunk-list }}
+      commit-range: ${{ steps.discover.outputs.commit-range }}
     strategy:
       matrix:
         python-version: ['3.7']
@@ -94,8 +98,6 @@ jobs:
       matrix:
         python-version: ['3.7']
     steps:
-    # checkout the repository
-    # and use it as the current working directory
     - uses: actions/checkout@v2
       with:
         fetch-depth: 1
@@ -213,6 +215,33 @@ jobs:
         name: 'R linting output'
         path: rlint_report.txt
 
+  file_sizes:
+    name: Check file sizes
+    needs: setup
+    if: ${{ github.event_name == 'pull_request' && needs.setup.outputs.repository-list != '' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Check file sizes
+      run: |
+        touch file_size_report.txt
+        git diff --diff-filter=d --name-only ${{ needs.setup.outputs.commit-range }} > git.diff
+        while read line; do
+          find "$line" -type f -size +${{ env.MAX_FILE_SIZE }} >> file_size_report.txt
+        done < git.diff
+        if [[ -s file_size_report.txt ]]; then
+          echo "Files larger than ${{ env.MAX_FILE_SIZE }} found"
+          cat file_size_report.txt
+          exit 1
+        fi
+    - uses: actions/upload-artifact@v2
+      if: ${{ failure() }}
+      with:
+        name: 'File size report'
+        path: file_size_report.txt
+
   # Planemo test the changed repositories, each chunk creates an artifact
   # containing HTML and JSON reports for the executed tests
   test:
@@ -235,8 +264,6 @@ jobs:
         ports:
           - 5432:5432
     steps:
-    # checkout the repository
-    # and use it as the current working directory
     - uses: actions/checkout@v2
       with:
         fetch-depth: 1
@@ -352,7 +379,7 @@ jobs:
 
   determine-success:
     name: Check workflow success
-    needs: [setup, lint, flake8, lintr, combine_outputs]
+    needs: [setup, lint, flake8, lintr, file_sizes, combine_outputs]
     if: ${{ always() && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
@@ -364,6 +391,9 @@ jobs:
       run: exit 1
     - name: Indicate R script lint status
       if: ${{ needs.lintr.result != 'success' && needs.lintr.result != 'skipped' }}
+      run: exit 1
+    - name: Indicate file size check status
+      if: ${{ needs.file_sizes.result != 'success' && needs.file_sizes.result != 'skipped' }}
       run: exit 1
     - name: Check tool test status
       if: ${{ needs.combine_outputs.result != 'success' && needs.combine_outputs.result != 'skipped' }}
