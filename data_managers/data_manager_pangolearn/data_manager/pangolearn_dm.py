@@ -51,7 +51,7 @@ def filter_by_date(existing_release_tags, start_date=None, end_date=None):
     return ret
 
 
-def download_and_unpack(url, output_directory):
+def download_and_unpack(url, output_directory, v3datatree=True):
     response = requests.get(url)
     if response.status_code == 200:
         tmp_filename = url.split("/")[-1]
@@ -60,14 +60,47 @@ def download_and_unpack(url, output_directory):
         tmpfile.close()
         shutil.copy(tmp_filename, "/tmp")
         tf = tarfile.open(tmp_filename)
-        pl_path = tf.next().name
+        pl_path = os.path.join(output_directory, tf.next().name)
         tf.extractall(output_directory)
         os.unlink(tmp_filename)
+        pangolearn_unpacked_dir = os.path.join(pl_path, "pangoLEARN")
+        if v3datatree:
+            # pangolin v3 expects a datadir with the entire pangoLEARN
+            # subfolder in it.
+            # In addition, it will only use the data if the __init__.py file
+            # contained within that subfolder declares a __version__ that is
+            # newer than the version installed with pangolin.
+            pangolearn_dir = os.path.join(
+                output_directory, tmp_filename, "pangoLEARN"
+            )
+            os.mkdir(os.path.dirname(pangolearn_dir))
+            # rewrite the __init__.py file and make the __version__ string
+            # appear newer than anything that might come with pangolin by
+            # prepending a "v" to it.
+            pangolearn_init = open(
+                os.path.join(pangolearn_unpacked_dir, "__init__.py")
+            ).readlines()
+            with open(
+                os.path.join(pangolearn_unpacked_dir, "__init__.py"), "w"
+            ) as o:
+                for line in pangolearn_init:
+                    if line.startswith('__version__ = "'):
+                        line = line.replace(
+                            '__version__ = "', '__version__ = "v'
+                        )
+                    o.write(line)
+        else:
+            # Earlier versions of pangolin expect a datadir with just the
+            # contents of the downloaded pangoLEARN subfolder in it and don't
+            # care about the declared version in __init__.py.
+            pangolearn_dir = os.path.join(
+                output_directory, tmp_filename
+            )
         os.rename(
-            output_directory + "/" + pl_path + "/" + "pangoLEARN",
-            output_directory + "/" + tmp_filename,
+            pangolearn_unpacked_dir,
+            pangolearn_dir
         )
-        shutil.rmtree(output_directory + "/" + pl_path)
+        shutil.rmtree(pl_path)
         return tmp_filename
     else:
         response.raise_for_status()
@@ -132,7 +165,6 @@ if __name__ == "__main__":
         if release["tag_name"] not in existing_release_tags
     ]
     for release in releases_to_download:
-        fname = download_and_unpack(release["tarball_url"], output_directory)
         if args.pangolearn_format_version is not None:
             version = args.pangolearn_format_version
         else:
@@ -141,6 +173,11 @@ if __name__ == "__main__":
                 version = '3.0'
             else:
                 version = '1.0'
+        fname = download_and_unpack(
+            release["tarball_url"],
+            output_directory,
+            v3datatree=version == '3.0'
+        )
         data_manager_dict["data_tables"][args.datatable_name].append(
             dict(
                 value=release["tag_name"],
