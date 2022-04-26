@@ -2,6 +2,12 @@
     <description>detect gene fusions from STAR aligned RNA-Seq data</description>
     <macros>
         <import>macros.xml</import>
+        <xml name="fusion_actions">
+            <actions>
+                <action name="comment_lines" type="metadata" default="1" />
+                <action name="column_names" type="metadata" default="gene1,gene2,strand1(gene/fusion),strand2(gene/fusion),breakpoint1,breakpoint2,site1,site2,type,split_reads1,split_reads2,discordant_mates,coverage1,coverage2,confidence,reading_frame,tags,retained_protein_domains,closest_genomic_breakpoint1,closest_genomic_breakpoint2,gene_id1,gene_id2,transcript_id1,transcript_id2,direction1,direction2,filters,fusion_transcript,peptide_sequence,read_identifiers" />
+            </actions>
+        </xml>
     </macros>
     <expand macro="requirements" />
     <expand macro="version_command" />
@@ -39,6 +45,31 @@
     #else 
         #set $star_index_dir = $input_params.index.arriba_ref.fields.star_index
     #end if
+    #if $blacklist
+        #if $blacklist.is_of_type('tabular.gz')
+            #set $blacklist_file = 'blacklist.tsv.gz'
+            ln -sf '$blacklist'  $blacklist_file &&
+        #else
+            #set $blacklist_file = $blacklist
+        #end if
+    #end if
+    #if $known_fusions
+        #if $known_fusions.is_of_type('tabular.gz')
+            #set $known_fusions_file = 'known_fusions.tsv.gz'
+            ln -sf '$known_fusions'  $known_fusions_file &&
+        #else
+            #set $known_fusions_file = $known_fusions
+        #end if
+    #end if
+    #if $tags
+        #if $tags.is_of_type('tabular.gz')
+            #set $tags_file = 'tags.tsv.gz'
+            ln -sf '$tags'  $tags_file &&
+        #else
+            #set $tags_file = $tags
+        #end if
+    #end if
+
     STAR 
     --runThreadN \${GALAXY_SLOTS:-1} 
     --genomeDir $star_index_dir
@@ -74,7 +105,7 @@
     -a '$genome_assembly'
     -g '$genome_annotation'
     #if $blacklist
-        -b '$blacklist'
+        -b '$blacklist_file'
     #else
         -f 'blacklist'
     #end if
@@ -82,10 +113,10 @@
         -p '$protein_domains'
     #end if
     #if $known_fusions
-        -k '$known_fusions'
+        -k '$known_fusions_file'
     #end if
     #if $tags
-        -t '$tags'
+        -t '$tags_file'
     #end if
     #if str($wgs.use_wgs) == "yes"
         -d '$wgs.wgs'
@@ -177,9 +208,16 @@
     && samtools sort -@ \${GALAXY_SLOTS:-1} -m 4G -T tmp -O bam '$input_params.input' > Aligned.sortedByCoord.out.bam
     && samtools index Aligned.sortedByCoord.out.bam
 #end if
+#if $output_fusions_vcf
+    && convert_fusions_to_vcf.sh '$genome_assembly' fusions.tsv fusions.vcf
+#end if
+#if $output_fusion_bams
+    && mkdir fusion_bams 
+    && extract_fusion-supporting_alignments.sh fusions.tsv Aligned.sortedByCoord.out.bam 'fusion_bams/fusion'
+#end if
 #if str($visualization.do_viz) == "yes"
-#set $fusions = 'fusions.tsv'
-&& @DRAW_FUSIONS@
+    #set $fusions = 'fusions.tsv'
+    && @DRAW_FUSIONS@
 #end if
     ]]></command>
     <inputs>
@@ -189,7 +227,9 @@
                 <option value="use_fastq">Let Arriba control running STAR</option>
             </param>
             <when value="use_star">
-                <param name="input" argument="-x" type="data" format="sam,bam,cram" label="STAR Aligned.out.sam"/>
+                <param name="input" argument="-x" type="data" format="sam,bam,cram" label="STAR Aligned.out.sam">
+                    <help><![CDATA[ recommended STAR options: --chimSegmentMin 10 --chimOutType WithinBAM ]]></help>
+                </param>
                 <param name="chimeric" argument="-c" type="data" format="sam,bam,cram" optional="true" label="STAR Chimeric.out.sam">
                     <help><![CDATA[ only required, if STAR was run with the parameter '--chimOutType SeparateSAMold' ]]></help>
                 </param>
@@ -423,6 +463,8 @@
             </param>
         </section>
         <param name="output_fusions_discarded" argument="-O" type="boolean" truevalue="yes" falsevalue="no" checked="true" label="Output fusions.discarded.tsv"/>
+        <param name="output_fusions_vcf" type="boolean" truevalue="yes" falsevalue="no" checked="true" label="Output fusions.vcf"/>
+        <param name="output_fusion_bams" type="boolean" truevalue="yes" falsevalue="no" checked="false" label="Output fusion BAMs"/>
         <conditional name="visualization">
             <param name="do_viz" type="select" label="Generate visualization">
                 <option value="yes">Yes</option>
@@ -433,13 +475,23 @@
             </when>
             <when value="no"/>
         </conditional>
-
     </inputs>
     <outputs>
-        <data name="fusions_tsv" format="tabular" label="${tool.name} on ${on_string}: fusions.tsv" from_work_dir="fusions.tsv"/>
+        <data name="fusions_tsv" format="tabular" label="${tool.name} on ${on_string}: fusions.tsv" from_work_dir="fusions.tsv">
+            <expand macro="fusion_actions" />
+        </data> 
+
         <data name="discarded_fusions_tsv" format="tabular" label="${tool.name} on ${on_string}: fusions.discarded.tsv" from_work_dir="fusions.discarded.tsv">
             <filter> output_fusions_discarded == True</filter>
+            <expand macro="fusion_actions" />
         </data> 
+        <data name="fusions_vcf" format="vcf" label="${tool.name} on ${on_string}: fusions.vcf" from_work_dir="fusions.vcf">
+            <filter> output_fusions_vcf == True</filter>
+        </data> 
+        <collection name="fusion_bams" type="list" label="${tool.name} on ${on_string}: Fusion Alignments">
+            <discover_datasets pattern="(?P&lt;name&gt;fusion_\d+\.bam)$" format="bam" directory="fusion_bams" visible="false"/>
+            <filter>output_fusion_bams == True</filter>
+        </collection>
         <data name="aligned_bam" format="bam" label="${tool.name} on ${on_string}: Aligned.bam" from_work_dir="Aligned.sortedByCoord.out.bam">
             <filter>input_params['input_source'] == "use_fastq"</filter>
         </data> 
@@ -471,7 +523,6 @@
             </output>
         </test>
         <!-- Test 2 - From exisitng BAM with protein_domains and visualization -->
-
         <test> 
             <conditional name="input_params">
                 <param name="input_source" value="use_star"/>
@@ -536,6 +587,28 @@ See:  https://arriba.readthedocs.io/en/latest/input-files/
   - Alignments
 
     Arriba takes the main output file of STAR (Aligned.out.bam) as input (parameter -x). If STAR was run with the parameter --chimOutType WithinBAM, then this file contains all the information needed by Arriba to find fusions. When STAR was run with the parameter --chimOutType SeparateSAMold, the main output file lacks chimeric alignments. Instead, STAR writes them to a separate output file named Chimeric.out.sam. In this case, the file needs to be passed to Arriba via the parameter -c in addition to the main output file Aligned.out.bam.
+
+    STAR index create recommended parameter value:
+
+        * --sjdbOverhang 250
+
+
+    STAR recommended parameter values ::
+
+        * --outSAMunmapped Within
+        * --outFilterMultimapNmax 50
+        * --peOverlapNbasesMin 10
+        * --alignSplicedMateMapLminOverLmate 0.5
+        * --alignSJstitchMismatchNmax 5 -1 5 5
+        * --chimSegmentMin 10
+        * --chimOutType WithinBAM HardClip
+        * --chimJunctionOverhangMin 10
+        * --chimScoreDropMax 30
+        * --chimScoreJunctionNonGTAG 0
+        * --chimScoreSeparation 1
+        * --chimSegmentReadGapMax 3
+        * --chimMultimapNmax 50
+
 
     Arriba extracts three types of reads from the alignment file(s):
 
