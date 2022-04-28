@@ -8,17 +8,24 @@
     <command detect_errors="exit_code"><![CDATA[
 #import re
 
-#set read1 = $input_type_cond.read1
+#if $input_type_cond.input_type in ['single', 'pair', 'interleaved']:
+    #set read1 = $input_type_cond.read1
+    #if $input_type_cond.input_type == 'pair':
+        #set read2 = $input_type_cond.read2
+    #end if
+#else:
+    #set read1 = $input_type_cond.reads_collection['forward']
+    #set read2 = $input_type_cond.reads_collection['reverse']
+#end if
+
 #set read_ext = '.fastq'
 #if $read1.ext.endswith('.gz'):
     #set read_ext = $read_ext + '.gz'
 #end if
-
 #set read1_identifier = 'read1' + $read_ext
 ln -s '${read1}' '${read1_identifier}' &&
 
-#if str($input_type_cond.input_type) == 'pair':
-    #set read2 = $input_type_cond.read2
+#if $input_type_cond.input_type in ["pair", "paired"]:
     #set read2_identifier = 'read2' + $read_ext
     ln -s '${read2}' '${read2_identifier}' &&
 #end if
@@ -32,7 +39,7 @@ AdapterRemoval
         --interleaved-output '$output_interleaved_truncated'
     #end if
     $input_type_cond.combined_output
-#else if str($input_type_cond.input_type) == 'pair':
+#else if str($input_type_cond.input_type) in ['pair', 'paired']:
     --file2 '${read2_identifier}'
     $input_type_cond.identify_adapters
     #if str($input_type_cond.interleaved_output) == 'yes':
@@ -84,7 +91,7 @@ $fastq_merging_options.collapse_conservatively
 --settings '$output_settings'
 #if str($input_type_cond.input_type) == 'single':
     --output1 '$output_truncated'
-#else if str($input_type_cond.input_type) == 'pair':
+#else if str($input_type_cond.input_type) in ['pair', 'paired']:
     #if str($input_type_cond.interleaved_output) == 'no':
         --output1 '$output_forward_truncated'
         --output2 '$output_reverse_truncated'
@@ -111,7 +118,8 @@ $fastq_merging_options.collapse_conservatively
         <conditional name="input_type_cond">
             <param name="input_type" type="select" label="Choose the category of the reads files to be analyzed">
                 <option value="single" selected="true">Single dataset containing reads</option>
-                <option value="pair">Dataset pair of forward and reverse reads</option>
+                <option value="pair">Pair of forward and reverse reads in separate datasets</option>
+                <option value="paired">Collection of paired reads</option>
                 <option value="interleaved">Single dataset in which pairs of reads are written one after the other</option>
             </param>
             <when value="single">
@@ -120,7 +128,13 @@ $fastq_merging_options.collapse_conservatively
             <when value="pair">
                 <param name="read1" type="data" format="fasta,fasta.gz,fastqsanger.gz,fastqsanger" label="Forward read file"/>
                 <param name="read2" type="data" format="fasta,fasta.gz,fastqsanger.gz,fastqsanger" label="Reverse read file"/>
-                <param argument="--identify_adapters" type="boolean" truevalue="--identify-adapters" falsevalue="" checked="false" label="Attempt to build a consensus adapter sequence from fully overlapping pairs of paired-end reads?" help="No trimming is performed in this mode"/>
+                <expand macro="identify_adapters_param"/>
+                <expand macro="interleaved_output_param"/>
+                <expand macro="combined_output_param"/>
+            </when>
+            <when value="paired">
+                <param name="reads_collection" type="data_collection" format="fasta,fasta.gz,fastqsanger.gz,fastqsanger" collection_type="paired" label="Collection of fastqsanger paired read files"/>
+                <expand macro="identify_adapters_param"/>
                 <expand macro="interleaved_output_param"/>
                 <expand macro="combined_output_param"/>
             </when>
@@ -218,13 +232,13 @@ $fastq_merging_options.collapse_conservatively
             <filter>input_type_cond['input_type'] == 'single'</filter>
         </data>
         <data name="output_forward_truncated" format="fastqsanger" label="${tool.name} on ${on_string} (forward truncated)">
-            <filter>input_type_cond['input_type'] == 'pair' and input_type_cond['interleaved_output'] == 'no'</filter>
+            <filter>input_type_cond['input_type'] in ['pair', 'paired'] and input_type_cond['interleaved_output'] == 'no'</filter>
         </data>
         <data name="output_reverse_truncated" format="fastqsanger" label="${tool.name} on ${on_string} (reverse truncated)">
-            <filter>input_type_cond['input_type'] == 'pair' and input_type_cond['interleaved_output'] == 'no'</filter>
+            <filter>input_type_cond['input_type'] in ['pair', 'paired'] and input_type_cond['interleaved_output'] == 'no'</filter>
         </data>
         <data name="output_interleaved_truncated" format="fastqsanger" label="${tool.name} on ${on_string} (interleaved truncated)">
-            <filter>input_type_cond['input_type'] == 'pair' and input_type_cond['interleaved_output'] == 'yes'</filter>
+            <filter>input_type_cond['input_type'] in ['pair', 'paired'] and input_type_cond['interleaved_output'] == 'yes'</filter>
         </data>
         <data name="output_singleton_truncated" format="fastqsanger" label="${tool.name} on ${on_string} (singleton truncated)">
             <filter>'output_singleton' in output_select</filter>
@@ -310,6 +324,40 @@ $fastq_merging_options.collapse_conservatively
                 </assert_contents>
                 <assert_contents>
                     <has_text text="@read_150_1/1"/>
+                </assert_contents>
+            </output>
+       </test>
+        <!-- Collection of dataset pairs input, all defaults -->
+        <test expect_num_outputs="3">
+            <param name="input_type" value="paired"/>
+            <param name="reads_collection">
+                <collection type="paired">
+                    <element name="forward" ftype="fastqsanger.gz" value="reads1.fastq.gz"/>
+                    <element name="reverse" ftype="fastqsanger.gz" value="reads2.fastq.gz"/>
+                </collection>
+            </param>
+            <output name="output_settings" ftype="txt">
+                <assert_contents>
+                    <has_size value="2594" delta="10"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="AdapterRemoval"/>
+                </assert_contents>
+            </output>
+            <output name="output_forward_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="101161"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_1/1"/>
+                </assert_contents>
+            </output>
+            <output name="output_reverse_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="101161"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_1/2"/>
                 </assert_contents>
             </output>
        </test>
