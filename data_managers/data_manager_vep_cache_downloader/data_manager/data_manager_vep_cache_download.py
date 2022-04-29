@@ -3,9 +3,9 @@
 import json
 import os
 import re
-from urllib.request import urlretrieve
 import sys
 import tarfile
+from urllib.request import urlretrieve
 
 
 def main():
