@@ -1,4 +1,4 @@
-<tool id="pangolin" name="Pangolin" version="@TOOL_VERSION@+galaxy0" profile="20.01">
+<tool id="pangolin" name="Pangolin" version="@TOOL_VERSION@+galaxy1" profile="20.01">
     <description>Phylogenetic Assignment of Outbreak Lineages</description>
     <macros>
         <token name="@TOOL_VERSION@">4.0.5</token>
@@ -10,12 +10,32 @@
     </requirements>
     <version_command><![CDATA[pangolin --version]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
+      #if $engine.use_assignment_cache and str($db.source) != "download":
+        ## This is no good. Better to fail immediately instead of downloading a lot of data first.
+        echo "Using the latest assignment cache requires downloading the latest version of pangolin-data." 1>&2; exit 1
+      #else:
+        ## Sanity chceck was ok, lets do the real thing ...
         #if str($db.source) == "download"
             ## Pangolin version 4 tries to update from an existing directory
             mkdir datadir &&
             pangolin --update-data --datadir datadir &&
         #else if str($db.source) == "builtin"
             ln -s $db.db_release.fields.path datadir &&
+        #end if
+        #if $engine.use_assignment_cache:
+            ## We need to install also the latest UShER assignment cache data.
+            ## Pangolin has functionality to do so, but uses it incorrectly.
+            ## We use the pangolin function to install into --datadir here,
+            ## then point pangolin to the downloaded file later using
+            ## its --assignment-cache parameter
+
+            ## Create a "honeypot" package that will be picked up by pangolin,
+            ## but will trigger a download because of missing __version__ info.
+            mkdir pangolin_assignment &&
+            touch pangolin_assignment/__init__.py &&
+            ## Call pangolin's assignment cache install function, but
+            ## override pip's install path
+            PIP_TARGET="datadir" PIP_UPGRADE=1 python -c "from pangolin.utils import update; update.install_pangolin_assignment()" &&
         #end if
         pangolin
         --threads \${GALAXY_SLOTS:-1}
@@ -26,20 +46,25 @@
         --analysis-mode $engine.analysis_mode
         #if str($engine.analysis_mode) == 'usher':
             $engine.use_assignment_cache
+            #if $engine.use_assignment_cache:
+                ## Point pangolin to the assignment cache file we've downloaded before
+                --assignment-cache datadir/pangolin_assignment/usher_assignments.cache.csv.gz
+            #end if
         #end if
         #if $alignment:
             $alignment --alignment-file '$align1'
         #end if
-        --outfile report.csv 
+        --outfile report.csv
         --max-ambig $max_ambig
         --min-length $min_length
         $expanded_lineage
         '$input1'
         && csvtk csv2tab report.csv
         #if not $include_header:
-            | tail -n+2 
+            | tail -n+2
         #end if
         > '$output1'
+      #end if
     ]]></command>
     <inputs>
         <param type="data" name="input1" format="fasta" label="Input FASTA File(s)" />
@@ -50,8 +75,8 @@
                 <option value="pangolearn">pangoLEARN</option>
             </param>
             <when value="usher">
-                <param argument="--use-assignment-cache" type="boolean" truevalue="--add-assignment-cache --use-assignment-cache" falsevalue="" label="Use latest UShER assignment cache"
-                help="Get the latest UShER assignment cache from the pangolin-assignment online repository and use it to speed up UShER lineage assignment. Note: Downloading the cached assignments will only pay off for large numbers of input samples. Also note that using the latest assignment cache in combination with the built-in or a cached pangolin-data source (see option below), will make your otherwise reproducible results dependent on an external data source." />
+                <param argument="--use-assignment-cache" type="boolean" truevalue="--use-assignment-cache" falsevalue="" label="Use latest UShER assignment cache"
+                help="Get the latest UShER assignment cache from the pangolin-assignment online repository and use it to speed up UShER lineage assignment. Note: Downloading the cached assignments will only pay off for large numbers of input samples. Also note that using the latest assignment cache will require you to select the 'Download latest from web' option for the pangolin-data source below because assignment cache and pangolin-data need to be synchronized." />
             </when>
             <when value="pangolearn" />
         </conditional>
