@@ -144,7 +144,7 @@ def get_statistics(fastq_file, seqkit_stats_file, seqkit_fx2tab_file):
             avg_sum += float(items[3])
     read_quality_average = "{:.2f}".format(avg_sum / float(i - 1))
     return Statistics(file_name, file_size, seq_type, num_seqs, sum_len, min_len, avg_len,
-                      max_len,q1, q2, q3, sum_gap, n50, pass_q20, pass_q30, read_quality_average)
+                      max_len, q1, q2, q3, sum_gap, n50, pass_q20, pass_q30, read_quality_average)
 
 
 parser = argparse.ArgumentParser()
