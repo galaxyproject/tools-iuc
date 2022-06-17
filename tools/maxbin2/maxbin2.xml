@@ -5,6 +5,19 @@
     </xrefs>
     <macros>
         <token name="@MAXBIN_VERSION@">2.2.7</token>
+        <xml name="contig">
+            <param argument="-contig" type="data" format="fasta,fasta.gz" label="Contig file"/>
+        </xml>
+        <xml name="input_type">
+            <param name="type" type="select" label="Input type">
+                <option value="reads" selected="true">Sequencing Reads</option>
+                <option value="abund">Abundances</option>
+            </param>
+        </xml>
+        <xml name="reads_extra_params">
+            <param name="output_abundances" type="boolean" checked="false" label="Output abundances" help="" />
+            <param argument="--reassembly" type="boolean" truevalue="-reassembly" falsevalue="" checked="false" label="Reassembly" help="Reassembly option is still highly experimental. To use this function, you need to feed MaxBin interleaved paired-end fastq or fasta file." />
+        </xml>
     </macros>
     <requirements>
         <requirement type="package" version="@MAXBIN_VERSION@">maxbin2</requirement>
@@ -12,20 +25,32 @@
     <version_command><![CDATA[run_MaxBin.pl -version | head -n 1]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
 ## generate read or abundance files
-#if $inputs.type == 'reads'
-    #for $i, $s in enumerate($inputs.reads)
-echo '$s.reads' >> reads_list &&
-    #end for
-#else if $inputs.type == 'abund'
-    #for $i, $s in enumerate($inputs.abund)
-echo '$s.abund' >> abund_list &&
-    #end for
+#if $assembly.inputs.type == 'reads'
+    #if $assembly.type == 'individual'
+echo '$assembly.inputs.reads' >> reads_list &&
+    #else
+        #for $r in $assembly.inputs.reads
+            #if $r
+echo '$r' >> reads_list &&
+            #end if
+        #end for
+    #end if
+#else if $assembly.inputs.type == 'abund'
+    #if $assembly.type == 'individual'
+echo '$assembly.inputs.abund' >> abund_list &&
+    #else
+        #for $a in $assembly.inputs.abund
+            #if $a
+echo '$a' >> abund_list &&
+            #end if
+        #end for
+    #end if
 #end if
 
 ## in case of reassembly the IBDA out and err is appended
 ## to differentiate this a header is added also befor the
 ## MaxBin2 outputs
-#if $inputs.type == 'reads' and $inputs.reassembly != ""
+#if $assembly.inputs.type == 'reads' and $assembly.inputs.reassembly != ""
 echo "==== MaxBin2 stdout ====" &&
 echo "==== MaxBin2 stderr ====" 1>&2 &&
 #end if
@@ -33,10 +58,10 @@ echo "==== MaxBin2 stderr ====" 1>&2 &&
 run_MaxBin.pl
     -contig '$contig'
     -out out
-#if $inputs.type == 'reads':
+#if $assembly.inputs.type == 'reads':
     -reads_list reads_list
-    $inputs.reassembly
-#else if $inputs.type == 'abund':
+    $assembly.inputs.reassembly
+#else if $assembly.inputs.type == 'abund':
     -abund_list abund_list
 #end if
     -min_contig_length $adv.min_contig_length
@@ -51,7 +76,7 @@ run_MaxBin.pl
 ## redirect the idba out and err file content to stdout and err
 ## since this is also wanted in case the error case ';' is used here to
 ## separate commands
-#if $inputs.type == 'reads' and $inputs.reassembly != ""
+#if $assembly.inputs.type == 'reads' and $assembly.inputs.reassembly != ""
 ; echo "==== IDBA stdout ===="
 && if [[ -f out.idba.out ]]; then cat out.idba.out; fi
 && echo "==== IDBA stderr ====" 1>&2
@@ -59,23 +84,35 @@ run_MaxBin.pl
 #end if
     ]]></command>
     <inputs>
-        <param argument="-contig" type="data" format="fasta,fasta.gz" label="Contig file"/>
-        <conditional name="inputs">
-            <param name="type" type="select" label="Input type">
-                <option value="reads" selected="true">Sequencing Reads</option>
-                <option value="abund">Abundances</option>
+        <expand macro="contig"/>
+        <conditional name="assembly">
+            <param name="type" type="select" label="Assembly type used to generate contig(s)">
+                <option value="individual">Assembly of sample(s) one by one (individual assembly)</option>
+                <option value="coassembly">Assembly of different samples together (co-assembly)</option>
             </param>
-            <when value="reads">
-                <repeat name="reads" title="Reads files">
-                    <param argument="-reads" type="data" format="fasta,fastq" label="Reads file"/>
-                </repeat>
-                <param name="output_abundances" type="boolean" checked="false" label="Output abundances" help="" />
-                <param argument="--reassembly" type="boolean" truevalue="-reassembly" falsevalue="" checked="false" label="Reassembly" help="Reassembly option is still highly experimental. To use this function, you need to feed MaxBin interleaved paired-end fastq or fasta file." />
+            <when value="individual">
+                <conditional name="inputs">
+                    <expand macro="input_type"/>
+                    <when value="reads">
+                        <param argument="-reads" type="data" format="fasta,fastq" label="Reads file"/>
+                        <expand macro="reads_extra_params"/>
+                    </when>
+                    <when value="abund">
+                        <param argument="-abund" type="data" format="tabular" label="Abundance file"/>
+                    </when>
+                </conditional>
             </when>
-            <when value="abund">
-                <repeat name="abund" title="Abundance files">
-                    <param argument="-abund" type="data" format="tabular" label="Abundance file"/>
-                </repeat>
+            <when value="coassembly">
+                <conditional name="inputs">
+                    <expand macro="input_type"/>
+                    <when value="reads">
+                        <param argument="-reads" type="data" multiple="true" format="fasta,fastq" label="Reads file(s)"/>
+                        <expand macro="reads_extra_params"/>
+                    </when>
+                    <when value="abund">
+                        <param argument="-abund" type="data" format="tabular" multiple="true" label="Abundance file(s)"/>
+                    </when>
+                </conditional>
             </when>
         </conditional>
         <section name="adv" title="Advanced options">
@@ -110,7 +147,7 @@ run_MaxBin.pl
             <filter>output['marker']</filter>
         </data>
         <data name="abundout" format="tabular" label="${tool.name} on ${on_string}: Abundances" from_work_dir="out.abund1">
-            <filter>inputs['type']=='reads' and inputs['output_abundances']</filter>
+            <filter>assembly['inputs']['type']=='reads' and assembly['inputs']['output_abundances']</filter>
         </data>
         <data name="plot" format="pdf" label="${tool.name} on ${on_string}: Marker gene presence plot" from_work_dir="out.marker.pdf">
             <filter>output['plotmarker']</filter>
@@ -122,30 +159,31 @@ run_MaxBin.pl
         <!-- additional output in case of reassembly -->
         <collection name="reassembly_bins" type="list" label="${tool.name} on ${on_string}: Reassembly bins">
             <discover_datasets directory="out.reassem" pattern="out.(?P&lt;designation&gt;[0-9]+).fasta" format="fasta" visible="false" />
-            <filter>inputs['type']=='reads' and inputs['reassembly']</filter>
+            <filter>assembly['inputs']['type']=='reads' and assembly['inputs']['reassembly']</filter>
         </collection>
         <collection name="reassembly_reads" type="list" label="${tool.name} on ${on_string}: Reassembly reads">
             <discover_datasets directory="out.reassem" pattern="out.reads.(?P&lt;designation&gt;[0-9]+)" format="fasta" visible="false" />
-            <filter>inputs['type']=='reads' and inputs['reassembly']</filter>
+            <filter>assembly['inputs']['type']=='reads' and assembly['inputs']['reassembly']</filter>
         </collection>
         <data name="reassembly_noclass" format="fasta" label="${tool.name} on ${on_string}: Reassembly unclassified sequences" from_work_dir="out.reassem/out.reads.noclass">
-            <filter>inputs['type']=='reads' and inputs['reassembly']</filter>
+            <filter>assembly['inputs']['type']=='reads' and assembly['inputs']['reassembly']</filter>
         </data>
         <data name="reassembly_n50" format="txt" label="${tool.name} on ${on_string}: Reassembly N50" from_work_dir="out.reassem/N50.txt">
-            <filter>inputs['type']=='reads' and inputs['reassembly']</filter>
+            <filter>assembly['inputs']['type']=='reads' and assembly['inputs']['reassembly']</filter>
         </data>
     </outputs>
     <tests>
         <!-- test w contigs and reads as input -->
         <test expect_num_outputs="4">
             <param name="contig" value="Bin_Sample3_contigs.fasta" ftype="fasta" />
-            <conditional name="inputs">
-                <param name="type" value="reads"/>
-                <repeat name="reads">
+            <conditional name="assembly">
+                <param name="type" value="individual"/>
+                <conditional name="inputs">
+                    <param name="type" value="reads"/>
                     <param name="reads" value="interleavedPE_unmapped_Sample3_small.fasta" ftype="fasta"/>
-                </repeat>
-                <param name="output_abundances" value="false"/>
-                <param name="reassembly" value=""/>
+                    <param name="output_abundances" value="false"/>
+                    <param name="reassembly" value=""/>
+                </conditional>
             </conditional>
             <section name="adv">
                 <param name="min_contig_length" value="1000"/>
@@ -167,16 +205,17 @@ run_MaxBin.pl
             <output name="noclass" file="1/out.noclass" ftype="fasta" />
             <output name="toshort" file="1/out.tooshort" ftype="fasta" />
         </test>
-        <!-- test w contigs and reads and optional outputs -->
+        <!-- test w co-assembled contigs and multiple reads and optional outputs -->
         <test expect_num_outputs="9">
             <param name="contig" value="Bin_Sample3_contigs.fasta" ftype="fasta" />
-            <conditional name="inputs">
-                <param name="type" value="reads"/>
-                <repeat name="reads">
-                    <param name="reads" value="interleavedPE_unmapped_Sample3_small.fasta" ftype="fasta"/>
-                </repeat>
-                <param name="output_abundances" value="true"/>
-                <param name="reassembly" value=""/>
+            <conditional name="assembly">
+                <param name="type" value="coassembly"/>
+                <conditional name="inputs">
+                    <param name="type" value="reads"/>
+                    <param name="reads" value="interleavedPE_unmapped_Sample3_small.fasta,interleavedPE_unmapped_Sample3_small.fasta" ftype="fasta"/>
+                    <param name="output_abundances" value="true"/>
+                    <param name="reassembly" value=""/>
+                </conditional>
             </conditional>
             <section name="adv">
                 <param name="min_contig_length" value="1000"/>
@@ -194,7 +233,12 @@ run_MaxBin.pl
                 <element name="001" file="1/out.001.fasta" ftype="fasta"/>
                 <element name="002" file="1/out.002.fasta" ftype="fasta"/>
             </output_collection>
-            <output name="summary" file="1/out.summary" ftype="tabular" />
+            <output name="summary" ftype="tabular">
+                <assert_contents>
+                    <has_text text="Completeness"/>
+                    <has_text text="out.001.fasta"/>
+                </assert_contents>
+            </output>
             <output name="noclass" file="1/out.noclass" ftype="fasta" />
             <output name="toshort" file="1/out.tooshort" ftype="fasta" />
             <output name="log" ftype="txt" >
@@ -214,11 +258,12 @@ run_MaxBin.pl
         <!--test w contigs and abundances as input + advanced options -->
         <test expect_num_outputs="5">
             <param name="contig" value="Bin_Sample3_contigs.fasta" ftype="fasta" />
-            <conditional name="inputs">
-                <param name="type" value="abund"/>
-                <repeat name="abund">
+            <conditional name="assembly">
+                <param name="type" value="individual"/>
+                <conditional name="inputs">
+                    <param name="type" value="abund"/>
                     <param name="abund" value="abundances.tsv" ftype="tabular"/>
-                </repeat>
+                </conditional>
             </conditional>
             <section name="adv">
                 <param name="min_contig_length" value="500"/>
@@ -244,13 +289,14 @@ run_MaxBin.pl
         <!-- test w contigs and reads as input + reassembly-->
         <test expect_num_outputs="8">
             <param name="contig" value="Bin_Sample3_contigs.fasta" ftype="fasta" />
-            <conditional name="inputs">
-                <param name="type" value="reads"/>
-                <repeat name="reads">
+            <conditional name="assembly">
+                <param name="type" value="individual"/>
+                <conditional name="inputs">
+                    <param name="type" value="reads"/>
                     <param name="reads" value="interleavedPE_unmapped_Sample3_small.fasta" ftype="fasta"/>
-                </repeat>
-                <param name="output_abundances" value="false"/>
-                <param name="reassembly" value="-reassembly"/>
+                    <param name="output_abundances" value="false"/>
+                    <param name="reassembly" value="-reassembly"/>
+                </conditional>
             </conditional>
             <section name="adv">
                 <param name="min_contig_length" value="1000"/>
