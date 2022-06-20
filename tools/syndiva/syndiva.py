@@ -15,20 +15,16 @@
 import math
 import re
 import subprocess
-
-import numpy
+import sys
 import matplotlib.pyplot as plot
-
+import numpy
 from args import Args
 from args import get_os_path_name
-from args import sys_exit
-
 from Bio import pairwise2
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.Seq import translate
 from Bio.SubsMat import MatrixInfo
-
 
 args = Args()
 # Variables initialization
@@ -344,11 +340,10 @@ for seq_record in SeqIO.parse(args.input, "fasta"):
 
 # If all sequences are invalid, the program will exit as there is no data to continue
 if not good_seq:
-    print("All sequences are invalid. At least 2 valid sequences are necessary to proceed to the next step. The program will now exit.")
-    sys_exit()
+    sys.exit("There is only one valid sequence among the input data. At least 2 valid sequences are necessary to proceed to the next step. The program will now exit")
 elif len(good_seq.keys()) == 1:
-    print("There is only one valid sequence among the input data. At least 2 valid sequences are necessary to proceed to the next step. The program will now exit")
-    sys_exit()
+
+    sys.exit("There is only one valid sequence among the input data. At least 2 valid sequences are necessary to proceed to the next step. The program will now exit")
 
 # Initialization of dict var_seq_common
 for n in range(nb_var_part):

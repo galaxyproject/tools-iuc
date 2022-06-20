@@ -3,11 +3,6 @@ import getopt
 import os
 import sys
 
-
-def sys_exit():
-    sys.exit()
-
-
 def usage(info) -> str:
     text = "SynDivA script.\n\n"
     if info:

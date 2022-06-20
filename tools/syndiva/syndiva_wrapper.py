@@ -36,15 +36,15 @@ def __main__():
     authorized_restriction_site_letter = ['A', 'T', 'G', 'C']
 
     if numpy.array([letter in authorized_pattern_letter for letter in pattern]).sum() < len(pattern):
-        stop_err('1- Pattern Error running SynDivA: Pattern character does not match any allowed characters')
+        sys.exit('1- Pattern Error running SynDivA: Pattern character does not match any allowed characters')
     if numpy.array([letter in authorized_restriction_site_letter for letter in restriction_site_5]).sum() < len(restriction_site_5):
-        stop_err('1- restriction site 5\' Error running SynDivA: restriction site 5\' character does not match any allowed characters')
+        sys.exit('1- restriction site 5\' Error running SynDivA: restriction site 5\' character does not match any allowed characters')
     if numpy.array([letter in authorized_restriction_site_letter for letter in restriction_site_3]).sum() < len(restriction_site_3):
-        stop_err('1- restriction site 3\' Error running SynDivA: restriction site 3\' character does not match any allowed characters')
+        sys.exit('1- restriction site 3\' Error running SynDivA: restriction site 3\' character does not match any allowed characters')
     try:  # for test - needs this don
         os.makedirs(extra_file_path)
     except Exception as e:
-        stop_err('1- Error running SynDivA ' + str(e))
+        sys.exit('1- Error running SynDivA ' + str(e))
     cmdline = 'python ./syndiva.py ' \
               '-i %s ' \
               '-o %s ' \
