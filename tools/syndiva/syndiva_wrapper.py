@@ -30,6 +30,8 @@ def __main__():
     restriction_site_3 = sys.argv[4]
     extra_file_path = sys.argv[5] + "/"
     report = sys.argv[6]
+
+    [ACDEFGHIKLMNPQRSTVWY\:][0-9][\-\*]
     authorized_pattern_letter = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M',
                                  'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y', ':', '0',
                                  '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '*']
