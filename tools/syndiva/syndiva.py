@@ -20,7 +20,7 @@ import sys
 import matplotlib.pyplot as plot
 import numpy
 from args import Args
-from args import get_os_path_name
+from args import get_os_path_name, get_os_path_join
 from Bio import pairwise2
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -30,10 +30,10 @@ from Bio.SubsMat import MatrixInfo
 args = Args()
 # Variables initialization
 directory = args.output_dir
-mcl_file = directory + "/mcl.in"
-mcl_output = directory + "/mcl.out"
-html_file = directory + "/syndiva_report.html"
-graph_pic = directory + "/distri.png"
+mcl_file = get_os_path_join(directory, "mcl.in")
+mcl_output = get_os_path_join(directory, "mcl.out")
+html_file = get_os_path_join(directory, "syndiva_report.html")
+graph_pic = get_os_path_join(directory, "distri.png")
 input_file = get_os_path_name(args.input)
 site_res_5 = args.site_res_5
 site_res_3 = args.site_res_3
