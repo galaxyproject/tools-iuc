@@ -63,7 +63,7 @@ def generate_aln(seq_dic, ids):  # sourcery skip: use-join
     _input = ''
     for sequence_id in ids:
         _input += '>%s\n%s\n' % (sequence_id, re.sub("(.{80})", "\\1\n", seq_dic[sequence_id]['prot'], re.DOTALL))
-    p = subprocess.Popen("clustalo -i - --outfmt clu", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True)
+    p = subprocess.Popen("clustalo -i - --outfmt clu", shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True)
     aln_out, aln_err = p.communicate(input=_input)
     return aln_out
 
@@ -386,7 +386,7 @@ for i in range(len(seq_keys)):
 
 mcl.close()
 # Clusters formation
-subprocess.call("mcl %s --abc -I 6.0 -o %s" % (mcl_file, mcl_output), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+subprocess.call("mcl %s --abc -I 6.0 -o %s" % (mcl_file, mcl_output), shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 # Producing distribution graph
 plot.hist(align_scores, bins=numpy.arange(0, 101, 2))
@@ -401,5 +401,5 @@ plot.savefig(graph_pic)
 report_html(html_file, tag, all_seq, good_seq, all_seq_fasta, identical_clones, nb_var_part, var_seq_common, align_scores, args)
 
 # Removing intermediate files
-subprocess.call("rm %s %s " % (mcl_file, mcl_output), shell=True)
+subprocess.call("rm %s %s " % (mcl_file, mcl_output), shell=False)
 print("HTML report has been generated in the output directory. The program will now exit.")
