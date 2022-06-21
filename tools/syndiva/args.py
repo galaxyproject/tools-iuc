@@ -20,8 +20,8 @@ def usage(info) -> str:
     return text
 
 
-def get_os_path_join(directory,filename):
-    return os.path.join(directory,filename)
+def get_os_path_join(directory, filename):
+    return os.path.join(directory, filename)
 
 
 def get_os_path_name(input):

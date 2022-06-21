@@ -20,7 +20,7 @@ import sys
 import matplotlib.pyplot as plot
 import numpy
 from args import Args
-from args import get_os_path_name, get_os_path_join
+from args import get_os_path_join, get_os_path_name
 from Bio import pairwise2
 from Bio import SeqIO
 from Bio.Seq import Seq
