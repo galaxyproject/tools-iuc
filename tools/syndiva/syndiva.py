@@ -17,8 +17,9 @@ import re
 import subprocess
 import sys
 
-import matplotlib.pyplot as plot # noqa: I202,E402
+import matplotlib
 matplotlib.use('Agg')
+from matplotlib import pyplot as plot  # noqa: I202,E402
 
 import numpy
 from args import Args
