@@ -17,7 +17,9 @@ import re
 import subprocess
 import sys
 
-import matplotlib.pyplot as plot
+import matplotlib.pyplot as plot # noqa: I202,E402
+matplotlib.use('Agg')
+
 import numpy
 from args import Args
 from args import get_os_path_join, get_os_path_name
