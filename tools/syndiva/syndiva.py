@@ -16,6 +16,7 @@ import math
 import re
 import subprocess
 import sys
+
 import matplotlib.pyplot as plot
 import numpy
 from args import Args

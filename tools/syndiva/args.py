@@ -3,6 +3,7 @@ import getopt
 import os
 import sys
 
+
 def usage(info) -> str:
     text = "SynDivA script.\n\n"
     if info:
