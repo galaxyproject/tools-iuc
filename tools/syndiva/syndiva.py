@@ -16,7 +16,6 @@ import math
 import re
 import subprocess
 import sys
-
 import matplotlib.pyplot as plot
 import numpy
 from args import Args
@@ -30,10 +29,10 @@ from Bio.SubsMat import MatrixInfo
 args = Args()
 # Variables initialization
 directory = args.output_dir
-mcl_file = directory + "mcl.in"
-mcl_output = directory + "mcl.out"
-html_file = directory + "syndiva_report.html"
-graph_pic = directory + "distri.png"
+mcl_file = directory + "/mcl.in"
+mcl_output = directory + "/mcl.out"
+html_file = directory + "/syndiva_report.html"
+graph_pic = directory + "/distri.png"
 input_file = get_os_path_name(args.input)
 site_res_5 = args.site_res_5
 site_res_3 = args.site_res_3
