@@ -351,40 +351,38 @@ for n in range(nb_var_part):
     var_seq_common[str(n + 1)] = {}
 
 # Opening the file where the mcl input will be written
-mcl = open(mcl_file, 'w')
-seq_keys = good_seq.keys()
-for i in range(len(seq_keys)):
-    var_1 = good_seq[list(seq_keys)[i]]['var']
+with open(mcl_file, 'w+') as mcl:
+    seq_keys = good_seq.keys()
+    for i in range(len(seq_keys)):
+        var_1 = good_seq[list(seq_keys)[i]]['var']
 
-    # Classifying variable sequences
-    for k in range(len(var_1)):
-        try:
-            var_seq_common[str(k + 1)][var_1[k]] += 1
-        except KeyError:
-            var_seq_common[str(k + 1)][var_1[k]] = 1
-
-    for j in range(i + 1, len(seq_keys)):
-        var_2 = good_seq[list(seq_keys)[j]]['var']
-        score = 0.0
-        # Comparing the sequences' variable parts to find identical clones
-        if var_1 == var_2:
+        # Classifying variable sequences
+        for k in range(len(var_1)):
             try:
-                clone_seq = "".join(var_1)
-                identical_clones[clone_seq].extend([seq_keys[i], seq_keys[j]])
+                var_seq_common[str(k + 1)][var_1[k]] += 1
             except KeyError:
-                identical_clones[clone_seq] = [seq_keys[i], seq_keys[j]]
-        # Align the 2 sequences using NWalign_PAM30 => replace by pairwise2
-        seq_1 = ''.join(var_1)
-        seq_2 = ''.join(var_2)
-        matrix = MatrixInfo.pam30
-        if len(seq_2) > len(seq_1):
-            score = get_identity(pairwise2.align.globalds(seq_1, seq_2, matrix, -11, -1)[0][0], pairwise2.align.globalds(seq_1, seq_2, matrix, -11, -1)[0][1]) * 100
-        else:
-            score = get_identity(pairwise2.align.globalds(seq_2, seq_1, matrix, -11, -1)[0][0], pairwise2.align.globalds(seq_2, seq_1, matrix, -11, -1)[0][1]) * 100
-        align_scores.append(score)
-        mcl.write('%s\t%s\t%0.2f\n' % (list(seq_keys)[i], list(seq_keys)[j], score))
+                var_seq_common[str(k + 1)][var_1[k]] = 1
 
-mcl.close()
+        for j in range(i + 1, len(seq_keys)):
+            var_2 = good_seq[list(seq_keys)[j]]['var']
+            score = 0.0
+            # Comparing the sequences' variable parts to find identical clones
+            if var_1 == var_2:
+                try:
+                    clone_seq = "".join(var_1)
+                    identical_clones[clone_seq].extend([seq_keys[i], seq_keys[j]])
+                except KeyError:
+                    identical_clones[clone_seq] = [seq_keys[i], seq_keys[j]]
+            # Align the 2 sequences using NWalign_PAM30 => replace by pairwise2
+            seq_1 = ''.join(var_1)
+            seq_2 = ''.join(var_2)
+            matrix = MatrixInfo.pam30
+            if len(seq_2) > len(seq_1):
+                score = get_identity(pairwise2.align.globalds(seq_1, seq_2, matrix, -11, -1)[0][0], pairwise2.align.globalds(seq_1, seq_2, matrix, -11, -1)[0][1]) * 100
+            else:
+                score = get_identity(pairwise2.align.globalds(seq_2, seq_1, matrix, -11, -1)[0][0], pairwise2.align.globalds(seq_2, seq_1, matrix, -11, -1)[0][1]) * 100
+            align_scores.append(score)
+            mcl.write('%s\t%s\t%0.2f\n' % (list(seq_keys)[i], list(seq_keys)[j], score))
 
 # Clusters formation
 subprocess.call(["mcl", mcl_file, "--abc", "-I", "6.0", "-o", mcl_output], shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
