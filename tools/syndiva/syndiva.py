@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 import matplotlib
+matplotlib.use('Agg')
 from matplotlib import pyplot as plot  # noqa: I202,E402
 
 import numpy
@@ -28,8 +29,6 @@ from Bio.Seq import translate
 from Bio.SubsMat import MatrixInfo
 from args import Args
 from args import get_os_path_join, get_os_path_name
-
-matplotlib.use('Agg')
 
 
 args = Args()
