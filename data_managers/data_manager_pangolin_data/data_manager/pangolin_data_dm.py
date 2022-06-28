@@ -3,11 +3,11 @@
 import argparse
 import datetime
 import json
-import pathlib
 import operator
+import pathlib
 import shutil
-import sys
 import subprocess
+import sys
 import tempfile
 
 import requests
