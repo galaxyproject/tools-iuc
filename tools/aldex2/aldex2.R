@@ -36,9 +36,9 @@ opt <- args$options
 
 get_boolean_value <- function(val) {
     if (val == "true") {
-        return (TRUE)
+        return(TRUE)
     } else {
-        return (FALSE)
+        return(FALSE)
     }
 }
 
@@ -69,18 +69,18 @@ include_sample_summary <- get_boolean_value(opt$include_sample_summary)
 iterate <- get_boolean_value(opt$iterate)
 
 if (opt$analysis_type == "aldex") {
-    aldex_obj <- aldex(reads=reads_df,
+    aldex_obj <- aldex(reads = reads_df,
                        conditions_vector,
-                       mc.samples=opt$num_mc_samples,
-                       test=opt$aldex_test,
-                       effect=effect,
-                       include.sample.summary=include_sample_summary,
-                       denom=opt$denom,
-                       iterate=iterate)
+                       mc.samples = opt$num_mc_samples,
+                       test = opt$aldex_test,
+                       effect = effect,
+                       include.sample.summary = include_sample_summary,
+                       denom = opt$denom,
+                       iterate = iterate)
 } else {
     # Generate Monte Carlo samples of the Dirichlet distribution for each sample. Convert each
     # instance using a log-ratio transform. This is the input for all further analyses.
-    aldex_clr_obj <- aldex.clr(reads_df, conditions_vector, mc.samples=opt$num_mc_samples, denom=opt$denom)
+    aldex_clr_obj <- aldex.clr(reads_df, conditions_vector, mc.samples = opt$num_mc_samples, denom = opt$denom)
 
     if (opt$analysis_type == "aldex_corr") {
         if (!is.null(opt$cont_var)) {
