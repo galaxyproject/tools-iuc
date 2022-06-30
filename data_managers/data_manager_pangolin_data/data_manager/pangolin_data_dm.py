@@ -55,7 +55,7 @@ def get_model_list(
 
 
 def filter_by_date(existing_release_tags: List[str], package_name: str,
-                   start_date: datetime.datetime=None, end_date: datetime.datetime=None) -> List[dict]:
+                   start_date: datetime.datetime = None, end_date: datetime.datetime = None) -> List[dict]:
     ret = []
     for release in get_model_list(existing_release_tags, package_name):
         if start_date and release["date"] < start_date:
