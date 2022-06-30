@@ -99,6 +99,22 @@ def comma_split(args: str) -> List[str]:
     return args.split(",")
 
 
+def git_lfs_install():
+    """
+    'git-lfs install' must be run after installing git-lfs and before cloning a repo
+    that uses Git LFS. Code taken from pangolin repo.
+    """
+    try:
+        subprocess.run(['git-lfs', 'install'],
+                       check=True,
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode('utf-8')
+        sys.stderr.write(f"Error: {e}:\n{stderr}\n")
+        sys.exit(-1)
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -123,6 +139,11 @@ if __name__ == "__main__":
         package_name = 'constellations'
         min_version_key = 'min_scorpio_version'
         min_version = '0'
+    elif args.datatable_name == 'pangolin_assignment':
+        package_name = 'pangolin-assignment'
+        min_version_key = 'min_pangolin_version'
+        min_version = '4'
+        git_lfs_install()
     else:
         sys.exit(f"Unknown data table {args.datatable_name}")
 
@@ -156,7 +177,6 @@ if __name__ == "__main__":
         # got no entry for data tables, start from scratch
         data_manager_dict = {"data_tables": {args.datatable_name: []}}
 
-    print("DT now", data_manager_dict)
     # known-revisions is populated from the Galaxy `pangolin_data` data table by the wrapper
     if args.known_revisions is not None:
         existing_release_tags = set(args.known_revisions)
