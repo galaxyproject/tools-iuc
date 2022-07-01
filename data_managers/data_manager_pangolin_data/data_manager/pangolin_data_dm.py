@@ -216,6 +216,7 @@ if __name__ == "__main__":
                     'value': release["tag_name"],
                     'description': release["name"],
                     min_version_key: min_version,
+                    'date': release["date"].isoformat(),  # ISO 8601 is easily sortable
                     'path': str(output_directory / fname)
                 }
             )
