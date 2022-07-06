@@ -1,0 +1,452 @@
+<tool id="adapter_removal" name="AdapterRemoval: remove adapter sequences" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>from HTS data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+
+#if $input_type_cond.input_type in ['single', 'pair', 'interleaved']:
+    #set read1 = $input_type_cond.read1
+    #if $input_type_cond.input_type == 'pair':
+        #set read2 = $input_type_cond.read2
+    #end if
+#else:
+    #set read1 = $input_type_cond.reads_collection['forward']
+    #set read2 = $input_type_cond.reads_collection['reverse']
+#end if
+
+#set read1_identifier = 'read1' + $read1.ext
+ln -s '${read1}' '${read1_identifier}' &&
+
+#if $input_type_cond.input_type in ["pair", "paired"]:
+    #set read2_identifier = 'read2' + $read2.ext
+    ln -s '${read2}' '${read2_identifier}' &&
+#end if
+
+AdapterRemoval
+--file1 '${read1_identifier}'
+#if str($input_type_cond.input_type) == 'interleaved':
+    --interleaved
+    --interleaved-input
+    #if str($input_type_cond.interleaved_output) == 'yes':
+        --interleaved-output '$output_interleaved_truncated'
+    #end if
+    $input_type_cond.combined_output
+#else if str($input_type_cond.input_type) in ['pair', 'paired']:
+    --file2 '${read2_identifier}'
+    $input_type_cond.identify_adapters
+    #if str($input_type_cond.interleaved_output) == 'yes':
+        --interleaved-output
+    #end if
+    $input_type_cond.combined_output
+#end if
+
+--threads \${GALAXY_SLOTS:-8}
+
+###### FASTQ Options
+--qualitybase '33'
+--qualitybase-output '33'
+--qualitymax $fastq_options.qualitymax
+
+###### FASTQ Trimming Options
+--adapter1 '$fastq_trimming_options.adapter1'
+--adapter2 '$fastq_trimming_options.adapter2'
+#if $fastq_trimming_options.adapter_list:
+    --adapter-list '$fastq_trimming_options.adapter_list'
+#end if
+--minadapteroverlap $fastq_trimming_options.minadapteroverlap
+--mm $fastq_trimming_options.mm
+--shift $fastq_trimming_options.shift
+#if str($fastq_trimming_options.trim5p_cond.trim5p_param) == 'yes':
+    --trim5p  $fastq_trimming_options.trim5p_cond.trim5p_mate1 $fastq_trimming_options.trim5p_cond.trim5p_mate2
+#end if
+#if str($fastq_trimming_options.trim3p_cond.trim3p_param) == 'yes':
+    --trim3p  $fastq_trimming_options.trim3p_cond.trim3p_mate1 $fastq_trimming_options.trim3p_cond.trim3p_mate2
+#end if
+$fastq_trimming_options.trimns
+--maxns $fastq_trimming_options.maxns
+$fastq_trimming_options.trimqualities
+#if str($fastq_trimming_options.sliding_window_cond.sliding_window_param) == 'yes':
+    --trimwindows $fastq_trimming_options.sliding_window_cond.window_size
+#end if
+--minquality $fastq_trimming_options.minquality
+$fastq_trimming_options.preserve5p
+--minlength $fastq_trimming_options.minlength
+--maxlength $fastq_trimming_options.maxlength
+
+###### FASTQ Merging Options
+$fastq_merging_options.collapse
+--minalignmentlength $fastq_merging_options.minalignmentlength
+$fastq_merging_options.collapse_deterministic
+$fastq_merging_options.collapse_conservatively
+
+###### Output Options
+--settings '$output_settings'
+#if str($input_type_cond.input_type) == 'single':
+    --output1 '$output_truncated'
+#else if str($input_type_cond.input_type) in ['pair', 'paired']:
+    #if str($input_type_cond.interleaved_output) == 'no':
+        --output1 '$output_forward_truncated'
+        --output2 '$output_reverse_truncated'
+    #else:
+        --output1 '$output_interleaved_truncated'
+    #end if
+#end if
+
+###### Outputs
+#if 'output_singleton' in $output_select:
+    --singleton '$output_singleton_truncated'
+#end if
+#if 'output_collapsed' in $output_select:
+    --outputcollapsed '$output_collapsed'
+#end if
+#if 'output_collapsed_truncated' in $output_select:
+    --outputcollapsedtruncated '$output_collapsed_truncated'
+#end if
+#if 'output_discarded' in $output_select:
+    --discarded '$output_discarded'
+#end if
+    ]]></command>
+    <inputs>
+        <conditional name="input_type_cond">
+            <param name="input_type" type="select" label="Choose the category of the reads files to be analyzed">
+                <option value="single" selected="true">Single dataset containing reads</option>
+                <option value="pair">Pair of forward and reverse reads in separate datasets</option>
+                <option value="paired">Collection of paired reads</option>
+                <option value="interleaved">Single dataset in which pairs of reads are written one after the other</option>
+            </param>
+            <when value="single">
+                <param name="read1" type="data" format="@DATATYPES@" label="Read file"/>
+            </when>
+            <when value="pair">
+                <param name="read1" type="data" format="@DATATYPES@" label="Forward read file"/>
+                <param name="read2" type="data" format="@DATATYPES@" label="Reverse read file"/>
+                <expand macro="identify_adapters_param"/>
+                <expand macro="interleaved_output_param"/>
+                <expand macro="combined_output_param"/>
+            </when>
+            <when value="paired">
+                <param name="reads_collection" type="data_collection" format="@DATATYPES@" collection_type="paired" label="Collection of fastq paired read files"/>
+                <expand macro="identify_adapters_param"/>
+                <expand macro="interleaved_output_param"/>
+                <expand macro="combined_output_param"/>
+            </when>
+            <when value="interleaved">
+                <param name="read1" type="data" format="@DATATYPES@" label="Interleaved read file"/>
+                <expand macro="interleaved_output_param"/>
+                <expand macro="combined_output_param"/>
+            </when>
+        </conditional>
+        <!-- FASTQ Options -->
+        <section name="fastq_options" title="FASTQ Options" expanded="false">
+            <param argument="--qualitymax" type="integer" value="41" min="0" max="93" label="Maximum Phred score expected in input files and used when writing output files" help="Possible values are 0 to 93 for Phred+33 encoded files"/>
+        </section>
+        <!-- FASTQ Trimming Options -->
+        <section name="fastq_trimming_options" title="FASTQ Trimming Options" expanded="false">
+            <param argument="--adapter1" type="text" value="AGATCGGAAGAGCACACGTCTGAACTCCAGTCACNNNNNNATCTCGTATGCCGTCTTCTGCTTG" label="Adapter sequence expected to be found in mate 1 reads, specified in read direction">
+                <expand macro="sanitizer"/>
+            </param>
+            <param argument="--adapter2" type="text" value="AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGTAGATCTCGGTGGTCGCCGTATCATT" label="Adapter sequence expected to be found in mate 2 reads, specified in read direction">
+                <expand macro="sanitizer"/>
+            </param>
+            <param argument="--adapter_list" type="data" format="tabular" optional="true" label="Tabular file containing adapter sequences" help="The first two columns of each line in the file must correspond to values passed to --adapter1 and --adapter2"/>
+            <param argument="--minadapteroverlap" type="integer" value="0" min="0" label="Trim reads only if the overlap between read and the adapter is at least this number of bases long" help="Ignored unless input files are single-end reads"/>
+            <param argument="--mm" type="float" value="3.0" label="The fraction of mismatches allowed in the aligned region" help="The value is used directly if less than 1, the rate s set to 1 / value if the value is greater than 1"/>
+            <param argument="--shift" type="integer" value="2" min="0" max="93" label="Slip the alignment by this number of bases in the 5' end to allow for missing bases in the 5' end of the read"/>
+            <conditional name="trim5p_cond">
+                <param name="trim5p_param" type="select" label="Trim the 5' of reads by a fixed amount after removing adapters, but before carrying out quality based trimming?">
+                    <option value="no" selected="true">No</option>
+                    <option value="yes">Yes</option>
+                </param>
+                <when value="no"/>
+                <when value="yes">
+                    <param name="trim5p_mate1" type="integer" value="0" min="0" label="Value for trimming the 5' of mate1 reads"/>
+                    <param name="trim5p_mate2" type="integer" value="0" min="0" label="Value for trimming the 5' of mate1 reads"/>
+                </when>
+            </conditional>
+            <conditional name="trim3p_cond">
+                <param name="trim3p_param" type="select" label="Trim the 3' of reads by a fixed amount after removing adapters, but before carrying out quality based trimming?">
+                    <option value="no" selected="true">No</option>
+                    <option value="yes">Yes</option>
+                </param>
+                <when value="no"/>
+                <when value="yes">
+                    <param name="trim3p_mate1" type="integer" value="0" min="0" label="Value for trimming the 3' of mate1 reads"/>
+                    <param name="trim3p_mate2" type="integer" value="0" min="0" label="Value for trimming the 3' of mate1 reads"/>
+                </when>
+            </conditional>
+            <param argument="--trimns" type="boolean" truevalue="--trimns" falsevalue="" checked="false" label="Trim consecutive Ns from the 5' and 3' termini?" help="If quality trimming is also enabled (--trimqualities), then stretches of mixed low-quality bases and/or Ns are trimmed"/>
+            <param argument="--maxns" type="integer" value="1000" min="0" label="Discard reads containing more than this number of ambiguous bases ('N') after trimming"/>
+            <param argument="--trimqualities" type="boolean" truevalue="--trimqualities" falsevalue="" checked="false" label="Trim consecutive stretches of low quality bases (threshold set by --minquality) from the 5' and 3' termini?" help="If trimming of Ns is also enabled (--trimns), then stretches of mixed low-quality bases and Ns are trimmed"/>
+            <conditional name="sliding_window_cond">
+                <param name="sliding_window_param" type="select" label="Perform sliding window approach to quality base-trimming inspired by sickle?">
+                    <option value="no" selected="true">No</option>
+                    <option value="yes">Yes</option>
+                </param>
+                <when value="no"/>
+                <when value="yes">
+                    <param name="window_size" type="integer" value="0" min="0" label="Window size" help="See the Window based quality trimming section of the tool help below"/>
+                </when>
+            </conditional>
+            <param argument="--minquality" type="integer" value="2" min="0" label="Threshold for trimming low quality bases using --trimqualities and --trimwindows"/>
+            <param argument="--preserve5p" type="boolean" truevalue="--preserve5p" falsevalue="" checked="false" label="Preserve (i.e., do not trim by --trimns, --trimqualities, and --trimwindows) bases at the 5p?" help="Collapsed reads will not be quality trimmed when this option is enabled"/>
+            <param argument="--minlength" type="integer" value="15" min="0" label="Reads shorter than this length are discarded following trimming"/>
+            <param argument="--maxlength" type="integer" value="4294967295" min="0" label="Reads longer than this length are discarded following trimming"/>
+        </section>
+        <!-- FASTQ Merging Options -->
+        <section name="fastq_merging_options" title="FASTQ Merging Options" expanded="false">
+            <param argument="--collapse" type="boolean" truevalue="--collapse" falsevalue="" checked="false" label="Output complete reads with an 'M_' name prefix and trimmed reads with an 'MT_' name prefix?"/>
+            <param argument="--minalignmentlength" type="integer" value="11" min="0" label="Minimum overlap between mate 1 and mate 2 before the reads are collapsed into one when collapsing paired-end reads, or when attempting to identify complete template sequences in single-end mode"/>
+            <param argument="--collapse_deterministic" type="boolean" truevalue="--collapse-deterministic" falsevalue="" checked="false" label="Collapse deterministically?" help="Setting this option also sets --collapse"/>
+            <param argument="--collapse_conservatively" type="boolean" truevalue="--collapse-conservatively" falsevalue="" checked="false" label="Collapse conservatively?" help="Setting this option also sets --collapse"/>
+        </section>
+        <!-- Output Options -->
+        <param name="output_select" type="select" multiple="true" label="Optionally select one or more of the following additional outputs">
+            <option value="none" selected="true">No additional outputs</option>
+            <option value="output_singleton">Output file containing paired reads for which the mate has been discarded</option>
+            <option value="output_collapsed">Output file containing overlapping mate-pairs which have been merged into a single read (PE mode) or reads for which the adapter was identified by a minimum overlap</option>
+            <option value="output_collapsed_truncated">Output collapsed reads (see param above) which were trimmed due the presence of low-quality or ambiguous nucleotides</option>
+            <option value="output_discarded">Output reads reads discarded due to the --minlength, --maxlength or --maxns options</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="output_settings" format="txt"  label="${tool.name} on ${on_string} (settings)"/>
+        <data name="output_truncated" format="fastqsanger" label="${tool.name} on ${on_string} (truncated)">
+            <filter>input_type_cond['input_type'] == 'single'</filter>
+        </data>
+        <data name="output_forward_truncated" format="fastqsanger" label="${tool.name} on ${on_string} (forward truncated)">
+            <filter>input_type_cond['input_type'] in ['pair', 'paired'] and input_type_cond['interleaved_output'] == 'no'</filter>
+        </data>
+        <data name="output_reverse_truncated" format="fastqsanger" label="${tool.name} on ${on_string} (reverse truncated)">
+            <filter>input_type_cond['input_type'] in ['pair', 'paired'] and input_type_cond['interleaved_output'] == 'no'</filter>
+        </data>
+        <data name="output_interleaved_truncated" format="fastqsanger" label="${tool.name} on ${on_string} (interleaved truncated)">
+            <filter>input_type_cond['input_type'] in ['pair', 'paired'] and input_type_cond['interleaved_output'] == 'yes'</filter>
+        </data>
+        <data name="output_singleton_truncated" format="fastqsanger" label="${tool.name} on ${on_string} (singleton truncated)">
+            <filter>'output_singleton' in output_select</filter>
+        </data>
+        <data name="output_collapsed" format="fastqsanger" label="${tool.name} on ${on_string} (collapsed)">
+            <filter>'output_collapsed' in output_select</filter>
+        </data>
+        <data name="output_collapsed_truncated" format="fastqsanger" label="${tool.name} on ${on_string} (collapsed truncated)">
+            <filter>'output_collapsed_truncated' in output_select</filter>
+        </data>
+        <data name="output_discarded" format="fastqsanger" label="${tool.name} on ${on_string} (discarded)">
+            <filter>'output_discarded' in output_select</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Single dataset input, all defaults -->
+        <test expect_num_outputs="2">
+            <param name="read1" ftype="fastqsanger.gz" value="reads1.fastq.gz"/>
+            <output name="output_settings" ftype="txt">
+                <assert_contents>
+                    <has_size value="2117" delta="10"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="AdapterRemoval"/>
+                </assert_contents>
+            </output>
+            <output name="output_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="100731"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_1/1"/>
+                </assert_contents>
+            </output>
+       </test>
+        <!-- Dataset pair input, all defaults -->
+        <test expect_num_outputs="3">
+            <param name="input_type" value="pair"/>
+            <param name="read1" ftype="fastqsanger.gz" value="reads1.fastq.gz"/>
+            <param name="read2" ftype="fastqsanger.gz" value="reads2.fastq.gz"/>
+            <output name="output_settings" ftype="txt">
+                <assert_contents>
+                    <has_size value="2594" delta="10"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="AdapterRemoval"/>
+                </assert_contents>
+            </output>
+            <output name="output_forward_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="101161"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_1/1"/>
+                </assert_contents>
+            </output>
+            <output name="output_reverse_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="101161"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_1/2"/>
+                </assert_contents>
+            </output>
+       </test>
+        <!-- Dataset pair input, all defaults, interleaved output -->
+        <test expect_num_outputs="2">
+            <param name="input_type" value="pair"/>
+            <param name="read1" ftype="fastqsanger.gz" value="reads1.fastq.gz"/>
+            <param name="read2" ftype="fastqsanger.gz" value="reads2.fastq.gz"/>
+            <param name="interleaved_output" value="yes"/>
+            <output name="output_settings" ftype="txt">
+                <assert_contents>
+                    <has_size value="2593" delta="10"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="AdapterRemoval"/>
+                </assert_contents>
+            </output>
+            <output name="output_interleaved_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="202322"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_1/1"/>
+                </assert_contents>
+            </output>
+       </test>
+        <!-- Collection of dataset pairs input, all defaults -->
+        <test expect_num_outputs="3">
+            <param name="input_type" value="paired"/>
+            <param name="reads_collection">
+                <collection type="paired">
+                    <element name="forward" ftype="fastqsanger.gz" value="reads1.fastq.gz"/>
+                    <element name="reverse" ftype="fastqsanger.gz" value="reads2.fastq.gz"/>
+                </collection>
+            </param>
+            <output name="output_settings" ftype="txt">
+                <assert_contents>
+                    <has_size value="2594" delta="10"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="AdapterRemoval"/>
+                </assert_contents>
+            </output>
+            <output name="output_forward_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="101161"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_1/1"/>
+                </assert_contents>
+            </output>
+            <output name="output_reverse_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="101161"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_1/2"/>
+                </assert_contents>
+            </output>
+       </test>
+        <!-- Dataset pair input, all defaults, all optional outputs checked -->
+        <test expect_num_outputs="7">
+            <param name="input_type" value="pair"/>
+            <param name="read1" ftype="fastqsanger.gz" value="reads1.fastq.gz"/>
+            <param name="read2" ftype="fastqsanger.gz" value="reads2.fastq.gz"/>
+            <param name="output_select" value="output_singleton,output_collapsed,output_collapsed_truncated,output_discarded"/>
+            <output name="output_settings" ftype="txt">
+                <assert_contents>
+                    <has_size value="2594" delta="10"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="AdapterRemoval"/>
+                </assert_contents>
+            </output>
+            <output name="output_forward_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="101161"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_1/1"/>
+                </assert_contents>
+            </output>
+            <output name="output_reverse_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="101161"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_1/2"/>
+                </assert_contents>
+            </output>
+            <output name="output_singleton_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="0"/>
+                </assert_contents>
+            </output>
+            <output name="output_collapsed" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="0"/>
+                </assert_contents>
+            </output>
+            <output name="output_collapsed_truncated" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="0"/>
+                </assert_contents>
+            </output>
+            <output name="output_discarded" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="270"/>
+                </assert_contents>
+                <assert_contents>
+                    <has_text text="@read_150_57/1"/>
+                </assert_contents>
+            </output>
+       </test>
+    </tests>
+    <help>
+**What it does**
+
+Searches for and removes adapter sequences from high-throughput sequencing (HTS) data and optionally trims low quality
+bases from the 3' end of reads following adapter removal. This tool can analyze both single-end and paired-end data and
+can be used to merge overlapping paired-end reads into longer consensus sequences. The tool can also construct a consensus
+adapter sequence for paired-end reads.
+
+The following outputs, some of which are optional or are only produced under certain scenarios, are produced.
+
+ * **settings** - File containing information on the parameters used in the run as well as verall statistics on the reads after trimming.
+ * **truncated** - File containing trimmed single-end reads.
+ * **forward truncated** - File containing trimmed mate1 reads.
+ * **reverse truncated** - File containing trimmed mate2 reads.
+ * **interleaved truncated** - File containing trimmed mate 2 reads when --interleaved-output is not enabled.
+ * **singleton truncated** - File containing trimmed paired reads for which the mate has been discarded.
+ * **collapsed** - If --collapsed is set, contains overlapping mate-pairs which have been merged into a single read (PE mode) or reads for which the adapter was identified by a minimum overlap, indicating that the entire template molecule is present. This does not include which have subsequently been trimmed due to low-quality or ambiguous nucleotides.
+ * **collapsed truncated** - Collapsed reads (see --outputcollapsed) which were trimmed due the presence of low-quality or ambiguous nucleotides. 
+ * **discarded** - File containing reads discarded due to the --minlength, --maxlength or --maxns options. 
+
+**General Options**
+
+ * **Attempt to build a consensus adapter sequence from fully overlapping pairs of paired-end reads** - The minimum overlap is controlled by --minalignmentlength.  The result will be compared with the values set using --adapter1 and --adapter2. No trimming is performed in this mode.
+
+**FASTQ Trimming Options**
+
+ * **Adapter sequence expected to be found in mate 1/2 reads, specified in read direction** - For a detailed description of how to provide the appropriate adapter sequences, see the "Adapters" section of the online documentation.
+ * **Tabular file containing adapter sequences** - The first two columns of each line in the file are expected to correspond to values passed to --adapter1 and --adapter2. In single-end mode, only column one is required. Lines starting with # are ignored. When multiple rows are found in the table, AdapterRemoval will try each adapter (pair), and select the best aligning adapters for each FASTQ read processed.
+ * **Trim reads only if the overlap between read and the adapter is at least this number of bases long** - In single-end mode, reads are only trimmed if the overlap between read and the adapter is at least X bases long, not counting ambiguous nucleotides (N); this is independent of the --minalignmentlength when using --collapse, allowing a conservative selection of putative complete inserts in single-end mode, while ensuring that all possible adapter contamination is trimmed.
+ * **The fraction of mismatches allowed in the aligned region** - The allowed fraction of mismatches allowed in the aligned region. If the value is less than 1, then the value is used directly. If --mismatchrate is greater than 1, the rate is set to 1 / --mismatchrate. The default setting is 3 when trimming adapters, corresponding to a maximum mismatch rate of 1/3, and 10 when using --identify-adapters.
+ * **Slip the alignment by this number of bases in the 5' end to allow for missing bases in the 5' end of the read** - To allow for missing bases in the 5' end of the read, the program can let the alignment slip --shift bases in the 5' end. This corresponds to starting the alignment maximum --shift nucleotides into read2 (for paired-end) or the adapter (for single-end).
+ * **Trim the 5' of reads by a fixed amount after removing adapters, but before carrying out quality based trimming** - Trim the 5' of reads by a fixed amount after removing adapters, but before carrying out quality based trimming. Specify one value to trim mate 1 and mate 2 reads the same amount, or two values separated by a space to trim each mate different amounts.
+ * **Trim the 3' of reads by a fixed amount after removing adapters, but before carrying out quality based trimming** - Trim the 3' of reads by a fixed amount. See  the descriptiuon of thetrim5p parameter immediately above.
+ * **Trim consecutive Ns from the 5' and 3' termini** - If quality trimming is also enabled (--trimqualities), then stretches of mixed low-quality bases and/or Ns are trimmed.
+ * **Window based quality trimming** - If window_size is greater than or equal to 1, that number is used as the window size for all reads. If window_size is greater than or equal to 0 and less than 1, then that number is multiplied by the length of individual reads to determine the window size. If the window length is zero or is greater than the current read length, then the read length is used instead.  Reads are trimmed as follows for a given window size:
+
+   1. The new 5' is determined by locating the first window where both the average quality and the quality of the first base in the window is greater than --minquality.
+   2. The new 3' is located by sliding the first window right, until the average quality becomes less than or equal to --minquality. The new 3' is placed at the last base in that window where the quality is greater than or equal to --minquality.
+   3. If no 5' position could be determined, the read is discarded.
+
+**FASTQ Merging Options**
+
+ * **Output complete reads with an 'M\_' name prefix and trimmed reads with an 'MT\_' name prefix** - In paired-end mode, merge overlapping mates into a single and recalculate the quality scores. In single-end mode, attempt to identify templates for which the entire sequence is available. In both cases, complete "collapsed" reads are written with a 'M\_' name prefix, and "collapsed" reads which are trimmed due to quality settings are written with a 'MT\_' name prefix. The overlap needs to be at least --minalignmentlength nucleotides, with a maximum number of mismatches determined by --mm.
+ * **Collapse deterministically** - Enable deterministic mode; currently only affects --collapse, different overlapping bases with equal quality are set to N quality 0, instead of being randomly sampled. Setting this option also sets --collapse.
+ * **Collapse conservatively** - Alternative merging algorithm inspired by FASTQ-join: For matching overlapping bases, the highest quality score is used. For mismatching overlapping bases, the highest quality base is used and the quality is set to the absolute difference in Phred-score between the two bases. For mismatching bases with identical quality scores, the base is set to 'N' and the quality score to 0 (Phred-encoded). Setting this option also sets --collapse.
+    </help>
+    <expand macro="citations"/>
+</tool>

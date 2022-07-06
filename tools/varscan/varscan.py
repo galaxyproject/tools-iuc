@@ -358,8 +358,7 @@ class VariantCallingError (RuntimeError):
                 self.call, self.error
             )
         else:
-            msg_header = '{0} failed.\n'
-            'No further information about this error is available.\n\n'.format(
+            msg_header = '{0} failed.\nNo further information about this error is available.\n\n'.format(
                 self.call
             )
         return msg_header + self.message
@@ -1045,8 +1044,8 @@ class VarScanCaller (object):
                         if mmqs_diff > max_mmqs_diff:
                             record.filter.add('MMQSdiff')
                         if (
-                            1 -
-                            alt_stats.avg_clipped_len
+                            1
+                            - alt_stats.avg_clipped_len
                             / ref_stats.avg_clipped_len
                         ) > max_relative_len_diff:
                             record.filter.add('ReadLenDiff')
