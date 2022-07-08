@@ -86,7 +86,9 @@ def download_and_unpack(name: str, release: str, output_directory: str) -> pathl
         release,
         "--output-dir",
     ]
-    output_path = pathlib.Path(output_directory) / (name + "_" + release.replace(':','-'))
+    output_path = pathlib.Path(output_directory) / (
+        name + "_" + release.replace(":", "-")
+    )
     download_cmd.append(str(output_path))
     subprocess.run(download_cmd, check=True)
     return output_path
