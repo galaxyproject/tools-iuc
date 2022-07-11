@@ -1,0 +1,153 @@
+<tool id="vcf2maf" name="Convert VCF to MAF" version="@TOOL_VERSION@">
+	<description>with vcf2maf</description>
+	<macros>
+		<token name="@TOOL_VERSION@">1.6.21</token>
+		<token name="@DB_VERSION@">106</token>
+	</macros>
+	<requirements>
+		<requirement type="package" version="@TOOL_VERSION@">vcf2maf</requirement>
+		<requirement type="package" version="@DB_VERSION@.1">ensembl-vep</requirement>
+	</requirements>
+	<command detect_errors="exit_code"><![CDATA[
+		ln -s '${input1}' MainInput.vcf &&
+		#if $ref_seq.ref_source == "cached":
+			ln -s '${ref_seq.ref.fields.path}' reference.fa &&
+		#elif $ref_seq.ref_source == "history":
+			ln -s '${ref_seq.ref}' reference.fa &&
+		#end if
+		vcf2maf.pl --input-vcf MainInput.vcf --output-maf MainOutput.maf --ref-fasta reference.fa
+		#if $annotation_cache.source == "no_vep":
+			--inhibit-vep
+		#else:
+			--vep-path \$(dirname \$(which vep))
+			--vep-data '${annotation_cache.cache_file.fields.path}'
+			--species '${annotation_cache.cache_file.fields.species}'
+			--ncbi-build '${annotation_cache.cache_file.fields.value.split($annotation_cache.cache_file.fields.version + "_")[-1]}'
+			#if $annotation_cache.cache_file.fields.version != "@DB_VERSION@": --cache-version $annotation_cache.cache_file.fields.version
+		#end if
+
+		#if $tumor_id:
+			--tumor-id '${tumor_id}'
+		#end if
+		#if $normal_id:
+			--normal-id '${normal_id}'
+		#end if
+		#if $vcf_tumor_id:
+			--vcf-tumor-id '${vcf_tumor_id}'
+		#end if
+		#if $vcf_normal_id:
+			--vcf-normal-id '${vcf_normal_id}'
+		#end if
+
+		#if $adv_opt.any_allele:
+			--any-allele
+		#end if
+		#if $adv_opt.min_hom_vaf:
+			--min-hom-vaf $adv_opt.min_hom_vaf
+		#end if
+		#if $adv_opt.maf_center:
+			--maf-center '${adv_opt.maf_center}'
+		#end if
+		#if $adv_opt.retain_info:
+			--retain-info '${adv_opt.retain_info}'
+		#end if
+		#if $adv_opt.retain_fmt:
+			--retain-fmt '${adv_opt.retain_fmt}'
+		#end if
+		#if $adv_opt.retain_ann:
+			--retain-ann '${adv_opt.retain_ann}'
+		#end if
+	]]></command>
+	<inputs>
+		<param type="data" name="input1" label="VCF input file" format="vcf">
+			<validator type="unspecified_build" />
+		</param>
+		<conditional name="ref_seq">
+			<param name="ref_source" type="select" label="Select FASTA file as reference sequence">
+				<option value="cached">Locally cached</option>
+				<option value="history">History</option>
+			</param>
+			<when value="cached">
+				<param name="ref" type="select" label="Select reference sequence">
+					<options from_data_table="fasta_indexes">
+						<validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file" />
+					</options>
+				</param>
+			</when>
+			<when value="history">
+				<param name="ref" type="data" format="fasta" label="Select reference sequence" />
+			</when>
+		</conditional>
+		<conditional name="annotation_cache">
+			<param name="source" type="select" label="Select the source of annotation data if you want to use VEP" help="vcf2maf can utilize Ensembl's VEP to select a single effect per variant. VEP can only be used if SIFT is available for the selected genome assembly. Ensembl strongly recommends to only use annotation cache files with a version number matching the VEP version. You can disable the corresponding filtering of available cache files at your own risk.">
+				<option value="no_vep" selected="true">Do not use VEP</option>
+				<option value="restricted">Use VEP with a cache file with matching version number</option>
+				<option value="unrestricted">Use VEP with any cache file</option>
+			</param>
+			<when value="no_vep"/>
+			<when value="restricted">
+				<param name="cache_file" type="select" label="Select annotation cache file" help="If the annotation data of interest is not listed, have a look at all available cache files regardless of their version number or contact your Galaxy admin.">
+					<options from_data_table="vep_versioned_annotation_cache">
+						<filter type="static_value" value="@DB_VERSION@" column="2" />
+						<filter type="sort_by" column="4"/>
+					</options>
+					<validator type="no_options" message="No annotation caches are available"/>
+				</param>
+			</when>
+			<when value="unrestricted">
+				<param name="cache_file" type="select" label="Select annotation cache file" help="If the annotation data of interest is not listed, contact your Galaxy admin.">
+					<options from_data_table="vep_versioned_annotation_cache">
+						<filter type="sort_by" column="4"/>
+					</options>
+					<validator type="no_options" message="No annotation caches are available"/>
+				</param>
+			</when>
+		</conditional>
+		
+		<param argument="--tumor-id" type="text" optional="true" label="Enter tumor sample ID (optional)" help="Used to fill the Tumor_Sample_Barcode column of the output MAF with the tumor sample ID."/>
+		<param argument="--normal-id" type="text" optional="true" label="Enter normal sample ID (optional)" help="Used to fill the Matched_Norm_Sample_Barcode column of the output MAF with the normal sample ID."/>
+		<param argument="--vcf-tumor-id" type="text" optional="true" label="Enter name of tumor genotype column (optional)" help="VCFs from variant callers like VarScan use hardcoded sample IDs TUMOR/NORMAL to name genotype columns. Use this parameter to have vcf2maf correctly locate these columns to parse genotypes, while still printing proper sample IDs in the output MAF."/>
+		<param argument="--vcf-normal-id" type="text" optional="true" label="Enter name of normal genotype column (optional)" help="VCFs from variant callers like VarScan use hardcoded sample IDs TUMOR/NORMAL to name genotype columns. Use this parameter to have vcf2maf correctly locate these columns to parse genotypes, while still printing proper sample IDs in the output MAF."/>
+		
+		<section name="adv_opt" title="Advanced options">
+			<param argument="--any-allele" type="boolean" optional="true" checked="false" label="Allow also mismatched variant alleles when reporting co-located variants"/>
+			<param argument="--min-hom-vaf" type="float" optional="true" min="0" max="1" label="Enter minimum allele fraction to call a variant homozygous if GT is undefined in VCF" help="Default value is 0.7"/>
+			<param argument="--maf-center" type="text" optional="true" label="Enter variant calling center to report in MAF"/>
+			<param argument="--retain-info" type="text" optional="true" label="Enter comma-delimited names of INFO fields to retain as extra columns in MAF"/>
+			<param argument="--retain-fmt" type="text" optional="true" label="Enter comma-delimited names of FORMAT fields to retain as extra columns in MAF"/>
+			<param argument="--retain-ann" type="text" optional="true" label="Enter comma-delimited names of VEP annotations (within the VEP CSQ/ANN) to retain as extra columns in MAF"/>
+		</section>
+	</inputs>
+	<outputs>
+		<data name="output1" format="tabular" from_work_dir="MainOutput.maf" />
+	</outputs>
+	<tests>
+		<test expect_num_outputs="1">
+			<param name="input1" dbkey="hg19" value="input_test1.vcf" ftype="vcf" />
+			<param name="ref_source" value="history" />
+			<param name="ref" dbkey="hg19" value="test1.fa" ftype="fasta" />
+			<param name="annotation_cache.source" value="no_vep" />
+			<output name="output1" file="output_test1.tabular" ftype="tabular" />
+		</test>
+		<test expect_num_outputs="1">
+			<param name="input1" dbkey="hg19" value="input_test1.vcf" ftype="vcf" />
+			<param name="ref_source" value="cached" />
+			<param name="ref" value="hg19test" />
+			<param name="annotation_cache.source" value="no_vep" />
+			<output name="output1" file="output_test1.tabular" ftype="tabular" />
+		</test>
+		<test expect_num_outputs="1">
+			<param name="input1" dbkey="dm6" value="input_test2.vcf" ftype="vcf" />
+			<param name="ref_source" value="history" />
+			<param name="ref" dbkey="dm6" value="test2.fa" ftype="fasta" />
+			<param name="source" value="restricted" />
+			<param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
+			<output name="output1" file="output_test2.tabular" ftype="tabular" />
+		</test>
+	</tests>
+	<help><![CDATA[
+		The tool vcf2maf can parse a wide range of VCF-like formats and convert these into the `Mutation Annotation Format (MAF) <https://docs.gdc.cancer.gov/Data/File_Formats/MAF_Format/>`__. A central part of the conversion process is the selection of a single effect per variant. While this is often a subjective decision, vcf2maf offers a standardized way to achieve this by optionally utilizing Ensembl's `Variant Effect Predictor (VEP) <https://www.ensembl.org/info/docs/tools/vep/index.html>`__.	]]></help>
+	<citations>
+		<citation type="doi">10.5281/zenodo.593251</citation>
+	</citations>
+</tool>
