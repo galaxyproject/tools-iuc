@@ -45,8 +45,6 @@ else:
 
 with open(args.input, "r", encoding="utf-8", errors="surrogateescape") as fh:
     header_cols = fh.readline().strip("\n").split(args.delimiter)
-print(names)
-print(header_cols)
 columns = set()
 for i, key in enumerate(header_cols):
     if i == 0 and args.strip_chars:
