@@ -27,20 +27,20 @@ opt <- args$options
 
 get_boolean_value <- function(val) {
     if (val == "true") {
-        return (TRUE)
+        return(TRUE)
     } else {
-        return (FALSE)
+        return(FALSE)
     }
 }
 
-get_file_path = function(dir, file_name) {
-    file_path = paste(dir, file_name, sep="/")
+get_file_path <- function(dir, file_name) {
+    file_path <- paste(dir, file_name, sep = "/")
     return(file_path)
 }
 
 write_data_frame <- function(dir, file_name, data_frame) {
     file_path <- get_file_path(dir, file_name)
-    write.table(data_frame, file=file_path, quote=FALSE, row.names=TRUE, col.names=TRUE, sep="\t")
+    write.table(data_frame, file = file_path, quote = FALSE, row.names = TRUE, col.names = TRUE, sep = "\t")
 }
 
 # Convert boolean values to boolean.
@@ -54,14 +54,14 @@ phyloseq_obj <- readRDS(opt$phyloseq)
 
 # Construct an ANCOM-BC object.
 ancombc_obj <- ancombc(phyloseq = phyloseq_obj,
-                       formula = opt$formula, 
+                       formula = opt$formula,
                        p_adj_method = opt$p_adj_method,
-                       zero_cut = opt$zero_cut, 
-                       lib_cut = opt$lib_cut, 
+                       zero_cut = opt$zero_cut,
+                       lib_cut = opt$lib_cut,
                        group = opt$group,
                        struc_zero = struc_zero,
                        neg_lb = neg_lb,
-                       tol = opt$tol, 
+                       tol = opt$tol,
                        max_iter = opt$max_iter,
                        conserve = conserve,
                        alpha = opt$alpha,
