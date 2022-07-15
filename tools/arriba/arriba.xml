@@ -1,4 +1,4 @@
-<tool id="arriba" name="Arriba" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" python_template_version="3.5">
+<tool id="arriba" name="Arriba" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="20.01" license="MIT">
     <description>detect gene fusions from STAR aligned RNA-Seq data</description>
     <macros>
         <import>macros.xml</import>
@@ -13,6 +13,7 @@
     <expand macro="version_command" />
     <command detect_errors="exit_code"><![CDATA[
 @GENOME_SOURCE@
+@GTF_SOURCE@
 #set $filter_list = []
 #if $options.filters
     #set $filter_list = $options.filters.split(',')
@@ -46,71 +47,11 @@
         #set $tags_file = $tags
     #end if
 #end if
-#if str($input_params.input_source) == "use_fastq"
-    #set $readFilesCommand = ''
-    #set $read2 = ''
-    #if str($input_params.singlePaired.sPaired) == 'paired_collection':
-        #if $input_params.singlePaired.input.forward.is_of_type('fastq.gz', 'fastqsanger.gz'):
-            #set $readFilesCommand = '--readFilesCommand zcat'
-            #set read1 = 'input_1.fastq.gz'
-            #set read2 = 'input_2.fastq.gz'
-        #else
-            #set read1 = 'input_1.fastq'
-            #set read2 = 'input_2.fastq'
-        #end if
-        ln -sf '${$input_params.singlePaired.input.forward}' ${read1} &&
-        ln -sf '${$input_params.singlePaired.input.reverse}' ${read2} &&
-    #else
-        #if $input_params.singlePaired.input1.is_of_type('fastq.gz', 'fastqsanger.gz'):
-            #set $readFilesCommand = '--readFilesCommand zcat'
-            #set read1 = 'input_1.fastq.gz'
-        #else
-            #set read1 = 'input_1.fastq'
-        #end if
-        ln -sf '$input_params.singlePaired.input1' ${read1} &&
-        #if str($input_params.singlePaired.sPaired) == 'paired':
-            #set $read2 = $read1.replace('1','2')
-            ln -sf '$input_params.singlePaired.input2' ${read2} &&
-        #end if
-    #end if
-    #if str($input_params.index.index_source) == "history"
-        #set $star_index_dir = $input_params.index.star_index.extra_files_path
-    #else 
-        #set $star_index_dir = $input_params.index.arriba_ref.fields.star_index
-    #end if
-
-    STAR 
-    --runThreadN \${GALAXY_SLOTS:-1} 
-    --genomeDir $star_index_dir
-    --genomeLoad NoSharedMemory 
-    --readFilesIn $read1 $read2
-    $readFilesCommand
-    --outStd BAM_Unsorted 
-    --outSAMtype BAM Unsorted 
-    --outSAMunmapped Within 
-    --outBAMcompression 0 
-    --outFilterMultimapNmax 50 
-    --peOverlapNbasesMin 10 
-    --alignSplicedMateMapLminOverLmate 0.5 
-    --alignSJstitchMismatchNmax 5 -1 5 5 
-    --chimSegmentMin 10 
-    --chimOutType WithinBAM HardClip 
-    --chimJunctionOverhangMin 10 
-    --chimScoreDropMax 30 
-    --chimScoreJunctionNonGTAG 0 
-    --chimScoreSeparation 1 
-    --chimSegmentReadGapMax 3 
-    --chimMultimapNmax 50 
-    | tee Aligned.out.bam |
      arriba 
-    -x '/dev/stdin'
-#else
-     arriba 
-    -x '$input_params.input'
-    #if $input_params.chimeric
-        -c '$input_params.chimeric'
+    -x '$input'
+    #if $chimeric
+        -c '$chimeric'
     #end if
-#end if
     -a '$genome_assembly'
     -g '$genome_annotation'
     #if $blacklist
@@ -211,11 +152,8 @@
     $options.duplicate_marking
     $options.fill_discarded_columns
     $options.fill_the_gaps
-#if str($input_params.input_source) == "use_fastq"
-    && samtools sort -@ \${GALAXY_SLOTS:-1} -m 4G -T tmp -O bam Aligned.out.bam > Aligned.sortedByCoord.out.bam
-    && samtools index Aligned.sortedByCoord.out.bam
-#elif str($visualization.do_viz) == "yes"
-    && samtools sort -@ \${GALAXY_SLOTS:-1} -m 4G -T tmp -O bam '$input_params.input' > Aligned.sortedByCoord.out.bam
+#if str($visualization.do_viz) == "yes"
+    && samtools sort -@ \${GALAXY_SLOTS:-1} -m 4G -T tmp -O bam '$input' > Aligned.sortedByCoord.out.bam
     && samtools index Aligned.sortedByCoord.out.bam
 #end if
 #if $output_fusions_vcf
@@ -231,57 +169,14 @@
 #end if
     ]]></command>
     <inputs>
-        <conditional name="input_params">
-            <param name="input_source" type="select" label="Use output from earlier STAR run or let Arriba running STAR">
-                <option value="use_star">Use output from earlier STAR</option>
-                <option value="use_fastq">Let Arriba control running STAR</option>
-            </param>
-            <when value="use_star">
-                <param name="input" argument="-x" type="data" format="sam,bam,cram" label="STAR Aligned.out.sam">
-                    <help><![CDATA[ recommended STAR options: --chimSegmentMin 10 --chimOutType WithinBAM ]]></help>
-                </param>
-                <param name="chimeric" argument="-c" type="data" format="sam,bam,cram" optional="true" label="STAR Chimeric.out.sam">
-                    <help><![CDATA[ only required, if STAR was run with the parameter '--chimOutType SeparateSAMold' ]]></help>
-                </param>
-            </when>
-            <when value="use_fastq">
-                <conditional name="singlePaired">
-                    <param name="sPaired" type="select" label="Single-end or paired-end reads">
-                        <option value="single" selected="true">Single-end</option>
-                        <option value="paired">Paired-end (as individual datasets)</option>
-                        <option value="paired_collection">Paired-end (as collection)</option>
-                    </param>
-                    <when value="single">
-                        <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data" label="RNA-Seq FASTQ/FASTA file"/>
-                    </when>
-                    <when value="paired">
-                        <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input1" type="data" label="RNA-Seq FASTQ/FASTA file, forward reads"/>
-                        <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input2" type="data" label="RNA-Seq FASTQ/FASTA file, reverse reads"/>
-                    </when>
-                    <when value="paired_collection">
-                        <param format="fastq,fasta,fastq.gz,fastqsanger.gz" name="input" type="data_collection" collection_type="paired" label="RNA-Seq FASTQ/FASTA paired reads"/>
-                    </when>
-                </conditional>
-                <conditional name="index">
-                    <param name="index_source" type="select" label="Arriba STAR index source">
-                        <option value="history">Arriba STAR index from your history</option>
-                        <option value="cached">Use a built-in Arriba STAR index</option>
-                    </param>
-                    <when value="history">
-                        <param name="star_index" argument="--genomeDir" type="data" format="txt" label="Arriba STAR index"
-                            help="generated by:  Arriba Reference"/>
-                    </when> 
-                    <when value="cached">
-                        <param name="arriba_ref" type="select" label="Arriba STAR index">
-                            <options from_data_table="arriba_indexes">
-                            </options>
-                        </param>
-                    </when> 
-                </conditional>
-
-            </when>
-        </conditional>
+        <param name="input" argument="-x" type="data" format="sam,bam,cram" label="STAR Aligned.out.sam">
+            <help><![CDATA[ recommended STAR options: --chimSegmentMin 10 --chimOutType WithinBAM ]]></help>
+        </param>
+        <param name="chimeric" argument="-c" type="data" format="sam,bam,cram" optional="true" label="STAR Chimeric.out.sam">
+            <help><![CDATA[ only required, if STAR was run with the parameter '--chimOutType SeparateSAMold' ]]></help>
+        </param>
         <expand macro="genome_source" />
+        <expand macro="gtf_source" />
         <param name="blacklist" argument="-b" type="data" format="tabular,tabular.gz" optional="true" label="File containing blacklisted ranges."/>
         <param name="protein_domains" argument="-p" type="data" format="gff3" optional="true" label="File containing protein domains"/>
         <param name="known_fusions" argument="-k" type="data" format="tabular,tabular.gz"  optional="true" label="File containing known fusions">
@@ -552,13 +447,13 @@
     <tests>
         <!-- Test 1 - From exisitng BAM -->
         <test> 
-            <conditional name="input_params">
-                <param name="input_source" value="use_star"/>
-                <param name="input" ftype="sam" value="Aligned.out.sam"/>
-            </conditional>
+            <param name="input" ftype="sam" value="Aligned.out.sam"/>
             <conditional name="genome">
                 <param name="genome_source" value="history"/>
                 <param name="assembly" ftype="fasta" value="genome.fasta.gz"/>
+            </conditional>
+            <conditional name="genome_gtf">
+                <param name="gtf_source" value="history"/>
                 <param name="annotation" ftype="gtf" value="genome.gtf.gz"/>
             </conditional>
             <param name="protein_domains" ftype="gff3" value="protein_domains.gff3"/>
@@ -574,13 +469,13 @@
         </test>
         <!-- Test 2 - From exisitng BAM with protein_domains and visualization -->
         <test> 
-            <conditional name="input_params">
-                <param name="input_source" value="use_star"/>
-                <param name="input" ftype="sam" value="Aligned.out.sam"/>
-            </conditional>
+            <param name="input" ftype="sam" value="Aligned.out.sam"/>
             <conditional name="genome">
                 <param name="genome_source" value="history"/>
                 <param name="assembly" ftype="fasta" value="genome.fasta.gz"/>
+            </conditional>
+            <conditional name="genome_gtf">
+                <param name="gtf_source" value="history"/>
                 <param name="annotation" ftype="gtf" value="genome.gtf.gz"/>
             </conditional>
             <param name="protein_domains" ftype="gff3" value="protein_domains.gff3"/>
@@ -596,28 +491,6 @@
             <output name="fusions_pdf">
                 <assert_contents>
                     <has_size value= "64000" delta="5000" />
-                </assert_contents>
-            </output>
-        </test>
-        <!-- Test 3 - From exisitng BAM using cached genome source -->
-        <test> 
-            <conditional name="input_params">
-                <param name="input_source" value="use_star"/>
-                <param name="input" ftype="sam" value="Aligned.out.sam"/>
-            </conditional>
-            <conditional name="genome">
-                <param name="genome_source" value="cached"/>
-                <param name="arriba_ref" value="GRCh38+ENSEMBL93"/>
-            </conditional>
-            <param name="protein_domains" ftype="gff3" value="protein_domains.gff3"/>
-            <param name="output_fusions_vcf" value="false"/>
-            <conditional name="visualization">
-                <param name="do_viz" value="no"/>
-                <param name="cytobands" ftype="tabular" value="cytobands.tsv"/>
-            </conditional>
-            <output name="fusions_tsv">
-                <assert_contents>
-                    <has_text_matching expression="BCR\tABL1"/>
                 </assert_contents>
             </output>
         </test>
