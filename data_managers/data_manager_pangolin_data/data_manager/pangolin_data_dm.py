@@ -2,7 +2,6 @@
 
 import argparse
 import datetime
-from io import StringIO
 import json
 import operator
 import pathlib
@@ -10,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from io import StringIO
 from typing import Dict, Generator, List, TextIO
 
 import requests
