@@ -55,30 +55,6 @@ def get_model_list(
             response.raise_for_status()
 
 
-# def filter_by_date(existing_release_tags: List[str], package_name: str,
-#                    start_date: datetime.datetime = None, end_date: datetime.datetime = None) -> List[dict]:
-#     ret = []
-#     for release in get_model_list(existing_release_tags, package_name):
-#         if start_date and release["date"] < start_date:
-#             break
-#         if not end_date or release["date"] <= end_date:
-#             ret.append(release)
-
-#     return ret
-
-
-# def filter_by_version(existing_release_tags: List[str],
-#                       package_name: str, start_version: str, end_version: str) -> List[dict]:
-#     ret = []
-#     for release in get_model_list(existing_release_tags, package_name):
-#         if start_version is not None and version.parse(release["tag_name"]) < version.parse(start_version):
-#             # we can stop looking because releases are sorted by version, from newest to oldest
-#             break
-#         if end_version is None or version.parse(release["tag_name"]) <= version.parse(end_version):
-#             ret.append(release)
-#     return ret
-
-
 def download_and_unpack(dependency: str, release: str, output_directory: str) -> pathlib.Path:
     url = f"git+https://github.com/cov-lineages/{dependency}.git@{release}"
     dependency_package_name = dependency.replace('-', '_')
