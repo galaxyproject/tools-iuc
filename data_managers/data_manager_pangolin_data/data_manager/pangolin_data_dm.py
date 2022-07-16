@@ -2,6 +2,7 @@
 
 import argparse
 import datetime
+from io import StringIO
 import json
 import operator
 import pathlib
@@ -9,10 +10,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Generator, List
+from typing import Dict, Generator, List, TextIO
 
 import requests
-from packaging import version
+# from packaging import version
 
 
 def parse_date(d: str) -> datetime.datetime:
@@ -54,28 +55,28 @@ def get_model_list(
             response.raise_for_status()
 
 
-def filter_by_date(existing_release_tags: List[str], package_name: str,
-                   start_date: datetime.datetime = None, end_date: datetime.datetime = None) -> List[dict]:
-    ret = []
-    for release in get_model_list(existing_release_tags, package_name):
-        if start_date and release["date"] < start_date:
-            break
-        if not end_date or release["date"] <= end_date:
-            ret.append(release)
+# def filter_by_date(existing_release_tags: List[str], package_name: str,
+#                    start_date: datetime.datetime = None, end_date: datetime.datetime = None) -> List[dict]:
+#     ret = []
+#     for release in get_model_list(existing_release_tags, package_name):
+#         if start_date and release["date"] < start_date:
+#             break
+#         if not end_date or release["date"] <= end_date:
+#             ret.append(release)
 
-    return ret
+#     return ret
 
 
-def filter_by_version(existing_release_tags: List[str],
-                      package_name: str, start_version: str, end_version: str) -> List[dict]:
-    ret = []
-    for release in get_model_list(existing_release_tags, package_name):
-        if start_version is not None and version.parse(release["tag_name"]) < version.parse(start_version):
-            # we can stop looking because releases are sorted by version, from newest to oldest
-            break
-        if end_version is None or version.parse(release["tag_name"]) <= version.parse(end_version):
-            ret.append(release)
-    return ret
+# def filter_by_version(existing_release_tags: List[str],
+#                       package_name: str, start_version: str, end_version: str) -> List[dict]:
+#     ret = []
+#     for release in get_model_list(existing_release_tags, package_name):
+#         if start_version is not None and version.parse(release["tag_name"]) < version.parse(start_version):
+#             # we can stop looking because releases are sorted by version, from newest to oldest
+#             break
+#         if end_version is None or version.parse(release["tag_name"]) <= version.parse(end_version):
+#             ret.append(release)
+#     return ret
 
 
 def download_and_unpack(dependency: str, release: str, output_directory: str) -> pathlib.Path:
@@ -93,6 +94,29 @@ def download_and_unpack(dependency: str, release: str, output_directory: str) ->
                        check=True)
         shutil.move(str(pathlib.Path(tmpdir) / dependency_package_name), str(output_path))
     return output_path
+
+
+def fetch_compatibility_info(package_name: str, url: str = 'https://raw.githubusercontent.com/cov-lineages/pangolin/master/pangolin/data/data_compatibility.csv') -> List[Dict[str, str]]:
+    response = requests.get(url)
+    if response.status_code == 200:
+        compatibility = read_compatibility_info(StringIO(response.text), package_name)
+        return compatibility
+    else:
+        return {}
+
+
+def read_compatibility_info(input_file: TextIO, package_name: str) -> List[Dict[str, str]]:
+    compatibility = {}
+    for line in input_file:
+        fields = line.strip().split(',')
+        if fields[0] != package_name:
+            continue
+        if package_name == 'constellations':
+            compatibility[fields[1]] = fields[3]
+        else:
+            # for pangolin-data and pangolin-assignment
+            compatibility[fields[1]] = fields[2]
+    return compatibility
 
 
 def comma_split(args: str) -> List[str]:
@@ -118,11 +142,9 @@ def git_lfs_install():
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--testmode", default=False, action="store_true")
     parser.add_argument("--latest", default=False, action="store_true")
-    parser.add_argument("--start_date", type=parse_date)
-    parser.add_argument("--end_date", type=parse_date)
-    parser.add_argument("--start_version", type=str)
+    parser.add_argument('--version_compatibility_file', type=argparse.FileType())
+    parser.add_argument("--versions", type=comma_split)
     parser.add_argument("--end_version", type=str)
     parser.add_argument("--overwrite", default=False, action="store_true")
     parser.add_argument('--known_revisions', type=comma_split)
@@ -134,27 +156,15 @@ if __name__ == "__main__":
     if args.datatable_name == 'pangolin_data':
         package_name = 'pangolin-data'
         min_version_key = 'min_pangolin_version'
-        min_version = '4'
     elif args.datatable_name == 'pangolin_constellations':
         package_name = 'constellations'
         min_version_key = 'min_scorpio_version'
-        min_version = '0'
     elif args.datatable_name == 'pangolin_assignment':
         package_name = 'pangolin-assignment'
         min_version_key = 'min_pangolin_version'
-        min_version = '4'
         git_lfs_install()
     else:
         sys.exit(f"Unknown data table {args.datatable_name}")
-
-    if args.testmode:
-        if args.start_version is not None:
-            releases = filter_by_version([], package_name, args.start_version, args.end_version)
-        else:
-            releases = filter_by_date([], package_name, start_date=args.start_date, end_date=args.end_date)
-        for release in releases:
-            print(release["tag_name"], release["tarball_url"].split("/")[-1], release["date"])
-        sys.exit(0)
 
     with open(args.galaxy_config) as fh:
         config = json.load(fh)
@@ -183,39 +193,48 @@ if __name__ == "__main__":
     else:
         existing_release_tags = set()
     if args.latest:
-        latest_release = next(get_model_list([], package_name))
+        compatibility = fetch_compatibility_info(package_name)
+        for latest_release in get_model_list([], package_name):
+            # choose the first release for which we have compatibility info
+            version = latest_release["tag_name"].replace('v', '')
+            if version in compatibility:
+                latest_release[min_version_key] = compatibility[version]
+                break
         if latest_release["tag_name"] in existing_release_tags:
             releases = []
         else:
             releases = [latest_release]
-    elif args.start_version is not None or args.end_version is not None:
-        releases = filter_by_version(existing_release_tags,
-                                     package_name,
-                                     args.start_version, args.end_version)
     else:
-        releases = filter_by_date(
-            existing_release_tags,
-            package_name,
-            start_date=args.start_date, end_date=args.end_date
-        )
-    releases_to_download = [
-        release
-        for release in releases
-        if release["tag_name"] not in existing_release_tags
-    ]
-    for release in releases_to_download:
-
+        compatibility = read_compatibility_info(args.version_compatibility_file, package_name)
+        downloadable_releases = get_model_list(existing_release_tags, package_name)
+        print("XXXX versions:", args.versions)
+        releases_wanted = set(args.versions)
+        releases = []
+        for release in downloadable_releases:
+            version = release["tag_name"].replace('v', '')
+            if version in releases_wanted:
+                if version in compatibility:
+                    # only add the releases for which we have compatibility info
+                    release[min_version_key] = compatibility[version]
+                    releases.append(release)
+    # releases_to_download = [
+    #     release
+    #     for release in releases
+    #     if release["tag_name"] not in existing_release_tags
+    # ]
+    for release in releases:
         fname = download_and_unpack(
             package_name,
             release['tag_name'],
             output_directory
         )
         if fname is not None:
+            print("XXXXXXXXX release:", release, file=sys.stderr)
             data_manager_dict["data_tables"][args.datatable_name].append(
                 {
                     'value': release["tag_name"],
                     'description': release["name"],
-                    min_version_key: min_version,
+                    min_version_key: release[min_version_key],
                     'date': release["date"].isoformat(),  # ISO 8601 is easily sortable
                     'path': str(output_directory / fname)
                 }
