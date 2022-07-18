@@ -13,7 +13,6 @@ from io import StringIO
 from typing import Dict, Generator, List, TextIO
 
 import requests
-# from packaging import version
 
 
 def parse_date(d: str) -> datetime.datetime:
@@ -121,7 +120,6 @@ if __name__ == "__main__":
     parser.add_argument("--latest", default=False, action="store_true")
     parser.add_argument('--version_compatibility_file', type=argparse.FileType())
     parser.add_argument("--versions", type=comma_split)
-    parser.add_argument("--end_version", type=str)
     parser.add_argument("--overwrite", default=False, action="store_true")
     parser.add_argument('--known_revisions', type=comma_split)
     parser.add_argument("datatable_name")
@@ -172,7 +170,7 @@ if __name__ == "__main__":
         compatibility = fetch_compatibility_info(package_name)
         for latest_release in get_model_list([], package_name):
             # choose the first release for which we have compatibility info
-            version = latest_release["tag_name"].replace('v', '')
+            version = latest_release["tag_name"].lstrip('v.')
             if version in compatibility:
                 latest_release[min_version_key] = compatibility[version]
                 break
@@ -187,7 +185,7 @@ if __name__ == "__main__":
         releases_wanted = set(args.versions)
         releases = []
         for release in downloadable_releases:
-            version = release["tag_name"].replace('v', '')
+            version = release["tag_name"].lstrip('v.')
             if version in releases_wanted:
                 if version in compatibility:
                     # only add the releases for which we have compatibility info
