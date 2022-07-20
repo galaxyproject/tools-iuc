@@ -27,7 +27,7 @@ from numpy import format_float_positional
 class Mode(enum.Enum):
     APPEND = ''
     INSERT = 'I'
-    REPLACE ='R'
+    REPLACE = 'R'
 
 
 parser = argparse.ArgumentParser()
@@ -107,8 +107,14 @@ else:
 
 operators = 'is|not|or|and'
 builtin_and_math_functions = 'abs|all|any|bin|chr|cmp|complex|divmod|float|bool|hex|int|len|long|max|min|oct|ord|pow|range|reversed|round|sorted|str|sum|type|unichr|unicode|log|log10|exp|sqrt|ceil|floor'
+imported_numpy_function = 'format_float_positional'
 string_and_list_methods = [name for name in dir('') + dir([]) if not name.startswith('_')]
-whitelist = r"^([c0-9\+\-\*\/\(\)\.\'\"><=,:! ]|%s|%s|%s)*$" % (operators, builtin_and_math_functions, '|'.join(string_and_list_methods))
+whitelist = r"^([c0-9\+\-\*\/\(\)\.\'\"><=,:! ]|%s|%s|%s|%s)*$" % (
+    operators,
+    builtin_and_math_functions,
+    imported_numpy_function,
+    '|'.join(string_and_list_methods)
+)
 valid_pat = re.compile(whitelist)
 ops = []
 num_cols = in_columns
