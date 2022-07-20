@@ -3,7 +3,7 @@
 import argparse
 import datetime
 import json
-import operator
+import operator 
 import pathlib
 import shutil
 import subprocess
@@ -26,7 +26,7 @@ def parse_date(d: str) -> datetime.datetime:
 
 
 def get_model_list(
-    existing_release_tags: list[str], package: str
+    package: str
 ) -> Generator[dict, None, None]:
     page_num = 0
     while True:
@@ -39,8 +39,6 @@ def get_model_list(
                 # past the last page of results
                 return
             for e in release_list_chunk:
-                if e["tag_name"] in existing_release_tags:
-                    continue
                 if e["prerelease"]:
                     continue
                 yield dict(
@@ -67,7 +65,6 @@ def download_and_unpack(
         output_directory,
     )
     output_path = pathlib.Path(output_directory) / dependency_package_name / release
-    print("output path is", output_path, "release is", release)
     with tempfile.TemporaryDirectory() as tmpdir:
         pip_command = [
             sys.executable,
@@ -192,7 +189,7 @@ if __name__ == "__main__":
         existing_release_tags = set()
     if args.latest:
         compatibility = fetch_compatibility_info(package_name)
-        for latest_release in get_model_list([], package_name):
+        for latest_release in get_model_list(package_name):
             # choose the first release for which we have compatibility info
             version = latest_release["tag_name"].lstrip('v.')
             if version in compatibility:
@@ -206,9 +203,8 @@ if __name__ == "__main__":
         compatibility = read_compatibility_info(
             args.version_compatibility_file, package_name
         )
-        downloadable_releases = get_model_list(existing_release_tags, package_name)
-        print("XXXX versions:", args.versions)
-        releases_wanted = set(args.versions)
+        downloadable_releases = get_model_list(package_name)
+        releases_wanted = set(args.versions) - set([ tag.lstrip('v.') for tag in existing_release_tags ])
         releases = []
         for release in downloadable_releases:
             version = release["tag_name"].lstrip('v.')
