@@ -104,7 +104,17 @@ if args.file:
 else:
     expr = args.expr
 
-
+# each expr must be a full data row manipulation instruction of the form:
+# EXPR;[COL_ADD_SPEC];[COL_NAME]
+# where EXPR is the actual expression to compute on the row,
+# COL_ADD_SPEC consists of a column index and a mode identifier for how the
+# new column should be added.
+# Examples: 3I (insert new col before current column 3),
+# 2R (replace current column 2 with new column);
+# a missing COL_ADD_SPEC is interpreted as mode A (append new column at the
+# end of the row).
+# COL_NAME is required with the --header option and specifies the name of the
+# new column; without --header, any COL_NAME gets ignored.
 operators = 'is|not|or|and'
 builtin_and_math_functions = 'abs|all|any|bin|chr|cmp|complex|divmod|float|bool|hex|int|len|long|max|min|oct|ord|pow|range|reversed|round|sorted|str|sum|type|unichr|unicode|log|log10|exp|sqrt|ceil|floor'
 imported_numpy_function = 'format_float_positional'
