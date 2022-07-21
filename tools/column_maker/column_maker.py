@@ -46,6 +46,22 @@ parser.add_argument(
     help='The input has a header line with column names. '
          'Expressions must specify names of newly calculated columns.'
 )
+parser.add_argument(
+    '--fail-on-non-existent-columns', action='store_true',
+    help='If an expression references a column number that is not existent '
+         'when the expression gets computed, the default behavior is to treat '
+         'this as a case of rows for which the expression cannot be computed. '
+         'The behavior of the tool will then depend on which of the '
+         'non-computable switches is in effect. With this flag, in contrast, '
+         'the tool will fail directly upon encountering a non-existing column.'
+)
+non_computable = parser.add_mutually_exclusive_group()
+non_computable.add_argument('--skip-non-computable', action='store_true')
+non_computable.add_argument('--keep-non-computable', action='store_true')
+non_computable.add_argument('--fail-on-non-computable', action='store_true')
+non_computable.add_argument('--non-computable-blank', action='store_true')
+non_computable.add_argument('--non-computable-default')
+
 group = parser.add_mutually_exclusive_group(required=True)
 group.add_argument('-e', '--expr', nargs='*', type=str, help='Expression(s)')
 group.add_argument(
@@ -185,7 +201,7 @@ for e in expr:
             'header line (--header option), but found none in instruction: '
             '"%s"' % e
         )
-    ops.append([exp_lambda, new_col_idx, mode, new_col_name])
+    ops.append([exp_lambda, new_col_idx, mode, new_col_name, parts[0]])
     if mode is Mode.APPEND or mode is Mode.INSERT:
         # If the current expression results in an additional column,
         # we need to handle the new field in subsequent lambda functions.
@@ -200,14 +216,15 @@ print(
 skipped_lines = 0
 first_invalid_line = 0
 invalid_line = None
-lines_kept = 0
+lines_computed = 0
 total_lines = 0
+non_existent_col_pat = re.compile("name 'c\d+' is not defined")
 
 with open(args.input) as fh, open(args.output, 'w') as out:
     if args.header:
         # compute new header line from original
         header_cols = fh.readline().strip('\n').split('\t')
-        for _, col_idx, mode, col_name in ops:
+        for _, col_idx, mode, col_name, _ in ops:
             if mode is Mode.INSERT:
                 header_cols.insert(col_idx, col_name)
             elif mode is Mode.REPLACE:
@@ -228,19 +245,66 @@ with open(args.input) as fh, open(args.output, 'w') as out:
                 invalid_line = line
             continue
         fields = line.split('\t')
-        typed_fields = cast_types(*fields)
-        try:
-            for fun, col_idx, mode, col_name in ops:
-                new_val = fun(*typed_fields)
-                if mode is Mode.INSERT:
-                    fields.insert(col_idx, new_val)
-                    typed_fields.insert(col_idx, new_val)
-                elif mode is Mode.REPLACE:
-                    fields[col_idx] = new_val
-                    typed_fields[col_idx] = new_val
+        typed_fields = fields[:]
+        for fun, col_idx, mode, col_name, ex in ops:
+            try:
+                typed_fields = cast_types(*fields)
+                try:
+                    new_val = fun(*typed_fields)
+                except NameError as e:
+                    # Python 3.10+ would have the problematic name
+                    # available as e.name
+                    if non_existent_col_pat.fullmatch(str(e)) and (
+                        not args.fail_on_non_existent_columns
+                    ):
+                        # Looks like a reference to a non-existent column
+                        # and we are not supposed to fail on it directly.
+                        # Reraise and have it handled as a non-computable
+                        # row.
+                        raise
+                    # NameErrors are not row-specific, but indicate a
+                    # general problem with the user-supplied expression.
+                    sys.exit(
+                        'While parsing expression "%s" the following '
+                        'problem occured: "%s"' % (ex, str(e))
+                    )
+            except Exception as e:
+                if args.fail_on_non_computable:
+                    sys.exit(
+                        'Could not compute a new column value using "%s" on '
+                        'line #%d: "%s".  Error was "%s"'
+                        % (ex, i, line, str(e))
+                    )
+                if args.keep_non_computable:
+                    # write the original line unchanged and stop computing
+                    # for this line
+                    out.write(line + '\n')
+                    break
+                if args.non_computable_blank:
+                    new_val = ''
+                elif args.non_computable_default is not None:
+                    new_val = args.non_computable_default
                 else:
-                    fields.append(new_val)
-                    typed_fields.append(new_val)
+                    # --skip_non_computable
+                    # (which is default behavior, too)
+                    # log that a line got skipped and why, then stop
+                    # computing for this line
+                    print(e)
+                    skipped_lines += 1
+                    if not invalid_line:
+                        first_invalid_line = i + 1
+                        invalid_line = line
+                    break
+            if mode is Mode.INSERT:
+                fields.insert(col_idx, new_val)
+                typed_fields.insert(col_idx, new_val)
+            elif mode is Mode.REPLACE:
+                fields[col_idx] = new_val
+                typed_fields[col_idx] = new_val
+            else:
+                fields.append(new_val)
+                typed_fields.append(new_val)
+        else:
             fields = [
                 format_float_positional(field)
                 if args.avoid_scientific_notation and type(field) is float
@@ -248,19 +312,15 @@ with open(args.input) as fh, open(args.output, 'w') as out:
                 for field in fields
             ]
             out.write('\t'.join(fields) + '\n')
-            lines_kept += 1
-        except Exception as e:
-            print(e)
-            skipped_lines += 1
-            if not invalid_line:
-                first_invalid_line = i + 1
-                invalid_line = line
+            lines_computed += 1
 
 
 valid_lines = total_lines - skipped_lines
 if valid_lines > 0:
-    print('kept %4.2f%% of %d lines.' % (100.0 * lines_kept / valid_lines,
-                                         total_lines))
+    print(
+        'Computed new column values for %4.2f%% of %d lines written.'
+        % (100.0 * lines_computed / valid_lines, valid_lines)
+    )
 else:
     print(
         'Could not compute a new column for any input row!  '
@@ -271,3 +331,8 @@ else:
 if skipped_lines > 0:
     print('Skipped %d invalid lines starting at line #%d: "%s"' %
           (skipped_lines, first_invalid_line, invalid_line))
+if lines_computed < valid_lines:
+    print(
+        'Rewrote %d lines unmodified because computation of a new value failed'
+        % (valid_lines - lines_computed)
+    )
