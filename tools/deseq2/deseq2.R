@@ -326,7 +326,7 @@ if (is.null(opt$fit_type)) {
 }
 
 if (verbose) cat(paste("using disperion fit type:", fit_type, "\n"))
-    
+
 # run the analysis
 dds <- DESeq(dds, fitType = fit_type, betaPrior = beta_prior, minReplicatesForReplace = min_rep, parallel = parallel)
 
