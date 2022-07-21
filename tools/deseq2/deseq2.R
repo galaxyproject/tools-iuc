@@ -282,7 +282,7 @@ if (verbose) {
   cat(paste(ncol(dds), "samples with counts over", nrow(dds), "genes\n"))
 }
 
-# minimap pre-filtering
+# minimal pre-filtering
 if (!is.null(opt$prefilter)) {
     keep <- rowSums(counts(dds)) >= opt$prefilter_value
     dds <- dds[keep,]
@@ -326,12 +326,6 @@ if (is.null(opt$fit_type)) {
 }
 
 if (verbose) cat(paste("using disperion fit type:", fit_type, "\n"))
-
-# minimap pre-filtering
-if (!is.null(opt$prefilter)) {
-    keep <- rowSums(counts(dds)) >= opt$prefilter
-    dds <- dds[keep,]
-}
     
 # run the analysis
 dds <- DESeq(dds, fitType = fit_type, betaPrior = beta_prior, minReplicatesForReplace = min_rep, parallel = parallel)
