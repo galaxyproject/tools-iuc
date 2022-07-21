@@ -284,7 +284,7 @@ if (verbose) {
 
 # minimap pre-filtering
 if (!is.null(opt$prefilter)) {
-    keep <- rowSums(counts(dds)) >= opt$prefilter
+    keep <- rowSums(counts(dds)) >= opt$prefilter_value
     dds <- dds[keep,]
 }
 
