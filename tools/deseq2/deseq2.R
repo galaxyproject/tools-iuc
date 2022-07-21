@@ -69,7 +69,9 @@ spec <- matrix(c(
   "outlier_filter_off", "b", 0, "logical",
   "auto_mean_filter_off", "c", 0, "logical",
   "beta_prior_off", "d", 0, "logical",
-  "alpha_ma", "A", 1, "numeric"
+  "alpha_ma", "A", 1, "numeric",
+  "prefilter", "P", 0, "logical",
+  "prefilter_value", "V", 1, "numeric"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -280,6 +282,12 @@ if (verbose) {
   cat(paste(ncol(dds), "samples with counts over", nrow(dds), "genes\n"))
 }
 
+# minimap pre-filtering
+if (!is.null(opt$prefilter)) {
+    keep <- rowSums(counts(dds)) >= opt$prefilter
+    dds <- dds[keep,]
+}
+
 # optional outlier behavior
 if (is.null(opt$outlier_replace_off)) {
   min_rep <- 7
@@ -319,6 +327,12 @@ if (is.null(opt$fit_type)) {
 
 if (verbose) cat(paste("using disperion fit type:", fit_type, "\n"))
 
+# minimap pre-filtering
+if (!is.null(opt$prefilter)) {
+    keep <- rowSums(counts(dds)) >= opt$prefilter
+    dds <- dds[keep,]
+}
+    
 # run the analysis
 dds <- DESeq(dds, fitType = fit_type, betaPrior = beta_prior, minReplicatesForReplace = min_rep, parallel = parallel)
 
