@@ -32,7 +32,8 @@
 
 # setup R error handling to go to stderr
 options(show.error.messages = FALSE, error = function() {
-  cat(geterrmessage(), file = stderr()); q("no", 1, FALSE)
+  cat(geterrmessage(), file = stderr())
+  q("no", 1, FALSE)
 })
 
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
