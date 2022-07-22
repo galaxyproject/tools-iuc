@@ -218,7 +218,7 @@ first_invalid_line = 0
 invalid_line = None
 lines_computed = 0
 total_lines = 0
-non_existent_col_pat = re.compile("name 'c\d+' is not defined")
+non_existent_col_pat = re.compile(r"name 'c\d+' is not defined")
 
 with open(args.input) as fh, open(args.output, 'w') as out:
     if args.header:
