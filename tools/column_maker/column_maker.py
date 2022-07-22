@@ -44,11 +44,11 @@ parser.add_argument(
 parser.add_argument(
     '--header', action='store_true',
     help='The input has a header line with column names. '
-         'Expressions must specify names of newly calculated columns.'
+         'Actions must specify names of newly calculated columns.'
 )
 parser.add_argument(
     '--fail-on-non-existent-columns', action='store_true',
-    help='If an expression references a column number that is not existent '
+    help='If an action references a column number that is not existent '
          'when the expression gets computed, the default behavior is to treat '
          'this as a case of rows for which the expression cannot be computed. '
          'The behavior of the tool will then depend on which of the '
@@ -63,10 +63,13 @@ non_computable.add_argument('--non-computable-blank', action='store_true')
 non_computable.add_argument('--non-computable-default')
 
 group = parser.add_mutually_exclusive_group(required=True)
-group.add_argument('-e', '--expr', nargs='*', type=str, help='Expression(s)')
+group.add_argument(
+    '-a', '--actions', nargs='*', type=str,
+    help='One or more action(s) of the format EXPR;[COL_ADD_SPEC];[COL_NAME]'
+)
 group.add_argument(
     '-f', '--file', type=str,
-    help='File to read expressions from (mutually exclusive with -e)'
+    help='File to read actions from (mutually exclusive with -a)'
 )
 args = parser.parse_args()
 
@@ -109,18 +112,18 @@ except Exception as e:
         % e
     )
 
-# Get and parse expressions
+# Get and parse actions
 if args.file:
-    expr = []
+    actions = []
     with open(args.file) as i:
         for line in i:
             line = line.strip()
             if line:
-                expr.append(line)
+                actions.append(line)
 else:
-    expr = args.expr
+    actions = args.actions
 
-# each expr must be a full data row manipulation instruction of the form:
+# each action must be a full data row manipulation instruction of the form:
 # EXPR;[COL_ADD_SPEC];[COL_NAME]
 # where EXPR is the actual expression to compute on the row,
 # COL_ADD_SPEC consists of a column index and a mode identifier for how the
@@ -132,9 +135,15 @@ else:
 # COL_NAME is required with the --header option and specifies the name of the
 # new column; without --header, any COL_NAME gets ignored.
 operators = 'is|not|or|and'
-builtin_and_math_functions = 'abs|all|any|bin|chr|cmp|complex|divmod|float|bool|hex|int|len|long|max|min|oct|ord|pow|range|reversed|round|sorted|str|sum|type|unichr|unicode|log|log10|exp|sqrt|ceil|floor'
+builtin_and_math_functions = (
+    'abs|all|any|bin|chr|cmp|complex|divmod|float|bool|hex|int|len|long|'
+    'max|min|oct|ord|pow|range|reversed|round|sorted|str|sum|type|unichr|'
+    'unicode|log|log10|exp|sqrt|ceil|floor'
+)
 imported_numpy_function = 'format_float_positional'
-string_and_list_methods = [name for name in dir('') + dir([]) if not name.startswith('_')]
+string_and_list_methods = [
+    name for name in dir('') + dir([]) if not name.startswith('_')
+]
 whitelist = r"^([c0-9\+\-\*\/\(\)\.\'\"><=,:! ]|%s|%s|%s|%s)*$" % (
     operators,
     builtin_and_math_functions,
@@ -144,64 +153,62 @@ whitelist = r"^([c0-9\+\-\*\/\(\)\.\'\"><=,:! ]|%s|%s|%s|%s)*$" % (
 valid_pat = re.compile(whitelist)
 ops = []
 num_cols = in_columns
-for e in expr:
-    parts = e.split(';')
-    if len(parts) != 3:
-        sys.exit(
-            'Invalid compute instruction: "%s".  '
-            'Required format: EXPR;[COL_ADD_SPEC];[COL_NAME]' % e
-        )
-    if not valid_pat.match(parts[0]):
-        sys.exit('Invalid expression: "%s"' % parts[0])
+for ac in actions:
     try:
-        exp_lambda = eval('lambda %s: %s' % (col_str, parts[0]))
+        expr_string, col_add_spec, new_col_name = ac.split(';')
+    except ValueError:
+        sys.exit(
+            'Invalid Action: "%s".  '
+            'Required format: EXPR;[COL_ADD_SPEC];[COL_NAME]' % ac
+        )
+    if not valid_pat.match(expr_string):
+        sys.exit('Invalid expression: "%s"' % expr_string)
+    try:
+        expr_lambda = eval('lambda %s: %s' % (col_str, expr_string))
     except Exception as e:
         if str(e).startswith('invalid syntax'):
             sys.exit(
                 'Expression "%s" caused a syntax error during parsing.'
-                % parts[0]
+                % expr_string
             )
         else:
             sys.exit(
                 'While parsing expression "%s" the following problem occured: '
-                '"%s"' % (parts[0], str(e))
+                '"%s"' % (expr_string, str(e))
             )
     try:
-        new_col_idx = int(parts[1][:-1] or '0') - 1
+        new_col_idx = int(col_add_spec[:-1] or '0') - 1
     except ValueError:
         sys.exit(
             'COL_ADD_SPECS need to start with a (1-based) column index. '
-            'Could not parse a column index from "%s"' % parts[1]
+            'Could not parse a column index from "%s"' % col_add_spec
         )
     try:
-        mode = Mode(parts[1][-1:])
+        mode = Mode(col_add_spec[-1:])
     except ValueError:
         sys.exit(
             'COL_ADD_SPECS need to end in a single-character mode identifier '
-            '("A", "I", or "R").  '
-            'Could not parse a valid identifier from "%s"' % parts[1]
-        )
-    if mode is Mode.APPEND and new_col_idx != -1:
-        sys.exit(
-            '"%s" combines Append mode with a column index.  '
-            'Please specify mode "A" without a leading column index.'
-            % parts[1]
+            '("I", or "R"), or be empty (for Append mode).  '
+            'Could not parse a valid identifier from "%s"' % col_add_spec
         )
     if mode is Mode.REPLACE:
         if new_col_idx < 0 or new_col_idx >= num_cols:
             sys.exit(
                 'Cannot replace the contents of column %d as specified by '
-                'instruction "%s".  No such column at this point of the '
-                'computation' % (new_col_idx + 1, e)
+                'action "%s".  No such column at this point of the '
+                'computation' % (new_col_idx + 1, ac)
             )
-    new_col_name = parts[2] if len(parts) == 3 else None
     if not new_col_name and args.header:
         sys.exit(
             'A name is required for any new columns when using an existing '
-            'header line (--header option), but found none in instruction: '
-            '"%s"' % e
+            'header line (--header option), but found none in action: '
+            '"%s"' % ac
         )
-    ops.append([exp_lambda, new_col_idx, mode, new_col_name, parts[0]])
+    # Successfully parsed the instruction
+    # Store the expression lambda, the index and name of the new column, and
+    # the original string representation of the expression (for use in
+    # potential later error messages).
+    ops.append([expr_lambda, new_col_idx, mode, new_col_name, expr_string])
     if mode is Mode.APPEND or mode is Mode.INSERT:
         # If the current expression results in an additional column,
         # we need to handle the new field in subsequent lambda functions.
@@ -211,7 +218,8 @@ for e in expr:
 
 # ready to start parsing the input file
 print(
-    'Computing %d columns with instructions %s' % (num_cols - in_columns, expr)
+    'Computing %d new columns with instructions %s'
+    % (num_cols - in_columns, actions)
 )
 skipped_lines = 0
 first_invalid_line = 0
@@ -322,8 +330,8 @@ with open(args.input) as fh, open(args.output, 'w') as out:
                         'Cannot replace column #%d in line with %d columns: '
                         '"%s"' % (col_idx + 1, len(fields), line)
                     )
-                fields[col_idx:col_idx+1] = [new_val]
-                typed_fields[col_idx:col_idx+1] = [new_val]
+                fields[col_idx:col_idx + 1] = [new_val]
+                typed_fields[col_idx:col_idx + 1] = [new_val]
             else:
                 fields.append(new_val)
                 typed_fields.append(new_val)
@@ -349,7 +357,7 @@ elif args.fail_on_non_existent_columns:
     print(
         'Could not compute a new column for any input row!  '
         'Please check your expression(s) "%s" for problems.'
-        % expr
+        % actions
     )
 else:
     # Same, but the problem could also be a reference to a non-existent
@@ -358,7 +366,7 @@ else:
         'Could not compute a new column for any input row!  '
         'Please check your expression(s) "%s" for references to non-existent '
         'columns or other problems.'
-        % expr
+        % actions
     )
 if skipped_lines > 0:
     print('Skipped %d invalid lines starting at line #%d: "%s"' %
