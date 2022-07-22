@@ -245,23 +245,25 @@ with open(args.input) as fh, open(args.output, 'w') as out:
                 invalid_line = line
             continue
         fields = line.split('\t')
-        typed_fields = None
+        if len(fields) == in_columns:
+            try:
+                typed_fields = cast_types(*fields)
+            except ValueError as e:
+                sys.exit(
+                    'Failed to convert some of the columns in line #%d to their '
+                    'expected types.  The error was: "%s" for the line: "%s"'
+                    % (i, str(e), line)
+                )
+        else:
+            # A line with less or more fields than expected
+            # We cannot cast the types for it because the lambda expects a
+            # fixed number of column input arguments.
+            # Lets pass in a copy of the original string fields and let
+            # the computation of expressions fail, then have that situation
+            # handled according to the non-computable settings in effect.
+            typed_fields = fields[:]
         for fun, col_idx, mode, col_name, ex in ops:
             try:
-                if typed_fields is None:
-                    # Before performing the first column operation
-                    # try to convert all fields of the current row from
-                    # strings to their actual types (according to
-                    # --column-types). If that attempt fails (e.g. because
-                    # of a missing value in an integer column), simply
-                    # copy the original fields unconverted and leave the
-                    # situation to the outer exception handling according
-                    # to the non-computable settings in effect.
-                    try:
-                        typed_fields = cast_types(*fields)
-                    except Exception:
-                        typed_fields = fields[:]
-                        raise
                 try:
                     new_val = fun(*typed_fields)
                 except NameError as e:
@@ -312,8 +314,16 @@ with open(args.input) as fh, open(args.output, 'w') as out:
                 fields.insert(col_idx, new_val)
                 typed_fields.insert(col_idx, new_val)
             elif mode is Mode.REPLACE:
-                fields[col_idx] = new_val
-                typed_fields[col_idx] = new_val
+                if col_idx > len(fields):
+                    # Intentionally allow "replacing" one column beyond
+                    # current fields since this can be used to fix
+                    # short lines in the input.
+                    sys.exit(
+                        'Cannot replace column #%d in line with %d columns: '
+                        '"%s"' % (col_idx + 1, len(fields), line)
+                    )
+                fields[col_idx:col_idx+1] = [new_val]
+                typed_fields[col_idx:col_idx+1] = [new_val]
             else:
                 fields.append(new_val)
                 typed_fields.append(new_val)
