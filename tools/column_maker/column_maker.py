@@ -245,10 +245,23 @@ with open(args.input) as fh, open(args.output, 'w') as out:
                 invalid_line = line
             continue
         fields = line.split('\t')
-        typed_fields = fields[:]
+        typed_fields = None
         for fun, col_idx, mode, col_name, ex in ops:
             try:
-                typed_fields = cast_types(*fields)
+                if typed_fields is None:
+                    # Before performing the first column operation
+                    # try to convert all fields of the current row from
+                    # strings to their actual types (according to
+                    # --column-types). If that attempt fails (e.g. because
+                    # of a missing value in an integer column), simply
+                    # copy the original fields unconverted and leave the
+                    # situation to the outer exception handling according
+                    # to the non-computable settings in effect.
+                    try:
+                        typed_fields = cast_types(*fields)
+                    except Exception:
+                        typed_fields = fields[:]
+                        raise
                 try:
                     new_val = fun(*typed_fields)
                 except NameError as e:
@@ -321,7 +334,16 @@ if valid_lines > 0:
         'Computed new column values for %4.2f%% of %d lines written.'
         % (100.0 * lines_computed / valid_lines, valid_lines)
     )
+elif args.fail_on_non_existent_columns:
+    # Warn the user that there could be an issue with an expression.
+    print(
+        'Could not compute a new column for any input row!  '
+        'Please check your expression(s) "%s" for problems.'
+        % expr
+    )
 else:
+    # Same, but the problem could also be a reference to a non-existent
+    # column.
     print(
         'Could not compute a new column for any input row!  '
         'Please check your expression(s) "%s" for references to non-existent '
