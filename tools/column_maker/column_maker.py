@@ -228,7 +228,8 @@ lines_computed = 0
 total_lines = 0
 non_existent_col_pat = re.compile(r"name 'c\d+' is not defined")
 
-with open(args.input) as fh, open(args.output, 'w') as out:
+with open(args.input, encoding='utf-8') as fh, \
+     open(args.output, 'w', encoding='utf-8') as out:
     if args.header:
         # compute new header line from original
         header_cols = fh.readline().strip('\n').split('\t')
