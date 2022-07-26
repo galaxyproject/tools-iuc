@@ -30,6 +30,21 @@ class Mode(enum.Enum):
     REPLACE = 'R'
 
 
+def from_str(s, to_type):
+    if to_type is list:
+        return [part.strip(' ') for part in s.split(',')]
+    else:
+        return to_type(s)
+
+
+def to_str(obj):
+    if type(obj) is list:
+        return ','.join([to_str(i) for i in obj])
+    if args.avoid_scientific_notation and type(obj) is float:
+        return format_float_positional(obj)
+    return str(obj)
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('input', type=str, help='input file')
 parser.add_argument('output', type=str, help='output file')
@@ -98,14 +113,14 @@ cols, type_casts = [], []
 for n, col_type in enumerate(in_column_types, start=1):
     col_name = "c%d" % n
     cols.append(col_name)
-    type_cast = "%s(%s)" % (col_type, col_name)
-    type_casts.append(type_cast)
-
 col_str = ', '.join(cols)    # 'c1, c2, c3, c4'
-type_cast_str = ', '.join(type_casts)  # 'str(c1), int(c2), int(c3), str(c4)'
+
 # Define lambda for type-casting of original row fields
 try:
-    cast_types = eval('lambda %s: [%s]' % (col_str, type_cast_str))
+    cast_types = eval(
+        'lambda fields: [from_str(s, t) for s, t in zip(fields, [%s])]'
+        % args.column_types
+    )
 except Exception as e:
     sys.exit(
         'While parsing column types, the following problem occured: "%s"'
@@ -137,7 +152,7 @@ else:
 operators = 'is|not|or|and'
 builtin_and_math_functions = (
     'abs|all|any|ascii|bin|bool|chr|complex|divmod|float|format|hex|int|len|'
-    'list|max|min|oct|ord|pow|range|reversed|round|set|sorted|str|sum|type|'
+    'list|map|max|min|oct|ord|pow|range|reversed|round|set|sorted|str|sum|type|'
     'log|log10|exp|sqrt|ceil|floor'
 )
 imported_numpy_function = 'format_float_positional'
@@ -256,7 +271,7 @@ with open(args.input, encoding='utf-8') as fh, \
         fields = line.split('\t')
         if len(fields) == in_columns:
             try:
-                typed_fields = cast_types(*fields)
+                typed_fields = cast_types(fields)
             except ValueError as e:
                 sys.exit(
                     'Failed to convert some of the columns in line #%d to their '
@@ -337,12 +352,7 @@ with open(args.input, encoding='utf-8') as fh, \
                 fields.append(new_val)
                 typed_fields.append(new_val)
         else:
-            fields = [
-                format_float_positional(field)
-                if args.avoid_scientific_notation and type(field) is float
-                else str(field)
-                for field in fields
-            ]
+            fields = [to_str(field) for field in fields]
             out.write('\t'.join(fields) + '\n')
             lines_computed += 1
 
