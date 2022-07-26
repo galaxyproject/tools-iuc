@@ -136,9 +136,9 @@ else:
 # new column; without --header, any COL_NAME gets ignored.
 operators = 'is|not|or|and'
 builtin_and_math_functions = (
-    'abs|all|any|bin|chr|cmp|complex|divmod|float|bool|hex|int|len|long|'
-    'max|min|oct|ord|pow|range|reversed|round|sorted|str|sum|type|unichr|'
-    'unicode|log|log10|exp|sqrt|ceil|floor'
+    'abs|all|any|ascii|bin|bool|chr|complex|divmod|float|format|hex|int|len|'
+    'list|max|min|oct|ord|pow|range|reversed|round|set|sorted|str|sum|type|'
+    'log|log10|exp|sqrt|ceil|floor'
 )
 imported_numpy_function = 'format_float_positional'
 string_and_list_methods = [
