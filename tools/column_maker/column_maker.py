@@ -312,9 +312,8 @@ with open(args.input, encoding='utf-8') as fh, \
                     )
             except Exception as e:
                 if args.skip_non_computable:
-                    # log that a line got skipped and why, then stop
-                    # computing for this line
-                    print(e)
+                    # log that a line got skipped, then stop computing
+                    # for this line
                     skipped_lines += 1
                     if not invalid_line:
                         first_invalid_line = i + 1
