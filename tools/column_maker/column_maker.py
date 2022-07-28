@@ -2,9 +2,9 @@
 """
 This tool takes a tab-delimited textfile as input and creates new columns in
 the file which are the result of a computation performed on every row in the
-original file. The tool will skip over invalid lines within the file,
-informing the user about the number of lines skipped. It does not change the
-formatting of any original, retained columns.
+original file. The tool will skip over empty and comment (starting with a #)
+lines within the file. It does not change the formatting of any original,
+retained columns.
 """
 
 import argparse
@@ -71,9 +71,9 @@ parser.add_argument(
          'the tool will fail directly upon encountering a non-existing column.'
 )
 non_computable = parser.add_mutually_exclusive_group()
+non_computable.add_argument('--fail-on-non-computable', action='store_true')
 non_computable.add_argument('--skip-non-computable', action='store_true')
 non_computable.add_argument('--keep-non-computable', action='store_true')
-non_computable.add_argument('--fail-on-non-computable', action='store_true')
 non_computable.add_argument('--non-computable-blank', action='store_true')
 non_computable.add_argument('--non-computable-default')
 
@@ -257,7 +257,7 @@ with open(args.input, encoding='utf-8') as fh, \
                 header_cols.append(col_name)
         out.write('\t'.join(header_cols) + '\n')
 
-    # read data, skipping invalid lines, and perform computations
+    # read data, skipping empty and comment lines, and perform computations
     # that will result in new columns
     for i, line in enumerate(fh):
         total_lines += 1
@@ -279,12 +279,15 @@ with open(args.input, encoding='utf-8') as fh, \
                     % (i, str(e), line)
                 )
         else:
-            # A line with less or more fields than expected
-            # We cannot cast the types for it because the lambda expects a
-            # fixed number of column input arguments.
-            # Lets pass in a copy of the original string fields and let
-            # the computation of expressions fail, then have that situation
-            # handled according to the non-computable settings in effect.
+            # A "suspicious" line with less or more fields than expected
+            # Type-casting for it might fail or not, but it is pointless to
+            # even try because subsequent computation of any expression will
+            # fail anyway as expression lambdas expect a fixed number of
+            # arguments.
+            # Lets pass in a copy of the original string fields, let
+            # the computation of the first expression fail, then have that
+            # situation handled according to the non-computable settings in
+            # effect.
             typed_fields = fields[:]
         for fun, col_idx, mode, col_name, ex in ops:
             try:
@@ -308,12 +311,15 @@ with open(args.input, encoding='utf-8') as fh, \
                         'problem occured: "%s"' % (ex, str(e))
                     )
             except Exception as e:
-                if args.fail_on_non_computable:
-                    sys.exit(
-                        'Could not compute a new column value using "%s" on '
-                        'line #%d: "%s".  Error was "%s"'
-                        % (ex, i, line, str(e))
-                    )
+                if args.skip_non_computable:
+                    # log that a line got skipped and why, then stop
+                    # computing for this line
+                    print(e)
+                    skipped_lines += 1
+                    if not invalid_line:
+                        first_invalid_line = i + 1
+                        invalid_line = line
+                    break
                 if args.keep_non_computable:
                     # write the original line unchanged and stop computing
                     # for this line
@@ -324,16 +330,13 @@ with open(args.input, encoding='utf-8') as fh, \
                 elif args.non_computable_default is not None:
                     new_val = args.non_computable_default
                 else:
-                    # --skip_non_computable
+                    # --fail_on_non_computable
                     # (which is default behavior, too)
-                    # log that a line got skipped and why, then stop
-                    # computing for this line
-                    print(e)
-                    skipped_lines += 1
-                    if not invalid_line:
-                        first_invalid_line = i + 1
-                        invalid_line = line
-                    break
+                    sys.exit(
+                        'Could not compute a new column value using "%s" on '
+                        'line #%d: "%s".  Error was "%s"'
+                        % (ex, i, line, str(e))
+                    )
             if mode is Mode.INSERT:
                 fields.insert(col_idx, new_val)
                 typed_fields.insert(col_idx, new_val)
