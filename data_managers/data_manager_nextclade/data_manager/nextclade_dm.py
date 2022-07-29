@@ -145,20 +145,13 @@ if __name__ == "__main__":
 
     output_directory = config.get("output_data", [{}])[0].get("extra_files_path", None)
 
-    data_manager_dict = {
-        "data_tables": {
-            args.datatable_name: []
-        }
-    }
+    data_manager_dict = {"data_tables": {args.datatable_name: []}}
 
     releases = []
     if args.latest:
         for dataset in args.datasets:
             for release in releases_available:
-                if (
-                    release["database_name"] == dataset
-                    
-                ):
+                if release["database_name"] == dataset:
                     if release["value"] not in existing_release_tags:
                         # add the latest release for this dataset, but only if we don't already have it
                         releases.append(release)
