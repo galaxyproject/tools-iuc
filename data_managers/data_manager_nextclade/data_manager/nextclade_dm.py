@@ -109,7 +109,6 @@ if __name__ == "__main__":
     parser.add_argument("--known_revisions", type=comma_split)
     parser.add_argument("--datasets", type=comma_split, default=["sars-cov-2"])
     parser.add_argument("datatable_name", default="nextclade")
-    parser.add_argument("datatable_cache_filename")
     parser.add_argument("galaxy_config")
     args = parser.parse_args()
 
@@ -146,21 +145,11 @@ if __name__ == "__main__":
 
     output_directory = config.get("output_data", [{}])[0].get("extra_files_path", None)
 
-    try:
-        with open(args.datatable_cache_filename) as fh:
-            data_manager_dict = json.load(fh)
-    except IOError:
-        # on the first run this file doesn't exist
-        data_manager_dict = {}
-
-    if "data_tables" in data_manager_dict:
-        if args.datatable_name not in data_manager_dict["data_tables"]:
-            # got a data_tables entry, probably from a previous run of this script,
-            # but no entry for this specific data table
-            data_manager_dict["data_tables"][args.datatable_name] = []
-    else:
-        # got no entry for data tables, start from scratch
-        data_manager_dict = {"data_tables": {args.datatable_name: []}}
+    data_manager_dict = {
+        "data_tables": {
+            args.datatable_name: []
+        }
+    }
 
     releases = []
     if args.latest:
@@ -168,9 +157,11 @@ if __name__ == "__main__":
             for release in releases_available:
                 if (
                     release["database_name"] == dataset
-                    and release["value"] not in existing_release_tags
+                    
                 ):
-                    releases.append(release)
+                    if release["value"] not in existing_release_tags:
+                        # add the latest release for this dataset, but only if we don't already have it
+                        releases.append(release)
                     break
     else:
         for dataset in args.datasets:
@@ -201,5 +192,5 @@ if __name__ == "__main__":
     data_manager_dict["data_tables"][args.datatable_name].sort(
         key=operator.itemgetter("value"), reverse=True
     )
-    with open(args.datatable_cache_filename, "w") as fh:
+    with open(args.galaxy_config, "w") as fh:
         json.dump(data_manager_dict, fh, indent=2, sort_keys=True)
