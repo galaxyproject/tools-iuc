@@ -26,7 +26,7 @@ def entry_to_tag(entry: dict) -> str:
     )
 
 
-def get_database_list(existing_release_tags: List[str]) -> List[dict]:
+def get_database_list() -> List[dict]:
     list_cmd = [
         "nextclade",
         "dataset",
@@ -39,8 +39,6 @@ def get_database_list(existing_release_tags: List[str]) -> List[dict]:
     database_list = json.loads(list_proc.stdout)
     entry_list = []
     for db_entry in database_list:
-        if entry_to_tag(db_entry) in existing_release_tags:
-            continue
         attributes = db_entry["attributes"]
         entry = {
             "value": entry_to_tag(db_entry),
@@ -65,7 +63,10 @@ def filter_by_date(
 ) -> List[dict]:
     ret = []
     for release in releases:
-        if release["database_name"] != name:
+        if (
+            release["database_name"] != name
+            or release["value"] in existing_release_tags
+        ):
             continue
         if start_date and release["date"] < start_date:
             break
@@ -118,7 +119,7 @@ if __name__ == "__main__":
     else:
         existing_release_tags = set()
 
-    releases_available = get_database_list(existing_release_tags)
+    releases_available = get_database_list()
     if args.testmode:
         releases = []
         for name in args.datasets:
@@ -165,12 +166,12 @@ if __name__ == "__main__":
     if args.latest:
         for dataset in args.datasets:
             for release in releases_available:
-                if release["database_name"] == dataset:
-                    # find the first release of
-                    latest_release = release
+                if (
+                    release["database_name"] == dataset
+                    and release["value"] not in existing_release_tags
+                ):
+                    releases.append(release)
                     break
-            if latest_release["value"] not in existing_release_tags:
-                releases.append(latest_release)
     else:
         for dataset in args.datasets:
             releases_for_ds = filter_by_date(
