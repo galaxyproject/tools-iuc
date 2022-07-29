@@ -26,7 +26,7 @@ def entry_to_tag(entry: dict) -> str:
     )
 
 
-def get_database_list(existing_release_tags: List[str], name: str = None) -> List[dict]:
+def get_database_list(existing_release_tags: List[str]) -> List[dict]:
     list_cmd = [
         "nextclade",
         "dataset",
@@ -40,9 +40,6 @@ def get_database_list(existing_release_tags: List[str], name: str = None) -> Lis
     entry_list = []
     for db_entry in database_list:
         if entry_to_tag(db_entry) in existing_release_tags:
-            continue
-        if name is not None and db_entry["attributes"]["name"]["value"] != name:
-            # we are filtering by name - eg. sars-cov-2
             continue
         attributes = db_entry["attributes"]
         entry = {
@@ -62,11 +59,14 @@ def get_database_list(existing_release_tags: List[str], name: str = None) -> Lis
 def filter_by_date(
     existing_release_tags: List[str],
     name: str,
+    releases: list,
     start_date: datetime.datetime = None,
     end_date: datetime.datetime = None,
 ) -> List[dict]:
     ret = []
-    for release in get_database_list(existing_release_tags, name):
+    for release in releases:
+        if release['database_name'] != name:
+            continue
         if start_date and release["date"] < start_date:
             break
         if not end_date or release["date"] <= end_date:
@@ -112,12 +112,20 @@ if __name__ == "__main__":
     parser.add_argument("galaxy_config")
     args = parser.parse_args()
 
+    # known-revisions is populated from the Galaxy data table by the wrapper
+    if args.known_revisions is not None:
+        existing_release_tags = set(args.known_revisions)
+    else:
+        existing_release_tags = set()
+
+    releases_available = get_database_list(existing_release_tags)
     if args.testmode:
         releases = []
         for name in args.datasets:
             releases.extend(
                 filter_by_date(
-                    [], name, start_date=args.start_date, end_date=args.end_date
+                    [], name, releases_available, 
+                    start_date=args.start_date, end_date=args.end_date
                 )
             )
         for release in releases:
@@ -150,15 +158,14 @@ if __name__ == "__main__":
         # got no entry for data tables, start from scratch
         data_manager_dict = {"data_tables": {args.datatable_name: []}}
 
-    # known-revisions is populated from the Galaxy data table by the wrapper
-    if args.known_revisions is not None:
-        existing_release_tags = set(args.known_revisions)
-    else:
-        existing_release_tags = set()
     releases = []
     if args.latest:
         for dataset in args.datasets:
-            latest_release = get_database_list([], dataset)[0]
+            for release in releases_available:
+                if release["database_name"] == dataset:
+                    # find the first release of 
+                    latest_release = release
+                    break
             if latest_release["value"] not in existing_release_tags:
                 releases.append(latest_release)
     else:
@@ -166,6 +173,7 @@ if __name__ == "__main__":
             releases_for_ds = filter_by_date(
                 existing_release_tags,
                 dataset,
+                releases_available,
                 start_date=args.start_date,
                 end_date=args.end_date,
             )
