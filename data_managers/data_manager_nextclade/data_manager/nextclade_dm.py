@@ -65,7 +65,7 @@ def filter_by_date(
 ) -> List[dict]:
     ret = []
     for release in releases:
-        if release['database_name'] != name:
+        if release["database_name"] != name:
             continue
         if start_date and release["date"] < start_date:
             break
@@ -124,8 +124,11 @@ if __name__ == "__main__":
         for name in args.datasets:
             releases.extend(
                 filter_by_date(
-                    [], name, releases_available, 
-                    start_date=args.start_date, end_date=args.end_date
+                    [],
+                    name,
+                    releases_available,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
                 )
             )
         for release in releases:
@@ -163,7 +166,7 @@ if __name__ == "__main__":
         for dataset in args.datasets:
             for release in releases_available:
                 if release["database_name"] == dataset:
-                    # find the first release of 
+                    # find the first release of
                     latest_release = release
                     break
             if latest_release["value"] not in existing_release_tags:
