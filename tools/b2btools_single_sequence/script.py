@@ -1,11 +1,12 @@
 import optparse
 import os.path
-import unicodedata
 import re
+import unicodedata
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from b2bTools import SingleSeq
-import matplotlib.pyplot as plt
 
 
 def slugify(value):
