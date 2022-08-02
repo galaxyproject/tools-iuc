@@ -36,7 +36,7 @@ args = parser.parse_args()
 
 gbk_open = get_opener(args.genbank_file)
 with gbk_open(args.genbank_file, 'rt') as input_handle, \
-    open(args.fasta_file, 'w') as output_handle:
+     open(args.fasta_file, 'w') as output_handle:
     for seq_record in SeqIO.parse(input_handle, 'genbank'):
         if args.remove_version:
             seq_id = seq_record.id.split('.')[0]
