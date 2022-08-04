@@ -1,7 +1,7 @@
-<tool id="cooc_mutbamscan" name="Cojac: scan" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@"
+<tool id="cooc_mutbamscan" name="Cojac: mutbamscan" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@"
       profile="@PROFILE@">
     <description>
-        an alignment file for mutation co-occurrences
+        scan an alignment file for mutation co-occurrences
     </description>
     <macros>
         <import>macros.xml</import>
@@ -10,33 +10,79 @@
     <expand macro="requirements"/>
     <expand macro="version"/>
     <command detect_errors="exit_code"><![CDATA[
-ln -s '$bam_file' 'bam_file' &&
 ln -s '$bed_file' 'bed_file' &&
-#if $vocdir_option.choice == 'custom'
-    #set vocdir = 'voc/'
-    #set file_paths1 = []
-    mkdir -p voc &&
-    #for $input_file in $voc_file
-        #set $file_path = $vocdir + $input_file.element_identifier
-        ln -s '$input_file' '$file_path' &&
-        $file_paths1.append($file_path)
-    #end for
+@VOCDIR_COMMAND@
+#if $input_files.choice == 'standalone'
+    ln -s '$input_files.bam_file' '${input_files.bam_file.element_identifier}.sorted.bam' &&
+    samtools index '${input_files.bam_file.element_identifier}.sorted.bam' '${input_files.bam_file.element_identifier}.bam.bai' &&
+    mv '${input_files.bam_file.element_identifier}.sorted.bam' '${input_files.bam_file.element_identifier}.bam' &&
 #end if
+
 cooc-mutbamscan
+    #if $input_files.choice == 'standalone'
+        -a *.bam
+	#else
+	    -s '$input_files.samples'
+	    -p '$input_files.path'
+	    -r '$input_files.refid'
+    #end if
     -b 'bed_file'
     -m '$vocdir'
-    -a 'bam_file'
     -y cooc.yaml
     -j cooc.json
-    -A amplicons.yaml
+    #if $amplicons_file.choice == 'build'
+        -A amplicons.yaml
+    #else
+        -Q '$amplicons_file.in_amp'
+    #end if
+	-t cooc.tsv
+	#if $batchname
+        -/ '$batchname'
+    #end if
+
+	--cooc '$cooc'
 
     ]]></command>
     <inputs>
         <expand macro="vocdir_input"/>
-        <param name="bam_file" type="data" format="bam,cram,sam"
-               label="Alignment BAM/CRAM/SAM file"/>
         <param name="bed_file" type="data" format="bed"
                label="BED file defining the amplicons"/>
+        <conditional name="input_files">
+            <param name="choice" type="select"
+                   label="Analysing stand-alone BAM/CRAM/SAM alignment files, or analysing the output of a cohort analysed with V-pipe?">
+                <option value="standalone">Standalone files</option>
+                <option value="vpipe">Analyzing a cohort with V-pipe</option>
+            </param>
+            <when value="standalone">
+                <param name="bam_file" type="data" format="bam,cram,sam"
+                       label="Alignment BAM/CRAM/SAM file"/>
+            </when>
+            <when value="vpipe">
+                <param name="samples" type="data" format="tsv"
+                       label="V-pipe samples list tsv"/>
+                <param name="path" type="text"
+                       label="V-pipe work directory prefix for where to look at align files when using TSV samples list"/>
+                <param name="refid" type="text"
+                       label="Reference to look for in alignment files"/>
+            </when>
+        </conditional>
+        <param argument="--batchname" type="text" optional="true"
+               label="Batchname"
+               help="Split samplename/batchname (as in samples tsv)"/>
+        <param argument="--cooc" type="integer" value="2"
+               label="Number of cooccurences"
+               help="By default cooc-mutbamscan will look for cooccurrences of at least 2 mutations on the same amplicon. You can change that number using option -#/--cooc"/>
+        <conditional name="amplicons_file">
+            <param name="choice" type="select" label="Source of amplicons yaml file">
+                <option value="build">Build from BED + voc's DIR</option>
+                <option value="custom">Use the supplied YAML file to query amplicons</option>
+            </param>
+            <when value="build"/>
+            <when value="custom">
+                <param name="in_amp" type="data" format="yaml"
+                       label="YAML file to query amplicons"/>
+            </when>
+        </conditional>
     </inputs>
     <outputs>
         <data name="cooc_yaml" format="yaml"
@@ -47,26 +93,40 @@ cooc-mutbamscan
               label="${tool.name} on ${on_string}: Mutation cooccurrence (json)"
               from_work_dir="cooc.json">
         </data>
+        <data name="cooc_tsv" format="tsv"
+              label="${tool.name} on ${on_string}: Mutation cooccurrence (tsv)"
+              from_work_dir="cooc.tsv">
+        </data>
         <data name="amplicons" format="yaml"
               label="${tool.name} on ${on_string}: Amplicons (yaml)"
               from_work_dir="amplicons.yaml">
+            <filter>amplicons_file['choice'] == 'build'</filter>
         </data>
     </outputs>
     <tests>
-        <test expect_num_outputs="3">
+        <test expect_num_outputs="4">
             <conditional name="vocdir_option">
                 <param name="choice" value="custom"/>
                 <param name="voc_file" value="omicron_ba1_mutations.yaml"/>
             </conditional>
             <param name="bam_file" value="tbam11.bam"/>
             <param name="bed_file" value="nCoV-2019.insert.V3.bed"/>
+            <conditional name="amplicons_file">
+                <param name="choice" value="build"/>
+            </conditional>
             <output name="cooc_yaml" ftype="yaml">
                 <assert_contents>
                     <has_text text="76_om1"/>
                     <has_text text="81_om1"/>
                 </assert_contents>
             </output>
-            <output name="cooc_yaml" ftype="json">
+            <output name="cooc_json" ftype="json">
+                <assert_contents>
+                    <has_text text="76_om1"/>
+                    <has_text text="81_om1"/>
+                </assert_contents>
+            </output>
+            <output name="cooc_tsv" ftype="tsv">
                 <assert_contents>
                     <has_text text="76_om1"/>
                     <has_text text="81_om1"/>
