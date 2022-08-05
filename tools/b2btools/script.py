@@ -100,9 +100,7 @@ def plot_prediction(pred_name, hlighting_regions, predicted_values, seq_name):
             ax.set_xlim([0, max_len - 1])
     else:
         predictions = predicted_values
-        min_value, max_value = check_min_max(
-            predictions, min_value, max_value
-        )
+        min_value, max_value = check_min_max(predictions, min_value, max_value)
         ax.plot(range(len(predictions)), predictions, label=seq_name)
         ax.set_xlim([0, len(predictions) - 1])
     legend_lines = plt.legend(
@@ -180,11 +178,20 @@ def main(options):
         b2b_tools.append("agmata")
     single_seq.predict(b2b_tools)
     predictions = single_seq.get_all_predictions()
-    results_json = json.dumps(predictions, indent=2)
+    rounder_function = lambda value: round(float(value), 3)
+    rounded_predictions = json.loads(
+        json.dumps(predictions), parse_float=rounder_function
+    )
+    results_json = json.dumps(rounded_predictions, indent=2, sort_keys=True)
     with open(options.json_output, "w") as f:
         f.write(results_json)
     first_sequence_key = next(iter(predictions))
     prediction_keys = predictions[first_sequence_key].keys()
+    # Sort column names
+    tsv_column_names = list(prediction_keys)
+    tsv_column_names.remove("seq")
+    tsv_column_names = ['residue', *sorted(tsv_column_names)]
+
     df_dictionary = {}
     for sequence_key, seq_preds in predictions.items():
         residues = seq_preds["seq"]
@@ -196,10 +203,15 @@ def main(options):
         for predictor in prediction_keys:
             sequence_df[predictor] = seq_preds[predictor]
         sequence_df = sequence_df.rename(columns={"seq": "residue"})
-        sequence_df = sequence_df.round(decimals=2)
+        sequence_df = sequence_df.round(decimals=3)
         filename = f"{options.output}/{slugify(sequence_key)}.tsv"
         df_dictionary[sequence_key] = filename
-        sequence_df.to_csv(filename, sep="\t")
+        sequence_df.to_csv(
+            filename,
+            header=True,
+            columns=tsv_column_names,
+            sep="\t"
+        )
         # Plot each individual plot (compatible with plot all)
         if options.plot:
             for predictor in prediction_keys:
