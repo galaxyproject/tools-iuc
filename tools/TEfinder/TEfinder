@@ -28,13 +28,14 @@ function help {
      echo -e "  -fa,         --FastaFile           STR  reference genome FASTA index (FA file)"
      echo -e "  -gtf,        --TransposonsInGenome STR  reference genome TE annotation (GFF2/GTF file)"
      echo -e "  -te,         --TransposonsToSearch STR  TE names (single column text file)\n"
-	 echo -e "  -bamo,       --DiscordantReads     STR  BAM output\n"
-	 echo -e "  -outo,       --TEinsertions        STR  TEinsertions BED/GFF output\n"
      echo -e "OPTIONAL:"
+     echo -e "  -bamo,       --DiscordantReads     STR  BAM output\n"
+     echo -e "  -bedo,       --bTEinsertions       STR  TEinsertions BED output\n"
+     echo -e "  -gtfo,       --gTEinsertions       STR  TEinsertions GTF output\n"
      echo -e "  -fis,        --FragmentInsertSize  INT  short-read sequencing fragment insert size [400]"
      echo -e "  -picard,     --pathToPicardjar     STR  path to picard tools .jar file [picard.jar]"
      echo -e "  -md,         --MaxDistanceForMerge INT  maximum distance between reads for bedtools merge [150]"
-     echo -e "  -k,          --MaxTSDLength	     INT  maximum TE target site duplication (TSD) length [20]"
+     echo -e "  -k,          --MaxTSDLength        INT  maximum TE target site duplication (TSD) length [20]"
      echo -e "  -maxHeapMem, --MaxHeapMemory       INT  java maximum heap memory allocation for picard in Mb [2000]" 
      echo -e "  -workingdir, --WorkingDirectory    STR  working directory name [TEfinder_<Date>]"
      echo -e "  -out,        --OutputFormat        STR  output format as GTF [BED]"
@@ -73,10 +74,8 @@ function pipeline() {
 	 # if discordant readID file exists, then continue with remainder of TE analysis
 	 if  [[ -s  ${currdir}/${line}_ReadID.txt ]]
 	 then
-		  #java $maxHeapMem -jar $picard FilterSamReads I=${workingdir}/${outname}Alignments.bam O=${currdir}/${line}_DiscordantPairs.bam \
-               READ_LIST_FILE=${currdir}/${line}_ReadID.txt FILTER=includeReadList WRITE_READS_FILES=false
-          $picard $maxHeapMem FilterSamReads -I ${workingdir}/${outname}Alignments.bam -O ${currdir}/${line}_DiscordantPairs.bam \
-               -READ_LIST_FILE ${currdir}/${line}_ReadID.txt -FILTER includeReadList -WRITE_READS_FILES false &>/dev/null
+		  #java $maxHeapMem -jar $picard FilterSamReads I=${workingdir}/${outname}Alignments.bam O=${currdir}/${line}_DiscordantPairs.bam READ_LIST_FILE=${currdir}/${line}_ReadID.txt FILTER=includeReadList WRITE_READS_FILES=false
+          $picard $maxHeapMem FilterSamReads -I ${workingdir}/${outname}Alignments.bam -O ${currdir}/${line}_DiscordantPairs.bam -READ_LIST_FILE ${currdir}/${line}_ReadID.txt -FILTER includeReadList -WRITE_READS_FILES false &>/dev/null
           echo -e $(date) " Filtering original alignment based on discordant reads IDs is complete for "${line}"\n"  ####
           
           bedtools merge -d $md -S + -c 1 -o count -i ${currdir}/${line}_DiscordantPairs.bam | \
@@ -132,7 +131,8 @@ te=
 out=
 intermed=
 bamo="DiscordantReads.bam"
-outo="TEinsertions.gtf"
+bedo="TEinsertions.bed"
+gtfo="TEinsertions.gtf"
 outname=""
 fis=400
 picard="picard"
@@ -171,12 +171,15 @@ do
      -k | --MaxTSDLength )
 	      shift
           k=$1  ;;
-	 -bamo | --DiscordantReads )
+     -bamo | --DiscordantReads )
 	      shift
           bamo=$1 ;;
-	 -outo | --TEinsertions )
+     -bedo | --bTEinsertions )
 	      shift
-          outo=$1 ;;
+          bedo=$1 ;;
+     -gtfo | --gTEinsertions )
+           shift
+          gtfo=$1 ;;
      -maxHeapMem | --MaxHeapMemory )
 	      shift
           maxHeapMem="-Xmx"$1"m" ;;
@@ -240,8 +243,13 @@ echo -e $(date) " All transposons are processed. Finalizing...\n"
 
 # combine discordant bam files
 samtools merge -@ $threads -r ${workingdir}/${outname}DiscordantReads.bam ${workingdir}/*/*_DiscordantPairs.bam
-echo -e $(date) " BAM Output: Discordant pair alignment file is now available.\n" 
-cp ${workingdir}/${outname}DiscordantReads.bam $bamo
+echo -e $(date) " BAM Output: Discordant pair alignment file is now available.\n"
+# Sorting by position 
+samtools sort -@ $threads ${workingdir}/${outname}DiscordantReads.bam | samtools view -h -o ${workingdir}/${outname}DiscordantReads.sam
+grep -v '^@PG' ${workingdir}/${outname}DiscordantReads.sam > ${workingdir}/${outname}DiscordantReadsNoPG.sam
+rm ${workingdir}/${outname}DiscordantReads.sam
+samtools view -hb -x "PG" --no-PG --remove-flags "PG" -O BAM ${workingdir}/${outname}DiscordantReadsNoPG.sam -o ${bamo}
+rm ${workingdir}/${outname}DiscordantReadsNoPG.sam
 
 # update output BED file with TEfinder results: organize the starting file
 awk '{print $2"\t"$3"\t"$4"\t"$1"\t"$8+$12"\t.\tFR="$8";RR="$12";InsRegion="$6"-"$11";FILTER="}' ${workingdir}/insertions.txt > ${workingdir}/TEinsertions_putative.bed
@@ -285,14 +293,26 @@ do
 	
 	#write to final output
 	printf "%s\n" "$line" >> ${workingdir}/${outname}TEinsertions.bed
+     
 done < ${workingdir}/TEinsertions_putative.bed
 wait
 echo -e $(date) " BED Output: TEfinder output BED file is now available.\n"
+# Sorting
+# cp ${workingdir}/${outname}TEinsertions.bed ${outo}
+bedtools sort -chrThenSizeA -i ${workingdir}/${outname}TEinsertions.bed > ${bedo}
+# cat ${bedo}
 
 # gtf option - create output GTF files with TEfinder results
 if [ ! -z "$out" ]
 then
   awk 'FNR > 1 {print $1"\tTEfinder\tTIP\t"$2 + 1"\t"$3"\t"$5"\t.\t.\tte_name \""$4"\"; tags \""$7"\""}' ${workingdir}/${outname}TEinsertions.bed > ${workingdir}/${outname}TEinsertions.gtf
+  bedtools sort -chrThenSizeA -i ${workingdir}/${outname}TEinsertions.gtf > ${gtfo}
+  # awk 'FNR > 1 {print $1"\tTEfinder\tTIP\t"$2 + 1"\t"$3"\t"$5"\t.\t.\tte_name \""$4"\"; tags \""$7"\""}' ${bedo} > ${gtfo}
+  # Sorting
+  # cp ${workingdir}/${outname}TEinsertions.gtf ${gtfo}
+  echo -e "\n\n"
+  # cat ${gtfo}
+  # bedtools sort -chrThenSizeA -i ${workingdir}/${outname}TEinsertions.gtf > ${gtfo}
   echo -e $(date) " GTF Output: TEfinder output GTF file is now available.\n"
 fi
 
@@ -309,5 +329,4 @@ then
  echo -e $(date) " Error: TEfinder run unsuccessful."
 else
  echo -e $(date) " TE insertion output files have been created. TEfinder completed successfully."
- cp ${workingdir}/${outname}TEinsertions.bed $outo
 fi
