@@ -178,7 +178,10 @@ def main(options):
         b2b_tools.append("agmata")
     single_seq.predict(b2b_tools)
     predictions = single_seq.get_all_predictions()
-    rounder_function = lambda value: round(float(value), 3)
+
+    def rounder_function(value):
+        return round(float(value), 3)
+
     rounded_predictions = json.loads(
         json.dumps(predictions), parse_float=rounder_function
     )
