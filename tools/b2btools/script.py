@@ -242,17 +242,66 @@ def main(options):
 
 if __name__ == "__main__":
     parser = optparse.OptionParser()
-    parser.add_option("--dynamine", action="store_true", default=False)
-    parser.add_option("--disomine", action="store_true", default=False)
-    parser.add_option("--efoldmine", action="store_true", default=False)
-    parser.add_option("--agmata", action="store_true", default=False)
-    parser.add_option("--file", dest="input_fasta", default=False)
-    parser.add_option("--output", dest="output", default=False)
-    parser.add_option("--plot-output", dest="plot_output", default=False)
-
-    parser.add_option("--json", dest="json_output", default=False)
-    parser.add_option("--plot", action="store_true", default=False)
-    parser.add_option("--plot_all", action="store_true", default=False)
-    parser.add_option("--highlight", action="store_true", default=False)
-    options, _args = parser.parse_args()
-    main(options)
+    parser.add_option(
+        "--dynamine",
+        action="store_true"
+    )
+    parser.add_option(
+        "--disomine",
+        action="store_true"
+    )
+    parser.add_option(
+        "--efoldmine",
+        action="store_true"
+    )
+    parser.add_option(
+        "--agmata",
+        action="store_true"
+    )
+    parser.add_option(
+        "--file",
+        dest="input_fasta",
+        type="string"
+    )
+    parser.add_option(
+        "--output",
+        dest="output",
+        type="string"
+    )
+    parser.add_option(
+        "--plot-output",
+        type="string",
+        dest="plot_output"
+    )
+    parser.add_option(
+        "--json",
+        dest="json_output",
+        type="string"
+    )
+    parser.add_option(
+        "--plot",
+        action="store_true"
+    )
+    parser.add_option(
+        "--plot_all",
+        action="store_true"
+    )
+    parser.add_option(
+        "--highlight",
+        action="store_true"
+    )
+    try:
+        options, args = parser.parse_args()
+        if not (options.dynamine or options.disomine or options.efoldmine or options.agmata):
+            parser.error('At least one predictor is required')
+        if not options.input_fasta:
+            parser.error('Input file not given (--file)')
+        if not options.output:
+            parser.error('Output directory not given (--output)')
+        if (options.plot or options.plot_all) and not options.plot_output:
+            parser.error('Plot output directory not given (--plot-output)')
+        if not options.json_output:
+            parser.error('Json output file not given (--json)')
+        main(options)
+    except optparse.OptionError as exc:
+        raise RuntimeError(f"Invalid arguments: {args}") from exc
