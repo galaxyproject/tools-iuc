@@ -1,11 +1,15 @@
-<tool id="shovill" name="Shovill" version="@TOOL_VERSION@+galaxy1">
+<tool id="shovill" name="Shovill" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
     <description>Faster SPAdes assembly of Illumina reads</description>
+    <macros>
+        <token name="@TOOL_VERSION@">1.1.0</token>
+        <token name="@VERSION_SUFFIX@">1</token>
+    </macros>
+    <edam_topics>
+        <edam_topic>topic_0525</edam_topic>
+    </edam_topics>
     <xrefs>
         <xref type="bio.tools">shovill</xref>
     </xrefs>
-    <macros>
-        <token name="@TOOL_VERSION@">1.1.0</token>
-    </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">shovill</requirement>
     </requirements>
@@ -19,10 +23,10 @@
             #set r2_ext = $library.R2.extension
             #if $r1_ext == 'fastqsanger.gz' or $r1_ext == 'fastqsanger.bz2'
                 cp '$library.R1' fastq_r1.'$r1_ext' &&
-                cp '$library.R2' fastq_r2.'$r2_ext' && 
+                cp '$library.R2' fastq_r2.'$r2_ext' &&
             #else
                 ln -s '$library.R1' fastq_r1.'$r1_ext' &&
-                ln -s '$library.R2' fastq_r2.'$r2_ext' && 
+                ln -s '$library.R2' fastq_r2.'$r2_ext' &&
             #end if
         #else if str($library.lib_type) == "collection"
             #set r1_ext = $library.input1.forward.extension
@@ -42,7 +46,6 @@
 	## (3) Or default to 4 GB if GALAXY_MEMORY_MB is unset
 	GALAXY_MEMORY_GB=\$((\${GALAXY_MEMORY_MB:-4096}/1024)) &&
 	SHOVILL_RAM=\${SHOVILL_RAM:-\${GALAXY_MEMORY_GB}} &&
-        
         shovill
             --outdir 'out'
             --cpus \${GALAXY_SLOTS:-1}
@@ -61,7 +64,11 @@
             #if $adv.opts
                 --opts '$adv.opts'
             #end if
-            $adv.nocorr
+            #if $adv.keep_files.nocorr == 'no_correction'
+                --nocorr
+            #else
+                $adv.keep_files.keepfiles
+            #end if
             --minlen $adv.minlen
             --mincov $adv.mincov
             --assembler $assembler
@@ -104,20 +111,34 @@
             <param name="gsize" argument="--gsize" type="text" value="" label="Estimated genome size" help="An estimate of the final genome size, it will autodetect if this is blank. (default: '')" />
             <param name="kmers" argument="--kmers" type="text" value="" label="List of kmer sizes to use" help="List of K-mer sizes to use in SPAdes. Blank is AUTO. default: ''" />
             <param name="opts" argument="--opts" type="text" value="" label="Extra SPAdes options" help="eg. --plasmid --sc ... (default: '')" />
-            <param name="nocorr" argument="--nocorr" type="boolean" truevalue="--nocorr" falsevalue="" checked="True" label="Disable post-assembly correction" help="Disable post assembly correction with pilon (default: ON)" />
+            <conditional name="keep_files">
+                <param name="nocorr" argument="--nocorr" type="select" label="Disable post-assembly correction" help="Disable post assembly correction with pilon (default: ON)">
+                    <option value="no_correction" selected="true">No corrections</option>
+                    <option value="yes_correction">Post assembly corrections</option>
+                </param>
+                <when value="no_correction"/>
+                <when value="yes_correction">
+                    <param name="keepfiles" argument="--keepfiles" type="boolean" truevalue="--keepfiles"  checked="False" falsevalue=""  label="Keep bam files" help="Keep bam files only if post-assembly correction is enable"/>
+                </when>
+            </conditional>
             <param name="minlen" argument="--minlen" type="integer" value="0" label="Minimum contig length" help="Minimum length of contig to be output. 0 is AUTO (default: 0)" />
             <param name="mincov" argument="--mincov" type="integer" value="2" label="Minimum contig coverage" help="Minimum coverage to call part of a contig. 0 is AUTO (default: 2)" />
         </section>
     </inputs>
-
     <outputs>
         <data name="shovill_std_log" format="txt" label="${tool.name} on ${on_string} Log file" from_work_dir="out/shovill.log" >
             <filter>log</filter>
         </data>
-        <data format="fasta" name="contigs" label="${tool.name} on ${on_string}: Contigs" from_work_dir="out/contigs.fa"/>
-        <data format="txt" name="contigs_graph" label="${tool.name} on ${on_string}: Contig Graph" from_work_dir="out/contigs.gfa"/>
-    </outputs>
+        <data name="contigs" format="fasta" label="${tool.name} on ${on_string}: Contigs" from_work_dir="out/contigs.fa"/>
+        <data name="contigs_graph" format="txt"  label="${tool.name} on ${on_string}: Contig Graph" from_work_dir="out/contigs.gfa"/>
+        <data name="bamfiles" format="bam" label="Bam file for ${tool.name} on ${on_string}">
+          <filter>keep_files['nocorr'] == 'yes_correction' and keepfiles == 'True'  </filter>
+        </data>
+        <data name="baifiles" format="bai" label="Index bam file for ${tool.name} on ${on_string}">
+          <filter>keep_files['nocorr'] == 'yes_correction' and keepfiles == 'True'  </filter>
+        </data>
 
+    </outputs>
     <tests>
         <test> <!-- Test 1: Basic test -->
             <param name="lib_type" value="paired" />
@@ -134,8 +155,8 @@
                     <has_text text="[lighter] Processed 820 reads"/>
                     <has_text text="[FLASH] FLASH v1.2.11 complete!"/>
                     <has_text text="[spades] ======= SPAdes pipeline finished."/>
-                </assert_contents>
-            </output>
+                  </assert_contents>
+                </output>
         </test>
         <test> <!-- Test 2: Auto everything + trim + different name format test -->
             <param name="lib_type" value="paired" />
@@ -146,7 +167,9 @@
                 <param name="depth" value="0"/>
                 <param name="minlen" value="0"/>
                 <param name="mincov" value="0"/>
-                <param name="nocorr" value="false"/>
+                <conditional name="keep_files">
+                    <param name="nocorr" value="yes_correction"/>
+                </conditional>
                 <param name="namefmt" value="contig%03d"/>
             </section>
             <output name="contigs" ftype="fasta">
@@ -174,7 +197,7 @@
             <output name="contigs" ftype="fasta">
                 <assert_contents>
                     <has_text text="&gt;contig00001"/>
-                </assert_contents>
+                  </assert_contents>
             </output>
             <output name="shovill_std_log" ftype="txt" >
                 <assert_contents>
@@ -190,7 +213,7 @@
             <param name="R1" value="mutant_R1.fastq" ftype="fastqsanger" />
             <param name="R2" value="mutant_R2.fastq" ftype="fastqsanger" />
             <param name="assembler" value="skesa" />
-            <output name="contigs" ftype="fasta">
+            <output name="contigs" value="contigs.fa" ftype="fasta">
                 <assert_contents>
                     <has_text text="&gt;contig00001"/>
                 </assert_contents>
@@ -242,6 +265,32 @@
                 </assert_contents>
             </output>
         </test>
+        <test expect_num_outputs="5"> <!-- Test 7: Add keepfiles option -->
+            <param name="lib_type" value="paired" />
+            <param name="R1" value="mutant_R1.fastq" ftype="fastqsanger" />
+            <param name="R2" value="mutant_R2.fastq" ftype="fastqsanger" />
+            <section name="adv">
+                <conditional name="keep_files">
+                    <param name="nocorr" value="yes_correction" />
+                    <param name="keepfiles" value="true" />
+                </conditional>
+            </section>
+            <output name="contigs" ftype="fasta">
+                <assert_contents>
+                    <has_text text="&gt;contig00001"/>
+                </assert_contents>
+            </output>
+            <output name="shovill_std_log" ftype="txt" lines_diff="4" >
+                <assert_contents>
+                    <has_text text="Read stats: total_bp = 300000"/>
+                    <has_text text="[lighter] Processed 820 reads"/>
+                    <has_text text="[FLASH] FLASH v1.2.11 complete!"/>
+                    <has_text text="[spades] ======= SPAdes pipeline finished."/>
+                </assert_contents>
+            </output>
+            <output name="bamfiles" ftype="bam" value="shovill.bam" lines_diff="1"/>
+            <output name="baifiles" ftype="bai" value="shovill.bam.bai" lines_diff="1"/>
+        </test>
     </tests>
     <help><![CDATA[
 Synopsis:
@@ -260,6 +309,7 @@ Advanced options:
     - List of kmers to use: List of K-mer sizes to use in SPAdes. Blank is AUTO. (default: '')
     - Extra SPAdes options: Extra SPAdes options eg. --plasmid --sc ... (default: '')
     - Disable post-assembly correction: Disable post assembly correction with pilon (default: ON)
+    - Keep the bam files : Enable to keep mapped files from bwa in the post assembly correction (default: OFF)
     - Minimum contig length:    Minimum length of contig to be output. 0 is AUTO (default: 0)
     - Minimum contig coverage:  Minimum coverage to call part of a contig. 0 is AUTO (default: 2)
     - Spades result to correct: Spades result to correct: before_rr, contigs or scaffolds (default: 'contigs')
