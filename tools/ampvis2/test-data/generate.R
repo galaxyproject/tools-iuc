@@ -4,10 +4,10 @@ library(ampvis2)
 aalborgwwtps <- amp_subset_taxa(AalborgWWTPs, tax_vector = sample(AalborgWWTPs$tax$OTU, 200))
 
 ape::write.tree(aalborgwwtps$tree, "AalborgWWTPs.nwk")
-amp_export_fasta(aalborgwwtps, "AalborgWWTPs.fa", tax = F)
+amp_export_fasta(aalborgwwtps, "AalborgWWTPs.fa", tax = FALSE)
 amp_export_otutable(aalborgwwtps, "AalborgWWTPs.otu")
-write.table(aalborgwwtps$tax, file = "AalborgWWTPs.tax", quote = F, sep = "\t", row.names = F)
-write.table(aalborgwwtps$metadata, file = "AalborgWWTPs.tsv", quote = F, sep = "\t")
+write.table(aalborgwwtps$tax, file = "AalborgWWTPs.tax", quote = FALSE, sep = "\t", row.names = FALSE)
+write.table(aalborgwwtps$metadata, file = "AalborgWWTPs.tsv", quote = FALSE, sep = "\t")
 
 # construct data for merge_ampvis2
 t <- amp_load(otutable = "AalborgWWTPs.otu.csv", metadata = "AalborgWWTPs.tsv", taxonomy = "AalborgWWTPs.tax.tsv", fasta = "AalborgWWTPs.fa", tree = "AalborgWWTPs.nwk")
