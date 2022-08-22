@@ -1,0 +1,141 @@
+<tool id="data_manager_pangolin_data" name="pangolin-data data manager" version="0.0.1+galaxy0" tool_type="manage_data" profile="20.01">
+    <requirements>
+        <requirement type="package">python</requirement>
+        <requirement type="package" version="22.1.2">pip</requirement>
+        <requirement type="package" version="2.28.1">requests</requirement>
+        <requirement type="package" version="2.37.1">git</requirement>
+        <requirement type="package" version="3.2.0">git-lfs</requirement>
+        <requirement type="package" version="3.1.27">gitpython</requirement>
+    </requirements>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <command detect_errors="exit_code"><![CDATA[
+    #set $dt_names = []
+    #if str($pangolin_data.enable) == "latest" or str($pangolin_data.enable) == "versions" 
+        #set $dt_names = $dt_names + ["pangolin_data"]
+    #end if
+    #if str($pangolin_constellations.enable) == "latest" or str($pangolin_constellations.enable) == "versions"
+        #set $dt_names = $dt_names + ["pangolin_constellations"]
+    #end if
+    #if str($pangolin_assignment.enable) == "latest" or str($pangolin_assignment.enable) == "versions"
+        #set $dt_names = $dt_names + ["pangolin_assignment"]
+    #end if
+    #for $dt_name in $dt_names
+        #set $data_table = $__app__.tool_data_tables.get($dt_name)
+        #if $data_table is not None and len($data_table.get_fields()) != 0
+            #set $known_revisions = '--known_revisions=' + ','.join([row[0] for row in $data_table.get_fields()])
+        #else
+            #set $known_revisions = ''
+        #end if
+        python '$__tool_directory__/pangolin_data_dm.py'
+            $known_revisions
+            #if $getVar($dt_name).enable == "latest"
+                --latest
+            #else if $getVar($dt_name).enable == "versions"
+                --version_compatibility_file '$getVar($dt_name).compatibility_file'
+                --versions=$getVar($dt_name).versions
+            #end if
+            '$dt_name'
+            datatable_cache.json
+            '${output_file}' &&
+        #end for
+        cp datatable_cache.json '${output_file}'
+    ]]></command>
+    <inputs>
+        <expand macro="download_conditional" dt_name="pangolin_data" database_name="pangolin-data" software_name="pangolin" />
+        <expand macro="download_conditional" dt_name="pangolin_constellations" database_name="constellations" software_name="scorpio" />
+        <expand macro="download_conditional" dt_name="pangolin_assignment" database_name="pangolin-assignment" software_name="pangolin" />
+    </inputs>
+    <outputs>
+        <data name="output_file" format="data_manager_json"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <conditional name="pangolin_data">
+                <param name="enable" value="versions" />
+                <param name="compatibility_file" ftype="csv" value="data_compatibility.csv" />
+                <param name="versions" value="1.12" />
+            </conditional>
+            <conditional name="pangolin_constellations">
+                <param name="enable" value="versions" />
+                <param name="compatibility_file" ftype="csv" value="data_compatibility.csv" />
+                <param name="versions" value="0.1.10" />
+            </conditional>
+            <conditional name="pangolin_assignment">
+                <param name="enable" value="no" />
+            </conditional>
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="pangolin-data v1.12" />
+                    <has_text text='"description": "constellations release v0.1.10"' />
+                    <has_text text='"min_scorpio_version": "0.3.17"' />
+                    <not_has_text text='"description": "pangolin-assignment' />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="pangolin_data">
+                <param name="enable" value="no" />
+            </conditional>
+            <conditional name="pangolin_constellations">
+                <param name="enable" value="no" />
+            </conditional>
+            <conditional name="pangolin_assignment">
+                <param name="enable" value="versions" />
+                <param name="compatibility_file" ftype="csv" value="data_compatibility.csv" />
+                <param name="versions" value="1.12" />
+            </conditional>
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text='"value": "v1.12"' />
+                    <has_text text='"min_pangolin_version": "4"' />
+                    <not_has_text text='"description": "constellations' />
+                    <not_has_text text='"description": "pangolin-data' />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_failure="true">
+            <conditional name="pangolin_data">
+                <param name="enable" value="no" />
+            </conditional>
+            <conditional name="pangolin_constellations">
+                <param name="enable" value="no" />
+                <param name="compatibility_file" ftype="csv" value="data_compatibility.csv" />
+                <param name="versions" value="0.0.40" />
+            </conditional>
+            <conditional name="pangolin_assignment">
+                <param name="enable" value="no" />
+            </conditional>
+        </test>
+    </tests>
+    <help><![CDATA[
+        This data managers fetches models (from the pangolin-data_,
+        pangolin-assignment_ and constellations_ repositories) for the
+        pangolin_ SARS-CoV-2 lineage typing tool and updates the pangolin_data,
+        pangolin_assignment and pangolin_constellations data tables.
+
+        The default is to fetch the latest version of the databases. If specific versions of databases
+        need to be installed, a version compatibility matrix needs to be provided to help choose
+        the versions available. This matrix is stored in a CSV file in the pangolin repository
+        and can be downloaded at this link_. When loading this file into Galaxy, the csv datatype
+        needs to be selected, because the automatic format detection code detects this file as type txt.
+
+        **Note** that this data manager will only download database versions mentioned in the above
+        mentioned file. While effort is taken to ensure that this file is updated with each pangolin
+        database release, if that has not happened, the user of this data manager will need to provide
+        their own version compatibility matrix file in order to load the latest database release into Galaxy.
+
+        The data manager will read the existing data tables and not re-download or replace databases
+        that are already present in those data tables.
+
+        .. _pangolin-data: https://github.com/cov-lineages/pangolin-data
+        .. _pangolin-assignment: https://github.com/cov-lineages/pangolin-assignment
+        .. _constellations: https://github.com/cov-lineages/constellations
+        .. _pangolin: https://github.com/cov-lineages/pangolin
+        .. _link: https://raw.githubusercontent.com/cov-lineages/pangolin/master/pangolin/data/data_compatibility.csv
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1093/ve/veab064</citation>
+    </citations>
+</tool>
