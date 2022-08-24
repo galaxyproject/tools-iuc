@@ -1,0 +1,144 @@
+<tool id="circexplorer2" name="CIRCexplorer2" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>circular RNA analysis</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <expand macro='xrefs'/>
+    <command detect_errors="exit_code"><![CDATA[
+        #if $mode.mode_selector == 'align'
+            CIRCexplorer2 align
+            --thread=\${GALAXY_SLOTS:-4}
+            --gtf '$mode.gtf'
+            --genome '$mode.genome'
+            --fastq '$mode.fastq'
+            $mode.bw
+            $mode.scale
+            $mode.skip_tophat
+            $mode.skip_tophat_fusion
+            && tar -zcvf alignment.tgz './alignment'
+    ]]></command>
+    <inputs>
+        <conditional name="mode">
+            <param name="selector" type="select" 
+                label="Tool module" help="CIRCexplorer2 contains 5 modules. Each module 
+                    functions as an independent component owning its distinctive duty. 
+                    Meanwhile, they inteact with each other, and different circular RNA 
+                    analysis pipelines are derived from different combinations of several 
+                    modules.">
+                <option value="align">Align: Map circular RNA junction reads with TopHat2/TopHat-Fusion</option>
+                <option value="parse">Parse: Parse fusion junction information from other aligners</option>
+                <option value="annotate">Annotate: Annotate circular RNA junction reads with gene annotations</option>
+                <option value="assemble">Assemble: Assemble transcriptome for circular RNAs</option>
+                <option value="denovo">De novo: Fetch de novo circular RNA isoforms</option>
+            </param>
+            <when value="align">
+                <param argument="--gtf" type="data" format="GTF" label="Annotation GTF file" />
+                <expand macro="genome_file"/>
+                <param argument="--fastq" type="data" format="fastq" label="Input file"/>
+                <param argument="--bw" type="boolean" truevalue="--bw" falsevalue="" checked="false" 
+                    label="Create BigWig file" help=" It will not consider strand information of read alignment"/>
+                <param argument="--scale" type="boolean" truevalue="--scale" falsevalue="" checked="false" 
+                    label="Scale BigWig to HPB" help="Expression levels will be scaled to hits per billion-mapped-bases (HPB)" />
+                <param argument="--skip-tophat" type="boolean" truevalue="--skip-tophat" falsevalue="" checked="false" 
+                    label="Skip TopHat mapping" help="CIRexplorer2 aligns reads onto genome and transcriptome using TopHat2 to 
+                        reduce false positive reads aligned in the TopHat-Fusion alignment step" />
+                <param argument="--skip-tophat-fusion" type="boolean" truevalue="--skip-tophat-fusion" falsevalue="" checked="false" 
+                    label="Skip TopHat fusion" help="It is useful for poly(A)+ RNA-seq" />
+            </when>
+            <when value="parse">
+                <conditional name="aligner">
+                    <param argument="-t" name="selector" type="select" label="Aligner" 
+                        help="CIRCexplorer2 parse could accept results derived from TopHat-Fusion, 
+                            STAR, MapSplice, BWA and segemehl.">
+                        <option value="TopHat-Fusion">TopHat-Fusion</option>
+                        <option value="STAR">STAR</option>
+                        <option value="MapSplice">MapSplice</option>
+                        <option value="BWA">BWA</option>
+                        <option value="segemehl">segemehl</option>
+                    </param>
+                    <when value="TopHat-Fusion"> 
+                        <expand macro="parse_fusion" format="bam" label="TopHat-Fusion file" 
+                            help="The required input file is accepted_hits.bam"/>
+                        <expand macro="parse_statistics"/>
+                        <param argument="--pe" type="boolean" truevalue="--pe" falsevalue="" checked="false" label="Paired-end aligner file" 
+                            help="Parse paired-end alignment file. If this is set, then -f is set automatically." />
+                    </when>
+                    <when value="STAR">
+                        <expand macro="parse_fusion" format="interval" label="STAR fusion file" 
+                            help="The required input file is Chimeric.out.junction"/>
+                        <expand macro="parse_statistics"/>
+                    </when>
+                    <when value="MapSplice">
+                        <expand macro="parse_fusion" format="txt" label="MapSplice fusion file" 
+                            help="The required input file is fusions_raw.txt"/>
+                        <expand macro="parse_statistics"/>
+                    </when>
+                    <when value="BWA">
+                        <expand macro="parse_fusion" format="sam" label="BWA fusion file" 
+                            help="The required input file is the output sam file"/>
+                        <expand macro="parse_statistics"/>
+                    </when>
+                    <when value="segemehl">
+                        <expand macro="parse_fusion" format="bed" label="segemehl fusion file" 
+                            help="The required input file is splicesites.bed"/>
+                        <expand macro="parse_statistics"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="annotate">
+                <param argument="--ref" type="data" format="txt" label="Gene annotation" 
+                    help="The file is in the format of Gene Predictions and RefSeq Genes with Gene Names" />
+                <expand macro="genome_file"/>
+                <param argument="--bed" type="data" format="bed" label="Back spliced junction file" 
+                    help="This file can be created by CIRCexplorer2 parse or CIRCexplorer2 align" />
+                <param argument="--no-fix" type="boolean" truevalue="--no-fix" falsevalue="" checked="false" label="No fix mode" 
+                    help="When enabled, realignment step of fusion junction reads will be skipped. It is useful for species with 
+                        poor gene annotations, but the accuracy of circular RNA prediction would decrease." />
+                <param argument="--low-confidence" type="boolean" truevalue="--low-confidence" falsevalue="" checked="false" label="Low confidence" 
+                    help="By default, it extracts fusion junction reads exactly matching the boundaries of exons of the same isoform by default. 
+                        If you set the --low-confidence, it will also extract fusion junction reads matching the boundaries of exons of the different 
+                        isofoms of the same gene" />
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="alignment" format="tgz" from_work_dir="alignment.tgz">
+            <filter>mode['mode_selector'] == 'align'</filter>
+        </data>
+        <data name="fusion_junction" format="bed" from_work_dir="fusion_junction.bed">
+            <filter>mode['mode_selector'] == 'align'</filter>
+        </data>
+        <data name="fusion_junction_bw" format="bigwig" from_work_dir="">
+            <filter>mode['mode_selector'] == 'align'</filter>
+            <filter>mode['bw']</filter>
+        </data>
+        <data name="parse" format="bed" from_work_dir="back_spliced_junction.bed">
+            <filter>mode['mode_selector'] == 'parse'</filter>
+        </data>
+        <data name="annotate" format="txt" from_work_dir="circularRNA_known.txt">
+            <filter>mode['mode_selector'] == 'annotate'</filter>
+        </data>
+        <data name="annotate_low" format="txt" from_work_dir="low_conf_circularRNA_known.txt">
+            <filter>mode['mode_selector'] == 'annotate'</filter>
+            <filter>mode['low_confidence']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input1" value="hg19_kg.gtf"/>
+            <output name="output1" file="Chimeric.out.junction"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+Command:
+    align            Map circular RNA junction reads with TopHat2/TopHat-Fusion
+    parse            Parse fusion junction information from other aligners
+    annotate         Annotate circular RNA junction reads with gene annotations
+    assemble         Assemble transcriptome for circular RNAs
+    denovo           Fetch de novo circular RNA isoforms
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>
