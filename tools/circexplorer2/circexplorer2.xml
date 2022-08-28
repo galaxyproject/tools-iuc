@@ -1,0 +1,408 @@
+<tool id="circexplorer2" name="CIRCexplorer2" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>circular RNA analysis</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements" />
+    <expand macro='xrefs'/>
+    <command detect_errors="exit_code"><![CDATA[
+        #if $mode.selector == 'align'
+            mkdir -p reads &&
+            #set file_paths = []
+            #for $i,$input_file in enumerate($mode.fastq)
+                #set $fname = 'file' + str($i) + "." + $input_file.ext
+                #set $file_path = 'reads/' + $fname
+                ln -s '$input_file' '$file_path' &&
+                $file_paths.append($file_path)
+            #end for
+            CIRCexplorer2 align
+            @threads@
+            --gtf '$mode.gtf'
+            -g '$mode.genome'
+            --fastq #echo ','.join($file_paths)#
+            $mode.bw
+            $mode.scale
+            $mode.skip_tophat
+            $mode.skip_tophat_fusion
+            && tar -zcvf alignment.tgz './alignment'
+        #else if $mode.selector == 'parse'
+            CIRCexplorer2 parse
+            -t $mode.aligner.selector
+            $mode.aligner.fusion_file
+            #if $mode.aligner.selector == 'TopHat-Fusion'
+                $mode.aligner.pe
+            #end if
+            $mode.aligner.f
+        #else if  $mode.selector == 'annotate'
+            ln -s $mode.genome reference_genome.fa &&
+            CIRCexplorer2 annotate
+            -r $mode.ref
+            -g reference_genome.fa
+            -b $mode.bed
+            $mode.no_fix
+            $mode.low_confidence
+        #else if $mode.selector == 'assemble'
+            tar -zxf $mode.tophat &&
+            CIRCexplorer2 assemble
+            @threads@
+            -r $mode.ref
+            -m ./alignment
+            $mode.remove_rRNA
+            && tar -zcvf assemble.tgz './assemble'
+        #else
+            ln -s '$mode.genome' reference_genome.fa &&
+            #if $mode.assemble_file.ext.endswith(".gz")
+                tar -zxf $mode.assemble_file &&
+            #else
+                tar -xf $mode.assemble_file &&
+            #end if
+            #if $mode.as_option.selector == 'enabled'
+                tar -zxf $mode.as_option.tophat &&
+            #end if
+            CIRCexplorer2 denovo
+            -d ./assemble
+            -r $mode.ref
+            -b $mode.bed
+            -g reference_genome.fa
+            #if $mode.abs
+                --abs 'abs'
+            #end if
+            #if $mode.as_option.selector == 'enabled'
+                --as 'as'
+                $mode.as_option.type_mapping './alignment'
+            #end if
+            $mode.no_fix
+            $mode.rpkm
+        #end if
+    ]]></command>
+    <inputs>
+        <conditional name="mode">
+            <param name="selector" type="select" 
+                label="Tool module" help="CIRCexplorer2 contains 5 modules. Each module 
+                    functions as an independent component owning its distinctive duty. 
+                    Meanwhile, they inteact with each other, and different circular RNA 
+                    analysis pipelines are derived from different combinations of several 
+                    modules.">
+                <option value="align">Align: Map circular RNA junction reads with TopHat2/TopHat-Fusion</option>
+                <option value="parse">Parse: Parse fusion junction information from other aligners</option>
+                <option value="annotate">Annotate: Annotate circular RNA junction reads with gene annotations</option>
+                <option value="assemble">Assemble: Assemble transcriptome for circular RNAs</option>
+                <option value="denovo">De novo: Fetch de novo circular RNA isoforms</option>
+            </param>
+            <when value="align">
+                <param argument="--gtf" type="data" format="gtf" label="Annotation GTF file" />
+                <expand macro="genome_file"/>
+                <param argument="--fastq" type="data" format="fastq,fastqsanger,fastq.gz,fastqsanger.gz" multiple="true" label="RNA-seq FASTQ file(s)" 
+                    help="Only single-read RNA-seq is supported. It is recommended to convert paired-end RNA-seq to single-read RNA-seq before alignment"/>
+                <param argument="--bw" type="boolean" truevalue="--bw" falsevalue="" checked="false" 
+                    label="Create BigWig file" help=" It will not consider strand information of read alignment"/>
+                <param argument="--scale" type="boolean" truevalue="--scale" falsevalue="" checked="false" 
+                    label="Scale BigWig to HPB" help="Expression levels will be scaled to hits per billion-mapped-bases (HPB)" />
+                <param argument="--skip-tophat" type="boolean" truevalue="--skip-tophat" falsevalue="" checked="false" 
+                    label="Skip TopHat mapping" help="CIRexplorer2 aligns reads onto genome and transcriptome using TopHat2 to 
+                        reduce false positive reads aligned in the TopHat-Fusion alignment step" />
+                <param argument="--skip-tophat-fusion" type="boolean" truevalue="--skip-tophat-fusion" falsevalue="" checked="false" 
+                    label="Skip TopHat fusion" help="It is useful for poly(A)+ RNA-seq" />
+            </when>
+            <when value="parse">
+                <conditional name="aligner">
+                    <param argument="-t" name="selector" type="select" label="Aligner" 
+                        help="CIRCexplorer2 parse could accept results derived from TopHat-Fusion, 
+                            STAR, MapSplice, BWA and segemehl.">
+                        <option value="TopHat-Fusion">TopHat-Fusion</option>
+                        <option value="STAR">STAR</option>
+                        <option value="MapSplice">MapSplice</option>
+                        <option value="BWA">BWA</option>
+                        <option value="segemehl">segemehl</option>
+                    </param>
+                    <when value="TopHat-Fusion"> 
+                        <expand macro="parse_fusion" format="bam" label="TopHat-Fusion file" 
+                            help="The required input file is accepted_hits.bam"/>
+                        <expand macro="parse_statistics"/>
+                        <param argument="--pe" type="boolean" truevalue="--pe" falsevalue="" checked="false" label="Paired-end aligner file" 
+                            help="Parse paired-end alignment file. If this is set, then -f is set automatically." />
+                    </when>
+                    <when value="STAR">
+                        <expand macro="parse_fusion" format="interval,tabular" label="STAR fusion file" 
+                            help="The required input file is Chimeric.out.junction"/>
+                        <expand macro="parse_statistics"/>
+                    </when>
+                    <when value="MapSplice">
+                        <expand macro="parse_fusion" format="txt" label="MapSplice fusion file" 
+                            help="The required input file is fusions_raw.txt"/>
+                        <expand macro="parse_statistics"/>
+                    </when>
+                    <when value="BWA">
+                        <expand macro="parse_fusion" format="sam" label="BWA fusion file" 
+                            help="The required input file is the output sam file"/>
+                        <expand macro="parse_statistics"/>
+                    </when>
+                    <when value="segemehl">
+                        <expand macro="parse_fusion" format="bed" label="segemehl fusion file" 
+                            help="The required input file is splicesites.bed"/>
+                        <expand macro="parse_statistics"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="annotate">
+                <expand macro="annotation_file"/>
+                <expand macro="genome_file"/>
+                <expand macro="junction_file"/>
+                <param argument="--no-fix" type="boolean" truevalue="--no-fix" falsevalue="" checked="false" label="No fix mode" 
+                    help="When enabled, realignment step of fusion junction reads will be skipped. It is useful for species with 
+                        poor gene annotations, but the accuracy of circular RNA prediction would decrease." />
+                <param argument="--low-confidence" type="boolean" truevalue="--low-confidence" falsevalue="" checked="false" label="Low confidence" 
+                    help="By default, it extracts fusion junction reads exactly matching the boundaries of exons of the same isoform by default. 
+                        If you set the --low-confidence, it will also extract fusion junction reads matching the boundaries of exons of the different 
+                        isofoms of the same gene" />
+            </when>
+            <when value="assemble">
+                <expand macro="annotation_file"/>
+                <expand macro="tophat_file"/>
+                <param argument="--remove-rRNA" type="boolean" truevalue="--remove-rRNA" falsevalue="" checked="false" 
+                    label="Remove rRNA" help="Ignore rRNA during assembling (only for human hg19)" />
+            </when>
+            <when value="denovo">
+                <expand macro="annotation_file"/>
+                <expand macro="junction_file"/>
+                <expand macro="genome_file"/>
+                <param name="assemble_file" type="data" format="tgz,tar" label="Assemble file" 
+                    help="Generated by the module CIRCexplorer2 assemble" />
+                <param argument="--abs" type="boolean" truevalue="--abs" falsevalue="" checked="false" 
+                    label="Detect alternative back-splicing" help="When set, it will characterize the 
+                        alternative back-splicing of circular RNAs" />
+                <conditional name="as_option">
+                    <param name="selector" type="select" label="Characterize alternative splicing of cirRNAs" 
+                        help="If enabled,  it will characterize the alternative splicing of circular RNAs, including 
+                            cassette exons, retained introns, A5SS and A3SS">
+                            <option value="disabled">Disabled</option>
+                            <option value="enabled">Enabled</option>
+                    </param>
+                    <when value="disabled"/>
+                    <when value="enabled">
+                        <expand macro="tophat_file"/>
+                        <param name="type_mapping" type="select" label="Type of mapping" 
+                            help="In this mode, you should also offer the path of TopHat mapping directory for 
+                                p(A)-/p(A)+ RNA-seq via -m/-n option">
+                            <option value="-m">p(A)-</option>
+                            <option value="-n">p(A)+ RNA-seq</option>
+                        </param>
+                    </when>
+                </conditional>
+                <param argument="--no-fix" type="boolean" truevalue="--no-fix" falsevalue="" checked="false" label="No-fix mode" 
+                    help="If enabled,  realignment step of fusion junction reads will be skipped. It is useful for species with 
+                        poor gene annotations, but the accuracy of circular RNA prediction would decrease." />
+                <param argument="--rpkm" type="boolean" truevalue="--rpkm" falsevalue="" checked="false" label="Calculate RPKM for cassete exons" 
+                    help="If enabled, RPKM of cassette exons would be calculated" />
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="alignment" format="tgz" from_work_dir="alignment.tgz" label="${tool.name} on ${on_string}: alignment file   ">
+            <filter>mode['selector'] == 'align'</filter>
+        </data>
+        <data name="fusion_junction_bw" format="bigwig" from_work_dir="./alignment/tophat/accepted_hits.bw" label="${tool.name} on ${on_string}: BigWig">
+            <filter>mode['selector'] == 'align'</filter>
+            <filter>mode['bw']</filter>
+        </data>
+        <data name="parse" format="bed" from_work_dir="back_spliced_junction.bed" label="${tool.name} on ${on_string}: back spliced junction (BED)">
+            <filter>mode['selector'] == 'parse'</filter>
+        </data>
+        <data name="annotate" format="tabular" from_work_dir="circularRNA_known.txt" label="${tool.name} on ${on_string}: circRNA known">
+            <filter>mode['selector'] == 'annotate'</filter>
+        </data>
+        <data name="annotate_low" format="tabular" from_work_dir="low_conf_circularRNA_known.txt" label="${tool.name} on ${on_string}: Low confidence circRNA">
+            <filter>mode['selector'] == 'annotate'</filter>
+            <filter>mode['low_confidence']</filter>
+        </data>
+        <data name="assemble" format="tgz" from_work_dir="assemble.tgz" label="${tool.name} on ${on_string}: assemble file">
+            <filter>mode['selector'] == 'assemble'</filter>
+        </data>
+        <data name="denovo_combined" format="tabular" from_work_dir="./denovo/combined_ref.txt" label="${tool.name} on ${on_string}: combined ref">
+            <filter>mode['selector'] == 'denovo'</filter>
+        </data>
+        <data name="denovo_circularRNA" format="tabular" from_work_dir="./denovo/circularRNA_full.txt" label="${tool.name} on ${on_string}: circRNA full">
+            <filter>mode['selector'] == 'denovo'</filter>
+        </data>
+        <data name="denovo_annotated" format="tabular" from_work_dir="./denovo/annotated_circ.txt" label="${tool.name} on ${on_string}: annotated circRNA">
+            <filter>mode['selector'] == 'denovo'</filter>
+        </data>
+        <data name="denovo_novel" format="tabular" from_work_dir="./denovo/novel_circ.txt" label="${tool.name} on ${on_string}: novel circRNA">
+            <filter>mode['selector'] == 'denovo'</filter>
+        </data>
+        <data name="denovo_abs5" format="tabular" from_work_dir="./abs/a5bs.txt" label="${tool.name} on ${on_string}: a5bs">
+            <filter>mode['selector'] == 'denovo'</filter>
+            <filter>mode['abs']</filter>
+        </data>
+        <data name="denovo_abs3" format="tabular" from_work_dir="./abs/a3bs.txt" label="${tool.name} on ${on_string}: a3bs">
+            <filter>mode['selector'] == 'denovo'</filter>
+            <filter>mode['abs']</filter>
+        </data>
+        <data name="denovo_all_exon" format="tabular" from_work_dir="./as/all_exon_info.txt" label="${tool.name} on ${on_string}: all exon info">
+            <filter>mode['selector'] == 'denovo'</filter>
+            <filter>mode['as_option'] == 'enabled'</filter>
+        </data>
+        <data name="denovo_all_intron" format="tabular" from_work_dir="./as/all_intron_info.txt" label="${tool.name} on ${on_string}: all intron info">
+            <filter>mode['selector'] == 'denovo'</filter>
+            <filter>mode['as_option'] == 'enabled'</filter>
+        </data>
+        <data name="denovo_a5ss" format="tabular" from_work_dir="./as/all_A5SS_info.txt" label="${tool.name} on ${on_string}: all A5SS info">
+            <filter>mode['selector'] == 'denovo'</filter>
+            <filter>mode['as_option'] == 'enabled'</filter>
+        </data>
+        <data name="denovo_a3ss" format="tabular" from_work_dir="./as/all_A3SS_info.txt" label="${tool.name} on ${on_string}: all A3SS info">
+            <filter>mode['selector'] == 'denovo'</filter>
+            <filter>mode['as_option'] == 'enabled'</filter>
+        </data>
+    </outputs>
+    <tests>
+    <test expect_num_outputs="1">
+        <!--Test 01: Module align default options-->
+        <conditional name="mode">
+            <param name="selector" value="align"/>
+            <param name="gtf" value="annotation_01.gtf"/>
+            <param name="genome" value="reference_01.fa"/>
+            <param name="fastq" value="reads_01.fastq,reads_02.fastq,reads_03.fastq"/>
+            <param name="skip_tophat_fusion" value="true"/>
+        </conditional>
+        <output name="alignment">
+            <assert_contents>
+                <has_size value="3426053" delta="5000"/>
+            </assert_contents>
+        </output>
+    </test>
+    <test expect_num_outputs="2">
+        <!--Test 02: Module align compressed files-->
+        <conditional name="mode">
+            <param name="selector" value="align"/>
+            <param name="gtf" value="annotation_01.gtf"/>
+            <param name="genome" value="reference_01.fa"/>
+            <param name="fastq" value="reads_01.fastq.gz,reads_02.fastq.gz,reads_03.fastq.gz"/>
+            <param name="skip_tophat_fusion" value="true"/>
+            <param name="bw" value="true"/>
+            <param name="scale" value="true"/>
+        </conditional>
+        <output name="alignment">
+            <assert_contents>
+                <has_size value="3435977" delta="5000"/>
+            </assert_contents>
+        </output>
+        <output name="fusion_junction_bw" value="test_02.bigwig" ftype="bigwig"/>
+    </test>
+    <test expect_num_outputs="1">
+        <!--Test 03: Module parse-->
+        <conditional name="mode">
+            <param name="selector" value="parse"/>
+            <conditional name="aligner">
+                <param name="selector" value="MapSplice"/>
+                <param name="fusion_file" value="mapsplice_chimeric.junction"/>
+            </conditional>
+        </conditional>
+        <output name="parse" value="test_03.bed" ftype="bed"/>
+    </test>
+    <test expect_num_outputs="1">
+        <!--Test 04: Module parse STAR-->
+        <conditional name="mode">
+            <param name="selector" value="parse"/>
+            <conditional name="aligner">
+                <param name="selector" value="STAR"/>
+                <param name="fusion_file" value="STAR_chimeric.junction"/>
+                <param name="f" value="true"/>
+            </conditional>
+        </conditional>
+        <output name="parse" value="test_04.bed" ftype="bed"/>
+    </test>
+    <test expect_num_outputs="1">
+        <!--Test 05: Module annotate-->
+        <conditional name="mode">
+            <param name="selector" value="annotate"/>
+            <param name="ref" value="annotation_02.txt"/>
+            <param name="genome" value="reference_02.fa"/>
+            <param name="bed" value="test_04.bed"/>
+        </conditional>
+        <output name="annotate" value="test_05.tabular" ftype="tabular"/>
+    </test>
+    <test expect_num_outputs="2">
+        <!--Test 06: Module annotate-->
+        <conditional name="mode">
+            <param name="selector" value="annotate"/>
+            <param name="ref" value="annotation_02.txt"/>
+            <param name="genome" value="reference_02.fa"/>
+            <param name="bed" value="test_04.bed"/>
+            <param name="no_fix" value="true"/>
+            <param name="low_confidence" value="true"/>
+        </conditional>
+        <output name="annotate" value="test_06.tabular" ftype="tabular"/>
+    </test>
+    <test expect_num_outputs="4">
+        <!--Test 07: Module de novo-->
+        <conditional name="mode">
+            <param name="selector" value="denovo"/>
+            <param name="ref" value="annotation_02.txt"/>
+            <param name="bed" value="test_04.bed"/>
+            <param name="genome" value="reference_02.fa"/>
+            <param name="assemble_file" value="assemble.tgz"/>
+        </conditional>
+        <output name="denovo_combined" value="test_07_combined.txt" ftype="tabular"/>
+        <output name="denovo_circularRNA" value="test_07_full.txt" ftype="tabular"/>
+        <output name="denovo_annotated" value="test_07_annotated.txt" ftype="tabular"/>
+        <output name="denovo_novel" value="test_07_novel.txt" ftype="tabular"/>
+    </test>
+    <test expect_num_outputs="6">
+        <!--Test 08: Module de novo additional options-->
+        <conditional name="mode">
+            <param name="selector" value="denovo"/>
+            <param name="ref" value="annotation_02.txt"/>
+            <param name="bed" value="test_04.bed"/>
+            <param name="genome" value="reference_02.fa"/>
+            <param name="assemble_file" value="assemble.tgz"/>
+            <param name="abs" value="true"/>
+            <param name="no_fix" value="true"/>
+            <param name="rpkm" value="true"/>
+        </conditional>
+        <output name="denovo_combined" value="test_08_combined.txt" ftype="tabular"/>
+        <output name="denovo_circularRNA" value="test_08_full.txt" ftype="tabular"/>
+        <output name="denovo_annotated" value="test_08_annotated.txt" ftype="tabular"/>
+        <output name="denovo_novel" value="test_08_novel.txt" ftype="tabular"/>
+        <output name="denovo_abs5" value="test_08_a5bs.txt" ftype="tabular"/>
+        <output name="denovo_abs3" value="test_08_a3bs.txt" ftype="tabular"/>
+    </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**Purpose**
+
+CIRCexplorer2 is a comprehensive and integrative circular RNA analysis toolset. It is the successor 
+of CIRCexplorer with plenty of new features to facilitate circular RNA identification and characterization.
+
+-------------------
+
+ .. class:: infomark
+
+**Features**
+
+    * Precisely annotate circular RNAs (Annotate)
+    * Support multiple circular RNA aligners (TopHat2/TopHat-Fusion, STAR, MapSplice, BWA and segemehl) (Align and Parse)
+    * De novo assemble novel circular RNA transcripts (Assemble)
+    * Characterize various of alternative (back-)splicing events of circular RNAs (Denovo)
+    * Fast identify circuar RNAs with STAR or BWA (Parse)
+    * Support both single-read and paired-end sequencing.
+
+-------------------
+
+.. class:: infomark
+
+**Modules** 
+
+CIRCexplorer2 contains 5 modules. Each module functions as an independent component owning its distinctive duty. 
+Meanwhile, they inteact with each other, and different circular RNA analysis pipelines are derived from different 
+combinations of several modules. Understanding the detailed mechanism of each module could facilitate your circular 
+RNA research.
+
+CIRCexplorer2 documentation is available from `here <http://circexplorer2.readthedocs.org/>`_, including installation instructions and tutorial.
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>

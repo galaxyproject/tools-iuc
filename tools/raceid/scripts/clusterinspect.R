@@ -1,7 +1,7 @@
 #!/usr/bin/env R
 VERSION <- "0.5"  # nolint
 
-args <- commandArgs(trailingOnly = T)
+args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) != 1) {
      message(paste("VERSION:", VERSION))
@@ -74,12 +74,10 @@ do.inspect.diffgene <- function(sc) {  # nolint
         use_names <- NULL
         if (!is.null(lob$manual)) {
             use_names <- lob$manual
-        }
-        else if (!is.null(lob$regex)) {
+        }else if (!is.null(lob$regex)) {
             nm <- colnames(sc@ndata)
             use_names <- nm[grep(lob$regex, nm)]
-        }
-        else if (!is.null(lob$cln)) {
+        }else if (!is.null(lob$cln)) {
             use_names <- names(sc@cpart)[sc@cpart %in% lob$cln]
         }
         if (is.null(use_names)) {
@@ -112,19 +110,23 @@ do.inspect.genesofinterest <- function(sc) {  # nolint
     title <- paste(":", plotexp$n)
     plotexp$n <- ""
 
-    plotexp$logsc <- FALSE; plotexp$fr <- FALSE
+    plotexp$logsc <- FALSE
+    plotexp$fr <- FALSE
     print(do.call(plotexpmap, c(sc, plotexp)))
     print(do.call(mtext, c(paste("tSNE", title), test)))
 
-    plotexp$logsc <- TRUE; plotexp$fr <- FALSE
+    plotexp$logsc <- TRUE
+    plotexp$fr <- FALSE
     print(do.call(plotexpmap, c(sc, plotexp)))
     print(do.call(mtext, c(paste("tSNE (Log)", title), test)))
 
-    plotexp$logsc <- FALSE; plotexp$fr <- TRUE
+    plotexp$logsc <- FALSE
+    plotexp$fr <- TRUE
     print(do.call(plotexpmap, c(sc, plotexp)))
     print(do.call(mtext, c(paste("FR", title), test)))
 
-    plotexp$logsc <- TRUE; plotexp$fr <- TRUE
+    plotexp$logsc <- TRUE
+    plotexp$fr <- TRUE
     print(do.call(plotexpmap, c(sc, plotexp)))
     print(do.call(mtext, c(paste("FR (Log)", title), test)))
 
