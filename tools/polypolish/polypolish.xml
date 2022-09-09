@@ -1,0 +1,339 @@
+<tool id="polypolish" name="Polypolish" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>
+        Short-read polishing of long-read bacterial genome assemblies
+    </description>
+    <macros>
+        <import>macro.xml</import>
+    </macros>
+    <expand macro='xrefs'/>
+    <expand macro="requirements" />
+    <expand macro="version_command" />
+    <command detect_errors="aggressive"><![CDATA[
+        ln -s '$input.fasta_file' input_data &&
+
+        @BWA_INDEX@ &&
+        #*======================================
+                    For single fastq
+        ======================================*#
+        #if $input.raw_data_type.fastq_selector == 'single'
+            bwa mem -t @THREADS@ -a input_data '$input.raw_data_type.single_fastq' > alignment.sam &&
+            polypolish input_data 'alignment.sam' > '$polished_fasta'
+        #*======================================
+                    For paired fastq
+        ======================================*#
+        #elif $input.raw_data_type.fastq_selector == 'paired'
+            bwa mem -t @THREADS@ -a input_data '$input.raw_data_type.R1_fastq' > alignment_1.sam &&
+            bwa mem -t @THREADS@ -a input_data '$input.raw_data_type.R2_fastq' > alignment_2.sam &&
+            #if $input.raw_data_type.insert_filter.filter_select == 'filter'
+                polypolish_insert_filter.py --low '$input.raw_data_type.insert_filter.low'
+                                            --high '$input.raw_data_type.insert_filter.high'
+                                            --in1 'alignment_1.sam'
+                                            --in2 'alignment_2.sam'
+                                            --out1 'filtered_1.sam'
+                                            --out2 'filtered_2.sam' &&
+            #end if
+            polypolish input_data 'filtered_1.sam' 'filtered_2.sam' >  $polished_fasta
+        #*======================================
+            For multiple single-end fastq
+        ======================================*#
+        #elif $input.raw_data_type.fastq_selector == 'multiple_single'
+            mkdir single_collection &&
+            #for $value, $fastq_file in enumerate($input.raw_data_type.single_collection):
+                bwa mem -t @THREADS@ -a input_data '$fastq_file' > 'single_collection/$(fastq_file.element_identifier).sam' &&
+            #end for
+                polypolish input_data single_collection/*.sam > '$polished_fasta'
+        #*======================================
+            For multiple paired-end fastq
+        ======================================*#
+        #elif $input.raw_data_type.fastq_selector == "multiple_paired"
+            mkdir paired_collection &&
+            #for $value, $paired_fastq in enumerate($input.raw_data_type.paired_collection):
+                ln -s '$paired_fastq.forward' 'forward_input$(value).$(paired_fastq.forward.ext)' &&
+                ln -s '$paired_fastq.reverse' 'reverse_input$(value).$(paired_fastq.reverse.ext)' &&
+                bwa mem -t @THREADS@ -a input_data '$paired_fastq.forward' > 'paired_collection/forward_input$(value).$(paired_fastq.forward.ext).sam' &&
+                bwa mem -t @THREADS@ -a input_data '$paired_fastq.reverse' > 'paired_collection/reverse_input$(value).$(paired_fastq.reverse.ext).sam' &&
+                #if $input.raw_data_type.insert_filter.filter_select == 'filter'
+                    polypolish_insert_filter.py --low '$input.raw_data_type.insert_filter.low'
+                                                --high '$input.raw_data_type.insert_filter.high'
+                                                --in1 'paired_collection/forward_input$(value).$(paired_fastq.forward.ext).sam'
+                                                --in2 'paired_collection/reverse_input$(value).$(paired_fastq.reverse.ext).sam'
+                                                --out1 'paired_collection/forward_input$(value).$(paired_fastq.forward.ext)_filtered.sam'
+                                                --out2 'paired_collection/reverse_input$(value).$(paired_fastq.reverse.ext)_filtered.sam' &&
+                #end if
+            #end for
+        #*======================================
+                    Filtering option
+        ======================================*#
+            #if $input.raw_data_type.insert_filter.filter_select == 'filter'
+                polypolish input_data paired_collection/*_filtered.sam > '$polished_fasta'
+            #else
+                polypolish input_data paired_collection/*.sam > '$polished_fasta'
+            #end if
+        #end if
+        #*======================================
+            For debug file output
+        ======================================*#
+        #if $options.debug == 'true'
+            --debug $debug_file
+        #end if
+        #*======================================
+            For LOGFILE OUTPUT
+        ======================================*#
+        #if $options.no_logfile == 'true'
+            2> '$logfile'
+        #end if
+        ]]>
+    </command>
+    <inputs>
+        <section name="input" title="Input sequences" expanded="True">
+            <param name="fasta_file" type="data" format="fasta" label="Select a draft genome for polishing"
+                   help="Fasta sequence to be cleaned using short-reads data"/>
+            <conditional name="raw_data_type">
+                <param name="fastq_selector" type="select" label="Select raw data to polish">
+                    <option value="single">Single-end fastq file</option>
+                    <option value="paired">Paired-end fastq files</option>
+                    <option value="multiple_single">Multiple single-end fastq files</option>
+                    <option value="multiple_paired">Multiple paired-end fastq files</option>
+                </param>
+                <when value="single">
+                    <param name="single_fastq" type="data" format="fastqsanger" label="Select a fastq file" help="Specify dataset with only one fastq file"/>
+                </when>
+                <when value="paired">
+                    <param name="R1_fastq" type="data" format="fastqsanger" label="Select forward fastq file" help="Specify the forward fastq files"/>
+                    <param name="R2_fastq" type="data" format="fastqsanger" label="Select reverse fastq file" help="Specify the reverse fastq files"/>
+                    <conditional name="insert_filter">
+                        <param name="filter_select" type="select" label="Filter by insert size ? [recommanded]"
+                               help="Exclude some alignments based on their insert size. It reduce the number of excessive alignments,
+                               particularly near the edges of repeat sequences">
+                            <option value="filter" selected="true">Filter by insert size</option>
+                            <option value="non_filter"> No filtering step</option>
+                        </param>
+                        <when value="filter">
+                            <param name="low" argument="--low" type="float" min="0" value="0.1" label="Low percentile threshold" help="Select the lower value to remove [default: 0.1]"/>
+                            <param name="high" argument="--high" type="float" min="0" value="99.9" label="High percentile threshold" help="Select the lower value to remove [default: 99.9]"/>
+                        </when>
+                        <when value="non_filter">
+                        </when>
+                    </conditional>
+                </when>
+                <when value="multiple_single">
+                    <param name="single_collection" format="fastqsanger" type="data_collection" collection_type="list" label="Single-end collection" help="Specify a list of single-end dataset"/>
+                </when>
+                <when value="multiple_paired">
+                    <param name="paired_collection" format="fastqsanger" type="data_collection" collection_type="list:paired" label="Single-end collection" help="Specify a list of single-end dataset"/>
+                    <conditional name="insert_filter">
+                        <param name="filter_select" type="select" label="Filter by insert size ? [recommanded]"
+                               help="Exclude some alignments based on their insert size. It reduce the number of excessive alignments,
+                               particularly near the edges of repeat sequences">
+                            <option value="filter" selected="true">Filter by insert size</option>
+                            <option value="non_filter"> No filtering step</option>
+                        </param>
+                        <when value="filter">
+                            <param name="low" argument="--low" type="float" min="0" value="0.1" label="Low percentile threshold" help="Select the lower value to remove [default: 0.1]"/>
+                            <param name="high" argument="--high" type="float" min="0" value="99.9" label="High percentile threshold" help="Select the lower value to remove [default: 99.9]"/>
+                        </when>
+                        <when value="non_filter">
+                        </when>
+                    </conditional>
+                </when>
+            </conditional>
+        </section>
+        <section name="options" title="Options" expanded="False">
+            <param name="min_depth" argument="--min_depth" type="integer" min="0" value="5" label="Minimal depth"
+                   help="A base must occur at least this many times in the pileup to be considered valid [default: 5]"/>
+            <param name="fraction_invalid" argument="--fraction_invalid" type="float" min="0" value="0.2" label="Minimal invalid fraction"
+                   help="A base must make up less than this fraction of the read depth to be considered invalid [default: 0.2]"/>
+            <param name="max_errors" argument="--max_errors" type="integer" min="0" value="10" label="Number of mismatch/indels to ignore alignments"
+                   help="Ignore alignments with more than this many mismatches and indels [default: 10]"/>
+            <param name="fraction_valid" argument="--fraction_valid" type="float" min="0" value="0.5" label="Minimal valid fraction"
+                   help="A base must make up at least this fraction of the read depth to be considered valid [default: 0.5"/>
+            <param name="no_logfile" type="boolean" truevalue="true" falsevalue="false" checked="True" label="Keep log file"/>
+            <param name="debug" argument="--debug" type="boolean" truevalue="true" falsevalue="false" checked="True" label="Keep per base information file"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="polished_fasta" format="fasta" label="${tool.name} on ${on_string}: polished fasta"/>
+        <data name="debug_file" format="tabular" label="${tool.name} on ${on_string}: Per base informations">
+            <filter> options['debug'] == True </filter>
+        </data>
+        <data name="logfile" format="txt" label="${tool.name} on ${on_string}: log report">
+            <filter> options['no_logfile'] == True </filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test_1 with default values and single fastq -->
+        <test expect_num_outputs="3">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="raw_data_type">
+                    <param name="fastq_selector" value="single"/>
+                    <param name="single_fastq" value="R1.fastq.gz"/>
+                </conditional>
+            </section>
+            <output name="polished_fasta" value="polished_test_1.fasta"/>
+            <output name="logfile" value="logfile_test_1.log" lines_diff="20"/>
+            <output name="debug_file" value="debug_file_test_1.tsv"/>
+        </test>
+        <!-- Test_2 with default values and paired fastq -->
+        <test expect_num_outputs="2">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="raw_data_type">
+                    <param name="fastq_selector" value="paired"/>
+                    <param name="R1_fastq" value="R1.fastq.gz"/>
+                    <param name="R2_fastq" value="R2.fastq.gz"/>
+                </conditional>
+            </section>
+            <section name="options">
+                <param name="debug" value="true"/>
+                <param name="no_logfile" value="false"/>
+            </section>
+            <output name="polished_fasta" value="polished_test_2.fasta"/>
+            <output name="debug_file" value="debug_file_test_2.tsv"/>
+        </test>
+        <!-- Test_3 with default values and single-end multiple fastq -->
+        <test expect_num_outputs="2">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="raw_data_type">
+                    <param name="fastq_selector" value="multiple_single"/>
+                    <param name="single_collection">
+                        <collection type="list">
+                            <element name="R1.fastq.gz" value="R1.fastq.gz" ftype="fastq"/>
+                            <element name="R1_bis.fastq.gz" value="R1_bis.fastq.gz" ftype="fastq"/>
+                            <element name="R1_ter.fastq.gz" value="R1_ter.fastq.gz" ftype="fastq"/>
+                        </collection>
+                    </param>
+                </conditional>
+            </section>
+            <section name="options">
+                <param name="debug" value="false"/>
+                <param name="no_logfile" value="true"/>
+            </section>
+            <output name="polished_fasta" value="polished_test_3.fasta"/>
+            <output name="logfile" value="logfile_test_3.log" lines_diff="15"/>
+        </test>
+        <!-- Test_4 with default values and paired collection fastq -->
+          <test expect_num_outputs="3">
+              <section name="input">
+                  <param name="fasta_file" value="contigs.fa"/>
+                  <conditional name="raw_data_type">
+                      <param name="fastq_selector" value="multiple_paired"/>
+                      <param name="paired_collection">
+                          <collection type="list:paired">
+                              <element name="paired_1">
+                                  <collection type="paired">
+                                      <element name="forward" value="R1.fastq.gz" ftype="fastqsanger"/>
+                                      <element name="reverse" value="R2.fastq.gz" ftype="fastqsanger"/>
+                                  </collection>
+                              </element>
+                              <element name="paired_2">
+                                  <collection type="paired">
+                                      <element name="forward" value="R1_bis.fastq.gz" ftype="fastqsanger"/>
+                                      <element name="reverse" value="R2_bis.fastq.gz" ftype="fastqsanger"/>
+                                  </collection>
+                              </element>
+                              <element name="paired_3">
+                                  <collection type="paired">
+                                      <element name="forward" value="R1_ter.fastq.gz" ftype="fastqsanger"/>
+                                      <element name="reverse" value="R2_ter.fastq.gz" ftype="fastqsanger"/>
+                                  </collection>
+                              </element>
+                          </collection>
+                      </param>
+                  </conditional>
+              </section>
+              <output name="polished_fasta" value="polished_test_4.fasta"/>
+              <output name="logfile" value="logfile_test_4.log" lines_diff="20"/>
+          </test>
+          <!-- Test_5 paired-end without filtering and whitout log file -->
+          <test expect_num_outputs="1">
+              <section name="input">
+                  <param name="fasta_file" value="contigs.fa"/>
+                  <conditional name="raw_data_type">
+                      <param name="fastq_selector" value="paired"/>
+                      <param name="R1_fastq" value="R1.fastq.gz"/>
+                      <param name="R2_fastq" value="R2.fastq.gz"/>
+                  </conditional>
+              </section>
+              <section name="options">
+                  <conditional name="insert_filter">
+                      <param name="filter_select" value="non_filter"/>
+                  </conditional>
+                  <param name="debug" value="false"/>
+                  <param name="no_logfile" value="false"/>
+              </section>
+              <output name="polished_fasta" value="polished_test_5.fasta"/>
+          </test>
+          <!-- Test_6 paired-end with filter, user defined values and whitout log file -->
+          <test expect_num_outputs="1">
+              <section name="input">
+                  <param name="fasta_file" value="contigs.fa"/>
+                  <conditional name="raw_data_type">
+                      <param name="fastq_selector" value="paired"/>
+                      <param name="R1_fastq" value="R1.fastq.gz"/>
+                      <param name="R2_fastq" value="R2.fastq.gz"/>
+                      <conditional name="insert_filter">
+                          <param name="filter_select" value="filter"/>
+                          <param name="low" value="1"/>
+                          <param name="high" value="98.7"/>
+                      </conditional>
+                  </conditional>
+              </section>
+              <section name="options">
+                  <param name="debug" value="false"/>
+                  <param name="no_logfile" value="false"/>
+              </section>
+              <output name="polished_fasta" value="polished_test_6.fasta"/>
+          </test>
+          <!-- Test_7 paired-end with all customized filters -->
+          <test expect_num_outputs="1">
+              <section name="input">
+                  <param name="fasta_file" value="contigs.fa"/>
+                  <conditional name="raw_data_type">
+                      <param name="fastq_selector" value="paired"/>
+                      <param name="R1_fastq" value="R1.fastq.gz"/>
+                      <param name="R2_fastq" value="R2.fastq.gz"/>
+                      <conditional name="insert_filter">
+                          <param name="filter_select" value="filter"/>
+                          <param name="low" value="1.4"/>
+                          <param name="high" value="96.6"/>
+                      </conditional>
+                  </conditional>
+              </section>
+              <section name="options">
+                  <param name="min_depth" value="10"/>
+                  <param name="fraction_invalid" value="0.5"/>
+                  <param name="max_errors" value="8"/>
+                  <param name="fraction_valid" value="0.6"/>
+                  <param name="debug" value="false"/>
+                  <param name="no_logfile" value="false"/>
+                  <param name="debug" value="false"/>
+              </section>
+              <output name="polished_fasta" value="polished_test_6.fasta"/>
+          </test>
+    </tests>
+  <help><![CDATA[
+    **What it does**
+    Polypolish is a tool for polishing genome assemblies with short reads.
+    Polypolish uses SAM files where each read has been aligned to all possible locations (not just a single best location).
+    This allows it to repair errors in repeat regions that other alignment-based polishers cannot fix.
+
+    **Polypolish pipeline steps**
+      1. Index input assembly with bwa mem
+      2. Align raw data (fastq) on the indexed genome with bwa
+      3. [Optional] Filter aligned reads
+          - Exclude some alignments based on their insert size
+          - This should reduce the number of excessive alignments, particularly near the edges of repeat sequences, improving Polypolish's ability to fix errors in those regions.
+      4. Clean assembly with filtered reads
+
+    **Inputs**
+    Polypolish take on or more assembly as input fasta.
+    It need also raw data reads in single or paired-end fastq format.
+    Polypolish could work with some assemblies in one time (independently analyzed), or
+    you can also provide one assembly with several single or paired-end raw data.
+
+
+  ]]></help>
+    <expand macro="citations"/>
+</tool>
