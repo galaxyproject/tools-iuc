@@ -81,7 +81,7 @@ if(!is.null(opt$params_custom_filterting)) {
 # compute P-site offset
 json_psite_additional <- fromJSON(opt$params_psite_additional)
 
-psite_offset <- psite(reads_list, start=json_psite_additional$use_start, flanking = json_psite_additional$flanking, extremity = json_psite_additional$psite_extrimity, plot=TRUE, cl=json_psite_additional$cl)
+psite_offset <- psite(reads_list, start=json_psite_additional$use_start, flanking = json_psite_additional$flanking, extremity = json_psite_additional$psite_extrimity, plot=TRUE, cl=json_psite_additional$cl, plot_format="pdf")
 psite_offset
 reads_psite_list <- psite_info(reads_list, psite_offset)
 reads_psite_list
@@ -110,8 +110,10 @@ if (!is.null(opt$params_rlength_distr)) {
 
 if (!is.null(opt$params_rends_heat)) {
   json_rends_heat <- fromJSON(opt$params_rends_heat)
-  ends_heatmap <- rends_heat(reads_list, annotation_dt, sample = names(reads_list), cl=json_rends_heat$cl, utr5l=json_rends_heat$utr5l, cdsl=json_rends_heat$cdsl, utr3l=json_rends_heat$utr3l)
-  ends_heatmap[["plot"]]
+  for (sample_name in names(reads_list)) {
+	  ends_heatmap <- rends_heat(reads_list, annotation_dt, sample = sample_name, cl=json_rends_heat$cl, utr5l=json_rends_heat$utr5l, cdsl=json_rends_heat$cdsl, utr3l=json_rends_heat$utr3l)
+	  ends_heatmap[["plot"]]
+  }
 }
 
 if (!is.null(opt$region_psite_plot)) {
@@ -129,15 +131,19 @@ if (!is.null(opt$params_trint_periodicity)) {
 
 if (!is.null(opt$params_metaplots)) {
   json_metaplots <- fromJSON(opt$params_metaplots)
-  metaprofile <- metaprofile_psite(reads_psite_list, annotation_dt, sample = names(reads_list), multisamples=json_metaplots$multisamples, plot_style=json_metaplots$plot_style, length_range=json_metaplots$length_range, frequency=json_metaplots$frequency, utr5l = json_metaplots$utr5l, cdsl = json_metaplots$cdsl, utr3l = json_metaplots$utr3l, log_color=json_metaplots$log_color, plot_title = "sample.transcript.length_range")
+  metaprofile <- metaprofile_psite(reads_psite_list, annotation_dt, sample = names(reads_list), multisamples=json_metaplots$multisamples, plot_style=json_metaplots$plot_style, length_range=json_metaplots$length_range, frequency=json_metaplots$frequency, utr5l = json_metaplots$utr5l, cdsl = json_metaplots$cdsl, utr3l = json_metaplots$utr3l, plot_title = "sample.transcript.length_range")
   metaprofile
-  metaheatmap <- metaheatmap_psite(comparison_list, annotation_dt, sample = names(reads_list), length_range=json_metaplots$length_range, utr5l = json_metaplots$utr5l, cdsl = json_metaplots$cdsl, utr3l = json_metaplots$utr3l, log_color=json_metaplots$log_color, plot_title = "Comparison metaheatmap")
+  sample_list <- list()
+  for (sample_name in names(reads_list)) {
+	sample_list[[sample_name]] <- c(sample_name)
+  }
+  metaheatmap <- metaheatmap_psite(reads_psite_list, annotation_dt, sample = sample_list, length_range=json_metaplots$length_range, utr5l = json_metaplots$utr5l, cdsl = json_metaplots$cdsl, utr3l = json_metaplots$utr3l, plot_title = "Comparison metaheatmap")
   metaheatmap[["plot"]]
 }
 
 if (!is.null(opt$params_codon_usage_psite)) {
   json_codon_usage_psite <- fromJSON(opt$params_codon_usage_psite)
-  cu_barplot <- codon_usage_psite(reads_psite_list, annotation_dt, sample = names(reads_list), fastapath = json_codon_usage_psite$fastapath, fasta_genome = FALSE, frequency_normalization = json_codon_usage_psite$frequency, gtfpath=opt$gtffile) 
+  cu_barplot <- codon_usage_psite(reads_psite_list, annotation_dt, sample = names(reads_list), fastapath = json_codon_usage_psite$fastapath, fasta_genome = FALSE, frequency_normalization = json_codon_usage_psite$frequency) 
   cu_barplot[["plot"]]
 }
 
