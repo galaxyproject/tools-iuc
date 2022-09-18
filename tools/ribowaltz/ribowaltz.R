@@ -86,18 +86,17 @@ psite_offset
 reads_psite_list <- psite_info(reads_list, psite_offset)
 reads_psite_list
 json_coverage_additional <- fromJSON(opt$params_coverage_additional)
-#codon_coverage_out <- codon_coverage(reads_psite_list, annotation_dt, psite = json_coverage_additional$psites_per_region, min_overlap=json_coverage_additional$min_overlap)
-#cds_coverage_out <- cds_coverage(reads_psite_list, annotation_dt, start_nts=json_coverage_additional$start_nts, stop_nts=json_coverage_additional$stop_nts)
+codon_coverage_out <- codon_coverage(reads_psite_list, annotation_dt, psite = json_coverage_additional$psites_per_region, min_overlap=json_coverage_additional$min_overlap)
+cds_coverage_out <- cds_coverage(reads_psite_list, annotation_dt, start_nts=json_coverage_additional$start_nts, stop_nts=json_coverage_additional$stop_nts)
 
 
 for (sample in names(reads_psite_list)) {
-  write.table(reads_psite_list[[sample]], file = paste(sample, "psite_info.tsv",  sep="_"), sep = "\t", col.names = NA, quote = FALSE)
+  write.table(reads_psite_list[[sample]], file = paste(sample, "psite_info.tsv",  sep="_"), sep = "\t", row.names=FALSE, quote = FALSE)
 }
 
-print(getwd())
 print(paste(sample, "psite_info.tsv",  sep="_"))
-#write.table(codon_coverage_out, file = opt$codon_coverage_info, sep = "\t", col.names = NA, quote = FALSE)
-#write.table(cds_coverage_out, file = opt$cds_coverage_info, sep = "\t", col.names = NA, quote = FALSE)
+write.table(codon_coverage_out, file = opt$codon_coverage_info, sep = "\t", row.names=FALSE, quote = FALSE)
+write.table(cds_coverage_out, file = opt$cds_coverage_info, sep = "\t", row.names=FALSE, quote = FALSE)
 
 
 if (!is.null(opt$params_rlength_distr) || !is.null(opt$params_rends_heat) || !is.null(opt$region_psite_plot) || !is.null(opt$params_trint_periodicity) || !is.null(opt$params_metaplots) || !is.null(opt$params_codon_usage_psite)) {
