@@ -16,22 +16,15 @@ spec <- matrix(c(
   "help", "h", 0, "logical",
   "bamdir", "b", 1, "character",
   "gtffile", "g", 1, "character",
-  "out_pdf", "P", 1, "character",
-  "psite_info", "X", 1, "character",
   "codon_coverage_info", "Y", 1, "character",
   "cds_coverage_info", "Z", 1, "character",
+  "psite_info_rds", "O", 0, "character",
   "refseq_sep", "s", 0, "character",
   "params_duplicate_filterting", "d", 0, "character",
   "params_peridiocity_filterting", "l", 0, "character",
   "params_custom_filterting", "c", 0, "character",
   "params_psite_additional", "p", 0, "character",
-  "params_coverage_additional", "C", 0, "character",
-  "params_rlength_distr", "r", 0, "character",
-  "params_rends_heat", "e", 0, "character",
-  "region_psite_plot", "R", 0, "logical",
-  "params_trint_periodicity", "t", 0, "character",
-  "params_metaplots", "m", 0, "character",
-  "params_codon_usage_psite", "u", 0, "character"
+  "params_coverage_additional", "C", 0, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -44,7 +37,7 @@ if (!is.null(opt$help)) {
 
 verbose <- is.null(opt$quiet)
 
-library(riboWaltz)
+library('riboWaltz')
 
 # create annotation data table
 annotation_dt <- create_annotation(opt$gtffile)
@@ -107,10 +100,15 @@ for (sample in names(reads_psite_list)) {
   write.table(
     reads_psite_list[[sample]],
     file = paste(sample, "psite_info.tsv",  sep="_"),
-    sep = "\t", row.names=FALSE, quote = FALSE)
+    sep = "\t", row.names=FALSE, quote = FALSE
+  )
+  print(paste(sample, "psite_info.tsv",  sep="_"))
 }
 
-print(paste(sample, "psite_info.tsv",  sep="_"))
+# write R object to a file
+if (!is.null(opt$psite_info_rds)) {
+  save(reads_psite_list, annotation_dt, file=opt$psite_info_rds)
+}
 
 # json_coverage_additional <- fromJSON(opt$params_coverage_additional)
 # # codon coverage
@@ -130,117 +128,3 @@ print(paste(sample, "psite_info.tsv",  sep="_"))
 #   stop_nts=json_coverage_additional$stop_nts
 # )
 # write.table(cds_coverage_out, file = opt$cds_coverage_info, sep = "\t", row.names=FALSE, quote = FALSE)
-
-if (!is.null(
-  opt$params_rlength_distr)|| !is.null(opt$params_rends_heat) ||
-  !is.null(opt$region_psite_plot) || !is.null(opt$params_trint_periodicity) ||
-  !is.null(opt$params_metaplots) || !is.null(opt$params_codon_usage_psite)
-) {
-  pdf(opt$out_pdf)
-}
-
-if (!is.null(opt$params_rlength_distr)) {
-  json_rlength_distr <- fromJSON(opt$params_rlength_distr)
-  length_dist <- rlength_distr(
-    reads_list,
-    sample = names(reads_list),
-    cl=json_rlength_distr$cl,
-    multisamples=json_rlength_distr$multisamples,
-    plot_style=json_rlength_distr$plot_style
-  )
-  length_dist
-}
-
-if (!is.null(opt$params_rends_heat)) {
-  json_rends_heat <- fromJSON(opt$params_rends_heat)
-  for (sample_name in names(reads_list)) {
-	  ends_heatmap <- rends_heat(
-      reads_list,
-      annotation_dt,
-      sample = sample_name,
-      cl=json_rends_heat$cl,
-      utr5l=json_rends_heat$utr5l,
-      cdsl=json_rends_heat$cdsl,
-      utr3l=json_rends_heat$utr3l
-    )
-	  ends_heatmap[["plot"]]
-  }
-}
-
-if (!is.null(opt$region_psite_plot)) {
-  psite_region <- region_psite(reads_psite_list, annotation_dt, sample = names(reads_list))
-  psite_region[["plot"]]
-}
-
-if (!is.null(opt$params_trint_periodicity)) {
-  json_trint_periodicity <- fromJSON(opt$params_trint_periodicity)
-  frames_stratified <- frame_psite_length(
-    reads_psite_list,
-    sample = names(reads_list),
-    cl = json_trint_periodicity$cl,
-    region = json_trint_periodicity$region,
-    length_range=json_trint_periodicity$length_range
-  )
-  frames_stratified[["plot"]]
-  frames <- frame_psite_length(
-    reads_psite_list,
-    sample = names(reads_list),
-    region = json_trint_periodicity$region,
-    length_range=json_trint_periodicity$length_range
-  )
-  frames[["plot"]]
-}
-
-if (!is.null(opt$params_metaplots)) {
-  json_metaplots <- fromJSON(opt$params_metaplots)
-  metaprofile <- metaprofile_psite(
-    reads_psite_list,
-    annotation_dt,
-    sample = names(reads_list),
-    multisamples=json_metaplots$multisamples,
-    plot_style=json_metaplots$plot_style,
-    length_range=json_metaplots$length_range,
-    frequency=json_metaplots$frequency,
-    utr5l = json_metaplots$utr5l,
-    cdsl = json_metaplots$cdsl,
-    utr3l = json_metaplots$utr3l,
-    plot_title = "sample.transcript.length_range"
-  )
-  metaprofile
-  sample_list <- list()
-  for (sample_name in names(reads_list)) {
-	sample_list[[sample_name]] <- c(sample_name)
-  }
-  metaheatmap <- metaheatmap_psite(
-    reads_psite_list,
-    annotation_dt,
-    sample = sample_list,
-    length_range=json_metaplots$length_range,
-    utr5l = json_metaplots$utr5l,
-    cdsl = json_metaplots$cdsl,
-    utr3l = json_metaplots$utr3l,
-    plot_title = "Comparison metaheatmap"
-  )
-  metaheatmap[["plot"]]
-}
-
-if (!is.null(opt$params_codon_usage_psite)) {
-  json_codon_usage_psite <- fromJSON(opt$params_codon_usage_psite)
-  cu_barplot <- codon_usage_psite(
-    reads_psite_list, 
-    annotation_dt,
-    sample = names(reads_list),
-    fastapath = json_codon_usage_psite$fastapath,
-    fasta_genome = FALSE,
-    frequency_normalization = json_codon_usage_psite$frequency
-  ) 
-  cu_barplot[["plot"]]
-}
-
-if (!is.null(
-  opt$params_rlength_distr)|| !is.null(opt$params_rends_heat) ||
-  !is.null(opt$region_psite_plot) || !is.null(opt$params_trint_periodicity) ||
-  !is.null(opt$params_metaplots) || !is.null(opt$params_codon_usage_psite)
-) {
-  dev.off()
-}
