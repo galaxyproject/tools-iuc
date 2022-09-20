@@ -23,34 +23,34 @@ log = logging.getLogger('DB')
 
 
 FILE_NAMES = [
-        'antifam.h3f',
-        'antifam.h3i',
-        'antifam.h3m',
-        'antifam.h3p',
-        'bakta.db',
-        'expert-protein-sequences.dmnd',
-        'ncRNA-genes.i1f',
-        'ncRNA-genes.i1i',
-        'ncRNA-genes.i1m',
-        'ncRNA-genes.i1p',
-        'ncRNA-regions.i1f',
-        'ncRNA-regions.i1i',
-        'ncRNA-regions.i1m',
-        'ncRNA-regions.i1p',
-        'oric.fna',
-        'orit.fna',
-        'pfam.h3f',
-        'pfam.h3i',
-        'pfam.h3m',
-        'pfam.h3p',
-        'psc.dmnd',
-        'rfam-go.tsv',
-        'rRNA.i1f',
-        'rRNA.i1i',
-        'rRNA.i1m',
-        'rRNA.i1p',
-        'sorf.dmnd'
-    ]
+    'antifam.h3f',
+    'antifam.h3i',
+    'antifam.h3m',
+    'antifam.h3p',
+    'bakta.db',
+    'expert-protein-sequences.dmnd',
+    'ncRNA-genes.i1f',
+    'ncRNA-genes.i1i',
+    'ncRNA-genes.i1m',
+    'ncRNA-genes.i1p',
+    'ncRNA-regions.i1f',
+    'ncRNA-regions.i1i',
+    'ncRNA-regions.i1m',
+    'ncRNA-regions.i1p',
+    'oric.fna',
+    'orit.fna',
+    'pfam.h3f',
+    'pfam.h3i',
+    'pfam.h3m',
+    'pfam.h3p',
+    'psc.dmnd',
+    'rfam-go.tsv',
+    'rRNA.i1f',
+    'rRNA.i1i',
+    'rRNA.i1m',
+    'rRNA.i1p',
+    'sorf.dmnd'
+]
 
 
 def check(db_path: Path) -> dict:
@@ -72,7 +72,7 @@ def check(db_path: Path) -> dict:
     try:
         with version_path.open() as fh:
             db_info = json.load(fh)
-    except:
+    except OSError:
         log.exception('could not parse database version file!')
         sys.exit('ERROR: could not parse database version file!')
 
@@ -115,20 +115,20 @@ def download(db_url: str, tarball_path: Path):
             total_length = resp.headers.get('content-length')
             if(total_length is None):  # no content length header
                 with alive_bar() as bar:
-                    for data in resp.iter_content(chunk_size=1024*1024):
+                    for data in resp.iter_content(chunk_size=1024 * 1024):
                         fh_out.write(data)
                         bar()
             else:
-                total_length = int(int(total_length)/1024)  # length in Kb
+                total_length = int(int(total_length) / 1024)  # length in Kb
                 with alive_bar(total=total_length) as bar:
-                    for data in resp.iter_content(chunk_size=1024*1024):
+                    for data in resp.iter_content(chunk_size=1024 * 1024):
                         fh_out.write(data)
-                        bar(incr=len(data)/1024)
+                        bar(incr=len(data) / 1024)
     except IOError:
         sys.exit(f'ERROR: Could not download file from Zenodo! url={db_url}, path={tarball_path}')
 
 
-def calc_md5_sum(tarball_path: Path, buffer_size: int=1024*1024) -> str:
+def calc_md5_sum(tarball_path: Path, buffer_size: int = 1024 * 1024) -> str:
     md5 = hashlib.md5()
     with tarball_path.open('rb') as fh:
         data = fh.read(buffer_size)
@@ -231,7 +231,7 @@ def main():
             db_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)  # set write permissions on old (existing) directory with updated content
             for db_file_path in db_path.iterdir():
                 db_file_path.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        except:
+        except OSError:
             sys.exit(f'ERROR: cannot set read|execute permissions on new database! path={db_path}, owner={db_path.owner()}, group={db_path.group()}, permissions={oct(db_path.stat().st_mode )[-3:]}')
 
         print('update AMRFinderPlus database...')
@@ -294,11 +294,11 @@ def main():
                     db_old_file_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
                 else:
                     db_old_file_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        except:
+        except OSError:
             sys.exit(f'ERROR: cannot set read|write|execute permissions on old database! path={db_old_path}, owner={db_old_path.owner()}, group={db_old_path.group()}, permissions={oct(db_old_path.stat().st_mode )[-3:]}')
         try:
             shutil.rmtree(db_old_path)
-        except:
+        except OSError:
             sys.exit(f'ERROR: cannot remove old database! path={db_old_path}, owner={db_old_path.owner()}, group={db_old_path.group()}, permissions={oct(db_old_path.stat().st_mode )[-3:]}')
         db_old_path.mkdir()
 
@@ -306,13 +306,13 @@ def main():
             db_new_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)  # set write permissions on db_new_path directory
             for db_new_file_path in db_new_path.iterdir():
                 db_new_file_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        except:
+        except OSError:
             sys.exit(f'ERROR: cannot set read|write|execute permissions on new database! path={db_new_path}, owner={db_new_path.owner()}, group={db_new_path.group()}, permissions={oct(db_new_path.stat().st_mode )[-3:]}')
         try:
             for db_new_file_path in db_new_path.iterdir():  # move new db files into old (existing) db directory
                 file_name = db_new_file_path.name
                 shutil.move(db_new_file_path, db_old_path.joinpath(file_name))
-        except:
+        except OSError:
             sys.exit(f'ERROR: cannot move new database to existing path! new-path={db_new_path}, existing-path={db_old_path.parent}')
         shutil.rmtree(tmp_path)
 
@@ -320,7 +320,7 @@ def main():
             db_old_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)  # set write permissions on old (existing) directory with updated content
             for db_old_file_path in db_old_path.iterdir():
                 db_old_file_path.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        except:
+        except OSError:
             sys.exit(f'ERROR: cannot set read(|execute) permissions on new database! path={db_old_path}, owner={db_old_path.owner()}, group={db_old_path.group()}, permissions={oct(db_old_path.stat().st_mode )[-3:]}')
 
         print('\t... done')
