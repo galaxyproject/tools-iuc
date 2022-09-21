@@ -3,8 +3,9 @@ import json
 import logging
 import os
 import shutil
-import subprocess as sp
 import stat
+import subprocess as sp
+
 import sys
 import tarfile
 
