@@ -34,8 +34,8 @@ if (!is.null(opt$help)) {
 
 verbose <- is.null(opt$quiet)
 
-library('riboWaltz')
-library('jsonlite')
+library("riboWaltz")
+library("jsonlite")
 
 load(opt$input_rdata)
 
@@ -54,7 +54,7 @@ if (!is.null(opt$params_rlength_distr)) {
 }
 
 if (!is.null(opt$params_rends_heat)) {
-  pdf("read_ends_heatmap.pdf", height = 5*length(reads_psite_list), width = 15)
+  pdf("read_ends_heatmap.pdf", height = 5 * length(reads_psite_list), width = 15)
   json_rends_heat <- fromJSON(opt$params_rends_heat)
   for (sample_name in names(reads_psite_list)) {
     ends_heatmap <- rends_heat(
@@ -72,14 +72,14 @@ if (!is.null(opt$params_rends_heat)) {
 }
 
 if (!is.null(opt$region_psite_plot)) {
-  pdf("psites_per_region.pdf", height = 12, width = 7*length(reads_psite_list))
+  pdf("psites_per_region.pdf", height = 12, width = 7 * length(reads_psite_list))
   psite_region <- region_psite(reads_psite_list, annotation_dt, sample = names(reads_psite_list))
   print(psite_region[["plot"]])
   dev.off()
 }
 
 if (!is.null(opt$params_trint_periodicity)) {
-  pdf("trinucleotide_periodicity.pdf", height = 6*length(reads_psite_list), width = 10)
+  pdf("trinucleotide_periodicity.pdf", height = 6 * length(reads_psite_list), width = 10)
   json_trint_periodicity <- fromJSON(opt$params_trint_periodicity)
   frames_stratified <- frame_psite_length(
     reads_psite_list,
@@ -100,7 +100,7 @@ if (!is.null(opt$params_trint_periodicity)) {
 }
 
 if (!is.null(opt$params_metaplots)) {
-  pdf("metaplots.pdf", height = 5*length(reads_psite_list), width = 24)
+  pdf("metaplots.pdf", height = 5 * length(reads_psite_list), width = 24)
   json_metaplots <- fromJSON(opt$params_metaplots)
   metaprofile <- metaprofile_psite(
     reads_psite_list,
