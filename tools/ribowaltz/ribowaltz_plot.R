@@ -1,6 +1,7 @@
 # setup R error handling to go to stderr
-options(show.error.messages = F, error = function() {
-  cat(geterrmessage(), file = stderr()); q("no", 1, F)
+options(show.error.messages = FALSE, error = function() {
+  cat(geterrmessage(), file = stderr())
+  q("no", 1, FALSE)
 })
 
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
@@ -44,71 +45,71 @@ if (!is.null(opt$params_rlength_distr)) {
   length_dist <- rlength_distr(
     reads_psite_list,
     sample = names(reads_psite_list),
-    cl=json_rlength_distr$cl,
-    multisamples=json_rlength_distr$multisamples,
-    plot_style=json_rlength_distr$plot_style
+    cl = json_rlength_distr$cl,
+    multisamples = json_rlength_distr$multisamples,
+    plot_style = json_rlength_distr$plot_style
   )
   print(length_dist)
   dev.off()
 }
 
 if (!is.null(opt$params_rends_heat)) {
-  pdf("read_ends_heatmap.pdf", height=5*length(reads_psite_list), width=15)
+  pdf("read_ends_heatmap.pdf", height = 5*length(reads_psite_list), width = 15)
   json_rends_heat <- fromJSON(opt$params_rends_heat)
   for (sample_name in names(reads_psite_list)) {
-	  ends_heatmap <- rends_heat(
+    ends_heatmap <- rends_heat(
       reads_psite_list,
       annotation_dt,
       sample = sample_name,
-      cl=json_rends_heat$cl,
-      utr5l=json_rends_heat$utr5l,
-      cdsl=json_rends_heat$cdsl,
-      utr3l=json_rends_heat$utr3l
+      cl = json_rends_heat$cl,
+      utr5l = json_rends_heat$utr5l,
+      cdsl = json_rends_heat$cdsl,
+      utr3l = json_rends_heat$utr3l
     )
-	  print(ends_heatmap[["plot"]])
+    print(ends_heatmap[["plot"]])
   }
   dev.off()
 }
 
 if (!is.null(opt$region_psite_plot)) {
-  pdf("psites_per_region.pdf", height=12, width=7*length(reads_psite_list))
+  pdf("psites_per_region.pdf", height = 12, width = 7*length(reads_psite_list))
   psite_region <- region_psite(reads_psite_list, annotation_dt, sample = names(reads_psite_list))
   print(psite_region[["plot"]])
   dev.off()
 }
 
 if (!is.null(opt$params_trint_periodicity)) {
-  pdf("trinucleotide_periodicity.pdf", height=6*length(reads_psite_list), width=10)
+  pdf("trinucleotide_periodicity.pdf", height = 6*length(reads_psite_list), width = 10)
   json_trint_periodicity <- fromJSON(opt$params_trint_periodicity)
   frames_stratified <- frame_psite_length(
     reads_psite_list,
     sample = names(reads_psite_list),
     cl = json_trint_periodicity$cl,
     region = json_trint_periodicity$region,
-    length_range=json_trint_periodicity$length_range
+    length_range = json_trint_periodicity$length_range
   )
   frames_stratified[["plot"]]
   frames <- frame_psite_length(
     reads_psite_list,
     sample = names(reads_psite_list),
     region = json_trint_periodicity$region,
-    length_range=json_trint_periodicity$length_range
+    length_range = json_trint_periodicity$length_range
   )
   print(frames[["plot"]])
   dev.off()
 }
 
 if (!is.null(opt$params_metaplots)) {
-  pdf("metaplots.pdf", height=5*length(reads_psite_list), width=24)
+  pdf("metaplots.pdf", height = 5*length(reads_psite_list), width = 24)
   json_metaplots <- fromJSON(opt$params_metaplots)
   metaprofile <- metaprofile_psite(
     reads_psite_list,
     annotation_dt,
     sample = names(reads_psite_list),
-    multisamples=json_metaplots$multisamples,
-    plot_style=json_metaplots$plot_style,
-    length_range=json_metaplots$length_range,
-    frequency=json_metaplots$frequency,
+    multisamples = json_metaplots$multisamples,
+    plot_style = json_metaplots$plot_style,
+    length_range = json_metaplots$length_range,
+    frequency = json_metaplots$frequency,
     utr5l = json_metaplots$utr5l,
     cdsl = json_metaplots$cdsl,
     utr3l = json_metaplots$utr3l,
@@ -117,13 +118,13 @@ if (!is.null(opt$params_metaplots)) {
   print(metaprofile)
   sample_list <- list()
   for (sample_name in names(reads_psite_list)) {
-	sample_list[[sample_name]] <- c(sample_name)
+  sample_list[[sample_name]] <- c(sample_name)
   }
   metaheatmap <- metaheatmap_psite(
     reads_psite_list,
     annotation_dt,
     sample = sample_list,
-    length_range=json_metaplots$length_range,
+    length_range = json_metaplots$length_range,
     utr5l = json_metaplots$utr5l,
     cdsl = json_metaplots$cdsl,
     utr3l = json_metaplots$utr3l,
@@ -134,19 +135,18 @@ if (!is.null(opt$params_metaplots)) {
 }
 
 if (!is.null(opt$params_codon_usage_psite)) {
-  pdf("codon_usage.pdf", height=6, width=16)
+  pdf("codon_usage.pdf", height = 6, width = 16)
   json_codon_usage_psite <- fromJSON(opt$params_codon_usage_psite)
   for (sample_name in names(reads_psite_list)) {
   cu_barplot <- codon_usage_psite(
-    reads_psite_list, 
+    reads_psite_list,
     annotation_dt,
     sample = sample_name,
     fastapath = json_codon_usage_psite$fastapath,
     fasta_genome = FALSE,
     frequency_normalization = json_codon_usage_psite$frequency
-  ) 
+  )
   print(cu_barplot[["plot"]])
   }
   dev.off()
 }
-
