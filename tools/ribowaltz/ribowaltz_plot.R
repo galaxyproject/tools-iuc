@@ -14,7 +14,7 @@ args <- commandArgs(trailingOnly = TRUE)
 spec <- matrix(c(
   "quiet", "q", 0, "logical",
   "help", "h", 0, "logical",
-  "input_rds", "i", 1, "character",
+  "input_rdata", "i", 1, "character",
   "params_rlength_distr", "r", 0, "character",
   "params_rends_heat", "e", 0, "character",
   "region_psite_plot", "R", 0, "logical",
@@ -36,8 +36,7 @@ verbose <- is.null(opt$quiet)
 library('riboWaltz')
 library('jsonlite')
 
-# reads_psite_list <- readRDS(opt$input_rds)
-load(opt$input_rds)
+load(opt$input_rdata)
 
 if (!is.null(opt$params_rlength_distr)) {
   pdf("read_lengths.pdf")
@@ -54,7 +53,7 @@ if (!is.null(opt$params_rlength_distr)) {
 }
 
 if (!is.null(opt$params_rends_heat)) {
-  pdf("read_ends_heatmap.pdf", height=4*length(reads_psite_list), width=15)
+  pdf("read_ends_heatmap.pdf", height=5*length(reads_psite_list), width=15)
   json_rends_heat <- fromJSON(opt$params_rends_heat)
   for (sample_name in names(reads_psite_list)) {
 	  ends_heatmap <- rends_heat(

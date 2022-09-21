@@ -18,7 +18,7 @@ spec <- matrix(c(
   "gtffile", "g", 1, "character",
   "codon_coverage_info", "Y", 1, "character",
   "cds_coverage_info", "Z", 1, "character",
-  "psite_info_rds", "O", 0, "character",
+  "psite_info_rdata", "O", 0, "character",
   "refseq_sep", "s", 0, "character",
   "params_duplicate_filterting", "d", 0, "character",
   "params_peridiocity_filterting", "l", 0, "character",
@@ -106,25 +106,25 @@ for (sample in names(reads_psite_list)) {
 }
 
 # write R object to a file
-if (!is.null(opt$psite_info_rds)) {
-  save(reads_psite_list, annotation_dt, file=opt$psite_info_rds)
+if (!is.null(opt$psite_info_rdata)) {
+  save(reads_psite_list, annotation_dt, file=opt$psite_info_rdata)
 }
 
-# json_coverage_additional <- fromJSON(opt$params_coverage_additional)
-# # codon coverage
-# codon_coverage_out <- codon_coverage(
-#   reads_psite_list,
-#   annotation_dt,
-#   psite = json_coverage_additional$psites_per_region,
-#   min_overlap=json_coverage_additional$min_overlap
-# )
-# write.table(codon_coverage_out, file = opt$codon_coverage_info, sep = "\t", row.names=FALSE, quote = FALSE)
+json_coverage_additional <- fromJSON(opt$params_coverage_additional)
+# codon coverage
+codon_coverage_out <- codon_coverage(
+  reads_psite_list,
+  annotation_dt,
+  psite = json_coverage_additional$psites_per_region,
+  min_overlap=json_coverage_additional$min_overlap
+)
+write.table(codon_coverage_out, file = opt$codon_coverage_info, sep = "\t", row.names=FALSE, quote = FALSE)
 
-# # CDS coverage
-# cds_coverage_out <- cds_coverage(
-#   reads_psite_list,
-#   annotation_dt,
-#   start_nts=json_coverage_additional$start_nts,
-#   stop_nts=json_coverage_additional$stop_nts
-# )
-# write.table(cds_coverage_out, file = opt$cds_coverage_info, sep = "\t", row.names=FALSE, quote = FALSE)
+# CDS coverage
+cds_coverage_out <- cds_coverage(
+  reads_psite_list,
+  annotation_dt,
+  start_nts=json_coverage_additional$start_nts,
+  stop_nts=json_coverage_additional$stop_nts
+)
+write.table(cds_coverage_out, file = opt$cds_coverage_info, sep = "\t", row.names=FALSE, quote = FALSE)
