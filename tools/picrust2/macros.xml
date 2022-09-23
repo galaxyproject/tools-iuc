@@ -27,4 +27,221 @@ Read more about the tool: https://github.com/picrust/picrust2/wiki
             <citation type="doi">10.1038/s41587-020-0548-6</citation>
         </citations>
     </xml>
+
+    <!-- macros for place_seqs -->
+
+    <token name="@PLACE_SEQS_PREPROCESSING@"><![CDATA[
+        ## determine project dir which is something like /lib/python3.8/site-packages/picrust2/default_files/
+        PROJECT_DIR=\$(python -c 'from picrust2 import default; print(default.project_dir)') &&
+        REF_DIR_BASE=\$PROJECT_DIR"/default_files/" &&
+
+        #if $ref_dir.selector == "custom"
+            mkdir -p custom/ &&
+            ln -s '$ref_dir.custom_fna' custom/custom.fna &&
+            ln -s '$ref_dir.custom_hmm' custom/custom.hmm &&
+            #if $placement_tool == "epa-ng"
+                ln -s '$ref_dir.custom_model' custom/custom.model &&
+            #else if $placement_tool == "sepp"
+                ln -s '$ref_dir.custom_model' custom/custom.raxml_info &&
+            #end if
+            ln -s '$ref_dir.custom_tre' custom/custom.tre &&
+        #end if
+    ]]></token>
+    <token name="@PLACE_SEQS_PARAMS@"><![CDATA[
+        --study_fasta '$study_fasta'
+        --placement_tool '$placement_tool'
+        ## set refdir (default is prokaryotic), even if the default will
+        ## be treated internally as `"\$REF_DIR_BASE"$ref_dir.selector`
+        ## picrust2 will complain about non-default reference files
+        ## specified with default pathway mapfile
+        #if $ref_dir.selector == "custom"
+            --ref_dir custom/
+        #else if $ref_dir.selector != "prokaryotic/pro_ref/"
+            --ref_dir "\$REF_DIR_BASE"$ref_dir.selector
+        #end if
+        --min_align $min_align
+    ]]></token>
+    <xml name="place_seqs_params">
+        <param argument="--study_fasta" type="data" format="fasta" label="Study sequences" help="The study sequences referred to are the representative OTUs and/or ASVs. The input study sequences need to be on the positive strand! "/>
+        <param argument="--placement_tool" type="select" label="Placement tool to use when placing sequences into reference tree">
+            <option value="epa-ng" selected="true">EPA-ng -  Fast, parallel, highly accurate Maximum Likelihood Phylogenetic Placement, by the team behind RAxML(-ng)</option>
+            <option value="sepp">SEPP - SATe-enabled Phylogenetic Placement</option>
+        </param>
+        <conditional name="ref_dir">
+            <param name="selector" type="select" label="Reference to use for sequence placement">
+                <option value="prokaryotic/pro_ref/" selected="true">Prokaryotic 16S rRNA gene</option>
+                <!-- TODO https://github.com/picrust/picrust2/issues/276 -->
+                <option value="fungi/fungi_ITS/">Fungal ITS (only for epa-ng)</option>
+                <option value="fungi/fungi_18S/">Fungal 18S (only for epa-ng)</option>
+                <option value="custom">Custom reference sequence files</option>
+            </param>
+            <when value="prokaryotic/pro_ref/"/>
+            <when value="fungi/fungi_ITS/"/>
+            <when value="fungi/fungi_18S/"/>
+            <when value="custom">
+                <param name="custom_fna" type="data" format="fasta" label="Multiple-sequence alignment of reference sequences"/>
+                <param name="custom_hmm" type="data" format="hmm2,hmm3" label="Hidden-markov model of the multiple-sequence alignment" help="The HMM of the alignment can be created using hmmbuild"/>
+                <param name="custom_tre" type="data" format="newick" label="Tree of the reference sequences"/>
+                <param name="custom_model" type="data" format="txt" label="Modelfile output by RaXmL specifying the best parameters for the tree"/>
+            </when>
+        </conditional>
+        <param argument="--min_align" type="float" value="0.80" min="0.0" max="1.0" label="Proportion of the total length of an input query sequence that must align with reference sequences" help="Any sequences with lengths below this value after making an alignment with reference sequences will be excluded from the placement and all subsequent steps."/>
+    </xml>
+
+    <!-- parameters of hsp -->
+
+    <token name="@HSP_METHOD@"><![CDATA[
+    --hsp_method '$hsp_method_options.hsp_method'
+    #if $hsp_method_options.hsp_method == "mp"
+        --edge_exponent $hsp_method_options.edge_exponent
+    #else if $hsp_method_options.hsp_method == "emp_prob"
+        ## special treatment of seed (option absent in picrust2_pipeline)
+        #if has_attrib($hsp_method_options, "seed")
+            --seed $hsp_method_options.seed
+        #end if
+    #end if
+    ]]></token>
+    <xml name="hsp_method">
+        <conditional name="hsp_method_options">
+            <param argument="--hsp_method" type="select" label="Hidden-state prediction method to use">
+                <option value="mp" selected="true">Predict discrete traits by: Maximum parsimony (mp)</option>
+                <option value="emp_prob">Predict discrete traits by: Empirical state probabilities across tips (emp_prob)</option>
+                <option value="subtree_average">Predict continuous traits by: Subtree averaging (subtree_average)</option>
+                <option value="pic">Predict continuous traits by: phylogentic independent contrast (pic)</option>
+                <option value="scp">Reconstruct continuous traits by: squared-change parsimony (scp)</option>
+            </param>
+            <when value="mp">
+                <param argument="--edge_exponent" type="float" value="0.5" min="0.0" label="Transition cost weight" help="Specifies weighting transition costs by the inverse length of edge lengths. If 0, then edge lengths do not influence predictions"/>
+            </when>
+            <when value="emp_prob">
+                <yield/>
+            </when>
+            <when value="subtree_average"/>
+            <when value="pic"/>
+            <when value="scp"/>
+        </conditional>
+    </xml>
+
+    <!-- parameters of the metagenome_pipeline -->
+
+    <token name="@PREPARE_METAGENOME_PIPELINE_PARAMS@"><![CDATA[
+#if $input.datatype.file_ext == "mothur.shared"
+    #set ext="msf"
+#else if $input.datatype.file_ext == "tabular"
+    #set ext="tsv"
+#else if $input.ext.startswith('biom')
+    #set ext="biom"
+#else
+    >&2 "unknown extension $input.ext"
+    exit 1;
+#end if
+ln -s '$input' 'input.$ext' &&
+    ]]></token>
+    <token name="@METAGENOME_PIPELINE_PARAMS@"><![CDATA[
+--input 'input.$ext'
+#if $input_options.selector == "ASV"
+    --min_reads $input_options.min_reads
+    --min_samples $input_options.min_samples
+#end if
+$stratified_output.selector
+#if $stratified_output.selector != ''
+    $stratified_output.wide_table
+#end if
+$skip_norm
+--max_nsti $max_nsti
+    ]]></token>
+    <xml name="metagenome_pipeline_params" tokens="stratified_arg">
+        <param argument="--input" type="data" format="tabular,biom1,biom2,mothur.shared" label="Sequence abundance table (OTUs or ASVs)" help="The sequence abundances should be in read counts and not relative abundances. The tool will normalize the input sequence abundance table by the predicted number of marker genes."/>
+        <conditional name="input_options">
+            <param name="selector" type="select" label="Sequence abundance table type">
+                <option value="OTU" selected="true">Operational Taxonomic Units (OTU)</option>
+                <option value="ASV">Amplicon Sequence Variants (ASV)</option>
+            </param>
+            <when value="OTU">
+            </when>
+            <when value="ASV">
+                <param argument="--min_reads" type="integer" min="1" value="1" label="Minimum number of reads across all samples for each input ASV." help="ASVs below this cut-off will be counted as part of the RARE category in the stratified output"/>
+                <param argument="--min_samples" type="integer" min="1" value="1" label="Minimum number of samples that an ASV needs to be identfied within" help="ASVs below this cut-off will be counted as part of the RARE category in the stratified output"/>
+            </when>
+        </conditional>
+        <yield/>
+        <param argument="--max_nsti" type="float" min="0" value="2.0" label="Sequences with Nearest-sequenced taxon index (NSTI) values above this value will be excluded"/>
+        <conditional name="stratified_output">
+            <param argument="@STRATIFIED_ARG@" name="selector" type="select" label="Generate an output table stratified by sequences?">
+                <option value="" selected="true">No</option>
+                <option value="@STRATIFIED_ARG@">Yes [will increase run-time]</option>
+            </param>
+            <when value=""/>
+            <when value="@STRATIFIED_ARG@">
+                <param argument="--wide_table" type="boolean" truevalue="--wide_table" falsevalue="" checked="false" label="Output wide-format stratified table of metagenome predictions" help="This is the deprecated method of generating stratified tables since it is extremely memory intensive"/>
+            </when>
+        </conditional>
+        <param argument="--skip_norm" type="boolean" truevalue="--skip_norm" falsevalue="" checked="false" label="Skip normalizing sequence abundances by predicted marker gene copy numbers"/>
+    </xml>
+
+    <!-- pathway_pipeline macros-->
+    <token name="@PATHWAY_PIPELINE_PARAMS@"><![CDATA[
+## in picrust2_pipeline the parameters are within a conditional (predict_pathways)
+## and pathway_pipeline its not thus all acces is via this helper function
+#def getVarCond($var)
+    ## $var $varExists($var) $varExists("predict_pathways." + $var)
+    #if $varExists($var)
+        #return $getVar($var)
+    #else if $varExists("predict_pathways." + $var)
+        #return $getVar("predict_pathways." + $var)
+    #else
+        #return 
+    #end if
+#end def
+
+## in pathway_pipeline its --map while in picrust2_pipeline its --pathway_map
+#if $varExists('map') and $map
+    --map '$map'
+#else if $varExists('predict_pathways.pathway_map') and $predict_pathways.pathway_map
+    --pathway_map '$predict_pathways.pathway_map'
+#end if
+$getVarCond("skip_minpath")
+$getVarCond("no_gap_fill")
+$getVarCond("regrouping.no_regroup")
+#if $getVarCond("regrouping.no_regroup") == '' and $getVarCond("regrouping.regroup_map")
+    --regroup_map '$getVarCond("regroup_map")'
+#end if
+$getVarCond("strat_output.per_sequence_contrib")
+#if $getVarCond("strat_output.per_sequence_contrib") != ""
+    --per_sequence_function '$getVarCond("strat_output.per_sequence_function")'
+    --per_sequence_abun '$getVarCond("strat_output.per_sequence_abun")'
+    $getVarCond("strat_output.wide_table")
+#end if
+$getVarCond("coverage")
+    ]]></token>
+    <xml name="pathway_pipeline_params" tokens="mapargument">
+        <param argument="@MAPARGUMENT@" type="data" format="txt,tabular" optional="true" label="Customized table mapping of pathways to reactions" help="Default mapping file is Maps MetaCyc reactions to prokaryotic MetaCyc pathways"/>
+        <param argument="--skip_minpath" type="boolean" truevalue="" falsevalue="--skip_minpath" checked="true" label="Run MinPath to identify which pathways are present as a first pass"/>
+        <param argument="--no_gap_fill" type="boolean" truevalue="" falsevalue="--no_gap_fill" checked="true" label="Perform gap filling before predicting pathway abundances"/>
+        <conditional name="regrouping">
+            <param argument="--no_regroup" type="select" label="Regroup input gene families to reactions">
+                <option value="">Yes</option>
+                <option value="--no_regroup">No</option>
+            </param>
+            <when value="">
+                <param argument="--regroup_map" type="data" format="tabular" optional="true" label="Optional mapfile of ids to regroup gene families to before running MinPath" help="Default mapping file is ec_level4_to_metacyc_rxn.tsv contained in PICRUSt2"/>
+            </when>
+            <when value="--no_regroup"/>
+        </conditional>
+        <conditional name="strat_output">
+            <param argument="--per_sequence_contrib" type="select" label="Calculate pathway abundances for each individual predicted genome?" help="The output will be the predicted pathway abundance contributed by each individual sequence. This is in contrast to the default stratified output, which is the contribution to the community-wide pathway abundances. Note this will greatly increase the runtime. Experimental pathway coverage stratified by contributing sequence will also be output when --coverage is set.">
+                <option value="--per_sequence_contrib">Yes</option>
+                <option value="" selected="true">No</option>
+            </param>
+            <when value="--per_sequence_contrib">
+                <param argument="--per_sequence_abun" type="data" format="tabular" label="Table of sequence abundances across samples normalized by marker copy number" help="Typically the normalized sequence abundance table output at the metagenome pipeline step. This input is required when the per sequence contrib option is set."/>
+                <param argument="--per_sequence_function" type="data" format="tabular" label="Table of function abundances per sequence, which was outputted at the hidden-state prediction step" help="This input is required when the per sequence contrib option is set. Note that this file should be the same input table as used for the metagenome pipeline step"/>
+                <!-- TODO maybe deprecate .. because complicated anyway as its used in metagenome_pipeline as well and help says deprecated as well -->
+                <param argument="--wide_table" type="boolean" truevalue="--wide_table" falsevalue="" checked="false" label="Output wide-format stratified table (DEPRECATED)" help="Instead of the metagenome contribution table. This is the deprecated method of generating
+                stratified tables since it is extremely memory intensive"/>
+            </when>
+            <when value=""/>
+        </conditional>
+        <param argument="--coverage" type="boolean" truevalue="--coverage" falsevalue="" checked="false" label="Calculate pathway coverages as well as abundances" help="Experimental and only useful for advanced users"/>
+    </xml>
 </macros>
