@@ -60,14 +60,11 @@ def predict_nn(ds_path, nn_weights_path, length, batch_size=256):
     test_encoded_rc = pp.one_hot_encode(test_fragments_rc)
 
     for model, s in zip([model_5.model(length), model_7.model(length), model_10.model(length)], [5, 7, 10]):
-        # here need to preload s=1000 et length:10
-        print(Path(nn_weights_path, f"model_{s}_{length}.h5"))
+        # here need to preload s=1000/500 et length:10
         h5_utils.add_large_kernel(Path(nn_weights_path, f"model_{s}_{length}.h5"))
         time.sleep(5)
-        print(model)
         model.load_weights(Path(nn_weights_path, f"model_{s}_{length}.h5"))
         prediction = model.predict([test_encoded, test_encoded_rc], batch_size)
-        print(prediction)
         out_table[f"pred_plant_{s}"].extend(list(prediction[..., 0]))
         out_table[f"pred_vir_{s}"].extend(list(prediction[..., 1]))
         out_table[f"pred_bact_{s}"].extend(list(prediction[..., 2]))
@@ -144,7 +141,7 @@ def predict(test_ds, weights, out_path, return_viral, limit):
         dfs_fr = []
         dfs_cont = []
         for l_ in 500, 1000:
-            print(f'starting prediction for {Path(ts).name} for fragment length {l_}')
+            # print(f'starting prediction for {Path(ts).name} for fragment length {l_}')
             df = predict_nn(
                 ds_path=ts,
                 nn_weights_path=weights,
