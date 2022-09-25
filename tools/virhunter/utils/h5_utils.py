@@ -57,7 +57,3 @@ def remove_large_kernel(file_path: str):
         os.remove(file_path)
         os.rename(Path(stem + "_light.h5"), file_path)
 
-
-fn = "/Users/benjamin/virhunter_iuc/tools-iuc/tools/virhunter/tool-data/weights/peach/model_10_500.h5"
-#add_large_kernel(fn)
-remove_large_kernel(fn)
