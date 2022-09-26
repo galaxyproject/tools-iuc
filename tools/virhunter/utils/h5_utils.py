@@ -56,4 +56,3 @@ def remove_large_kernel(file_path: str):
 
         os.remove(file_path)
         os.rename(Path(stem + "_light.h5"), file_path)
-
