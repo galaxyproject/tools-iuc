@@ -3,14 +3,13 @@
 # Credits: Grigorii Sukhorukov, Macha Nikolski
 import argparse
 import os
-import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from Bio import SeqIO
 from joblib import load
-from models import model_10, model_5, model_7
+from models import model_5, model_7
 from utils import preprocess as pp
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
