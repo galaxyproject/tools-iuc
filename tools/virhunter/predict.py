@@ -39,9 +39,9 @@ def predict_nn(ds_path, nn_weights_path, length, batch_size=256):
         "pred_plant_7": [],
         "pred_vir_7": [],
         "pred_bact_7": [],
-        # "pred_plant_10": [],
-        # "pred_vir_10": [],
-        # "pred_bact_10": [],
+        "pred_plant_10": [],
+        "pred_vir_10": [],
+        "pred_bact_10": [],
     }
     if not seqs_:
         raise ValueError("All sequences were smaller than length of the model")
@@ -58,8 +58,8 @@ def predict_nn(ds_path, nn_weights_path, length, batch_size=256):
             out_table["fragment"].append(j)
     test_encoded = pp.one_hot_encode(test_fragments)
     test_encoded_rc = pp.one_hot_encode(test_fragments_rc)
-    for model, s in zip([model_5.model(length), model_7.model(length)], [5, 7]):
-    # for model, s in zip([model_5.model(length), model_7.model(length), model_10.model(length)], [5, 7, 10]):
+
+    for model, s in zip([model_5.model(length), model_7.model(length), model_10.model(length)], [5, 7, 10]):
         # here need to preload s=1000/500 et length:10
         h5_utils.add_large_kernel(Path(nn_weights_path, f"model_{s}_{length}.h5"))
         time.sleep(5)
@@ -78,8 +78,7 @@ def predict_rf(df, rf_weights_path, length):
     """
     clf = load(Path(rf_weights_path, f"RF_{length}.joblib"))
     X = df[
-        ["pred_plant_5", "pred_vir_5", "pred_plant_7", "pred_vir_7",]]
-        #["pred_plant_5", "pred_vir_5", "pred_plant_7", "pred_vir_7", "pred_plant_10", "pred_vir_10", ]]
+        ["pred_plant_5", "pred_vir_5", "pred_plant_7", "pred_vir_7", "pred_plant_10", "pred_vir_10", ]]
     y_pred = clf.predict(X)
     mapping = {0: "plant", 1: "virus", 2: "bacteria"}
     df["RF_decision"] = np.vectorize(mapping.get)(y_pred)
