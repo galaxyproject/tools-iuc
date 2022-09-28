@@ -7,6 +7,7 @@
     <expand macro="requirements"/>
     <version_command>picrust2_pipeline.py -v</version_command>
     <command detect_errors="exit_code"><![CDATA[
+@VAR_ACCESS_FOO@
 @PLACE_SEQS_PREPROCESSING@
 @PREPARE_METAGENOME_PIPELINE_PARAMS@
 
@@ -15,14 +16,7 @@ picrust2_pipeline.py
     @PLACE_SEQS_PARAMS@
 
     ## hsp parameters
-#if $trait_input.selector == "default"
-    --in_traits '$trait_input.in_traits'
-#else if $trait_input.selector == "custom"
-    --custom_trait_tables '$trait_input.custom_trait_tables'
-    --marker_gene_table '$trait_input.marker_gene_table'
-#end if
-    @HSP_METHOD@
-    $skip_nsti
+    @HSP_PARAMS@
 
     ## metagenome_pipeline parameters
     @METAGENOME_PIPELINE_PARAMS@
@@ -33,44 +27,50 @@ picrust2_pipeline.py
         --reaction_func '$predict_pathways.reaction_map_file.reaction_func'
     #end if
 
-    ## this param applies to place_seqs and pathway_pipeline
-    $remove_intermediate
+    #if $remove_intermediate is None
+        --remove_intermediate
+    #end if
+
     --output 'full_pipeline_output'
     --processes "\${GALAXY_SLOTS:-1}"
+    ## unzip all (potential) output files
+    &&
+    find full_pipeline_output -name "*.gz" -exec gunzip {} \;
+    ## rename all tsv files to tabular to simplify discovery
+    &&
+    find full_pipeline_output -name "*.tsv" -exec sh -c 'mv {} \$(dirname {})/\$(basename {} .tsv).tabular' \;
+    ## flatten metagenome output dirs ro simplify/enable discovery
+    && 
+    for d in full_pipeline_output/*_metagenome_out; do
+        D=\$(basename \$d);
+        for i in \$d/*; do
+            I=\$(basename \$i);
+            mv "\$i" "full_pipeline_output/""\$D""_""\$I";
+        done;
+    done;
     ]]></command>
     <inputs>
         <!-- place_seqs parameters -->
-        <expand macro="place_seqs_params"/>
-        <param argument="--remove_intermediate" type="boolean" truevalue="" falsevalue="--remove_intermediate" checked="false" label="Keep intermediate files?" help="If turned off the tool will remove the intermediate outfiles of the sequence placement and pathway inference steps"/>
+        <section name="place_seqs_section" title="Sequence placement options" expanded="true">
+            <expand macro="place_seqs_params"/>
+        </section>
 
         <!-- hsp parameters -->
-        <conditional name="trait_input">
-            <param name="selector" type="select" label="Trait table(s)" help="i.e. which gene families to predict">
-                <option value="default" selected="true">Default trait table(s)</option>
-                <option value="custom">Customized trait table(s)</option>
-            </param>
-            <when value="default">
-                <param argument="--in_traits" type="select" multiple="true" label="Pre-calculated trait table(s) to use" help="Note that EC numbers will always be predicted unless --no_pathways is set">
-                    <option value="COG">COG</option>
-                    <option value="EC" selected="true">EC</option>
-                    <option value="KO" selected="true">KO</option>
-                    <option value="PFAM">PFAM</option>
-                    <option value="TIGRFAM">TIGRFAM</option>
-                </param>
-            </when>
-            <when value="custom">
-                <!-- both go separately into hsp observed_trait_table -->
-                <param argument="--custom_trait_tables" type="data" multiple="true" format="tabular" label="Customized trait table(s)" help="with gene families as columns and genomes as rows"/>
-                <!-- by default 16S is used also goes into observed_trait_table -->
-                <param argument="--marker_gene_table" type="data" format="tabular" optional="true" label="Table of predicted marker gene (16S or other) copy numbers" />
-            </when>
-        </conditional>
-        <expand macro="hsp_method"/>
-        <!-- this corresponds to \-\-calculate_NSTI in hsp -->
-        <param argument="--skip_nsti" type="boolean" truevalue="" falsevalue="--skip_nsti" checked="false" label="Calculate nearest-sequenced taxon index (NSTI)?"/>
+        <section name="hsp_section" title="Hidden state prediction (HSP) options" expanded="true">
+            <expand macro="hsp_params" nsti_falsevalue="--skip_nsti" nsti_checked="true" in_trait_arg="--in_traits" in_trait_multiple="true" in_trait_label_suff="(s)" in_traits_help="Note that EC numbers will always be predicted unless --no_pathways is set">
+                <token name="custom_traits">
+                    <!-- both go separately into hsp observed_trait_table -->
+                    <param argument="--custom_trait_tables" type="data" multiple="true" format="tabular" label="Customized trait table(s)" help="with gene families as columns and genomes as rows"/>
+                    <!-- by default 16S is used also goes into observed_trait_table -->
+                    <param argument="--marker_gene_table" type="data" format="tabular" optional="true" label="Table of predicted marker gene (16S or other) copy numbers" />
+                </token>
+            </expand>
+        </section>
 
         <!-- metagenome_pipeline parameters -->
-        <expand macro="metagenome_pipeline_params" stratified_arg="--stratified"/>
+        <section name="metagenome_pipeline_section" title="Metagenome prediction options" expanded="true">
+            <expand macro="metagenome_pipeline_params" stratified_arg="--stratified"/>
+        </section>
 
         <!-- pathway_pipeline parameters -->
         <conditional name="predict_pathways">
@@ -101,200 +101,254 @@ picrust2_pipeline.py
             </when>
             <when value="--no_pathways"/>
         </conditional>
+        <param argument="--remove_intermediate" type="select" multiple="true" optional="true" label="Keep intermediate files of">
+            <option value="place_seqs">place_seqs</option>
+            <option value="pathways">pathways_pipeline</option>
+        </param>
     </inputs>
     <outputs>
-        <data name="out_tree" format="newick" from_work_dir="full_pipeline_output/out.tre" label="${tool.name} on ${on_string}: PICRUSt2 tree of reference and study 16S sequences"/>
-        <collection name="full_pipeline_output_files" type="list" label="${tool.name} on ${on_string}: PICRUSt2 predictions based on the database" >
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)" directory="full_pipeline_output/" format="tabular"/>
+        <!-- place seqs outputs -->
+        <expand macro="place_seqs_output" from_work_dir="full_pipeline_output/" label_suffix="(place_seqs)">
+            <filter>remove_intermediate and "place_seqs" in remove_intermediate</filter>
+        </expand>
+
+        <!-- hsp output -->
+        <collection name="hsp_output" type="list" label="${tool.name} on ${on_string}: predicted copy numbers" >
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_predicted\.tabular" directory="full_pipeline_output/" format="tabular"/>
         </collection>
-        <collection name="EC_metagenome_output_files" type="list" label="${tool.name} on ${on_string}: PICRUSt2 EC metagenome output" >
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)" directory="full_pipeline_output/EC_metagenome_out/" format="tabular"/>
-            <!-- even if EC is always used internally we allow the user to not see these results if EC is unselected -->
-            <filter>trait_input['selector'] == "default" and "EC" in trait_input['in_traits']</filter>
+
+        <!-- metagenome output -->
+        <collection name="metagenome_output" type="list:list" label="${tool.name} on ${on_string}: metagenome output" >
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;.+)_metagenome_out_(?P&lt;identifier_1&gt;.+)\.tabular" directory="full_pipeline_output/" format="tabular"/>
         </collection>
-        <collection name="KO_metagenome_output_files" type="list" label="${tool.name} on ${on_string}: PICRUSt2 KO metagenome output" >
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)" directory="full_pipeline_output/KO_metagenome_out/" format="tabular"/>
-            <filter>trait_input['selector'] == "default" and "KO" in trait_input['in_traits']</filter>
-        </collection>
-        <collection name="PFAM_metagenome_output_files" type="list" label="${tool.name} on ${on_string}: PICRUSt2 PFAM metagenome output" >
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)" directory="full_pipeline_output/PFAM_metagenome_out/" format="tabular"/>
-            <filter>trait_input['selector'] == "default" and "PFAM" in trait_input['in_traits']</filter>
-        </collection>
-        <collection name="TIGRFAM_metagenome_output_files" type="list" label="${tool.name} on ${on_string}: PICRUSt2 TIGRFAM metagenome output" >
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)" directory="full_pipeline_output/TIGRFAM_metagenome_out/" format="tabular"/>
-            <filter>trait_input['selector'] == "default" and "TIGRFAM" in trait_input['in_traits']</filter>
-        </collection>
-        <collection name="COG_metagenome_output_files" type="list" label="${tool.name} on ${on_string}: PICRUSt2 COG metagenome output" >
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)" directory="full_pipeline_output/COG_metagenome_out/" format="tabular"/>
-            <filter>trait_input['selector'] == "default" and "COG" in trait_input['in_traits']</filter>
-        </collection>
-        <collection name="intermediate_output_files" type="list" label="${tool.name} on ${on_string}: Intermediate files" >
-            <discover_datasets pattern="__name_and_ext__" directory="full_pipeline_output/intermediate/place_seqs"/>
-            <discover_datasets pattern="__name_and_ext__" directory="full_pipeline_output/intermediate/pathways"/>
-            <filter>remove_intermediate</filter>
-        </collection>
+
+        <!-- pathways output -->
+        <expand macro="pathways_output" from_work_dir="full_pipeline_output/" label_suffix="pathways">
+            <filter>predict_pathways["no_pathways"] == ""</filter>
+            <token name="intermediate_filter">
+                <filter>remove_intermediate and "pathways" in remove_intermediate</filter>
+            </token>
+            <token name="coverage_filter">
+                <filter>predict_pathways["coverage"]</filter>
+            </token>
+            <token name="per_sequence_filter">
+                <filter>predict_pathways["strat_output"]["per_sequence_contrib"]</filter>
+            </token>
+        </expand>
     </outputs>
     <tests>
-    <test expect_num_outputs="5">
-        <param name="study_fasta" value="study_seqs_full.fasta"/>
-        <param name="input" value="workflow_seq_abun.biom"/>
-        <param name="placement_tool" value="sepp"/>
-        <param name="min_align" value="0.0"/>
-        <param name="skip_nsti" value="false"/>
-        <param name="max_nsti" value="2.0"/>
-        <param name="skip_minpath" value="false"/>
-        <param name="skip_norm" value="false"/>
-        <param name="no_gap_fill" value="true"/>
-        <param name="remove_intermediate" value="true"/>
-        <conditional name="input_options">
-            <param name="selector" value="ASV"/>
-            <param name="min_reads" value="1"/>
-            <param name="min_samples" value="1"/>
-        </conditional>
-        <output name="out_tree" ftype="newick">
-            <assert_contents>
-                <has_text text="643348582"/>
-                <has_n_lines n="1"/>
-            </assert_contents>
-        </output>
-        <output_collection name="full_pipeline_output_files" type="list" count="4">
-            <element name="EC_predicted.tsv.gz">
+        <test expect_num_outputs="5">
+            <!-- place_seq -->
+            <param name="study_fasta" value="study_seqs_full.fasta"/>
+            <param name="placement_tool" value="sepp"/>
+            <param name="min_align" value="0.0"/>
+            <!-- hsp -->
+            <conditional name="trait_input">
+                <param name="selector" value="default"/>
+                <param name="in_traits" value="EC,COG"/>
+            </conditional>
+            <param name="skip_nsti" value="false"/>
+            <!-- metagenome -->
+            <param name="input" value="workflow_seq_abun.biom"/>
+            <conditional name="input_options">
+                <param name="selector" value="ASV"/>
+                <param name="min_reads" value="1"/>
+                <param name="min_samples" value="1"/>
+            </conditional>
+            <param name="max_nsti" value="2.0"/>
+            <param name="skip_norm" value="false"/>
+            <!-- pathway -->
+            <param name="skip_minpath" value="false"/>
+            <param name="no_gap_fill" value="true"/>
+
+            <param name="remove_intermediate" value="place_seqs"/>
+            <output name="out_tree" ftype="newick">
                 <assert_contents>
-                    <has_text text="EC:1.1.1.1"/>
-                    <has_n_lines n="6"/>
+                    <has_text text="643348582"/>
+                    <has_n_lines n="1"/>
                 </assert_contents>
-            </element>
-            <element name="KO_predicted.tsv.gz">
+            </output>
+            <output_collection name="place_seqs_intermediate_output" type="list" count="2">
+                <element name="query_align" ftype="stockholm">
+                    <assert_contents>
+                        <has_text text="STOCKHOLM 1.0"/>
+                        <has_n_lines n="160106"/>
+                    </assert_contents>
+                </element>
+                <element name="study_seqs_filtered" ftype="fasta">
+                    <assert_contents>
+                        <has_text text="02905cfb87861c837dde629596d9272b"/>
+                        <has_n_lines n="10"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="hsp_output" type="list" count="3">
+                <element name="COG">
+                    <assert_contents>
+                        <has_text text="COG0001"/>
+                        <has_n_lines n="6"/>
+                    </assert_contents>
+                </element>
+                <element name="EC">
+                    <assert_contents>
+                        <has_text text="EC:1.1.1.1"/>
+                        <has_n_lines n="6"/>
+                    </assert_contents>
+                </element>
+                <element name="marker">
+                    <assert_contents>
+                        <has_text text="16S_rRNA_Count"/>
+                        <has_n_lines n="6"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="metagenome_output" type="list:list" count="2">
+                <element name="COG">
+                    <element name="pred_metagenome_unstrat">
+                        <assert_contents>
+                            <has_text text="function"/>
+                            <has_n_lines n="1793"/>
+                        </assert_contents>
+                    </element>
+                    <element name="seqtab_norm">
+                        <assert_contents>
+                            <has_text text="normalized"/>
+                            <has_n_lines n="6"/>
+                        </assert_contents>
+                    </element>
+                </element>
+                <element name="EC">
+                    <element name="pred_metagenome_unstrat">
+                        <assert_contents>
+                            <has_text text="function"/>
+                            <has_n_lines n="768"/>
+                        </assert_contents>
+                    </element>
+                    <element name="seqtab_norm">
+                        <assert_contents>
+                            <has_text text="normalized"/>
+                            <has_n_lines n="6"/>
+                        </assert_contents>
+                    </element>
+                </element>
+            </output_collection>
+            <output name="pathways_output" ftype="tabular">
                 <assert_contents>
-                    <has_text text="K00001"/>
-                    <has_n_lines n="6"/>
+                    <has_text text="pathway"/>
+                    <has_n_lines n="149"/>
+                    <has_n_columns n="3"/>
                 </assert_contents>
-            </element>
-            <element name="marker_predicted.tsv.gz">
+            </output>
+        </test>
+        <!-- same as test 1, but only COG as in_traits (which has the same result since EC is added automatically), and test the other intermediate result -->
+        <test expect_num_outputs="5">
+            <!-- place_seq -->
+            <param name="study_fasta" value="study_seqs_full.fasta"/>
+            <param name="placement_tool" value="sepp"/>
+            <param name="min_align" value="0.0"/>
+            <!-- hsp -->
+            <conditional name="trait_input">
+                <param name="selector" value="default"/>
+                <param name="in_traits" value="COG"/>
+            </conditional>
+            <param name="skip_nsti" value="false"/>
+            <!-- metagenome -->
+            <param name="input" value="workflow_seq_abun.biom"/>
+            <conditional name="input_options">
+                <param name="selector" value="ASV"/>
+                <param name="min_reads" value="1"/>
+                <param name="min_samples" value="1"/>
+            </conditional>
+            <param name="max_nsti" value="2.0"/>
+            <param name="skip_norm" value="false"/>
+            <!-- pathway -->
+            <param name="skip_minpath" value="false"/>
+            <param name="no_gap_fill" value="true"/>
+
+            <param name="remove_intermediate" value="pathways"/>
+            <output name="out_tree" ftype="newick">
                 <assert_contents>
-                    <has_text text="16S_rRNA_Count"/>
-                    <has_n_lines n="6"/>
+                    <has_text text="643348582"/>
+                    <has_n_lines n="1"/>
                 </assert_contents>
-            </element>
-        </output_collection>
-        <output_collection name="intermediate_output_files" type="list" count="2">
-            <element name="query_align.stockholm">
+            </output>
+            <output_collection name="hsp_output" type="list" count="3">
+                <element name="COG" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="COG0001"/>
+                        <has_n_lines n="6"/>
+                        <has_n_columns n="4599"/>
+                    </assert_contents>
+                </element>
+                <element name="EC" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="EC:1.1.1.1"/>
+                        <has_n_lines n="6"/>
+                        <has_n_columns n="2914"/>
+                    </assert_contents>
+                </element>
+                <element name="marker" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="16S_rRNA_Count"/>
+                        <has_n_lines n="6"/>
+                        <has_n_columns n="2"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+
+            <output_collection name="metagenome_output" type="list:list" count="2">
+                <element name="COG">
+                    <element name="pred_metagenome_unstrat" ftype="tabular">
+                        <assert_contents>
+                            <has_text text="function"/>
+                            <has_n_lines n="1793"/>
+                            <has_n_columns n="3"/>
+                        </assert_contents>
+                    </element>
+                    <element name="seqtab_norm" ftype="tabular">
+                        <assert_contents>
+                            <has_text text="normalized"/>
+                            <has_n_lines n="6"/>
+                            <has_n_columns n="3"/>
+                        </assert_contents>
+                    </element>
+                </element>
+                <element name="EC">
+                    <element name="pred_metagenome_unstrat" ftype="tabular">
+                        <assert_contents>
+                            <has_text text="function"/>
+                            <has_n_lines n="768"/>
+                            <has_n_columns n="3"/>
+                        </assert_contents>
+                    </element>
+                    <element name="seqtab_norm" ftype="tabular">
+                        <assert_contents>
+                            <has_text text="normalized"/>
+                            <has_n_lines n="6"/>
+                            <has_n_columns n="3"/>
+                        </assert_contents>
+                    </element>
+                </element>
+            </output_collection>
+            <output name="pathways_output" ftype="tabular">
                 <assert_contents>
-                    <has_text text="STOCKHOLM 1.0"/>
-                    <has_n_lines n="160106"/>
+                    <has_text text="pathway"/>
+                    <has_n_lines n="149"/>
+                    <has_n_columns n="3"/>
                 </assert_contents>
-            </element>
-            <element name="study_seqs_filtered.fasta">
-                <assert_contents>
-                    <has_text text="02905cfb87861c837dde629596d9272b"/>
-                    <has_n_lines n="10"/>
-                </assert_contents>
-            </element>
-        </output_collection>
-    </test>
-    <test expect_num_outputs="6">
-        <param name="study_fasta" value="study_seqs_full.fasta"/>
-        <param name="input" value="workflow_seq_abun.biom"/>
-        <param name="placement_tool" value="sepp"/>
-        <param name="min_align" value="0.0"/>
-        <param name="skip_nsti" value="false"/>
-        <param name="max_nsti" value="2.0"/>
-        <param name="skip_minpath" value="false"/>
-        <param name="skip_norm" value="false"/>
-        <param name="no_gap_fill" value="true"/>
-        <param name="remove_intermediate" value="true"/>
-        <conditional name="input_options">
-            <param name="selector" value="ASV"/>
-            <param name="min_reads" value="1"/>
-            <param name="min_samples" value="1"/>
-        </conditional>
-        <conditional name="trait_input">
-            <param name="selector" value="default"/>
-            <param name="in_traits" value="KO,PFAM"/>
-        </conditional>
-        <output name="out_tree" ftype="newick">
-            <assert_contents>
-                <has_text text="643348582"/>
-                <has_n_lines n="1"/>
-            </assert_contents>
-        </output>
-        <output_collection name="full_pipeline_output_files" type="list" count="5">
-            <element name="EC_predicted.tsv.gz">
-                <assert_contents>
-                    <has_text text="EC:1.1.1.1"/>
-                    <has_n_lines n="6"/>
-                </assert_contents>
-            </element>
-            <element name="KO_predicted.tsv.gz">
-                <assert_contents>
-                    <has_text text="K00001"/>
-                    <has_n_lines n="6"/>
-                </assert_contents>
-            </element>
-            <element name="marker_predicted.tsv.gz">
-                <assert_contents>
-                    <has_text text="16S_rRNA_Count"/>
-                    <has_n_lines n="6"/>
-                </assert_contents>
-            </element>
-        </output_collection>
-        <output_collection name="EC_metagenome_output_files" type="list" count="2">
-            <element name="pred_metagenome_unstrat.tsv.gz">
-                <assert_contents>
-                    <has_text text="function"/>
-                    <has_n_lines n="768"/>
-                </assert_contents>
-            </element>
-            <element name="seqtab_norm.tsv.gz">
-                <assert_contents>
-                    <has_text text="normalized"/>
-                    <has_n_lines n="6"/>
-                </assert_contents>
-            </element>
-        </output_collection>
-        <output_collection name="KO_metagenome_output_files" type="list"  count="2">
-            <element name="pred_metagenome_unstrat.tsv.gz">
-                <assert_contents>
-                    <has_text text="function"/>
-                    <has_n_lines n="1710"/>
-                </assert_contents>
-            </element>
-            <element name="seqtab_norm.tsv.gz">
-                <assert_contents>
-                    <has_text text="normalized"/>
-                    <has_n_lines n="6"/>
-                </assert_contents>
-            </element>
-        </output_collection>
-        <output_collection name="PFAM_metagenome_output_files" type="list" count="2">
-            <element name="pred_metagenome_unstrat.tsv.gz">
-                <assert_contents>
-                    <has_text text="function"/>
-                    <has_n_lines n="2739"/>
-                </assert_contents>
-            </element>
-            <element name="seqtab_norm.tsv.gz">
-                <assert_contents>
-                    <has_text text="normalized"/>
-                    <has_n_lines n="6"/>
-                </assert_contents>
-            </element>
-        </output_collection>
-        <output_collection name="intermediate_output_files" type="list" count="2">
-            <element name="query_align.stockholm">
-                <assert_contents>
-                    <has_text text="STOCKHOLM 1.0"/>
-                    <has_n_lines n="160106"/>
-                </assert_contents>
-            </element>
-            <element name="study_seqs_filtered.fasta">
-                <assert_contents>
-                    <has_text text="02905cfb87861c837dde629596d9272b"/>
-                    <has_n_lines n="10"/>
-                </assert_contents>
-            </element>
-        </output_collection>
-    </test>
+            </output>
+            <output_collection name="pathways_intermediate_output" type="list" count="1">
+                <element name="regrouped_infile" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="function"/>
+                        <has_n_lines n="1509"/>
+                        <has_n_columns n="3"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- due to the long test times the other pathways_outputs 
+             have been tested manually -->
     </tests>
     <help><![CDATA[
 @HELP_HEADER@
