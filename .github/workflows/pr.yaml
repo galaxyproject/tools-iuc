@@ -1,17 +1,13 @@
 name: Galaxy Tool Linting and Tests for push and PR
 on: [push, pull_request]
-env:
-  GALAXY_FORK: galaxyproject
-  GALAXY_BRANCH: release_22.05
-  MAX_CHUNKS: 4
-  MAX_FILE_SIZE: 1M
 concurrency:
   # Group runs by PR, but keep runs on the default branch separate
   # because we do not want to cancel ToolShed uploads
   group: pr-${{ (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.run_number || github.ref }}
   cancel-in-progress: true
 jobs:
-  # the setup job does two things:
+  # the setup job does:
+  # 
   # 1. cache the pip cache and .planemo
   # 2. determine the list of changed repositories
   # it produces one artifact which contains
@@ -20,387 +16,66 @@ jobs:
   # which are needed in subsequent steps.
   setup:
     name: Setup cache and determine changed repositories
-    runs-on: ubuntu-latest
-    outputs:
-      galaxy-head-sha: ${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
-      repository-list: ${{ steps.discover.outputs.repository-list }}
-      tool-list: ${{ steps.discover.outputs.tool-list }}
-      chunk-count: ${{ steps.discover.outputs.chunk-count }}
-      chunk-list: ${{ steps.discover.outputs.chunk-list }}
-      commit-range: ${{ steps.discover.outputs.commit-range }}
-    strategy:
-      matrix:
-        python-version: ['3.7']
-    steps:
-    - name: Print github context properties
-      run: |
-        echo 'event: ${{ github.event_name }}'
-        echo 'sha: ${{ github.sha }}'
-        echo 'ref: ${{ github.ref }}'
-        echo 'head_ref: ${{ github.head_ref }}'
-        echo 'base_ref: ${{ github.base_ref }}'
-        echo 'event.before: ${{ github.event.before }}'
-        echo 'event.after: ${{ github.event.after }}'
-    - name: Determine latest commit in the Galaxy repo
-      id: get-galaxy-sha
-      run: echo "::set-output name=galaxy-head-sha::$(git ls-remote https://github.com/${{ env.GALAXY_FORK }}/galaxy refs/heads/${{ env.GALAXY_BRANCH }} | cut -f1)"
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
-      uses: actions/cache@v2
-      id: cache-pip
-      with:
-        path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
-    - name: Cache .planemo
-      uses: actions/cache@v2
-      id: cache-planemo
-      with:
-        path: ~/.planemo
-        key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
-    # Install the `wheel` package so that when installing other packages which
-    # are not available as wheels, pip will build a wheel for them, which can be cached.
-    - name: Install wheel
-      run: pip install wheel
-    - name: Install flake8
-      run: pip install flake8 flake8-import-order
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - name: Fake a Planemo run to update cache and determine commit range, repositories, and chunks
-      uses: galaxyproject/planemo-ci-action@v1
-      id: discover
-      with:
-        create-cache: ${{ steps.cache-pip.outputs.cache-hit != 'true' || steps.cache-planemo.outputs.cache-hit != 'true' }}
-        galaxy-fork: ${{ env.GALAXY_FORK }}
-        galaxy-branch: ${{ env.GALAXY_BRANCH }}
-        max-chunks: ${{ env.MAX_CHUNKS }}
-        python-version: ${{ matrix.python-version }}
-    - name: Show commit range
-      run: echo '${{ steps.discover.outputs.commit-range }}'
-    - name: Show repository list
-      run: echo '${{ steps.discover.outputs.repository-list }}'
-    - name: Show tool list
-      run: echo '${{ steps.discover.outputs.tool-list }}'
-    - name: Show chunks
-      run: |
-        echo 'Using ${{ steps.discover.outputs.chunk-count }} chunks (${{ steps.discover.outputs.chunk-list }})'
+    uses: bernt-matthias/tools-iuc/.github/workflows/job_setup.yaml@topic/reusable-workflows
+    with:
+      # set these variables if you want to update independent of the IUC repo
+      # default-galaxy-fork: galaxyproject
+      # default-galaxy-branch: release_22.05
+      max-chunks: 4
+      fetch-depth: 0
 
-  # Planemo lint the changed repositories
+  # Lint changed repositories
+  # - Planemo lint
+  # - flake8 of Python scripts
+  # - lintr of R scripts
   lint:
-    name: Lint tool-list
+    name: Lint
     needs: setup
-    if: ${{ needs.setup.outputs.repository-list != '' || needs.setup.outputs.tool-list != '' }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.7']
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 1
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
-      uses: actions/cache@v2
-      id: cache-pip
-      with:
-        path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
-    - name: Planemo lint
-      uses: galaxyproject/planemo-ci-action@v1
-      id: lint
-      with:
-        mode: lint
-        repository-list: ${{ needs.setup.outputs.repository-list }}
-        tool-list: ${{ needs.setup.outputs.tool-list }}
-    - uses: actions/upload-artifact@v2
-      if: ${{ failure() }}
-      with:
-        name: 'Tool linting output'
-        path: lint_report.txt
-
-  # flake8 of Python scripts in the changed repositories
-  flake8:
-    name: Lint Python scripts
-    needs: setup
-    if: ${{ needs.setup.outputs.repository-list != '' }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.7']
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 1
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
-      uses: actions/cache@v2
-      id: cache-pip
-      with:
-        path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
-    - name: Install flake8
-      run: pip install flake8 flake8-import-order
-    - name: Flake8
-      run: echo '${{ needs.setup.outputs.repository-list }}' | xargs -d '\n' flake8 --output-file pylint_report.txt --tee
-    - uses: actions/upload-artifact@v2
-      if: ${{ failure() }}
-      with:
-        name: 'Python linting output'
-        path: pylint_report.txt
-
-  lintr:
-    name: Lint R scripts
-    needs: setup
-    if: ${{ needs.setup.outputs.repository-list != '' }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-20.04]
-        r-version: ['4.0.1']
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 1
-    - uses: r-lib/actions/setup-r@master
-      with:
-        r-version: ${{ matrix.r-version }}
-    - name: Cache R packages
-      uses: actions/cache@v2
-      with:
-        path: ${{ env.R_LIBS_USER }}
-        key: r_cache_${{ matrix.os }}_${{ matrix.r-version }}
-    - name: Install non-R lintr dependencies
-      run: sudo apt-get install libcurl4-openssl-dev
-    - name: Install lintr
-      run: |
-        install.packages('remotes')
-        remotes::install_cran("lintr")
-      shell: Rscript {0}
-    - name: Save repositories to file
-      run: echo '${{ needs.setup.outputs.repository-list }}' > repository_list.txt
-    - name: lintr
-      run: |
-        library(lintr)
-        linters <- linters_with_defaults(line_length_linter = NULL, cyclocomp_linter = NULL, object_usage_linter = NULL)
-        con <- file("repository_list.txt", "r")
-        status <- 0
-        while (TRUE) {
-          repo <- readLines(con, n = 1)
-          if (length(repo) == 0) {
-             break
-          }
-          lnt <- lint_dir(repo, relative_path=T, linters=linters)
-          if (length(lnt) > 0) {
-            status <- 1
-            for (l in lnt) {
-              rel_path <- paste(repo, l$filename, sep="/")
-              write(paste(paste(rel_path, l$line_number, l$column_number, sep=":"), l$message, paste("(", l$line, ")")), stderr())
-              write(paste(paste(rel_path, l$line_number, l$column_number, sep=":"), l$message, paste("(", l$line, ")")), "rlint_report.txt", append=TRUE)
-            }
-          }
-        }
-        quit(status = status)
-      shell: Rscript {0}
-    - uses: actions/upload-artifact@v2
-      if: ${{ failure() }}
-      with:
-        name: 'R linting output'
-        path: rlint_report.txt
-
-  file_sizes:
-    name: Check file sizes
-    needs: setup
-    if: ${{ github.event_name == 'pull_request' && needs.setup.outputs.repository-list != '' }}
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - name: Check file sizes
-      run: |
-        touch file_size_report.txt
-        git diff --diff-filter=d --name-only ${{ needs.setup.outputs.commit-range }} > git.diff
-        while read line; do
-          find "$line" -type f -size +${{ env.MAX_FILE_SIZE }} >> file_size_report.txt
-        done < git.diff
-        if [[ -s file_size_report.txt ]]; then
-          echo "Files larger than ${{ env.MAX_FILE_SIZE }} found"
-          cat file_size_report.txt
-          exit 1
-        fi
-    - uses: actions/upload-artifact@v2
-      if: ${{ failure() }}
-      with:
-        name: 'File size report'
-        path: file_size_report.txt
+    uses: bernt-matthias/tools-iuc/.github/workflows/job_lint.yaml@topic/reusable-workflows
+    with:
+      repository-list: ${{ needs.setup.outputs.repository-list }}
+      tool-list: ${{ needs.setup.outputs.tool-list }}
+      galaxy-head-sha: ${{ needs.setup.outputs.galaxy-head-sha }}
+      commit-range: ${{ needs.setup.outputs.commit-range }}
+      max-file-size: 1M
 
   # Planemo test the changed repositories, each chunk creates an artifact
   # containing HTML and JSON reports for the executed tests
   test:
     name: Test tools
     needs: setup
-    if: ${{ needs.setup.outputs.repository-list != '' }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        chunk: ${{ fromJson(needs.setup.outputs.chunk-list) }}
-        python-version: ['3.7']
-    services:
-      postgres:
-        image: postgres:11
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 1
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
-      uses: actions/cache@v2
-      id: cache-pip
-      with:
-        path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
-    - name: Cache .planemo
-      uses: actions/cache@v2
-      id: cache-planemo
-      with:
-        path: ~/.planemo
-        key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
-    - name: Get number of CPU cores
-      uses: SimenB/github-actions-cpu-cores@v1
-      id: cpu-cores
-    - name: Planemo test
-      uses: galaxyproject/planemo-ci-action@v1
-      id: test
-      with:
-        mode: test
-        repository-list: ${{ needs.setup.outputs.repository-list }}
-        galaxy-fork: ${{ env.GALAXY_FORK }}
-        galaxy-branch: ${{ env.GALAXY_BRANCH }}
-        chunk: ${{ matrix.chunk }}
-        chunk-count: ${{ needs.setup.outputs.chunk-count }}
-        galaxy-slots: ${{ steps.cpu-cores.outputs.count }}
-        # Limit each test to 15 minutes
-        test_timeout: 900
-    - uses: actions/upload-artifact@v2
-      with:
-        name: 'Tool test output ${{ matrix.chunk }}'
-        path: upload
-
-  # - combine the results of the test chunks (which will never fail due
-  #   to `|| true`) and create a global test report as json and html which
-  #   is provided as artifact
-  # - check if any tool test actually failed (by lookup in the combined json)
-  #   and fail this step if this is the case
-  combine_outputs:
-    name: Combine chunked test results
-    needs: [setup, test]
-    if: ${{ needs.setup.outputs.repository-list != '' }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.7']
-    steps:
-    - uses: actions/download-artifact@v2
-      with:
-        path: artifacts
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
-      uses: actions/cache@v2
-      id: cache-pip
-      with:
-        path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
-    - name: Combine outputs
-      uses: galaxyproject/planemo-ci-action@v1
-      id: combine
-      with:
-        mode: combine
-        html-report: true
-    - uses: actions/upload-artifact@v2
-      with:
-        name: 'All tool test results'
-        path: upload
-    - name: Check outputs
-      uses: galaxyproject/planemo-ci-action@v1
-      id: check
-      with:
-        mode: check
+    uses: bernt-matthias/tools-iuc/.github/workflows/job_test.yaml@topic/reusable-workflows
+    with:
+      galaxy-fork: ${{ needs.setup.outputs.galaxy-fork }}
+      galaxy-branch: ${{ needs.setup.outputs.galaxy-branch }}
+      repository-list: ${{ needs.setup.outputs.repository-list }}
+      chunk-count: ${{ needs.setup.outputs.chunk-count }}
+      chunk-list: ${{ needs.setup.outputs.chunk-list }}
+      galaxy-head-sha: ${{ needs.setup.outputs.galaxy-head-sha }}
+      test-timeout: 900
 
   # deploy the tools to the toolsheds (first TTS for testing)
   deploy:
     name: Deploy
-    needs: [setup, lint, flake8, lintr, combine_outputs]
-    if: ${{ (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' ) && github.repository_owner == 'galaxyproject' }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.7']
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 1
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
-      uses: actions/cache@v2
-      id: cache-pip
-      with:
-        path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
-    - name: Deploy on testtoolshed
-      uses: galaxyproject/planemo-ci-action@v1
-      with:
-        mode: deploy
-        repository-list: ${{ needs.setup.outputs.repository-list }}
-        shed-target: testtoolshed
-        shed-key: ${{ secrets.TTS_API_KEY }}
-      continue-on-error: true
-    - name: Deploy on toolshed
-      uses: galaxyproject/planemo-ci-action@v1
-      with:
-        mode: deploy
-        repository-list: ${{ needs.setup.outputs.repository-list }}
-        shed-target: toolshed
-        shed-key: ${{ secrets.TS_API_KEY }}
+    needs: [setup, lint, test]
+    uses: bernt-matthias/tools-iuc/.github/workflows/job_deploy.yaml@topic/reusable-workflows
+    with:
+      repository-list: ${{ needs.setup.outputs.repository-list }}
+      galaxy-head-sha: ${{ needs.setup.outputs.galaxy-head-sha }}
+      repository-owner: 'galaxyproject'
+    secrets:
+      TTS_API_KEY: ${{ secrets.TTS_API_KEY }}
+      TS_API_KEY: ${{ secrets.TS_API_KEY }}
 
   determine-success:
     name: Check workflow success
-    needs: [setup, lint, flake8, lintr, file_sizes, combine_outputs]
+    needs: [setup, lint, test]
     if: ${{ always() && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
     - name: Check tool lint status
-      if: ${{ needs.lint.result != 'success' && needs.flake8.result != 'skipped' }}
-      run: exit 1
-    - name: Indicate Python script lint status
-      if: ${{ needs.flake8.result != 'success' && needs.flake8.result != 'skipped' }}
-      run: exit 1
-    - name: Indicate R script lint status
-      if: ${{ needs.lintr.result != 'success' && needs.lintr.result != 'skipped' }}
-      run: exit 1
-    - name: Indicate file size check status
-      if: ${{ needs.file_sizes.result != 'success' && needs.file_sizes.result != 'skipped' }}
+      if: ${{ needs.lint.result != 'success' }}
       run: exit 1
     - name: Check tool test status
-      if: ${{ needs.combine_outputs.result != 'success' && needs.combine_outputs.result != 'skipped' }}
+      if: ${{ needs.test.result != 'success' }}
       run: exit 1

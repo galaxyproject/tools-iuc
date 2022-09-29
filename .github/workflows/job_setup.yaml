@@ -1,0 +1,155 @@
+name: Test tools
+on:
+  workflow_call:
+    inputs:
+      default-galaxy-fork:
+        description: 'Default Galaxy fork to use'
+        default: 'galaxyproject'
+        required: false
+        type: string
+      default-galaxy-branch:
+        description: 'Default Galaxy branch to use'
+        default: 'release_22.05'
+        required: false
+        type: string
+      max-chunks:
+        description: 'maximum number of chunks to use'
+        required: true
+        type: number
+      fetch-depth:
+        description: 'Number of commits to fetch. 0 indicates all history for all branches and tags'
+        default: 1
+        required: false 
+        type: number
+      python-version-list:
+        description: 'Python versions (stringified JSON array)'
+        default: "[\"3.7\"]"
+        required: false
+        type: string
+    secrets:
+      PAT:
+        required: false
+    outputs:
+      galaxy-head-sha:
+        description: "hash of the latest commit in the Galaxy repo"
+        value: ${{ jobs.setup.outputs.galaxy-head-sha }}
+      repository-list:
+        description: "list of repositories to test"
+        value: ${{ jobs.setup.outputs.repository-list }}
+      tool-list:
+        description: "list of tools to test"
+        value: ${{ jobs.setup.outputs.tool-list }}
+      chunk-count:
+        description: "number of chunks"
+        value: ${{ jobs.setup.outputs.chunk-count }}
+      chunk-list:
+        description: "list of chunks (stringified JSON array)"
+        value: ${{ jobs.setup.outputs.chunk-list }}
+      commit-range:
+        description: "commit range to test"
+        value: ${{ jobs.setup.outputs.commit-range }}
+      galaxy-fork:
+        description: "The determined galaxy fork to use"
+        value: ${{ jobs.fork-branch.outputs.galaxy-fork }}
+      galaxy-branch:
+        description: "The determined galaxy branch to use"
+        value: ${{ jobs.fork-branch.outputs.galaxy-branch }}
+jobs:
+  fork-branch:
+    name: Determine Galaxy fork and branch to use
+    runs-on: ubuntu-latest
+    outputs:
+      galaxy-fork: ${{ steps.get-fork-branch.outputs.fork }}
+      galaxy-branch: ${{ steps.get-fork-branch.outputs.branch }}
+    steps:
+    - name: Add reaction
+      if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
+      uses: peter-evans/create-or-update-comment@v1
+      with:
+        token: ${{ secrets.PAT }}
+        repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+        comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
+        reaction-type: hooray
+    - name: Set galaxy fork and branch
+      id: get-fork-branch
+      run: |
+        SLASH_FORK="${{ github.event.client_payload.slash_command.args.named.fork }}"
+        DEFAULT_FORK="${{ inputs.default-galaxy-fork }}"
+        echo "::set-output name=fork::${SLASH_FORK:-$DEFAULT_FORK}"
+        SLASH_BRANCH="${{ github.event.client_payload.slash_command.args.named.branch }}"
+        DEFAULT_BRANCH="${{ inputs.default-galaxy-branch }}"
+        echo "::set-output name=branch::${SLASH_BRANCH:-$DEFAULT_BRANCH}"
+    - name: Print used Galaxy for and branch
+      run: |
+        echo 'fork: ${{ steps.get-fork-branch.outputs.fork }}'
+        echo 'branch: ${{ steps.get-fork-branch.outputs.branch }}'
+  setup:
+    name: Setup cache and determine changed repositories
+    needs: fork-branch
+    runs-on: ubuntu-latest
+    outputs:
+      galaxy-head-sha: ${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
+      repository-list: ${{ steps.discover.outputs.repository-list }}
+      tool-list: ${{ steps.discover.outputs.tool-list }}
+      chunk-count: ${{ steps.discover.outputs.chunk-count }}
+      chunk-list: ${{ steps.discover.outputs.chunk-list }}
+      commit-range: ${{ steps.discover.outputs.commit-range }}
+    strategy:
+      matrix:
+        python-version: ${{ fromJson(inputs.python-version-list) }}
+    steps:
+    - name: Print github context properties
+      run: |
+        echo 'event: ${{ github.event_name }}'
+        echo 'sha: ${{ github.sha }}'
+        echo 'ref: ${{ github.ref }}'
+        echo 'head_ref: ${{ github.head_ref }}'
+        echo 'base_ref: ${{ github.base_ref }}'
+        echo 'event.before: ${{ github.event.before }}'
+        echo 'event.after: ${{ github.event.after }}'
+    - name: Determine latest commit in the Galaxy repo
+      id: get-galaxy-sha
+      run: echo "::set-output name=galaxy-head-sha::$(git ls-remote https://github.com/${{ needs.fork-branch.outputs.galaxy-fork }}/galaxy refs/heads/${{ needs.fork-branch.outputs.galaxy-branch }} | cut -f1)"
+    - uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Cache .cache/pip
+      uses: actions/cache@v2
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
+    - name: Cache .planemo
+      uses: actions/cache@v2
+      id: cache-planemo
+      with:
+        path: ~/.planemo
+        key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
+    # Install the `wheel` package so that when installing other packages which
+    # are not available as wheels, pip will build a wheel for them, which can be cached.
+    - name: Install wheel
+      run: pip install wheel
+    - name: Install flake8
+      run: pip install flake8 flake8-import-order
+    - uses: actions/checkout@v2
+      with:
+        # TODO make configurable CI uses 1
+        fetch-depth: ${{ inputs.fetch-depth }}
+    - name: Fake a Planemo run to update cache and determine commit range, repositories, and chunks
+      uses: galaxyproject/planemo-ci-action@v1
+      id: discover
+      with:
+        create-cache: ${{ steps.cache-pip.outputs.cache-hit != 'true' || steps.cache-planemo.outputs.cache-hit != 'true' }}
+        galaxy-fork: ${{ needs.fork-branch.outputs.galaxy-fork }}
+        galaxy-branch: ${{ needs.fork-branch.outputs.galaxy-branch }}
+        max-chunks: ${{ inputs.max-chunks }}
+        python-version: ${{ matrix.python-version }}
+    - name: Show commit range
+      run: echo '${{ steps.discover.outputs.commit-range }}'
+    - name: Show repository list
+      run: echo '${{ steps.discover.outputs.repository-list }}'
+    - name: Show tool list
+      run: echo '${{ steps.discover.outputs.tool-list }}'
+    - name: Show chunks
+      run: |
+        echo 'Using ${{ steps.discover.outputs.chunk-count }} chunks (${{ steps.discover.outputs.chunk-list }})'

@@ -1,0 +1,216 @@
+name: Lint
+on:
+  workflow_call:
+    inputs:
+      repository-list:
+        description: 'list of repositories to lint'
+        default: ''
+        required: false
+        type: string
+      tool-list:
+        description: 'list of tools to lint'
+        default: ''
+        required: false
+        type: string
+      galaxy-head-sha:
+        description: 'hash of the latest commit in the Galaxy repo'
+        required: true
+        type: string
+      commit-range:
+        description: 'commit range to test'
+        default: ''
+        required: false
+        type: string
+      max-file-size:
+        description: 'maximum file size'
+        default: "1M"
+        required: false
+        type: string
+      python-version-list:
+        description: 'stringified JSON array of Python versions'
+        default: "[\"3.7\"]"
+        required: false
+        type: string
+      r-version-list:
+        description: 'stringified JSON array of R versions'
+        default: "[\"4.0.1\"]"
+        required: false
+        type: string
+      os-version-list:
+        description: 'stringified JSON array of OS versions'
+        default: "[\"ubuntu-20.04\"]"
+        required: false
+        type: string
+    outputs:
+      result:
+        description: "Result of the lint jobs"
+        value: ${{ jobs.lint-success.result }}
+
+jobs:
+  lint:
+    name: Tools
+    if: ${{ inputs.repository-list != '' || inputs.tool-list != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(inputs.python-version-list) }}
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+    - uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Cache .cache/pip
+      uses: actions/cache@v2
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ inputs.galaxy-head-sha }}
+    - name: Planemo lint
+      uses: galaxyproject/planemo-ci-action@v1
+      id: lint
+      with:
+        mode: lint
+        repository-list: ${{ inputs.repository-list }}
+        tool-list: ${{ inputs.tool-list }}
+    - uses: actions/upload-artifact@v2
+      if: ${{ failure() }}
+      with:
+        name: 'Tool linting output'
+        path: lint_report.txt
+
+  flake8:
+    name: Python scripts
+    if: ${{ inputs.repository-list != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(inputs.python-version-list) }}
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+    - uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Cache .cache/pip
+      uses: actions/cache@v2
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ inputs.galaxy-head-sha }}
+    - name: Install flake8
+      run: pip install flake8 flake8-import-order
+    - name: Flake8
+      run: echo '${{ inputs.repository-list }}' | xargs -d '\n' flake8 --output-file pylint_report.txt --tee
+    - uses: actions/upload-artifact@v2
+      if: ${{ failure() }}
+      with:
+        name: 'Python linting output'
+        path: pylint_report.txt
+
+  lintr:
+    name: R scripts
+    if: ${{ inputs.repository-list != '' }}
+    strategy:
+      matrix:
+        os: ${{ fromJson(inputs.os-version-list) }}
+        r-version: ${{ fromJson(inputs.r-version-list) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+    - uses: r-lib/actions/setup-r@master
+      with:
+        r-version: ${{ matrix.r-version }}
+    - name: Cache R packages
+      uses: actions/cache@v2
+      with:
+        path: ${{ env.R_LIBS_USER }}
+        key: r_cache_${{ matrix.os }}_${{ matrix.r-version }}
+    - name: Install non-R lintr dependencies
+      run: sudo apt-get install libcurl4-openssl-dev
+    - name: Install lintr
+      run: |
+        install.packages('remotes')
+        remotes::install_cran("lintr")
+      shell: Rscript {0}
+    - name: Save repositories to file
+      run: echo '${{ inputs.repository-list }}' > repository_list.txt
+    - name: lintr
+      run: |
+        library(lintr)
+        linters <- linters_with_defaults(line_length_linter = NULL, cyclocomp_linter = NULL, object_usage_linter = NULL)
+        con <- file("repository_list.txt", "r")
+        status <- 0
+        while (TRUE) {
+          repo <- readLines(con, n = 1)
+          if (length(repo) == 0) {
+             break
+          }
+          lnt <- lint_dir(repo, relative_path=T, linters=linters)
+          if (length(lnt) > 0) {
+            status <- 1
+            for (l in lnt) {
+              rel_path <- paste(repo, l$filename, sep="/")
+              write(paste(paste(rel_path, l$line_number, l$column_number, sep=":"), l$message, paste("(", l$line, ")")), stderr())
+              write(paste(paste(rel_path, l$line_number, l$column_number, sep=":"), l$message, paste("(", l$line, ")")), "rlint_report.txt", append=TRUE)
+            }
+          }
+        }
+        quit(status = status)
+      shell: Rscript {0}
+    - uses: actions/upload-artifact@v2
+      if: ${{ failure() }}
+      with:
+        name: 'R linting output'
+        path: rlint_report.txt
+
+  file_sizes:
+    name: Check file sizes
+    if: ${{ github.event_name == 'pull_request' && inputs.repository-list != '' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Check file sizes
+      run: |
+        touch file_size_report.txt
+        git diff --diff-filter=d --name-only ${{ inputs.commit-range }} > git.diff
+        while read line; do
+          find "$line" -type f -size +${{ inputs.max-file-size }} >> file_size_report.txt
+        done < git.diff
+        if [[ -s file_size_report.txt ]]; then
+          echo "Files larger than ${{ inputs.max-file-size }} found"
+          cat file_size_report.txt
+          exit 1
+        fi
+    - uses: actions/upload-artifact@v2
+      if: ${{ failure() }}
+      with:
+        name: 'File size report'
+        path: file_size_report.txt
+
+  lint-success:
+    name: Determine lint success
+    needs: [lint, flake8, lintr, file_sizes]
+    if: ${{ always() && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check tool lint status
+      if: ${{ needs.lint.result != 'success' && needs.flake8.result != 'skipped' }}
+      run: exit 1
+    - name: Indicate Python script lint status
+      if: ${{ needs.flake8.result != 'success' && needs.flake8.result != 'skipped' }}
+      run: exit 1
+    - name: Indicate R script lint status
+      if: ${{ needs.lintr.result != 'success' && needs.lintr.result != 'skipped' }}
+      run: exit 1
+    - name: Indicate file size check status
+      if: ${{ needs.file_sizes.result != 'success' && needs.file_sizes.result != 'skipped' }}
+      run: exit 1

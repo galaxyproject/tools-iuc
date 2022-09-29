@@ -5,189 +5,27 @@ on:
     - cron: '0 0 * * 1'
   repository_dispatch:
     types: [run-all-tool-tests-command]
-env:
-  GALAXY_FORK: galaxyproject
-  GALAXY_BRANCH: release_22.05
-  MAX_CHUNKS: 40
 jobs:
   setup:
     name: Setup cache and determine changed repositories
-    if: ${{ github.repository_owner == 'galaxyproject' }}
-    runs-on: ubuntu-latest
-    outputs:
-      galaxy-head-sha: ${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
-      fork: ${{ steps.get-fork-branch.outputs.fork }}
-      branch: ${{ steps.get-fork-branch.outputs.branch }}
-      repository-list: ${{ steps.discover.outputs.repository-list }}
-      chunk-count: ${{ steps.discover.outputs.chunk-count }}
-      chunk-list: ${{ steps.discover.outputs.chunk-list }}
-    strategy:
-      matrix:
-        python-version: ['3.7']
-    steps:
-    - name: Add reaction
-      if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
-      uses: peter-evans/create-or-update-comment@v1
-      with:
-        token: ${{ secrets.PAT }}
-        repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
-        comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
-        reaction-type: hooray
-    - name: Set galaxy fork and branch
-      id: get-fork-branch
-      run: |
-        TMP="${{ github.event.client_payload.slash_command.args.named.fork }}"
-        echo "::set-output name=fork::${TMP:-$GALAXY_FORK}"
-        TMP="${{ github.event.client_payload.slash_command.args.named.branch }}"
-        echo "::set-output name=branch::${TMP:-$GALAXY_BRANCH}"
-    - name: Determine latest commit in the Galaxy repo
-      id: get-galaxy-sha
-      run: echo "::set-output name=galaxy-head-sha::$(git ls-remote https://github.com/${{ steps.get-fork-branch.outputs.fork }}/galaxy refs/heads/${{ steps.get-fork-branch.outputs.branch }} | cut -f1)"
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
-      uses: actions/cache@v2
-      id: cache-pip
-      with:
-        path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
-    # Install the `wheel` package so that when installing other packages which
-    # are not available as wheels, pip will build a wheel for them, which can be cached.
-    - name: Install wheel
-      run: pip install wheel
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 1
-    - name: Fake a Planemo run to update cache and determine commit range, repositories, and chunks
-      uses: galaxyproject/planemo-ci-action@v1
-      id: discover
-      with:
-        create-cache: ${{ steps.cache-pip.outputs.cache-hit != 'true' || steps.cache-planemo.outputs.cache-hit != 'true' }}
-        galaxy-fork: ${{ steps.get-fork-branch.outputs.fork }}
-        galaxy-branch: ${{ steps.get-fork-branch.outputs.branch }}
-        max-chunks: ${{ env.MAX_CHUNKS }}
-        python-version: ${{ matrix.python-version }}
-    - name: Show repository list
-      run: echo '${{ steps.discover.outputs.repository-list }}'
-    - name: Show chunks
-      run: |
-        echo 'Using ${{ steps.discover.outputs.chunk-count }} chunks (${{ steps.discover.outputs.chunk-list }})'
-
+    uses: bernt-matthias/tools-iuc/.github/workflows/job_setup.yaml@master
+    with:
+      # default-galaxy-fork: galaxyproject
+      # default-galaxy-branch: release_22.05
+      max-chunks: 40
+    secrets:
+      PAT: ${{ secrets.PAT }}
   test:
     name: Test tools
-    # This job runs on Linux
-    runs-on: ubuntu-latest
     needs: setup
-    if: ${{ needs.setup.outputs.repository-list != '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        chunk: ${{ fromJson(needs.setup.outputs.chunk-list) }}
-        python-version: ['3.7']
-    services:
-      postgres:
-        image: postgres:11
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-    steps:
-    # checkout the repository
-    # and use it as the current working directory
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 1
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
-      uses: actions/cache@v2
-      id: cache-pip
-      with:
-        path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
-    - name: Get number of CPU cores
-      uses: SimenB/github-actions-cpu-cores@v1
-      id: cpu-cores
-    - name: Planemo test
-      uses: galaxyproject/planemo-ci-action@v1
-      id: test
-      with:
-        mode: test
-        repository-list: ${{ needs.setup.outputs.repository-list }}
-        galaxy-fork: ${{ needs.setup.outputs.fork }}
-        galaxy-branch: ${{ needs.setup.outputs.branch }}
-        chunk: ${{ matrix.chunk }}
-        chunk-count: ${{ needs.setup.outputs.chunk-count }}
-        galaxy-slots: ${{ steps.cpu-cores.outputs.count }}
-        # Limit each test to 15 minutes
-        test_timeout: 900
-    - uses: actions/upload-artifact@v2
-      with:
-        name: 'Tool test output ${{ matrix.chunk }}'
-        path: upload
-
-  # - combine the results of the test chunks (which will never fail due
-  #   to `|| true`) and create a global test report as json and html which
-  #   is provided as artifact
-  # - check if any tool test actually failed (by lookup in the combined json)
-  #   and fail this step if this is the case
-  combine_outputs:
-    name: Combine chunked test results
-    needs: [setup, test]
-    strategy:
-      matrix:
-        python-version: ['3.7']
-    # This job runs on Linux
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/download-artifact@v2
-      with:
-        path: artifacts
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache .cache/pip
-      uses: actions/cache@v2
-      id: cache-pip
-      with:
-        path: ~/.cache/pip
-        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
-    - name: Combine outputs
-      uses: galaxyproject/planemo-ci-action@v1
-      id: combine
-      with:
-        mode: combine
-        html-report: true
-    - uses: actions/upload-artifact@v2
-      with:
-        name: 'All tool test results'
-        path: upload
-    - name: Create URL to the run output
-      if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
-      id: vars
-      run: echo "::set-output name=run-url::https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-
-    - name: Create comment
-      if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
-      uses: peter-evans/create-or-update-comment@v1
-      with:
-        token: ${{ secrets.PAT }}
-        repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
-        issue-number: ${{ github.event.client_payload.github.payload.issue.number }}
-        body: |
-          Summary:
-
-          ${{ steps.combine.outputs.statistics }}
-
-          [Find all tool test results here][1]
-
-          [1]: ${{ steps.vars.outputs.run-url }}
-    - name: Check outputs
-      uses: galaxyproject/planemo-ci-action@v1
-      id: check
-      with:
-        mode: check
+    uses: bernt-matthias/tools-iuc/.github/workflows/job_test.yaml@master
+    with:
+      galaxy-fork: ${{ needs.setup.outputs.galaxy-fork }}
+      galaxy-branch: ${{ needs.setup.outputs.galaxy-branch }}
+      repository-list: ${{ needs.setup.outputs.repository-list }}
+      chunk-count: ${{ needs.setup.outputs.chunk-count }}
+      chunk-list: ${{ needs.setup.outputs.chunk-list }}
+      galaxy-head-sha: ${{ needs.setup.outputs.galaxy-head-sha }}
+      test-timeout: 900
+    secrets:
+      PAT: ${{ secrets.PAT }}

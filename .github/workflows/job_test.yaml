@@ -1,0 +1,181 @@
+name: Test tools
+on:
+  workflow_call:
+    inputs:
+      python-version-list:
+        description: 'Python versions (stringified JSON array)'
+        default: "[\"3.7\"]"
+        required: false
+        type: string
+      chunk-count:
+        description: 'number of chunks'
+        required: true
+        type: string
+      chunk-list:
+        description: 'list of chunks (stringified JSON array)'
+        required: true
+        type: string
+      repository-list:
+        description: 'list of repositories to test'
+        required: true
+        type: string
+      galaxy-head-sha:
+        description: 'hash of the latest commit in the Galaxy repo'
+        required: true
+        type: string
+      galaxy-fork:
+        description: 'Galaxy fork to use'
+        required: true
+        type: string
+      galaxy-branch:
+        description: 'Galaxy branch to use'
+        required: true
+        type: string
+      cache-planemo:
+        description: 'cache the .planemo directory'
+        default: true
+        required: false
+        type: boolean
+      test-timeout:
+        description: 'Timeout in seconds per test'
+        default: 900
+        required: false
+        type: number
+    secrets:
+      PAT:
+        required: false
+    outputs:
+      result:
+        description: "Result of the testing"
+        value: ${{ jobs.test-success.result }}
+
+jobs:
+  # Planemo test the changed repositories, each chunk creates an artifact
+  # containing HTML and JSON reports for the executed tests
+  test:
+    name: Test tools
+    if: ${{ inputs.repository-list != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: ${{ fromJson(inputs.chunk-list) }}
+        python-version: ${{ fromJson(inputs.python-version-list) }} 
+    services:
+      postgres:
+        image: postgres:11
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+    - uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Cache .cache/pip
+      uses: actions/cache@v2
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ inputs.galaxy-head-sha }}
+    - name: Cache .planemo
+      if: ${{ inputs.cache-planemo }}
+      uses: actions/cache@v2
+      id: cache-planemo
+      with:
+        path: ~/.planemo
+        key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ inputs.galaxy-head-sha }}
+    - name: Get number of CPU cores
+      uses: SimenB/github-actions-cpu-cores@v1
+      id: cpu-cores
+    - name: Planemo test
+      uses: galaxyproject/planemo-ci-action@v1
+      id: test
+      with:
+        mode: test
+        repository-list: ${{ inputs.repository-list }}
+        galaxy-fork: ${{ inputs.galaxy-fork }}
+        galaxy-branch: ${{ inputs.galaxy-branch }}
+        chunk: ${{ matrix.chunk }}
+        chunk-count: ${{ inputs.chunk-count }}
+        galaxy-slots: ${{ steps.cpu-cores.outputs.count }}
+        # Limit each test to 15 minutes
+        test_timeout: ${{ inputs.test-timeout }}
+    - uses: actions/upload-artifact@v2
+      with:
+        name: 'Tool test output ${{ matrix.chunk }}'
+        path: upload
+
+  # - combine the results of the test chunks (which will never fail due
+  #   to `|| true`) and create a global test report as json and html which
+  #   is provided as artifact
+  # - check if any tool test actually failed (by lookup in the combined json)
+  #   and fail this step if this is the case
+  combine_outputs:
+    name: Combine chunked test results
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ${{ fromJson(inputs.python-version-list) }}
+    steps:
+    - uses: actions/download-artifact@v2
+      with:
+        path: artifacts
+    - uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Cache .cache/pip
+      uses: actions/cache@v2
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ inputs.galaxy-head-sha }}
+    - name: Combine outputs
+      uses: galaxyproject/planemo-ci-action@v1
+      id: combine
+      with:
+        mode: combine
+        html-report: true
+    - uses: actions/upload-artifact@v2
+      with:
+        name: 'All tool test results'
+        path: upload
+    - name: Create comment
+      if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
+      uses: peter-evans/create-or-update-comment@v1
+      with:
+        token: ${{ secrets.PAT }}
+        repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+        issue-number: ${{ github.event.client_payload.github.payload.issue.number }}
+        body: |
+          Summary:
+
+          ${{ steps.combine.outputs.statistics }}
+
+          [Find all tool test results here][1]
+
+          [1]: ${{ steps.vars.outputs.run-url }}
+    - name: Print statistics
+      run: |
+        echo "${{ steps.combine.outputs.statistics }}"
+    - name: Check outputs
+      uses: galaxyproject/planemo-ci-action@v1
+      id: check
+      with:
+        mode: check
+
+  test-success:
+    name: Determine test success
+    needs: [combine_outputs]
+    if: ${{ always() && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check tool test status
+      if: ${{ needs.combine_outputs.result != 'success' && needs.combine_outputs.result != 'skipped' }}
+      run: exit 1
