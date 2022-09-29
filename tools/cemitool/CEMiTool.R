@@ -31,7 +31,7 @@ opt <- getopt(spec)
 counts <- read.table(opt$expressionMatrix,
                       header = TRUE, 
                       sep = "\t", 
-                      strip.white = TRUE, 
+                      strip.white = TRUE,
                       stringsAsFactors = FALSE, 
                       check.names = FALSE)
 annotation <- read.table(opt$sampleAnnotation,
@@ -79,8 +79,7 @@ if (is.null(opt$sampleAnnotation)) {
 }
 
 if (!is.null(opt$pathwayList)) {
-  print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
-  print(opt$pathwayList)
+  ##print(opt$pathwayList)
   gmt_in <- read_gmt(opt$pathwayList)
   cem <- mod_ora(cem, gmt_in)
   cem <- plot_ora(cem)
