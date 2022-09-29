@@ -23,7 +23,8 @@ args <- commandArgs(trailingOnly = TRUE)
 spec <- matrix(c(
   "expressionMatrix", "M", 1, "character",
   "sampleAnnotation", "A", 2, "character",
-  "pathwayList", "P", 2, "character"),
+  "pathwayList", "P", 2, "character",
+  "interactions", "I", 2, "character"),
 byrow = TRUE, ncol = 4
 )
 
@@ -34,12 +35,7 @@ counts <- read.table(opt$expressionMatrix,
                       strip.white = TRUE,
                       stringsAsFactors = FALSE, 
                       check.names = FALSE)
-annotation <- read.table(opt$sampleAnnotation,
-                      header = TRUE, 
-                      sep = "\t", 
-                      strip.white = TRUE, 
-                      stringsAsFactors = FALSE, 
-                      check.names = FALSE)
+
 
 # Run CEMiTool
 
@@ -65,6 +61,12 @@ if (is.null(opt$sampleAnnotation)) {
                   verbose = TRUE,
                   ora_pval = 0.05)
 } else {
+  annotation <- read.table(opt$sampleAnnotation,
+                           header = TRUE, 
+                           sep = "\t", 
+                           strip.white = TRUE, 
+                           stringsAsFactors = FALSE, 
+                           check.names = FALSE)
   cem <- cemitool(counts,
                   annotation,
                   gsea_scale = TRUE,
@@ -83,6 +85,18 @@ if (!is.null(opt$pathwayList)) {
   gmt_in <- read_gmt(opt$pathwayList)
   cem <- mod_ora(cem, gmt_in)
   cem <- plot_ora(cem)
+}
+
+if (!is.null(opt$interactions)) {
+  interactions <- read.table(opt$interactions,
+                           header = TRUE, 
+                           sep = "\t", 
+                           strip.white = TRUE, 
+                           stringsAsFactors = FALSE, 
+                           check.names = FALSE)
+  ##print(opt$pathwayList)
+  interactions_data(cem) <- interactions # add interactions
+  cem <- plot_interactions(cem)
 }
 
 ## Write analysis results into files
