@@ -1,0 +1,179 @@
+<tool id="hapcut2" name="Hapcut2" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@+ga@GA_VERSION_SUFFIX@">
+  <description> - haplotype assembly for diploid organisms</description>
+  <xrefs>
+    <xref type="bio.tools">hapcut2</xref>
+  </xrefs>
+  <macros>
+    <token name="@TOOL_VERSION@">1.3.3</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@GA_VERSION_SUFFIX@">1</token>
+  </macros>
+  <requirements>
+    <requirement type="package" version="@TOOL_VERSION@">hapcut2</requirement>
+  </requirements>
+
+  <command detect_errors="exit_code"><![CDATA[
+
+## Prep inputs
+## =====================================================================
+ln -s '$input_bam' input.bam
+&& ln -s '$input_vcf' input.vcf
+
+
+## Run program
+## =====================================================================
+## Extract variant fragments from alignment
+&& extractHAIRS --bam input.bam --VCF input.vcf --out frags.dat
+#if $optimization.choice == 'pacbio':
+  --pacbio 1
+  --ref '$optimization.reference_fasta'
+#elif $optimization.choice == 'ont':
+  --ont 1
+  --ref '$optimization.reference_fasta'
+#elif $optimization.choice == 'hic':
+  --HiC 1
+#end if
+
+#if $advanced.minIS
+--minIS $advanced.minIS
+#end if
+
+#if $advanced.maxIS
+  --maxIS $advanced.maxIS
+#end if
+
+## Create haplotype.out and haplotype.out.phased.VCF
+&& HAPCUT2 --fragments frags.dat --VCF input.vcf --output haplotype.out
+#if $optimization.choice == 'hic':
+  --HiC 1
+#end if
+
+  ]]></command>
+
+  <inputs>
+    <param name="input_bam" type="data" format="bam" label="Input BAM file"/>
+    <param name="input_vcf" type="data" format="vcf" label="Input VCF file"/>
+
+    <conditional name="optimization">
+      <!-- TODO: include 10X (requires extra processing step) -->
+      <param name="choice" type="select" display="radio" label="Optimization">
+        <option value="default" selected="true">Default</option>
+        <option value="pacbio">Pacbio</option>
+        <option value="ont">Oxford Nanopore</option>
+        <option value="hic">Hi-C</option>
+      </param>
+
+      <when value="pacbio">
+        <param name="reference_fasta" type="data" format="fasta"
+          label="Reference genome fasta file"
+          help="The reference genome is required for long-read optimization."
+        />
+      </when>
+
+      <when value="ont">
+        <param name="reference_fasta" type="data" format="fasta"
+          label="Reference genome fasta file"
+          help="The reference genome is required for long-read optimization."
+        />
+      </when>
+    </conditional>
+
+    <param name="output_phased" type="boolean" label="Output phased VCF file?"
+      checked="true"
+      help="Output variant calls on the haplotype assembly"
+    />
+    <param name="output_fragments" type="boolean" label="Output fragments file?"
+      help="Output fragments collected by extractHAIRS"
+    />
+
+
+    <section name="advanced" title="Advanced parameters">
+      <param name="maxIS" type="integer" label="Maximum insert size"
+        optional="true" value="1000"
+        help="Maximum insert size for a paired-end read to be considered as a single fragment for phasing."
+      />
+
+      <param name="minIS" type="integer" label="Minimum insert size"
+        optional="true" value="0"
+        help="Minimum insert size for a paired-end read to be considered as a single fragment for phasing."
+      />
+    </section>
+  </inputs>
+
+  <outputs>
+    <data name="haplotype" format="txt" from_work_dir="haplotype.out"
+      label="${tool.name} on ${on_string}: Haplotype block"
+    />
+    <data name="haplotype_phased" format="vcf" from_work_dir="haplotype.out.phased.VCF"
+      label="${tool.name} on ${on_string}: Phased haplotype VCF"
+    >
+      <filter>output_phased</filter>
+    </data>
+    <data name="frags" format="txt" from_work_dir="frags.dat"
+      label="${tool.name} on ${on_string}: Fragments"
+    >
+      <filter>output_fragments</filter>
+    </data>
+  </outputs>
+
+  <tests>
+    <test expect_num_outputs="3">
+      <param name="input_bam" ftype="bam" value="input.bam"/>
+      <param name="input_vcf" ftype="vcf" value="input.vcf"/>
+      <param name="output_fragments" value="1"/>
+      <param name="output_phased" value="1"/>
+      <param name="optimization" value="default"/>
+      <output name="frags" ftype="txt" file="output_frag.dat"/>
+      <output name="haplotype" ftype="txt" file="output_haplotype.out"/>
+      <output name="haplotype_phased" ftype="vcf" file="output_haplotype.out.phased.vcf"/>
+    </test>
+  </tests>
+
+  <help><![CDATA[
+.. class:: infomark
+
+*NOTE: At this time HapCUT2 is for diploid organisms only and can assemble haplotypes for one individual at a time. VCF input should contain variants and genotypes for a single diploid individual.*
+
+.. class:: infomark
+
+*NOTE: At this time HapCUT2 on Galaxy cannot be used for 10X Genomics sequencing data.*
+
+
+**What it does**
+
+HapCUT2 is a maximum-likelihood-based tool for assembling haplotypes from DNA sequence reads, designed to "just work" with excellent speed and accuracy. Previously described haplotype assembly methods are specialized for specific read technologies or protocols, with slow or inaccurate performance on others. With this in mind, HapCUT2 is designed for speed and accuracy across diverse sequencing technologies, including but not limited to:
+
+- NGS short reads (Illumina HiSeq)
+- single-molecule long reads (PacBio and Oxford Nanopore)
+- Linked-Reads (e.g. 10X Genomics, stLFR or TELL-seq)
+- proximity-ligation (Hi-C) reads
+- high-coverage sequencing (>40x coverage-per-SNP) using above technologies
+- combinations of the above technologies (e.g. scaffold long reads with Hi-C reads)
+
+
+**Inputs**
+
+Input data should reference a single diploid individual mapped to a reference genome.
+
+1. BAM file with reads mapped to reference genome
+
+2. VCF file with variant calls against reference genome
+
+*Using linked reads (10X Genomics, stLFR etc)?* Additional preparation is required: `see here <https://github.com/vibansal/HapCUT2/blob/master/linkedreads.md>`_
+
+
+**Outputs**
+
+- ``haplotype.out``: `phased block file <https://github.com/vibansal/HapCUT2/blob/master/outputformat.md>`_
+- ``haplotype.out.phased.vcf``: (optional) phased VCF file
+- ``Fragments``: (optional) An intermediate file containing alignment fragments with haplotype information
+
+See `HapCUT2 on GitHib <https://github.com/vibansal/HapCUT2>`_ for more detailed information.
+
+
+.. class:: infomark
+
+Quickmerge was wrapped by the Galaxy Australia team.
+
+  ]]></help>
+</tool>
