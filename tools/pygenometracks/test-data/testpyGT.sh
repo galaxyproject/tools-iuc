@@ -20,5 +20,6 @@ pgt --tracks test-data/test18.ini --region chrX:2700000-3100000 --fontSize 12 -o
 pgt --tracks test-data/test19.ini --region chr2:73,800,000-75,744,000 --fontSize 12 -o test-data/test_log_grid.png
 pgt --tracks test-data/test20.ini --region chrX:3000000-3300000 --fontSize 12 -o test-data/test_arcs_use_middle.png
 pgt --tracks test-data/test21.ini --region X:3000000-3600000 --fontSize 12 --trackLabelFraction 0.3 --plotWidth 12 --dpi 20 -o test-data/master_scale_bar_startend.png
+pgt --tracks test-data/test22.ini --region chrM:10-30 --fontSize 12 -o test-data/master_fasta.png
 
 conda_env_deactivate
