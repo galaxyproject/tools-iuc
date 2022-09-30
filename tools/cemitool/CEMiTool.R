@@ -4,7 +4,7 @@ library(ggplot2, quietly = TRUE, warn.conflicts = FALSE)
 library(getopt, quietly = TRUE, warn.conflicts = FALSE)
 # setup R error handling to go to stderr
 options(
-  show.error.messages = F,
+  show.error.messages = FALSE,
   error = function() {
     cat(geterrmessage(), file = stderr())
     q("no", 1, FALSE)
