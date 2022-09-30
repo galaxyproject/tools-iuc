@@ -23,5 +23,6 @@ pgt --tracks test-data/test21.ini --region X:3000000-3600000 --fontSize 12 --tra
 pgt --tracks test-data/test22.ini --region chrM:10-30 --fontSize 12 -o test-data/master_fasta.png
 pgt --tracks test-data/test23.ini --region chrX:3000000-3300000 --fontSize 12 -o test-data/test_matrix_square.png
 pgt --tracks test-data/test24.ini --region 2:34704975-34705208 --fontSize 12 -o test-data/test_maf.png
+pgt --tracks test-data/test25.ini --region chr2:73,800,000-75,744,000 --fontSize 12 -o test-data/test_vhighlight.png
 
 conda_env_deactivate
