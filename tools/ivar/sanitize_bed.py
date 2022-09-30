@@ -9,10 +9,11 @@ with open(sys.argv[1]) as i:
 sanitized_data = []
 try:
     for record in bed_data:
-        fields = record.split('\t')
-        sanitized_data.append(
-            '\t'.join(fields[:4] + ['60'] + fields[5:])
-        )
+        if record.strip():
+            fields = record.split('\t')
+            sanitized_data.append(
+                '\t'.join(fields[:4] + ['60'] + fields[5:])
+            )
 except IndexError:
     pass  # leave column number issue to getmasked
 else:
