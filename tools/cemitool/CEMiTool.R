@@ -28,7 +28,7 @@ spec <- matrix(c(
   "sampleAnnotation", "A", 2, "character",
   "pathwayList", "P", 2, "character",
   "interactions", "I", 2, "character",
-  "filter","f", 1, "logical",
+  "filter", "f", 1, "logical",
   "filter_pval", "i", 1, "numeric",
   "apply_vst", "a", 1, "logical",
   "n_genes", "n", 1, "integer",
@@ -122,7 +122,6 @@ if (is.null(opt$sampleAnnotation)) {
 }
 
 if (!is.null(opt$pathwayList)) {
-  ##print(opt$pathwayList)
   gmt_in <- read_gmt(opt$pathwayList)
   cem <- mod_ora(cem, gmt_in)
   cem <- plot_ora(cem)
@@ -137,7 +136,6 @@ if (!is.null(opt$interactions)) {
     stringsAsFactors = FALSE,
     check.names = FALSE
   )
-  ##print(opt$pathwayList)
   interactions_data(cem) <- interactions # add interactions
   cem <- plot_interactions(cem)
 }
