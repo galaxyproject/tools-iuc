@@ -24,7 +24,25 @@ spec <- matrix(c(
   "expressionMatrix", "M", 1, "character",
   "sampleAnnotation", "A", 2, "character",
   "pathwayList", "P", 2, "character",
-  "interactions", "I", 2, "character"),
+  "interactions", "I", 2, "character",
+  "filter","f", 1, "logical",
+  "filter_pval", "i", 1, "numeric",
+  "apply_vst", "a", 1, "logical",
+  "n_genes", "n", 1, "integer",
+  "eps", "e", 1, "numeric",
+  "cor_method", "c", 1, "character",
+  "cor_function", "y", 1, "character",
+  "network_type", "x", 1, "character",
+  "tom_type", "t", 1, "character",
+  "merge_similar", "m", 1, "logical",
+  "rank_method", "r", 1, "character",
+  "min_ngen", "g", 1, "integer",
+  "diss_thresh", "d", 1, "numeric",
+  "center_func", "h", 1, "character",
+  "ora_pval", "o", 1, "numeric",
+  "gsea_scale", "l", 1, "logical",
+  "gsea_min_size", "w", 1, "integer",
+  "gsea_max_size", "z", 1, "integer"),
 byrow = TRUE, ncol = 4
 )
 
@@ -41,25 +59,22 @@ counts <- read.table(opt$expressionMatrix,
 
 if (is.null(opt$sampleAnnotation)) {
   cem <- cemitool(counts,
-                  filter = TRUE,
-                  filter_pval = 0.1,
-                  apply_vst = FALSE,
-                  n_genes=1000,
-                  eps = 0.1,
-                  cor_method = c("pearson", "spearman"),
-                  cor_function = "cor",
-                  network_type = "unsigned",
-                  tom_type = "signed",
-                  set_beta = NULL,
-                  force_beta = FALSE,
-                  merge_similar = TRUE,
-                  rank_method = "mean",
-                  min_ngen = 30,
-                  diss_thresh = 0.8,
-                  center_func = "mean",
-                  directed = FALSE,
+                  filter = opt$filter,
+                  filter_pval = opt$filter_pval,
+                  apply_vst = opt$apply_vst,
+                  n_genes= opt$n_genes,
+                  eps = opt$eps,
+                  cor_method = opt$cor_method,
+                  cor_function = opt$cor_function,
+                  network_type = opt$network_type,
+                  tom_type = opt$tom_type,
+                  merge_similar = opt$merge_similar,
+                  rank_method = opt$rank_method,
+                  min_ngen = opt$min_ngen,
+                  diss_thresh = opt$diss_thresh,
+                  center_func = opt$center_func,
                   verbose = TRUE,
-                  ora_pval = 0.05)
+                  ora_pval = opt$ora_pval)
 } else {
   annotation <- read.table(opt$sampleAnnotation,
                            header = TRUE, 
@@ -69,13 +84,28 @@ if (is.null(opt$sampleAnnotation)) {
                            check.names = FALSE)
   cem <- cemitool(counts,
                   annotation,
-                  gsea_scale = TRUE,
-                  gsea_min_size = 15,
-                  gsea_max_size = 1000,
+                  filter = opt$filter,
+                  filter_pval = opt$filter_pval,
+                  apply_vst = opt$apply_vst,
+                  n_genes= opt$n_genes,
+                  eps = opt$eps,
+                  cor_method = opt$cor_method,
+                  cor_function = opt$cor_function,
+                  network_type = opt$network_type,
+                  tom_type = opt$tom_type,
+                  merge_similar = opt$merge_similar,
+                  rank_method = opt$rank_method,
+                  min_ngen = opt$min_ngen,
+                  diss_thresh = opt$diss_thresh,
+                  center_func = opt$center_func,
+                  verbose = TRUE,
+                  ora_pval = opt$ora_pval,
+                  gsea_scale = opt$gsea_scale,
+                  gsea_min_size = opt$gsea_min_size,
+                  gsea_max_size = opt$gsea_max_size,
                   sample_name_column = "SampleName",
                   class_column = "Class",
-                  order_by_class = TRUE,
-)
+                  order_by_class = TRUE)
   cem <- mod_gsea(cem)
   cem <- plot_gsea(cem)
 }
@@ -111,119 +141,3 @@ save_plots(cem,
            directory="./Plots",
            force=TRUE)
 
-## Generate GSEA plot
-##cem <- mod_gsea(cem)
-##cem <- plot_gsea(cem)
-## Save gsea plots
-
-
-##data(expr0)
-# 
-# write.table(int_df, file = "interactions.tab",
-#             sep = "\t", row.names = F)
-# 
-# n_genes <- 100
-# # run cemitool
-# cemitool(
-#   expr0,
-#   sample_annot,
-#   gmt_in,
-#   int_df,
-#   filter = TRUE,
-#   filter_pval = 0.1,
-#   apply_vst = FALSE,
-#   n_genes,
-#   eps = 0.1,
-#   cor_method = c("pearson", "spearman"),
-#   cor_function = "cor",
-#   network_type = "unsigned",
-#   tom_type = "signed",
-#   set_beta = NULL,
-#   force_beta = FALSE,
-#   sample_name_column = "SampleName",
-#   class_column = "Class",
-#   merge_similar = TRUE,
-#   rank_method = "mean",
-#   ora_pval = 0.05,
-#   gsea_scale = TRUE,
-#   gsea_min_size = 15,
-#   gsea_max_size = 1000,
-#   min_ngen = 30,
-#   diss_thresh = 0.8,
-#   plot = TRUE,
-#   plot_diagnostics = TRUE,
-#   order_by_class = TRUE,
-#   center_func = "mean",
-#   directed = FALSE,
-#   verbose = FALSE
-# )
-# 
-# cemitool(
-#   expr0,
-#   ##sample_annot,
-#   filter = TRUE,
-#   filter_pval = 0.1,
-#   apply_vst = FALSE,
-#   n_genes = 100,
-#   eps = 0.1,
-#   cor_method = "pearson",
-#   cor_function = "cor",
-#   network_type = "unsigned",
-#   tom_type = "signed",
-#   set_beta = NULL,
-#   force_beta = FALSE,
-#   sample_name_column = "SampleName",
-#   class_column = "Class",
-#   merge_similar = TRUE,
-#   rank_method = "mean",
-#   ora_pval = 0.05,
-#   gsea_scale = TRUE,
-#   gsea_min_size = 15,
-#   gsea_max_size = 1000,
-#   min_ngen = 30,
-#   diss_thresh = 0.8,
-#   plot = TRUE,
-#   plot_diagnostics = TRUE,
-#   order_by_class = TRUE,
-#   center_func = "mean",
-#   directed = FALSE,
-#   verbose = FALSE
-# )
-# 
-# ## Write analysis results into files
-# write_files(cem, 
-#             directory="./Tables",
-#             force=TRUE)
-# 
-# ## Generate GSEA plot
-# cem <- mod_gsea(cem)
-# cem <- plot_gsea(cem)
-# 
-# 
-# 
-# 
-# ## Save gsea plots
-# save_plots(cem,
-#            value="gsea",
-#            directory="./Plots",
-#            force=TRUE)
-# 
-# 
-# 
-# ## Save all plots
-# save_plots(cem,
-#            value="all",
-#            directory="./Plots")
-# 
-# # create report as html document
-# generate_report(cem, 
-#                 directory="./Report",
-#                 force=TRUE)
-# 
-# 
-# 
-# # save all plots
-# save_plots(cem, "all", directory="./Plots")
-# ## ------------------------------------------------------------------------
-# ## 
-# ## ------------------------------------------------------------------------
