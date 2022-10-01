@@ -1,0 +1,152 @@
+name: tools-iuc
+on:
+  workflow_call:
+    inputs:
+      # TODO using this will exclude tools from the skip list
+      repository-list:
+        description: 'list of repositories to test'
+        required: true
+        type: string
+      galaxy-head-sha:
+        description: 'hash of the latest commit in the Galaxy repo'
+        required: true
+        type: string
+      python-version-list:
+        description: 'Python versions (stringified JSON array)'
+        default: "[\"3.7\"]"
+        required: false
+        type: string
+    # secrets:
+    #   PAT:
+    #     required: false
+permissions:
+  contents: write
+jobs:
+  autoupdate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(inputs.python-version-list) }}
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        token: ${{ github.token }}
+        fetch-depth: 0
+
+    # - uses: webfactory/ssh-agent@v0.4.1
+    #   with:
+    #     ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Cache .cache/pip
+      uses: actions/cache@v2
+      id: cache-pip
+      with:
+        path: ~/.cache/pip
+        key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ inputs.galaxy-head-sha }}
+    - name: Cache .planemo
+      uses: actions/cache@v2
+      id: cache-planemo
+      with:
+        path: ~/.planemo
+        key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ inputs.galaxy-head-sha }}
+
+    # Runs a set of commands using the runners shell
+    - name: Run autoupdate and create or update PRs for changed repositories
+      run: |
+        pip install wheel planemo
+
+        # git credentials
+        git config --global user.email "m.bernt@ufz.de"
+        git config --global user.name "planemo-autoupdate"
+        echo ${{ github.token }} > token.txt
+        gh auth login --with-token < token.txt
+
+        BASEDIR=`pwd`
+
+        echo "Pulling latest..."
+        git fetch --all
+
+        REPOS=$(echo "${{ inputs.repository-list }}")
+
+        for REPO in $REPOS; do
+          # branch name will be path name with slashes replaced by `__`
+          # because repos like tool-collections/samtools/samtools-XYZ 
+          # can not be crated, if tool-collections/samtools already exists
+          REPO_BRANCH="autoupdate/$(echo $REPO | sed 's@/@__@g')"
+          echo "Processing $REPO on branch $REPO_BRANCH"
+          # checkout branch, create if it doesn't exist
+          # TODO use gh pr view .. like for PR_NUMBER
+          if [[ $(gh pr list --limit 10000 | grep $REPO_BRANCH.\s*OPEN) ]]
+          then
+            echo "PR exists, we will checkout the branch and add to it"
+            git checkout --track origin/$REPO_BRANCH
+          else
+            if [[ $(git branch -a --list origin/$REPO_BRANCH) ]]
+            then
+              echo "Branch exists without an open PR - deleting"
+              git push origin --delete $REPO_BRANCH
+            fi
+            echo "Creating branch and checking out"
+            git checkout -b $REPO_BRANCH master
+          fi
+          echo "Checked out branch $(git branch --show-current)"
+          echo "Running autoupdate command..."
+          planemo autoupdate --skiplist .autoupdate_skip $REPO > $BASEDIR/autoupdate.log
+          cat $BASEDIR/autoupdate.log >> autoupdate_report.txt
+          rm -f tool_test_output.*
+
+          if [[ $(git diff) ]]
+          then
+            TITLE=$(python3 $BASEDIR/autoupdate_pr_text.py --repo $REPO --log $BASEDIR/autoupdate.log --shed $REPO/.shed.yml --out $BASEDIR/body.txt)
+            # first check if a closed PR for the same branch with the same title - if so, we don't continue
+            if [[ ! $(gh pr list -s closed --search "head:$REPO_BRANCH ^$TITLE\$ in:title" --limit 1000) ]]
+            then
+
+              echo "Committing... git commit $REPO -m "$TITLE" --quiet"
+              git commit . -m "$TITLE" --quiet
+
+              # check if the content of the current branch is equal to any other autoupdate/* branch
+              # because of repos with central macros file and separate .shed.yaml files in subdirs (tool-collections/bamtools/)
+              EQUAL="FALSE"
+              for branch in $(git branch | grep "autoupdate/" | grep -v "^\*"); do
+                if [[ ! $(git diff $branch) ]]; then
+                  EQUAL="TRUE"
+                fi
+              done
+              if [[ "$EQUAL" == "TRUE" ]]; then
+                echo "Current branch is equal to $branch .. not commiting"
+              else
+                echo "Push branch to remote..."
+                git push --set-upstream origin $REPO_BRANCH --quiet
+
+                # determine PR number (empty if no PR already exists)
+                PR_NUMBER=$(gh pr view $REPO_BRANCH --json number --jq '.[]' || true 2> /dev/null)
+                if [[ -n "$PR_NUMBER" ]] # just need to update PR title
+                then
+                  echo "Need to update title"
+                  gh pr edit $PR_NUMBER --title "$TITLE" --add-label
+                else # we need to create a PR
+                  echo "Creating a PR..."
+                  gh pr create --base master --title "$TITLE" --body-file $BASEDIR/body.txt --label "autoupdate"
+                  break
+                fi
+              fi
+            fi
+          fi
+          # clean up for the next tool
+          git checkout -- $REPO
+        done
+    - uses: actions/upload-artifact@v2
+      with:
+        name: 'Autoupdate report'
+        path: autoupdate_report.txt
+    - name: Create comment
+      if: ${{ github.event.client_payload.slash_command.command == 'run-autoupdate' }}
+      uses: peter-evans/create-or-update-comment@v1
+      with:
+        token: ${{ github.token }}
+        repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+        issue-number: ${{ github.event.client_payload.github.payload.issue.number }}
+        body: |
+          Autoupdate finished
