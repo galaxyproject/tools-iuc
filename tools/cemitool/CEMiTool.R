@@ -45,7 +45,8 @@ spec <- matrix(c(
   "ora_pval", "o", 1, "numeric",
   "gsea_scale", "l", 1, "logical",
   "gsea_min_size", "w", 1, "integer",
-  "gsea_max_size", "z", 1, "integer"),
+  "gsea_max_size", "z", 1, "integer",
+  "sample_column_name", "v", 1, "character"),
 byrow = TRUE, ncol = 4
 )
 
@@ -75,7 +76,6 @@ if (is.null(opt$sampleAnnotation)) {
     network_type = opt$network_type,
     tom_type = opt$tom_type,
     merge_similar = opt$merge_similar,
-    rank_method = opt$rank_method,
     min_ngen = opt$min_ngen,
     diss_thresh = opt$diss_thresh,
     center_func = opt$center_func,
@@ -104,20 +104,22 @@ if (is.null(opt$sampleAnnotation)) {
     network_type = opt$network_type,
     tom_type = opt$tom_type,
     merge_similar = opt$merge_similar,
-    rank_method = opt$rank_method,
     min_ngen = opt$min_ngen,
     diss_thresh = opt$diss_thresh,
     center_func = opt$center_func,
     verbose = TRUE,
     ora_pval = opt$ora_pval,
-    gsea_scale = opt$gsea_scale,
-    gsea_min_size = opt$gsea_min_size,
-    gsea_max_size = opt$gsea_max_size,
-    sample_name_column = "SampleName",
+    sample_name_column = opt$sample_column_name,
     class_column = "Class",
     order_by_class = TRUE
   )
-  cem <- mod_gsea(cem)
+  cem <- mod_gsea(
+    cem,
+    gsea_scale = opt$gsea_scale,
+    gsea_min_size = opt$gsea_min_size,
+    gsea_max_size = opt$gsea_max_size,
+    rank_method = opt$rank_method
+)
   cem <- plot_gsea(cem)
 }
 
