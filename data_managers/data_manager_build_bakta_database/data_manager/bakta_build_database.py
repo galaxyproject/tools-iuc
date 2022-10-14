@@ -86,10 +86,10 @@ class GetBaktaDatabaseInfo:
                 try:
                     filtered_version = next(
                         item for item in versions
-                        if item["major"] == major_version and
-                        item["minor"] == minor_version)
+                        if item["major"] == major_version
+                        and item["minor"] == minor_version)
                 except StopIteration:
-                    print(f"No available version detected in the list")
+                    print("No available version detected in the list")
                     filtered_version = None
             self.db_url = f"https://zenodo.org/record/" \
                           f"{filtered_version['record']}/files/db.tar.gz"
@@ -154,7 +154,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
             with self.tarball_path.open('rb') as fh_in, \
                     tarfile.open(fileobj=fh_in, mode='r:gz') as tar_file:
                 tar_file.extractall(path=str(self.output_path))
-                print(f'Untar the database')
+                print('Untar the database')
         except OSError:
             sys.exit(f'ERROR: Could not extract {self.tarball_path} '
                      f'to {self.output_path}')
@@ -168,7 +168,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
                 md5.update(data)
                 data = fh.read(buffer_size)
         if md5.hexdigest() == self.md5:
-            print(f'\t...md5 control database OK')
+            print('\t...md5 control database OK')
         else:
             print(f"Error: corrupt database file! "
                   f"calculated md5 = {md5.hexdigest()}"
