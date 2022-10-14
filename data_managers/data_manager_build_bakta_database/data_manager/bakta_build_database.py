@@ -8,9 +8,10 @@ import sys
 import tarfile
 from datetime import datetime
 from pathlib import Path
-from alive_progress import alive_bar
-import requests
+
 import bakta.constants as bc
+import requests
+from alive_progress import alive_bar
 import bakta.utils as bu
 
 
