@@ -10,9 +10,10 @@ from datetime import datetime
 from pathlib import Path
 
 import bakta.constants as bc
+import bakta.utils as bu
 import requests
 from alive_progress import alive_bar
-import bakta.utils as bu
+
 
 
 class GetBaktaDatabaseInfo:
