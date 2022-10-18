@@ -79,7 +79,9 @@ class GetBaktaDatabaseInfo:
                                     "doi": "10.5281/zenodo.7197299",
                                     "record": "7197299",
                                     "md5": "8b0250c17078742fc12207d4efb0fc1a",
-                                    "software-min": {"major": "0", "minor": "0"}}
+                                    "software-min": {"major": "0",
+                                                     "minor": "0"}
+                                    }
 
             else:
                 major_version = str(db_version.split(sep=".")[0])
@@ -87,15 +89,16 @@ class GetBaktaDatabaseInfo:
                 try:
                     filtered_version = next(
                         item for item in versions
-                        if item["major"] == major_version
-                        and item["minor"] == minor_version)
+                        if str(item["major"]) == major_version
+                        and str(item["minor"]) == minor_version)
                 except StopIteration:
                     print("No available version detected in the list")
                     filtered_version = None
-            self.db_url = f"https://zenodo.org/record/" \
-                          f"{filtered_version['record']}/files/db.tar.gz"
-            self.db_version = db_version
-            return filtered_version
+            if filtered_version is not None:
+                self.db_url = f"https://zenodo.org/record/" \
+                              f"{filtered_version['record']}/files/db.tar.gz"
+                self.db_version = db_version
+                return filtered_version
 
     def get_data_manager(self, bakta_database_info):
         self.bakta_table_list = self.get_data_table_format()
