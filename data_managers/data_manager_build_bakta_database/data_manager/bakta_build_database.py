@@ -14,6 +14,7 @@ import bakta.utils as bu
 import requests
 from alive_progress import alive_bar
 
+
 class GetBaktaDatabaseInfo:
     """
     Extract bakta database information to make a json file for data_manager
