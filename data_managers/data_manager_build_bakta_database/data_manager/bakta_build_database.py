@@ -14,7 +14,6 @@ import bakta.utils as bu
 import requests
 from alive_progress import alive_bar
 
-
 class GetBaktaDatabaseInfo:
     """
     Extract bakta database information to make a json file for data_manager
@@ -74,16 +73,16 @@ class GetBaktaDatabaseInfo:
                                         if max(db_date_list))
             elif db_version == "test":
                 filtered_version = {"date": "date_test",
-                                    "major": 0,
-                                    "minor": 0,
+                                    "major": "0",
+                                    "minor": "0",
                                     "doi": "10.5281/zenodo.7197299",
                                     "record": "7197299",
                                     "md5": "8b0250c17078742fc12207d4efb0fc1a",
-                                    "software-min": {"major": 0, "minor": 0}}
+                                    "software-min": {"major": "0", "minor": "0"}}
 
             else:
-                major_version = int(db_version.split(sep=".")[0])
-                minor_version = int(db_version.split(sep=".")[1])
+                major_version = str(db_version.split(sep=".")[0])
+                minor_version = str(db_version.split(sep=".")[1])
                 try:
                     filtered_version = next(
                         item for item in versions
@@ -103,7 +102,7 @@ class GetBaktaDatabaseInfo:
                                f"{bakta_database_info['minor']}",
                          dbkey=bakta_database_info['date'],
                          database_record=bakta_database_info['record'],
-                         bakta_version=float(
+                         bakta_version=str(
                              f"{bakta_database_info['software-min']['major']}."
                              f"{bakta_database_info['software-min']['minor']}"
                          ), path=self.output_path.as_posix())
