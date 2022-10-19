@@ -22,13 +22,13 @@ class GetBaktaDatabaseInfo:
 
     def __init__(self,
                  data_table_name="bakta_database",
-                 output_path=Path.cwd().joinpath("db"),
+                 db_name=Path.cwd().joinpath("db"),
                  db_version="latest"):
         self.bakta_table_list = None
         self.db_url = None
         self.data_table_entry = None
         self.data_table_name = data_table_name
-        self.output_path = output_path
+        self.db_name = db_name
         self.db_version = db_version
 
     def get_data_table_format(self):
@@ -102,16 +102,16 @@ class GetBaktaDatabaseInfo:
 
     def get_data_manager(self, bakta_database_info):
         self.bakta_table_list = self.get_data_table_format()
-        data_info = dict(value=f"bakta_{bakta_database_info['major']}."
-                               f"{bakta_database_info['minor']}",
+        bakta_value = f"bakta_{bakta_database_info['major']}." \
+                      f"{bakta_database_info['minor']}"
+        data_info = dict(value=bakta_value,
                          dbkey=bakta_database_info['date'],
                          database_record=bakta_database_info['record'],
                          bakta_version=str(
                              f"{bakta_database_info['software-min']['major']}."
                              f"{bakta_database_info['software-min']['minor']}"
-                         ), path=self.output_path.as_posix())
-        toto = self.bakta_table_list["data_tables"][self.data_table_name]
-        toto.append(data_info)
+                         ), path=bakta_value)
+        self.bakta_table_list["data_tables"][self.data_table_name].append(data_info)
         return self.bakta_table_list
 
 
@@ -123,18 +123,26 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
     """
 
     def __init__(self,
-                 output_path=Path.cwd().joinpath("db"),
-                 tarball_path=Path.cwd().joinpath("db.tar.gz")
-                 ):
+                 db_dir=Path.cwd(),
+                 db_name="bakta",
+                 tarball_name="db.tar.gz"):
         super().__init__()
         self.md5 = None
-        self.output_path = output_path
-        self.tarball_path = tarball_path
+        self.db_dir = db_dir
+        self.db_name = db_name
+        self.tarball_name = tarball_name
         bu.test_dependency(bu.DEPENDENCY_AMRFINDERPLUS)
 
     def download(self):
+        self.db_name = f'{self.db_name}_{self.db_version}'
         try:
-            with self.tarball_path.open('wb') as fh_out, \
+            Path.mkdir(Path(self.db_dir))
+        except FileExistsError:
+            print(f"{self.db_dir} path exist, downloading {self.tarball_name}")
+        bakta_path = Path(self.db_dir).joinpath(self.tarball_name)
+
+        try:
+            with bakta_path.open('wb') as fh_out, \
                     requests.get(self.db_url, stream=True) as resp:
                 total_length = resp.headers.get('content-length')
                 if total_length is None:  # no content length header
@@ -151,22 +159,25 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
             print(f'Download bakta database {self.db_version}')
         except IOError:
             print(f'ERROR: Could not download file from Zenodo!'
-                  f' url={self.db_url}, path={self.output_path}')
+                  f' url={self.db_url}, path={self.tarball_name}')
 
     def untar(self):
+        tarball_path = Path(self.db_dir).joinpath(self.tarball_name)
+        db_path = Path(self.db_dir).joinpath(self.db_name)
         try:
-            with self.tarball_path.open('rb') as fh_in, \
+            with tarball_path.open('rb') as fh_in, \
                     tarfile.open(fileobj=fh_in, mode='r:gz') as tar_file:
-                tar_file.extractall(path=str(self.output_path))
-                print('Untar the database')
+                tar_file.extractall(path=str(db_path))
+                print(f'Untar the database in {db_path}')
         except OSError:
-            sys.exit(f'ERROR: Could not extract {self.tarball_path} '
-                     f'to {self.output_path}')
+            sys.exit(f'ERROR: Could not extract {self.tarball_name} '
+                     f'to {self.db_name}')
 
     def calc_md5_sum(self, buffer_size=1048576):
+        tarball_path = Path(self.db_dir).joinpath(self.tarball_name)
         self.md5 = self.fetch_db_versions(db_version=self.db_version)["md5"]
         md5 = hashlib.md5()
-        with self.tarball_path.open('rb') as fh:
+        with tarball_path.open('rb') as fh:
             data = fh.read(buffer_size)
             while data:
                 md5.update(data)
@@ -179,7 +190,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
                   f" different from {self.md5} ")
 
     def update_amrfinderplus_db(self):
-        amrfinderplus_db_path = f"{self.output_path}/db/amrfinderplus-db"
+        amrfinderplus_db_path = f"{self.db_dir}/{self.db_name}/db/amrfinderplus-db"
         if self.db_version == "test":
             cmd = [
                 'amrfinder_update',
@@ -217,11 +228,6 @@ def parse_arguments():
                                  'default is the latest version',
                             default="latest",
                             required=True)
-    arg_parser.add_argument("-o",
-                            "--output",
-                            help='output path '
-                                 '(default = current working directory)',
-                            default=Path.cwd(), required=False)
     return arg_parser.parse_args()
 
 
@@ -240,7 +246,7 @@ def main():
     bakta_upload = InstallBaktaDatabase()
     bakta_db = bakta_upload.fetch_db_versions(
         db_version=all_args.database_version)
-    bakta_upload.output_path = all_args.output
+    bakta_upload.db_dir = target_dir
     bakta_data_manager = bakta_upload.get_data_manager(bakta_db)
     bakta_upload.download()
     bakta_upload.calc_md5_sum()
