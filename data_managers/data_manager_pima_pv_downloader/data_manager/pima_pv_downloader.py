@@ -3,7 +3,6 @@ import datetime
 import json
 import os
 import sys
-
 from urllib.request import Request, urlopen
 
 
