@@ -49,10 +49,64 @@
         #set $tags_file = $tags
     #end if
 #end if
-     arriba 
-    -x '$input'
-    #if $chimeric
-        -c '$chimeric'
+
+## Link in fastq files so they have appropriate extensions
+#if str($input_params.input_source) != "use_bam":
+    #if $input_params.left_fq.is_of_type("fastq.gz"):
+        #set read1 = 'input_1.fastq.gz'
+    #else:
+        #set read1 = 'input_1.fastq'
+    #end if
+    ln -f -s '${input_params.left_fq}' ${read1} &&
+
+    #if $input_params.right_fq:
+        #if $input_params.right_fq.is_of_type("fastq.gz"):
+            #set read2 = 'input_2.fastq.gz'
+        #else:
+            #set read2 = 'input_2.fastq'
+        #end if
+        ln -f -s '${input_params.right_fq}' ${read2} &&
+    #end if
+#end if
+
+## Run STAR if BAM is not provided
+#if str($input_params.input_source) != "use_bam":
+    ## Create temporary index for custom reference
+    mkdir -p tempstargenomedir &&
+    STAR
+        --runMode genomeGenerate
+        --genomeDir 'tempstargenomedir'
+        --genomeFastaFiles '$genome_assembly'
+        --sjdbOverhang 250
+        --sjdbGTFfile genome.gtf
+        --runThreadN \${GALAXY_SLOTS:-4}
+    &&
+    STAR
+        --runThreadN \${GALAXY_SLOTS:-1}
+        --genomeDir tempstargenomedir
+        --genomeLoad NoSharedMemory
+        --readFilesIn ${read1}
+        #if $input_params.right_fq:
+            ${read2}
+        #end if
+        #if $input_params.right_fq.is_of_type("fastq.gz"):
+            --readFilesCommand zcat
+        #end if
+        --outStd BAM_Unsorted --outSAMtype BAM Unsorted --outSAMunmapped Within --outBAMcompression 0 
+        --outFilterMultimapNmax 50 --peOverlapNbasesMin 10 --alignSplicedMateMapLminOverLmate 0.5 --alignSJstitchMismatchNmax 5 -1 5 5 
+        --chimSegmentMin 10 --chimOutType WithinBAM HardClip --chimJunctionOverhangMin 10 --chimScoreDropMax 30 
+        --chimScoreJunctionNonGTAG 0 --chimScoreSeparation 1 --chimSegmentReadGapMax 3 --chimMultimapNmax 50 |
+#end if
+
+## Run arriba
+arriba 
+    #if str($input_params.input_source) == "use_bam":
+        -x '$input_params.input'
+        #if $input_params.chimeric
+            -c '$input_params.chimeric'
+        #end if
+    #else
+        -x /dev/stdin
     #end if
     -a '$genome_assembly'
     -g 'genome.gtf'
@@ -171,12 +225,36 @@
 #end if
     ]]></command>
     <inputs>
-        <param name="input" argument="-x" type="data" format="sam,bam,cram" label="STAR Aligned.out.sam">
-            <help><![CDATA[ recommended STAR options: --chimSegmentMin 10 --chimOutType WithinBAM ]]></help>
-        </param>
-        <param name="chimeric" argument="-c" type="data" format="sam,bam,cram" optional="true" label="STAR Chimeric.out.sam">
-            <help><![CDATA[ only required, if STAR was run with the parameter '--chimOutType SeparateSAMold' ]]></help>
-        </param>
+        <conditional name="input_params">
+            <param name="input_source"
+                   type="select"
+                   label="Use output from earlier STAR run or let Arriba control running STAR">
+                <option value="use_bam">Use output from earlier STAR</option>
+                <option value="use_fastq">Let Arriba control running STAR</option>
+            </param>
+            <when value="use_bam">
+                <param name="input" argument="-x" type="data" format="sam,bam,cram" label="STAR Aligned.out.sam">
+                    <help><![CDATA[ recommended STAR options: --chimSegmentMin 10 --chimOutType WithinBAM ]]></help>
+                </param>
+                <param name="chimeric" argument="-c" type="data" format="sam,bam,cram" optional="true" label="STAR Chimeric.out.sam">
+                    <help><![CDATA[ only required, if STAR was run with the parameter '--chimOutType SeparateSAMold' ]]></help>
+                </param>
+            </when>
+            <when value="use_fastq">
+                <param name="left_fq"
+                       type="data"
+                       format="fastqsanger,fastqsanger.gz"
+                       argument="--left_fq"
+                       label="left.fq file"/>
+                <param name="right_fq"
+                       type="data"
+                       format="fastqsanger,fastqsanger.gz"
+                       optional="true"
+                       argument="--right_fq"
+                       label="right.fq file (actually optional, but highly recommended)"/>
+            </when>
+        </conditional>
+
         <expand macro="genome_source" />
         <expand macro="gtf_source" />
         <param name="blacklist" argument="-b" type="data" format="tabular,tabular.gz" optional="true" label="File containing blacklisted ranges."/>
@@ -451,6 +529,7 @@
     <tests>
         <!-- Test 1 - From exisitng BAM -->
         <test> 
+            <param name="input_source" value="use_bam" />
             <param name="input" ftype="sam" value="Aligned.out.sam"/>
             <conditional name="genome">
                 <param name="genome_source" value="history"/>
@@ -473,6 +552,7 @@
         </test>
         <!-- Test 2 - From exisitng BAM with protein_domains and visualization -->
         <test> 
+            <param name="input_source" value="use_bam" />
             <param name="input" ftype="sam" value="Aligned.out.sam"/>
             <conditional name="genome">
                 <param name="genome_source" value="history"/>
@@ -498,7 +578,56 @@
                 </assert_contents>
             </output>
         </test>
+        <!-- Test 3 - Let Arriba control STAR with fastq.gz reads-->
+        <test> 
+            <param name="input_source" value="use_fastq" />
+            <param name="left_fq" ftype="fastqsanger.gz" value="read1.fastq.gz"/>
+            <param name="right_fq" ftype="fastqsanger.gz" value="read2.fastq.gz"/>
 
+            <conditional name="genome">
+                <param name="genome_source" value="history"/>
+                <param name="assembly" ftype="fasta" value="genome.fasta.gz"/>
+            </conditional>
+            <conditional name="genome_gtf">
+                <param name="gtf_source" value="history"/>
+                <param name="annotation" ftype="gtf" value="genome.gtf.gz"/>
+            </conditional>
+            <param name="protein_domains" ftype="gff3" value="protein_domains.gff3"/>
+            <conditional name="visualization">
+                <param name="do_viz" value="no"/>
+                <param name="cytobands" ftype="tabular" value="cytobands.tsv"/>
+            </conditional>
+            <output name="fusions_tsv">
+                <assert_contents>
+                    <has_text_matching expression="BCR\tABL1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 4 - Let Arriba control STAR with fastq reads -->
+        <test> 
+            <param name="input_source" value="use_fastq" />
+            <param name="left_fq" ftype="fastqsanger" value="read1.fastq"/>
+            <param name="right_fq" ftype="fastqsanger" value="read2.fastq"/>
+
+            <conditional name="genome">
+                <param name="genome_source" value="history"/>
+                <param name="assembly" ftype="fasta" value="genome.fasta.gz"/>
+            </conditional>
+            <conditional name="genome_gtf">
+                <param name="gtf_source" value="history"/>
+                <param name="annotation" ftype="gtf" value="genome.gtf.gz"/>
+            </conditional>
+            <param name="protein_domains" ftype="gff3" value="protein_domains.gff3"/>
+            <conditional name="visualization">
+                <param name="do_viz" value="no"/>
+                <param name="cytobands" ftype="tabular" value="cytobands.tsv"/>
+            </conditional>
+            <output name="fusions_tsv">
+                <assert_contents>
+                    <has_text_matching expression="BCR\tABL1"/>
+                </assert_contents>
+            </output>
+        </test>
     </tests>
     <help><![CDATA[
 **Arriba**
