@@ -1,4 +1,4 @@
-<tool id="vapor" name="VAPOR" version="@TOOL_VERSION@+galaxy1" profile="21.05">
+<tool id="vapor" name="VAPOR" version="@TOOL_VERSION@+galaxy2" profile="21.05">
     <description>
         Classify Influenza samples from raw short read sequence data
     </description>
@@ -12,18 +12,20 @@
         <requirement type="package" version="@TOOL_VERSION@">vapor</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-        #set $fastq_files = []
-        mkdir fastq_files &&
-        #for $i, $fastq in enumerate($fastq_file)
-            #if $fastq.ext.endswith(".gz")
-                #set $ext='.fastq.gz'
-            #else
-                #set $ext='.fastq'
-            #end if
-            #set $out = './fastq_files/input_%s%s' % ($i, $ext)
-            ln -s '${fastq}' $out &&
-            $fastq_files.append($out)
-        #end for
+        #if str($fastq_input.fastq_input_selector) == "paired"
+            #set r1_ext = $fastq_input.fastq1.extension
+            #set r2_ext = $fastq_input.fastq2.extension
+            ln -s '$fastq_input.fastq1' fastq1.$r1_ext &&
+            ln -s '$fastq_input.fastq2' fastq2.$r2_ext &&
+        #elif str($fastq_input.fastq_input_selector) == "paired_collection"
+            #set r1_ext = $fastq_input.fastq_pairs.forward.extension
+            #set r2_ext = $fastq_input.fastq_pairs.reverse.extension
+            ln -s '$fastq_input.fastq_pairs.forward' fastq1.$r1_ext &&
+            ln -s '$fastq_input.fastq_pairs.reverse' fastq2.$r2_ext &&
+        #else
+            #set r1_ext = $fastq_input.fastq_single.extension
+            ln -s '$fastq_input.fastq_single' fastq1.$r1_ext &&
+        #end if
         vapor.py
             --return_best_n $opt.return_best_n
             #if $output_type == "fasta"
@@ -35,16 +37,33 @@
             -m '$opt.min_kmer_prop'
             -fa '$fasta_file'
             -fq 
-            #for $fq in $fastq_files
-                '${fq}'
-            #end for
+            fastq1.$r1_ext
+            #if str($fastq_input.fastq_input_selector) in ["paired", "paired_collection"]
+                fastq2.$r2_ext
+            #end if
             -f '$opt.top_seed_frac'
             -q
         > out_file
     ]]>    </command>
     <inputs>
         <param name="fasta_file" format="fasta" type="data" label="FASTA file" help="Raw short read sequences (full length reference segment sequences)" />
-        <param name="fastq_file" format="fastq,fastq.gz,fastqsanger,fastqsanger.gz" type="data" multiple="true" label="FASTQ file(s)" help="WGS reads" />
+        <conditional name="fastq_input">
+            <param name="fastq_input_selector" type="select" label="Single or Paired-end reads" help="Select between paired and single end data">
+                <option value="single">Single</option>
+                <option value="paired">Paired</option>
+                <option value="paired_collection">Paired Collection</option>
+            </param>
+            <when value="single">
+                <param name="fastq_single" format="fastqsanger,fastqsanger.gz" type="data" label="FASTQ file" help="Raw short read sequences (full length reference segment sequences)" />
+            </when>
+            <when value="paired">
+                <param name="fastq1" type="data" format="fastqsanger,fastqsanger.gz" label="Select first set of reads" help="Specify reads dataset with forward reads"/>
+                <param name="fastq2" type="data" format="fastqsanger,fastqsanger.gz" label="Select second set of reads" help="Specify reads dataset with reverse reads"/>
+            </when>
+            <when value="paired_collection">
+                <param name="fastq_pairs" format="fastqsanger,fastqsanger.gz" type="data_collection" collection_type="paired" label="Select a paired collection" help="Dataset collection with forward and reverse reads"/>
+            </when>
+        </conditional>
         <param name="output_type" type="select" label="Output type">
             <option value="scores" selected="true">Return scores only</option>
             <option value="fasta">Return FASTA only</option>
@@ -70,29 +89,37 @@
         </data>
     </outputs>
     <tests>
-        <test expect_num_outputs="1"><!-- Test 1: fastq -->
+        <test expect_num_outputs="1">
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="single" />
+                <param name="fastq_single" ftype="fastq" value="test_reads.fq" />
+            </conditional>
             <param name="fasta_file" value="HA_sample.fa" />
-            <param name="fastq_file" ftype="fastq" value="test_reads.fq" />
-            <output name="output_scores" file="output1.tab" />
-        </test>
-        <test expect_num_outputs="1"><!-- Test 2: multiple fastq -->
-            <param name="fasta_file" value="HA_sample.fa" />
-            <param name="fastq_file" ftype="fastq" value="test_reads.fq,test_reads2.fq" />
-            <output name="output_scores" file="output2.tab" />
-        </test>
-        <test expect_num_outputs="1"><!-- Test 3: fastqsanger.gz -->
-            <param name="fasta_file" value="HA_sample.fa" />
-            <param name="fastq_file" ftype="fastqsanger.gz" value="test_reads.fastqsanger.gz" />
-            <output name="output_scores" file="output1.tab" />
-        </test>
-        <test expect_num_outputs="1"><!-- Test 4: opt -->
-            <param name="fasta_file" value="HA_sample.fa" />
-            <param name="fastq_file" value="test_reads.fastqsanger.gz" />
             <output name="output_scores" file="output1.tab" />
         </test>
         <test expect_num_outputs="1">
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="paired" />
+                <param name="fastq1" ftype="fastq" value="test_reads.fq" />
+                <param name="fastq2" ftype="fastq" value="test_reads2.fq" />
+            </conditional>
             <param name="fasta_file" value="HA_sample.fa" />
-            <param name="fastq_file" value="test_reads.fq" />
+            <output name="output_scores" file="output2.tab" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="single" />
+                <param name="fastq_single" ftype="fastqsanger.gz" value="test_reads.fastqsanger.gz" />
+            </conditional>
+            <param name="fasta_file" value="HA_sample.fa" />
+            <output name="output_scores" file="output1.tab" />
+        </test>
+        <test expect_num_outputs="1">
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="single" />
+                <param name="fastq_single" value="test_reads.fq" />
+            </conditional>
+            <param name="fasta_file" value="HA_sample.fa" />
             <section name="opt">
                 <param name="kmer_length" value="29" />
                 <param name="score_threshold" value="0.5" />
@@ -102,9 +129,12 @@
             </section>
             <output name="output_scores" file="output4.tab" />
         </test>
-        <test expect_num_outputs="1"><!-- Test 5: fasta output-->
+        <test expect_num_outputs="1">
+            <conditional name="fastq_input">
+                <param name="fastq_input_selector" value="single" />
+                <param name="fastq_single" value="test_reads.fq" />
+            </conditional>
             <param name="fasta_file" value="HA_sample.fa" />
-            <param name="fastq_file" value="test_reads.fq" />
             <param name="output_type" value="fasta" />
             <section name="opt">
                 <param name="return_best_n" value="3" />
