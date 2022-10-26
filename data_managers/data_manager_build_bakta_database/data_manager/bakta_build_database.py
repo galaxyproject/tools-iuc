@@ -82,7 +82,6 @@ class GetBaktaDatabaseInfo:
                                     "software-min": {"major": "0",
                                                      "minor": "0"}
                                     }
-
             else:
                 major_version = str(db_version.split(sep=".")[0])
                 minor_version = str(db_version.split(sep=".")[1])
@@ -100,7 +99,7 @@ class GetBaktaDatabaseInfo:
                 self.db_version = db_version
                 return filtered_version
 
-    def get_data_manager(self, bakta_database_info):
+    def get_data_manager(self, bakta_database_info, output_path):
         self.bakta_table_list = self.get_data_table_format()
         bakta_value = f"bakta_{bakta_database_info['major']}." \
                       f"{bakta_database_info['minor']}"
@@ -110,7 +109,7 @@ class GetBaktaDatabaseInfo:
                          bakta_version=str(
                              f"{bakta_database_info['software-min']['major']}."
                              f"{bakta_database_info['software-min']['minor']}"
-                         ), path=bakta_value)
+                         ), path=output_path)
         self.bakta_table_list["data_tables"][self.data_table_name].append(data_info)
         return self.bakta_table_list
 
@@ -140,7 +139,6 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         except FileExistsError:
             print(f"{self.db_dir} path exist, downloading {self.tarball_name}")
         bakta_path = Path(self.db_dir).joinpath(self.tarball_name)
-
         try:
             with bakta_path.open('wb') as fh_out, \
                     requests.get(self.db_url, stream=True) as resp:
@@ -169,6 +167,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
                     tarfile.open(fileobj=fh_in, mode='r:gz') as tar_file:
                 tar_file.extractall(path=str(db_path))
                 print(f'Untar the database in {db_path}')
+                return(db_path.as_posix())
         except OSError:
             sys.exit(f'ERROR: Could not extract {self.tarball_name} '
                      f'to {self.db_name}')
@@ -206,8 +205,6 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
             ]
         proc = sp.run(
             cmd,
-            stdout=sp.PIPE,
-            stderr=sp.PIPE,
             universal_newlines=True
         )
         if proc.returncode != 0:
@@ -220,7 +217,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
 
 def parse_arguments():
     # parse options and arguments
-    arg_parser = argparse.ArgumentParser("data_manager_json")
+    arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("data_manager_json")
     arg_parser.add_argument("-d", "--database_version",
                             help='Select the database version '
@@ -233,27 +230,39 @@ def parse_arguments():
 
 def main():
     all_args = parse_arguments()
+
     with open(all_args.data_manager_json) as fh:
         data_manager_input = json.load(fh)
-        target_dir = data_manager_input['output_data'][0]['extra_files_path']
-        try:
-            os.mkdir(target_dir)
-        except OSError as exc:
-            if exc.errno == errno.EEXIST and os.path.isdir(target_dir):
-                pass
-            else:
-                raise
+    target_dir = data_manager_input.get("output_data", [{}])[0].get("extra_files_path", None)
+
+    try:
+        os.mkdir(target_dir)
+    except OSError as exc:
+        if exc.errno == errno.EEXIST and os.path.isdir(target_dir):
+            pass
+        else:
+            raise
+    # init the class to download bakta db
     bakta_upload = InstallBaktaDatabase()
+    # extract the version
     bakta_db = bakta_upload.fetch_db_versions(
         db_version=all_args.database_version)
+    # update the path for galaxy
     bakta_upload.db_dir = target_dir
-    bakta_data_manager = bakta_upload.get_data_manager(bakta_db)
+    print(target_dir)
+    # download the database
     bakta_upload.download()
+    # check md5 sum
     bakta_upload.calc_md5_sum()
-    bakta_upload.untar()
+    # untar db
+    bakta_extracted_path = bakta_upload.untar()
+    # update for amrfinderplus
     bakta_upload.update_amrfinderplus_db()
+    # make the data_manager metadata
+    bakta_data_manager = bakta_upload.get_data_manager(bakta_database_info=bakta_db, output_path=bakta_extracted_path)
     with open(all_args.data_manager_json, 'w') as fh:
-        json.dump(bakta_data_manager, fh, sort_keys=True)
+        json.dump(bakta_data_manager, fh, indent=2, sort_keys=True)
+    print(bakta_data_manager)
 
 
 if __name__ == '__main__':
