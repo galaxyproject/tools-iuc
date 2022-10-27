@@ -1,5 +1,4 @@
 import argparse
-import errno
 import hashlib
 import json
 import os
@@ -45,7 +44,7 @@ class GetBaktaDatabaseInfo:
         """
         self.data_table_entry = {
             "data_tables": {
-                self.data_table_name: []
+                self.data_table_name: {}
             }
         }
         return self.data_table_entry
@@ -110,7 +109,7 @@ class GetBaktaDatabaseInfo:
                              f"{bakta_database_info['software-min']['major']}."
                              f"{bakta_database_info['software-min']['minor']}"
                          ), path=output_path)
-        self.bakta_table_list["data_tables"][self.data_table_name].append(data_info)
+        self.bakta_table_list["data_tables"][self.data_table_name] = data_info
         return self.bakta_table_list
 
 
@@ -130,14 +129,11 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         self.db_dir = db_dir
         self.db_name = db_name
         self.tarball_name = tarball_name
+        self.tarball_path = None
         bu.test_dependency(bu.DEPENDENCY_AMRFINDERPLUS)
 
     def download(self):
         self.db_name = f'{self.db_name}_{self.db_version}'
-        try:
-            Path.mkdir(Path(self.db_dir))
-        except FileExistsError:
-            print(f"{self.db_dir} path exist, downloading {self.tarball_name}")
         bakta_path = Path(self.db_dir).joinpath(self.tarball_name)
         try:
             with bakta_path.open('wb') as fh_out, \
@@ -155,19 +151,19 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
                             fh_out.write(data)
                             bar(incr=len(data) / 1024)
             print(f'Download bakta database {self.db_version}')
+            self.tarball_path = bakta_path
         except IOError:
             print(f'ERROR: Could not download file from Zenodo!'
                   f' url={self.db_url}, path={self.tarball_name}')
 
     def untar(self):
-        tarball_path = Path(self.db_dir).joinpath(self.tarball_name)
         db_path = Path(self.db_dir).joinpath(self.db_name)
         try:
-            with tarball_path.open('rb') as fh_in, \
+            with self.tarball_path.open('rb') as fh_in, \
                     tarfile.open(fileobj=fh_in, mode='r:gz') as tar_file:
                 tar_file.extractall(path=str(db_path))
                 print(f'Untar the database in {db_path}')
-                return(db_path.as_posix())
+                return db_path.as_posix()
         except OSError:
             sys.exit(f'ERROR: Could not extract {self.tarball_name} '
                      f'to {self.db_name}')
@@ -233,15 +229,10 @@ def main():
 
     with open(all_args.data_manager_json) as fh:
         data_manager_input = json.load(fh)
-    target_dir = data_manager_input.get("output_data", [{}])[0].get("extra_files_path", None)
 
-    try:
-        os.mkdir(target_dir)
-    except OSError as exc:
-        if exc.errno == errno.EEXIST and os.path.isdir(target_dir):
-            pass
-        else:
-            raise
+    target_dir = data_manager_input['output_data'][0]['extra_files_path']
+    os.makedirs(target_dir)
+
     # init the class to download bakta db
     bakta_upload = InstallBaktaDatabase()
     # extract the version
@@ -249,7 +240,6 @@ def main():
         db_version=all_args.database_version)
     # update the path for galaxy
     bakta_upload.db_dir = target_dir
-    print(target_dir)
     # download the database
     bakta_upload.download()
     # check md5 sum
@@ -262,7 +252,6 @@ def main():
     bakta_data_manager = bakta_upload.get_data_manager(bakta_database_info=bakta_db, output_path=bakta_extracted_path)
     with open(all_args.data_manager_json, 'w') as fh:
         json.dump(bakta_data_manager, fh, indent=2, sort_keys=True)
-    print(bakta_data_manager)
 
 
 if __name__ == '__main__':
