@@ -1,359 +1,741 @@
-<tool id="spades" name="SPAdes" version="@TOOL_VERSION@+galaxy1">
-    <description>genome assembler for regular and single-cell projects</description>
-    <xrefs>
-        <xref type="bio.tools">spades</xref>
-    </xrefs>
+<tool id="spades" name="SPAdes" version="@TOOL_VERSION@+galaxy1" profile="20.01">
+    <description>genome assembler for genomes of regular and single-cell projects</description>
     <macros>
         <import>macros.xml</import>
     </macros>
-    <requirements>
-        <requirement type="package" version="@TOOL_VERSION@">spades</requirement>
-    </requirements>
-    <stdio>
-        <exit_code range="1:" />
-        <regex match="Cannot allocate memory"
-           source="stdout"
-           level="fatal_oom"
-           description="Out of memory error occurred" />
-        <regex match="The reads contain too many k-mers to fit into available memory"
-           source="stdout"
-           level="fatal_oom"
-           description="Out of memory error occurred" />
-    </stdio>
-    <command>
-    <![CDATA[
-    ## A real command looks like: spades.py -k 21,33,55,77,99,127 --careful -1 Y.fastq.gz -2 X.fastq.gz -t 24 -o output
+    <expand macro="requirements"/>
+    <expand macro="stdio"/>
+    <expand macro="version_command"/>
+    <command detect_errors="exit_code"><![CDATA[
 
-    if [ -n "\$GALAXY_MEMORY_MB" ]; then
-        GALAXY_MEMORY_GB=\$(( GALAXY_MEMORY_MB / 1024 ));
-    fi &&
+#set $library = 1
 
-    spades.py -o . --tmp-dir "\${TMPDIR:-.}" --disable-gzip-output $sc $onlyassembler $careful -t \${GALAXY_SLOTS:-16} -m \${GALAXY_MEMORY_GB:-250}
-    #if not $kmer_choice.auto_kmer_choice:
-        -k "$kmer_choice.kmers"
+@PREPROCESS_INPUT_FILES_MAIN@
+#if $additional_reads.selector == 'true'
+    @PREPROCESS_INPUT_FILES_ADDITIONAL@
+#end if
+@PREPROCESS_NANOPORE_PACBIO_FILES@
+@PREPROCESS_CONTIGS_FILES@
+@PREPROCESS_SANGER_FILES@
+
+@OMP_THREADS@
+## run
+spades.py
+    $operation_mode
+    -o 'output'    
+    @RESOURCES@
+    @INPUT_READS_MAIN@
+    #if $additional_reads.selector == 'true'
+        @INPUT_READS_ADDITIONAL@
     #end if
-    #if $cov.state == "auto":
-        --cov-cutoff 'auto'
-    #elif $cov.state == "value":
-        --cov-cutoff '$cov.cutoff'
+    ## additional reads
+    @NANOPORE_PACBIO@
+    @SANGER@
+    @CONTIGS@
+    ## parameter
+    #if $cov_cond.cov_cutoff == 'value':
+        --cov-cutoff $cov_cond.manual
+    #else:
+        --cov-cutoff $cov_cond.cov_cutoff
     #end if
-    $iontorrent
-    ## Sequence files, libraries
-    #for $i, $library in enumerate( $libraries, start=1 )
-        #if str( $library.lib_type ) == "paired_end":
-            #set prefix = 'pe'
-        #elif str( $library.lib_type ) == "mate_paired":
-            #set prefix = 'mp'
-        #elif str( $library.lib_type ) == "nxmate_paired":
-            #set prefix = 'nxmate'
-        #else:
-            #set prefix = 'hqmp'
-        #end if
-        --$prefix$i-$library.orientation
-        #for $file in $library.files
-            #if $file.file_type.type == "separate"
-                --$prefix$i-1 $file.file_type.fwd_reads.extension.replace('fastqsanger', 'fastq'):$file.file_type.fwd_reads
-                --$prefix$i-2 $file.file_type.fwd_reads.extension.replace('fastqsanger', 'fastq'):$file.file_type.rev_reads
-            #elif $file.file_type.type == "interleaved"
-                --$prefix$i-12 $file.file_type.interleaved_reads.extension.replace('fastqsanger', 'fastq'):$file.file_type.interleaved_reads
-            #elif $file.file_type.type == "merged"
-                --$prefix$i-m $file.file_type.merged_reads.extension.replace('fastqsanger', 'fastq'):$file.file_type.merged_reads
-            #elif $file.file_type.type == "unpaired"
-                --$prefix$i-s $file.file_type.unpaired_reads.extension.replace('fastqsanger', 'fastq'):$file.file_type.unpaired_reads
-            #elif $file.file_type.type == "paired-collection"
-                --$prefix$i-1 $file.file_type.fastq_collection.forward.extension.replace('fastqsanger', 'fastq'):$file.file_type.fastq_collection.forward
-                --$prefix$i-2 $file.file_type.fastq_collection.reverse.extension.replace('fastqsanger', 'fastq'):$file.file_type.fastq_collection.reverse
-            #end if
-        #end for
-    #end for
-    #for $read in $pacbio_reads:
-        #if $read:
-            --pacbio fastq:$read
-        #end if
-    #end for
-    #for $read in $nanopore_reads:
-        #if $read:
-            --nanopore fastq:$read
-        #end if
-    #end for
-    #for $read in $sanger_reads:
-        #if $read:
-            --sanger $read.extension.replace('fastqsanger', 'fastq'):$read
-        #end if
-    #end for
-    #for $contig in $trusted_contigs:
-        #if $contig:
-            --trusted-contigs $contig.extension.replace('fastqsanger', 'fastq'):$contig
-        #end if
-    #end for
-    #for $contig in $untrusted_contigs:
-        #if $contig:
-            --untrusted-contigs $contig.extension.replace('fastqsanger', 'fastq'):$contig
-        #end if
-    #end for
-    && python '$write_tsv_script' < contigs.fasta > '$out_contig_stats'
-    && python '$write_tsv_script' < scaffolds.fasta > '$out_scaffold_stats'
-    ]]>
-    </command>
+    @KMER@
+    @PIPELINE_OPTIONS@
+    @PHREDOFFSET@    
 
-    <configfiles>
-        <configfile name="write_tsv_script"><![CDATA[#!/usr/bin/env python
-import sys,re
-search_str = r'^>(NODE|\S+)_(\d+)(?:_|\s)length_(\d+)_cov_(\d+\.*\d*).*\$'
-replace_str = r'\1_\2\t\3\t\4'
-cmd = re.compile(search_str)
-sys.stdout.write('#name\tlength\tcoverage\n')
-for i,line in enumerate(sys.stdin):
-    if cmd.match(line):
-        sys.stdout.write(cmd.sub(replace_str,line))
-]]>
-         </configfile>
-    </configfiles>
-
+    ## postprocessing
+    @STATS@
+    @CORRECTED@
+    ]]></command>
     <inputs>
-        <param argument="--sc" falsevalue="" help="This option is required for MDA (single-cell) data." label="Single-cell?" name="sc" truevalue="--sc" type="boolean">
-            <option value="false">No</option>
-            <option value="true">Yes</option>
-        </param>
-        <param argument="--only-assembler" checked="False" falsevalue="" label="Run only assembly? (without read error correction)" name="onlyassembler" truevalue="--only-assembler" type="boolean" />
-        <param argument="--careful" checked="True" falsevalue="" help="Tries to reduce number of mismatches and short indels. Also runs MismatchCorrector &#8211; a post processing tool, which uses BWA tool (comes with SPAdes)." label="Careful correction?" name="careful" truevalue="--careful" type="boolean" />
-        <conditional name="kmer_choice">
-            <param checked="False" falsevalue="false" help="k-mer choices can be chosen by SPAdes instead of being entered manually" label="Automatically choose k-mer values" name="auto_kmer_choice" truevalue="true" type="boolean" />
-            <when value="false">
-                <param help="Comma-separated list of k-mer sizes to be used (all values must be odd, less than 128, listed in ascending order, and smaller than the read length). The default value is 21,33,55." label="K-mers to use, separated by commas" name="kmers" type="text" value="21,33,55" />
-            </when>
-            <when value="true" />
-        </conditional>
-        <conditional name="cov">
-            <param label="Coverage Cutoff" name="state" type="select">
-                <option value="off">Off</option>
-                <option value="value">User Specific</option>
-                <option value="auto">Auto</option>
-            </param>
-            <when value="off" />
-            <when value="value">
-                <param help="coverage cutoff value (a positive float number, or 'auto', or 'off') [default: 'off']" label="Coverage cutoff value" name="cutoff" type="float" value="" />
-            </when>
-            <when value="auto" />
-        </conditional>
-        <param checked="False" falsevalue="" label="Libraries are IonTorrent reads?" name="iontorrent" truevalue="--iontorrent" type="boolean" />
-        <repeat help="It is not possible to specify only mate-pair libraries. Scaffolds are not produced if neither a paired-end nor a mate-pair library is provided." min="1" max="9" name="libraries" title="Libraries">
-            <param label="Library type" name="lib_type" type="select">
-                <option value="paired_end">Paired-end / Single reads</option>
-                <option value="mate_paired">Mate pairs</option>
-                <option value="high_mate_paired">High Quality Mate pairs</option>
-                <option value="nxmate_paired">Lucigen NxMate pairs</option>
-            </param>
-            <param label="Orientation" name="orientation" type="select">
-                <option selected="true" value="fr"><![CDATA[-> <- (fr)]]></option>
-                <option value="rf"><![CDATA[<- -> (rf)]]></option>
-                <option value="ff"><![CDATA[-> -> (ff)]]></option>
-            </param>
-            <repeat min="1" name="files" title="Files">
-                <conditional name="file_type">
-                    <param label="Select file format" name="type" type="select">
-                        <option value="separate">Separate input files</option>
-                        <option value="interleaved">Interleaved files</option>
-                        <option value="merged">Merged files</option>
-                        <option value="unpaired">Unpaired/Single reads</option>
-                        <option value="paired-collection">Paired List Collection</option>
-                    </param>
-                    <when value="separate">
-                        <param format="@INTYPES@" help="FASTQ format" label="Forward reads" name="fwd_reads" type="data" />
-                        <param format="@INTYPES@" help="FASTQ format" label="Reverse reads" name="rev_reads" type="data" />
-                    </when>
-                    <when value="interleaved">
-                        <param format="@INTYPES@" help="FASTQ format" label="Interleaved paired reads" name="interleaved_reads" type="data" />
-                    </when>
-                    <when value="merged">
-                        <param format="@INTYPES@" help="FASTQ format" label="Merged paired reads" name="merged_reads" type="data" />
-                    </when>
-                    <when value="unpaired">
-                        <param format="@INTYPES@" help="FASTQ format" label="Unpaired reads" name="unpaired_reads" type="data" />
-                    </when>
-                    <when value="paired-collection">
-                        <param collection_type="paired" format="@INTYPES@" help="FASTQ format" label="Paired-end reads collection" name="fastq_collection" optional="false" type="data_collection" />
-                    </when>
-                </conditional>
-            </repeat>
-        </repeat>
-        <param optional="true" format="@INTYPES@" label="PacBio CLR reads" multiple="true" name="pacbio_reads" type="data" />
-        <param optional="true" format="@INTYPES@" label="Nanopore reads" multiple="true" name="nanopore_reads" type="data" />
-        <param optional="true" format="@INTYPES@" label="Sanger reads" multiple="true" name="sanger_reads" type="data" />
-        <param optional="true" format="@INTYPES@" label="Trusted contigs" multiple="true" name="trusted_contigs" type="data" />
-        <param optional="true" format="@INTYPES@" label="Untrusted contigs" multiple="true" name="untrusted_contigs" type="data" />
-        <param name="contig_graph_out" type="boolean" checked="False" label="Output final assembly graph (contigs)?" help="Will output the final assembly graph (contigs) in fastg format for visualisation" />
-        <param name="scaffold_graph_out" type="boolean" checked="False" label="Output final assembly graph with scaffolds?" help="Will output the final assembly graph with scaffold information in gfa format for visualisation" />
+        <expand macro="operation_mode" help="To run read error correction, reads should be in FASTQ format."/>
+        <expand macro="input_files_all" format="fastq,fastq.gz,fastqsanger.gz,fasta,fasta.gz" label="FASTA/FASTQ file(s)"/>
+        <expand macro="input_additional_files_all" format="fastq,fastq.gz,fastqsanger.gz,fasta,fasta.gz" label="FASTA/FASTQ file(s)"/>
+        <section name="arf" title="Additional read files">
+            <expand macro="nanopore_pacbio"/>
+            <expand macro="sanger"/>
+            <expand macro="contigs"/>
+        </section>
+        <expand macro="pipeline_options">
+            <option value="--sc">Single cell mode: required for MDA (single-cell) data (--sc)</option>
+            <option value="--isolate">Isolate: highly recommended for high-coverage isolate and multi-cell data (--isolate)</option>
+            <option value="--careful">Careful: ties to reduce the number of mismatches and short indels. Only recommended for small genomes (--careful)</option>
+            <option value="--iontorrent">Iontorrent: required when assembling IonTorrent data (--iontorrent)</option>
+        </expand>
+        <expand macro="covcutoff"/>
+        <expand macro="kmer" help="If --sc is set the default values are 21,33,55. For multicell datasets K values are automatically selected using maximum read length."/>        
+        <expand macro="phred"/>
+        <expand macro="optional_output"/>
     </inputs>
-
     <outputs>
-        <data format="tabular" label="${tool.name} on ${on_string}: contig stats" name="out_contig_stats" >
-            <actions>
-                <action name="column_names" type="metadata" default="name,length,coverage"/>
-            </actions>
-        </data>
-        <data format="tabular" label="${tool.name} on ${on_string}: scaffold stats" name="out_scaffold_stats" >
-            <actions>
-                <action name="column_names" type="metadata" default="name,length,coverage"/>
-            </actions>
-        </data>
-        <data format="fasta" from_work_dir="contigs.fasta" label="${tool.name} on ${on_string}: contigs (fasta)" name="out_contigs" />
-        <data format="fasta" from_work_dir="scaffolds.fasta" label="${tool.name} on ${on_string}: scaffolds (fasta)" name="out_scaffolds" />
-        <data format="txt" from_work_dir="spades.log" label="${tool.name} on ${on_string}: log" name="out_log" />
-        <data format="txt" from_work_dir="assembly_graph.fastg" label="${tool.name} on ${on_string}: assembly graph" name="contig_graph">
-            <filter>contig_graph_out</filter>
-        </data>
-        <data format="txt" from_work_dir="assembly_graph_with_scaffolds.gfa" label="${tool.name} on ${on_string}: assembly graph with scaffolds" name="scaffold_graph">
-            <filter>scaffold_graph_out</filter>
-        </data>
+        <expand macro="out_ag"/>
+        <expand macro="out_ags"/>
+        <expand macro="out_cn"/>
+        <expand macro="out_cp"/>
+        <expand macro="out_cr"/>
+        <expand macro="out_cs"/>
+        <expand macro="out_l"/>
+        <expand macro="out_sc"/>
+        <expand macro="out_sp"/>
+        <expand macro="out_ss"/>        
     </outputs>
     <tests>
-        <test> <!-- Test 1 - basic test with k=33 -->
-            <param name="sc" value="false" />
-            <param name="careful" value="false" />
-            <param name="kmers" value="33" />
-            <param name="lib_type" value="paired_end" />
-            <param ftype="fastq" name="fwd_reads" value="ecoli_1K_1.fq" />
-            <param ftype="fastq" name="rev_reads" value="ecoli_1K_2.fq" />
-            <output compare="re_match" file="kmer_33_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
-            <output name="out_contig_stats">
+        <!--
+        used in a test:
+            single library: 12, 1, 2
+            multiple libraries: s, pe#-12, pe#-1, pe#-2, pe#-<or>
+            k, phred-offset, disablerr, iontorrent, careful, isolate, only-assembler, only-error-correction, sc
+
+        not used in a test:
+            multiple libraries: pe#-m, pe#-s, mp#-12, mp#-1, mp#-2, mp#-<or>, mp#-s, hqmp#-12, hqmp#-1, hqmp#-2, hqmp#-s, hqmp#-<or>, nxmate#-1, nxmate-#2
+        -->
+
+        <!-- #1 single, interlaced, fastq.gz, default parameters -->
+        <test expect_num_outputs="4">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_interlaced"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <output name="out_ag">
                 <assert_contents>
-                    <has_text_matching expression="NODE_1\t1000"/>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="S.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
                 </assert_contents>
             </output>
         </test>
-        <test> <!-- Test 2 - basic test with k=33 fasta input -->
-            <param name="sc" value="false" />
-            <param name="onlyassembler" value="true"/>
-            <param name="careful" value="false" />
-            <param name="kmers" value="33" />
-            <param name="lib_type" value="paired_end" />
-            <param ftype="fasta" name="fwd_reads" value="ecoli_1K_1.fasta" />
-            <param ftype="fasta" name="rev_reads" value="ecoli_1K_2.fasta" />
-            <output compare="re_match" file="kmer_33_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
-            <output name="out_contig_stats">
+        <!-- #2 single, separate, fastq, custom parameters  -->
+        <test expect_num_outputs="9">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="ecoli_1K_1.fastq.gz"/>
+                <param name="input2" value="ecoli_1K_2.fastq.gz"/>
+            </conditional>
+            <param name="mode_sel" value="--isolate,--disable-rr,--iontorrent"/>
+            <conditional name="cov_cond">
+                <param name="cov_cutoff" value="auto"/>
+            </conditional>
+            <conditional name="kmer_cond">
+                <param name="kmer_sel" value="manual"/>
+                <param name="manual" value="33"/>
+            </conditional>
+            <param name="phred_offset" value="33"/>
+            <param name="optional_output" value="ag,ags,cn,cp,cs,sc,sp,ss,l"/>
+            <output name="out_ag">
                 <assert_contents>
-                    <has_text_matching expression="NODE_1\t1000"/>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_text_matching expression="S.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cp">
+                <assert_contents>
+                    <has_n_lines n="0"/>
+                </assert_contents>
+            </output>
+            <output name="out_cs">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="#name&#009;length&#009;coverage"/>
+                    <has_text_matching expression="NODE_1&#009;1000&#009;225.723888"/>
+                </assert_contents>
+            </output>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression="Thank you for using SPAdes!"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="0"/>
+                </assert_contents>
+            </output>
+            <output name="out_sp">
+                <assert_contents>
+                    <has_n_lines n="0"/>
+                </assert_contents>
+            </output>
+            <output name="out_ss">
+                <assert_contents>
+                    <has_n_lines n="0"/>
                 </assert_contents>
             </output>
         </test>
-        <test> <!-- Test 3 - basic test with k=33 and gzipped input -->
-            <param name="sc" value="false" />
-            <param name="careful" value="false" />
-            <param name="kmers" value="33" />
-            <param name="lib_type" value="paired_end" />
-            <param ftype="fastq.gz" name="fwd_reads" value="ecoli_1K_1.fq.gz" />
-            <param ftype="fastq.gz" name="rev_reads" value="ecoli_1K_2.fq.gz" />
-            <output compare="re_match" file="kmer_33_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
-            <output name="out_contig_stats">
+        <!-- #3 single, separate, fasta, default parameters -->
+        <test expect_num_outputs="4">
+            <param name="operation_mode" value="--only-assembler"/>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="ecoli_1K_1.fastq.gz"/>
+                <param name="input2" value="ecoli_1K_2.fastq.gz"/>
+            </conditional>
+            <output name="out_ag">
                 <assert_contents>
-                    <has_text_matching expression="NODE_1\t1000"/>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="S.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
                 </assert_contents>
             </output>
         </test>
-        <test> <!-- Test 4 - auto k -->
-            <param name="sc" value="false" />
-            <param name="careful" value="false" />
-            <param name="auto_kmer_choice" value="true" />
-            <param name="lib_type" value="paired_end" />
-            <param ftype="fastq" name="fwd_reads" value="ecoli_1K_1.fq" />
-            <param ftype="fastq" name="rev_reads" value="ecoli_1K_2.fq" />
-            <output compare="re_match" file="auto_kmer_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
-        </test>
-        <test> <!-- Test 5 - k=77 -->
-            <param name="sc" value="false" />
-            <param name="careful" value="false" />
-            <param name="kmers" value="77" />
-            <param name="lib_type" value="paired_end" />
-            <param ftype="fastq" name="fwd_reads" value="ecoli_1K_1.fq" />
-            <param ftype="fastq" name="rev_reads" value="ecoli_1K_2.fq" />
-            <output compare="re_match" file="kmer_77_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
-        </test>
-        <test> <!-- Test 6 - test for extra graph outputs -->
-            <param name="sc" value="false" />
-            <param name="careful" value="false" />
-            <param name="kmers" value="33" />
-            <param name="lib_type" value="paired_end" />
-            <param ftype="fastq" name="fwd_reads" value="ecoli_1K_1.fq" />
-            <param ftype="fastq" name="rev_reads" value="ecoli_1K_2.fq" />
-            <param name="contig_graph_out" value="true" />
-            <param name="scaffold_graph_out" value="true" />
-            <output compare="re_match" file="kmer_33_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
-            <output name="out_contig_stats">
+        <!-- #4 multiple, single & paired-end within same library: careful mode -->
+        <test expect_num_outputs="4">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="single"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <conditional name="additional_reads">
+                <param name="selector" value="true"/>
+                <conditional name="singlePaired">
+                    <param name="sPaired" value="paired"/>
+                    <param name="input1" value="ecoli_1K_1.fastq.gz"/>
+                    <param name="input2" value="ecoli_1K_2.fastq.gz"/>
+                </conditional>
+            </conditional>
+            <param name="mode_sel" value="--careful"/>
+            <output name="out_ag">
                 <assert_contents>
-                    <has_text_matching expression="NODE_1\t1000"/>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_.+"/>
                 </assert_contents>
             </output>
-            <output name="contig_graph">
+            <output name="out_ags">
                 <assert_contents>
-                    <has_text text=">EDGE_"/>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="S.+"/>
                 </assert_contents>
             </output>
-            <output name="scaffold_graph">
+            <output name="out_cn">
                 <assert_contents>
-                    <has_text text="NODE_"/>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
                 </assert_contents>
             </output>
         </test>
-        <test> <!-- Test 7 - basic test with k=33 and fastsanger input -->
-            <param name="sc" value="false" />
-            <param name="careful" value="false" />
-            <param name="kmers" value="33" />
-            <param name="lib_type" value="paired_end" />
-            <param ftype="fastqsanger" name="fwd_reads" value="ecoli_1K_1.fq" />
-            <param ftype="fastqsanger" name="rev_reads" value="ecoli_1K_2.fq" />
-            <output compare="re_match" file="kmer_33_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
-            <output name="out_contig_stats">
+        <!-- #5 multiple, single & paired-end in different libraries -->
+        <test expect_num_outputs="4">
+            <param name="operation_mode" value="--only-assembler"/>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="single"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <conditional name="additional_reads">
+                <param name="selector" value="true"/>
+                <conditional name="singlePaired">
+                    <param name="sPaired" value="paired"/>
+                    <param name="input1" value="ecoli_1K_1.fastq.gz"/>
+                    <param name="input2" value="ecoli_1K_2.fastq.gz"/>
+                </conditional>
+            </conditional>
+            <param name="mode_sel" value="--careful"/>
+            <output name="out_ag">
                 <assert_contents>
-                    <has_text_matching expression="NODE_1\t1000"/>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="S.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
                 </assert_contents>
             </output>
         </test>
-        <test> <!-- Test 8 - basic test with k=33 and fastsanger.gz input -->
-            <param name="sc" value="false" />
-            <param name="careful" value="false" />
-            <param name="kmers" value="33" />
-            <param name="lib_type" value="paired_end" />
-            <param ftype="fastqsanger.gz" name="fwd_reads" value="ecoli_1K_1.fq.gz" />
-            <param ftype="fastqsanger.gz" name="rev_reads" value="ecoli_1K_2.fq.gz" />
-            <output compare="re_match" file="kmer_33_output.fa" ftype="fasta" lines_diff="1" name="out_contigs" />
-            <output name="out_contig_stats">
+        <!-- #6 only corrected reads are created as an output -->
+        <test expect_num_outputs="2">
+            <param name="operation_mode" value="--only-error-correction"/>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_interlaced"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <param name="mode_sel" value="--careful"/>
+            <param name="optional_output" value="cr,l"/>
+            <output_collection name="out_cr" type="list" count="3">
+                <element name="ecoli_1K.fastq.gz_1.00.0_0">
+                    <assert_contents>
+                        <has_size value="130317" delta="5000"/>
+                    </assert_contents>
+                </element>
+                <element name="ecoli_1K.fastq.gz_2.00.0_0">
+                    <assert_contents>
+                        <has_size value="130317" delta="5000"/>
+                    </assert_contents>
+                </element>
+                <element name="ecoli_1K.fastq.gz__unpaired.00.0_0">
+                    <assert_contents>
+                        <has_size value="20" delta="5"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_l">
                 <assert_contents>
-                    <has_text_matching expression="NODE_1\t1000"/>
+                    <has_text_matching expression="Thank you for using SPAdes!"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #7 only corrected reads are created as an output -->
+        <test expect_num_outputs="2">
+            <param name="operation_mode" value="--only-error-correction"/>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_interlaced"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <param name="mode_sel" value="--careful,--sc"/>
+            <param name="optional_output" value="cr,l"/>
+            <output_collection name="out_cr" type="list" count="3">
+                <element name="ecoli_1K.fastq.gz_1.00.0_0">
+                    <assert_contents>
+                        <has_size value="130317" delta="5000"/>
+                    </assert_contents>
+                </element>
+                <element name="ecoli_1K.fastq.gz_2.00.0_0">
+                    <assert_contents>
+                        <has_size value="130317" delta="5000"/>
+                    </assert_contents>
+                </element>
+                <element name="ecoli_1K.fastq.gz__unpaired.00.0_0">
+                    <assert_contents>
+                        <has_size value="20" delta="5"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression="Thank you for using SPAdes!"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #8 -->
+        <test expect_num_outputs="4">
+            <param name="operation_mode" value="--only-assembler"/>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_interlaced"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <param name="mode_sel" value="--sc"/>
+            <output name="out_ag">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_7_length_1000_cov_140.639153"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="S.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #9 only corrected reads are created as an output -->
+        <test expect_num_outputs="2">
+            <param name="operation_mode" value="--only-error-correction"/>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_interlaced"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <param name="optional_output" value="cr,l"/>
+            <output_collection name="out_cr" type="list" count="3">
+                <element name="ecoli_1K.fastq.gz_1.00.0_0">
+                    <assert_contents>
+                        <has_size value="130317" delta="5000"/>
+                    </assert_contents>
+                </element>
+                <element name="ecoli_1K.fastq.gz_2.00.0_0">
+                    <assert_contents>
+                        <has_size value="130317" delta="5000"/>
+                    </assert_contents>
+                </element>
+                <element name="ecoli_1K.fastq.gz__unpaired.00.0_0">
+                    <assert_contents>
+                        <has_size value="20" delta="5"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression="Thank you for using SPAdes!"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #10 only corrected reads are created as an output -->
+        <test expect_num_outputs="2">
+            <param name="operation_mode" value="--only-error-correction"/>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_interlaced"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <param name="mode_sel" value="--sc"/>
+            <param name="optional_output" value="cr,l"/>
+            <output_collection name="out_cr" type="list" count="3">
+                <element name="ecoli_1K.fastq.gz_1.00.0_0">
+                    <assert_contents>
+                        <has_size value="130317" delta="5000"/>
+                    </assert_contents>
+                </element>
+                <element name="ecoli_1K.fastq.gz_2.00.0_0">
+                    <assert_contents>
+                        <has_size value="130317" delta="5000"/>
+                    </assert_contents>
+                </element>
+                <element name="ecoli_1K.fastq.gz__unpaired.00.0_0">
+                    <assert_contents>
+                        <has_size value="20" delta="5"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="out_l">
+                <assert_contents>
+                    <has_text_matching expression="Thank you for using SPAdes!"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #11 -->
+        <test expect_num_outputs="4">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_interlaced"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <param name="mode_sel" value="--sc"/>
+            <output name="out_ag">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_5_length_1000_cov_140.620106"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="S.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #12 -->
+        <test expect_num_outputs="4">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="ecoli_1K_1.fastq.gz"/>
+                <param name="input2" value="ecoli_1K_2.fastq.gz"/>
+            </conditional>
+            <param name="mode_sel" value="--sc,--careful"/>
+            <output name="out_ag">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_5_length_1000_cov_140.620106"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="S.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #13 -->
+        <test expect_num_outputs="4">
+            <param name="operation_mode" value="--only-assembler"/>
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="ecoli_1K_1.fastq.gz"/>
+                <param name="input2" value="ecoli_1K_2.fastq.gz"/>
+            </conditional>
+            <param name="mode_sel" value="--sc,--careful"/>
+            <output name="out_ag">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="S.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #14 interlaced, fastq.gz, hybrid assembly: nanopore, pacbio sanger and trustedcontigs -->
+        <test expect_num_outputs="4">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_interlaced"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <section name="arf">
+                <param name="nanopore" value="ecoli_1K.fastq.gz"/>
+                <param name="pacbio" value="ecoli_1K.fastq.gz"/>
+                <param name="sanger" value="ecoli_1K.fastq.gz"/>
+                <param name="trusted_contigs" value="ecoli_1K.fasta.gz"/>
+            </section>
+            <assert_command>
+                <has_text text="--nanopore"/>
+                <has_text text="--pacbio"/>
+                <has_text text="--sanger"/>
+                <has_text text="--trusted-contigs"/>
+            </assert_command>
+            <output name="out_ag">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="S.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #15 mate-pair reads orientation rf-->
+        <test expect_num_outputs="4">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired"/>
+                <param name="input1" value="ecoli_1K_1.fastq.gz"/>
+                <param name="input2" value="ecoli_1K_2.fastq.gz"/>
+                <param name="type_paired" value="hqmp"/>
+                <param name="orientation" value="rf"/>
+            </conditional>
+            <output name="out_ag">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="0"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #16 high-quality mate-pair reads collection-->
+        <test expect_num_outputs="4">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_collection"/>
+                <param name="input">
+                    <collection type="list:paired">
+                        <element name="ecoli.fastq">
+                            <collection type="paired">
+                                <element name="forward" value="ecoli_1K_1.fastq.gz" ftype="fastqsanger.gz"/>
+                                <element name="reverse" value="ecoli_1K_2.fastq.gz" ftype="fastqsanger.gz"/>
+                            </collection>
+                        </element>
+                    </collection>
+                </param>
+                <param name="type_paired" value="hqmp"/>
+            </conditional>
+            <output name="out_ag">
+                <assert_contents>
+                    <has_n_lines n="36"/>
+                    <has_text_matching expression=">EDGE_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_ags">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text_matching expression="S.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_cn">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000\_cov\_.+"/>
+                </assert_contents>
+            </output>
+            <output name="out_sc">
+                <assert_contents>
+                    <has_n_lines n="18"/>
+                    <has_text_matching expression=">NODE\_1\_length\_1000.+"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- #17 Fix stats script -->
+        <test expect_num_outputs="1">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="single"/>
+                <param name="input1" value="ecoli_1K.fastq.gz"/>
+            </conditional>
+            <param name="optional_output" value="ss"/>
+            <output name="out_ss">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_text text="NODE_1&#009;1000&#009;140.620106"/>
+                    <has_text_matching expression="#name&#009;length&#009;coverage"/>
                 </assert_contents>
             </output>
         </test>
     </tests>
-    <help>
-<![CDATA[
+    <help><![CDATA[
+.. class:: infomark
+
 **What it does**
 
-SPAdes – St. Petersburg genome assembler – is intended for both standard isolates and single-cell MDA bacteria assemblies. See http://bioinf.spbau.ru/en/spades for more details on SPAdes.
+@HELP_WID@
 
-This wrapper runs SPAdes, collects the output, and throws away all the temporary files. It also produces a tab file with contig names, length and coverage.
+**Input**
 
-**License**
+@HELP_IN@
 
-SPAdes is developed by and copyrighted to Saint-Petersburg Academic University, and is released under GPLv2.
+**Output**
 
-This wrapper is copyrighted by Philip Mabon and is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+@HELP_OUT_AG@
+@HELP_OUT_AGS@
+@HELP_OUT_C@
+@HELP_OUT_CP@
+@HELP_OUT_CR@
+@HELP_OUT_CS@
+@HELP_OUT_L@
+@HELP_OUT_S@
+@HELP_OUT_SP@
+@HELP_OUT_SS@
 
-This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License along with this program.  If not, see http://www.gnu.org/licenses/.
+-------------------
 
-** Acknowledgments **
+.. class:: infomark
 
-Original wrapper developed by Lionel Guy.
+**IonTorrent data**
 
-Anton Korobeynikov greatlty helped understanding how SPAdes work, and integrated handy features into SPAdes.
+@IONTORRENT@
 
-Nicola Soranzo fixed various bugs.
+-------------------
 
-Simon Gladman added fastg optional outputs.
-]]>
-    </help>
-    <citations>
-        <citation type="doi">10.1089/cmb.2012.0021</citation>
-    </citations>
+.. class:: infomark
+
+**References**
+
+More information are available on `github <https://github.com/ablab/spades>`_.
+    ]]></help>
+    <expand macro="citations">
+            <citation type="doi">10.1089/cmb.2012.0021</citation>
+            <citation type="doi">10.1007/978-3-642-37195-0_13</citation>
+    </expand>
 </tool>
