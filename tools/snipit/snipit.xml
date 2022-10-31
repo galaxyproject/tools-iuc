@@ -1,108 +1,330 @@
 <tool id="snipit" name="snipit" version="@TOOL_VERSION@+galaxy0">
     <description>Summarise snps relative to a reference sequence</description>
     <macros>
-        <token name="@TOOL_VERSION@">1.0.5</token>
+        <token name="@TOOL_VERSION@">1.0.7</token>
+        <xml name="handle_background" tokens="format">
+            <when value="@FORMAT@">
+                <param argument="--solid-background" name="transparent_background" type="boolean" truevalue="" falsevalue="--solid-background" label="Plot on transparent background?" />
+            </when>
+        </xml>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">snipit</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-        snipit '$alignment'
-            #if $opt.reference
-                -r '$opt.reference'
+        MPLCONFIGDIR=.matplotlib snipit '$alignment'
+            #if str($ref.select) == 'by_id'
+                -r '$ref.id'
             #end if
-            #if $opt.labels
-                -l '$opt.labels'
+            #if str($style.labels.choose)
+                -l '$style.labels.source'
+                #if str($style.labels.choose) == 'custom_csv'
+                    --l-header '${style.labels.names_column},${style.labels.labels_column}'
+                #end if
             #end if
-            --l-header '$opt.l_header'
-            -f '$opt.format'
-            --height '$opt.height'
-            --width '$opt.width'
-            --size-option '$opt.size_option'
-            $opt.flip_vertical
-            #if $opt.exclude_positions
-                --exclude-positions '$opt.exclude_positions'
+            -f $plot.format
+            #if str($plot.format) in ['png', 'svg', 'tiff']
+                $plot.transparent_background
             #end if
-            $opt.exclude_ambig_pos
-            $opt.sort_by_mutation_number
-            $opt.sort_by_id
-            #if $opt.sort_by_mutations
-                --sort-by-mutations '$opt.sort_by_mutations'
+            $write_snps
+            #if $dims.height > 0
+                --height $dims.height
             #end if
-            $opt.high_to_low
-            -c '$opt.colour_palette'
-    ]]>    </command>
+            #if $dims.width > 0
+                --width $dims.width
+            #end if
+            $dims.size_option
+            $style.flip_vertical
+            #if len($pos_restrict.include_positions)
+                --include-positions
+                #for $p in $pos_restrict.include_positions
+                    '$p.pos'
+                #end for
+            #end if
+            #if len($pos_restrict.exclude_positions)
+                --exclude-positions
+                #for $p in $pos_restrict.exclude_positions
+                    '$p.pos'
+                #end for
+            #end if
+            $pos_restrict.exclude_ambig_pos
+            $style.sort.order
+            #if str($style.sort.order) == '--sort-by-mutation-number'
+                $style.sort.high_to_low
+            #else if str($style.sort.order) == '--sort-by-mutations'
+                #echo ','.join([str(p['pos']) for p in $style.sort.positions])
+                $style.sort.high_to_low
+            #end if
+            #if not str($style.colouring.palette)
+                --recombi-mode --recombi-references '$style.colouring.parent1,$style.colouring.parent2'
+            #else
+                -c $style.colouring.palette
+            #end if
+    ]]></command>
     <inputs>
         <param name="alignment" format="fasta" type="data" label="Input alignment fasta file" />
-        <section name="opt" title="Optional arguments" expanded="true">
-            <param name="reference" argument="-r" type="text" optional="true" label="Reference sequence (by sequence ID)" help="Indicates which sequence in the alignment is the reference (by sequence ID). Default: first sequence in alignment" />
-            <param name="labels" argument="-l" type="data" format="csv" optional="true" label="Labels" help="Optional csv file of labels to show in output snipit plot. Default: sequence names"/>
-            <param argument="--l-header" type="text" value="name,label" label="Label headers" help="Comma separated string of column headers in label csv. First field indicates sequence name column, second the label column. Default: 'name,label'" />
-            <param name="format" argument="-f" type="select" value="png" label="Output file format" help="Format options. Default: png">
+        <conditional name="ref">
+            <param name="select" type="select" label="The reference sequence ...">
+                <option value="first">is the first sequence in the input</option>
+                <option value="by_id">should be picked via its ID</option>
+            </param>
+            <when value="first" />
+            <when value="by_id">
+                <param name="id" argument="--reference" type="text" label="ID of reference sequence" />
+            </when>
+        </conditional>
+        <section name="pos_restrict" title="Restrict genome positions to be plotted" expanded="false">
+            <repeat name='include_positions' title="Restrict plot to specific regions/positions" min="0" default="0">
+                <param argument="--include-positions" name="pos" type="text" label="Include position/region" help="A range (closed, inclusive; one-indexed) or specific position to include in the output, e.g. '100-150' or '100'">
+                    <validator type="regex" message="Either a single position, e.g. 8347, or an interval like 8000-8500 is required">[0-9]+(-[0-9]+)*$</validator>
+                </param>
+            </repeat>
+            <repeat name='exclude_positions' title="Exclude specific regions/positions from plot" min="0" default="0">
+                <param argument="--exclude-positions" name="pos" type="text" label="Exclude position/region" help="A range (closed, inclusive; one-indexed) or specific position to exclude from the output, e.g. '100-150' or '100'; considered after any '--include-positions'.">
+                    <validator type="regex" message="Either a single position, e.g. 8347, or an interval like 8000-8500 is required">[0-9]+(-[0-9]+)*$</validator>
+                </param>
+            </repeat>
+            <param argument="--exclude-ambig-pos" type="boolean" truevalue="--exclude-ambig-pos" falsevalue="" label="Exclude ambig positions?" help="Exclude positions with an ambiguous base in any sequences; considered after '--include-positions'." />
+        </section>
+        <section name="style" title="Customize rendering of samples and mutations" expanded="true">
+            <conditional name="labels">
+                <param name="choose" argument="-l" type="select" label="Provide custom labels for sequences?">
+                    <option value="">No, just use the sequence identifiers as labels in the plot</option>
+                    <option value="simple_csv">Yes, via a simple CSV dataset mapping names to labels</option>
+                    <option value="custom_csv">Yes, via a custom CSV dataset with column specification</option>
+                </param>
+                <when value="" />
+                <when value="simple_csv">
+                    <param argument="--labels" name="source" type="data" format="csv" label="Labels mapping source" help="This expects a CSV dataset with two columns named 'name' and 'label' where the values in the 'name' column must have matches for all sequence IDs (including the reference) in the alignment input." />
+                </when>
+                <when value="custom_csv">
+                    <param argument="--labels" name="source" type="data" format="csv" label="Labels mapping source" help="Select a CSV dataset with an arbitrary number of named columns here and specify below which column contains the sequence IDs to be mapped and which one the labels to be used instead. The dataset must define mappings for all sequence IDs including the reference." />
+                    <param name="names_column" type="text" label="Name of the sequence ID column" />
+                    <param name="labels_column" type="text" label="Name of the column with desired labels" />
+                </when>
+            </conditional>
+            <conditional name="colouring">
+                <param name="palette" type="select" value="classic" label="Mutations colouring scheme" help="Mutations can be coloured by base change or, alternatively, by their presence/absence in any of two parent sequences in the alignment (recombinant mode).">
+                    <option value="primary">primary</option>
+                    <option value="classic" selected="true">classic</option>
+                    <option value="purine-pyrimidine">purine-pyrimidine</option>
+                    <option value="greyscale">greyscale</option>
+                    <option value="wes">wes</option>
+                    <option value="verity">verity</option>
+                    <option value="">recombinant mutations colouring</option>
+                </param>
+                <when value="primary" />
+                <when value="classic" />
+                <when value="purine-pyrimidine" />
+                <when value="greyscale" />
+                <when value="wes" />
+                <when value="verity" />
+                <when value="">
+                    <param name="parent1" type="text" label="Sequence ID of first recombinant parent sequence in alignment" />
+                    <param name="parent2" type="text" label="Sequence ID of second recombinant parent sequence in alignment" />
+                </when>
+            </conditional>
+            <conditional name="sort">
+                <param name="order" type="select" label="Order of samples in the plot">
+                    <option value="">Go with default</option>
+                    <option value="--sort-by-id">Sort by sequence ID/label</option>
+                    <option value="--sort-by-mutation-number">Sort by number of mutations</option>
+                    <option value="--sort-by-mutations">Sort by bases at specified positions</option>
+                </param>
+                <when value="" />
+                <when value="--sort-by-id" />
+                <when value="--sort-by-mutation-number">
+                    <param argument="--high-to-low" type="boolean" truevalue="--high-to-low" falsevalue="" label="Invert sort order" help="If selected sort sequences from highest to lowest number of mutations instead of from lowest to highest." />
+                </when>
+                <when value="--sort-by-mutations">
+                    <repeat name="positions" title="Sort on" min="1" default="1">
+                        <param name="pos" type="integer" min="1" value="1" label="Sort (alphabetically) by base at position" />
+                    </repeat>
+                    <param argument="--high-to-low" type="boolean" truevalue="--high-to-low" falsevalue="" label="Invert resulting sort order" />
+                </when>
+            </conditional>
+            <param argument="--flip-vertical" type="boolean" truevalue="--flip-vertical" falsevalue="" label="Flip plot orientation?" help="Flip the orientation of the plot so sequences are below the reference rather than above it." />
+        </section>
+        <conditional name="plot">
+            <param argument="--format" type="select" value="png" label="Plot output file format">
                 <option value="png" selected="true">png</option>
                 <option value="jpg">jpg</option>
                 <option value="pdf">pdf</option>
                 <option value="svg">svg</option>
                 <option value="tiff">tiff</option>
             </param>
-            <param argument="--height" type="float" value="0.0" label="Figure height" help="Overwrite the default figure height." />
-            <param argument="--width" type="float" value="0.0" label="Figure width" help="Overwrite the default figure width." />
-            <param argument="--size-option" type="select" value="scale" label="Sizing options" help="Specify options for sizing. Options: expand, scale">
-                <option value="expand">expand</option>
-                <option value="scale" selected="true">scale</option>
-            </param>
-            <param argument="--flip-vertical" type="boolean" truevalue="--flip-vertical" falsevalue="" value="false" label="Flip plot orientation?" help="Flip the orientation of the plot so sequences are below the reference rather than above it. Default: false" />
-            <param argument="--exclude-positions" type="text" optional="true" label="Excluded positions" help="One or more range (closed, inclusive; one-indexed) or specific position to exclude in the output. Ex. '100-150' or Ex. '100 101' Considered after '--include-positions'." />
-            <param argument="--exclude-ambig-pos" type="boolean" truevalue="--exclude-ambig-pos" falsevalue="" value="false" label="Exclude ambig positions?" help="Exclude positions with ambig base in any sequences. Considered after '--include-positions'" />
-            <param argument="--sort-by-mutation-number" type="boolean" truevalue="--sort-by-mutation-number" falsevalue="" value="false" label="Sort by mutation number?" help="Render the graph with sequences sorted by the number of SNPs relative to the reference (fewest to most). Default: False" />
-            <param argument="--sort-by-id" type="boolean" truevalue="--sort-by-id" falsevalue="" value="false" label="Sort by sequence ID?" help="Sort sequences alphabetically by sequence id. Default: False" />
-            <param argument="--sort-by-mutations" type="text" optional="true" label="Sort by mutations" help="Sort sequences by bases at specified positions. Positions are comma separated integers. Ex. '1,2,3'" />
-            <param argument="--high-to-low" type="boolean" truevalue="--high-to-low" falsevalue="" value="false" label="Sort high to low?" help="If 'sort by mutation number' is selected, show the sequences with the fewest SNPs closest to the reference. Default: False" />
-            <param name="colour_palette" argument="-c" type="select" value="classic" label="Colour palette" help="Specify colour palette. Options: primary, classic, purine-pyrimidine, greyscale, wes, verity">
-                <option value="primary">primary</option>
-                <option value="classic" selected="true">classic</option>
-                <option value="purine-pyrimidine">purine-pyrimidine</option>
-                <option value="greyscale">greyscale</option>
-                <option value="wes">wes</option>
-                <option value="verity">verity</option>
+            <when value="jpg" />
+            <when value="pdf" />
+            <expand macro="handle_background" format="png" />
+            <expand macro="handle_background" format="svg" />
+            <expand macro="handle_background" format="tiff" />
+        </conditional>
+        <section name="dims" title="Customize plot dimensions" expanded="false">
+            <param argument="--width" type="float" value="0" min="0" label="Figure width" help="Set to 0 to keep default figure width." />
+            <param argument="--height" type="float" value="0" min="0" label="Figure height" help="Set to 0 to keep default figure height." />
+            <param argument="--size-option" type="select" value="scale" label="Plot sizing options">
+                <option value="--size-option expand">expand</option>
+                <option value="" selected="true">scale</option>
             </param>
         </section>
+        <param argument="--write-snps" type="boolean" truevalue="-s" falsevalue="" label="Write out SNPs?" help="Produces extra CSV output with lists of SNPs per sequence in the alignment if enabled." />
     </inputs>
     <outputs>
-        <data name="snp_plot" format="png" label="snp plot" from_work_dir="snp_plot.*">
+        <data name="snp_plot" format="png" label="snipit on ${on_string}: Plot" from_work_dir="snp_plot.*">
             <change_format>
-                <when input="opt.format" value="jpg" format="jpg" />
-                <when input="opt.format" value="pdf" format="pdf" />
-                <when input="opt.format" value="svg" format="svg" />
-                <when input="opt.format" value="tiff" format="tiff" />
+                <when input="plot.format" value="jpg" format="jpg" />
+                <when input="plot.format" value="pdf" format="pdf" />
+                <when input="plot.format" value="svg" format="svg" />
+                <when input="plot.format" value="tiff" format="tiff" />
             </change_format>
+        </data>
+        <data name="snps" format="csv" label="snipit on ${on_string}: SNPs" from_work_dir="snps.csv">
+            <filter>write_snps</filter>
+            <actions>
+                <action name="column_names" type="metadata" default="record,snps,num_snps" />
+            </actions>
         </data>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="2">
             <param name="alignment" value="input.fasta" />
-            <output name="snp_plot" ftype="png" file="snp_plot.png" compare="sim_size"/>
+            <param name="write_snps" value="true" />
+            <conditional name="plot">
+                <param name="transparent_background" value="true" />
+            </conditional>
+            <output name="snp_plot" ftype="png" file="snp_plot.png" compare="sim_size" />
+            <output name="snps" ftype="csv" file="snps.csv" />
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <param name="alignment" value="input.fasta" />
-            <param name="reference" value="USA_2" />
-            <param name="format" value="pdf" />
-            <param name="flip_vertical" value="true" />
+            <conditional name="ref">
+                <param name="select" value="by_id" />
+                <param name="id" value="USA_2" />
+            </conditional>
+            <section name="style">
+                <param name="flip_vertical" value="true" />
+            </section>
+            <conditional name="plot">
+                <param name="format" value="pdf" />
+            </conditional>
+            <assert_command>
+                <has_text text="-r 'USA_2'" />
+                <has_text text="--flip-vertical" />
+            </assert_command>
             <output name="snp_plot" ftype="pdf" file="snp_plot.pdf" compare="sim_size" />
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <param name="alignment" value="input.fasta" />
-            <param name="format" value="jpg" />
-            <param name="colour_palette" value="verity" />
-            <output name="snp_plot" ftype="jpg" file="snp_plot.jpg" />
+            <section name="style">
+                <conditional name="colouring">
+                    <param name="palette" value="verity" />
+                </conditional>
+            </section>
+            <conditional name="plot">
+                <param name="format" value="jpg" />
+                <param name="transparent_background" value="true" />
+            </conditional>
+            <output name="snp_plot" ftype="jpg" file="snp_plot.jpg" compare="sim_size" />
         </test>
-        <test>
+        <test expect_num_outputs="1">
             <param name="alignment" value="input.fasta" />
-            <param name="excluded_positions" value="1-100" />
-            <param name="exclude_ambig_pos" value="true" />
-            <param name="high_to_low" value="true" />
-            <output name="snp_plot" ftype="png" file="snp_plot_ex.png" compare="sim_size" />
+            <section name="pos_restrict">
+                <repeat name="include_positions">
+                    <param name="pos" value="1-10000" />
+                </repeat>
+                <repeat name="include_positions">
+                    <param name="pos" value="10001-30000" />
+                </repeat>
+                <repeat name="exclude_positions">
+                    <param name="pos" value="1000-2000" />
+                </repeat>
+                <param name="exclude_ambig_pos" value="true" />
+            </section>
+            <section name="style">
+                <conditional name="sort">
+                    <param name="order" value="--sort-by-mutations" />
+                    <repeat name="positions">
+                        <param name="pos" value="3" />
+                    </repeat>
+                    <repeat name="positions">
+                        <param name="pos" value="1" />
+                    </repeat>
+                    <repeat name="positions">
+                        <param name="pos" value="2" />
+                    </repeat>
+                    <param name="high_to_low" value="true" />
+                </conditional>
+            </section>
+            <conditional name="plot">
+                <param name="format" value="svg" />
+                <param name="transparent_background" value="true" />
+            </conditional>
+            <assert_command>
+                <has_text text="--include-positions '1-10000' '10001-30000'" />
+                <has_text text="--exclude-positions '1000-2000'" />
+                <has_text text="--exclude-ambig-pos" />
+                <has_text text="--sort-by-mutations 3,1,2" />
+                <has_text text="--high-to-low" />
+            </assert_command>
+            <output name="snp_plot" ftype="svg">
+                <assert_contents>
+                    <!-- check that the plot does NOT refer to excluded
+                    position 1059, uses darkseagreen (to highlight Ts) and
+                    transparent (i.e. NOT white) background -->
+                    <not_has_text text="&lt;!-- 1059 --&gt;" />
+                    <has_text text="style=&quot;fill: #8fbc8f" />
+                    <not_has_text text="style=&quot;fill: #ffffff&quot;" />
+                </assert_contents>
+            </output>
         </test>
+        <test expect_num_outputs="1">
+            <param name="alignment" value="input.fasta" />
+            <section name="style">
+                <conditional name="colouring">
+                    <param name="palette" value="" />
+                    <param name="parent1" value="USA_1" />
+                    <param name="parent2" value="USA_5" />
+                </conditional>
+            </section>
+            <conditional name="plot">
+                <param name="format" value="svg" />
+            </conditional>
+            <output name="snp_plot" ftype="svg">
+                <assert_contents>
+                    <!-- check that the plot does mention position 1059,
+                    uses goldenrod and #EA5463 as colors (to
+                    indicate private and parent2 mutations, respectively, in
+                    recombi-mode) and uses a solid white background -->
+                    <has_text text="&lt;!-- 1059 --&gt;" />
+                    <has_text text="style=&quot;fill: #daa520" />
+                    <has_text text="style=&quot;fill: #ea5463" />
+                    <has_text text="style=&quot;fill: #ffffff&quot;" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="alignment" value="input.fasta" />
+            <section name="style">
+                <conditional name="labels">
+                    <param name="choose" value="custom_csv" />
+                    <param name="source" value="custom_labels.csv" />
+                    <param name="names_column" value="ori" />
+                    <param name="labels_column" value="new" />
+                </conditional>
+            </section>
+            <conditional name="plot">
+                <param name="format" value="svg" />
+            </conditional>
+            <output name="snp_plot" ftype="svg">
+                <assert_contents>
+                    <!-- check that the plot does not mention the original
+                    seq IDs but the mapped labels -->
+                    <not_has_text text="USA_" />
+                    <has_text text="SAMPLE_" />
+                </assert_contents>
+            </output>
+        </test>
+
     </tests>
     <help><![CDATA[
 **What it does**
