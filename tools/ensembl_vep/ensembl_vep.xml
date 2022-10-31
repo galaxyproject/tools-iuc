@@ -1,375 +1,373 @@
 <tool id="ensembl_vep" name="Predict variant effects" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
-	<description>with VEP</description>
-	<macros>
-		<token name="@TOOL_VERSION@">106.1</token>
-		<token name="@VERSION_SUFFIX@">1</token>
-		<token name="@DB_VERSION@">106</token>
-		<xml name="vcf_input">
-			<param type="data" name="input1" label="VCF input file" format="vcf">
-				<validator type="unspecified_build" />
-				<yield />
-			</param>
-		</xml>
-		<xml name="vcf_input_validation">
-			<validator type="dataset_metadata_in_data_table" table_name="vep_versioned_annotation_cache" metadata_name="dbkey" metadata_column="1" message="No annotation caches are available for the specified build" />
-		</xml>
-	</macros>
-	<requirements>
-		<requirement type="package" version="@TOOL_VERSION@">ensembl-vep</requirement>
-		<requirement type="package" version="0.1">perl-math-cdf</requirement>
-		<requirement type="package" version="3.4">grep</requirement>
-	</requirements>
-	<command detect_errors="exit_code"><![CDATA[
-		#if $annotation_cache.source == "custom":
-			#set $custom_ext = $annotation_cache.custom_annotation.ext[:3]
-			set -o pipefail &&
-			grep -v "#" '${annotation_cache.custom_annotation}' | 
-			LC_ALL=C sort -k1,1 -k4,4n -k5,5n -t$'\t' | 
-			bgzip -c > 'custom_annotation.${custom_ext}.gz' &&
-			tabix -p gff 'custom_annotation.${custom_ext}.gz' &&
-		#end if
-		#if $ref_seq.ref_source == "cached":
-			ln -s '$ref_seq.ref.fields.path' reference.fa &&
-		#else if $ref_seq.ref_source == "history":
-			ln -s '$ref_seq.ref' reference.fa &&
-		#end if
-		
-		vep -i '${annotation_cache.input1}' -o MainOutput.vcf --vcf
-		#if $annotation_cache.source == "custom":
-			--$custom_ext 'custom_annotation.${custom_ext}.gz'
-		#else:
-			--cache
-			--species '${annotation_cache.cache_file.fields.species}'
-			--dir_cache '${annotation_cache.cache_file.fields.path}'
-			#if $annotation_cache.cache_file.fields.cachetype == "refseq": --refseq
-			#if $annotation_cache.cache_file.fields.cachetype == "merged": --merged
-			#if $annotation_cache.cache_file.fields.version != "@DB_VERSION@": --cache_version $annotation_cache.cache_file.fields.version
-			## The --offline flag automatically activates --cache. This is not wanted in our gff/gtf case but also not needed as no internet connection is required for annotating with these custom annotation sources.
-			--offline
-		#end if
-		#if $ref_seq.ref_source != "no_ref"
-			--fasta reference.fa
-		#end if
-		--stats_text
-		
-		#if $out_opt.sift != "None": --sift $out_opt.sift
-		#if $out_opt.polyphen != "None": --polyphen $out_opt.polyphen
-		#if $out_opt.nearest != "None": --nearest $out_opt.nearest
-		#if int($out_opt.distance_custom.distance_1) > -1:
-			--distance $out_opt.distance_custom.distance_1#if int($out_opt.distance_custom.distance_2) > -1: ,$out_opt.distance_custom.distance_2
-		#end if
-		#if $out_opt.cell_type != "": --cell_type '$out_opt.cell_type'
-		#if $out_opt.individual != "": --individual $out_opt.individual
-		--vcf_info_field $out_opt.vcf_info_type.vcf_info_field
-		--terms $out_opt.terms
-		#if $out_opt.out_opt_checkboxes != "None": ${' '.join(str($out_opt.out_opt_checkboxes).split(","))}
-		#if $out_opt.shift_var.shift_selector != "None":
-			$out_opt.shift_var.shift_selector
-			#if $out_opt.shift_var.shift_selector == "--shift_hgvs 0 --shift_3prime 1"
-				#if $out_opt.shift_var.shift_length != "None": $out_opt.shift_var.shift_length
-			#end if
-		#end if
-		#if $ident.input_synonyms: --synonyms '${ident.input_synonyms}'
-		#if $ident.ident_checkboxes != "None": ${' '.join(str($ident.ident_checkboxes).split(","))}
-		#if $colo_var.colo_var_checkboxes != "None": ${' '.join(str($colo_var.colo_var_checkboxes).split(","))}
-		#if $fil_qc.fil_qc_checkboxes != "None": ${' '.join(str($fil_qc.fil_qc_checkboxes).split(","))}
-		$plugins.carol
-		$plugins.condel
-		#if $plugins.exacpli_file: --plugin ExACpLI,'${plugins.exacpli_file}'
-		#if $plugins.loftool_file: --plugin LoFtool,'${plugins.loftool_file}'
-	]]></command>
-	<inputs>
-		<conditional name="annotation_cache">
-			<param name="source" type="select" label="Select source of annotation data" help="Ensembl strongly recommends to only use annotation cache files with a version number matching the VEP version. You can disable the corresponding filtering of available cache files at your own risk. This does not apply if you select a GFF/GTF annotation source.">
-				<option value="restricted">VEP cache file with matching version number</option>
-				<option value="unrestricted">Any VEP cache file</option>
-				<option value="custom">GFF or GTF from history</option>
-			</param>
-			<when value="restricted">
-				<expand macro="vcf_input">
-					<expand macro="vcf_input_validation" />
-				</expand>
-				<param name="cache_file" type="select" label="Select annotation cache file" help="If the annotation data of interest is not listed, have a look at all available cache files regardless of their version number or contact your Galaxy admin.">
-					<options from_data_table="vep_versioned_annotation_cache">
-						<filter type="static_value" value="@DB_VERSION@" column="2" />
-						<filter type="sort_by" column="4"/>
-					</options>
-					<validator type="no_options" message="No annotation caches are available"/>
-				</param>
-			</when>
-			<when value="unrestricted">
-				<expand macro="vcf_input">
-					<expand macro="vcf_input_validation" />
-				</expand>
-				<param name="cache_file" type="select" label="Select annotation cache file" help="If the annotation data of interest is not listed, contact your Galaxy admin.">
-					<options from_data_table="vep_versioned_annotation_cache">
-						<filter type="sort_by" column="4"/>
-					</options>
-					<validator type="no_options" message="No annotation caches are available"/>
-				</param>
-			</when>
-			<when value="custom">
-				<expand macro="vcf_input" />
-				<param name="custom_annotation" type="data" format="gff,gtf" label="Select GFF or GTF annotation file from history" help="Choosing this option requires that you also supply a Fasta file as reference genome." />
-			</when>
-		</conditional>
-		<conditional name="ref_seq">
-			<param name="ref_source" type="select" label="Use FASTA file as reference sequence (optional)" help="Must be specified if using a GFF/GTF annotation source or if fetching HGVS or SPDI notations.">
-				<option value="no_ref">Do not use extra reference sequence</option>
-				<option value="cached">Locally cached</option>
-				<option value="history">History</option>
-			</param>
-			<when value="no_ref" />
-			<when value="cached">
-				<param name="ref" type="select" label="Select reference sequence">
-					<options from_data_table="fasta_indexes">
-						<validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file" />
-					</options>
-				</param>
-			</when>
-			<when value="history">
-				<param name="ref" type="data" format="fasta" label="Select reference sequence" />
-			</when>
-		</conditional>
-	<section name="out_opt" title="Output options">
-		<param argument="--sift" type="select" optional="true" label="Output SIFT prediction" help="SIFT predicts whether an amino acid substitution affects protein function based on sequence homology and the physical properties of amino acids.">
-			<option value="p">Prediction term only</option>
-			<option value="s">Score only</option>
-			<option value="b">Both</option>
-		</param>
-		<param argument="--polyphen" type="select" optional="true" label="Output PolyPhen prediction" help="PolyPhen is a tool which predicts possible impact of an amino acid substitution on the structure and function of a human protein using straightforward physical and comparative considerations. VEP uses the humVar score by default.">
-			<option value="p">Prediction term only</option>
-			<option value="s">Score only</option>
-			<option value="b">Both</option>
-		</param>
-		<param argument="--nearest" type="select" optional="true" label="Retrieve transcript or gene with nearest TSS to each input variant" help="Retrieve the transcript or gene with the nearest protein-coding transcription start site (TSS) to each input variant. Note that the nearest TSS may not belong to a transcript that overlaps the input variant, and more than one may be reported in the case where two are equidistant from the input coordinates.">
-			<option value="transcript">Nearest transcript ID</option>
-			<option value="gene">Nearest gene ID</option>
-			<option value="symbol">Nearest gene symbol</option>
-		</param>
-		
-		<conditional name="distance_custom">
-			<param name="distance_custom_selector" type="select" label="Modify the distance up and/or downstream between a variant and a transcript for which VEP will assign the upstream_gene_variant or downstream_gene_variant consequences" help="Default: 5000. Upstream is 5' and downstream 3' direction. (--distance [bp_distance(,downstream_distance_if_different)])">
-				<option value="default" selected="true">Default</option>
-				<option value="one_dist">Custom distance used for both upstream and downstream</option>
-				<option value="two_dist">Custom upstream distance and different custom downstream distance</option>
-			</param>
-			<when value="default">
-				<param name="distance_1" type="hidden" value="-1"/>
-				<param name="distance_2" type="hidden" value="-1"/>
-			</when>
-			<when value="one_dist">
-				<param name="distance_1" type="integer" min="0" value="5000" label="Enter custom upstream and downstream distance"/>
-				<param name="distance_2" type="hidden" value="-1"/>
-			</when>
-			<when value="two_dist">
-				<param name="distance_1" type="integer" min="0" value="5000" label="Enter custom upstream distance"/>
-				<param name="distance_2" type="integer" min="0" value="5000" label="Enter custom downstream distance"/>
-			</when>
-		</conditional>
-		
-		<param name="cell_type" type="text" optional="true" label="Report only regulatory regions that are found in the given cell type(s):" help="Recommended for advanced users only. Can be a single cell type or a comma-separated list. The functional type in each cell type is reported under CELL_TYPE in the output. (--cell_type)"/>
-		<param name="individual" type="text" optional="true" label="Consider only alternate alleles present in the genotypes of the specified individual(s):" help="Enter the individual's IDs as comma-separated list. Individual variant combinations homozygous for the given reference allele will not be reported. Each individual and variant combination is given on a separate line of output. Only works with VCF files containing individual genotype data. (--individual [ind list])" />
-		<conditional name="vcf_info_type">
-			<param name="vcf_info_type_selector" type="select" label="Change name of the consequences INFO column in VCF output" help="Default: CSQ. Use ANN for compatibility with other tools such as snpEff (--vcf_info_field [CSQ|ANN|(other)])">
-				<option value="csq" selected="true">CSQ</option>
-				<option value="ann">ANN</option>
-				<option value="custom">Custom</option>
-			</param>
-			<when value="csq">
-				<param name="vcf_info_field" type="hidden" value="CSQ"/>
-			</when>
-			<when value="ann">
-				<param name="vcf_info_field" type="hidden" value="ANN"/>
-			</when>
-			<when value="custom">
-				<param name="vcf_info_field" type="text" label="Enter custom INFO key"/>
-			</when>
-		</conditional>
-		
-		<param argument="--terms" type="select" label="Type of consequence terms to output" help="The default used for terms is Sequence Ontology.">
-			<option value="SO" selected="true">Sequence Ontology (SO)</option>
-			<option value="display">Display version of SO</option>
-			<option value="NCBI">NCBI</option>
-		</param>
-		
-		<conditional name="shift_var">
-			<param name="shift_selector" type="select" label="Shift variants to the right">
-				<option value="" selected="true">No shift</option>
-				<option value="--shift_hgvs 1">3' shift of HGVS notations, causing ambiguous insertions or deletions (typically in repetetive sequence tracts) to be "shifted" to their most 3' possible coordinates (relative to the transcript sequence and strand) before the HGVS notations are calculated (--shift_hgvs 1)</option>
-				<option value="--shift_hgvs 0 --shift_3prime 1">Right align all variants relative to their associated transcripts prior to consequence calculation (--shift_3prime 1)</option>
-				<option value="--shift_hgvs 0 --shift_genomic 1">Right align all variants, including intergenic variants, before consequence calculation and update the Location field (--shift_genomic 1)</option>
-				</param>
-				<when value=""/>
-				<when value="--shift_hgvs 1"/>
-				<when value="--shift_hgvs 0 --shift_3prime 1">
-					<param name="shift_length" type="boolean" truevalue="--shift_length" falsevalue="" label="Report the distance each variant has been shifted"/>
-				</when>
-				<when value="--shift_hgvs 0 --shift_genomic 1"/>
-		</conditional>
-		
-		<param name="out_opt_checkboxes" type="select" optional="true" display="checkboxes" multiple="true" label="Output option flags">
-			<option value="--variant_class">Ouput variant class (--variant_class)</option>
-			<option value="--humdiv">Retrieve humDiv PolyPhen prediction instead of humVar (--humdiv)</option>
-			<option value="--overlaps">Output overlap between transcript and structural variant (--overlaps)</option>
-			<option value="--gene_phenotype">Indicate if the overlapped gene is associated with a phenotype, disease or trait (--gene_phenotype)</option>
-			<option value="--regulatory">Look for overlaps with regulatory regions (--regulatory)</option>
-			<option value="--phased">Force VCF genotypes to be interpreted as phased (--phased)</option>
-			<option value="--allele_number">Identify allele number from VCF input, where 1 = first ALT allele etc. (--allele_number)</option>
-			<option value="--show_ref_allele">Adds the reference allele in the output (--show_ref_allele)</option>
-			<option value="--total_length">Give cDNA, CDS and protein positions as Position/Length (--total_length)</option>
-			<option value="--numbers">Output affected exon and intron numbering (--numbers)</option>
-			<option value="--no_escape">Don't URI escape HGVS strings (--no_escape)</option>
-			<option value="--keep_csq">Don't overwrite existing CSQ entry in VCF INFO field (--keep_csq)</option>
-			<option value="--no_headers">Don't write header lines in output files (--no_headers)</option>
-		</param>
-	</section>
-	<section name="ident" title="Identifiers">
-		<param type="data" optional="true" name="input_synonyms" format="tabular" label="Load a file of chromosome synonyms" help="File should be tab-delimited with the primary identifier in column 1 and the synonym in column 2. Synonyms allow different chromosome identifiers to be used in the input file and any annotation source. (--synonyms [file])"/>
-		<param name="ident_checkboxes" type="select" optional="true" display="checkboxes" multiple="true" label="Identifier flags">
-			<option value="--hgvs">Add HGVS nomenclature, both coding and protein sequence names, to the ouput (requires FASTA) (--hgvs)</option>
-			<option value="--hgvsg">Add genomic HGVS nomenclature based on the input chromosome name (requires FASTA) (--hgvsg)</option>
-			<option value="--spdi">Add genomic SPDI notation (requires FASTA) (--spdi)</option>
-			<option value="--transcript_version">Add version numbers to Ensembl transcript identifiers (--transcript_version)</option>
-			<option value="--protein">Add the Ensembl protein identifier to the output where appropriate (--protein)</option>
-			<option value="--symbol">Add the gene symbol (e.g. HGNC) (where available) to the output (--symbol)</option>
-			<option value="--ccds">Add the CCDS transcript identifer (where available) to the output (--ccds)</option>
-			<option value="--uniprot">Add best match accessions for translated protein products from three UniProt-related databases (SWISSPROT, TREMBL and UniParc) to the output (--uniprot)</option>
-			<option value="--tsl">Add the transcript support level for this transcript to the output (only for hg38) (--tsl)</option>
-			<option value="--appris">Add the APPRIS isoform annotation for this transcript to the output (only for hg38) (--appris)</option>
-			<option value="--canonical">Add a flag indicating if the transcript is the canonical transcript for the gene (--canonical)</option>
-			<option value="--mane">Add a flag indicating if the transcript is the MANE Select or MANE Plus Clinical transcript for the gene (only for hg38) (--mane)</option>
-			<option value="--mane_select">Add a flag indicating if the transcript is the MANE Select transcript for the gene (only for hg38) (--mane_select)</option>
-			<option value="--biotype">Output the biotype of the transcript or regulatory feature (--biotype)</option>
-			<option value="--domains">Add names of overlapping protein domains to output (--domains)</option>
-			<option value="--xref_refseq">Output aligned RefSeq mRNA identifier for transcript (--xref_refseq)</option>
-		</param>
-	</section>
-	<section name="colo_var" title="Co-located variants">
-		<param name="colo_var_checkboxes" type="select" optional="true" display="checkboxes" multiple="true" label="Co-located variants flags">
-			<option value="--check_existing">Check for the existence of known variants that are co-located with the input (--check_existing)</option>
-			<option value="--clin_sig_allele 0">Report all known clinical significance values at the given locus (instead of allele-specific) (--clin_sig_allele 0)</option>
-			<option value="--exclude_null_alleles">Do not include variants with unknown alleles when checking for co-located variants (--exclude_null_alleles)</option>
-			<option value="--no_check_alleles">When checking for existing variants, compare using coordinates only (--no_check_alleles)</option>
-			<option value="--af">Add the global allele frequency (AF) from 1000 Genomes Phase 3 data for any known co-located variant to the output (--af)</option>
-			<option value="--max_af">Report the highest allele frequency observed in any population from 1000 genomes, ESP or gnomAD (--max_af)</option>
-			<option value="--af_1kg">Add allele frequency from continental populations (AFR,AMR,EAS,EUR,SAS) of 1000 Genomes Phase 3 to the output (--af_1kg)</option>
-			<option value="--af_esp">Include allele frequency from NHLBI-ESP populations (--af_esp)</option>
-			<option value="--af_gnomad">Include allele frequency from Genome Aggregation Database (gnomAD) exome populations (--af_gnomad)</option>
-			<option value="--af_exac">Include allele frequency from ExAC project populations (--af_exac)</option>
-			<option value="--pubmed">Report Pubmed IDs for publications that cite existing variant (--pubmed)</option>
-			<option value="--var_synonyms">Report known synonyms for co-located variants (--var_synonyms)</option>
-			<option value="--failed 1">Do not exclude variants that have been flagged as failed when checking for co-located variants (--failed 1)</option>
-		</param>
-	</section>
-	<section name="fil_qc" title="Filtering and QC options">
-		<param name="fil_qc_checkboxes" type="select" optional="true" display="checkboxes" multiple="true" label="Filtering and QC flags">
-			<option value="--coding_only">Only return consequences that fall in the coding regions of transcripts (--coding_only)</option>
-			<option value="--no_intergenic">Do not include intergenic consequences in the output (--no_intergenic)</option>
-		</param>
-	</section>
-	<section name="plugins" title="VEP Plugins">
-		<param name="carol" type="boolean" label="Enable Carol plugin" truevalue="--plugin Carol" falsevalue="" help="This plugin calculates the Combined Annotation scoRing toOL (CAROL) score for a missense mutation and adds it to VEP's output. Both the SIFT and PolyPhen-2 scores are required for the calculation, so these two have to be activated in the output options section." />
-		<param name="condel" type="boolean" label="Enable Condel plugin" truevalue="--plugin Condel" falsevalue="" help="This plugin calculates the Consensus Deleteriousness (Condel) score for a missense mutation and adds it to VEP's output. Both the SIFT and PolyPhen-2 scores are required for the calculation, so these two have to be activated in the output options section." />
-		<param name="exacpli_file" type="data" format="txt" optional="true" label="Enable ExACpLI plugin by selecting an ExACpLI_values text file" help="This plugin calculates the probabililty of a gene being loss-of-function intolerant (pLI) and adds it to VEP's output. The closer pLI is to 1, the more likely the gene is loss-of-function (LoF) intolerant. An ExACpLI_values.txt file is required for usage and it is recommended to use the one provided in the VEP_plugins GitHub repository: https://github.com/Ensembl/VEP_plugins" />
-		<param name="loftool_file" type="data" format="txt" optional="true" label="Enable LoFtool plugin by selecting a LoFtool_scores text file" help="This plugin calculates LoFtool scores and adds them to VEP's output. LoFtool provides a rank of genic intolerance and consequent susceptibility to disease based on the ratio of Loss-of-function (LoF) to synonymous mutations for each gene in 60,706 individuals from ExAC, adjusting for the gene de novo mutation rate and evolutionary protein conservation. The lower the LoFtool gene score percentile the most intolerant is the gene to functional variation. A LoFtool_scores.txt file is required for usage and it is recommended to use the one provided in the VEP_plugins GitHub repository: https://github.com/Ensembl/VEP_plugins" />
-	</section>
-	</inputs>
-	<outputs>
-		<data name="output1" format="vcf" from_work_dir="MainOutput.vcf" />
-		<data name="output2" format="txt" label="${tool.name} on ${on_string} TXT Summary" from_work_dir="MainOutput.vcf_summary.txt" />
-	</outputs>
-	<tests>
-		<test expect_num_outputs="2">
-			<param name="source" value="restricted" />
-			<param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
-			<param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
-			<output name="output1" file="output_test1.vcf" ftype="vcf" lines_diff="2" />
-		</test>
-		<test expect_num_outputs="2">
-			<param name="source" value="custom" />
-			<param name="input1" dbkey="hg19" value="input_test2.vcf" ftype="vcf" />
-			<param name="custom_annotation" dbkey="hg19" value="test.gtf" ftype="gtf" />
-			<param name="ref_source" value="history" />
-			<param name="ref" dbkey="hg19" value="test.fa" ftype="fasta" />
-			<output name="output1" file="output_test2.vcf" ftype="vcf" lines_diff="2" />
-		</test>
-		<test expect_num_outputs="2">
-			<param name="source" value="restricted" />
-			<param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
-			<param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
-			<param name="source" value="restricted" />
-			<param name="vcf_info_field" value="ANN" />
-			<output name="output1">
-				<assert_contents>
-					<has_text text="##INFO=&lt;ID=ANN" />
-					<has_n_lines n="5" />
-				</assert_contents>
-			</output>
-		</test>
-		<test expect_num_outputs="2">
-			<param name="source" value="restricted" />
-			<param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
-			<param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
-			<param name="source" value="restricted" />
-			<param name="terms" value="display" />
-			<output name="output1">
-				<assert_contents>
-					<has_text text="|DOWNSTREAM|" />
-					<not_has_text text="|downstream_gene_variant|" />
-					<has_text text="|UPSTREAM|" />
-					<not_has_text text="|upstream_gene_variant|" />
-					<has_n_lines n="5" />
-				</assert_contents>
-			</output>
-		</test>
-		<test expect_num_outputs="2">
-			<param name="source" value="restricted" />
-			<param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
-			<param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
-			<param name="source" value="restricted" />
-			<param name="out_opt_checkboxes" value="--overlaps,--allele_number" />
-			<output name="output1">
-				<assert_contents>
-					<has_text text="|OverlapBP|OverlapPC" />
-					<has_text text="|ALLELE_NUM" />
-					<has_n_lines n="5" />
-				</assert_contents>
-			</output>
-		</test>
-		<test expect_num_outputs="2">
-			<param name="source" value="restricted" />
-			<param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
-			<param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
-			<param name="source" value="restricted" />
-			<param name="ident_checkboxes" value="--uniprot,--biotype" />
-			<output name="output1">
-				<assert_contents>
-					<has_text text="|SWISSPROT|TREMBL|UNIPARC|UNIPROT_ISOFORM" />
-					<has_text text="|BIOTYPE" />
-					<has_n_lines n="5" />
-				</assert_contents>
-			</output>
-		</test>
-		<test expect_num_outputs="2">
-			<param name="source" value="restricted" />
-			<param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
-			<param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
-			<param name="source" value="restricted" />
-			<param name="colo_var_checkboxes" value="--max_af,--pubmed" />
-			<output name="output1">
-				<assert_contents>
-					<has_text text="|MAX_AF|MAX_AF_POPS" />
-					<has_text text="|PUBMED" />
-					<has_n_lines n="5" />
-				</assert_contents>
-			</output>
-		</test>
-	</tests>
-	<help><![CDATA[
-		The Ensembl Variant Effect Predictor (VEP) is able to determine the effect of variants (e.g. SNPs, insertions or deletions) on genes, transcripts, protein sequences and regulatory regions. Given the coordinates and nucleotide changes of a variant, it outputs affected genes, the exact location and consequences of the variant as well as known variants matching this one.
-	]]></help>
-	<citations>
-		<citation type="doi">10.1186/s13059-016-0974-4</citation>
-	</citations>
+    <description>with VEP</description>
+    <macros>
+        <token name="@TOOL_VERSION@">108.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+        <token name="@DB_VERSION@">108</token>
+        <xml name="vcf_input">
+            <param type="data" name="input1" label="VCF input file" format="vcf">
+                <validator type="unspecified_build" />
+                <yield />
+            </param>
+        </xml>
+        <xml name="vcf_input_validation">
+            <validator type="dataset_metadata_in_data_table" table_name="vep_versioned_annotation_cache" metadata_name="dbkey" metadata_column="1" message="No annotation caches are available for the specified build" />
+        </xml>
+    </macros>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">ensembl-vep</requirement>
+        <requirement type="package" version="0.1">perl-math-cdf</requirement>
+        <requirement type="package" version="3.4">grep</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        #if $annotation_cache.source == "custom":
+            #set $custom_ext = $annotation_cache.custom_annotation.ext[:3]
+            set -o pipefail &&
+            grep -v "#" '${annotation_cache.custom_annotation}' |
+            LC_ALL=C sort -k1,1 -k4,4n -k5,5n -t$'\t' |
+            bgzip -c > 'custom_annotation.${custom_ext}.gz' &&
+            tabix -p gff 'custom_annotation.${custom_ext}.gz' &&
+        #end if
+        #if $ref_seq.ref_source == "cached":
+            ln -s '$ref_seq.ref.fields.path' reference.fa &&
+        #else if $ref_seq.ref_source == "history":
+            ln -s '$ref_seq.ref' reference.fa &&
+        #end if
+
+        vep -i '${annotation_cache.input1}' -o MainOutput.vcf --vcf
+        #if $annotation_cache.source == "custom":
+            --$custom_ext 'custom_annotation.${custom_ext}.gz'
+        #else:
+            --cache
+            --species '${annotation_cache.cache_file.fields.species}'
+            --dir_cache '${annotation_cache.cache_file.fields.path}'
+            #if $annotation_cache.cache_file.fields.cachetype == "refseq": --refseq
+            #if $annotation_cache.cache_file.fields.cachetype == "merged": --merged
+            #if $annotation_cache.cache_file.fields.version != "@DB_VERSION@": --cache_version $annotation_cache.cache_file.fields.version
+            ## The --offline flag automatically activates --cache. This is not wanted in our gff/gtf case but also not needed as no internet connection is required for annotating with these custom annotation sources.
+            --offline
+        #end if
+        #if $ref_seq.ref_source != "no_ref"
+            --fasta reference.fa
+        #end if
+        --stats_text
+
+        #if $out_opt.sift != "None": --sift $out_opt.sift
+        #if $out_opt.polyphen != "None": --polyphen $out_opt.polyphen
+        #if $out_opt.nearest != "None": --nearest $out_opt.nearest
+        #if int($out_opt.distance_custom.distance_1) > -1:
+            --distance $out_opt.distance_custom.distance_1#if int($out_opt.distance_custom.distance_2) > -1: ,$out_opt.distance_custom.distance_2
+        #end if
+        #if $out_opt.cell_type != "": --cell_type '$out_opt.cell_type'
+        #if $out_opt.individual != "": --individual $out_opt.individual
+        --vcf_info_field $out_opt.vcf_info_type.vcf_info_field
+        --terms $out_opt.terms
+        #if $out_opt.out_opt_checkboxes != "None": ${' '.join(str($out_opt.out_opt_checkboxes).split(","))}
+        #if $out_opt.shift_var.shift_selector != "None":
+            $out_opt.shift_var.shift_selector
+            #if $out_opt.shift_var.shift_selector == "--shift_hgvs 0 --shift_3prime 1"
+                #if $out_opt.shift_var.shift_length != "None": $out_opt.shift_var.shift_length
+            #end if
+        #end if
+        #if $ident.input_synonyms: --synonyms '${ident.input_synonyms}'
+        #if $ident.ident_checkboxes != "None": ${' '.join(str($ident.ident_checkboxes).split(","))}
+        #if $colo_var.colo_var_checkboxes != "None": ${' '.join(str($colo_var.colo_var_checkboxes).split(","))}
+        #if $fil_qc.fil_qc_checkboxes != "None": ${' '.join(str($fil_qc.fil_qc_checkboxes).split(","))}
+        $plugins.carol
+        $plugins.condel
+        #if $plugins.exacpli_file: --plugin ExACpLI,'${plugins.exacpli_file}'
+        #if $plugins.loftool_file: --plugin LoFtool,'${plugins.loftool_file}'
+    ]]></command>
+    <inputs>
+        <conditional name="annotation_cache">
+            <param name="source" type="select" label="Select source of annotation data" help="Ensembl strongly recommends to only use annotation cache files with a version number matching the VEP version. You can disable the corresponding filtering of available cache files at your own risk. This does not apply if you select a GFF/GTF annotation source.">
+                <option value="restricted">VEP cache file with matching version number</option>
+                <option value="unrestricted">Any VEP cache file</option>
+                <option value="custom">GFF or GTF from history</option>
+            </param>
+            <when value="restricted">
+                <expand macro="vcf_input">
+                    <expand macro="vcf_input_validation" />
+                </expand>
+                <param name="cache_file" type="select" label="Select annotation cache file" help="If the annotation data of interest is not listed, have a look at all available cache files regardless of their version number or contact your Galaxy admin.">
+                    <options from_data_table="vep_versioned_annotation_cache">
+                        <filter type="static_value" value="@DB_VERSION@" column="2" />
+                        <filter type="sort_by" column="4"/>
+                    </options>
+                    <validator type="no_options" message="No annotation caches are available"/>
+                </param>
+            </when>
+            <when value="unrestricted">
+                <expand macro="vcf_input">
+                    <expand macro="vcf_input_validation" />
+                </expand>
+                <param name="cache_file" type="select" label="Select annotation cache file" help="If the annotation data of interest is not listed, contact your Galaxy admin.">
+                    <options from_data_table="vep_versioned_annotation_cache">
+                        <filter type="sort_by" column="4"/>
+                    </options>
+                    <validator type="no_options" message="No annotation caches are available"/>
+                </param>
+            </when>
+            <when value="custom">
+                <expand macro="vcf_input" />
+                <param name="custom_annotation" type="data" format="gff,gtf" label="Select GFF or GTF annotation file from history" help="Choosing this option requires that you also supply a Fasta file as reference genome." />
+            </when>
+        </conditional>
+        <conditional name="ref_seq">
+            <param name="ref_source" type="select" label="Use FASTA file as reference sequence (optional)" help="Must be specified if using a GFF/GTF annotation source or if fetching HGVS or SPDI notations.">
+                <option value="no_ref">Do not use extra reference sequence</option>
+                <option value="cached">Locally cached</option>
+                <option value="history">History</option>
+            </param>
+            <when value="no_ref" />
+            <when value="cached">
+                <param name="ref" type="select" label="Select reference sequence">
+                    <options from_data_table="fasta_indexes">
+                        <validator type="no_options" message="A built-in reference genome is not available for the build associated with the selected input file" />
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="ref" type="data" format="fasta" label="Select reference sequence" />
+            </when>
+        </conditional>
+        <section name="out_opt" title="Output options">
+            <param argument="--sift" type="select" optional="true" label="Output SIFT prediction" help="SIFT predicts whether an amino acid substitution affects protein function based on sequence homology and the physical properties of amino acids.">
+                <option value="p">Prediction term only</option>
+                <option value="s">Score only</option>
+                <option value="b">Both</option>
+            </param>
+            <param argument="--polyphen" type="select" optional="true" label="Output PolyPhen prediction" help="PolyPhen is a tool which predicts possible impact of an amino acid substitution on the structure and function of a human protein using straightforward physical and comparative considerations. VEP uses the humVar score by default.">
+                <option value="p">Prediction term only</option>
+                <option value="s">Score only</option>
+                <option value="b">Both</option>
+            </param>
+            <param argument="--nearest" type="select" optional="true" label="Retrieve transcript or gene with nearest TSS to each input variant" help="Retrieve the transcript or gene with the nearest protein-coding transcription start site (TSS) to each input variant. Note that the nearest TSS may not belong to a transcript that overlaps the input variant, and more than one may be reported in the case where two are equidistant from the input coordinates.">
+                <option value="transcript">Nearest transcript ID</option>
+                <option value="gene">Nearest gene ID</option>
+                <option value="symbol">Nearest gene symbol</option>
+            </param>
+            <conditional name="distance_custom">
+                <param name="distance_custom_selector" type="select" label="Modify the distance up and/or downstream between a variant and a transcript for which VEP will assign the upstream_gene_variant or downstream_gene_variant consequences" help="Default: 5000. Upstream is 5' and downstream 3' direction. (--distance [bp_distance(,downstream_distance_if_different)])">
+                    <option value="default" selected="true">Default</option>
+                    <option value="one_dist">Custom distance used for both upstream and downstream</option>
+                    <option value="two_dist">Custom upstream distance and different custom downstream distance</option>
+                </param>
+                <when value="default">
+                    <param name="distance_1" type="hidden" value="-1"/>
+                    <param name="distance_2" type="hidden" value="-1"/>
+                </when>
+                <when value="one_dist">
+                    <param name="distance_1" type="integer" min="0" value="5000" label="Enter custom upstream and downstream distance"/>
+                    <param name="distance_2" type="hidden" value="-1"/>
+                </when>
+                <when value="two_dist">
+                    <param name="distance_1" type="integer" min="0" value="5000" label="Enter custom upstream distance"/>
+                    <param name="distance_2" type="integer" min="0" value="5000" label="Enter custom downstream distance"/>
+                </when>
+            </conditional>
+            <param name="cell_type" type="text" optional="true" label="Report only regulatory regions that are found in the given cell type(s):" help="Recommended for advanced users only. Can be a single cell type or a comma-separated list. The functional type in each cell type is reported under CELL_TYPE in the output. (--cell_type)"/>
+            <param name="individual" type="text" optional="true" label="Consider only alternate alleles present in the genotypes of the specified individual(s):" help="Enter the individual's IDs as comma-separated list. Individual variant combinations homozygous for the given reference allele will not be reported. Each individual and variant combination is given on a separate line of output. Only works with VCF files containing individual genotype data. (--individual [ind list])" />
+            <conditional name="vcf_info_type">
+                <param name="vcf_info_type_selector" type="select" label="Change name of the consequences INFO column in VCF output" help="Default: CSQ. Use ANN for compatibility with other tools such as snpEff (--vcf_info_field [CSQ|ANN|(other)])">
+                    <option value="csq" selected="true">CSQ</option>
+                    <option value="ann">ANN</option>
+                    <option value="custom">Custom</option>
+                </param>
+                <when value="csq">
+                    <param name="vcf_info_field" type="hidden" value="CSQ"/>
+                </when>
+                <when value="ann">
+                    <param name="vcf_info_field" type="hidden" value="ANN"/>
+                </when>
+                <when value="custom">
+                    <param name="vcf_info_field" type="text" label="Enter custom INFO key"/>
+                </when>
+            </conditional>
+            <param argument="--terms" type="select" label="Type of consequence terms to output" help="The default used for terms is Sequence Ontology.">
+                <option value="SO" selected="true">Sequence Ontology (SO)</option>
+                <option value="display">Display version of SO</option>
+                <option value="NCBI">NCBI</option>
+            </param>
+            <conditional name="shift_var">
+                <param name="shift_selector" type="select" label="Shift variants to the right">
+                    <option value="" selected="true">No shift</option>
+                    <option value="--shift_hgvs 1">3' shift of HGVS notations, causing ambiguous insertions or deletions (typically in repetetive sequence tracts) to be "shifted" to their most 3' possible coordinates (relative to the transcript sequence and strand) before the HGVS notations are calculated (--shift_hgvs 1)</option>
+                    <option value="--shift_hgvs 0 --shift_3prime 1">Right align all variants relative to their associated transcripts prior to consequence calculation (--shift_3prime 1)</option>
+                    <option value="--shift_hgvs 0 --shift_genomic 1">Right align all variants, including intergenic variants, before consequence calculation and update the Location field (--shift_genomic 1)</option>
+                </param>
+                <when value="" />
+                <when value="--shift_hgvs 1" />
+                <when value="--shift_hgvs 0 --shift_3prime 1">
+                    <param name="shift_length" type="boolean" truevalue="--shift_length" falsevalue="" label="Report the distance each variant has been shifted"/>
+                </when>
+                <when value="--shift_hgvs 0 --shift_genomic 1" />
+            </conditional>
+            <param name="out_opt_checkboxes" type="select" optional="true" display="checkboxes" multiple="true" label="Output option flags">
+                <option value="--variant_class">Ouput variant class (--variant_class)</option>
+                <option value="--humdiv">Retrieve humDiv PolyPhen prediction instead of humVar (--humdiv)</option>
+                <option value="--overlaps">Output overlap between transcript and structural variant (--overlaps)</option>
+                <option value="--gene_phenotype">Indicate if the overlapped gene is associated with a phenotype, disease or trait (--gene_phenotype)</option>
+                <option value="--regulatory">Look for overlaps with regulatory regions (--regulatory)</option>
+                <option value="--phased">Force VCF genotypes to be interpreted as phased (--phased)</option>
+                <option value="--allele_number">Identify allele number from VCF input, where 1 = first ALT allele etc. (--allele_number)</option>
+                <option value="--show_ref_allele">Adds the reference allele in the output (--show_ref_allele)</option>
+                <option value="--total_length">Give cDNA, CDS and protein positions as Position/Length (--total_length)</option>
+                <option value="--numbers">Output affected exon and intron numbering (--numbers)</option>
+                <option value="--no_escape">Don't URI escape HGVS strings (--no_escape)</option>
+                <option value="--keep_csq">Don't overwrite existing CSQ entry in VCF INFO field (--keep_csq)</option>
+                <option value="--no_headers">Don't write header lines in output files (--no_headers)</option>
+            </param>
+        </section>
+        <section name="ident" title="Identifiers">
+            <param type="data" optional="true" name="input_synonyms" format="tabular" label="Load a file of chromosome synonyms" help="File should be tab-delimited with the primary identifier in column 1 and the synonym in column 2. Synonyms allow different chromosome identifiers to be used in the input file and any annotation source. (--synonyms [file])"/>
+            <param name="ident_checkboxes" type="select" optional="true" display="checkboxes" multiple="true" label="Identifier flags">
+                <option value="--hgvs">Add HGVS nomenclature, both coding and protein sequence names, to the ouput (requires FASTA) (--hgvs)</option>
+                <option value="--hgvsg">Add genomic HGVS nomenclature based on the input chromosome name (requires FASTA) (--hgvsg)</option>
+                <option value="--spdi">Add genomic SPDI notation (requires FASTA) (--spdi)</option>
+                <option value="--transcript_version">Add version numbers to Ensembl transcript identifiers (--transcript_version)</option>
+                <option value="--protein">Add the Ensembl protein identifier to the output where appropriate (--protein)</option>
+                <option value="--symbol">Add the gene symbol (e.g. HGNC) (where available) to the output (--symbol)</option>
+                <option value="--ccds">Add the CCDS transcript identifer (where available) to the output (--ccds)</option>
+                <option value="--uniprot">Add best match accessions for translated protein products from three UniProt-related databases (SWISSPROT, TREMBL and UniParc) to the output (--uniprot)</option>
+                <option value="--tsl">Add the transcript support level for this transcript to the output (only for hg38) (--tsl)</option>
+                <option value="--appris">Add the APPRIS isoform annotation for this transcript to the output (only for hg38) (--appris)</option>
+                <option value="--canonical">Add a flag indicating if the transcript is the canonical transcript for the gene (--canonical)</option>
+                <option value="--mane">Add a flag indicating if the transcript is the MANE Select or MANE Plus Clinical transcript for the gene (only for hg38) (--mane)</option>
+                <option value="--mane_select">Add a flag indicating if the transcript is the MANE Select transcript for the gene (only for hg38) (--mane_select)</option>
+                <option value="--biotype">Output the biotype of the transcript or regulatory feature (--biotype)</option>
+                <option value="--domains">Add names of overlapping protein domains to output (--domains)</option>
+                <option value="--xref_refseq">Output aligned RefSeq mRNA identifier for transcript (--xref_refseq)</option>
+            </param>
+        </section>
+        <section name="colo_var" title="Co-located variants">
+            <param name="colo_var_checkboxes" type="select" optional="true" display="checkboxes" multiple="true" label="Co-located variants flags">
+                <option value="--check_existing">Check for the existence of known variants that are co-located with the input (--check_existing)</option>
+                <option value="--clin_sig_allele 0">Report all known clinical significance values at the given locus (instead of allele-specific) (--clin_sig_allele 0)</option>
+                <option value="--exclude_null_alleles">Do not include variants with unknown alleles when checking for co-located variants (--exclude_null_alleles)</option>
+                <option value="--no_check_alleles">When checking for existing variants, compare using coordinates only (--no_check_alleles)</option>
+                <option value="--af">Add the global allele frequency (AF) from 1000 Genomes Phase 3 data for any known co-located variant to the output (--af)</option>
+                <option value="--max_af">Report the highest allele frequency observed in any population from 1000 genomes, ESP or gnomAD (--max_af)</option>
+                <option value="--af_1kg">Add allele frequency from continental populations (AFR,AMR,EAS,EUR,SAS) of 1000 Genomes Phase 3 to the output (--af_1kg)</option>
+                <option value="--af_esp">Include allele frequency from NHLBI-ESP populations (--af_esp)</option>
+                <option value="--af_gnomad">Include allele frequency from Genome Aggregation Database (gnomAD) exome populations (--af_gnomad)</option>
+                <option value="--af_exac">Include allele frequency from ExAC project populations (--af_exac)</option>
+                <option value="--pubmed">Report Pubmed IDs for publications that cite existing variant (--pubmed)</option>
+                <option value="--var_synonyms">Report known synonyms for co-located variants (--var_synonyms)</option>
+                <option value="--failed 1">Do not exclude variants that have been flagged as failed when checking for co-located variants (--failed 1)</option>
+            </param>
+        </section>
+        <section name="fil_qc" title="Filtering and QC options">
+            <param name="fil_qc_checkboxes" type="select" optional="true" display="checkboxes" multiple="true" label="Filtering and QC flags">
+                <option value="--coding_only">Only return consequences that fall in the coding regions of transcripts (--coding_only)</option>
+                <option value="--no_intergenic">Do not include intergenic consequences in the output (--no_intergenic)</option>
+            </param>
+        </section>
+        <section name="plugins" title="VEP Plugins">
+            <param name="carol" type="boolean" label="Enable Carol plugin" truevalue="--plugin Carol" falsevalue="" help="This plugin calculates the Combined Annotation scoRing toOL (CAROL) score for a missense mutation and adds it to VEP's output. Both the SIFT and PolyPhen-2 scores are required for the calculation, so these two have to be activated in the output options section." />
+            <param name="condel" type="boolean" label="Enable Condel plugin" truevalue="--plugin Condel" falsevalue="" help="This plugin calculates the Consensus Deleteriousness (Condel) score for a missense mutation and adds it to VEP's output. Both the SIFT and PolyPhen-2 scores are required for the calculation, so these two have to be activated in the output options section." />
+            <param name="exacpli_file" type="data" format="txt" optional="true" label="Enable ExACpLI plugin by selecting an ExACpLI_values text file" help="This plugin calculates the probabililty of a gene being loss-of-function intolerant (pLI) and adds it to VEP's output. The closer pLI is to 1, the more likely the gene is loss-of-function (LoF) intolerant. An ExACpLI_values.txt file is required for usage and it is recommended to use the one provided in the VEP_plugins GitHub repository: https://github.com/Ensembl/VEP_plugins" />
+            <param name="loftool_file" type="data" format="txt" optional="true" label="Enable LoFtool plugin by selecting a LoFtool_scores text file" help="This plugin calculates LoFtool scores and adds them to VEP's output. LoFtool provides a rank of genic intolerance and consequent susceptibility to disease based on the ratio of Loss-of-function (LoF) to synonymous mutations for each gene in 60,706 individuals from ExAC, adjusting for the gene de novo mutation rate and evolutionary protein conservation. The lower the LoFtool gene score percentile the most intolerant is the gene to functional variation. A LoFtool_scores.txt file is required for usage and it is recommended to use the one provided in the VEP_plugins GitHub repository: https://github.com/Ensembl/VEP_plugins" />
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output1" format="vcf" from_work_dir="MainOutput.vcf" />
+        <data name="output2" format="txt" label="${tool.name} on ${on_string} TXT Summary" from_work_dir="MainOutput.vcf_summary.txt" />
+    </outputs>
+    <tests>
+        <!-- Note: need to use source: unrestricted in all tests involving a
+        cache_file to be able to use outdated test caches with their version no
+        longer matching the tool version.
+        The alternative would be to update the cache file with every new tool
+        release.
+        Also note: VEP VCF outputs will feature two irreproducible header lines
+        with run time info, which are dropped from the test files.
+        => always expect a two lines diff -->
+        <test expect_num_outputs="2">
+            <param name="source" value="unrestricted" />
+            <param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
+            <param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
+            <output name="output1" file="output_test1.vcf" ftype="vcf" lines_diff="2" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="source" value="custom" />
+            <param name="input1" dbkey="hg19" value="input_test2.vcf" ftype="vcf" />
+            <param name="custom_annotation" dbkey="hg19" value="test.gtf" ftype="gtf" />
+            <param name="ref_source" value="history" />
+            <param name="ref" dbkey="hg19" value="test.fa" ftype="fasta" />
+            <output name="output1" file="output_test2.vcf" ftype="vcf" lines_diff="2" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="source" value="unrestricted" />
+            <param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
+            <param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
+            <param name="vcf_info_field" value="ANN" />
+            <output name="output1">
+                <assert_contents>
+                    <has_text text="##INFO=&lt;ID=ANN" />
+                    <has_n_lines n="6" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="source" value="unrestricted" />
+            <param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
+            <param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
+            <param name="terms" value="display" />
+            <output name="output1">
+                <assert_contents>
+                    <has_text text="|DOWNSTREAM|" />
+                    <not_has_text text="|downstream_gene_variant|" />
+                    <has_text text="|UPSTREAM|" />
+                    <not_has_text text="|upstream_gene_variant|" />
+                    <has_n_lines n="6" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="source" value="unrestricted" />
+            <param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
+            <param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
+            <param name="out_opt_checkboxes" value="--overlaps,--allele_number" />
+            <output name="output1">
+                <assert_contents>
+                    <has_text text="|OverlapBP|OverlapPC" />
+                    <has_text text="|ALLELE_NUM" />
+                    <has_n_lines n="6" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="source" value="unrestricted" />
+            <param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
+            <param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
+            <param name="ident_checkboxes" value="--uniprot,--biotype" />
+            <output name="output1">
+                <assert_contents>
+                    <has_text text="|SWISSPROT|TREMBL|UNIPARC|UNIPROT_ISOFORM" />
+                    <has_text text="|BIOTYPE" />
+                    <has_n_lines n="6" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="source" value="unrestricted" />
+            <param name="input1" dbkey="dm6" value="input_test1.vcf" ftype="vcf" />
+            <param name="cache_file" value="drosophila_melanogaster_vep_106_BDGP6.32" />
+            <param name="colo_var_checkboxes" value="--max_af,--pubmed" />
+            <output name="output1">
+                <assert_contents>
+                    <has_text text="|MAX_AF|MAX_AF_POPS" />
+                    <has_text text="|PUBMED" />
+                    <has_n_lines n="6" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+The Ensembl Variant Effect Predictor (VEP) is able to determine the effect of variants (e.g. SNPs, insertions or deletions) on genes, transcripts, protein sequences and regulatory regions. Given the coordinates and nucleotide changes of a variant, it outputs affected genes, the exact location and consequences of the variant as well as known variants matching this one.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1186/s13059-016-0974-4</citation>
+    </citations>
 </tool>
