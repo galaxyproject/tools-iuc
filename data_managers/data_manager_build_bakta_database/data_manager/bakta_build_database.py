@@ -220,7 +220,7 @@ def parse_arguments():
                                  'default is the latest version',
                             default="latest",
                             required=True)
-    arg_parser.add_argument("-t", "--test",
+    arg_parser.add_argument("-t", "--test", action='store_true',
                             help="option to test the script with an empty database")
     return arg_parser.parse_args()
 
@@ -246,7 +246,6 @@ def main():
     # update the path for galaxy
     bakta_upload.db_dir = target_dir
     # download the database
-    print(bakta_db)
     bakta_upload.download()
     # check md5 sum
     bakta_upload.calc_md5_sum()
@@ -257,7 +256,7 @@ def main():
     # make the data_manager metadata
     bakta_data_manager = bakta_upload.get_data_manager(bakta_database_info=bakta_db, output_path=bakta_extracted_path)
     with open(all_args.data_manager_json, 'w') as fh:
-        json.dump(bakta_data_manager, fh, indent=2, sort_keys=True)
+        json.dump(bakta_data_manager, fh, sort_keys=True)
 
 
 if __name__ == '__main__':
