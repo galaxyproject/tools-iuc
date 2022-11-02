@@ -8,8 +8,6 @@ import tarfile
 from datetime import datetime
 from pathlib import Path
 
-import bakta.constants as bc
-import bakta.utils as bu
 import requests
 from alive_progress import alive_bar
 
@@ -29,6 +27,7 @@ class GetBaktaDatabaseInfo:
         self.data_table_name = data_table_name
         self.db_name = db_name
         self.db_version = db_version
+        self.DB_VERSIONS_URL = 'https://raw.githubusercontent.com/oschwengers/bakta/master/db-versions.json'
 
     def get_data_table_format(self):
         """
@@ -57,7 +56,7 @@ class GetBaktaDatabaseInfo:
         return: info for the select or the latest bakta db version
         """
         try:
-            with requests.get(bc.DB_VERSIONS_URL) as resp:
+            with requests.get(self.DB_VERSIONS_URL) as resp:
                 versions = json.loads(resp.content)
         except IOError as e:
             print(e, file=sys.stderr)
@@ -108,7 +107,8 @@ class GetBaktaDatabaseInfo:
                          bakta_version=str(
                              f"{bakta_database_info['software-min']['major']}."
                              f"{bakta_database_info['software-min']['minor']}"
-                         ), path=output_path)
+                         ),
+                         path=output_path)
         self.bakta_table_list["data_tables"][self.data_table_name] = data_info
         return self.bakta_table_list
 
@@ -130,7 +130,6 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         self.db_name = db_name
         self.tarball_name = tarball_name
         self.tarball_path = None
-        bu.test_dependency(bu.DEPENDENCY_AMRFINDERPLUS)
 
     def download(self):
         self.db_name = f'{self.db_name}_{self.db_version}'
@@ -221,6 +220,8 @@ def parse_arguments():
                                  'default is the latest version',
                             default="latest",
                             required=True)
+    arg_parser.add_argument("-t", "--test",
+                            help="option to test the script with an empty database")
     return arg_parser.parse_args()
 
 
@@ -236,11 +237,16 @@ def main():
     # init the class to download bakta db
     bakta_upload = InstallBaktaDatabase()
     # extract the version
-    bakta_db = bakta_upload.fetch_db_versions(
+    if all_args.test is True:
+        bakta_db = bakta_upload.fetch_db_versions(
+            db_version="test")
+    else:
+        bakta_db = bakta_upload.fetch_db_versions(
         db_version=all_args.database_version)
     # update the path for galaxy
     bakta_upload.db_dir = target_dir
     # download the database
+    print(bakta_db)
     bakta_upload.download()
     # check md5 sum
     bakta_upload.calc_md5_sum()
