@@ -242,7 +242,7 @@ def main():
             db_version="test")
     else:
         bakta_db = bakta_upload.fetch_db_versions(
-        db_version=all_args.database_version)
+            db_version=all_args.database_version)
     # update the path for galaxy
     bakta_upload.db_dir = target_dir
     # download the database
