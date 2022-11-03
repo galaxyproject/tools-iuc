@@ -99,12 +99,12 @@ class GetBaktaDatabaseInfo:
         bakta_value = f"V{bakta_database_info['major']}." \
                       f"{bakta_database_info['minor']}_" \
                       f"{bakta_database_info['date']}"
-        tool_version = str(f"{bakta_database_info['software-min']['major']}." \
-                            f"{bakta_database_info['software-min']['minor']}")
+        tool_version = str(f"{bakta_database_info['software-min']['major']}."
+                           f"{bakta_database_info['software-min']['minor']}")
         data_info = dict(value=bakta_database_info['record'],
                          dbkey=bakta_value,
                          bakta_version=tool_version,
-                         path=".")
+                         path="db")
         self.bakta_table_list["data_tables"][self.data_table_name] = data_info
         return self.bakta_table_list
 
@@ -174,6 +174,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
                   f"calculated md5 = {md5.hexdigest()}"
                   f" different from {self.md5} ")
 
+
 """
 This is the method to download the amrfinderplus database need by bakta.
 Deprecated to use the amrfinderplus data_manager
@@ -203,6 +204,7 @@ Deprecated to use the amrfinderplus data_manager
         else:
             print("AMRFinderPlus database download")
 """
+
 
 def parse_arguments():
     # parse options and arguments
@@ -242,7 +244,7 @@ def main():
     # check md5 sum
     bakta_upload.calc_md5_sum()
     # untar db
-    bakta_extracted_path = bakta_upload.untar()
+    bakta_upload.untar()
     # make the data_manager metadata
     bakta_data_manager = bakta_upload.get_data_manager(bakta_database_info=bakta_db, output_path=target_dir)
     with open(all_args.data_manager_json, 'w') as fh:
