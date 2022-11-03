@@ -1,0 +1,177 @@
+<tool id="seqkit_locate" name="SeqKit locate" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>locate subsequences/motifs, mismatch allowed</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+
+#set input_identifier = re.sub('[^\s\w\-]', '_', str($input.element_identifier))
+ln -s '${input}' '${input_identifier}' &&
+
+seqkit locate 
+--threads \${GALAXY_SLOTS:-4}
+#if $conditional_pattern.mode == 'expression'
+    --pattern '"$conditional_pattern.pattern"'
+    $conditional_pattern.use_regexp
+#else
+    --pattern-file '$conditional_pattern.pattern_file'
+#end if
+$output_mode
+--validate-seq-length $advanced_options.validate_seq_length
+$advanced_options.circular
+$advanced_options.degenerate
+$advanced_options.hide_matched
+$advanced_options.ignore_case
+#if not $advanced_options.degenerate
+    --max-mismatch $advanced_options.max_mismatch
+    $advanced_options.use_fmi
+#end if
+$advanced_options.non_greedy
+$advanced_options.only_positive_strand
+$advanced_options.id_ncbi
+'${input_identifier}'
+> '$output'
+]]></command>
+    <inputs>
+        <param name="input" type="data" format="fasta,fasta.gz" label="Input file"/>
+        <conditional name="conditional_pattern">
+            <param name="mode" type="select" label="Pattern mode" 
+                help="Specify a pattern/motif sequence or a FASTA file with the motif of interest. Motifs could be EITHER plain sequence containing 'ACTGN' OR regular
+                    expression like 'A[TU]G(?:.{3})+?[TU](?:AG|AA|GA)' for ORFs">
+                <option value="expression">Pattern/motif sequence</option>
+                <option value="file">FASTA file with the pattern/motif of interest</option>
+            </param>
+            <when value="expression">
+                <param argument="--pattern" type="text" value="" label="Pattern/motif sequence" help="Perl regular expressions are allowed">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters,string.digits">
+                        <add value="^"/>
+                        <add value="$"/>
+                        <add value="("/>
+                        <add value=")"/>
+                        <add value="|"/>
+                        <add value="?"/>
+                        <add value="*"/>
+                        <add value="+"/>
+                        <add value="{"/>
+                        <add value="}"/>
+                        <add value="\"/>
+                        <add value="["/>
+                        <add value="]"/>
+                        <add value="."/>
+                        <add value=","/>
+                        </valid>
+                    </sanitizer>
+                    <validator type="regex" message="Pattern must not end with backslash.">.*[^\\]$</validator>
+                </param>
+                <param argument="--use-regexp" type="boolean" truevalue="--use-regexp" falsevalue="" checked="false" label="Pattern/motifs are regular expressions"/>
+            </when>
+            <when value="file">
+                <param argument="--pattern-file" type="data" format="fasta" label="Pattern/motif file"/>
+            </when>
+        </conditional>
+        <param name="output_mode" type="select" label="Output mode">
+            <option value="">Tabular (default format)</option>
+            <option value="--gtf">GTF</option>
+            <option value="--bed">BED6</option>
+        </param>
+        <section name="advanced_options" title="Advanced options">
+            <param argument="--validate-seq-length" type="integer" min="0" value="10000" label="Lenth of the sequence to validate" help="Default: 10000" />
+            <param argument="--circular" type="boolean" truevalue="--circular" falsevalue="" checked="false" label="Circular genome" 
+                help="When using flag --circular, end position of matched subsequence that crossing genome sequence end would be greater than sequence length" />
+            <param argument="--degenerate" type="boolean" truevalue="--degenerate" falsevalue="" checked="false" label="Pattern/motif contains degenerate bases"
+                help="Do not use degenerate bases/residues in regular expression, you need convert them to regular expression, e.g., change 'N' or 'X'  to '.'"/>
+            <param argument="--hide-matched" type="boolean" truevalue="--hide-matched" falsevalue="" checked="false" label="Do not show matched sequences"/>
+            <param argument="--ignore-case" type="boolean" truevalue="--ignore-case" falsevalue="" checked="false" label="Ignore case"/>
+            <param argument="--max-mismatch" type="integer" min="0" value="0" label="Maximum mismatch" help="For large genomes like human genome, using mapping/alignment tools would be faster" />
+            <param argument="--non-greedy" type="boolean" truevalue="--non-greedy" falsevalue="" checked="false" label="Non-greedy mode" help="Faster, but muy miss motifs overlapping with others" />
+            <param argument="--only-positive-strand" type="boolean" truevalue="--only-positive-strand" falsevalue="" checked="false" label="Only search on positive strand"/>
+            <param argument="--use-fmi" type="boolean" truevalue="--use-fmi" falsevalue="" checked="false" label="FM-index" 
+                help="Use FM-index for much faster search of lots of sequence patterns. This option is not compatible with the --degenerate option"/>
+            <param argument="--id-ncbi" type="boolean" truevalue="--id-ncbi" falsevalue="" checked="false" label="FASTA head is NCBI stype" help="Example: >gi|110645304|ref|NC_002516.2| Pseud..." />
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="output_mode" value="--gtf" format="gtf"/>
+                <when input="output_mode" value="--bed" format="bed"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input" value="input1.fasta.gz" ftype="fasta.gz"/>
+            <conditional name="conditional_pattern">
+                <param name="mode" value="expression"/>
+                <param name="pattern" value="ATAGAT"/>
+            </conditional>
+            <section name="advanced_options">
+                <param name="max_mismatch" value="1"/>
+            </section>
+            <output name="output" file="locate_output1.tabular" ftype="tabular"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input" value="input1.fasta.gz" ftype="fasta.gz"/>
+            <conditional name="conditional_pattern">
+                <param name="mode" value="expression"/>
+                <param name="pattern" value="A[TU]G"/>
+                <param name="use_regexp" value="true"/>
+            </conditional>
+            <param name="output_mode" value="--bed"/>
+            <section name="advanced_options">
+                <param name="circular" value="true"/>
+                <param name="hide_matched" value="true"/>
+                <param name="ignore_case" value="true"/>
+                <param name="only_positive_strand" value="true"/>
+                <param name="id_ncbi" value="true"/>
+            </section>
+            <output name="output" file="locate_output2.bed" ftype="bed"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="input" value="input1.fasta.gz" ftype="fasta.gz"/>
+            <conditional name="conditional_pattern">
+                <param name="mode" value="file"/>
+                <param name="pattern_file" value="motif_sequence.fasta"/>
+            </conditional>
+            <param name="output_mode" value="--gtf"/>
+            <section name="advanced_options">
+                <param name="use_fmi" value="true"/>
+            </section>
+            <output name="output" file="locate_output3.gtf" ftype="gtf"/>
+        </test>
+    </tests>
+    <help>
+.. class:: infomark
+
+**Purpose**
+
+Locate subsequences/motifs, mismatch allowed.
+
+------
+
+.. class:: infomark
+
+**Attention**
+
+  1. Motifs could be EITHER plain sequence containing "ACTGN" OR regular
+     expression like "A[TU]G(?:.{3})+?[TU](?:AG|AA|GA)" for ORFs.     
+  2. Degenerate bases/residues like "RYMM.." are also supported by flag -d.
+     But do not use degenerate bases/residues in regular expression, you need
+     convert them to regular expression, e.g., change "N" or "X"  to ".".
+  3. When providing search patterns (motifs) via flag '-p',
+     please use double quotation marks for patterns containing comma, 
+     e.g., -p '"A{2,}"' or -p "\"A{2,}\"". Because the command line argument
+     parser accepts comma-separated-values (CSV) for multiple values (motifs).
+     Patterns in file do not follow this rule.     
+  4. Mismatch is allowed using flag "-m/--max-mismatch",
+     you can increase the value of "-j/--threads" to accelerate processing.
+  5. When using flag --circular, end position of matched subsequence that 
+     crossing genome sequence end would be greater than sequence length.
+    </help>
+    <expand macro="citations"/>
+</tool>
+
