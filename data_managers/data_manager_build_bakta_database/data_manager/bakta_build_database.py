@@ -105,7 +105,7 @@ class GetBaktaDatabaseInfo:
                          dbkey=bakta_value,
                          bakta_version=tool_version,
                          path="db")
-        self.bakta_table_list["data_tables"][self.data_table_name] = data_info
+        self.bakta_table_list["data_tables"][self.data_table_name] = [data_info]
         return self.bakta_table_list
 
 
