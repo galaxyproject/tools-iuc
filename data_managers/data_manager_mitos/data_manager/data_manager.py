@@ -54,6 +54,7 @@ def url_download(tpe, db, workdir):
             src.close()
     with tarfile.open(tarfname, "r:bz2") as tar:
         dirname = tar.getnames()[0]
+
         def is_within_directory(directory, target):
             abs_directory = os.path.abspath(directory)
             abs_target = os.path.abspath(target)
@@ -65,7 +66,7 @@ def url_download(tpe, db, workdir):
                 member_path = os.path.join(path, member.name)
                 if not is_within_directory(path, member_path):
                     raise Exception("Attempted Path Traversal in Tar File")
-            tar.extractall(path, members, numeric_owner=numeric_owner) 
+            tar.extractall(path, members, numeric_owner=numeric_owner)
 
         safe_extract(tar, workdir)
     os.remove(tarfname)
