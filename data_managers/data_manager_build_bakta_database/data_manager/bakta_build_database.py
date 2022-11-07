@@ -3,9 +3,15 @@ import hashlib
 import json
 import os
 import sys
+import subprocess
 import tarfile
 from datetime import datetime
 from pathlib import Path
+
+
+# implement pip as a subprocess:
+subprocess.check_call([sys.executable, '-m', 'pip', 'install',
+'requests'])
 
 import requests
 
@@ -29,15 +35,8 @@ class GetBaktaDatabaseInfo:
 
     def get_data_table_format(self):
         """
-        Build a data table format for galaxy
-        using the bakta database information
-        @str database_value: string of the database name
-        @str database_date: string of the database date of build (YY-M-D)
-        @str database_bakta_version: string of the version of bakta tool
-         to apply a filter on version compatibility
-        @str database_path: string of the database path
-        for the database location
-        return: a data table formatted for json output
+        Skeleton of a data_table format
+        return: a data table formated for json output
         """
         self.data_table_entry = {
             "data_tables": {
@@ -48,10 +47,7 @@ class GetBaktaDatabaseInfo:
 
     def fetch_db_versions(self, db_version="latest"):
         """
-        Use method from bakta tool to extract database info
-        db_version: a string of the version number
-        in the galaxy wrapper list or just latest
-        return: info for the select or the latest bakta db version
+        List bakta database info depending of the db_version selected
         """
         try:
             with requests.get(self.DB_VERSIONS_URL) as resp:
@@ -65,8 +61,7 @@ class GetBaktaDatabaseInfo:
                 for db_dic in versions:
                     db_date_list.append(datetime.strptime(db_dic["date"],
                                                           '%Y-%m-%d').date())
-                filtered_version = next(item for item in versions
-                                        if max(db_date_list))
+                filtered_version = max(versions, key=lambda x: x['date'])
             elif db_version == "test":
                 filtered_version = {"date": "date_test",
                                     "major": "0",
@@ -78,16 +73,13 @@ class GetBaktaDatabaseInfo:
                                                      "minor": "0"}
                                     }
             else:
-                major_version = str(db_version.split(sep=".")[0])
-                minor_version = str(db_version.split(sep=".")[1])
-                try:
-                    filtered_version = next(
-                        item for item in versions
-                        if str(item["major"]) == major_version
-                        and str(item["minor"]) == minor_version)
-                except StopIteration:
-                    print("No available version detected in the list")
-                    filtered_version = None
+                filtered_version = None
+                for item in versions:
+                    if '{0}.{1}'.format(item["major"], item["minor"]) == db_version:
+                        filtered_version = item
+                        break
+                if filtered_version is None:
+                    print("No matching version detected in the list")
             if filtered_version is not None:
                 self.db_url = f"https://zenodo.org/record/" \
                               f"{filtered_version['record']}/files/db.tar.gz"
