@@ -93,8 +93,7 @@ for study_index, study in enumerate(studies_dict):
                                           str(sample_index)]) + '_' + timestamp
                 for file_entry in run_files:
                     runs_table.write('\t'.join([run_alias, action, exp_alias,
-                                                file_entry, FILE_FORMAT,
-                                              ]) + '\n')
+                                                file_entry, FILE_FORMAT]) + '\n')
 
 studies_table.close()
 samples_table.close()
