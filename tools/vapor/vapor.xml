@@ -10,47 +10,53 @@
     </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">vapor</requirement>
+        <!-- gawk only required for current bcftools norm bug workaround
+        Remove once fixed (see command section below -->
+        <requirement type="package" version="5.1.0">gawk</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-    #if int($fasta_file.metadata.data_lines) != 2 * int($fasta_file.metadata.sequences)
-        echo "This tool can only parse FASTA input that has each actual sequence on a single line." 1>&2; exit 1
+    ## The next two lines for on the fly uppercasing are a workaround for a bug
+    ## in vapor 1.0.2, which caused sequence comparisons to be case-sensitive
+    ## got fixed upstream in:
+    ## https://github.com/connor-lab/vapor/commit/b5ec5857cbf53ed45ca7487dac2b4b85ecfe33ea
+    ## but unfortunately no release has been tagged since.
+    ## Remove with next release!!
+    awk '{ if ($0 !~ />/) {print toupper($0)} else {print $0} }' '$fasta_file' > ref_upper.fa &&
+    #set $fasta_file = 'ref_upper.fa'
+
+    #if str($fastq_input.fastq_input_selector) == "paired"
+        #set r1_ext = $fastq_input.fastq1.extension
+        #set r2_ext = $fastq_input.fastq2.extension
+        ln -s '$fastq_input.fastq1' fastq1.$r1_ext &&
+        ln -s '$fastq_input.fastq2' fastq2.$r2_ext &&
+    #elif str($fastq_input.fastq_input_selector) == "paired_collection"
+        #set r1_ext = $fastq_input.fastq_pairs.forward.extension
+        #set r2_ext = $fastq_input.fastq_pairs.reverse.extension
+        ln -s '$fastq_input.fastq_pairs.forward' fastq1.$r1_ext &&
+        ln -s '$fastq_input.fastq_pairs.reverse' fastq2.$r2_ext &&
     #else
-        #if str($fastq_input.fastq_input_selector) == "paired"
-            #set r1_ext = $fastq_input.fastq1.extension
-            #set r2_ext = $fastq_input.fastq2.extension
-            ln -s '$fastq_input.fastq1' fastq1.$r1_ext &&
-            ln -s '$fastq_input.fastq2' fastq2.$r2_ext &&
-        #elif str($fastq_input.fastq_input_selector) == "paired_collection"
-            #set r1_ext = $fastq_input.fastq_pairs.forward.extension
-            #set r2_ext = $fastq_input.fastq_pairs.reverse.extension
-            ln -s '$fastq_input.fastq_pairs.forward' fastq1.$r1_ext &&
-            ln -s '$fastq_input.fastq_pairs.reverse' fastq2.$r2_ext &&
-        #else
-            #set r1_ext = $fastq_input.fastq_single.extension
-            ln -s '$fastq_input.fastq_single' fastq1.$r1_ext &&
-        #end if
-        vapor.py
-            --return_best_n $return_best_n
-            #if $output_type == "fasta"
-                --return_seqs
-            #end if
-            -k $opt.kmer_length
-            -t $opt.threshold
-            -c $opt.min_kmer_cov
-            -m $opt.min_kmer_prop
-            -fa '$fasta_file'
-            -fq fastq1.$r1_ext
-            #if str($fastq_input.fastq_input_selector) in ["paired", "paired_collection"]
-                fastq2.$r2_ext
-            #end if
-            -f $opt.top_seed_frac
-        > out_file
+        #set r1_ext = $fastq_input.fastq_single.extension
+        ln -s '$fastq_input.fastq_single' fastq1.$r1_ext &&
     #end if
+    vapor.py
+        --return_best_n $return_best_n
+        #if $output_type == "fasta"
+            --return_seqs
+        #end if
+        -k $opt.kmer_length
+        -t $opt.threshold
+        -c $opt.min_kmer_cov
+        -m $opt.min_kmer_prop
+        -fa '$fasta_file'
+        -fq fastq1.$r1_ext
+        #if str($fastq_input.fastq_input_selector) in ["paired", "paired_collection"]
+            fastq2.$r2_ext
+        #end if
+        -f $opt.top_seed_frac
+    > out_file
     ]]></command>
     <inputs>
-        <param name="fasta_file" format="fasta" type="data" label="Reference sequences" help="Select a multisample fasta dataset with (at least two) reference sequences to base classification on.">
-            <validator type="dataset_metadata_in_range" metadata_name="sequences" min="2" message="A FASTA dataset with at least two sequences is required." />
-        </param>
+        <param name="fasta_file" format="fasta" type="data" label="Reference sequences" help="Select a multisample fasta dataset with reference sequences to base classification on." />
         <conditional name="fastq_input">
             <param name="fastq_input_selector" type="select" label="Type of sequencing data">
                 <option value="single">Single-end</option>
@@ -74,11 +80,11 @@
         </param>
         <param name="return_best_n" type="integer" min="1" value="1" label="Limit number of reported matches to" help="Determines the maximum number of candidate matches sorted by score that will be reported." />
         <section name="opt" title="Optional arguments" expanded="true">
-            <param argument="-k" name="kmer_length" type="integer" min="5" max="30" value="21" label="Kmer Length" help="Generate k-mers of this length from the reference sequences and the sequenced reads. Note: smaller k-mer sizes come at th cost of decreased specificity and k-mer sizes below 21 have an increased risk of contaminating sequences getting analyzed. Only decrease the default (21) if you know your sample is pure (i.e., sequenced reads represent viral reads only), or if you have increased --threshold sufficiently." />
-            <param argument="--threshold" type="float" min="0" max="1" value="0.2" label="Read kmer filtering threshold" help="Sequenced reads that don't have at least this proportion of their k-mers matching k-mers generated from the reference sequences will not be considered in the analysis." />
-            <param argument="--min_kmer_cov" type="integer" min="1" value="5" label="Coverage threshold for k-mer culling" help="Minimum coverage by sequenced reads for a reference k-mer to be kept during culling." />
-            <param argument="--min_kmer_prop" type="float" min="0" max="1" value="0.1" label="Minimum k-mer proportion" help="Minimum proportion of matching kmers required for queries" />
-            <param argument="--top_seed_frac" type="float" min="0" max="1" value="0.2" label="Fraction of best seeds to extend" help="" />
+            <param argument="-k" name="kmer_length" type="integer" min="5" max="30" value="21" label="Kmer Length" help="Generate k-mers of this length from the reference sequences and the sequenced reads. Note: smaller k-mer sizes come at the cost of decreased specificity and k-mer sizes below 21 have an increased risk of contaminating sequences getting analyzed. Only decrease the default (21) if you know your sample is pure (i.e., sequenced reads represent viral reads only), or if you have increased --threshold sufficiently." />
+            <param argument="--threshold" type="float" min="0" max="1" value="0.2" label="Read kmer filtering threshold" help="Sequenced reads that don't have at least this proportion of their k-mers matching k-mers generated from the reference sequences will not be considered in the analysis; default: 0.2" />
+            <param argument="--min_kmer_cov" type="integer" min="1" value="5" label="Coverage threshold for k-mer culling" help="Minimum coverage by sequenced reads for a reference k-mer to be kept during culling; default: 5" />
+            <param argument="--min_kmer_prop" type="float" min="0" max="1" value="0.1" label="Minimum k-mer proportion" help="Minimum proportion of matching kmers required for queries; default: 0.1" />
+            <param argument="--top_seed_frac" type="float" min="0" max="1" value="1" label="Fraction of best seeds to extend" help="Of the queries still considered after applying the --min_kmer_prop filter above, the tool will calculate and report scores only for this fraction. Lowering this value leads to shorter runtime because fewer scores will have to be calculated, but also to fewer results getting reported. CAVEAT: this version of the tool will round down the result of applying this parameter so it is possible to end up with zero queries to be considered further. Change only if runtime is an issue!" />
         </section>
     </inputs>
     <outputs>
