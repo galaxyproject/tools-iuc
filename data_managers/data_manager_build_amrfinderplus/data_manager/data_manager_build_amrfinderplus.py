@@ -3,7 +3,6 @@ import json
 import os
 import re
 import subprocess as sp
-
 from datetime import datetime
 from pathlib import Path
 
@@ -51,7 +50,7 @@ class GetDataManager:
             stderr=sp.PIPE,
             universal_newlines=True
         )
-        if (proc.returncode != 0):
+        if proc.returncode != 0:
             print(
                 f"ERROR: AMRFinderPlus failed! command: 'amrfinder_update --force_update --database {amrfinderplus_db_path}', error code: {proc.returncode}")
         else:
