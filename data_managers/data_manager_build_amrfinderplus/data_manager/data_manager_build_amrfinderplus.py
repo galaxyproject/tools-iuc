@@ -14,6 +14,7 @@ class GetDataManager:
         self._db_name = "amrfinderplus-db"
         self._db_path = Path().absolute()
         self._today = datetime.now().strftime("%Y-%m-%d_%H:%M")
+        self._cpu_number = 1
 
     def get_data_table_format(self):
         """
@@ -41,6 +42,7 @@ class GetDataManager:
         cmd = [
             'amrfinder_update',
             '--database', str(amrfinderplus_db_path),
+            '--threads', int(self._cpu_number),
             '--force_update'
         ]
         print(cmd)
@@ -67,7 +69,9 @@ class GetDataManager:
         # parse options and arguments
         arg_parser = argparse.ArgumentParser()
         arg_parser.add_argument("data_manager_json")
-        arg_parser.add_argument("-t", "--test", action='store_true',
+        arg_parser.add_argument("--cpu", action='store_true',
+                                help="Number of CPU to use, default is 1")
+        arg_parser.add_argument("--test", action='store_true',
                                 help="option to test the script with an lighted database")
         return arg_parser.parse_args()
 
@@ -88,6 +92,7 @@ def main():
     amrfinderplus_download = GetDataManager()
     # import the arguments
     all_args = amrfinderplus_download.parse_arguments()
+    amrfinderplus_download._self.cpu_number = int(all_args.cpu)
     # read the json input from galaxy to define the db path
     path_to_download = amrfinderplus_download.read_json_input_file(json_file_path=all_args.data_manager_json)
     # change the path to th json information
@@ -104,3 +109,84 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+import ftplib
+import os
+from ftplib import FTP
+
+ftp = FTP("ftp.ncbi.nlm.nih.gov")
+ftp.login("anonymous", "@anonymous")
+path ="/pathogen/Antimicrobial_resistance/AMRFinderPlus/database/latest/"
+dest='/home/pierre/test/toto'
+
+
+
+code :
+aller sur le ftp
+aller dans le repo ftp
+login avec anonymous
+lister les fichier
+telecharger tous les fichiers
+
+ftp = FTP("ftp.ncbi.nlm.nih.gov")
+ftp.login("anonymous", "@anonymous")
+ftp.cwd(path)
+filelist = ftp.nlst()
+
+for file in filelist:
+    try:
+        # this will check if file is folder:
+        ftp.cwd(path + file + "/")
+        # if so, explore it:
+        downloadFiles(path + file + "/", destination)
+    except ftplib.error_perm:
+        # not a folder with accessible content
+        # download & return
+        os.chdir(destination[0:len(destination) - 1] + path)
+        # possibly need a permission exception catch:
+        with open(os.path.join(destination, file), "wb") as f:
+            ftp.retrbinary("RETR " + file, f.write)
+        print
+        file + " downloaded"
+return
+
+def downloadFiles(path, destination):
+    # path & destination are str of the form "/dir/folder/something/"
+    # path should be the abs path to the root FOLDER of the file tree to download
+    try:
+        ftp.cwd(path)
+        # clone path to destination
+        os.chdir(destination)
+        os.mkdir(destination[0:len(destination) - 1] + path)
+        print
+        destination[0:len(destination) - 1] + path + " built"
+    except OSError:
+        # folder already exists at destination
+        pass
+    except ftplib.error_perm:
+        # invalid entry (ensure input form: "/dir/folder/something/")
+        print
+        "error: could not change to " + path
+        sys.exit("ending session")
+
+    # list children:
+    filelist = ftp.nlst()
+
+    for file in filelist:
+        try:
+            # this will check if file is folder:
+            ftp.cwd(path + file + "/")
+            # if so, explore it:
+            downloadFiles(path + file + "/", destination)
+        except ftplib.error_perm:
+            # not a folder with accessible content
+            # download & return
+            os.chdir(destination[0:len(destination) - 1] + path)
+            # possibly need a permission exception catch:
+            with open(os.path.join(destination, file), "wb") as f:
+                ftp.retrbinary("RETR " + file, f.write)
+            print
+            file + " downloaded"
+    return
+
+
