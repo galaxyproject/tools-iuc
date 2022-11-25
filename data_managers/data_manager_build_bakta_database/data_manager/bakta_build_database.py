@@ -21,7 +21,8 @@ class GetBaktaDatabaseInfo:
     def __init__(self,
                  data_table_name="bakta_database",
                  db_name=Path.cwd().joinpath("db"),
-                 db_version="latest"):
+                 db_version="latest",
+                 test_mode=False):
         self.bakta_table_list = None
         self.db_url = None
         self.data_table_entry = None
@@ -29,6 +30,8 @@ class GetBaktaDatabaseInfo:
         self.db_name = db_name
         self.db_version = db_version
         self.DB_VERSIONS_URL = 'https://raw.githubusercontent.com/oschwengers/bakta/master/db-versions.json'
+        self.DB_TEST_URL = 'https://zenodo.org/record/7360542/files/db-versions.json'
+        self.test_mode = test_mode
 
     def get_data_table_format(self):
         """
@@ -44,8 +47,10 @@ class GetBaktaDatabaseInfo:
 
     def fetch_db_versions(self, db_version="latest"):
         """
-        List bakta database info depending of the db_version selected
+        List bakta database info related to the db_version selected
         """
+        if self.test_mode is True:
+            self.DB_VERSIONS_URL = self.DB_TEST_URL
         try:
             with requests.get(self.DB_VERSIONS_URL) as resp:
                 versions = json.loads(resp.content)
@@ -59,16 +64,6 @@ class GetBaktaDatabaseInfo:
                     db_date_list.append(datetime.strptime(db_dic["date"],
                                                           '%Y-%m-%d').date())
                 filtered_version = max(versions, key=lambda x: x['date'])
-            elif db_version == "test":
-                filtered_version = {"date": "date_test",
-                                    "major": "0",
-                                    "minor": "0",
-                                    "doi": "10.5281/zenodo.7197299",
-                                    "record": "7197299",
-                                    "md5": "8b0250c17078742fc12207d4efb0fc1a",
-                                    "software-min": {"major": "0",
-                                                     "minor": "0"}
-                                    }
             else:
                 filtered_version = None
                 for item in versions:
@@ -83,7 +78,7 @@ class GetBaktaDatabaseInfo:
                 self.db_version = db_version
                 return filtered_version
 
-    def get_data_manager(self, bakta_database_info, output_path):
+    def get_data_manager(self, bakta_database_info):
         self.bakta_table_list = self.get_data_table_format()
         bakta_value = f"V{bakta_database_info['major']}." \
                       f"{bakta_database_info['minor']}_" \
@@ -108,13 +103,15 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
     def __init__(self,
                  db_dir=Path.cwd(),
                  db_name="bakta",
-                 tarball_name="db.tar.gz"):
+                 tarball_name="db.tar.gz",
+                 test_mode=False):
         super().__init__()
         self.md5 = None
         self.db_dir = db_dir
         self.db_name = db_name
         self.tarball_name = tarball_name
         self.tarball_path = None
+        self.test_mode = test_mode
 
     def download(self):
         self.db_name = f'{self.db_name}_{self.db_version}'
@@ -212,20 +209,13 @@ def parse_arguments():
 
 def main():
     all_args = parse_arguments()
-
     with open(all_args.data_manager_json) as fh:
         params = json.load(fh)
     target_dir = params['output_data'][0]['extra_files_path']
     os.makedirs(target_dir)
     # init the class to download bakta db
-    bakta_upload = InstallBaktaDatabase()
-    # extract the version
-    if all_args.test is True:
-        bakta_db = bakta_upload.fetch_db_versions(
-            db_version="test")
-    else:
-        bakta_db = bakta_upload.fetch_db_versions(
-            db_version=all_args.database_version)
+    bakta_upload = InstallBaktaDatabase(test_mode=all_args.test)
+    bakta_db = bakta_upload.fetch_db_versions(db_version=all_args.database_version)
     # update the path for galaxy
     bakta_upload.db_dir = target_dir
     # download the database
@@ -235,10 +225,9 @@ def main():
     # untar db
     bakta_upload.untar()
     # make the data_manager metadata
-    bakta_data_manager = bakta_upload.get_data_manager(bakta_database_info=bakta_db, output_path=target_dir)
+    bakta_data_manager = bakta_upload.get_data_manager(bakta_database_info=bakta_db)
     with open(all_args.data_manager_json, 'w') as fh:
         json.dump(bakta_data_manager, fh, sort_keys=True)
-
 
 if __name__ == '__main__':
     main()
