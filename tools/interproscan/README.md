@@ -17,7 +17,7 @@ All the following steps assume that:
 
 - You agree with each software license
 - InterProScan was installed using Conda in the `IPRSCAN_DIR` directory
-- You have run the InterProScan data manager which placed the data files in the `IPRSCAN_DATA_DIR` directory (e.g. `/data/db/data_managers/interproscan/5.54-87.0/`)
+- You have run the InterProScan data manager which placed the data files in the `IPRSCAN_DATA_DIR` directory (e.g. `/data/db/data_managers/interproscan/5.55-88.0/`)
 
 Everytime you upgrade InterProScan, you'll need to do the same things: modify the `${IPRSCAN_DIR}/share/InterProScan/interproscan.properties` file + add the SMART file.
 
