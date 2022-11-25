@@ -113,6 +113,8 @@
             <when value="cached">
                 <param name="database" type="select" label="Select database">
                     <options from_data_table="all_fasta">
+                        <!-- <column name="name" index="0"/>
+                        <column name="value" index="2"/> -->
                         <filter type="sort_by" column="2" />
                     </options>
                     <validator type="no_options" message="A built-in database is not available" />
@@ -187,8 +189,10 @@
     <tests>
         <!-- test on query of GenBank RefSeq records for Gallus gallus and database of Amazona vittata -->
         <test>
-            <param name="reference_source_selector" value="history" />
-            <param name="database" value="amaVit1_Gallus/amaVit1.fa" ftype="fasta" />
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history" />
+                <param name="database" value="amaVit1_Gallus/amaVit1.fa" ftype="fasta" />
+            </conditional>
             <param name="query" value="amaVit1_Gallus/Gallus_gallus_RefSeq.fa" ftype="fasta" />
             <param name="database_type" value="dnax" />
             <param name="query_type" value="rnax" />
@@ -203,17 +207,25 @@
                 <has_text text="-mask=lower"/>
             </assert_command>
         </test>
-        <!-- test on query of partial mRNA of Drosophila melanogaster and the database of Drosophila biamipes dot chromosome -->
+        <!-- test on query of partial mRNA of Drosophila melanogaster and the 
+            database of Drosophila biamipes dot chromosome 
+            - also test cached reference -->
         <test>
-            <param name="reference_source_selector" value="history" />
-            <param name="database" value="dbia3/dbia3.fa" ftype="fasta" />
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="cached"/>
+                <param name="database" value="dbdia display name"/>
+            </conditional>
             <param name="query" value="dbia3/dmel-transcript.fa" ftype="fasta" />
             <param name="database_type" value="dnax" />
             <param name="query_type" value="rnax" />
-            <param name="tileSize" value="5"/><!--explicitly set default .. to check if it is on the CL-->
-            <param name="stepSize" value="5"/><!--explicitly set default .. to check if it is on the CL-->
+            <section name="basic_align">
+                <param name="maxIntron" value="" />
+            </section>
+            <section name="adv_align">
+                <param name="tileSize" value="5"/><!--explicitly set default .. to check if it is on the CL-->
+                <param name="stepSize" value="5"/><!--explicitly set default .. to check if it is on the CL-->
+            </section>
             <param name="out" value="psl -noHead" />
-            <param name="maxIntron" value="" />
             <output name="output" value="dbia3/dbia3.sorted.psl" ftype="tabular" sort="true"/>
             <assert_command>
                 <has_text text="-tileSize=5"/>
@@ -222,8 +234,10 @@
         </test>
         <!-- test on the database masked by repeat masker -->
         <test>
-            <param name="reference_source_selector" value="history" />
-            <param name="database" value="dbia3/dbia3_masked.2bit" ftype="twobit" />
+            <conditional name="reference_source">
+                <param name="reference_source_selector" value="history" />
+                <param name="database" value="dbia3/dbia3_masked.2bit" ftype="twobit" />
+            </conditional>
             <param name="query" value="dbia3/dmel-transcript.fa" ftype="fasta"/>
             <param name="database_type" value="dnax" />
             <param name="query_type" value="rnax" />
@@ -252,26 +266,70 @@
         <![CDATA[
 BLAT
 ====
-BLAT is a bioinformatics software a tool which performs rapid mRNA/DNA and cross-species protein alignments.
+BLAT is a bioinformatics software a tool which performs rapid sequence alignments (mRNA/DNA and cross-species protein).
+It is designed to find sequences of high similarity and have a certain minimum length. With the default setting this is
 
-TODO refers wron version .. and quite useless
-blat (version: v36)- Standalone blat sequence search command line tool.
--------------------------------------------------------------------------
+- >95% similarity and a minimum length of 25 bases for nucleotide sequences
+- >80% similarity and a minimum lenth of 20 amino acids for proteins
 
-usage:
-++++++
+More divergent or shorter sequence alignments may be missed.
+The algorithm works in two phases: 
 
-  $ blat database query [-ooc=11.ooc] output.psl
+1. Search phase: find regions of probable homology using an index of the reference sequence
+2. Alignment phase: Detailed Alignment of the sequences in these regions
 
-where:
-   database and query are each either a .fa, .nib or .2bit file,
-   or a list of these files with one file name per line.
-   -ooc=11.ooc tells the program to load over-occurring 11-mers from
-   an external file.  This will increase the speed
-   by a factor of 40 in many cases, but is not required.
-   output.psl is the name of the output file.
+Search phase
+++++++++++++
 
-documentation:
+Builds an index of the reference containing the nonoverlapping K-mers and their
+positions (by default, can be changed using `-tileSize` and `-stepSize`).  Hits,
+i.e. exactly matching k-mers in query and reference, are then found by looking
+up each overlapping K-mer of the query sequence.  By enabling `-oneOff` the
+algorithm allows for a single substitition. Note that this increases the run
+time of this phase significantly.
+
+The hits are then split into buckets of 64k (based on the database position)
+and sorted on the diagonal (database minus query positions). Hits within the
+gap limit form so called proto-clumps. Those are then sorted by database position
+and put into clumps if they are within the window limit (wrt database coordinate).
+
+Clumps with less than the minimum number of hits are discarded (-minMatch) and
+those within 300 bases or 100 amino acids in the database are merged together.
+The resulting clumps define regions of the database which are homologous to the
+query sequence which are then aligned.
+
+Alignment phase
++++++++++++++++
+
+The alignment is performed differently for nucleotide and
+aminoacid sequences.
+
+**Alignment for nucleotide sequences**: A hit list (exactly matching k-mers) for
+the query and the homologous region of the database is generated. If necessary
+hits are mode unique by extending them until they are unique or have a maximum
+size. The hits are then extended maximally allowing no mismatches, and overlapping
+hits are merged.
+Subsequent (wrt query and reference) extended hits are then linked in an
+alignment. If there are gaps in query and reference, the algorithm recurses
+using a smaller value for k until no additional hits are found or gaps are
+smaller than 6 bases.
+
+**Protein Alignments**: The hits from the search stage are extended into maximally
+scoring ungapped alignments (HSPs) (match cost 2 and mismatch cost 1). The HSPs
+are organized in a directed graph where an edge connect HSPs A and B if A starts
+before B wrt query and database coordinates. The weight of the edge is then
+defined as the score of B minus a gap penalty based on the distance between A
+and B (overlapping HSPs are treated differently, see Kent 2002).  The maximal
+scoring alignment is then determined as the maximum weight path through the
+graph and the HSPs of this path are removed. This is repeated until no HSPs are
+left.
+
+**Stitching and Filling In**:
+In order to find also alignments of genes scattered across multiple homologous
+regions that have been determined in the search phase a variation of the
+alignment algorithm for proteins is employed. For details see Kent 2002.
+
+Documentation:
 ++++++++++++++
 
 See Blat documentation (http://genome.ucsc.edu/goldenPath/help/blatSpec.html)
