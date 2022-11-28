@@ -21,18 +21,6 @@ def get_time_stamp():
     return datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H-%M-%S')
 
 
-def set_num_cpus(num_files, processes):
-    num_cpus = len(os.sched_getaffinity(0))
-    if num_files < num_cpus and num_files < processes:
-        return num_files
-    if num_cpus < processes:
-        half_cpus = int(num_cpus / 2)
-        if num_files < half_cpus:
-            return num_files
-        return half_cpus
-    return processes
-
-
 def setup_all_vcfs(vcf_files, vcf_dirs):
     # Create the all_vcfs directory and link
     # all input vcf files into it for processing.
@@ -465,7 +453,6 @@ if __name__ == '__main__':
     multiprocessing.set_start_method('spawn')
     queue1 = multiprocessing.JoinableQueue()
     num_files = len(vcf_files)
-    cpus = set_num_cpus(num_files, args.processes)
     # Set a timeout for get()s in the queue.
     timeout = 0.05
 
@@ -495,7 +482,7 @@ if __name__ == '__main__':
         queue1.put(vcf_dir)
 
     # Complete the get_snps task.
-    processes = [multiprocessing.Process(target=snp_finder.get_snps, args=(queue1, timeout, )) for _ in range(cpus)]
+    processes = [multiprocessing.Process(target=snp_finder.get_snps, args=(queue1, timeout, )) for _ in range(args.processes)]
     for p in processes:
         p.start()
     for p in processes:

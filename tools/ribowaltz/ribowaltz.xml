@@ -1,0 +1,260 @@
+<tool id="ribowaltz_process" name="riboWaltz" version="@VERSION@" profile="@PROFILE@">
+    <description>calculation of optimal P-site offsets and diagnostic analysis</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro='requirements'/>
+    <expand macro='edam_ontology' />
+    <expand macro='xrefs'/>
+    <command detect_errors="exit_code"><![CDATA[
+        #for $i, $sample in enumerate($rep_samples):
+            ln -s $sample.bam_file $sample.sample_name'.bam' &&
+        #end for
+        Rscript '${__tool_directory__}/ribowaltz.R' -b . -g '$gtf' --refseq_sep '$refseq_sep'
+        #import json
+        #if $filtering.duplicates.filter == 'yes':
+            #set params_duplicate_filterting = []
+            #silent $params_duplicate_filterting.append({"extremity": str($filtering.duplicates.extremity), "keep": str($filtering.duplicates.keep)})
+            --params_duplicate_filterting '#echo json.dumps($params_duplicate_filterting)#'
+        #end if
+        #if $filtering.length.filter == 'periodicity':
+            #set params_peridiocity_filterting = []
+            #silent $params_peridiocity_filterting.append({"periodicity_threshold": int($filtering.length.periodicity_threshold)})
+            --params_peridiocity_filterting '#echo json.dumps($params_peridiocity_filterting)#'
+        #end if
+        #if $filtering.length.filter == 'custom':
+            #set params_custom_filterting = []
+            #silent $params_custom_filterting.append({"length_range": str($filtering.length.length_range_min)+":"+str($filtering.length.length_range_max)})
+            --params_custom_filterting '#echo json.dumps($params_custom_filterting)#'
+        #end if
+        #set params_psite_additional = []
+        #silent $params_psite_additional.append(
+            {"flanking":int($psite_additional.flanking), "use_start":bool($psite_additional.use_start), 
+            "psite_extrimity":str($psite_additional.psite_extrimity), "cl":int($psite_additional.cl)})
+        --params_psite_additional '#echo json.dumps($params_psite_additional)#'
+        #set params_coverage_additional = []
+        #silent $params_coverage_additional.append(
+            {"psites_per_region":bool($coverage_additional.psites_per_region), "min_overlap":int($coverage_additional.min_overlap),
+            "start_nts":int($coverage_additional.start_nts), "stop_nts":int($coverage_additional.stop_nts)})
+        --params_coverage_additional '#echo json.dumps($params_coverage_additional)#'
+        #if $save_rdata:
+            --psite_info_rdata '$psite_rdata_out'
+        #end if
+        --codon_coverage_info '$codon_coverage_out'
+        --cds_coverage_info '$cds_coverage_out' &&
+        cd plots &&
+        for i in */*.pdf; do mv \$i \${i/\//-}; done;
+    ]]></command>
+    <inputs>
+        <repeat name="rep_samples" title="BAM file" min="1" default="1">
+            <param name="sample_name" type="text" value="SampleName" label="Specify sample name"
+                help="Only letters, numbers and underscores will be retained in this field">
+                <sanitizer>
+                    <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                </sanitizer>
+            </param>
+            <param name="bam_file" type="data" format="bam,sam" multiple="false" label="Input BAM file"
+                help="riboWaltz only works for read alignments based on transcript coordinates"/>
+        </repeat>
+        <param name="gtf" type="data" format="gtf,gff" label="Annotation in GTF format"/>
+        <param name="refseq_sep" type="text" optional="true" label="Separator between reference sequences' name and additional information to discard"
+            help=" All characters before the first occurrence of the specified separator are kept"/>
+        <param name="save_rdata" type="boolean" truevalue="1" falsevalue="0" checked="true"
+            label="Save p-site info RDATA file?"
+            help="Useful for advanced plotting using riboWaltz-plot tool"/>
+        <section name="filtering" title="Filtering Options">
+            <conditional name="duplicates">
+                <param name="filter" type="select" label="Perform duplicate filtering?">
+                    <option value="yes">yes</option>
+                    <option value="no">no</option>
+                </param>
+                <when value="yes">
+                    <param name="extremity" type="select" label="Which reads should be considered duplicates?">
+                        <option value="both" selected="true">Share both the 5' extremity and the 3' extremity </option>
+                        <option value="5end">Share only the 5' extremity</option>
+                        <option value="3end">Share only the 3' extremity</option>
+                    </param>
+                    <param name="keep" type="select" label="Which read to keep if duplicates disply different lengths?"
+                        help="This parameter is considered only if one of 5' or 3' end extrimity was chosen">
+                        <option value="shortest" selected="true">Keep the shortest reads </option>
+                        <option value="longest">Keep the longest reads</option>
+                    </param>
+                </when>
+                <when value="no"/>
+            </conditional>
+            <conditional name="length">
+                <param name="filter" type="select" label="Perform read length filtering">
+                    <option value="periodicity">yes, in periodicity mode</option>
+                    <option value="custom">yes, based on read length ranges</option>
+                    <option value="no">no</option>
+                </param>
+                <when value="periodicity">
+                    <param name="periodicity_threshold" type="integer" value="50" min="10" max="100"
+                        label="Only read lengths satisfying this threshold are kept"/>
+                </when>
+                <when value="custom">
+                    <param name="length_range_min" value="1" type="integer" min="1"
+                        label="Read lengths ranging from"/>
+                    <param name="length_range_max" value="100" type="integer" min="1"
+                        label="Read lengths ranging to"/>
+                </when>
+                <when value="no"/>
+            </conditional>
+        </section>
+        <section name="psite_additional" title="Additional options for P-site offset computation">
+            <param name="flanking" type="integer" value="6" label="Min number of nucleotides that must flank the reference codon in both directions"/>
+            <param name="use_start" type="boolean" truevalue="1" falsevalue="0" checked="true"
+                label="Use the translation initiation site as reference codon?"
+                help="If not checked, the second to last codon is used instead"/>
+            <param name="psite_extrimity" type="select" label="On which extrimity the correction step should be based on?">
+                <option value="auto" selected="true">Automatically select the optimal extremity</option>
+                <option value="5end">Use 5' extrimities</option>
+                <option value="3end">Use 3' extrimities</option>
+            </param>
+            <param name="cl" type="integer" value="99" min="1" max="100" 
+            label="Confidence level for generating occupancy metaprofiles for to a sub-range of read lengths"/>
+        </section>
+        <section name="coverage_additional" title="Options for codon and CDS coverage">
+            <param name="psites_per_region" type="boolean" truevalue="1" falsevalue="0" checked="true"
+                label="Write number of P-Sites falling per region?"
+                help="If not checked, number of read foot prints per region trturned"/>
+            <param name="min_overlap" type="integer" value="1" min="1" label="Min number of overlapping positions between reads and codons to be considered"/>
+            <param name="start_nts" type="integer" value="0" min="0" label="Numer of nucleotides at the beginning of the coding sequences to be excluded"/>
+            <param name="stop_nts" type="integer" value="0" min="0" label="Numer of nucleotides at the end of the coding sequences to be excluded"/>
+        </section>
+    </inputs>
+    <outputs>
+        <collection name="psite_out" type="list" label="P-site offsets information on ${on_string}">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)_psite_info\.tsv" format="tabular" directory="." visible="false"/>
+        </collection>
+        <collection name="basic_plots" type="list:list" label="Ribosome occupancy profiles by read length on ${on_string}">
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;[^-]+)-(?P&lt;identifier_1&gt;[^-]+)\.pdf" format="pdf" directory="plots/" visible="false"/>
+        </collection>
+        <data name="codon_coverage_out" format="tabular" label="Codon coverage on ${on_string}"/>
+        <data name="cds_coverage_out" format="tabular" label="CDS coverage on ${on_string}"/>
+        <data name="psite_rdata_out" format="rdata" label="Psite offset R object ${on_string}">
+            <filter>save_rdata</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="5">
+            <param name="gtf" value="rep1_annot.gtf.gz"/>
+            <param name="refseq_sep" value="."/>
+            <param name="save_rdata" value="true"/>
+            <repeat name="rep_samples">
+                <param name="sample_name" value="Replicate1"/>
+                <param name="bam_file" value="rep1.bam"/>
+            </repeat>
+            <section name="filtering"/>
+            <section name="psite_additional">
+                <param name="flanking" value="6"/>
+                <param name="use_start" value="true"/>
+                <param name="psite_extrimity" value="auto"/>
+                <param name="cl" value="99"/>
+            </section>
+            <section name="coverage_additional">
+                <param name="psites_per_region" value="true"/>
+                <param name="min_overlap" value="1"/>
+                <param name="start_nts" value="0"/>
+                <param name="stop_nts" value="0"/>
+            </section>
+            <output_collection name="psite_out" type="list">
+                <element name="Replicate1">
+                    <assert_contents>
+                        <has_text_matching expression="transcript\tend5\tpsite\tend3\tlength\tcds_start\tcds_stop\tpsite_from_start\tpsite_from_stop\tpsite_region"/>
+                        <has_text_matching expression="ENSMUST00000015812\t1096\t1106\t1134\t39\t697\t1119\t409\t-13\tcds"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="basic_plots" type="list:list">
+                <element name="Replicate1">
+                    <element name="21">
+                        <assert_contents>
+                            <has_size value="5501" delta="200"/>
+                        </assert_contents>
+                    </element>
+                    <element name="48">
+                        <assert_contents>
+                            <has_size value="6035" delta="200"/>
+                        </assert_contents>
+                    </element>
+                </element>
+            </output_collection>
+            <output name="codon_coverage_out">
+                <assert_contents>
+                    <has_text_matching expression="transcript\tstart\tend\tfrom_cds_start\tfrom_cds_stop\tregion\tReplicate1"/>
+                    <has_text_matching expression="ENSMUST00000000137\t2656\t2659\t865\t471\t3utr\t1"/>
+                </assert_contents>
+            </output>
+            <output name="cds_coverage_out">
+                <assert_contents>
+                    <has_text_matching expression="transcript\tlength_cds\tReplicate1"/>
+                    <has_text_matching expression="ENSMUST00000019109\t741\t5"/>
+                </assert_contents>
+            </output>
+            <output name="psite_rdata_out">
+                <assert_contents>
+                    <has_size value="171803" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+riboWaltz is an R package for calculation of optimal P-site offsets, diagnostic analysis and visual inspection of ribosome profiling data. Taking advantage of a two-step algorithm where offset information is passed through populations of reads with different length in order to maximize offset coherence, riboWaltz computes with high precision the P-site offset. riboWaltz also provides a variety of graphical representations, laying the foundations for further accurate RiboSeq analyses and improved interpretation of positional information. More information can be found here: https://github.com/LabTranslationalArchitectomics/riboWaltz
+
+**Inputs**
+
+It takes BAM files and a GTF file as inputs. Most reads from RiboSeq are supposed to map on mRNAs and not on introns and intergenic regions. Hence, riboWaltz currently works for read alignments based on transcript coordinates. Reads should have been mapped to a reference *transcriptome*, NOT a reference genome. 
+
+**Outputs**
+
+riboWaltz generates 4 outputs: 
+    * P-site offsets info: a collection containing P-site offsets information of each input sample.
+    * Codon coverage: a tabular file containing the number of read footprints or P-sites mapping on each triplet of annotated coding sequences and UTRs.
+    * CDS coverage:  a tabular file containing the number of in-frame P-sites mapping on annotated coding sequence.
+    * Plots: a collection containing plots of ribosome occupancy profiles based on the 5' and 3' extremity of reads mapping on the reference codon is generated for all samples and read lengths. 
+
+P-site offsets info file:
+
+====== ==========================================================
+Column Description
+------ ----------------------------------------------------------
+     1 transcript: the name of the corresponding reference sequence
+     2 end5: its leftmost position with respect to the 1st nucleotide of the reference sequence
+     3 psite: the P-site position with respect to the 1st nucleotide of the transcript
+     4 end3: its rightmost position with respect to the 1st nucleotide of the reference sequence
+     5 length: length of the reference sequence
+     6 cds_start: the leftmost position of the annotated CDS of the reference sequence (if any) with respect to its 1st nucleotide
+     7 cds_stop: the rightmost position of the annotated CDS of the reference sequence (if any) with respect to its 1st nucleotide
+     8 psite_from_start: the P-site position with respect to the start codon of the annotated coding sequence (if any) 
+     9 psite_from_stop: the P-site position with respect to the stop codon of the annotated coding sequence (if any)
+    10 psite_region: the region of the transcript (5' UTR, CDS, 3' UTR) that includes the P-site
+====== ==========================================================
+
+Codon coverage:
+
+====== ==========================================================
+Column Description
+------ ----------------------------------------------------------
+     1 transcript: the name of the corresponding reference sequence
+     2 start: its leftmost position with respect to the 1st nucleotide of the reference sequence
+     3 end: its rightmost position with respect to the 1st nucleotide of the reference sequence
+     4 from_cds_start: its position with respect to the first codon of the annotated CDS of the reference sequence
+     5 from_cds_stop: its position with respect to the last codon of the annotated CDS of the reference sequence
+     6 region: the region of the transcript (5' UTR, CDS, 3' UTR) it is in
+ 7-end the number of read footprints or P-sites falling in that region for each samples
+====== ==========================================================
+
+CDS coverage:
+
+====== ==========================================================
+Column Description
+------ ----------------------------------------------------------
+     1 transcript: the name of the corresponding reference sequence
+     2 length_cds: length of the reference sequence
+ 3-end Number of in-frame P-sites mapping on its annotated coding region for each sample
+====== ==========================================================
+
+    ]]></help>
+    <expand macro="citations" />
+</tool>
