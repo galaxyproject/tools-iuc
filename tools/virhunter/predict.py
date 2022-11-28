@@ -87,9 +87,7 @@ def predict_contigs(df):
     Based on predictions of predict_rf for fragments gives a final prediction for the whole contig
     """
     df = (
-        df.groupby(["id", "length", 'RF_decision'], sort=False)
-            .size()
-            .unstack(fill_value=0)
+        df.groupby(["id", "length", 'RF_decision'], sort=False).size().unstack(fill_value=0)
     )
     df = df.reset_index()
     df = df.reindex(['length', 'id', 'virus', 'plant', 'bacteria'], axis=1)
