@@ -1,4 +1,4 @@
-<tool id="quast" name="Quast" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="20.01">
+<tool id="quast" name="Quast" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Genome assembly Quality</description>
     <macros>
         <import>macros.xml</import>
@@ -8,10 +8,11 @@
     <command detect_errors="exit_code">
     <![CDATA[
 #import re
+#import os
 
 #if str($in.custom) == 'false'
     #set $labels = ','.join( [re.sub('[^\w\-_]', '_', str($x.element_identifier)) for $x in $in.inputs])
-    echo $labels &&
+echo $labels &&
 #else
     #set $labels = []
     #for $x in $in.inputs
@@ -25,142 +26,176 @@
 #end if
 
 #if $assembly.type == 'metagenome' and $assembly.ref.origin == 'list'
-    #set $temp_ref_list_fp = 'temp_ref_list_fp'
-    #set $temp_ref_list_f = open($temp_ref_list_fp, 'w')
-    #silent $temp_ref_list_f.write('\n'.join([x.strip() for x in $assembly.ref.references_list.split(',')]))
-    #silent $temp_ref_list_f.close()
+    #set $temp_ref_list_fp = 'temp_ref_list'
+    #for $i in $assembly.ref.references_list.split(',')
+    echo $i >> $temp_ref_list_fp &&
+    #end for
+#end if
+
+#if $reads.reads_option == 'paired'
+    #for $read in $reads.input_1
+        #set $identifier = re.sub('[^\s\w\-\\.]', '_', str($read.element_identifier))
+ln -s '$read' 'pe1-${identifier}.${read.ext}' &&
+    #end for
+    #for $read in $reads.input_2
+        #set $identifier = re.sub('[^\s\w\-\\.]', '_', str($read.element_identifier))
+ln -s '$read' 'pe2-${identifier}.${read.ext}' &&
+    #end for
+#else if $reads.reads_option == 'paired_collection'
+    #set $identifier = re.sub('[^\s\w\-\\.]', '_', str($reads.input_1.element_identifier))
+ln -s '$reads.input_1.forward' 'pe1-${identifier}.${reads.input_1.forward.ext}' &&
+ln -s '$reads.input_1.reverse' 'pe2-${identifier}.${reads.input_1.reverse.ext}' &&
 #end if
 
 #if $assembly.type == 'genome'
-    quast
+quast
 #else
-    metaquast
+metaquast
 #end if
 
 #if $reads.reads_option == 'single'
     #for $read in $reads.input_1
-        --single '$read'
+    --single '$read'
     #end for
 #else if $reads.reads_option == 'paired'
     #for $read in $reads.input_1
-        --pe1 '$read'
+        #set $identifier = re.sub('[^\s\w\-\\.]', '_', str($read.element_identifier))
+    --pe1 'pe1-${identifier}.${read.ext}'
     #end for
     #for $read in $reads.input_2
-        --pe2 '$read'
-    #end for  
+        #set $identifier = re.sub('[^\s\w\-\\.]', '_', str($read.element_identifier))
+    --pe2 'pe2-${identifier}.${read.ext}'
+    #end for
+#else if $reads.reads_option == 'paired_collection'
+    #set $identifier = re.sub('[^\s\w\-\\.]', '_', str($reads.input_1.element_identifier))
+    --pe1 'pe1-${identifier}.${reads.input_1.forward.ext}'
+    --pe2 'pe2-${identifier}.${reads.input_1.reverse.ext}'
 #else if $reads.reads_option == 'paired_interlaced'
     #for $read in $reads.input_1
-        --pe12 '$read'
+    --pe12 '$read'
     #end for
 #else if $reads.reads_option == 'mate_paired'
     #for $read in $reads.input_1
-        --mp1 '$read'
+    --mp1 '$read'
     #end for
     #for $read in $reads.input_2
-        --mp2 '$read'
+    --mp2 '$read'
     #end for
 #else if $reads.reads_option == 'pacbio'
     #for $read in $reads.input_1
-        --pacbio '$read'
+    --pacbio '$read'
     #end for
 #else if $reads.reads_option == 'nanopore'
     #for $read in $reads.input_1
-        --nanopore '$read'
+    --nanopore '$read'
     #end for
 #end if
 
---labels $labels
--o outputdir
+    --labels '$labels'
+    -o 'outputdir'
 
 #if $assembly.type == 'genome'
     #if $assembly.ref.use_ref == 'true'
     -r '$assembly.ref.r'
         #if $assembly.ref.features
-            --features '$assembly.ref.features'
+    --features '$assembly.ref.features'
         #end if
         #if $assembly.ref.operons
-            --operons '$assembly.ref.operons'
+    --operons '$assembly.ref.operons'
         #end if
         $assembly.ref.circos
         $assembly.ref.k_mer.k_mer_stats
         #if str($assembly.ref.k_mer.k_mer_stats) != ''
-            --k-mer-size $assembly.ref.k_mer.k_mer_size
+    --k-mer-size $assembly.ref.k_mer.k_mer_size
         #end if
     #else if $assembly.ref.est_ref_size
-        --est-ref-size $assembly.ref.est_ref_size
+    --est-ref-size $assembly.ref.est_ref_size
     #end if
     $assembly.orga_type
-#else
+#else if $assembly.type == 'metagenome'
     #if $assembly.ref.origin == 'history'
-        -r '$assembly.ref.r'
+    -r '$assembly.ref.r'
     #else if $assembly.ref.origin == 'list'
-        --references-list '$temp_ref_list_fp'
+    --references-list '$temp_ref_list_fp'
     #else if $assembly.ref.origin == 'silva'
-        --test-no-ref
-        --max-ref-num '$assembly.ref.max_ref_num'
+    --test-no-ref
+    --max-ref-num $assembly.ref.max_ref_num
     #end if
+    $assembly.reuse_combined_alignments
 #end if
 
---min-contig $min_contig
-$split_scaffolds
-$large
+    --min-identity $assembly.min_identity
+
+    --min-contig $min_contig
+    $split_scaffolds
+    $large
 
 #if str($genes.gene_finding.tool) != 'none'
     $genes.gene_finding.tool
     #if $genes.gene_finding.tool == '--gene_finding' or $genes.gene_finding.tool == '--glimmer'
         #set $gene_threshold = ','.join([x.strip() for x in str($genes.gene_finding.gene_thresholds).split(',')])
-        --gene-thresholds '$gene_threshold'
+    --gene-thresholds '$gene_threshold'
     #end if
 #end if
 
-$genes.rna_finding
-$genes.conserved_genes_finding
-$alignments.use_all_alignments
---min-alignment $alignments.min_alignment
---min-identity $alignments.min_identity
---ambiguity-usage '$alignments.ambiguity_usage'
---ambiguity-score '$alignments.ambiguity_score'
-$alignments.fragmented
-$alignments.upper_bound_assembly
+    $genes.rna_finding
+    $genes.conserved_genes_finding
+    $alignments.use_all_alignments
+    --min-alignment $alignments.min_alignment
+    --ambiguity-usage '$alignments.ambiguity_usage'
+    --ambiguity-score $alignments.ambiguity_score
+    $alignments.fragmented
+    $alignments.upper_bound_assembly
 #if $alignments.upper_bound_min_con
     --upper-bound-min-con $alignments.upper_bound_min_con
+#end if
+#if $alignments.local_mis_size
+    --local-mis-size $alignments.local_mis_size
 #end if
 
 #if $alignments.fragmented
     #if $advanced.fragmented_max_indent != ''
-        --fragmented-max-indent $advanced.fragmented_max_indent
+    --fragmented-max-indent $advanced.fragmented_max_indent
     #end if
 #end if
 
 #set $contig_thresholds = ','.join([x.strip() for x in str($advanced.contig_thresholds).split(',')])
---contig-thresholds '$contig_thresholds'
-$advanced.strict_NA
---extensive-mis-size $advanced.extensive_mis_size
---scaffold-gap-max-size $advanced.scaffold_gap_max_size
---unaligned-part-size $advanced.unaligned_part_size
-$advanced.skip_unaligned_mis_contigs
+    --contig-thresholds '$contig_thresholds'
+    $advanced.strict_NA
+    --extensive-mis-size $advanced.extensive_mis_size
+    --scaffold-gap-max-size $advanced.scaffold_gap_max_size
+    --unaligned-part-size $advanced.unaligned_part_size
+    $advanced.skip_unaligned_mis_contigs
+    $advanced.report_all_metrics
+    --x-for-Nx $advanced.x_for_Nx
 
 #if str($in.custom) == 'false'
     #for $k in $in.inputs
-        '$k'
+    '$k'
     #end for
 #else
     #for $k in $in.inputs
-        '$k.input'
+    '$k.input'
     #end for
 #end if
+    --threads \${GALAXY_SLOTS:-1}
 
---threads \${GALAXY_SLOTS:-1}
-
+#if $assembly.type == 'genome'
 && mkdir -p '$report_html.files_path'
 && cp outputdir/*.html '$report_html.files_path'
-
-#if ($assembly.type == 'genome' and $assembly.ref.use_ref) or ($assembly.type == 'metagenome' and $assembly.ref.origin != 'none')
-    && cp -R outputdir/icarus_viewers '$report_html.files_path'
+    #if $assembly.ref.use_ref
+&& cp -R outputdir/icarus_viewers '$report_html.files_path'
+    #end if
+#else
+&& if [[ -f "outputdir/report.tsv" ]]; then mkdir -p "outputdir/combined_reference/" && cp "outputdir/report.tsv" "outputdir/combined_reference/report.tsv"; fi
+&& if [[ -f "outputdir/report.html" ]]; then mkdir -p "outputdir/combined_reference/" && cp outputdir/*.html "outputdir/combined_reference/"; fi
+&& mkdir -p '$report_html_meta.files_path'
+&& cp outputdir/combined_reference/*.html '$report_html_meta.files_path'
+&& if [[ -d "outputdir/icarus_viewers" ]]; then cp -R outputdir/icarus_viewers 'outputdir/combined_reference/'; fi
+&& if [[ -d "outputdir/combined_reference/icarus_viewers" ]]; then cp -R outputdir/combined_reference/icarus_viewers '$report_html_meta.files_path'; fi
+&& if [[ -d "outputdir/krona_charts/" ]]; then mkdir -p '$krona.files_path' && cp outputdir/krona_charts/*.html '$krona.files_path'; fi
 #end if
-
-    ]]>
-    </command>
+    ]]></command>
     <inputs>
         <conditional name="in">
             <param name="custom" type="select" label="Use customized names for the input files?" help="They will be used in reports, plots and logs">
@@ -182,40 +217,37 @@ $advanced.skip_unaligned_mis_contigs
                 <option value="disabled">Disabled</option>
                 <option value="single">Illumina single-end reads</option>
                 <option value="paired">Illumina paired-end reads</option>
+                <option value="paired_collection">Illumina paired-end reads in paired collection</option>
                 <option value="paired_interlaced">Illumina interlaced paired-end reads</option>
                 <option value="mate_paired">Illumina mate-pair reads</option>
                 <option value="pacbio">Pacbio SMRT reads</option>
                 <option value="nanopore">Nanopore reads</option>
             </param>
             <when value="disabled"/>
-
             <when value="single">
-                <param name="input_1" format="fastq,fastq.gz" type="data" multiple="true" label="FASTQ file" />
+                <param name="input_1" format="fastq,fastq.gz,fasta,fasta.gz" type="data" multiple="true" label="FASTQ/FASTA file" />
             </when>
-
             <when value="paired">
-                <param name="input_1" format="fastq,fastq.gz" type="data" multiple="true" label="FASTQ file #1" />
-                <param name="input_2" format="fastq,fastq.gz" type="data" multiple="true" label="FASTQ file #2" />
+                <param name="input_1" format="fastq,fastq.gz,fasta,fasta.gz" type="data" multiple="true" label="FASTQ/FASTA file #1" />
+                <param name="input_2" format="fastq,fastq.gz,fasta,fasta.gz" type="data" multiple="true" label="FASTQ/FASTA file #2" />
             </when>
-
+            <when value="paired_collection">
+                <param name="input_1" type="data_collection" collection_type="paired" format="fastq,fastq.gz,fasta,fasta.gz" label="FASTQ/FASTA files" />
+            </when>
             <when value="paired_interlaced">
-                <param name="input_1" format="fastq,fastq.gz" type="data" multiple="true" label="FASTQ file" />
+                <param name="input_1" format="fastq,fastq.gz,fasta,fasta.gz" type="data" multiple="true" label="FASTQ/FASTA file" />
             </when>
-
             <when value="mate_paired">
-                <param name="input_1" format="fastq,fastq.gz" type="data" multiple="true" label="FASTQ file #1" />
-                <param name="input_2" format="fastq,fastq.gz" type="data" multiple="true" label="FASTQ file #2" />
+                <param name="input_1" format="fastq,fastq.gz,fasta,fasta.gz" type="data" multiple="true" label="FASTQ/FASTA file #1" />
+                <param name="input_2" format="fastq,fastq.gz,fasta,fasta.gz" type="data" multiple="true" label="FASTQ/FASTA file #2" />
             </when>
-
             <when value="pacbio">
-                <param name="input_1" format="fastq,fastq.gz" type="data" multiple="true" label="FASTQ file" />
+                <param name="input_1" format="fastq,fastq.gz,fasta,fasta.gz" type="data" multiple="true" label="FASTQ/FASTA file" />
             </when>
-
             <when value="nanopore">
-                <param name="input_1" format="fastq,fastq.gz" type="data" multiple="true" label="FASTQ file" />
+                <param name="input_1" format="fastq,fastq.gz,fasta,fasta.gz" type="data" multiple="true" label="FASTQ/FASTA file" />
             </when>
         </conditional>
-
         <conditional name="assembly">
             <param name="type" type="select" label="Type of assembly">
                 <option value="genome">Genome</option>
@@ -252,6 +284,7 @@ $advanced.skip_unaligned_mis_contigs
                     <option value="--eukaryote">Eukaryote: use of GeneMark-ES for gene finding, Barrnap for ribosomal RNA genes prediction, BUSCO for conserved orthologs finding  (--eukaryote)</option>
                     <option value="--fungus">Fungus: use of GeneMark-ES for gene finding, Barrnap for ribosomal RNA genes prediction, BUSCO for conserved orthologs finding (--fungus)</option>
                 </param>
+                <expand macro="min_identity_macros" value="95"/>
             </when>
             <when value="metagenome">
                 <conditional name="ref">
@@ -272,6 +305,8 @@ $advanced.skip_unaligned_mis_contigs
                     </when>
                     <when value="none"/>
                 </conditional>
+                <param argument="--reuse-combined-alignments" type="boolean" truevalue="--reuse-combined-alignments" falsevalue="" checked="false" label="Reuse the alignments on the combined reference" help="Reuse the alignments on the combined reference in the subsequent runs per separate references. That is, the alignment procedure is performed only once (for all assemblies against the combined reference) and does NOT executed for each subgroups of contigs against the corresponding separate reference genomes. In each separate reference run, all precomputed assembly alignments for other references are simply ignored" />
+                <expand macro="min_identity_macros" value="90"/>
             </when>
         </conditional>
         <param argument="--min-contig" type="integer" value="500" label="Lower threshold for a contig length (in bp)" help="Shorter contigs won't be taken into account"/>
@@ -300,7 +335,6 @@ $advanced.skip_unaligned_mis_contigs
         <section name="alignments" title="Alignments">
             <param argument="--use-all-alignments" type="boolean" truevalue="--use-all-alignments" falsevalue="" checked="false" label="Use all alignments as in QUAST v.1.*. to compute genome fraction, # genomic features, # operons metrics?" help="By default, QUAST v.2.0 and higher filters out ambiguous and redundant alignments, keeping only one alignment per contig (or one set of non-overlapping or slightly overlapping alignments)"/>
             <param argument="--min-alignment" type="integer" value="65" label="Minimum length of alignment" help="Alignments shorter than this value will be filtered. Note that all alignments shorter than 65 bp will be filtered regardless of this threshold."/>
-            <param argument="--min-identity" type="float" value="95.0" label="Minimum IDY% considered as proper alignment" help="Alignments with IDY% worse than this value will be filtered. ote that all alignments with IDY% less than 80.0% will be filtered regardless of this threshold. "/>
             <param argument="--ambiguity-usage" type="select" label="How processing equally good alignments of a contig (probably repeats)?" help="">
                 <option value="none">Skip all such alignments</option>
                 <option value="one" selected="true">Take only one (the very best one)</option>
@@ -310,6 +344,7 @@ $advanced.skip_unaligned_mis_contigs
             <param argument="--fragmented" type="boolean" truevalue="--fragmented" falsevalue="" checked="false" label="Fragmented reference genome" help="Reference genome is fragmented (e.g. a scaffold reference). QUAST will try to detect misassemblies caused by the fragmentation and mark them fake (will be excluded from misassemblies). Note: QUAST will not detect misassemblies caused by the linear representation of circular genome "/>
             <param argument="--upper-bound-assembly" type="boolean" truevalue="--upper-bound-assembly" falsevalue="" label="Simulate upper bound assembly" help="Simulate upper bound assembly based on the reference genome and a given set reads (mate-pairs or long reads, such as Pacbio SMRT/Oxford Nanopore, are REQUIRED). This assembly is added to the comparison and could be useful for estimating the upper bounds of completeness and contiguity that theoretically can be reached by assembly software from this particular set of reads. The concept is based on the fact that the reference genome cannot be completely reconstructed from raw reads due to long genomic repeats and low covered regions." />
             <param argument="--upper-bound-min-con" type="integer" value="" optional="true" label="Minimal number of 'connecting reads' needed for joining upper bound contigs into a scaffold" help="This is important for a realistic estimation of genome assembly fragmentation due to long repeats. The default values is 2 for mate-pairs and 1 for long reads (PacBio or Nanopore libraries)"/>
+            <param argument="--local-mis-size" type="integer" value="200" optional="true" label="Minimal local misassembly size" help="Lower threshold for the local misassembly size. Shorter inconsistencies are considered as (long) indels. The default value is 200 bp. Note that the threshold should be equal to or lower than minimal extensive misassembly size, which is 1000 bp by default"/>
         </section>
         <section name="advanced" title="Advanced options">
             <param argument="--contig-thresholds" type="text" value="0,1000" label="Comma-separated list of contig length thresholds (in bp)" help="Used in # contigs ≥ x and total length (≥ x) metrics"/>
@@ -319,26 +354,39 @@ $advanced.skip_unaligned_mis_contigs
             <param argument="--unaligned-part-size" type="integer" value="500" label="Lower threshold for detecting partially unaligned contigs" help=""/>
             <param argument="--skip-unaligned-mis-contigs" type="boolean" truevalue="" falsevalue="--skip-unaligned-mis-contigs" checked="true" label="Distinguish contigs with more than 50% unaligned bases as a separate group of contigs?" help="By default, QUAST breaks contigs only at extensive misassemblies (not local ones)."/>
             <param argument="--fragmented-max-indent" type="integer" min="0" value="" optional="true" label="Fragment max indent" help="Mark translocation as fake if both alignments are located no further than N bases from the ends of the reference fragments. The value should be less than extensive misassembly size.Default value is 50. Note: requires --fragmented option" />
+            <param argument="--report-all-metrics" type="boolean" truevalue="--report-all-metrics" falsevalue="" checked="false" label="Report all metrics" help="Keep all quality metrics in the main report. Usually, all not-relevant metrics are not included in the report, e.g., reference-based metrics in the no-reference mode. Also, if metric values are undefined for all input assemblies, the metric is removed from the report" />
+            <param argument="--x-for-Nx" type="integer" min="0" max="100" value="90" label="Report Nx, Lx, etc metrics for specific value of 'x'" help="Value of 'x' for Nx, Lx, NGx, NGAx, etc metrics reported in addition to N50, L50, NG50, NGA50, etc" />
         </section>
         <param name="output_files" type="select" display="checkboxes" optional="true" multiple="true" label="Output files">
-            <option value="html" selected="true">HTML report</option>
-            <option value="pdf">PDF report</option>
+            <option value="html" selected="true">HTML reports</option>
+            <option value="pdf">PDF reports</option>
             <option value="tabular">Tabular reports</option>
             <option value="log">Log file</option>
+            <option value="summary">Key metric summary (metagenome mode)</option>
+            <option value="krona">Krona charts (metagenome mode without reference genomes)</option>
         </param>
     </inputs>
     <outputs>
-        <data name="quast_tabular" format="tabular" label="${tool.name} on ${on_string}: tabular report" from_work_dir="outputdir/report.tsv">
-            <filter>'tabular' in output_files</filter>
+        <data name="report_tabular" format="tabular" label="${tool.name} on ${on_string}: tabular report" from_work_dir="outputdir/report.tsv">
+            <filter>assembly['type'] == 'genome' and 'tabular' in output_files</filter>
         </data>
-        <data name="report_html" format="html" label="${tool.name} on ${on_string}:  HTML report" from_work_dir="outputdir/report.html">
-            <filter>'html' in output_files</filter>
+        <data name="report_tabular_meta" format="tabular" label="${tool.name} on ${on_string}: tabular report for combined reference genome" from_work_dir="outputdir/combined_reference/report.tsv">
+            <filter>assembly['type'] == 'metagenome' and 'tabular' in output_files</filter>
+        </data>
+        <data name="report_html" format="html" label="${tool.name} on ${on_string}: HTML report" from_work_dir="outputdir/report.html">
+            <filter>assembly['type'] == 'genome' and 'html' in output_files</filter>
+        </data>
+        <data name="report_html_meta" format="html" label="${tool.name} on ${on_string}: HTML report for combined reference genome"  from_work_dir="outputdir/combined_reference/report.html">
+            <filter>assembly['type'] == 'metagenome' and 'html' in output_files</filter>
         </data>
         <data name="report_pdf" format="pdf" label="${tool.name} on ${on_string}:  PDF report" from_work_dir="outputdir/report.pdf">
-            <filter>'pdf' in output_files</filter>
+            <filter>assembly['type'] == 'genome' and 'pdf' in output_files</filter>
         </data>
         <data name="log" format="txt" label="${tool.name} on ${on_string}: Log" from_work_dir="outputdir/quast.log">
-            <filter>'log' in output_files</filter>
+            <filter>assembly['type'] == 'genome' and 'log' in output_files</filter>
+        </data>
+        <data name="log_meta" format="txt" label="${tool.name} on ${on_string}: Log" from_work_dir="outputdir/metaquast.log">
+            <filter>assembly['type'] == 'metagenome' and 'log' in output_files</filter>
         </data>
         <data name="mis_ass" format="tabular" label="${tool.name} on ${on_string}: Misassemblies report" from_work_dir="outputdir/contigs_reports/misassemblies_report.txt">
             <filter>assembly['type'] == 'genome' and assembly['ref']['use_ref'] == 'true'</filter>
@@ -354,6 +402,17 @@ $advanced.skip_unaligned_mis_contigs
         </data>
         <data name="circos_output" format="png" from_work_dir="outputdir/circos/circos.png" label="${tool.name} on ${on_string}: Circos plot">
             <filter>assembly['type'] == 'genome' and assembly['ref']['use_ref'] == 'true' and assembly['ref']['circos']</filter>
+        </data>
+        <collection name="metrics_tabular" type="list" label="${tool.name} on ${on_string}: Tabular reports for key metrics" >
+            <discover_datasets pattern="(?P&lt;designation&gt;.+).tsv" directory="outputdir/summary/TSV/" format="tabular"/>
+            <filter>assembly['type'] == 'metagenome' and 'summary' in output_files</filter>
+        </collection>
+        <collection name="metrics_pdf" type="list" label="${tool.name} on ${on_string}: PDF reports for key metrics" >
+            <discover_datasets pattern="(?P&lt;designation&gt;.+).pdf" directory="outputdir/summary/PDF/" format="pdf"/>
+            <filter>assembly['type'] == 'metagenome' and 'summary' in output_files</filter>
+        </collection>
+        <data name="krona" format="html" label="${tool.name} on ${on_string}:  Krona chart" from_work_dir="outputdir/krona_charts/*.html">
+            <filter>assembly['type'] == 'metagenome' and assembly['ref']['origin'] == 'none' and 'krona' in output_files</filter>
         </data>
     </outputs>
     <tests>
@@ -394,11 +453,11 @@ $advanced.skip_unaligned_mis_contigs
                 </conditional>
                 <param name="rna_finding" value="true"/>
                 <param name="conserved_genes_finding" value="true"/>
+                <param name="min_identity" value="95.0"/>
             </section>
             <section name="alignments">
                 <param name="use_all_alignments" value="true"/>
                 <param name="min_alignment" value="65"/>
-                <param name="min_identity" value="95.0"/>
                 <param name="ambiguity_usage" value="one"/>
                 <param name="ambiguity_score" value="0.99"/>
             </section>
@@ -413,7 +472,7 @@ $advanced.skip_unaligned_mis_contigs
             </section>
             <param name="output_files" value="html"/>
             <output name="report_html" file="test1_report.html" ftype="html" compare="sim_size"/>
-            <output name="circos_output" file="test1_circos.png" ftype="png"/>
+            <output name="circos_output" file="test1_circos.png" ftype="png" compare="sim_size"/>
         </test>
         <!-- Test 02: all outputs -->
         <test expect_num_outputs="8">
@@ -445,7 +504,7 @@ $advanced.skip_unaligned_mis_contigs
             <param name="output_files" value="html,pdf,tabular,log"/>
             <output name="report_html" file="test2_report.html" ftype="html" compare="sim_size"/>
             <output name="report_pdf" file="test2_report.pdf" ftype="pdf" compare="sim_size"/>
-            <output name="quast_tabular" file="test2_report.tab" ftype="tabular"/>
+            <output name="report_tabular" file="test2_report.tab" ftype="tabular"/>
             <output name="log" file="test2.log" ftype="txt" compare="sim_size"/>
             <output name="mis_ass" file="test2_missasemblies.tab" ftype="tabular"/>
             <output name="unalign" file="test2_unaligned.tab" ftype="tabular"/>
@@ -464,6 +523,7 @@ $advanced.skip_unaligned_mis_contigs
                     <param name="use_ref" value="false"/>
                 </conditional>
                 <param name="orga_type" value="--eukaryote"/>
+                <param name="min_identity" value="95.0"/>
             </conditional>
             <param name="min_contig" value="500"/>
             <param name="split_scaffolds" value="false"/>
@@ -478,7 +538,6 @@ $advanced.skip_unaligned_mis_contigs
             <section name="alignments">
                 <param name="use_all_alignments" value="false"/>
                 <param name="min_alignment" value="65"/>
-                <param name="min_identity" value="95.0"/>
                 <param name="ambiguity_usage" value="one"/>
                 <param name="ambiguity_score" value="0.99"/>
                 <param name="fragmented" value="false"/>
@@ -497,7 +556,7 @@ $advanced.skip_unaligned_mis_contigs
             <output name="report_pdf" file="test3_report.pdf" compare="sim_size"/>
         </test>
         <!-- Test 04: metagenomics -->
-        <test>
+        <test expect_num_outputs="3">
             <conditional name="in">
                 <param name="custom" value="false"/>
                 <param name="inputs" value="contigs3.fasta"/>
@@ -534,8 +593,27 @@ $advanced.skip_unaligned_mis_contigs
                 <param name="unaligned_part_size" value="500"/>
                 <param name="skip_unaligned_mis_contigs" value="-"/>
             </section>
-            <param name="output_files" value="tabular"/>
-            <output name="quast_tabular" file="test4.tab" ftype="tabular"/>
+            <param name="output_files" value="log,html,tabular"/>
+            <output name="log_meta" ftype="txt">
+                <assert_contents>
+                    <has_text text="Reference genomes are not found" />
+                </assert_contents>
+            </output>
+            <output name="report_tabular_meta" ftype="tabular">
+                <assert_contents>
+                    <has_text text="# contigs (>= 0 bp)"/>
+                    <has_text text="contigs3_fasta"/>
+                    <has_text text="# N's per 100 kbp"/>
+                    <has_n_lines n="17"/>
+                </assert_contents>
+            </output>
+            <output name="report_html_meta" ftype="html">
+                <assert_contents>
+                    <has_text text="Quality Assessment Tool for Genome Assemblies" />
+                    <has_text text="contigs3_fasta" />
+                    <has_text text="Statistics without reference" />
+                </assert_contents>
+            </output>
         </test>
         <!-- Test 05: FASTQ read files -->
         <test expect_num_outputs="3">
@@ -566,11 +644,22 @@ $advanced.skip_unaligned_mis_contigs
                 <param name="upper_bound_min_con" value="1"/>
             </section>
             <param name="output_files" value="tabular"/>
-            <output name="quast_tabular" file="test5.tab" ftype="tabular"/>
-            <output name="mis_ass" file="test5_missasemblies.tab" ftype="tabular"/>
-            <output name="unalign" file="test5_unaligned.tab" ftype="tabular"/>
+            <output name="report_tabular" file="test5.tab" ftype="tabular"/>
+            <output name="mis_ass" ftype="tabular">
+                <assert_contents>
+                    <has_text text="All statistics are based on contigs of size >= 500 bp"/>
+                    <has_text text="# scaffold misassemblies"/>
+                    <has_text text="contig1"/>
+                </assert_contents>
+            </output>
+            <output name="unalign" ftype="tabular">
+                <assert_contents>
+                    <has_text text="Fully unaligned length"/>
+                    <has_text text="contig1"/>
+                </assert_contents>
+            </output>
         </test>
-        <!-- Test 6: FASTQ.gz read files -->
+        <!-- Test 06: FASTQ.gz read files -->
         <test expect_num_outputs="1">
             <conditional name="in">
                 <param name="custom" value="true"/>
@@ -588,7 +677,237 @@ $advanced.skip_unaligned_mis_contigs
                 <param name="input_1" value="pacbio_01.fastq.gz,pacbio_02.fastq.gz"/>
             </conditional>
             <param name="output_files" value="tabular"/>
-            <output name="quast_tabular" file="test6.tab" ftype="tabular"/>
+            <output name="report_tabular" file="test6.tab" ftype="tabular"/>
+        </test>
+        <!-- Test 07: FASTA.gz read files -->
+        <test expect_num_outputs="1">
+            <conditional name="in">
+                <param name="custom" value="true"/>
+                <repeat name="inputs">
+                    <param name="input" value="contigs1.fna"/>
+                    <param name="labels" value="contig1"/>
+                </repeat>
+                <repeat name="inputs">
+                    <param name="input" value="contigs2.fna"/>
+                    <param name="labels" value="contig2"/>
+                </repeat>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_option" value="single"/>
+                <param name="input_1" value="pacbio_01.fasta.gz,pacbio_02.fasta.gz"/>
+            </conditional>
+            <param name="output_files" value="tabular"/>
+            <output name="report_tabular" file="test7.tab" ftype="tabular"/>
+        </test>
+        <!-- Test 08: metagenomics all tab outputs-->
+        <test expect_num_outputs="3">
+            <conditional name="in">
+                <repeat name="inputs">
+                    <param name="input" value="meta_contigs_1.fasta"/>
+                    <param name="labels" value="meta_contigs_1"/>
+                </repeat>
+                <repeat name="inputs">
+                    <param name="input" value="meta_contigs_2.fasta"/>
+                    <param name="labels" value="meta_contigs_2"/>
+                </repeat>
+            </conditional>
+            <conditional name="assembly">
+                <param name="type" value="metagenome"/>
+                <conditional name="ref">
+                    <param name="origin" value="history"/>
+                    <param name="r" value="meta_ref_1.fasta,meta_ref_2.fasta,meta_ref_3.fasta"/>
+                </conditional>
+                <param name="min_identity" value="95.0"/>
+            </conditional>
+            <param name="min_contig" value="500"/>
+            <param name="split_scaffolds" value="false"/>
+            <param name="large" value="false"/>
+            <section name="genes">
+                <conditional name="gene_finding">
+                    <param name="tool" value="none"/>
+                </conditional>
+                <param name="rna_finding" value="false"/>
+                <param name="conserved_genes_finding" value="false"/>
+            </section>
+            <section name="alignments">
+                <param name="use_all_alignments" value="false"/>
+                <param name="min_alignment" value="65"/>
+                <param name="ambiguity_usage" value="one"/>
+                <param name="ambiguity_score" value="0.99"/>
+                <param name="fragmented" value="false"/>
+            </section>
+            <section name="advanced">
+                <param name="contig_thresholds" value="0,1000"/>
+                <param name="strict_NA" value="false"/>
+                <param name="extensive_mis_size" value="1000"/>
+                <param name="scaffold_gap_max_size" value="1000"/>
+                <param name="unaligned_part_size" value="500"/>
+                <param name="skip_unaligned_mis_contigs" value="-"/>
+            </section>
+            <param name="output_files" value="tabular,summary"/>
+            <output name="report_tabular_meta" ftype="tabular">
+                <assert_contents>
+                    <has_text text="# contigs (>= 0 bp)"/>
+                    <has_text text="meta_ref_3_fasta"/>
+                    <has_text text="# N's per 100 kbp"/>
+                    <has_n_lines n="34"/>
+                </assert_contents>
+            </output>
+            <output_collection name="metrics_tabular" type="list" count="15"/>
+            <output_collection name="metrics_pdf" type="list" count="16"/>
+        </test>
+        <!-- Test 09: metagenomics log, html and krona outputs-->
+        <test expect_num_outputs="2">
+            <conditional name="in">
+                <repeat name="inputs">
+                    <param name="input" value="meta_contigs_1.fasta"/>
+                    <param name="labels" value="meta_contigs_1"/>
+                </repeat>
+                <repeat name="inputs">
+                    <param name="input" value="meta_contigs_2.fasta"/>
+                    <param name="labels" value="meta_contigs_2"/>
+                </repeat>
+            </conditional>
+            <conditional name="assembly">
+                <param name="type" value="metagenome"/>
+                <conditional name="ref">
+                    <param name="origin" value="list"/>
+                    <param name="references_list" value="Lactobacillus_delbrueckii_bulgaricus,Lactobacillus_reuteri"/>
+                </conditional>
+                <param name="min_identity" value="95.0"/>
+            </conditional>
+            <param name="min_contig" value="500"/>
+            <param name="split_scaffolds" value="false"/>
+            <param name="large" value="false"/>
+            <section name="genes">
+                <conditional name="gene_finding">
+                    <param name="tool" value="none"/>
+                </conditional>
+                <param name="rna_finding" value="false"/>
+                <param name="conserved_genes_finding" value="false"/>
+            </section>
+            <section name="alignments">
+                <param name="use_all_alignments" value="false"/>
+                <param name="min_alignment" value="65"/>
+                <param name="ambiguity_usage" value="all"/>
+                <param name="ambiguity_score" value="0.99"/>
+                <param name="fragmented" value="false"/>
+            </section>
+            <section name="advanced">
+                <param name="contig_thresholds" value="0,1000"/>
+                <param name="strict_NA" value="false"/>
+                <param name="extensive_mis_size" value="1000"/>
+                <param name="scaffold_gap_max_size" value="1000"/>
+                <param name="unaligned_part_size" value="500"/>
+                <param name="skip_unaligned_mis_contigs" value="-"/>
+            </section>
+            <param name="output_files" value="html,log"/>
+            <output name="report_html_meta" ftype="html">
+                <assert_contents>
+                    <has_text text="meta_contigs_2_fasta" />
+                    <has_text text="combined_reference" />
+                    <has_text text="Lactobacillus" />
+                </assert_contents>
+            </output>
+			<output name="log_meta" ftype="txt">
+                <assert_contents>
+                    <has_text text="List of references was provided, starting to download reference genomes from NCBI" />
+                    <has_text text="Lactobacillus_delbrueckii_bulgaricus" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 10: Test new options -->
+        <test expect_num_outputs="1">
+            <conditional name="in">
+                <param name="custom" value="true"/>
+                <repeat name="inputs">
+                    <param name="input" value="contigs1.fna"/>
+                    <param name="labels" value="contig1"/>
+                </repeat>
+                <repeat name="inputs">
+                    <param name="input" value="contigs2.fna"/>
+                    <param name="labels" value="contig2"/>
+                </repeat>
+            </conditional>
+            <section name="alignments">
+                <param name="local_mis_size" value="210"/>
+            </section>
+            <conditional name="assembly">
+                <param name="type" value="genome"/>
+                <conditional name="ref">
+                    <param name="use_ref" value="false"/>
+                </conditional>
+            </conditional>
+            <section name="advanced">
+                <param name="report_all_metrics" value="true"/>
+                <param name="x_for_Nx" value="80"/>
+            </section>
+            <param name="output_files" value="tabular"/>
+            <output name="report_tabular" file="test10_tabular_report.tab" ftype="tabular"/>
+        </test>
+        <!-- Test 11: Test paired fastq.gz inputs -->
+        <test expect_num_outputs="1">
+            <conditional name="in">
+                <param name="custom" value="true"/>
+                <repeat name="inputs">
+                    <param name="input" value="contigs1.fna"/>
+                    <param name="labels" value="contig1"/>
+                </repeat>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_option" value="paired"/>
+                <param name="input_1" value="reads1.fastq.gz" ftype="fastqsanger.gz"/>
+                <param name="input_2" value="reads2.fastq.gz" ftype="fastqsanger.gz"/>
+            </conditional>
+            <conditional name="assembly">
+                <param name="type" value="genome"/>
+                <conditional name="ref">
+                    <param name="use_ref" value="false"/>
+                </conditional>
+            </conditional>
+            <param name="output_files" value="tabular"/>
+            <output name="report_tabular" ftype="tabular">
+                <assert_contents>
+                    <has_text text="# contigs (>= 0 bp)"/>
+                    <has_text text="contig1"/>
+                    <has_text text="# N's per 100 kbp"/>
+                    <has_n_lines n="22"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test 12: Test paired-collection fastq.gz inputs -->
+        <test expect_num_outputs="1">
+            <conditional name="in">
+                <param name="custom" value="true"/>
+                <repeat name="inputs">
+                    <param name="input" value="contigs1.fna"/>
+                    <param name="labels" value="contig1"/>
+                </repeat>
+            </conditional>
+            <conditional name="reads">
+                <param name="reads_option" value="paired_collection"/>
+                <param name="input_1">
+                    <collection type="paired">
+                        <element name="forward" value="reads1.fastq.gz" ftype="fastqsanger.gz"/>
+                        <element name="reverse" value="reads2.fastq.gz" ftype="fastqsanger.gz"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="assembly">
+                <param name="type" value="genome"/>
+                <conditional name="ref">
+                    <param name="use_ref" value="false"/>
+                </conditional>
+            </conditional>
+            <param name="output_files" value="tabular"/>
+            <output name="report_tabular" ftype="tabular">
+                <assert_contents>
+                    <has_text text="# contigs (>= 0 bp)"/>
+                    <has_text text="contig1"/>
+                    <has_text text="# N's per 100 kbp"/>
+                    <has_n_lines n="15"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help>
@@ -602,7 +921,7 @@ If you have one or multiple genome assemblies, you can assess their quality with
 **Using Quast without reference**
 
 Without reference Quast can calculate a number of assembly related-metrics but cannot provide any information about potential misassemblies, inversions, translocations, etc. Suppose you have three assemblies produced by Unicycler corresponding to three different antibiotic treatments *car*, *pit*, and *cef* (these stand for carbenicillin, piperacillin, and cefsulodin, respectively). Evaluating them without reference will produce the following Quast outputs:
- 
+
  * Quast report in HTML format
  * `Contig viewer <http://quast.sourceforge.net/docs/manual.html#sec3.4>`_ (an HTML file)
  * `Quast report <http://quast.sourceforge.net/docs/manual.html#sec3.1.1>`_ in Tab-delimited format
