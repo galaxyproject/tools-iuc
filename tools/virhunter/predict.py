@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from Bio import SeqIO
 from joblib import load
-from models import model_5, model_7
+from models import model_5, model_7, model_10
 from utils import preprocess as pp
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -37,9 +37,9 @@ def predict_nn(ds_path, nn_weights_path, length, batch_size=256):
         "pred_plant_7": [],
         "pred_vir_7": [],
         "pred_bact_7": [],
-        # "pred_plant_10": [],
-        # "pred_vir_10": [],
-        # "pred_bact_10": [],
+        "pred_plant_10": [],
+        "pred_vir_10": [],
+        "pred_bact_10": [],
     }
     if not seqs_:
         raise ValueError("All sequences were smaller than length of the model")
@@ -56,8 +56,7 @@ def predict_nn(ds_path, nn_weights_path, length, batch_size=256):
             out_table["fragment"].append(j)
     test_encoded = pp.one_hot_encode(test_fragments)
     test_encoded_rc = pp.one_hot_encode(test_fragments_rc)
-    # for model, s in zip([model_5.model(length), model_7.model(length), model_10.model(length)], [5, 7, 10]):
-    for model, s in zip([model_5.model(length), model_7.model(length)], [5, 7]):
+    for model, s in zip([model_5.model(length), model_7.model(length), model_10.model(length)], [5, 7, 10]):
         model.load_weights(Path(nn_weights_path, f"model_{s}_{length}.h5"))
         prediction = model.predict([test_encoded, test_encoded_rc], batch_size)
         out_table[f"pred_plant_{s}"].extend(list(prediction[..., 0]))
@@ -72,8 +71,7 @@ def predict_rf(df, rf_weights_path, length):
     """
 
     clf = load(Path(rf_weights_path, f"RF_{length}.joblib"))
-    X = df[["pred_plant_5", "pred_vir_5", "pred_plant_7", "pred_vir_7"]]
-    # X = ["pred_plant_5", "pred_vir_5", "pred_plant_7", "pred_vir_7", "pred_plant_10", "pred_vir_10", ]]
+    X = df[["pred_plant_5", "pred_vir_5", "pred_plant_7", "pred_vir_7", "pred_plant_10", "pred_vir_10", ]]
     y_pred = clf.predict(X)
     mapping = {0: "plant", 1: "virus", 2: "bacteria"}
     df["RF_decision"] = np.vectorize(mapping.get)(y_pred)
@@ -90,8 +88,8 @@ def predict_contigs(df):
     """
     df = (
         df.groupby(["id", "length", 'RF_decision'], sort=False)
-        .size()
-        .unstack(fill_value=0)
+            .size()
+            .unstack(fill_value=0)
     )
     df = df.reset_index()
     df = df.reindex(['length', 'id', 'virus', 'plant', 'bacteria'], axis=1)
