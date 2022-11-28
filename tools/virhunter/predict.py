@@ -176,7 +176,7 @@ if __name__ == '__main__':
     parser.add_argument("--weights", help="path to the folder containing weights for NN and RF modules trained on 500 and 1000 fragment lengths (str)")
     parser.add_argument("--out_path", help="path to the folder to store predictions (str)")
     parser.add_argument("--return_viral", help="whether to return contigs annotated as viral in separate fasta file (True/False)")
-    parser.add_argument("--limit", help="Do predictions only for contigs > l. We suggest l=750. (int)", type=int)
+    parser.add_argument("--limit", help="Do predictions only for contigs > l. We suggest l=750. (int)", type=int, default=750)
 
     args = parser.parse_args()
     if args.test_ds:
