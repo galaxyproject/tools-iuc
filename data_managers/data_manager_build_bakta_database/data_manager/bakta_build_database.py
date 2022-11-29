@@ -227,5 +227,6 @@ def main():
     with open(all_args.data_manager_json, 'w') as fh:
         json.dump(bakta_data_manager, fh, sort_keys=True)
 
+
 if __name__ == '__main__':
     main()
