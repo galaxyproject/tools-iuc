@@ -3,12 +3,10 @@ import hashlib
 import json
 import os
 import sys
-# import subprocess
 import tarfile
 from datetime import datetime
 from pathlib import Path
-# implement pip as a subprocess:
-# subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'requests'])
+
 
 import requests
 
