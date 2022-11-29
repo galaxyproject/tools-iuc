@@ -84,13 +84,15 @@ def main():
     # complete gemini configuration file.
     gemini_env = os.environ.copy()
     gemini_env['GEMINI_CONFIG'] = target_directory
-    cmd = "gemini update --dataonly %s %s" % (
-        params['param_dict']['gerp_bp'],
-        params['param_dict']['cadd']
-    )
+    cmd = ['gemini', 'update', '--dataonly']
+    if params['param_dict']['gerp_bp']:
+        cmd += ['--extra', 'gerp_bp']
+    if params['param_dict']['cadd']:
+        cmd += ['--extra', 'cadd_score']
+
     if not params['param_dict']['test_data_manager']:
         # This is not a test => Going to embark on a massive download now
-        subprocess.check_call(cmd, shell=True, env=gemini_env)
+        subprocess.check_call(cmd, env=gemini_env)
 
     # GEMINI tool wrappers that need access to the annotation files
     # are supposed to symlink them into a gemini/data subfolder of
