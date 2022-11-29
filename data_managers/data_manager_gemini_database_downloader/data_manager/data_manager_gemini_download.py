@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-## IMPORTANT: This will run using Python 2 still!
+# IMPORTANT: This will run using Python 2 still!
 
 import datetime
 import json
@@ -63,7 +63,6 @@ def main():
     # Save the data table metadata to the json results file
     with open(sys.argv[1], 'w') as fh:
         json.dump(data_manager_dict, fh, sort_keys=True)
-
 
     # Generate a minimal configuration file for GEMINI update
     # to instruct the tool to download the annotation data into a
