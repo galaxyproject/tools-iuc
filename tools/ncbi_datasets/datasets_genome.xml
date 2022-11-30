@@ -37,19 +37,37 @@ $filters.exclude_atypical
     --search '$filters.search_term'
 #end for
 --no-progressbar
-#if $uncompressed
-&& 7z x -y ncbi_dataset.zip
-#end if
+--dehydrated
 
 ## produce TSV report file
 && dataformat tsv genome 
-#if $uncompressed
-    --inputfile ncbi_dataset/data/assembly_data_report.jsonl
-#else
     --package ncbi_dataset.zip
+    --fields #echo ",".join($file_choices.report_columns) 
+    > genome_data_report.tsv
+
+## unzip and rehydrate if any data is to be downloaded (include is not None)
+#if $file_choices.include
+    ## unzip
+    && 7z x -y ncbi_dataset.zip > 7z.log
+
+    ## rehydrate
+    && datasets rehydrate
+        --directory ./
+        #if not $file_choices.decompress
+            --gzip
+        #end if
+        --max-workers \${NCBI_DATASETS_MAX_WORKERS:-10}
+
+    ## rename all faa, fna (resp faa.gz, fna.gz) to fasta (resp fasta.gz) to allow discovery
+    && find ncbi_dataset \( -name "*.faa" -o -name "*.fna" -o -name "*.faa.gz" -o -name "*.fna.gz" \) -exec sh -c 'mv {} \$(echo {} | sed "s/.f[an]a\(.gz\)\?\$/.fasta\1/")' \;
+
+    ## unzip all compressed (non-fasta) files (jsonl files are just named .gz)
+    #if $file_choices.decompress
+        && find ncbi_dataset -name "*.jsonl.gz" -exec sh -c 'mv {} \$(dirname {})/\$(basename {} .gz)' \;
+        && find ncbi_dataset \( -name "*.gz" ! -name "*fasta.gz" \) -exec gunzip {} \;
+    #end if
+    && true  ## because Galaxy removes trailing ; from command
 #end if
---fields #echo ",".join($file_choices.report_columns) 
-> genome_data_report.tsv
 ]]></command>
     <inputs>
         <section name="query" title="Query" expanded="true">
@@ -75,7 +93,6 @@ $filters.exclude_atypical
                 <option value="latest">Latest</option>
                 <option value="all">All</option>
             </param>
-            <!-- TODO add test for assembly source: according to CLI doc args are RefSeq, GenBank, All and not refseq / genbank-->
             <expand macro="assembly_source"/>
             <expand macro="chromosomes"/>
             <param argument="--exclude-atypical" type="boolean" truevalue="--exclude-atypical" falsevalue="" label="Exclude atypical assemblies"/>
@@ -94,58 +111,63 @@ $filters.exclude_atypical
                 <option value="assminfo-name" selected="true">assminfo-name</option>
             </expand>
             <expand macro="include"/>
+            <param name="decompress" type="boolean" label="Decompress FASTA" help="By default FASTA files are provided zipped (fasta.gz) if this is checked the data will be decompressed"/>
         </section>
-        <param name="uncompressed" type="boolean" label="Uncompress the dataset archive" checked="true"/>
     </inputs>
     <outputs>
         <data name="genome_data_report" format="tsv" label="NCBI Genome Datasets: Data Report" from_work_dir="genome_data_report.tsv"/>
-        <data name="compressed_archive" format="zip" label="Compressed Archive" from_work_dir="ncbi_dataset.zip">
-            <filter>not uncompressed</filter>
-        </data>
         <collection name="sequence_report" label="NCBI Genome Datasets: Sequence Data Report" type="list">
             <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/sequence_report.jsonl" ext="json" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
-            <filter>uncompressed and file_choices['include'] and "seq-report" in file_choices['include']</filter>
+            <filter>file_choices['include'] and "seq-report" in file_choices['include']</filter>
         </collection>
         <collection name="genome_fasta" label="NCBI Genome Datasets: genome fasta" type="list:list">
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)/(?!rna|cds_from)(?P&lt;identifier_1&gt;.*?)(_genomic)?.fna" ext="fasta" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
-            <filter>uncompressed and file_choices['include'] and "genome" in file_choices['include']</filter>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)/(?!rna|cds_from)(?P&lt;identifier_1&gt;.*?)(_genomic)?\.(?P&lt;ext&gt;fasta(\.gz)?)"  directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
+            <filter>file_choices['include'] and "genome" in file_choices['include']</filter>
         </collection>
         <collection name="rna_fasta" label="NCBI Genome Datasets: RNA fasta" type="list">
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/rna\.fna" ext="fasta" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
-            <filter>uncompressed and file_choices['include'] and "rna" in file_choices['include']</filter>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/rna\.(?P&lt;ext&gt;fasta(\.gz)?)$" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
+            <filter>file_choices['include'] and "rna" in file_choices['include']</filter>
         </collection>
         <collection name="protein_fasta" label="NCBI Genome Datasets: protein fasta" type="list">
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/protein\.faa" ext="fasta" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
-            <filter>uncompressed and file_choices['include'] and "protein" in file_choices['include']</filter>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/protein\.(?P&lt;ext&gt;fasta(\.gz)?)$" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
+            <filter>file_choices['include'] and "protein" in file_choices['include']</filter>
         </collection>
         <collection name="genomic_cds" label="NCBI Genome Datasets: genomic cds fasta" type="list">
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/cds_from_genomic\.fna" ext="fasta" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
-            <filter>uncompressed and file_choices['include'] and "cds" in file_choices['include']</filter>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/cds_from_genomic\.(?P&lt;ext&gt;fasta(\.gz)?)$" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
+            <filter>file_choices['include'] and "cds" in file_choices['include']</filter>
         </collection>
         <collection name="genomic_gff" label="NCBI Genome Datasets: genomic gff3" type="list">
             <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/genomic\.gff" ext="gff3" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
-            <filter>uncompressed and file_choices['include'] and "gff3" in file_choices['include']</filter>
+            <filter>file_choices['include'] and "gff3" in file_choices['include']</filter>
         </collection>
         <collection name="genomic_gtf" label="NCBI Genome Datasets: gtf" type="list">
             <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/genomic\.gtf" ext="gtf" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
-            <filter>uncompressed and file_choices['include'] and "gtf" in file_choices['include']</filter>
+            <filter>file_choices['include'] and "gtf" in file_choices['include']</filter>
         </collection>
         <collection name="genomic_gbff" label="NCBI Genome Datasets: GenBank flatfile" type="list">
             <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/genomic\.gbff" ext="txt" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
-            <filter>uncompressed and file_choices['include'] and "gbff" in file_choices['include']</filter>
+            <filter>file_choices['include'] and "gbff" in file_choices['include']</filter>
         </collection>
     </outputs>
     <tests>
-        <test expect_num_outputs="2">
+        <!-- Note: All but one test use the non-default decompress="true"
+
+            this is because (at 11/22) Galaxy can not apply text assertions on the content
+            of compressed files https://github.com/galaxyproject/galaxy/pull/15085
+        
+            So with decompress="true" more powerfull assertions are powerful.
+            A single test checks the default, ie decompress="false".
+        -->
+        <test expect_num_outputs="1">
             <conditional name="query|subcommand">
                 <param name="download_by" value="taxon"/>
-                <param name="text_or_file" value="text"/>
                 <param name="taxon" value="human"/>
             </conditional>
             <param name="chromosomes" value="21"/>
-            <param name="include" value=""/>
-            <param name="uncompressed" value="false"/>
             <param name="released_before" value="01/01/2018"/>
+            <section name="file_choices">
+                <param name="include" value=""/>
+            </section>
             <output name="genome_data_report">
                 <assert_contents>
                     <has_text text="Assembly Accession&#009;Assembly Name&#009;Assembly Submitter&#009;Organism Name"/>
@@ -157,14 +179,15 @@ $filters.exclude_atypical
         <test expect_num_outputs="2">
             <conditional name="query|subcommand">
                 <param name="download_by" value="taxon"/>
-                <param name="text_or_file" value="text"/>
                 <param name="taxon" value="human"/>
             </conditional>
             <param name="chromosomes" value="21"/>
-            <param name="include" value="genome"/>
-            <param name="uncompressed" value="true"/>
             <param name="assembly_level" value="chromosome,complete"/>
             <param name="released_before" value="01/01/2018"/>
+            <section name="file_choices">
+                <param name="include" value="genome"/>
+                <param name="decompress" value="true"/>
+            </section>
             <output_collection name="genome_fasta" type="list:list" count="14">
                 <expand macro="genome_fasta_assert" el1="GCA_000002115.2" el2="chr21" expression=">"/>
                 <expand macro="genome_fasta_assert" el1="GCA_000002125.2" el2="chr21" expression=">"/>
@@ -189,19 +212,20 @@ $filters.exclude_atypical
                 </assert_contents>
             </output>
         </test>
-        <!-- same as precious test but assembly_source (refseq which removes some of the genomes) -->
+        <!-- same as previous test but assembly_source (refseq which removes some of the genomes) -->
         <test expect_num_outputs="2">
             <conditional name="query|subcommand">
                 <param name="download_by" value="taxon"/>
-                <param name="text_or_file" value="text"/>
                 <param name="taxon" value="human"/>
             </conditional>
             <param name="chromosomes" value="21"/>
-            <param name="include" value="genome"/>
-            <param name="uncompressed" value="true"/>
             <param name="assembly_level" value="chromosome,complete"/>
             <param name="assembly_source" value="refseq"/>
             <param name="released_before" value="01/01/2018"/>
+            <section name="file_choices">
+                <param name="include" value="genome"/>
+                <param name="decompress" value="true"/>
+            </section>
             <output_collection name="genome_fasta" type="list:list" count="2">
                 <expand macro="genome_fasta_assert" el1="GCF_000002125.1" el2="chr21" expression=">"/>
                 <expand macro="genome_fasta_assert" el1="GCF_000306695.2" el2="chr21" expression=">"/>
@@ -222,9 +246,11 @@ $filters.exclude_atypical
                     <param name="accession" value="GCF_000013305.1 GCF_000007445.1"/>
                 </conditional>
             </conditional>
-            <param name="include" value="seq-report,gtf,cds"/>
-            <param name="uncompressed" value="true"/>
             <param name="released_before" value="01/01/2007"/>
+            <section name="file_choices">
+                <param name="include" value="seq-report,gtf,cds"/>
+                <param name="decompress" value="true"/>
+            </section>
             <output name="genome_data_report">
                 <assert_contents>
                     <has_text text="GCF_000013305.1"/>
@@ -237,8 +263,8 @@ $filters.exclude_atypical
                 <element name="GCF_000013305.1" file="genome.2.GCF_000013305.1.genomic.gtf" compare="contains"/>
             </output_collection>
             <output_collection name="genomic_cds" type="list">
-                <element name="GCF_000007445.1" file="genome.2.GCF_000007445.1.genomic.cds" compare="contains"/>
-                <element name="GCF_000013305.1" file="genome.2.GCF_000013305.1.genomic.cds" compare="contains"/>
+                <element name="GCF_000007445.1" file="genome.2.GCF_000007445.1.genomic.cds" compare="contains" decompress="true"/>
+                <element name="GCF_000013305.1" file="genome.2.GCF_000013305.1.genomic.cds" compare="contains" decompress="true"/>
             </output_collection>
         </test>
         <test expect_num_outputs="4">
@@ -249,9 +275,11 @@ $filters.exclude_atypical
                     <param name="inputfile" value="accessions.txt"/>
                 </conditional>
             </conditional>
-            <param name="include" value="seq-report,gbff,gff3"/>
-            <param name="uncompressed" value="true"/>
             <param name="released_before" value="01/01/2007"/>
+            <section name="file_choices">
+                <param name="include" value="seq-report,gff3,gbff"/>
+                <param name="decompress" value="true"/>
+            </section>
             <output name="genome_data_report">
                 <assert_contents>
                    <has_text text="GCF_000013305.1"/>
@@ -269,6 +297,9 @@ $filters.exclude_atypical
                 <element name="GCF_000013305.1" file="genome.3.GCF_000013305.1.genomic.gbff" compare="contains"/>
             </output_collection>
         </test>
+
+
+
         <!-- should not fail https://github.com/ncbi/datasets/issues/194 -->
         <test expect_num_outputs="2" expect_failure="true">
             <conditional name="query|subcommand">
@@ -278,11 +309,12 @@ $filters.exclude_atypical
                     <param name="accession" value="GCF_000001405"/>
                 </conditional>
             </conditional>
-            <param name="include" value="seq-report"/>
-            <param name="uncompressed" value="true"/>
             <param name="released_before" value="01/01/2015"/>
             <param name="assembly_version" value="all"/>
-            <output_collection name="sequence_report" count="4">
+            <section name="file_choices">
+                <param name="include" value="seq-report"/>
+            </section>
+            <!-- <output_collection name="sequence_report" count="4">
                 <element name="GCF_000001405.25">
                     <assert_contents>
                         <has_text text="assignedMoleculeLocationType"/>
@@ -303,7 +335,7 @@ $filters.exclude_atypical
                         <has_text text="assignedMoleculeLocationType"/>
                     </assert_contents>
                  </element>
-            </output_collection>
+            </output_collection> -->
         </test>
         <test expect_num_outputs="5">
             <conditional name="query|subcommand">
@@ -313,10 +345,63 @@ $filters.exclude_atypical
                     <param name="accession" value="GCF_000146045.2"/>
                 </conditional>
             </conditional>
-            <param name="include" value="seq-report,genome,rna,cds"/>
-            <param name="uncompressed" value="true"/>
+            <section name="file_choices">
+                <param name="include" value="genome,protein,rna,cds"/>
+                <param name="decompress" value="true"/>
+            </section>
             <output_collection name="genome_fasta" type="list:list" count="1">
                 <expand macro="genome_fasta_assert" el1="GCF_000146045.2" el2="GCF_000146045.2_R64" expression=">NC_[0-9]+\.[0-9]+ Saccharomyces cerevisiae S288[Cc] (mitochondrion|chromosome .*), complete (sequence|genome)" expression_n="17"/>
+            </output_collection>
+            <output_collection name="protein_fasta" type="list" count="1">
+                <element name="GCF_000146045.2" decompress="true">
+                    <assert_contents>
+                        <has_text text=">"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="rna_fasta" type="list" count="1">
+                <element name="GCF_000146045.2" decompress="true">
+                    <assert_contents>
+                        <has_text text=">"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+        <!-- same as the previous test, but use the default value for decompress,
+            see comment at the beginning of the tests -->
+        <test expect_num_outputs="5">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="accession"/>
+                <conditional name="text_or_file">
+                    <param name="text_or_file" value="text"/>
+                    <param name="accession" value="GCF_000146045.2"/>
+                </conditional>
+            </conditional>
+            <section name="file_choices">
+                <param name="include" value="genome,protein,rna,cds"/>
+            </section>
+            <output_collection name="genome_fasta" type="list:list" count="1">
+                <element name="GCF_000146045.2">
+                    <element name="GCF_000146045.2_R64" ftype="fasta.gz">
+                        <assert_contents>
+                            <has_size value="3843460"/>
+                        </assert_contents>
+                    </element>
+                </element>
+            </output_collection>
+            <output_collection name="protein_fasta" type="list" count="1">
+                <element name="GCF_000146045.2" ftype="fasta.gz">
+                    <assert_contents>
+                        <has_size value="1844838"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="rna_fasta" type="list" count="1">
+                <element name="GCF_000146045.2" ftype="fasta.gz">
+                    <assert_contents>
+                        <has_size value="2784534"/>
+                    </assert_contents>
+                </element>
             </output_collection>
         </test>
         <test expect_num_outputs="3">
@@ -327,8 +412,10 @@ $filters.exclude_atypical
                     <param name="accession" value="GCF_000146045.2 GCF_000002945.1"/>
                 </conditional>
             </conditional>
-            <param name="include" value="seq-report,genome"/>
-            <param name="uncompressed" value="true"/>
+            <section name="file_choices">
+                <param name="include" value="seq-report,genome"/>
+                <param name="decompress" value="true"/>
+            </section>
             <output_collection name="genome_fasta" type="list:list" count="2">
                 <expand macro="genome_fasta_assert" el1="GCF_000002945.1" el2="GCF_000002945.1_ASM294v2" expression=">NC_[0-9]+\.[0-9]+ Schizosaccharomyces pombe (mitochondrion|chromosome .*), complete (sequence|genome)" expression_n="4"/>
                 <expand macro="genome_fasta_assert" el1="GCF_000146045.2" el2="GCF_000146045.2_R64" expression=">NC_[0-9]+\.[0-9]+ Saccharomyces cerevisiae S288[Cc] (mitochondrion|chromosome .*), complete (sequence|genome)" expression_n="17"/>
@@ -340,12 +427,10 @@ $filters.exclude_atypical
         <test expect_num_outputs="1" expect_test_failure="true">
             <conditional name="query|subcommand">
                 <param name="download_by" value="taxon"/>
-                <param name="text_or_file" value="text"/>
                 <param name="taxon" value="4932"/>
                 <param name="tax_exact_match" value="true"/>
             </conditional>
             <param name="include" value=""/>
-            <param name="uncompressed" value="true"/>
             <output name="genome_data_report">
                 <assert_contents>
                    <has_text text="Saccharomyces cerevisiae ZTW1" negate="true"/>
@@ -358,15 +443,18 @@ $filters.exclude_atypical
 **Download Genome Datasets from NCBI**
 
 Download a genome dataset including genome, transcript and protein sequence, annotation and a detailed data report.
-Genome datasets can be specified by NCBI Assembly or BioProject accession or taxon. Datasets are downloaded as a zip file.
+Genome datasets can be specified by NCBI Assembly or BioProject accession(s) or by taxon.
 
-Tthe default genome dataset includes the following files (if available):
- * data_report.jsonl (genome assembly and annotation metadata, not always available)
- * genomic.fna (genomic sequences)
- * rna.fna (transcript sequences)
- * protein.faa (protein sequences)
- * genomic.gff (genome annotation in gff3 format)
- * dataset_catalog.json (a list of files and file types included in the dataset)
+The download is a three step process:
+
+1. A "dehydrated" zip file is downloaded which includes the metadata and the download URL)
+2. The metadata is transformed into a tabular (TSV) file
+3. The data is hydrated (the actual data is downloaded)
+
+The 3rd step can be skipped by unselecting all output types in the `Include` parameter.
+Thereby its possible to inspect the metadata prior to the actual data download. Also this
+allows to use the tool for querying data sets (and their accessions) of interest which
+can then be downloaded in a second call using the accessions.
 ]]>
     </help>
 
