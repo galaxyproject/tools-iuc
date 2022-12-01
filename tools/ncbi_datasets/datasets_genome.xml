@@ -5,16 +5,17 @@
     </macros>
     <expand macro="requirements"></expand>
     <command><![CDATA[
+#import re
 @SETUP_CERTIFICATES@
 datasets download genome $query.subcommand.download_by
 #if $query.subcommand.download_by == 'accession':
     #if $query.subcommand.text_or_file.text_or_file == 'text':
-        #echo " ".join(f"'{x}'" for x in $query.subcommand.text_or_file.accession.split(' ') if x)
+        #echo " ".join(f"'{x}'" for x in re.split(" |,", str($query.subcommand.text_or_file.accession)) if x)
     #else
         --inputfile '$query.subcommand.text_or_file.inputfile'
     #end if
 #else:
-    '$query.subcommand.taxon'
+    '$query.subcommand.taxon_positional'
     $query.subcommand.tax_exact_match
 #end if
 $filters.reference
@@ -62,10 +63,15 @@ $filters.exclude_atypical
     && find ncbi_dataset \( -name "*.faa" -o -name "*.fna" -o -name "*.faa.gz" -o -name "*.fna.gz" \) -exec sh -c 'mv {} \$(echo {} | sed "s/.f[an]a\(.gz\)\?\$/.fasta\1/")' \;
 
     ## unzip all compressed (non-fasta) files (jsonl files are just named .gz)
+    && find ncbi_dataset -name "*.jsonl.gz" -exec sh -c 'mv {} \$(dirname {})/\$(basename {} .gz)' \;
     #if $file_choices.decompress
-        && find ncbi_dataset -name "*.jsonl.gz" -exec sh -c 'mv {} \$(dirname {})/\$(basename {} .gz)' \;
         && find ncbi_dataset \( -name "*.gz" ! -name "*fasta.gz" \) -exec gunzip {} \;
     #end if
+
+    #if "seq-report" in $file_choices.include
+        && find ncbi_dataset -name sequence_report.jsonl -exec sh -c 'dataformat tsv genome-seq --inputfile {} > \$(dirname {})/\$(basename {} .jsonl).tsv' \;
+    #end if
+    
     && true  ## because Galaxy removes trailing ; from command
 #end if
 ]]></command>
@@ -73,14 +79,14 @@ $filters.exclude_atypical
         <section name="query" title="Query" expanded="true">
             <conditional name="subcommand">
                 <param name="download_by" type="select" label="Choose how to find genomes to download">
-                    <option value="accession">Download by NCBI assembly or BioProject accession</option>
-                    <option value="taxon">Download by taxon</option>
+                    <option value="accession">By NCBI assembly or BioProject accession</option>
+                    <option value="taxon">By taxon (NCBI Taxonomy ID, scientific or common name at any tax rank)</option>
                 </param>
                 <when value="accession">
                     <expand macro="text_or_file"/>
                 </when>
                 <when value="taxon">
-                    <param name="taxon" type="text" label="Enter taxon" help="e.g. human, mouse, bos taurus, etc."/>
+                    <expand macro="taxon_positional"/>
                     <param argument="--tax-exact-match" type="boolean" truevalue="--tax-exact-match" falsevalue="" label="Exclude sub-species when a species-level taxon is specified"/>
                 </when>
             </conditional>
@@ -110,14 +116,16 @@ $filters.exclude_atypical
                 <option value="assminfo-submitter" selected="true">assminfo-submitter</option>
                 <option value="assminfo-name" selected="true">assminfo-name</option>
             </expand>
-            <expand macro="include"/>
+            <expand macro="include">
+                <expand macro="genome_includes"/>
+            </expand>
             <param name="decompress" type="boolean" label="Decompress FASTA" help="By default FASTA files are provided zipped (fasta.gz) if this is checked the data will be decompressed"/>
         </section>
     </inputs>
     <outputs>
-        <data name="genome_data_report" format="tsv" label="NCBI Genome Datasets: Data Report" from_work_dir="genome_data_report.tsv"/>
+        <data name="genome_data_report" format="tabular" label="NCBI Genome Datasets: Data Report" from_work_dir="genome_data_report.tsv"/>
         <collection name="sequence_report" label="NCBI Genome Datasets: Sequence Data Report" type="list">
-            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/sequence_report.jsonl" ext="json" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
+            <discover_datasets pattern="(?P&lt;identifier_0&gt;.*?)\/sequence_report.tsv" ext="tabular" directory="ncbi_dataset/data" recurse="true" match_relative_path="true"/>
             <filter>file_choices['include'] and "seq-report" in file_choices['include']</filter>
         </collection>
         <collection name="genome_fasta" label="NCBI Genome Datasets: genome fasta" type="list:list">
@@ -161,7 +169,7 @@ $filters.exclude_atypical
         <test expect_num_outputs="1">
             <conditional name="query|subcommand">
                 <param name="download_by" value="taxon"/>
-                <param name="taxon" value="human"/>
+                <param name="taxon_positional" value="human"/>
             </conditional>
             <param name="chromosomes" value="21"/>
             <param name="released_before" value="01/01/2018"/>
@@ -179,7 +187,7 @@ $filters.exclude_atypical
         <test expect_num_outputs="2">
             <conditional name="query|subcommand">
                 <param name="download_by" value="taxon"/>
-                <param name="taxon" value="human"/>
+                <param name="taxon_positional" value="human"/>
             </conditional>
             <param name="chromosomes" value="21"/>
             <param name="assembly_level" value="chromosome,complete"/>
@@ -216,7 +224,7 @@ $filters.exclude_atypical
         <test expect_num_outputs="2">
             <conditional name="query|subcommand">
                 <param name="download_by" value="taxon"/>
-                <param name="taxon" value="human"/>
+                <param name="taxon_positional" value="human"/>
             </conditional>
             <param name="chromosomes" value="21"/>
             <param name="assembly_level" value="chromosome,complete"/>
@@ -258,6 +266,22 @@ $filters.exclude_atypical
                     <has_n_columns n="4"/>
                 </assert_contents>
             </output>
+            <output_collection name="sequence_report" type="list" count="2" >
+                <element name="GCF_000007445.1">
+                    <assert_contents>
+                        <has_text text="GCF_000007445.1"/>
+                        <has_n_lines n="2"/>
+                        <has_n_columns n="14"/>
+                    </assert_contents>
+                </element>
+                <element name="GCF_000013305.1">
+                    <assert_contents>
+                        <has_text text="GCF_000013305.1"/>
+                        <has_n_lines n="2"/>
+                        <has_n_columns n="14"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
             <output_collection name="genomic_gtf" type="list">
                 <element name="GCF_000007445.1" file="GCF_000007445.1.genomic.gtf" compare="contains"/>
                 <element name="GCF_000013305.1" file="genome.2.GCF_000013305.1.genomic.gtf" compare="contains"/>
@@ -298,8 +322,6 @@ $filters.exclude_atypical
             </output_collection>
         </test>
 
-
-
         <!-- should not fail https://github.com/ncbi/datasets/issues/194 -->
         <test expect_num_outputs="2" expect_failure="true">
             <conditional name="query|subcommand">
@@ -314,28 +336,9 @@ $filters.exclude_atypical
             <section name="file_choices">
                 <param name="include" value="seq-report"/>
             </section>
-            <!-- <output_collection name="sequence_report" count="4">
-                <element name="GCF_000001405.25">
-                    <assert_contents>
-                        <has_text text="assignedMoleculeLocationType"/>
-                    </assert_contents>
-                 </element>
-                <element name="GCF_000001405.26">
-                    <assert_contents>
-                        <has_text text="assignedMoleculeLocationType"/>
-                    </assert_contents>
-                 </element>
-                <element name="GCF_000001405.27">
-                    <assert_contents>
-                        <has_text text="assignedMoleculeLocationType"/>
-                    </assert_contents>
-                 </element>
-                <element name="GCF_000001405.28">
-                    <assert_contents>
-                        <has_text text="assignedMoleculeLocationType"/>
-                    </assert_contents>
-                 </element>
-            </output_collection> -->
+            <!-- 
+            <output_collection name="sequence_report" type="list" count="4" >
+            -->
         </test>
         <test expect_num_outputs="5">
             <conditional name="query|subcommand">
@@ -416,6 +419,7 @@ $filters.exclude_atypical
                 <param name="include" value="seq-report,genome"/>
                 <param name="decompress" value="true"/>
             </section>
+            <output_collection name="sequence_report" type="list" count="2"/>
             <output_collection name="genome_fasta" type="list:list" count="2">
                 <expand macro="genome_fasta_assert" el1="GCF_000002945.1" el2="GCF_000002945.1_ASM294v2" expression=">NC_[0-9]+\.[0-9]+ Schizosaccharomyces pombe (mitochondrion|chromosome .*), complete (sequence|genome)" expression_n="4"/>
                 <expand macro="genome_fasta_assert" el1="GCF_000146045.2" el2="GCF_000146045.2_R64" expression=">NC_[0-9]+\.[0-9]+ Saccharomyces cerevisiae S288[Cc] (mitochondrion|chromosome .*), complete (sequence|genome)" expression_n="17"/>
@@ -427,7 +431,7 @@ $filters.exclude_atypical
         <test expect_num_outputs="1" expect_test_failure="true">
             <conditional name="query|subcommand">
                 <param name="download_by" value="taxon"/>
-                <param name="taxon" value="4932"/>
+                <param name="taxon_positional" value="4932"/>
                 <param name="tax_exact_match" value="true"/>
             </conditional>
             <param name="include" value=""/>
