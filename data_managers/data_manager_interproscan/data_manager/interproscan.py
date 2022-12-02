@@ -81,11 +81,11 @@ def main():
 
     setup_script = 'initial_setup.py'
     sub_version = re.match(r"^[0-9]\.([0-9]{2})-[0-9]{2}\.[0-9]$", tag)
-    if sub_version and sub_version.groups() == 2 and int(sub_version.group(1)) < 59:
+    if sub_version and len(sub_version.groups()) == 1 and int(sub_version.group(1)) >= 59:
         # The setup script was renamed in 5.59
         setup_script = 'setup.py'
     else:
-        raise RuntimeError("Sorry, this data manager can ony download data for InterProScan >= 5.59-91.0. Use the 0.0.2 version for older versions of InterProScan.")
+        raise RuntimeError("Sorry, this data manager can only download data for InterProScan >= 5.59-91.0. Use the 0.0.2 version for older versions of InterProScan.")
 
     print("Will download data for InterProScan version: %s" % tag)
 
@@ -142,7 +142,7 @@ def main():
     with open('interproscan.properties', 'w') as prop:
         prop.write(prop_content)
     # Run the index command
-    cmd_args = [os.path.join(os.path.dirname(os.path.realpath(shutil.which("interproscan.sh"))), setup_script)]
+    cmd_args = [os.path.join(os.path.dirname(os.path.realpath(shutil.which("interproscan.sh"))), setup_script), 'interproscan.properties']
     proc = subprocess.Popen(args=cmd_args, shell=False)
     out, err = proc.communicate()
     print(out)
