@@ -81,11 +81,11 @@ def main():
 
     setup_script = 'initial_setup.py'
     sub_version = re.match(r"^[0-9]\.([0-9]{2})-[0-9]{2}\.[0-9]$", tag)
-    if sub_version and len(sub_version.groups()) == 1 and int(sub_version.group(1)) >= 59:
-        # The setup script was renamed in 5.59
+    if sub_version and len(sub_version.groups()) == 1 and int(sub_version.group(1)) >= 58:
+        # The setup script was renamed in 5.58
         setup_script = 'setup.py'
     else:
-        raise RuntimeError("Sorry, this data manager can only download data for InterProScan >= 5.59-91.0. Use the 0.0.2 version for older versions of InterProScan.")
+        raise RuntimeError("Sorry, this data manager can only download data for InterProScan >= 5.58-91.0. Use the 0.0.2 version for older versions of InterProScan.")
 
     print("Will download data for InterProScan version: %s" % tag)
 
