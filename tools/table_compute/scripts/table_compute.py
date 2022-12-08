@@ -57,7 +57,7 @@ class Utils:
                         for col in data.columns]
         data.index = [row.strip() if type(row) is str else row
                       for row in data.index]
-        return(data)
+        return data
 
     @staticmethod
     def rangemaker(tab):
@@ -106,8 +106,8 @@ class Utils:
                     err_mess = "%s should not be equal or contain a zero" % nums
             if err_mess:
                 print(err_mess)
-                return(None)
-        return(out)
+                return None
+        return out
 
 
 # Set decimal precision
@@ -318,7 +318,7 @@ if user_mode == "single":
             pivot_values = params["PIVOT"]["pivot_values"]
             pivot_aggfunc = params["PIVOT"]["pivot_aggfunc"]
 
-            if not(pivot_aggfunc):
+            if not pivot_aggfunc:
                 out_table = data.pivot(
                     index=pivot_index, columns=pivot_column, values=pivot_values
                 )
