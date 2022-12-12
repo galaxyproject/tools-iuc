@@ -4,10 +4,10 @@ import os
 import subprocess as sp
 from ftplib import FTP
 
-import pandas as pd
 from io import BytesIO
 from pathlib import Path
 
+import pandas as pd
 
 class GetAmrFinderPlusDataManager:
     """
