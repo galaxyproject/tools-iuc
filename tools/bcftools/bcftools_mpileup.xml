@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@TOOL_VERSION@+galaxy1">
+<tool name="bcftools @EXECUTABLE@" id="bcftools_@EXECUTABLE@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Generate VCF or BCF containing genotype likelihoods for one or multiple alignment (BAM or CRAM) files</description>
     <macros>
         <token name="@EXECUTABLE@">mpileup</token>
@@ -97,17 +97,36 @@ bcftools @EXECUTABLE@
     #end if
 #end if
 
+#if $section.ambig_reads
+    --ambig-reads $section.ambig_reads
+#end if
+
+#if $section.indel_bias
+    --indel-bias $section.indel_bias
+#end if
+
+#if $section.indel_size
+    --indel-size $section.indel_size
+#end if
+
 ## Filter section
 #set $section = $sec_filtering
 #if str( $section.filter_by_flags.filter_flags ) == "filter":
-    #if $section.filter_by_flags.require_flags:
-        --rf ${sum([int(flag) for flag in str($section.filter_by_flags.require_flags).split(',')])}
+    #if $section.filter_by_flags.skip_all_set:
+        --skip-all-set ${sum([int(flag) for flag in str($section.filter_by_flags.skip_all_set).split(',')])}
     #end if
-    #if $section.filter_by_flags.exclude_flags:
-        --ff ${sum([int(flag) for flag in str($section.filter_by_flags.exclude_flags).split(',')])}
+    #if $section.filter_by_flags.skip_any_set:
+        --skip-any-set ${sum([int(flag) for flag in str($section.filter_by_flags.skip_any_set).split(',')])}
+    #end if
+    #if $section.filter_by_flags.skip_all_unset:
+        --skip-all-unset ${sum([int(flag) for flag in str($section.filter_by_flags.skip_all_unset).split(',')])}
+    #end if
+    #if $section.filter_by_flags.skip_any_unset:
+        --skip-any-unset ${sum([int(flag) for flag in str($section.filter_by_flags.skip_any_unset).split(',')])}
     #end if
 #end if
 -d "${section.max_reads_per_bam}"
+$section.ignore_overlaps
 ${section.skip_anomalous_read_pairs}
 #if str( $section.quality.quality_settings ) == "adjust":
     $section.quality.baq
@@ -139,9 +158,7 @@ ${section.skip_anomalous_read_pairs}
 #set $section = $sec_restrict
 @REGIONS@
 @TARGETS@
-
 @THREADS@
-
 @OUTPUT_TYPE@
 
 ## Primary Input/Outputs
@@ -220,6 +237,13 @@ ${pasted_data}
                 </when>
                 <when value="do_not_perform_indel_calling" />
             </conditional>
+            <param argument="--ambig-reads" type="select" optional="true" label="Ambiguous indel reads" help="What to do with ambiguous indel reads that do not span an entire short tandem repeat region: discard ambiguous reads from calling and do not increment high-quality AD depth counters (drop), exclude from calling but increment AD counters proportionally (incAD), exclude from calling and increment the first value of the AD counter (incAD0) ">
+                <option value="drop">Drop</option>
+                <option value="incAD">IncAD</option>
+                <option value="incAD0">IncAD0</option>
+            </param>
+            <param argument="--indel-bias" type="float" min="0" value="" optional="true" label="Indel bias" help="Skews the indel scores up or down, trading recall (low false-negative) vs precision (low false-positive) [1.0]. In Bcftools 1.12 and earlier this parameter didn’t exist, but had an implied value of 1.0. If you are planning to do heavy filtering of variants, selecting the best quality ones only (favouring precision over recall), it is advisable to set this lower (such as 0.75) while higher depth samples or where you favour recall rates over precision may work better with a higher value such as 2.0" />
+            <param argument="--indel-size" type="integer" min="0" value="" optional="true" label="Indel size" help="Indel window size to use when assessing the quality of candidate indels. Note that although the window size approximately corresponds to the maximum indel size considered, it is not an exact threshold. Default: 110" />
         </section>
 
         <section name="sec_filtering" expanded="false" title="Input Filtering Options">
@@ -232,10 +256,16 @@ ${pasted_data}
                     <option value="filter">Filter by flags to exclude or require</option>
                 </param>
                 <when value="filter">
-                    <param name="require_flags" type="select" display="checkboxes" label="Require" multiple="True" help="--incl-flags">
+                    <param argument="--skip-all-set" type="select" display="checkboxes" label="Skip reads with all of the FLAG bits set" multiple="True" help="--skip-all-set">
                         <expand macro="bam_flag_options" />
                     </param>
-                    <param name="exclude_flags" type="select" display="checkboxes" label="Exclude" multiple="True" help="--excl-flags">
+                    <param argument="--skip-any-set" type="select" display="checkboxes" label="Skip reads with any of the FLAG bits set" multiple="True" help="--skip-any-set">
+                        <expand macro="bam_flag_options" />
+                    </param>
+                    <param argument="--skip-all-unset" type="select" display="checkboxes" label="Skip reads with all of the FLAG bits unset" multiple="True" help="--skip-all-unset">
+                        <expand macro="bam_flag_options" />
+                    </param>
+                    <param argument="--skip-any-unset" type="select" display="checkboxes" label="Skip reads with any of the FLAG bits unset" multiple="True" help="--skip-any-unset">
                         <expand macro="bam_flag_options" />
                     </param>
                 </when>
@@ -302,7 +332,7 @@ ${pasted_data}
         </section>
 
         <section name="sec_output_options" expanded="false" title="Output options">
-            <param name="output_tags" optional="True" type="select" multiple="True" display="checkboxes" label="Optional tags to output" help="--output-tags">
+            <expand macro="macro_output_tags">
                 <option value="DP">DP (Number of high-quality bases)</option>
                 <option value="AD">AD (Allelic depth)</option>
                 <option value="ADF">ADF (Allelic depth on the forward strand)</option>
@@ -312,10 +342,11 @@ ${pasted_data}
                 <option value="INFO/ADR">INFO/ADR (Allelic depth on the reverse strand)</option>
                 <option value="SP">SP (Phred-scaled strand bias P-value)</option>
                 <option value="DV">DV (Number of high-quality non-reference bases)</option>
+                <option value="QS">QS (Allele phred-score quality sum)</option>
                 <option value="DP4">DP4 (Number of high-quality ref-forward, ref-reverse, alt-forward and alt-reverse bases)</option>
                 <option value="DPR">DRP (Number of high-quality bases for each observed allele)</option>
                 <option value="INFO/DPR">INFO/DPR (Number of high-quality bases for each observed allele)</option>
-            </param>
+            </expand>
             <param name="gvcf" type="text" value="" label="gVCF blocks of homozygous REF calls">
                 <help>
 output gVCF blocks of homozygous REF calls, with depth (DP) ranges specified by the list of integers. For example, passing 5,15 will group sites into two types of gVCF blocks, the first with minimum per-sample DP from the interval [5,15) and the latter with minimum depth 15 or more. In this example, sites with minimum per-sample depth less than 5 will be printed as separate records, outside of gVCF blocks. 
@@ -450,15 +481,45 @@ output gVCF blocks of homozygous REF calls, with depth (DP) ranges specified by 
                 </conditional>
             </section>
             <param name="filter_flags" value="filter" />
-            <param name="exclude_flags" value="4,16" />
+            <param name="skip_all_set" value="4,16" /> 
             <param name="output_type" value="v" />
             <output name="output_file">
                 <assert_contents>
                     <has_text text="mpileup" />
                     <has_text text="HG00100" />
-                    <has_text_matching expression="17\t1050\t.\tA\t...\t0\t.\tDP=12;" />
+                    <has_text_matching expression="17\t1050\t.\tA\t" />
                 </assert_contents>
             </output>
+            <assert_command>
+                <has_text text="--skip-all-set" />
+            </assert_command>
+        </test>
+        <!-- Test indel options-->
+        <test>
+            <param name="input_number" value="single" />
+            <param name="input_bam" ftype="bam" value="mpileup.1.bam" />
+            <param name="reference_source_selector" value="history" />
+            <param name="ref_file" ftype="fasta" value="mpileup.ref.fa" />
+            <section name="sec_indel">
+                <param name="ambig_reads" value="drop"/>
+                <param name="indel_bias" value="1"/>
+                <param name="indel_size" value="110"/>
+            </section>
+            <param name="output_type" value="v" />
+            <output name="output_file">
+                <assert_contents>
+                    <has_text text="mpileup" />
+                    <has_text text="HG00100" />
+                    <has_text_matching expression="17\t1\t.\tA\t...\t0\t.\tDP=5;" />
+                    <has_text_matching expression="17\t100\t.\tC\t...\t0\t.\tDP=9;" />
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="--ambig-reads" />
+                <has_text text="--indel-bias" />
+                <has_text text="--indel-size" />
+            </assert_command>
+            
         </test>
     </tests>
     <help><![CDATA[

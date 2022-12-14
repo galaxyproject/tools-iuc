@@ -7,12 +7,12 @@ on:
     types: [run-all-tool-tests-command]
 env:
   GALAXY_FORK: galaxyproject
-  GALAXY_BRANCH: release_22.01
+  GALAXY_BRANCH: release_22.05
   MAX_CHUNKS: 40
 jobs:
   setup:
     name: Setup cache and determine changed repositories
-    if: github.repository_owner == 'galaxyproject'
+    if: ${{ github.repository_owner == 'galaxyproject' }}
     runs-on: ubuntu-latest
     outputs:
       galaxy-head-sha: ${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
@@ -27,7 +27,7 @@ jobs:
     steps:
     - name: Add reaction
       if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
-      uses: peter-evans/create-or-update-comment@v1
+      uses: peter-evans/create-or-update-comment@v2
       with:
         token: ${{ secrets.PAT }}
         repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
@@ -37,17 +37,17 @@ jobs:
       id: get-fork-branch
       run: |
         TMP="${{ github.event.client_payload.slash_command.args.named.fork }}"
-        echo "::set-output name=fork::${TMP:-$GALAXY_FORK}"
+        echo "fork=${TMP:-$GALAXY_FORK}" >> $GITHUB_OUTPUT
         TMP="${{ github.event.client_payload.slash_command.args.named.branch }}"
-        echo "::set-output name=branch::${TMP:-$GALAXY_BRANCH}"
+        echo "branch=${TMP:-$GALAXY_BRANCH}" >> $GITHUB_OUTPUT
     - name: Determine latest commit in the Galaxy repo
       id: get-galaxy-sha
-      run: echo "::set-output name=galaxy-head-sha::$(git ls-remote https://github.com/${{ steps.get-fork-branch.outputs.fork }}/galaxy refs/heads/${{ steps.get-fork-branch.outputs.branch }} | cut -f1)"
-    - uses: actions/setup-python@v1
+      run: echo "galaxy-head-sha=$(git ls-remote https://github.com/${{ steps.get-fork-branch.outputs.fork }}/galaxy refs/heads/${{ steps.get-fork-branch.outputs.branch }} | cut -f1)" >> $GITHUB_OUTPUT
+    - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache .cache/pip
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-pip
       with:
         path: ~/.cache/pip
@@ -56,7 +56,7 @@ jobs:
     # are not available as wheels, pip will build a wheel for them, which can be cached.
     - name: Install wheel
       run: pip install wheel
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 1
     - name: Fake a Planemo run to update cache and determine commit range, repositories, and chunks
@@ -97,18 +97,23 @@ jobs:
     steps:
     # checkout the repository
     # and use it as the current working directory
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 1
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache .cache/pip
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-pip
       with:
         path: ~/.cache/pip
         key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
+    - name: Get number of CPU cores
+      uses: SimenB/github-actions-cpu-cores@v1
+      id: cpu-cores
+    - name: Clean dotnet folder for space
+      run: rm -Rf /usr/share/dotnet
     - name: Planemo test
       uses: galaxyproject/planemo-ci-action@v1
       id: test
@@ -119,7 +124,10 @@ jobs:
         galaxy-branch: ${{ needs.setup.outputs.branch }}
         chunk: ${{ matrix.chunk }}
         chunk-count: ${{ needs.setup.outputs.chunk-count }}
-    - uses: actions/upload-artifact@v2
+        galaxy-slots: ${{ steps.cpu-cores.outputs.count }}
+        # Limit each test to 15 minutes
+        test_timeout: 900
+    - uses: actions/upload-artifact@v3
       with:
         name: 'Tool test output ${{ matrix.chunk }}'
         path: upload
@@ -138,14 +146,14 @@ jobs:
     # This job runs on Linux
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         path: artifacts
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache .cache/pip
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-pip
       with:
         path: ~/.cache/pip
@@ -156,18 +164,18 @@ jobs:
       with:
         mode: combine
         html-report: true
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: 'All tool test results'
         path: upload
     - name: Create URL to the run output
       if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
       id: vars
-      run: echo "::set-output name=run-url::https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
 
     - name: Create comment
       if: ${{ github.event.client_payload.slash_command.command == 'run-all-tool-tests' }}
-      uses: peter-evans/create-or-update-comment@v1
+      uses: peter-evans/create-or-update-comment@v2
       with:
         token: ${{ secrets.PAT }}
         repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
