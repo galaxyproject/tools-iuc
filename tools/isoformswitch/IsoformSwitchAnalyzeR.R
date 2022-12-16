@@ -8,12 +8,11 @@ stringtie <- importIsoformExpression(
   readLength = 150
 )
 
-
+### Make design matrix
 myDesign <- data.frame(
-  sampleID = c("health01","health02","health03","cancer01","cancer02","cancer03"),
-  condition = c("health","health","health","cancer","cancer","cancer")
+  sampleID = colnames(stringtie$abundance)[-1],
+  condition = gsub('[[:digit:]]+', '', colnames(stringtie$abundance)[-1])
 )
-
 
 SwitchList <- importRdata(
   isoformCountMatrix   = stringtie$counts,
