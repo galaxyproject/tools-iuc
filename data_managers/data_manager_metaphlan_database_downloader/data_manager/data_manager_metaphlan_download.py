@@ -106,7 +106,8 @@ def download_metaphlan_db(data_tables, index, table_name, target_dp):
             dbkey=index,
             value='%s-%s' % (index, date.today().strftime("%d%m%Y")),
             name="MetaPhlAn clade-specific marker genes (%s)" % index,
-            path=str(db_dp)))
+            path=str(db_dp),
+            db_version='SGB' if 'SGB' in index else 'legacy'))
 
 
 if __name__ == "__main__":
