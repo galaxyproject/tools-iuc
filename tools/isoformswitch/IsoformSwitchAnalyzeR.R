@@ -24,12 +24,18 @@ SwitchList <- importRdata(
   showProgress = TRUE
 )
 
+
+
 geneCountMatrix <- extractGeneExpression(
   SwitchList,
   extractCounts = FALSE, #TRUE,
   addGeneNames = FALSE,
   addIdsAsColumns = FALSE
 )
+
+# Prepare for DESeq2 format
+l<-as.list(as.data.frame(geneCountMatrix))
+
 
 # First part of the analysis
 #############################
