@@ -50,8 +50,8 @@ SwitchList <- preFilter(
   #acceptedGeneBiotype = NULL,
   #acceptedIsoformClassCode = NULL,
   removeSingleIsoformGenes = TRUE,
-  #reduceToSwitchingGenes=FALSE,
-  #reduceFurtherToGenesWithConsequencePotential = FALSE,
+  reduceToSwitchingGenes=FALSE,
+  reduceFurtherToGenesWithConsequencePotential = FALSE,
   onlySigIsoforms = FALSE,
   keepIsoformInAllConditions = FALSE,
   alpha = 0.05,
@@ -73,15 +73,6 @@ SwitchList <- isoformSwitchTestDEXSeq(
   showProgress = TRUE,
 )
 
-### If analysing (some) novel isoforms (else use CDS from ORF as explained in importRdata() )
-#SwitchList <- addORFfromGTF( SwitchList,
-#                             pathToGTF = ,
-#                             ### Advanced argument
-#                             overwriteExistingORF = FALSE,
-#                             onlyConsiderFullORF = FALSE,
-#                             removeNonConvensionalChr = FALSE,
-#                             PTCDistance = 50,)
-
 SwitchList <- analyzeNovelIsoformORF(
   SwitchList,
   analysisAllIsoformsWithoutORF = TRUE,
@@ -91,8 +82,6 @@ SwitchList <- analyzeNovelIsoformORF(
   minORFlength = 100,
   orfMethod = 'longest.AnnotatedWhenPossible',
   PTCDistance = 50,
-  startCodons = "ATG",
-  stopCodons = c("TAA", "TAG", "TGA"),
   showProgress = TRUE,
 )
 
@@ -124,7 +113,6 @@ extractSwitchSummary(
   alpha = 0.05,
   dIFcutoff = 0.1,
   onlySigIsoforms = FALSE,
-  # includeCombined=nrow(unique(switchAnalyzeRlist$isoformFeatures[,c('condition_1','condition_1')]))
 )
 
 
