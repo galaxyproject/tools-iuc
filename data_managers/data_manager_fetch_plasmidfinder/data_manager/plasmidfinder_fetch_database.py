@@ -3,6 +3,7 @@ import json
 import os
 import requests
 import tarfile
+
 from pathlib import Path
 from datetime import datetime
 
@@ -86,7 +87,7 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
     def extract_db_info(self, request_header, title_name="content-disposition"):
         db_info = request_header.headers[title_name]
         commit_number = db_info.split("-")[2].split(".")[0]
-        return(commit_number)
+        return commit_number
 
     def untar_files(self, file_path, extracted_path_output):
         try:
@@ -96,8 +97,7 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
                 print(f'Untar the database in {extracted_path_output}')
                 return extracted_path_output
         except OSError:
-            sys.exit(f'ERROR: Could not extract {file_path}')
-
+            os.sys.exit(f'ERROR: Could not extract {file_path}')
 
     def download_database(self):
         self._output_dir = Path(self._output_dir)
