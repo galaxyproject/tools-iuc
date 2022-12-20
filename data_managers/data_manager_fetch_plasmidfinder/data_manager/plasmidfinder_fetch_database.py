@@ -23,6 +23,7 @@ class GetPlasmidfinderDataManager:
         self._plasmidfinder_date_version = None
         self.data_table_entry = None
         self.plasmidfinder_table_list = None
+        self._commit_number = None
 
     def get_data_table_format(self):
         """
@@ -39,12 +40,17 @@ class GetPlasmidfinderDataManager:
     def get_data_manager(self):
         """
         Create the empty data table format and add all the information into
+        Commit number is added if latest is required instead of version number
         return: The data table with database information
         """
         self.plasmidfinder_table_list = self.get_data_table_format()
-        plasmidfinder_value = f"plasmidfinder_{self._plasmidfinder_version}" \
+        if self._plasmidfinder_version == "latest":
+            version_value = self._commit_number
+        else:
+            version_value = self._plasmidfinder_version
+        plasmidfinder_value = f"plasmidfinder_{self._commit_number}" \
                               f"_{self._plasmidfinder_date_version}"
-        plasmidfinder_name = f"{self._plasmidfinder_version}" \
+        plasmidfinder_name = f"{version_value}" \
                              f"_{self._plasmidfinder_date_version}"
         data_info = dict(value=plasmidfinder_value,
                          name=plasmidfinder_name,
@@ -56,40 +62,48 @@ class GetPlasmidfinderDataManager:
 
 class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
     """
-    Download the amrfinderplus database from the ncbi.
-    Make the database available with hmm and indexed files
-    Build the data manager infos for galaxy
+    Download the plasmidfinder database from the bitbucket repository.
+    Build the data manager info for galaxy
     """
 
     def __init__(self,
                  output_dir=Path.cwd(),
-                 plasmidfinder_url="https://bitbucket.org/genomicepidemiology/plasmidfinder_db/get/master.gz",
-                 plasmidfinder_database="plasmidfinder_database",
+                 plasmidfinder_url="https://bitbucket.org/genomicepidemiology/plasmidfinder_db/get/",
                  db_name="plasmidfinder-db",
                  db_tmp="tmp_database",
-                 plasmidfinder_version=None,
+                 plasmidfinder_version="latest",
                  json_file_path=None,
-                 date_version=datetime.now().strftime("%Y-%m-%d"),
-                 test_mode=False):
+                 date_version=datetime.now().strftime("%Y-%m-%d")):
 
         super().__init__()
         self.json_file_path = json_file_path
         self._output_dir = output_dir
         self._plasmidfinder_url = plasmidfinder_url
-        self._plasmidfinder_database = plasmidfinder_database
         self._temporary_folder = db_tmp
         self._db_name = db_name
         self._db_name_tar = f'{db_name}.gz'
         self._plasmidfinder_version = plasmidfinder_version
         self._plasmidfinder_date_version = date_version
-        self.test_mode = test_mode
+        self._commit_number = None
 
-    def extract_db_info(self, request_header, title_name="content-disposition"):
+    def extract_db_commit(self, request_header, title_name="content-disposition"):
+        """
+        Extract the commit if to add the information as identifier of the download
+        @request_header: a request object obtained from requests.get()
+        @title_name: the tag to search in the header of the requests object
+        return: the value of the commit
+        """
         db_info = request_header.headers[title_name]
         commit_number = db_info.split("-")[2].split(".")[0]
         return commit_number
 
-    def untar_files(self, file_path, extracted_path_output):
+    def untar_files(self, file_path: Path, extracted_path_output: Path):
+        """
+        untar the download archive
+        @file_path: input path of the tar.gz file
+        @extracted_path_output: output path of the extract folder
+        return: the path of the output
+        """
         try:
             with file_path.open('rb') as fh_in, \
                     tarfile.open(fileobj=fh_in, mode='r:gz') as tar_file:
@@ -99,16 +113,32 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
         except OSError:
             os.sys.exit(f'ERROR: Could not extract {file_path}')
 
+    def choose_db_version(self):
+        """
+        Update the url link depending of the version choosen by user.
+        This method could be upgraded simply by adding the new versions
+        """
+        if self._plasmidfinder_version == "latest":
+            self._plasmidfinder_url = f"{self._plasmidfinder_url}master.gz"
+        elif self._plasmidfinder_version == "2.1":
+            self._plasmidfinder_url = f"{self._plasmidfinder_url}1307168.gz"
+
     def download_database(self):
+        """
+        Download the plasmidfinder database using requests lib
+        Make the directory and temporary directory for download
+        Untar the download files
+        """
         self._output_dir = Path(self._output_dir)
+        self.choose_db_version()
         try:
             request_info = requests.get(self._plasmidfinder_url)
             request_info.raise_for_status()
-            self._plasmidfinder_version = self.extract_db_info(request_info)
+            self._commit_number = self.extract_db_commit(request_info)
             output_tar_path = self._output_dir.joinpath(self._temporary_folder)
-            os.makedirs(output_tar_path)
             output_tar_path_file = output_tar_path.joinpath(self._db_name_tar)
             output_path = self._output_dir.joinpath(self._db_name)
+            os.makedirs(output_tar_path)
             os.makedirs(output_path)
             with open(output_tar_path_file, 'wb') as output_dir:
                 output_dir.write(request_info.content)
@@ -120,11 +150,22 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
             print(f"Fail to import Plasmidfinder database from {self._plasmidfinder_url}")
 
     def moove_download_files(self, older_path, new_path, expression_search="*fsa"):
+        """
+        Clean downloaded data by mooving fasta files in the final folder
+        @older_path: previous path where the files are located
+        @new_path: final path where files will be mooved
+        @expression_search: keep only file with this expression
+        """
         fasta_files = Path(older_path).rglob(expression_search)
         file_list_paths = [file for file in fasta_files if file.is_file()]
         [self.keep_filename(pathname=path, output_path=new_path) for path in file_list_paths]
 
     def keep_filename(self, pathname, output_path):
+        """
+        Moove files
+        @pathname: previous path
+        @output_path: final path
+        """
         Path.replace(pathname, output_path.joinpath(pathname.name))
 
     def read_json_input_file(self):
@@ -154,12 +195,14 @@ def parse_arguments():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("data_manager_json",
                             help="json file from galaxy")
+    arg_parser.add_argument("-v", "--db_version",
+                            help="version of the plasmidfinder (latest or 2.1)")
     return arg_parser.parse_args()
 
 
 def main():
     all_args = parse_arguments()
-    plasmidfinder_download = DownloadPlasmidfinderDatabase(json_file_path=all_args.data_manager_json)
+    plasmidfinder_download = DownloadPlasmidfinderDatabase(json_file_path=all_args.data_manager_json, plasmidfinder_version=all_args.db_version)
     plasmidfinder_download.read_json_input_file()
     plasmidfinder_download.download_database()
     plasmidfinder_download.write_json_infos()
