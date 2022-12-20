@@ -115,7 +115,7 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
 
     def choose_db_version(self):
         """
-        Update the url link depending of the version choosen by user.
+        Update the url link depending on the version choosen by user.
         This method could be upgraded simply by adding the new versions
         """
         if self._plasmidfinder_version == "latest":
