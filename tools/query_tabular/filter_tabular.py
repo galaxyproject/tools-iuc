@@ -19,6 +19,8 @@ def __main__():
                       help='JSON array of filter specifications')
     parser.add_option('-o', '--output', dest='output', default=None,
                       help='Output file for query results')
+    parser.add_option('-c', '--comment_char)', dest='comment_char', default=None,
+                      help='Line comment character')
     parser.add_option('-v', '--verbose', dest='verbose', default=False,
                       action='store_true',
                       help='verbose')
@@ -59,7 +61,7 @@ def __main__():
                   file=sys.stdout)
 
     try:
-        filter_file(inputFile, outputFile, filters=filters)
+        filter_file(inputFile, outputFile, comment_char=options.comment_char, filters=filters)
     except Exception as e:
         exit('Error: %s' % (e))
 

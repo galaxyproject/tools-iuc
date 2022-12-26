@@ -1,0 +1,310 @@
+<tool id="clair3" name="Clair3" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.09">
+    <description>germline small variant caller for long-reads</description>
+    <macros>
+        <token name="@TOOL_VERSION@">0.1.12</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+    </macros>
+    <xrefs>
+        <xref type='bio.tools'>clair3</xref>
+    </xrefs>
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">clair3</requirement>
+    </requirements>
+    <version_command><![CDATA[run_clair3.sh --version | cut -f2 -d ' ']]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
+        #if $ref_source.source == "history"
+            ln -s '${ref_source.ref_fasta}' reference.fasta &&
+        #elif $ref_source.source == "builtin"
+            ln -s '${ref_source.ref_fasta_builtin.fields.path}' reference.fasta &&
+        #end if
+        samtools faidx reference.fasta &&
+
+        #if $model_source.source == "datatable"
+            #set model_path = $model_source.model.fields.path 
+        #end if
+        #set $extension = $bam_input.ext
+        ln -s '${$bam_input}' input_reads.$extension &&
+        #if $extension == 'bam'
+            ln -s '${$bam_input.metadata.bam_index}' input_reads.bai &&
+        #else
+            ln -s '${$bam_input.metadata.cram_index}' input_reads.crai &&
+        #end if
+
+        #if $bed_or_vcf.bed_or_vcf_selector == 'bed'
+            ln -s '$bed_or_vcf.bed_fn' input.bed &&
+        #elif $bed_or_vcf.bed_or_vcf_selector == 'vcf'
+            ln -s '$bed_or_vcf.vcf_fn' input.vcf &&
+        #end if
+
+        run_clair3.sh
+            --bam_fn=input_reads.$extension
+            --ref_fn=reference.fasta
+            #if $model_source.source == "datatable"
+                --platform='${model_source.model.fields.platform}'
+                --model_path=${model_source.model.fields.path}
+            #else
+                #if $model_source.select_built_in == "hifi" or $model_source.select_built_in == "ilmn":
+                    --platform='${$model_source.select_built_in}'
+                #else
+                    --platform='ont'
+                #end if
+                --model_path=\$(dirname \$(which run_clair3.sh))/models/$model_source.select_built_in
+            #end if
+            --output='.'
+            --threads=\${GALAXY_SLOTS:-2}
+            #if $bed_or_vcf.bed_or_vcf_selector == 'bed'
+                  --bed_fn=input.bed
+            #elif $bed_or_vcf.bed_or_vcf_selector == 'vcf'
+                  --vcf_fn=input.vcf
+            #else
+                $bed_or_vcf.include_all_ctgs
+            #end if
+            $gvcf
+            #if $adv.qual
+            --qual=$adv.qual
+            #end if
+            #if $adv.snp_min_af
+                --snp_min_af=$adv.snp_min_af
+            #end if
+            #if $adv.indel_min_af
+                --indel_min_af=$adv.indel_min_af
+            #end if
+            $adv.enable_phasing
+            $adv.no_phasing_for_fa
+            $adv.print_ref_calls
+            $adv.ploidity_model
+            #if $adv.chunk_size
+                --chunk_size=$adv.chunk_size
+            #end if
+
+    ]]></command>
+    <inputs>
+        <param type="data" name="bam_input" argument="--bam_fn" format="bam,cram" label="BAM/CRAM file input" />
+        <conditional name="ref_source">
+            <param type="select" label="Reference genome source" name="source">
+                <option value="history" selected="true">History</option>
+                <option value="builtin">Built-in</option>
+            </param>
+            <when value="history">
+                <param type="data" format="fasta" name="ref_fasta" argument="--ref_fn" label="Reference genome" />
+            </when>
+            <when value="builtin">
+                <param type="select" name="ref_fasta_builtin" label="Reference genome">
+                    <options from_data_table="all_fasta" />
+                </param>
+            </when>
+        </conditional>
+        <conditional name="model_source">
+            <param name="source" type="select" label="Clair3 model" help="Select if you want to use a built-in model shipping with the tool or a model cached on this Galaxy server.">
+                <option value="built-in">Built-in</option>
+                <option value="datatable">Cached</option>
+            </param>
+            <when value="built-in">
+                <param type="select" name="select_built_in" label="Built-in model">
+                    <option value="r941_prom_sup_g5014">r941_prom_sup_g5014</option>
+                    <option value="r941_prom_hac_g360+g422">r941_prom_hac_g360+g422</option>
+                    <option value="hifi">hifi</option>
+                    <option value="ilmn">ilmn</option>
+                </param>
+            </when>
+            <when value="datatable">
+                <param  name="model" argument="--model_path" type="select" label="Cached model from server" >
+                    <options from_data_table="clair3_models">
+                        <validator type="no_options" message="no cached models available" />
+                    </options>
+                </param>
+            </when>
+        </conditional>
+        <conditional name="bed_or_vcf">
+            <param type="select" name="bed_or_vcf_selector" label="Restict variant calling to:">
+                <option value="unrestricted" selected="true">Whole reference (unrestricted)</option>
+                <option value="bed" selected="true">Regions defined in BED dataset</option>
+                <option value="vcf">Sites defined in VCF dataset</option>
+            </param>
+            <when value="bed">
+                <param type="data" argument="--bed_fn" format="bed" label="Call variants only in the provided bed regions."/>
+            </when>
+            <when value="vcf">
+                <param type="data" argument="--vcf_fn" format="vcf" label="Candidate sites VCF file input" help="Variants will only be called at the sites in the VCF file if provided."/>
+            </when>
+            <when value="unrestricted">
+                <param type="boolean" argument="--include_all_ctgs" truevalue="--include_all_ctgs" falsevalue="" checked="true" label="Call variants on all contigs" help="If disabled, call in chr{1..22,X,Y} and {1..22,X,Y}" />
+            </when>
+        </conditional>
+        <param type="boolean" argument="--gvcf" truevalue="--gvcf" falsevalue="" label="Enable GVCF output" help="GVCF stands for Genomic VCF. A GVCF is a kind of VCF, so the basic format specification is the same as for a regular VCF but contains extra information. Default: disable" />
+        <param name="output_files" type="select" display="checkboxes" multiple="true" label="Optional additional output files">
+            <option value="full_alignment">Full alignment file</option>
+            <option value="pileup">Pileup file</option>
+            <option value="phased_bam">Phased BAM file</option>
+        </param>
+        <section name="adv" title="Advanced parameters" expanded="false">
+            <param type="integer" argument="--qual" value="0" min="0" label="Qual" help="If set, variants with >qual will be marked PASS, or LowQual otherwise." />
+            <param type="float" argument="--snp_min_af" value="0.08" min="0" max="1" label="Minimum SNP AF" help="Minimum SNP AF required for a candidate variant. Lowering the value might increase a bit of sensitivity in trade of speed and accuracy. Default: ont:0.08,hifi:0.08,ilmn:0.08." />
+            <param type="float" argument="--indel_min_af" value="0.15" min="0" max="1" label="Minimum INDEL AF" help="Minimum INDEL AF required for a candidate variant. Lowering the value might increase a bit of sensitivity in trade of speed and accuracy. Default: ont:0.15,hifi:0.08,ilmn:0.08." />
+            <param type="boolean" argument="--enable_phasing" truevalue="--enable_phasing" falsevalue="" label="Enable phasing" help="Output phased variants using whatshap. Default: disable" />
+            <param type="boolean" argument="--no_phasing_for_fa" truevalue="--no_phasing_for_fa" falsevalue="" label="Call variants without whatshap phasing" help="EXPERIMENTAL: Call variants without whatshap phasing in full alignment calling. Default: disable" />
+            <param type="boolean" argument="--print_ref_calls" truevalue="--print_ref_calls" falsevalue="" label="Print reference calls" help="Show reference calls (0/0) in vcf file. Default: disable." />
+            <param type="select" name="ploidity_model" label="Call with the following ploidy model" help="EXPERIMENTAL. When haploid sensitive is enabled only 1/1 is considered as a variant. When haploid precise is enabled only 0/1 and 1/1 are considered as a variant. Default: diploid.">
+                <option value="" selected="true">Diploid</option>
+                <option value="--haploid_sensitive">Haploid sensitive (--haploid_sensitive)</option>
+                <option value="--haploid_precise">haploid precise (--haploid_precise)</option>
+            </param>
+            <param type="integer" argument="--chunk_size" value="5000000" min="1" label="Chunk size" help="The size of each chuck for parallel processing. Default: 5Mbp." optional="true" />
+        </section>
+    </inputs>
+    <outputs>
+        <data name="merge_output" format="vcf_bgzip" from_work_dir="./merge_output.vcf.gz" label="${tool.name} on ${on_string}: merged output"/>
+        <data name="pileup" format="vcf_bgzip" from_work_dir="./pileup.vcf.gz" label="${tool.name} on ${on_string}: pileup">
+            <filter>output_files and 'pileup' in output_files</filter>
+        </data>
+        <data name="full_alignment" format="vcf_bgzip" from_work_dir="./full_alignment.vcf.gz" label="${tool.name} on ${on_string}: full alignment">
+            <filter>output_files and 'full_alignment' in output_files</filter>
+        </data>
+        <data name="phased_bam" format="bam" from_work_dir="./phased_bam.bam" label="${tool.name} on ${on_string}: phased BAM">
+            <filter>output_files and 'phased_bam' in output_files</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <conditional name="model_source">
+                <param name="source" value="built-in"/>  
+                <param name="select_built_in" value="r941_prom_hac_g360+g422"/>
+            </conditional>
+            <param name="bam_input" value="test1.bam" />
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="test1.fasta" />
+            </conditional>
+            <conditional name="bed_or_vcf">
+                <param name="bed_or_vcf_selector" value="vcf"/>
+                <param name="vcf_fn" value="test1.vcf.gz" />
+            </conditional>
+            <section name="adv">
+                <param name="no_phasing_for_fa" value="true"/>
+                <param name="print_ref_calls" value="true"/>
+                <param name="ploidity_model" value=""/>
+            </section>
+            <assert_stdout>
+              <has_text text="[WARNING] No contig intersection found, output header only in" />
+            </assert_stdout>
+        </test>
+        <test expect_num_outputs="4">
+            <conditional name="model_source">
+                <param name="source" value="builtin" />
+                <param name="select_built_in" value="r941_prom_hac_g360+g422" />
+            </conditional>
+            <param name="bam_input" value="test1.bam" />
+            <conditional name="bed_or_vcf">
+                <param name="bed_or_vcf_selector" value="unrestricted"/>
+                <param name="include_all_ctgs" value="true" />
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="builtin" />
+                <param name="ref_fasta_builtin" value="test1" />
+            </conditional>
+            <param name="gvcf" value="true"/>
+            <param name="output_files" value="full_alignment,pileup,phased_bam"/>
+            <section name="adv">
+                <param name="print_ref_calls" value="true"/>
+            </section>
+            <output name="merge_output" decompress="true" file="merge_output_1.vcf.gz" ftype="vcf_bgzip"/>
+            <output name="pileup" decompress="true" file="pileup_1.vcf.gz" ftype="vcf_bgzip"/>
+            <output name="full_alignment" decompress="true" file="full_alignment_1.vcf.gz" ftype="vcf_bgzip"/>
+            <output name="phased_bam" file="phased_bam_1.bam" ftype="bam"/>
+        </test>
+        <test expect_num_outputs="4">
+            <conditional name="model_source">
+                <param name="source" value="datatable" />
+                <param name="model" value="test_model" />
+            </conditional>
+            <param name="bam_input" value="test1.bam" />
+            <conditional name="bed_or_vcf">
+                <param name="bed_or_vcf_selector" value="bed"/>
+                <param name="bed_fn" value="test1.bed" />
+            </conditional>
+            <conditional name="ref_source">
+                <param name="source" value="builtin" />
+                <param name="ref_fasta_builtin" value="test1" />
+            </conditional>
+            <param name="output_files" value="full_alignment,pileup,phased_bam"/>
+            <section name="adv">
+                <param name="snp_min_af" value="0.5"/>
+                <param name="indel_min_af" value="0.12"/>
+                <param name="no_phasing_for_fa" value="true" />
+                <param name="print_ref_calls" value="true"/>
+            </section>
+            <output name="merge_output" ftype="vcf_bgzip">
+                <assert_contents>
+                    <has_size value="450" delta="50" />
+                </assert_contents>
+            </output>
+            <output name="pileup" ftype="vcf_bgzip">
+                <assert_contents>
+                    <has_size value="0" />
+                </assert_contents>
+            </output>
+            <output name="full_alignment" ftype="vcf_bgzip">
+                <assert_contents>
+                    <has_size value="0" />
+                </assert_contents>
+            </output>
+            <output name="phased_bam" ftype="bam">
+                <assert_contents>
+                    <has_size value="0" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test input CRAM -->
+        <test expect_num_outputs="1">
+            <conditional name="model_source">
+                <param name="source" value="builtin" />
+                <param name="select_built_in" value="r941_prom_hac_g360+g422" />
+            </conditional>
+            <param name="bam_input" value="test1.cram" />
+            <conditional name="ref_source">
+                <param name="source" value="history" />
+                <param name="ref_fasta" value="test1.fasta" />
+            </conditional>
+            <output name="merge_output" file="output_cram_test.vcf.gz" ftype="vcf_bgzip"/>
+        </test>
+    </tests>
+    <help><![CDATA[
+      Clair3 is a germline small variant caller for long-reads. Clair3 makes the best of two major method categories:
+      pileup calling handles most variant candidates with speed, and full-alignment tackles complicated candidates to maximize precision and recall.
+      Clair3 runs fast and has superior performance, especially at lower coverage. Clair3 is simple and modular for easy deployment and integration.
+      
+      https://github.com/HKU-BAL/Clair3
+
+      LICENSE:
+
+        Copyright 2021 The University of Hong Kong, Department of Computer Science
+
+        Redistribution and use in source and binary forms, with or without modification,
+        are permitted provided that the following conditions are met:
+
+        1. Redistributions of source code must retain the above copyright notice, this
+           list of conditions and the following disclaimer.
+
+        2. Redistributions in binary form must reproduce the above copyright notice,
+           this list of conditions and the following disclaimer in the documentation
+           and/or other materials provided with the distribution.
+
+        3. Neither the name of the copyright holder nor the names of its contributors
+           may be used to endorse or promote products derived from this software without
+           specific prior written permission.
+
+        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+        ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+        DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+        ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+        (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+        LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+        ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+        (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+        SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+    ]]></help>
+    <citations>
+        <citation type="doi">10.1101/2021.12.29.474431</citation>
+    </citations>
+</tool>

@@ -1,20 +1,20 @@
 # Wrappers for Scater
 
-This code wraps a number of [scater](https://bioconductor.org/packages/release/bioc/html/scater.html) functions as Galaxy wrappers. Briefly, the `scater-create-qcmetric-ready-sce` tool takes a sample gene expression matrix (usually read-counts) and a cell annotation file, creates a [SingleCellExperiment](https://bioconductor.org/packages/release/bioc/html/SingleCellExperiment.html) object and runs scater's `calculateQCMetrics` function (using other supplied files such as ERCC's and mitochondrial gene features).
+This code wraps a number of [scater](https://bioconductor.org/packages/release/bioc/html/scater.html) and [scuttle](https://bioconductor.org/packages/3.13/bioc/html/scuttle.html) functions as Galaxy wrappers. Briefly, the `scater-create-qcmetric-ready-sce` tool takes a sample gene expression matrix (usually read-counts) and a cell annotation file, creates a [SingleCellExperiment](https://bioconductor.org/packages/release/bioc/html/SingleCellExperiment.html) object and runs scater's `calculateQCMetrics` function (using other supplied files such as ERCC's and mitochondrial gene features).
 Various filter scripts are provided, along with some plotting functions for QC.
 
 
 ## Typical workflow
 
 1. Read in data with `scater-create-qcmetric-ready-sce`.
-2. Visualise it.\
+2. Visualise it.
    Take a look at the distribution of library sizes, expressed features and mitochondrial genes with `scater-plot-dist-scatter`.
-   Then look at the distibution of genes across cells with `scater-plot-exprs-freq`.
+   
 3. Guided by the plots, filter the data with `scater-filter`.\
    You can either manually filter with user-defined parameters or use PCA to automatically removes outliers.
 4. Visualise data again to see how the filtering performed using `scater-plot-dist-scatter`.\
    Decide if you're happy with the data. If not, try increasing or decreasing the filtering parameters.
-5. Normalise data with `scater-normalize`.
+
 6. Investigate other confounding factors.\
    Plot the data (using PCA) and display various annotated properties of the cells using `scater-plot-pca`.
 
@@ -51,10 +51,6 @@ Takes SingleCellExperiment object (from Loom file) and plots a panel of read and
 
 ---
 
-`scater-plot-exprs-freq.R`
-Plots mean expression vs % of expressing cells and provides information as to the number of genes expressed in 50% and 25% of cells.
-
----
 
 `scater-pca-filter.R`
 Takes SingleCellExperiment object (from Loom file) and automatically removes outliers from data using PCA. Save the filtered SingleCellExperiment object in Loom format.
@@ -74,18 +70,18 @@ Takes SingleCellExperiment object (from Loom file) and filters data using user-p
 
 ---
 
-`scater-normalize.R`
-Compute log-normalized expression values from count data in a SingleCellExperiment object, using the size factors stored in the object. Save the normalised SingleCellExperiment object in Loom format.
+`scater-plot-pca.R`
+PCA plot of a SingleCellExperiment object. The options `-c`, `-p`, and `-s` all refer to cell annotation features. These are the column headers of the `-c` option used in `scater-create-qcmetric-ready-sce.R`.
 
 ```
-./scater-normalize.R -i test-data/scater_manual_filtered.loom -o test-data/scater_man_filtered_normalised.loom
+./scater-plot-pca.R -i test-data/scater_qcready.loom -c Treatment -p Mutation_Status -o test-data/scater_pca_plot.pdf
 ```
 
 ---
 
-`scater-plot-pca.R`
-PCA plot of a normalised SingleCellExperiment object (produced with `scater-normalize.R`). The options `-c`, `-p`, and `-s` all refer to cell annotation features. These are the column headers of the `-c` option used in `scater-create-qcmetric-ready-sce.R`.
+`scater-plot-tsne.R`
+t-SNE plot of a SingleCellExperiment object. The options `-c`, `-p`, and `-s` all refer to cell annotation features. These are the column headers of the `-c` option used in `scater-create-qcmetric-ready-sce.R`.
 
 ```
-./scater-plot-pca.R -i test-data/scater_man_filtered_normalised.loom -c Treatment -p Mutation_Status -o test-data/scater_pca_plot.pdf
+./scater-plot-tsne.R -i test-data/scater_qcready.loom -c Treatment -p Mutation_Status -o test-data/scater_tsne_plot.pdf
 ```

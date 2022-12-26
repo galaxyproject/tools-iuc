@@ -20,7 +20,7 @@ colstrings = []
 allrows = []
 
 # Build background info for all attributes and layers
-loompyfile = loompy.connect(file)
+loompyfile = loompy.connect(file, mode="r")
 row_attributes = loompyfile.ra.keys()  # List of row attributes
 for row in row_attributes:  # Each list represents rownames for row_attributes
     c_row = loompyfile.ra[row]

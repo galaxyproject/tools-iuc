@@ -1,17 +1,24 @@
-<tool id="umi_tools_whitelist" name="UMI-tools whitelist" version="@VERSION@.0">
+<tool id="umi_tools_whitelist" name="UMI-tools whitelist" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description>Extract cell barcodes from FASTQ files</description>
+    <expand macro="bio_tools"/>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements" />
     <command detect_errors="exit_code"><![CDATA[
+        #import json
         @COMMAND_LINK@
-
         umi_tools whitelist
-            --bc-pattern='$bc_pattern'
-            --extract-method='$extract_method'
+            
+            @FASTQ_BARCODE_EXTRACTION_OPTIONS@ 
+
             --subset-reads='$subset_reads'
-            #if $input_type.type == 'single':
+            $allow_threshold_error
+            #if $ed_above_threshold
+                --ed-above-threshold=$ed_above_threshold
+            #end if
+            --knee-method='$knee_method'
+            #if $input_type_cond.input_type == 'single':
                 #if $gz:
                     --stdin=input_single.gz
                 #else
@@ -25,30 +32,20 @@
                     --stdin=input_read1.txt
                     --read2-in=input_read2.txt
                 #end if
-                #if $input_type.barcode.barcode_select == "both_reads":
-                    --bc-pattern2='$input_type.barcode.bc_pattern2'
-                #end if
             #end if
             #if $celloptions.use_cell_opts == "advanced":
-                #if $celloptions.set_cell_number != "0":
+                #if str($celloptions.set_cell_number) != '':
                    --set-cell-number=$celloptions.set_cell_number
                 #end if
-                #if $celloptions.expect_cells != "0":
+                #if str($celloptions.expect_cells) != '':
                    --expect-cells=$celloptions.expect_cells
                 #end if
-                --error-correct-threshold=$celloptions.error_correct_thresh
+                --error-correct-threshold=$celloptions.error_correct_threshold
             #end if
             --method=$method
             --plot-prefix=OUT
 
-            $prime3
-
-            #if $log:
-                --log='$out_log'
-            #end if
-
-            --log2stderr
-
+            @LOG@
             > '$out_whitelist' &&
 
             mkdir '${ out_html_report.files_path }' &&
@@ -66,28 +63,24 @@
     ]]></command>
     <inputs>
         <expand macro="input_types" />
-        <param name="bc_pattern" argument="--bc-pattern" type="text" label="Barcode pattern for first read"
-            help="Use this option to specify the format of the UMI/barcode. Use Ns to
-                    represent the random positions and Xs to indicate the bc positions.
-                    Bases with Ns will be extracted and added to the read name. Remaining
-                    bases, marked with an X will be reattached to the read.">
-            <expand macro="barcode_sanitizer" />
+        <expand macro="fastq_barcode_extraction_options_macro"/>
+
+        <param argument="--method" type="select" label="Count reads or UMIs"
+               help="Many published protocols rank CBs by the number of reads the CBs appear in. However you could also use the number of unique UMIs a CB is associated with. Note that this is still and approximation to the number of transcripts captured because the same UMI could be associated with two different transcripts and be counted as independent" >
+            <option value="reads" selected="true">Reads</option>
+            <option value="umis">UMIs</option>
         </param>
-        <param name="extract_method" argument="--extract-method" type="select" label="Barcode Extraction Method"
-               help="If bracketed expressions are used in the above barcode pattern, then set this to 'regex'. Otherwise leave as 'string'" >
-            <option value="string" selected="true" />
-            <option value="regex" />
+        <!-- TODO Cannot use expect-cells with 'distance' knee method.-->
+        <param argument="--knee-method" type="select" label="Method for detection of knee">
+            <option value="distance" selected="true">Distance</option>
+            <option value="density">Density</option>
         </param>
-        <param name="method" argument="--method" type="select" label="Count reads or UMIs"
-               help="Many published protocols rank CBs by the number of reads the CBs appear in. However you could also use the number of unique UMIs a CB is associated with. Note that this is still and approximation to the number of transcripts captured because the same UMI could be associated with two different transcripts and be counted as independent." >
-            <option value="reads" selected="true" />
-            <option value="umis" />
+        <param argument="--subset-reads" type="integer" min="0" value="0" label="Use the first N reads to automatically identify the true cell barcodes" />
+        <param argument="--allow-threshold-error" type="boolean" truevalue="--allow-threshold-error" falsevalue="" label="Don't select a threshold" help="Will still output the plots if requested"/> 
+        <param argument="--ed-above-threshold" type="select" optional="true" label="Detect and correct CBs above the threshold" help="which may be sequence errors from another CB">
+            <option value="correct">Correct</option>
+            <option value="discard">Discard</option>
         </param>
-        <param argument="--3prime" name="prime3" type="boolean" label="Is barcode on 3' end of the read?"
-            truevalue="--3prime" falsevalue=""
-            help="By default the barcode is assumed to be on the 5' end of the read, but
-                use this option to specify that it is on the 3' end instead." />
-        <param name="subset_reads" argument="--subset-reads" type="integer" min="0" value="0" label="Use the first N reads to automatically identify the true cell barcodes." />
         <conditional name="celloptions" >
             <param name="use_cell_opts" type="select" label="Cell parameters" >
                 <option value="defaults" selected="True">Use Defaults</option>
@@ -95,49 +88,63 @@
             </param>
             <when value="defaults"/>
             <when value="advanced">
-                <param name="set_cell_number" type="integer" min="0" value="0" label="Specify the number of cell barcodes to accept" />
-                <param name="expect_cells" type="integer" min="0" value="0" label="Prior expectation on the upper limit on the number of cells sequenced" />
-                <param name="error_correct_thresh" type="integer" min="0" value="0" label="Hamming distance for correction of barcodes to whitelist barcodes. Set to zero to generate no error correcting metrics." />
+                <param argument="--set-cell-number" type="integer" min="0" optional="true" label="Specify the number of cell barcodes to accept" />
+                <param argument="--expect-cells" type="integer" min="0" optional="true" label="Prior expectation on the upper limit on the number of cells sequenced" />
+                <param argument="--error-correct-threshold" type="integer" min="0" value="1" label="Hamming distance for correction of barcodes to whitelist barcodes. Set to zero to generate no error correcting metrics" />
             </when>
         </conditional>
-        <param argument="--log" type="boolean" label="Output log?" truevalue="--log" falsevalue=""
-            help="Choose if you want to generate a text file containing logging information." />
+        <expand macro="log_input_macro"/>
     </inputs>
     <outputs>
         <data name="out_whitelist" format="tabular" label="${tool.name} on ${on_string}: Whitelist"/>
-        <data name="out_log" format="txt" label="${tool.name} on ${on_string}: logfile" >
-            <filter>log</filter>
+        
+        <data name="filtered_out" format_source="input_read1" label="${tool.name} on ${on_string}: reads not matching regex pattern">
+            <filter>extract_method_cond['extract_method'] == 'regex' and extract_method_cond['filtered_out_bool'] and input_type_cond['input_type'] in ['single', 'paired']</filter>
         </data>
+        <data name="filtered_out_paired" format_source="input_read2" label="${tool.name} on ${on_string}: reads not matching regex pattern">
+            <filter>extract_method_cond['extract_method'] == 'regex' and extract_method_cond['filtered_out_bool'] and input_type_cond['input_type'] == 'paired'</filter>
+        </data>
+        <collection name="filtered_out_paired_collection" type="paired" label="${tool.name} on ${on_string}: reads not matching regex pattern">
+            <data name="forward" format_source="input_readpair" />
+            <data name="reverse" format_source="input_readpair" />
+            <filter>extract_method_cond['extract_method'] == 'regex' and extract_method_cond['filtered_out_bool'] and input_type_cond['input_type'] == 'paired_collection'</filter>
+        </collection>
+        <expand macro="log_output_macro"/>
         <data name="out_html_report" format="html" label="${tool.name} on ${on_string}: Webpage" />
         <data name="out_thresh" format="tabular" label="${tool.name} on ${on_string}: TSV Cell Thresholds" />
     </outputs>
     <tests>
         <test expect_num_outputs="3">
-            <conditional name="input_type" >
-                <param name="type" value="single" />
-                <param name="input_single" value="t_R2.fastq.gz" ftype="fastq.gz" />
+            <conditional name="input_type_cond" >
+                <param name="input_type" value="single" />
+                <param name="input_read1" value="t_R2.fastq.gz" ftype="fastqsanger.gz" />
+                <param name="bc_pattern" value="CCCCCCCCNNNNNNNN" />
             </conditional>
-            <param name="bc_pattern" value="CCCCCCCCNNNNNNNN" />
+            <conditional name="extract_method_cond">
+                <param name="prime3" value="true" />
+            </conditional>
             <param name="method" value="reads" />
-            <param name="prime3" value="true" />
+            <param name="knee_method" value="density"/>
             <output name="out_whitelist" file="out_wl_single.txt" lines_diff="40" />
             <output name="out_thresh" file="out_wl_single.tresh.tab" />
             <output name="out_html_report" file="out_wl_single.html" />
         </test>
         <test expect_num_outputs="4">
-            <conditional name="input_type" >
-                <param name="type" value="paired" />
-                <param name="input_read1" value="t_R1.fastq.gz" ftype="fastq.gz" />
-                <param name="input_read2" value="t_R2.fastq.gz" ftype="fastq.gz" />
+            <conditional name="input_type_cond" >
+                <param name="input_type" value="paired" />
+                <param name="input_read1" value="t_R1.fastq.gz" ftype="fastqsanger.gz" />
+                <param name="input_read2" value="t_R2.fastq.gz" ftype="fastqsanger.gz" />
+                <param name="bc_pattern" value="CCCNNNNNNNNXXXXX" />
+                <!-- <param name="bc_pattern2" value="CCCCCCCCNNNNNNNN" /> -->
             </conditional>
-            <param name="barcode_select" value="first_read_only" />
-            <param name="bc_pattern" value="CCCNNNNNNNNXXXXX" />
-            <param name="bc_pattern2" value="CCCCCCCCNNNNNNNN" />
             <param name="method" value="reads" />
-            <param name="prime3" value="false" />
+            <conditional name="extract_method_cond">
+                <param name="prime3" value="false" />
+            </conditional>
             <param name="use_cell_opts" value="advanced" />
+            <param name="knee_method" value="density"/>
             <param name="expect_cells" value="5" />
-            <param name="error_correct_thresh" value="3" />
+            <param name="error_correct_threshold" value="3" />
             <param name="log" value="true" />
             <output name="out_whitelist" file="out_wl_paired.txt" />
             <output name="out_log" file="out_wl_paired.log" lines_diff="50" />
@@ -145,42 +152,52 @@
             <output name="out_thresh" file="out_wl_paired.tresh.tab" />
         </test>
         <test expect_num_outputs="4"> <!-- As previous, identical outputs but paired collection input -->
-            <conditional name="input_type" >
-                <param name="type" value="paired_collection" />
+            <conditional name="input_type_cond" >
+                <param name="input_type" value="paired_collection" />
                 <param name="input_readpair" >
                     <collection type="paired">
-                        <element name="forward" ftype="fastq.gz" value="t_R1.fastq.gz" />
-                        <element name="reverse" ftype="fastq.gz" value="t_R2.fastq.gz" />
+                        <element name="forward" ftype="fastqsanger.gz" value="t_R1.fastq.gz" />
+                        <element name="reverse" ftype="fastqsanger.gz" value="t_R2.fastq.gz" />
                     </collection>
                 </param>
+                <param name="bc_pattern"  value="CCCNNNNNNNNXXXXX" />
+                <!-- <param name="bc_pattern2" value="CCCCCCCCNNNNNNNN" /> -->
             </conditional>
-            <param name="barcode_select" value="first_read_only" />
-            <param name="bc_pattern"  value="CCCNNNNNNNNXXXXX" />
-            <param name="bc_pattern2" value="CCCCCCCCNNNNNNNN" />
             <param name="method" value="reads" />
-            <param name="prime3" value="false" />
+            <conditional name="extract_method_cond">
+                <param name="prime3" value="false" />
+            </conditional>
             <param name="use_cell_opts" value="advanced" />
+            <param name="knee_method" value="density"/>
             <param name="expect_cells" value="5" />
-            <param name="error_correct_thresh" value="3" />
+            <param name="error_correct_threshold" value="3" />
             <param name="log" value="true" />
+            <param name="filtered_out_bool" value="true"/>
             <output name="out_whitelist" file="out_wl_paired.txt" />
             <output name="out_log" file="out_wl_paired.log" lines_diff="50" />
             <output name="out_html_report" file="out_wl_paired.html" />
             <output name="out_thresh" file="out_wl_paired.tresh.tab" />
         </test>
         <!-- Error report on not accepting regex and lt and gt symbols -->
-        <test expect_num_outputs="3">
-            <conditional name="input_type" >
-                <param name="type" value="single" />
-                <param name="input_single" value="testYYY.40k.fastq.gz" ftype="fastq.gz" />
+        <test expect_num_outputs="4">
+            <conditional name="input_type_cond" >
+                <param name="input_type" value="single" />
+                <param name="input_read1" value="testYYY.40k.fastq.gz" ftype="fastqsanger.gz" />
             </conditional>
             <param name="bc_pattern" value="(?P&#60;cell_1&#62;.{8,10})(?P&#60;discard_1&#62;ACTGGCCTGCGA){s&#60;=3}(?P&#60;cell_2&#62;.{9})(?P&#60;discard_2&#62;GGTAGCGGTGACA){s&#60;=3}(?P&#60;cell_3&#62;.{9})(?P&#60;umi_1&#62;.{8})T{3}.*" />
             <param name="extract_method" value="regex" />
             <param name="method" value="umis" />
+            <param name="knee_method" value="density"/>
             <param name="prime3" value="true" />
+            <param name="filtered_out_bool" value="true"/>
             <output name="out_whitelist" file="out_wl_user.single.txt" />
             <output name="out_thresh" file="out_wl_user.single.tresh.tab" />
             <output name="out_html_report" file="out_wl_user.single.html" />
+            <output name="filtered_out">
+                <assert_contents>
+                    <has_text text="@A00250:74:HFMFVDSXX:2:1101:1027:1016 1:N:0:GTAGAGGA"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -195,75 +212,8 @@ Purpose
 Extract cell barcodes and identify the most likely true barcodes using
 the 'knee' method.
 
-Options
--------
+@FASTQ_BARCODE_EXTRACTION_HELP@
 
---bc-pattern
-       This should be used where the barcodes are always in the same
-       place in the read.
-
-       - N = UMI position (required)
-       - C = cell barcode position (optional)
-       - X = sample position (optional)
-
-       Bases with Ns and Cs will be extracted and added to the read
-       name. The corresponding sequence qualities will be removed from
-       the read. Bases with an X will be reattached to the read.
-
-       E.g. If the pattern is NNNNCC,
-       Then the read:
-       @HISEQ:87:00000000 read1
-       AAGGTTGCTGATTGGATGGGCTAG
-       DA1AEBFGGCG01DFH00B1FF0B
-       +
-       will become:
-       @HISEQ:87:00000000_TT_AAGG read1
-       GCTGATTGGATGGGCTAG
-       1AFGGCG01DFH00B1FF0B
-       +
-
-       where 'TT' is the cell barcode and 'AAGG' is the UMI.
-
-
---set-cell-number
-        Use this option to explicity set the number of cell barcodes
-        which should be accepted. Note that the exact number of cell
-        barcodes in the outputted whitelist may be slightly less than
-        this if there are multiple cells observed with the same
-        frequency at the threshold between accepted and rejected cell
-        barcodes.
-
---expect-cells=[EXPECTED_CELLS]
-        An upper limit estimate for the number of inputted cells. The knee
-        method will now select the first threshold (order ascendingly)
-        which results in the number of cell barcodes accepted being <=
-        EXPECTED_CELLS and > EXPECTED_CELLS * 0.1.
-
-
---bc-pattern2
-       Use this option to specify the format of the UMI/barcode for
-       the second read pair if required. If --bc-pattern2 is not
-       supplied, this defaults to the same pattern as --bc-pattern
-
---3prime
-       By default the barcode is assumed to be on the 5' end of the read, but
-       use this option to sepecify that it is on the 3' end instead
-
-Usage:
-------
-
-For single ended reads:
-        umi_tools whitelist --bc-pattern=[PATTERN] -L extract.log
-        [OPTIONS]
-
-reads from stdin and outputs to stdout.
-
-For paired end reads where the cell barcodes is split across the read pairs:
-        umi_tools whitelist --bc-pattern=[PATTERN]
-        --bc-pattern2=[PATTERN] --read2-in=[FASTQIN] -L extract.log
-        [OPTIONS]
-
-reads end one from stdin and end two from FASTQIN and outputs to stdin
 
 
 Output:

@@ -1,4 +1,4 @@
-<tool id="samtools_merge" name="Samtools merge" version="@TOOL_VERSION@">
+<tool id="samtools_merge" name="Samtools merge" version="@TOOL_VERSION@+galaxy0" profile="@PROFILE@">
     <description>merge multiple sorted alignment files</description>
     <macros>
         <import>macros.xml</import>
@@ -8,8 +8,7 @@
     <expand macro="version_command"/>
     <command><![CDATA[
 @ADDTHREADS@
-
-## prepare input (sort sam, link other), determine input ordering 
+## prepare input (sort sam, link other), determine input ordering
 ## and check for consistent input ordering
 #set sortby=''
 #for $i, $bam in enumerate( $bamfiles ):
@@ -22,22 +21,25 @@
     #else:
         ln -s '$bam' ${i}.sam &&
     #end if
-
     #if ($sortby=='coord' or $sortby=='') and $bam.is_of_type('sam','bam','cram'):
         #set sortby='coord'
     #else if ($sortby=='name' or $sortby=='') and $bam.is_of_type('qname_sorted.bam', 'qname_input_sorted.bam'):
         #set $sortby='name'
     #else:
-        >&2 echo "inconsistently sorted input" && 
+        >&2 echo "inconsistently sorted input" &&
         exit 1 &&
     #end if
 #end for
-
+#if $bed_file
+    #for $i, $bam in enumerate( $bamfiles ):
+        samtools index ${i}.sam &&
+    #end for
+#end if
 samtools merge
 -@ \$addthreads
 -s $seed
 ## TODO force overwrite seems necessay (but I do not understand why ...)
--f 
+-f
 ## Galaxy provides only default compression
 ## #if $compression == 'levelone'
 ##     -1
@@ -51,13 +53,16 @@ samtools merge
     -n
 #end if
 ## TODO since galaxy can't represent this as data type at the moment this option is unsupported
-## -t TAG    The input alignments have been sorted by the value of TAG, then by either position or name (if -n is given). 
+## -t TAG    The input alignments have been sorted by the value of TAG, then by either position or name (if -n is given).
 #if str($region) != ''
     -R '$region'
 #end if
 ## Attach an RG tag to each alignment. The tag value is inferred from file names.
 ## -r
 ## TODO -r makes no sense with the link names, is there some data set metadata (tags,...) that could be used?
+#if $bed_file:
+    -L '$bed_file'
+#end if
 $idrg
 $idpg
 $output
@@ -67,6 +72,7 @@ $output
     ]]></command>
     <inputs>
         <param name="bamfiles" type="data" format="sam,bam,cram" multiple="true" optional="false" label="Alignments in BAM format" help="Sets of aligned reads." />
+        <param name="bed_file" type="data" optional="true" format="bed" label="Merge only reads overlapping the specified regions in the BED file" />
         <param name="region" type="text" optional="true" argument="-n" label="Merge files in a region" help="Merge files in the specified region indicated by a string" />
         <param name="headerbam" type="data" format="sam,bam" argument="-h" multiple="false" optional="true" label="File to take @headers from" help="Use the lines of FILE as `@' headers to be copied to out.bam, replacing any header lines that would otherwise be copied from in1.bam. (FILE is actually in SAM format, though any alignment records it may contain are ignored.)" />
         <param name="idrg" type="boolean" argument="-c" truevalue="-c" falsevalue="" checked="false" label="Make @RG headers unique" help="When several input files contain @RG headers with the same ID, emit only one of them (namely, the header line from the first file we find that ID in) to the merged output file. Combining these similar headers is usually the right thing to do when the files being merged originated from the same file. Without -c, all @RG headers appear in the output file, with random suffices added to their IDs where necessary to differentiate them." />
@@ -83,37 +89,43 @@ $output
         <data name="output" format="bam" />
     </outputs>
     <tests>
-        <!-- tests and data extracted from 
+        <!--tests and data extracted from
              https://github.com/samtools/samtools/blob/9ce8c64493f7ea3fa69bc5c1ac980b1a8e3dcf1f/test/test.pl
              https://github.com/samtools/samtools/tree/develop/test/merge -->
-        <!-- # Merge 1 - Standard 3 file SAM merge all presented on the command line (only checks for similar size, because generated header info differs) -->
+        <!-- Merge 1 - Standard 3 file SAM merge all presented on the command line (only checks for similar size, because generated header info differs) -->
         <test>
             <param name="bamfiles" value="test_input_1_a.sam,test_input_1_b.sam,test_input_1_c.sam" />
-            <output name="output" file="2.merge.expected.bam" compare="sim_size" delta="50" />
+            <output name="output" file="1.merge.expected.bam" ftype="bam" lines_diff="16" />
         </test>
         <!-- Merge 2 - Standard 3 file BAM merge all files presented on the command line -->
         <test>
             <param name="bamfiles" value="test_input_1_a.bam,test_input_1_b.bam,test_input_1_c.bam" />
-            <output name="output" file="2.merge.expected.bam" compare="sim_size" delta="50" />
+            <output name="output" file="2.merge.expected.bam" ftype="bam" lines_diff="16" />
         </test>
-        <!-- Merge 4 - 1 file BAM merge with file presented on the command line -->
+        <!-- Merge 3 - 1 file BAM merge with file presented on the command line -->
         <test>
             <param name="bamfiles" value="test_input_1_b.bam" />
-            <output name="output" file="4.merge.expected.bam" compare="sim_size" delta="50" />
+            <output name="output" file="3.merge.expected.bam" ftype="bam" lines_diff="16" />
         </test>
-        <!--Merge 5 - 3 file SAM merge all presented on the command line override IDs to file names (not implemented in tool) -->
-        <!--Merge 6 - merge all presented on the command line, combine PG and RG rather than dedup -->
+        <!--Merge 4 - merge all presented on the command line, combine PG and RG rather than dedup -->
         <test>
             <param name="bamfiles" value="test_input_1_a.bam,test_input_1_b.bam" />
             <param name="idrg" value="-c" />
             <param name="idpg" value="-p" />
-            <output name="output" file="6.merge.expected.bam" compare="sim_size" delta="50" />
+            <output name="output" file="4.merge.expected.bam" ftype="bam" lines_diff="16" />
         </test>
-        <!-- Merge 7 - ID and SN with regex in them (probably not necessary for the galaxy tool because just different input) -->
+        <!-- Merge 5 - ID and SN with regex in them (probably not necessary for the galaxy tool because just different input) -->
         <test>
             <param name="bamfiles" value="test_input_1_a_regex.sam,test_input_1_b_regex.sam" />
-            <output name="output" file="7.merge.expected.bam" compare="sim_size" delta="50" />
+            <output name="output" file="5.merge.expected.bam" ftype="bam" lines_diff="16" />
         </test>
+        <!-- Merge 6 - Merging with bedfile -->
+        <test>
+            <param name="bamfiles" value="test_input_1_a.bam,test_input_1_b.bam,test_input_1_c.bam" />
+            <param name="bed_file" value="test_input_1_a.bed" />
+            <output name="output" file="6.merge.expected.bam" ftype="bam" lines_diff="16" />
+        </test>
+        <!--Merge - 3 file SAM merge all presented on the command line override IDs to file names (not implemented in tool) -->
         <!-- Sort inputs by PG, then merge (not implemented, since -t not supported in the tool) -->
         <!-- Sort inputs by PG, then merge (name sorted) (not implemented, since -t not supported in the tool) -->
     </tests>
@@ -123,7 +135,7 @@ Merge multiple sorted alignment files, producing a single sorted output file tha
 
 If a file to take @headers from is specified the @SQ headers of input files will be merged into the specified header, otherwise they will be merged into a composite header created from the input headers. If in the process of merging @SQ lines for coordinate sorted input files, a conflict arises as to the order (for example input1.bam has @SQ for a,b,c and input2.bam has b,a,c) then the resulting output file will need to be re-sorted back into coordinate order.
 
-Unless the @PG/@RG headers are made unique when merging @RG and @PG records into the output header then any IDs found to be duplicates of existing IDs in the output header will have a suffix appended to them to differentiate them from similar header records from other files and the read records will be updated to reflect this. 
+Unless the @PG/@RG headers are made unique when merging @RG and @PG records into the output header then any IDs found to be duplicates of existing IDs in the output header will have a suffix appended to them to differentiate them from similar header records from other files and the read records will be updated to reflect this.
     </help>
     <expand macro="citations"/>
 </tool>

@@ -1,0 +1,271 @@
+<tool id="malt_run" name="MALT analyzer" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description></description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+
+#set input_identifier = re.sub('[^\s\w\-]', '_', str($input.element_identifier))
+## malt-run uses the file extension to determine the input format.
+#if $input.is_of_type('fasta', 'fasta.gz'):
+    #set input_identifier = $input_identifier + '.fasta'
+#else:
+    #set input_identifier = $input_identifier + '.fastq'
+#end if
+#if $input.ext.endswith('.gz'):
+    #set input_identifier = $input_identifier + '.gz'
+#end if
+ln -s '${input}' '${input_identifier}' &&
+
+malt-run 
+--mode '$mode_cond.mode'
+
+#if str($mode_cond.mode) == 'BlastN':
+    --matchScore '$mode_cond.matchScore'
+    --mismatchScore '$mode_cond.mismatchScore'
+    --setLambda '$mode_cond.setLambda'
+    --setK '$mode_cond.setK'
+    $mode_cond.forward_only
+    $mode_cond.reverse_only
+#else if str($mode_cond.mode) == 'BlastP':
+    --subMatrix '$mode_cond.sub_matrix'
+#else if str($mode_cond.mode) == 'BlastX':
+    --subMatrix '$mode_cond.sub_matrix'
+    $mode_cond.forward_only
+    $mode_cond.reverse_only
+#end if
+
+--alignmentType '$alignmentType'
+--inFile '$input_identifier'
+--index '$reference.fields.path'
+## malt-run requires correct output file extensions.
+--output './output.rma6'
+--numThreads \${GALAXY_SLOTS:-12}
+
+--memoryMode '$advanced_options_performance.memoryMode'
+--maxTables '$advanced_options_performance.maxTables'
+$advanced_options_performance.replicateQueryCache
+
+--minBitScore '$advanced_options_filter.minBitScore'
+--maxExpected '$advanced_options_filter.maxExpected'
+--minPercentIdentity '$advanced_options_filter.minPercentIdentity'
+--maxAlignmentsPerQuery '$advanced_options_filter.maxAlignmentsPerQuery'
+--maxAlignmentsPerRef '$advanced_options_filter.maxAlignmentsPerRef'
+
+--topPercent '$advanced_options_lca.topPercent'
+--minSupportPercent '$advanced_options_lca.minSupportPercent'
+--minSupport '$advanced_options_lca.minSupport'
+--minPercentIdentityLCA '$advanced_options_lca.minPercentIdentityLCA'
+$advanced_options_lca.useMinPercentIdentityFilterLCA
+$advanced_options_lca.weightedLCA
+$advanced_options_lca.magnitudes
+
+--maxSeedsPerFrame '$advanced_options_heuristics.maxSeedsPerFrame'
+--maxSeedsPerRef '$advanced_options_heuristics.maxSeedsPerRef'
+--seedShift '$advanced_options_heuristics.seedShift'
+
+--gapOpen '$advanced_options_alignment.gapOpen'
+--gapExtend '$advanced_options_alignment.gapExtend'
+--band '$advanced_options_alignment.band'
+
+#if str($additional_outputs_cond.additional_outputs) == 'yes':
+    $additional_outputs_cond.includeUnaligned
+    #if $additional_outputs_cond.output_alignments_cond.output_alignments:
+        ## malt-run requires correct output file extensions.
+        #set alignments_ext = $additional_outputs_cond.output_alignments_cond.format + '.gz'
+        ## This param value must be a path, not a file name so we'll use the ./ approach.
+        --alignments './alignments_output.${alignments_ext}'
+        --format '$additional_outputs_cond.output_alignments_cond.format'
+    #end if
+    #if $additional_outputs_cond.output_aligned:
+        ## malt-run requires correct output file extensions.
+        #set aligned_ext = 'fna.gz'
+        ## This param value must be a path, not a file name so we'll use the ./ approach.
+        --outAligned './aligned_output.${aligned_ext}'
+    #end if
+    #if $additional_outputs_cond.output_unaligned:
+        ## malt-run requires correct output file extensions.
+        ## This param value must be a path, not a file name so we'll use the ./ approach.
+        --outUnaligned './unaligned_output.fna.gz'
+    #end if
+#end if
+
+&& mv 'output.rma6' '$rma6_output'
+
+#if str($additional_outputs_cond.additional_outputs) == 'yes':
+    #if $additional_outputs_cond.output_alignments_cond.output_alignments:
+        ## malt-run always compresses these outputs.
+        && gunzip -c 'alignments_output.${alignments_ext}' > '$alignments_output'
+    #end if
+    #if $additional_outputs_cond.output_aligned:
+        ## malt-run always compresses these outputs.
+        && gunzip -c 'aligned_output.${aligned_ext}' > '$aligned_output'
+    #end if
+    #if $additional_outputs_cond.output_unaligned:
+        ## malt-run always compresses these outputs.
+        && gunzip -c 'unaligned_output.fna.gz' > '$unaligned_output'
+    #end if
+#end if
+]]></command>
+    <inputs>
+        <param name="input" type="data" format="fasta,fasta.gz,fastqsanger.gz,fastqsanger" label="Input file containing DNA or protein sequences"/>
+        <param name="reference" type="select" label="Reference genome">
+            <options from_data_table="malt_indices">
+                <filter type="sort_by" column="2"/>
+                <validator type="no_options" message="A cached reference genome is not available"/>
+            </options>
+        </param>
+        <conditional name="mode_cond" label="Select alignment mode">
+            <param argument="--mode" type="select" label="Alignment mode">
+                <option value="BlastN" selected="True">BlastN</option>
+                <option value="BlastP">BlastP</option>
+                <option value="BlastX">Blastx</option>
+            </param>
+            <when value="BlastN">
+                <param argument="--matchScore" type="integer" value="2" label="Alignment match disjointScore"/>
+                <param argument="--mismatchScore" type="integer" value="-3" label="Alignment mis-match disjointScore"/>
+                <param argument="--setLambda" type="float" value="0.625" label="Parameter Lambda for BLASTN statistics"/>
+                <param argument="--setK" type="float" value="0.41" label="Parameter K for BLASTN statistics"/>
+                <expand macro="forward_reverse_only"/>
+            </when>
+            <when value="BlastP">
+                <expand macro="sub_matrix"/>
+            </when>
+            <when value="BlastX">
+                <expand macro="sub_matrix"/>
+                <expand macro="forward_reverse_only"/>
+            </when>
+        </conditional>
+        <param argument="--alignmentType" type="select" label="Alignment type">
+            <option value="Local" selected="True">Local</option>
+            <option value="SemiGlobal">SemiGlobal</option>
+        </param>
+        <section name="advanced_options_performance" title="Advanced options for performance" expanded="false">
+            <param argument="--memoryMode" type="select" display="radio" label="Memory mode">
+                <option value="load" selected="True">Load all indices into memory</option>
+                <option value="page">Load indices page by page when needed</option>
+                <option value="map">Use memory mapping</option>
+            </param>
+            <param argument="--maxTables" type="integer" value="0" min="0" label="Maximum number of seed tables to use" help="Zero value uses all tables"/>
+            <param argument="--replicateQueryCache" type="boolean" truevalue="--replicateQueryCache" falsevalue="" checked="false" label="Cache results for replicated queries?"/>
+        </section>
+        <section name="advanced_options_filter" title="Advanced options for filter" expanded="false">
+            <param argument="--minBitScore" type="float" value="50.0" label="Minimum bit disjointScore"/>
+            <param argument="--maxExpected" type="float" value="1.0" label="Maximum expected disjointScore"/>
+            <param argument="--minPercentIdentity" type="float" value="0.0" label="Minimum percent identity"/>
+            <param argument="--maxAlignmentsPerQuery" type="integer" value="25" label="Maximum number of alignments per query"/>
+            <param argument="--maxAlignmentsPerRef" type="integer" value="1" label="Maximum number of (non-overlapping) alignments per reference" help="MALT reports up to this many best scoring matches for each hit reference sequence"/>
+        </section>
+        <section name="advanced_options_lca" title="Advanced options for LCA" expanded="false">
+            <param argument="--topPercent" type="float" value="10.0" label="Top percent value for LCA algorithm" help="For each read, matches are used for taxonomic placement whose bit disjointScore is within this percentage of the best disjointScore"/>
+            <param argument="--minSupportPercent" type="float" value="0.001" min="0" label="Minimum support value for LCA algorithm as a percent of assigned reads" help="Zero value ignores this option"/>
+            <param argument="--minSupport" type="integer" value="0" min="0" label="Minimum support value for LCA algorithm" help="Overrides the above parameter"/>
+            <param argument="--minPercentIdentityLCA" type="float" value="0.0" min="0" label="Minimum percent identity used by the LCA algorithm"/>
+            <param argument="--useMinPercentIdentityFilterLCA" type="boolean" truevalue="--useMinPercentIdentityFilterLCA" falsevalue="" checked="false" label="Use percent identity assignment filter?"/>
+            <param argument="--weightedLCA" type="boolean" truevalue="--weightedLCA" falsevalue="" checked="false" label="Use the weighted LCA for taxonomic assignment?"/>
+            <param argument="--magnitudes" type="boolean" truevalue="--magnitudes" falsevalue="" checked="false" label="Reads have magnitudes (to be used in taxonomic or functional analysis)?"/>
+        </section>
+        <section name="advanced_options_heuristics" title="Advanced options for heuristics" expanded="false">
+            <param argument="--maxSeedsPerFrame" type="integer" value="100" label="Maximum number of seed matches per offset per read frame"/>
+            <param argument="--maxSeedsPerRef" type="integer" value="20" label="Maximum number of seed matches per read and reference"/>
+            <param argument="--seedShift" type="integer" value="1" label="Seed shift"/>
+        </section>
+        <section name="advanced_options_alignment" title="Advanced options for alignment" expanded="false">
+            <param argument="--gapOpen" type="integer" value="11" label="Gap open penalty"/>
+            <param argument="--gapExtend" type="integer" value="1" label="Gap extension penalty"/>
+            <param argument="band" type="integer" value="4" label="Band width/2 for banded alignment"/>
+        </section>
+        <conditional name="additional_outputs_cond">
+            <param name="additional_outputs" type="select" label="Specify additional outputs?">
+                <option value="no" selected="True">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param argument="--includeUnaligned" type="boolean" truevalue="--includeUnaligned" falsevalue="" checked="false" label="Include unaligned queries in RMA output file?"/>
+                <conditional name="output_alignments_cond">
+                    <param name="output_alignments" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output alignments?"/>
+                    <when value="false"/>
+                    <when value="true">
+                        <param argument="format" type="select" label="Alignment format">
+                            <option value="SAM" selected="True">SAM</option>
+                            <option value="Tab">Tab (tabulated BLAST format)</option>
+                            <option value="Text">Text (full text BLAST matches)</option>
+                        </param>
+                    </when>
+                </conditional>
+                <param name="output_aligned" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output all reads that have at least one significant alignment to the reference?"/>
+                <param name="output_unaligned" type="boolean" truevalue="true" falsevalue="false" checked="false" label="Output all reads that do not have any significant alignment to the reference?"/>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="rma6_output" format="rma6" label="${tool.name} on ${on_string} (RMA6)"/>
+        <data name="alignments_output" format="sam" label="${tool.name} on ${on_string} (alignments)">
+            <filter>additional_outputs_cond['additional_outputs'] == 'yes' and additional_outputs_cond['output_alignments_cond']['output_alignments']</filter>
+            <change_format>
+                <when input="additional_outputs_cond.output_alignments_cond.format" value="Tab" format="tabular"/>
+                <when input="additional_outputs_cond.output_alignments_cond.format" value="Text" format="txt"/>
+            </change_format>
+        </data>
+        <data name="aligned_output" format="fasta" label="${tool.name} on ${on_string} (aligned)">
+            <filter>additional_outputs_cond['additional_outputs'] == 'yes' and additional_outputs_cond['output_aligned']</filter>
+        </data>
+        <data name="unaligned_output" format="fasta" label="${tool.name} on ${on_string} (unaligned)">
+            <filter>additional_outputs_cond['additional_outputs'] == 'yes' and additional_outputs_cond['output_unaligned']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="input" value="input.fastq.gz" ftype="fastqsanger.gz" dbkey="phiX"/>
+            <param name="additional_outputs" value="yes"/>
+            <param name="includeUnaligned" value="--includeUnaligned"/>
+            <param name="output_alignments" value="true"/>
+            <output name="rma6_output" ftype="rma6">
+                <assert_contents>
+                    <has_size value="76465"/>
+                </assert_contents>
+                <metadata name="dbkey" value="phiX"/>
+            </output>
+            <output name="alignments_output" file="alignments_output1.sam" ftype="sam" compare="contains"/>
+        </test>
+        <test expect_num_outputs="3">
+            <param name="input" value="viral.1.protein.fasta.gz" ftype="fasta.gz" dbkey="phiX"/>
+            <param name="alignmentType" value="SemiGlobal"/>
+            <param name="additional_outputs" value="yes"/>
+            <param name="includeUnaligned" value="--includeUnaligned"/>
+            <param name="output_alignments" value="true"/>
+            <param name="format" value="Text"/>
+            <param name="output_unaligned" value="true"/>
+            <output name="rma6_output" ftype="rma6">
+                <assert_contents>
+                    <has_size value="29338"/>
+                </assert_contents>
+                <metadata name="dbkey" value="phiX"/>
+            </output>
+            <output name="alignments_output" file="alignments_output2.txt" ftype="txt" compare="contains"/>
+            <output name="unaligned_output" file="unaligned_output2.fasta" ftype="fasta" compare="contains"/>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+Align one or more files of input sequences (DNA or proteins) against an index representing a collection of reference DNA
+or protein sequences. Depending on the type of input and reference sequences, the program can be be run in BLASTN, BLASTP
+or BLASTX mode.
+
+**Options**
+
+  **Input file** - specify all input files which must be in FastA or FastQ format and may be gzipped.
+  **Referencegenome ** - select the index built by the **MALT index builder** tool.
+  **Alignment mode** - run the program in BlastN mode, BlastP mode or BlastX mode.  that is, to align DNA and DNA, protein and protein, or DNA reads against protein references, respectively.  BlastN mode can only be used if the employed index contains DNA sequences, whereas the BlastP and BlastX modes are only applicable to an index based on protein reference sequences.
+  **Alignmentment type - specify the type of alignments to be performed. By default, this is set to Local and the program performs local alignment just like BLAST programs do.  Alternatively, this can be set to SemiGlobal and the program will perform semi global alignment in which reads are aligned end-to-end. 
+  **Include unaligned queries in RMA output file** - ensure that all unaligned queries are placed into the output RMA file. By default, only queries that have an alignment are included.
+    </help>
+    <citations>
+        <citation type="doi">https://doi.org/10.1101/050559</citation>
+    </citations>
+</tool>
+

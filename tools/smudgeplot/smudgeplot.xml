@@ -1,0 +1,292 @@
+<tool id="smudgeplot" name="Smudgeplot" version="@TOOL_VERSION@+galaxy+@VERSION_SUFFIX@" profile="21.05">
+    <description>inference of ploidy and heterozygosity structure using whole genome sequencing</description>
+
+    <macros>
+        <token name="@TOOL_VERSION@">0.2.5</token>
+        <token name="@VERSION_SUFFIX@">1</token>
+    </macros>
+
+    <xrefs>
+        <xref type="bio.tools">smudgeplots</xref>
+    </xrefs>
+
+    <requirements>
+        <requirement type="package" version="@TOOL_VERSION@">smudgeplot</requirement>
+        <requirement type="package" version="2.3.0">kmer-jellyfish</requirement>
+    </requirements>
+
+    <command detect_errors="exit_code"><![CDATA[
+
+      #if $file.input.input_select == 'reads'
+
+        ## ~~~~~~~~~~~~~~~ Generate kmer-dump with presets ~~~~~~~~~~~~~~~~~~~~~
+
+        ## Jellyfish kmer count
+        ## ---------------------------------------------------------------------
+
+        #if $file.input.reads[0].is_of_type("fastqsanger.gz") or $file.input.reads[0].is_of_type("fasta.gz")
+          gunzip -c
+          #for $f in $file.input.reads
+              #if $f
+                  '$f'
+              #end if
+              | jellyfish count -m 21 -t 4 -s 1M -o 1_counts.jf -C /dev/stdin
+          #end for
+
+        #else
+          jellyfish count -m 21 -t 4 -s 1M -o 1_counts.jf -C
+          #for $f in $file.input.reads
+              #if $f
+                  '$f'
+              #end if
+          #end for
+        #end if
+
+        && jellyfish histo 1_counts.jf > 1_kmer_k21.hist
+
+        ## Calculate lower and upper kmer count cutoffs
+        ## ---------------------------------------------------------------------
+
+        #if $file.input.lower_cutoff is not None:
+          && L=$file.input.lower_cutoff
+        #else
+          && L=\$(smudgeplot.py cutoff 1_kmer_k21.hist L)
+        #end if
+
+        #if $file.input.upper_cutoff is not None:
+          && U=$file.input.upper_cutoff
+        #else
+          && U=\$(smudgeplot.py cutoff 1_kmer_k21.hist U)
+        #end if
+
+        ## ---------------------------------------------------------------------
+        ## Dump and extract coverage
+
+        && echo "Dump with cutoffs L=\$L, U=\$U"
+        && jellyfish dump -c -L \$L -U \$U 1_counts.jf > 2_dump.jf
+        && smudgeplot.py hetkmers -o 2_kmer_pairs 2_dump.jf
+
+      #else
+
+        ## ~~~~~~~~~~~~~~~~~~~ Use provided kmer dump ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+        smudgeplot.py hetkmers -o 2_kmer_pairs '$file.input.dump'
+
+      #end if
+
+      ## ---------------------------------------------------------------------
+      ## Plot
+
+      && smudgeplot.py plot 2_kmer_pairs_coverages.tsv -o my_genome
+
+    ]]></command>
+
+    <inputs>
+      <section name="file" title="File inputs" expanded="true">
+        <conditional name="input">
+          <param
+            name="input_select" type="select" label="Select input type"
+            help="For more control, create your own Kmer dump using Jellyfish.
+            See Smudgeplot on GitHub for more details: https://github.com/KamilSJaron/smudgeplot"
+          >
+            <option value="reads" selected="true">Sequencing reads</option>
+            <option value="dump">Kmer dump file</option>
+          </param>
+
+          <when value="reads">
+            <param
+              name="reads" type="data" format="fastqsanger,fastqsanger.gz,fasta.gz,fasta"
+              label="Sequencing reads" multiple="true"
+              help="Sequencing reads corresponding to your genome.
+              Don't worry about read pairing as it is not used in Kmer-counting.
+              If selecting multiple datasets, please do not mix datatypes!"
+            />
+
+            <param
+              name="lower_cutoff"
+              label="Lower kmer cutoff"
+              type="integer"
+              optional="true"
+              help="Optionally set a manual lower limit for filtering kmers with
+              smudgeplot hetkmers. If no value is set, a cutoff will be
+              estimated with smudgeplot cutoff. Use the GenomeScope tool to
+              visualize your kmer histogram when choosing cutoff values."
+            />
+
+            <param
+              name="upper_cutoff"
+              label="Upper kmer cutoff"
+              type="integer"
+              optional="true"
+              help="Optionally set a manual upper limit for filtering kmers with
+              smudgeplot hetkmers. If no value is set, a cutoff will be
+              estimated with smudgeplot cutoff. Use the GenomeScope tool to
+              visualize your kmer histogram when choosing cutoff values."
+            />
+          </when>
+
+          <when value="dump">
+            <param
+              name="dump" type="data" format="txt"
+              label="Kmer dump"
+              help="Upload your own Kmer dump file created with the Jellyfish or KMC tool.
+              This enables control over kmer-counting parameters."
+            />
+          </when>
+        </conditional>
+      </section>
+
+      <param name="table_output" type="boolean" label="Output summary table"></param>
+      <param name="verbose_output" type="boolean" label="Output verbose summary"></param>
+      <param name="warnings_output" type="boolean" label="Output genome warnings"></param>
+    </inputs>
+
+    <outputs>
+      <data
+        name="smudgeplot" format="png"
+        from_work_dir="my_genome_smudgeplot.png"
+        label="${tool.name} on ${on_string}: Smudgeplot"
+      />
+      <data
+        name="smudgeplot_log" format="png"
+        from_work_dir="my_genome_smudgeplot_log10.png"
+        label="${tool.name} on ${on_string}: Smudgeplot (log10)"
+      />
+      <data
+        name="genome_summary" format="tabular"
+        from_work_dir="my_genome_summary_table.tsv"
+        label="${tool.name} on ${on_string}: Genome summary table"
+      >
+        <filter>table_output</filter>
+      </data>
+      <data
+        name="genome_summary_verbose" format="txt"
+        from_work_dir="my_genome_verbose_summary.txt"
+        label="${tool.name} on ${on_string}: Genome verbose summary"
+      >
+        <filter>verbose_output</filter>
+      </data>
+      <data
+        name="genome_warnings" format="txt"
+        from_work_dir="my_genome_warnings.txt"
+        label="${tool.name} on ${on_string}: Genome warnings"
+      >
+        <filter>warnings_output</filter>
+      </data>
+    </outputs>
+
+    <tests>
+      <!-- Standard run -->
+      <test expect_num_outputs="2">
+        <param name="input_select" value="reads"/>
+        <param name="reads" value="test_reads.fasta" ftype="fasta"/>
+        <param name="lower_cutoff" value="2"/>
+        <param name="upper_cutoff" value="25"/>
+        <output name="smudgeplot" ftype="png" file="my_genome_smudgeplot.png" compare="sim_size"/>
+      </test>
+      <!-- Standard run with gzipped input -->
+      <test expect_num_outputs="2">
+        <param name="input_select" value="reads"/>
+        <param name="reads" value="test_reads.fasta.gz" ftype="fasta.gz"/>
+        <param name="lower_cutoff" value="2"/>
+        <param name="upper_cutoff" value="25"/>
+        <output name="smudgeplot" ftype="png" file="my_genome_smudgeplot.png" compare="sim_size"/>
+      </test>
+      <!-- Multiple input read files -->
+      <test expect_num_outputs="2">
+        <param name="input_select" value="reads"/>
+        <param name="lower_cutoff" value="2"/>
+        <param name="upper_cutoff" value="80"/>
+        <param
+          name="reads"
+          value="test_reads.fasta,test_reads_2.fasta,test_reads_3.fasta"
+          ftype="fasta"
+        />
+        <output name="smudgeplot" ftype="png" file="my_genome_smudgeplot.png" compare="sim_size"/>
+      </test>
+      <!-- With additional outputs-->
+      <test expect_num_outputs="5">
+        <param name="input_select" value="reads"/>
+        <param name="reads" value="test_reads.fasta" ftype="fasta"/>
+        <param name="lower_cutoff" value="2"/>
+        <param name="upper_cutoff" value="25"/>
+        <param name="table_output" value="true"/>
+        <param name="verbose_output" value="true"/>
+        <param name="warnings_output" value="true"/>
+        <output name="smudgeplot" ftype="png" file="my_genome_smudgeplot.png" compare="sim_size"/>
+        <output name="genome_summary" ftype="tabular" file="my_genome_summary_table.tsv"/>
+        <output name="genome_summary_verbose" ftype="txt" file="my_genome_verbose_summary.txt"/>
+        <output name="genome_warnings" ftype="txt" file="my_genome_warnings.txt"/>
+      </test>
+      <!-- K-mer dump input -->
+      <test expect_num_outputs="2">
+        <param name="input_select" value="dump"/>
+        <param name="dump" value="dump.jf" ftype="txt"/>
+        <output name="smudgeplot" ftype="png" file="my_genome_smudgeplot.png" compare="sim_size"/>
+      </test>
+    </tests>
+
+    <help><![CDATA[
+
+.. class:: infomark
+
+**What it does**
+
+This tool extracts heterozygous kmer pairs from kmer count databases and performs gymnastics with them. We are able to disentangle genome structure by comparing the sum of kmer pair coverages (CovA + CovB) to their relative coverage (CovB / (CovA + CovB)). Such an approach also allows us to analyze obscure genomes with duplications, various ploidy levels, etc.
+
+Smudgeplots are computed from raw or even better from trimmed reads and show the haplotype structure using heterozygous kmer pairs. For example:
+
+.. image:: $PATH_TO_IMAGES/smudge.png
+    :height: 520
+    :alt: Example smudgeplot graph
+
+Every haplotype structure has a unique smudge on the graph and the heat of the smudge indicates how frequently the haplotype structure is represented in the genome compared to the other structures. The image above is an ideal case, where the sequencing coverage is sufficient to beautifully separate all the smudges, providing very strong and clear evidence of triploidy.
+
+Please see `Smudgeplot on GitHub <https://github.com/KamilSJaron/smudgeplot>`_
+for further documentation and tutorials.
+
+**Inputs**
+
+You have two choices when running Smudgeplot in Galaxy:
+
+1. Input reads file(s) for default kmer-counting with Jellyfish
+
+This should be at least one file which providing coverage of your genome of interest.
+The tool accepts compressed (.gz) inputs. If choosing this option, you can
+(optionally) specify manual cutoff values for the kmer dump step. The Smudgeplot
+docs suggest that you can use GenomeScope on a kmer histogram in order to choose
+reasonable lower and upper cutoff values.
+
+2. Input your own kmer dump file for more control of kmer counting parameters
+
+This file would be created by running ``jellyfish count`` and then ``jellyfish dump`` - the process is well described
+`on GitHub <https://github.com/KamilSJaron/smudgeplot>`_.
+
+**Outputs**
+
+- ``smudgeplot.png`` smudgeplot image
+- ``smudgeplot_log10.png`` smudgeplot with log scale
+- ``my_genome_summary.tsv`` summarized genome statistics
+- ``my_genome_verbose.txt`` detailed genome statistics
+- ``my_genome_warnings.txt`` warnings emitted from the Smudgeplot tool
+
+**Default operation**
+
+If choosing reads as the input, a default kmer counting procedure will be used
+to create a kmer dump. This default process is summarized as follows:
+
+- ``jellyfish count -m 21 > counts.jf``
+- ``jellyfish histo counts.jf > counts.hist``
+- ``smudgeplot.py cutoff counts.hist`` to get kmer cutoff values (U & L)
+- ``jellyfish dump -c -L <L> -U <U> counts.jf > dump.jf``
+
+The kmer dump file is then used to create a smudgeplot:
+
+- ``smudgeplot.py hetkmers -o kmer_pairs dump.jf``
+- ``smudgeplot.py plot kmer_pairs_coverages.tsv -o my_genome``
+
+    ]]></help>
+  <citations>
+      <citation type="doi">10.1038/s41467-020-14998-3</citation>
+  </citations>
+</tool>

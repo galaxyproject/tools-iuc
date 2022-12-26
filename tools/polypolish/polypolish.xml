@@ -1,0 +1,422 @@
+<tool id="polypolish" name="Polypolish" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>
+        Short-read polishing of long-read bacterial genome assemblies
+    </description>
+    <macros>
+        <import>macro.xml</import>
+    </macros>
+    <expand macro='xrefs'/>
+    <expand macro="requirements" />
+    <expand macro="version_command" />
+    <command detect_errors="aggressive"><![CDATA[
+        ln -s '$input.fasta_file' input_data &&
+        #*======================================
+                    For single SAM
+        ======================================*#
+        #if $input.sam_data_type.sam_selector == 'single'
+            #if $input.sam_data_type.single_sam.ext == 'unsorted.bam'
+                samtools view -h $input.sam_data_type.single_sam > input_sam &&
+            #elif $input.sam_data_type.single_sam.ext == 'sam'
+                ln -s $input.sam_data_type.single_sam input_sam &&
+            #end if
+            polypolish input_data input_sam > '$polished_fasta'
+        #*======================================
+                    For paired SAM
+        ======================================*#
+        #elif $input.sam_data_type.sam_selector == 'paired'
+            #if $input.sam_data_type.R1_sam.ext == 'unsorted.bam'
+                samtools view -h $input.sam_data_type.R1_sam > sample_R1.sam &&
+            #elif $input.sam_data_type.R1_sam.ext == 'sam'
+                ln -s '$input.sam_data_type.R1_sam' sample_R1.sam &&
+            #end if
+            #if $input.sam_data_type.R2_sam.ext == 'unsorted.bam'
+                samtools view -h $input.sam_data_type.R2_sam > sample_R2.sam &&
+            #elif $input.sam_data_type.R2_sam.ext == 'sam'
+                ln -s '$input.sam_data_type.R2_sam' sample_R2.sam &&
+            #end if
+            #if $input.sam_data_type.insert_filter.filter_select == 'filter'
+                polypolish_insert_filter.py --low '$input.sam_data_type.insert_filter.low'
+                                            --high '$input.sam_data_type.insert_filter.high'
+                                            --in1 sample_R1.sam
+                                            --in2 sample_R2.sam
+                                            --out1 'filtered_1.sam'
+                                            --out2 'filtered_2.sam' &&
+                polypolish input_data 'filtered_1.sam' 'filtered_2.sam' >  $polished_fasta
+            #else
+                polypolish input_data sample_R1.sam sample_R2.sam  >  $polished_fasta
+            #end if
+        #*======================================
+            For multiple single-end SAM
+        ======================================*#
+        #elif $input.sam_data_type.sam_selector == 'multiple_single'
+            mkdir single_collection &&
+            #for $value, $single_sam in enumerate($input.sam_data_type.single_collection):
+                #if $single_sam.ext == 'unsorted.bam'
+                    samtools view -h $single_sam > 'single_collection/$(single_sam.element_identifier).sam' &&
+                #elif $single_sam.ext == 'sam'
+                    ln -s $single_sam 'single_collection/$(single_sam.element_identifier).$(single_sam.ext)' &&
+                #end if
+            #end for
+            polypolish input_data single_collection/*.sam > '$polished_fasta'
+        #*======================================
+            For multiple paired-end SAM
+        ======================================*#
+        #elif $input.sam_data_type.sam_selector == "multiple_paired"
+            mkdir paired_collection &&
+            #for $value, $paired_sam in enumerate($input.sam_data_type.paired_collection):
+                #if $paired_sam.forward.ext == 'unsorted.bam'
+                    samtools view -h $paired_sam.forward > 'paired_collection/forward_input$(value)$(paired_sam.forward.element_identifier).sam' &&
+                #else
+                    ln -s '$paired_sam.forward' 'paired_collection/forward_input$(value)$(paired_sam.forward.element_identifier).sam' &&
+                #end if
+                #if $paired_sam.reverse.ext == 'unsorted.bam'
+                    samtools view -h $paired_sam.reverse > 'paired_collection/reverse_input$(value)$(paired_sam.reverse.element_identifier).sam' &&
+                #else
+                    ln -s '$paired_sam.reverse' 'paired_collection/reverse_input$(value)$(paired_sam.reverse.element_identifier).sam' &&
+                #end if
+                #if $input.sam_data_type.insert_filter.filter_select == 'filter'
+                    polypolish_insert_filter.py --low '$input.sam_data_type.insert_filter.low'
+                                                --high '$input.sam_data_type.insert_filter.high'
+                                                --in1 'paired_collection/forward_input$(value)$(paired_sam.forward.element_identifier).sam'
+                                                --in2 'paired_collection/reverse_input$(value)$(paired_sam.reverse.element_identifier).sam'
+                                                --out1 'paired_collection/forward_input$(value)$(paired_sam.forward.element_identifier)_filtered.sam'
+                                                --out2 'paired_collection/reverse_input$(value)$(paired_sam.reverse.element_identifier)_filtered.sam' &&
+                #end if
+            #end for
+        #*======================================
+                    Filtering option
+        ======================================*#
+            #if $input.sam_data_type.insert_filter.filter_select == 'filter'
+                polypolish input_data paired_collection/*_filtered.sam > '$polished_fasta'
+            #else
+                polypolish input_data paired_collection/*.sam > '$polished_fasta'
+            #end if
+        #end if
+        #*======================================
+            For debug file output
+        ======================================*#
+        #if $options.debug == 'true'
+            --debug $debug_file
+        #end if
+        #*======================================
+            For LOGFILE OUTPUT
+        ======================================*#
+        #if $options.keep_logfile == 'true'
+            | tee '$logfile'
+        #end if
+        ]]>
+    </command>
+    <inputs>
+        <section name="input" title="Input sequences" expanded="True">
+            <param name="fasta_file" type="data" format="fasta" label="Select a draft genome for polishing"
+                   help="Fasta sequence to be cleaned using short-reads data"/>
+            <conditional name="sam_data_type">
+                <param name="sam_selector" type="select" label="Select aligned data to polish" help="Choose number of aligned sam/bam files. Need aligned file with all possible locations in aligner option">
+                    <option value="single">Single SAM/BAM file</option>
+                    <option value="paired">Paired SAM/BAM files</option>
+                    <option value="multiple_single">Multiple single SAM/BAM files</option>
+                    <option value="multiple_paired">Multiple paired SAM/BAM files</option>
+                </param>
+                <when value="single">
+                    <param name="single_sam" type="data" format="sam,unsorted.bam" label="Select a SAM/BAM file" help="Specify dataset with only one SAM/BAM file"/>
+                </when>
+                <when value="paired">
+                    <param name="R1_sam" type="data" format="sam,unsorted.bam" label="Select forward SAM/BAM file" help="Specify the forward SAM/BAM files"/>
+                    <param name="R2_sam" type="data" format="sam,unsorted.bam" label="Select reverse SAM/BAM file" help="Specify the reverse SAM/BAM files"/>
+                    <expand macro="filter_option"/>
+                </when>
+                <when value="multiple_single">
+                    <param name="single_collection" format="sam,unsorted.bam" type="data_collection" collection_type="list" label="Single-end collection" help="Specify a list of single-end dataset"/>
+                </when>
+                <when value="multiple_paired">
+                    <param name="paired_collection" format="sam,unsorted.bam" type="data_collection" collection_type="list:paired" label="Single-end collection" help="Specify a list of single-end dataset"/>
+                    <expand macro="filter_option"/>
+                </when>
+            </conditional>
+        </section>
+        <section name="options" title="Options" expanded="False">
+            <param name="min_depth" argument="--min_depth" type="integer" min="0" value="5" label="Minimal depth"
+                   help="A base must occur at least this many times in the pileup to be considered valid [default: 5]"/>
+            <param name="fraction_invalid" argument="--fraction_invalid" type="float" min="0" value="0.2" max="1" label="Minimal invalid fraction"
+                   help="A base must make up less than this fraction of the read depth to be considered invalid [default: 0.2]"/>
+            <param name="max_errors" argument="--max_errors" type="integer" min="0" value="10" label="Number of mismatch/indels to ignore alignments"
+                   help="Ignore alignments with more than this many mismatches and indels [default: 10]"/>
+            <param name="fraction_valid" argument="--fraction_valid" type="float" min="0" value="0.5" max="1" label="Minimal valid fraction"
+                   help="A base must make up at least this fraction of the read depth to be considered valid [default: 0.5"/>
+            <param name="keep_logfile" type="boolean" truevalue="true" falsevalue="false" label="Keep log file"/>
+            <param name="debug" argument="--debug" type="boolean" truevalue="true" falsevalue="false" label="Keep per base information file"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="polished_fasta" format="fasta" label="${tool.name} on ${on_string}: polished fasta"/>
+        <data name="debug_file" format="tabular" label="${tool.name} on ${on_string}: Per base informations">
+            <filter> options['debug'] == True </filter>
+        </data>
+        <data name="logfile" format="txt" from_work_dir="output" label="${tool.name} on ${on_string}: log report">
+            <filter> options['keep_logfile'] == True </filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test_1 with default values and single SAM -->
+        <test expect_num_outputs="1">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                    <param name="sam_selector" value="single"/>
+                    <param name="single_sam" value="aligned_test_file/alignement_R1.sam"/>
+                </conditional>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+        </test>
+        <!-- Test_2 with default values and paired SAM -->
+        <test expect_num_outputs="2">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                    <param name="sam_selector" value="paired"/>
+                    <param name="R1_sam" value="aligned_test_file/alignement_R1.sam"/>
+                    <param name="R2_sam" value="aligned_test_file/alignement_R2.sam"/>
+                </conditional>
+            </section>
+            <section name="options">
+                <param name="debug" value="true"/>
+                <param name="keep_logfile" value="false"/>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+            <output name="debug_file" value="debug_file_test_2.tsv"/>
+        </test>
+        <!-- Test_3 with default values and single-end multiple SAM -->
+        <test expect_num_outputs="2">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                    <param name="sam_selector" value="multiple_single"/>
+                    <param name="single_collection">
+                        <collection type="list">
+                            <element name="R1_sam" value="aligned_test_file/alignement_R1.sam" ftype="sam"/>
+                            <element name="R1_bis_sam" value="aligned_test_file/alignement_R1_bis.sam" ftype="sam"/>
+                            <element name="R1_ter_sam" value="aligned_test_file/alignement_R1_ter.sam" ftype="sam"/>
+                        </collection>
+                    </param>
+                </conditional>
+            </section>
+            <section name="options">
+                <param name="debug" value="false"/>
+                <param name="keep_logfile" value="true"/>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+            <output name="logfile" value="logfile_test_3.log" lines_diff="15"/>
+        </test>
+        <!-- Test_4 with default values and paired collection SAM -->
+        <test expect_num_outputs="1">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                    <param name="sam_selector" value="multiple_paired"/>
+                    <param name="paired_collection">
+                        <collection type="list:paired">
+                            <element name="paired_1">
+                                <collection type="paired">
+                                    <element name="forward" value="aligned_test_file/alignement_R1.sam" ftype="sam"/>
+                                    <element name="reverse" value="aligned_test_file/alignement_R2.sam" ftype="sam"/>
+                                </collection>
+                            </element>
+                            <element name="paired_2">
+                                <collection type="paired">
+                                    <element name="forward" value="aligned_test_file/alignement_R1_bis.sam" ftype="sam"/>
+                                    <element name="reverse" value="aligned_test_file/alignement_R2_bis.sam" ftype="sam"/>
+                                </collection>
+                            </element>
+                            <element name="paired_3">
+                                <collection type="paired">
+                                    <element name="forward" value="aligned_test_file/alignement_R1_ter.sam" ftype="sam"/>
+                                    <element name="reverse" value="aligned_test_file/alignement_R2_ter.sam" ftype="sam"/>
+                                </collection>
+                            </element>
+                        </collection>
+                    </param>
+                </conditional>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+        </test>
+        <!-- Test_5 paired-end without filtering and whitout log file -->
+        <test expect_num_outputs="1">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                    <param name="sam_selector" value="paired"/>
+                    <param name="R1_sam" value="aligned_test_file/alignement_R1.sam"/>
+                    <param name="R2_sam" value="aligned_test_file/alignement_R2.sam"/>
+                </conditional>
+            </section>
+            <section name="options">
+                <conditional name="insert_filter">
+                    <param name="filter_select" value="non_filter"/>
+                </conditional>
+                <param name="debug" value="false"/>
+                <param name="keep_logfile" value="false"/>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+        </test>
+        <!-- Test_6 paired-end with filter, user defined values and whitout log file -->
+        <test expect_num_outputs="1">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                    <param name="sam_selector" value="paired"/>
+                    <param name="R1_sam" value="aligned_test_file/alignement_R1.sam"/>
+                    <param name="R2_sam" value="aligned_test_file/alignement_R2.sam"/>
+                    <conditional name="insert_filter">
+                        <param name="filter_select" value="filter"/>
+                        <param name="low" value="1"/>
+                        <param name="high" value="98.7"/>
+                    </conditional>
+                </conditional>
+            </section>
+            <section name="options">
+                <param name="debug" value="false"/>
+                <param name="keep_logfile" value="false"/>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+        </test>
+        <!-- Test_7 paired-end with all customized filters -->
+        <test expect_num_outputs="1">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                    <param name="sam_selector" value="paired"/>
+                    <param name="R1_sam" value="aligned_test_file/alignement_R1.sam"/>
+                    <param name="R2_sam" value="aligned_test_file/alignement_R2.sam"/>
+                    <conditional name="insert_filter">
+                        <param name="filter_select" value="filter"/>
+                        <param name="low" value="1.4"/>
+                        <param name="high" value="96.6"/>
+                    </conditional>
+                </conditional>
+            </section>
+            <section name="options">
+                <param name="min_depth" value="10"/>
+                <param name="fraction_invalid" value="0.5"/>
+                <param name="max_errors" value="8"/>
+                <param name="fraction_valid" value="0.6"/>
+                <param name="debug" value="false"/>
+                <param name="keep_logfile" value="false"/>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+        </test>
+        <!-- Test_8 single with bam input -->
+        <test expect_num_outputs="1">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                    <param name="sam_selector" value="single"/>
+                    <param name="single_sam" value="aligned_test_file/alignement_R1.bam" ftype="unsorted.bam"/>
+                </conditional>
+            </section>
+            <section name="options">
+                <param name="debug" value="false"/>
+                <param name="keep_logfile" value="false"/>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+        </test>
+        <!-- Test_9 paired-end with bam input -->
+        <test expect_num_outputs="1">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                    <param name="sam_selector" value="paired"/>
+                    <param name="R1_sam" value="aligned_test_file/alignement_R1.bam" ftype="unsorted.bam"/>
+                    <param name="R2_sam" value="aligned_test_file/alignement_R2.bam" ftype="unsorted.bam"/>
+                </conditional>
+            </section>
+            <section name="options">
+                <param name="debug" value="false"/>
+                <param name="keep_logfile" value="false"/>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+        </test>
+        <!-- Test_10 single collection with bam input -->
+        <test expect_num_outputs="1">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                    <param name="sam_selector" value="multiple_single"/>
+                    <param name="single_collection">
+                        <collection type="list">
+                            <element name="R1_sam" value="aligned_test_file/alignement_R1.bam" ftype="unsorted.bam"/>
+                            <element name="R1_bis_sam" value="aligned_test_file/alignement_R1_bis.bam" ftype="unsorted.bam"/>
+                            <element name="R1_ter_sam" value="aligned_test_file/alignement_R1_ter.bam" ftype="unsorted.bam"/>
+                        </collection>
+                    </param>
+                </conditional>
+            </section>
+            <section name="options">
+                <param name="debug" value="false"/>
+                <param name="keep_logfile" value="false"/>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+        </test>
+        <!-- Test_11 paired-end with bam input -->
+        <test expect_num_outputs="1">
+            <section name="input">
+                <param name="fasta_file" value="contigs.fa"/>
+                <conditional name="sam_data_type">
+                  <param name="sam_selector" value="multiple_paired"/>
+                  <param name="paired_collection">
+                      <collection type="list:paired">
+                          <element name="paired_1">
+                              <collection type="paired">
+                                  <element name="forward" value="aligned_test_file/alignement_R1.bam" ftype="unsorted.bam"/>
+                                  <element name="reverse" value="aligned_test_file/alignement_R2.bam" ftype="unsorted.bam"/>
+                              </collection>
+                          </element>
+                          <element name="paired_2">
+                              <collection type="paired">
+                                  <element name="forward" value="aligned_test_file/alignement_R1_bis.bam" ftype="unsorted.bam"/>
+                                  <element name="reverse" value="aligned_test_file/alignement_R2_bis.bam" ftype="unsorted.bam"/>
+                              </collection>
+                          </element>
+                          <element name="paired_3">
+                              <collection type="paired">
+                                  <element name="forward" value="aligned_test_file/alignement_R1_ter.bam" ftype="unsorted.bam"/>
+                                  <element name="reverse" value="aligned_test_file/alignement_R2_ter.bam" ftype="unsorted.bam"/>
+                              </collection>
+                          </element>
+                      </collection>
+                  </param>
+                </conditional>
+            </section>
+            <section name="options">
+                <param name="debug" value="false"/>
+                <param name="keep_logfile" value="false"/>
+            </section>
+            <output name="polished_fasta" value="polished.fasta"/>
+        </test>
+    </tests>
+  <help><![CDATA[
+    **What it does**
+    Polypolish is a tool for polishing genome assemblies with short reads.
+    Polypolish uses SAM/BAM files where each read has been aligned to all possible locations (not just a single best location).
+    This allows it to repair errors in repeat regions that other alignment-based polishers cannot fix.
+
+    **Polypolish pipeline steps**
+    1. [Optional] Filter aligned reads
+        - Exclude some alignments based on their insert size
+        - This should reduce the number of excessive alignments, particularly near the edges of repeat sequences, improving Polypolish's ability to fix errors in those regions.
+    2. Clean assembly with filtered reads
+
+    **Inputs**
+    Polypolish need SAM/BAM input format obtain from aligner with option to keep all possible location
+    Polypolish take on or more assembly as input fasta.
+    It need also raw data reads in single or paired-end SAM/BAM format.
+    You can use multiple aligned data to polish the same assembly.
+    **WARNING It can only work if multiple location information is available in sam/bam files**
+    For example using bwa mem to align raw data before use, you need :
+    1. To align each read data independantly (also for paired data)
+    2. Set the option "Output all alignments for single-ends or unpaired paired-ends" in Select analysis mode>Set input/output options
+      - This allow multiple ailgnemnt output need to use polypolish
+
+      
+  ]]></help>
+    <expand macro="citations"/>
+</tool>

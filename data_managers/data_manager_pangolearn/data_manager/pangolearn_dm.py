@@ -12,54 +12,46 @@ import tarfile
 import requests
 
 
-def extract_date(tag_str):
-    parts = tag_str.split("_")
-    assert len(parts) < 3, "expected maximum of two parts, got " + str(parts)
-    tag_date = datetime.datetime.strptime(parts[0], "%Y-%m-%d")
-    if len(parts) == 2:
-        version = int(parts[1])
-        assert (
-            version < 24 * 60
-        )  # because the code stores versions as minutes of the day, it can't handle versions > 1440
-        tag_date += datetime.timedelta(minutes=version)
-    return tag_date
-
-
 def get_model_list(
     existing_release_tags,
-    url="https://api.github.com/repos/cov-lineages/pangoLEARN/releases",
+    url="https://api.github.com/repos/cov-lineages/pangoLEARN/releases"
 ):
-    response = requests.get(url)
-    if response.status_code == 200:
-        release_list = json.loads(response.text)
-        release_info = [
-            dict(
-                tag_name=e["tag_name"],
-                name=e["name"],
-                date=extract_date(e["tag_name"]),
-                tarball_url=e["tarball_url"],
-            )
-            for e in release_list
-            if e["tag_name"] not in existing_release_tags
-        ]
-        return release_info
-    else:
-        response.raise_for_status()
+    page_num = 0
+    while True:
+        page_num += 1
+        response = requests.get(url + f'?page={page_num}')
+        if response.status_code == 200:
+            release_list_chunk = json.loads(response.text)
+            if not release_list_chunk:
+                # past the last page of results
+                return
+            for e in release_list_chunk:
+                if e["tag_name"] in existing_release_tags:
+                    continue
+                if e["prerelease"]:
+                    continue
+                yield dict(
+                    tag_name=e["tag_name"],
+                    name=e["name"],
+                    date=parse_date(e["tag_name"]),
+                    tarball_url=e["tarball_url"],
+                )
+        else:
+            response.raise_for_status()
 
 
 def filter_by_date(existing_release_tags, start_date=None, end_date=None):
-    release_list = get_model_list(existing_release_tags)
-    return [
-        element
-        for element in release_list
-        if not (
-            (end_date is not None and element["date"] > end_date)
-            or (start_date is not None and element["date"] < start_date)
-        )
-    ]
+    ret = []
+    for release in get_model_list(existing_release_tags):
+        if start_date and release["date"] < start_date:
+            break
+        if not end_date or release["date"] <= end_date:
+            ret.append(release)
+
+    return ret
 
 
-def download_and_unpack(url, output_directory):
+def download_and_unpack(url, output_directory, v3datatree=True):
     response = requests.get(url)
     if response.status_code == 200:
         tmp_filename = url.split("/")[-1]
@@ -68,21 +60,56 @@ def download_and_unpack(url, output_directory):
         tmpfile.close()
         shutil.copy(tmp_filename, "/tmp")
         tf = tarfile.open(tmp_filename)
-        pl_path = tf.next().name
+        pl_path = os.path.join(output_directory, tf.next().name)
         tf.extractall(output_directory)
         os.unlink(tmp_filename)
+        pangolearn_unpacked_dir = os.path.join(pl_path, "pangoLEARN")
+        if v3datatree:
+            # pangolin v3 expects a datadir with the entire pangoLEARN
+            # subfolder in it.
+            # In addition, it will only use the data if the __init__.py file
+            # contained within that subfolder declares a __version__ that is
+            # newer than the version installed with pangolin.
+            pangolearn_dir = os.path.join(
+                output_directory, tmp_filename, "pangoLEARN"
+            )
+            os.mkdir(os.path.dirname(pangolearn_dir))
+            # rewrite the __init__.py file and make the __version__ string
+            # appear newer than anything that might come with pangolin by
+            # prepending a "v" to it.
+            pangolearn_init = open(
+                os.path.join(pangolearn_unpacked_dir, "__init__.py")
+            ).readlines()
+            with open(
+                os.path.join(pangolearn_unpacked_dir, "__init__.py"), "w"
+            ) as o:
+                for line in pangolearn_init:
+                    if line.startswith('__version__ = "'):
+                        line = line.replace(
+                            '__version__ = "', '__version__ = "v'
+                        )
+                    o.write(line)
+        else:
+            # Earlier versions of pangolin expect a datadir with just the
+            # contents of the downloaded pangoLEARN subfolder in it and don't
+            # care about the declared version in __init__.py.
+            pangolearn_dir = os.path.join(
+                output_directory, tmp_filename
+            )
         os.rename(
-            output_directory + "/" + pl_path + "/" + "pangoLEARN",
-            output_directory + "/" + tmp_filename,
+            pangolearn_unpacked_dir,
+            pangolearn_dir
         )
-        shutil.rmtree(output_directory + "/" + pl_path)
+        shutil.rmtree(pl_path)
         return tmp_filename
     else:
         response.raise_for_status()
 
 
 def parse_date(d):
-    return datetime.datetime.strptime(d, "%Y-%m-%d")
+    # Tries to parse the first 10 chars of d as a date, which currently
+    # succeeds for all pangolearn model releases.
+    return datetime.datetime.strptime(d[:10], "%Y-%m-%d")
 
 
 if __name__ == "__main__":
@@ -99,9 +126,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.testmode:
-        releases = filter_by_date(start_date=args.start_date, end_date=args.end_date)
+        releases = filter_by_date([], start_date=args.start_date, end_date=args.end_date)
         for release in releases:
-            print(release["tag_name"], release["tarball_url"].split("/")[-1])
+            print(release["tag_name"], release["tarball_url"].split("/")[-1], release["date"])
         sys.exit(0)
 
     with open(args.galaxy_datamanager_filename) as fh:
@@ -127,7 +154,7 @@ if __name__ == "__main__":
     else:
         existing_release_tags = set()
     if args.latest:
-        releases = [get_model_list(existing_release_tags)[0]]
+        releases = [next(get_model_list(existing_release_tags))]
     else:
         releases = filter_by_date(
             existing_release_tags, start_date=args.start_date, end_date=args.end_date
@@ -138,22 +165,25 @@ if __name__ == "__main__":
         if release["tag_name"] not in existing_release_tags
     ]
     for release in releases_to_download:
-        tag = download_and_unpack(release["tarball_url"], output_directory)
-        release_date = parse_date(tag)
         if args.pangolearn_format_version is not None:
             version = args.pangolearn_format_version
         else:
             # 2021-05-27 was the first release of pangoLEARN for pangolin 3, which changed DB format
-            if release_date >= datetime.datetime(2021, 5, 27):
+            if release["date"] >= datetime.datetime(2021, 5, 27):
                 version = '3.0'
             else:
                 version = '1.0'
+        fname = download_and_unpack(
+            release["tarball_url"],
+            output_directory,
+            v3datatree=version == '3.0'
+        )
         data_manager_dict["data_tables"][args.datatable_name].append(
             dict(
-                value=tag,
+                value=release["tag_name"],
                 description=release["name"],
                 format_version=version,
-                path=output_directory + "/" + tag,
+                path=output_directory + "/" + fname,
             )
         )
     data_manager_dict["data_tables"][args.datatable_name].sort(

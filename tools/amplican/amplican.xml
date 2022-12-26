@@ -1,0 +1,438 @@
+<tool id='amplican' name='AmpliCan' version='@TOOL_VERSION@+galaxy@SUFFIX_VERSION@' profile='20.01'>
+    <description>analysis tool for genome editing </description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro='requirements' />
+    <expand macro="bio_tools"/>
+    <command detect_errors='exit_code'><![CDATA[
+        #import re
+        mkdir ./fastq_folder ./output_folder
+        #for $i in $fastq_files
+            #if str($i.element_identifier) != re.sub('[^\w\-_\.]', '_', str($i.element_identifier))
+                && echo "Please rename your datasets; only underscore (_) and alphanumeric characters are allowed."
+                && exit 1
+            #else              
+                && ln -s '${i}' ./fastq_folder/'${i.element_identifier}'
+            #end if
+        #end for
+        && Rscript '$amplican_script'
+        #if 'knit_reports' in $output_options.outputs
+            && mv ./output_folder/reports/amplicon_report.html '${output_html.extra_files_path}'
+            && mv ./output_folder/reports/barcode_report.html '${output_html.extra_files_path}'
+            && mv ./output_folder/reports/group_report.html '${output_html.extra_files_path}'
+            && mv ./output_folder/reports/guide_report.html '${output_html.extra_files_path}'
+            && mv ./output_folder/reports/id_report.html '${output_html.extra_files_path}'
+        #end if
+    ]]>    </command>
+            <configfiles>
+            <configfile name="amplican_script"><![CDATA[
+            ## Setup R error handling to go to stderr
+            options(
+            show.error.messages = F,
+            error = function() {
+                cat(geterrmessage(), file = stderr())
+                q("no", 1, F)
+            }
+            )
+            # we need that to not crash galaxy with an UTF8 error on German LC settings.
+            Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
+
+            suppressPackageStartupMessages({
+            library("amplican")
+            })
+            #full analysis
+            amplicanPipeline(
+            '${config_file}',
+            'fastq_folder',
+            'output_folder',
+            #if 'knit_reports' in $output_options.outputs
+            knit_reports = TRUE,
+            #else
+            knit_reports = FALSE,
+            #end if
+            #if $output_options.write_alignment_format == 'fasta'
+            write_alignments_format = "fasta",
+            #else if $output_options.write_alignment_format == 'txt'
+            write_alignments_format = "txt",
+            #else
+            write_alignments_format = "None",
+            #end if
+            average_quality = $quality_options.average_quality,
+            min_quality = $quality_options.min_quality,
+            use_parallel = FALSE,
+            scoring_matrix = Biostrings::nucleotideSubstitutionMatrix(
+                match = $alignment_options.scoring_matrix.match_scoring,
+                mismatch = $alignment_options.scoring_matrix.mismatch_scoring,
+                baseOnly = $alignment_options.scoring_matrix.base_only,
+                type = "$alignment_options.scoring_matrix.scoring_type"
+            ),
+            gap_opening = $alignment_options.gap_opening,
+            gap_extension = $alignment_options.gap_extension,
+            fastqfiles = $advanced_options.fastq_use,
+            primer_mismatch = $alignment_options.primer_mismatch,
+            donor_mismatch = $alignment_options.donor_mismatch,
+            PRIMER_DIMER = $advanced_options.primer_dimer,
+            event_filter = $advanced_options.event_filter,
+            cut_buffer = $advanced_options.cut_buffer,
+            promiscuous_consensus = $advanced_options.promiscuous_consensus,
+            normalize = c("guideRNA", "Group")
+            )
+                ]]></configfile>
+            </configfiles>
+    <inputs>
+        <param name="config_file" type="data" format="txt" label="Configuration file"/>
+        <param name="fastq_files" type="data" format="fastq, fastq.gz, fastqsanger, fastqsanger.gz"
+            multiple="true" label="FASTQ files"/>
+        <section name="quality_options" title="Sequence quality options">
+            <param argument="average_quality" type="integer" min="0" max="93" 
+                value="0" label="Average quality" 
+                help="If the average quality of the reads fall below value of average_quality then sequence is filtered. Default is 0" />
+            <param argument="min_quality" type="integer" min="0" max="93" 
+                value="20" label="Minimum quality" 
+                help="If one of nucleotides has quality below min_quality, then the sequence is filtered. Default is 20" />
+        </section>
+        <section name="alignment_options" title="Alignment options">
+            <param argument="gap_opening" type="integer" min="0" max="40" value="25" label="Gap opening" help="The opening gap score" />
+            <param argument="gap_extension" type="integer" min="0" max="40" value="0" label="Gap extension" help="The gap extension score" />
+            <param argument="primer_mismatch" type="integer" min="0" max="40" value="0" label="Primer mismatch" help="Decide how many mismatches are allowed during primer matching of the reads, that groups reads by experiments. When primer_mismatch = 0 no mismatches are allowed, which can increase number of unasssigned read" />
+            <param argument="donor_mismatch" type="integer" min="0" max="40" value="3" label="Donor mismatch" help="How many events of length 1 (mismatches, deletions and insertions of length 1) are allowed when aligning toward the donor template. This parameter is only used when donor template is specified. The higher the parameter the less strict will be algorithm accepting read as HDR. Set to 0 if only perfect alignments to the donor template marked as HDR, unadvised due to error rate of the sequencers" />
+            <section name="scoring_matrix" title="Scoring matrix options" expanded="False">
+                <param argument="match_scoring" type="integer" min="0" max="20" value="5" label="Match scoring"/>
+                <param argument="mismatch_scoring" type="integer" min="-20" max="0" value="-4" label="Mismatch scoring"/>
+                <param argument="base_only" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Base only" />
+                <param argument="scoring_type" type="select" label="Scoring matrix type">
+                    <option value="DNA" selected="true">DNA</option>
+                    <option value="RNA">RNA</option>
+                </param>
+            </section>
+        </section>
+        <section name="advanced_options" title="Advanced options">
+            <param argument="fastq_use" type="select" label="FASTQ files to use" help="Normally you want to use both FASTQ files. But in some special cases, you may want to use only the forward file, or only the reverse file">
+                <option value="0">Use both FASTQ files</option>
+                <option value="0.5">Use both FASTQ files, but only for one of the reads (forward or reverse) is required to have primer perfectly matched to sequence</option>
+                <option value="1">Use only the forward FASTQ file</option>
+                <option value="2">Use only the reverse FASTQ file</option>
+            </param>
+            <param argument="primer_dimer" type="integer" min="0" max="50" value="30" label="Primer dimer" help="Value specifying buffer for PRIMER DIMER detection. For a given read it will be recognized as PRIMER DIMER when alignment will introduce gap of size bigger than: length of amplicon - (lengths of PRIMERS + PRIMER_DIMER value)" />
+            <param argument="event_filter" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Event filter" help="Whether detection of offtarget reads, should be enabled" />
+            <param argument="cut_buffer" type="integer" min="0" max="30" value="5" label="Cut buffer" help="The number of bases by which extend expected cut sites (specified as UPPER case letters in the amplicon) in 5' and 3' directions" />
+            <param argument="promiscuous_consensus" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="true" label="Promiscuous consensus" help="Whether rules of amplicanConsensus should be promiscuous. When promiscuous, we allow indels that have no confirmation on the other strand" />    
+        </section>
+        <section name="output_options" title="Output options">
+            <param argument="write_alignment_format" type="select" label="Alignment format output" help="Whether it should write alignments results to separate files">
+                <option value="None">None: don't write any alignments to files</option>
+                <option value="txt" selected="true">Text file: read information followed by forward read and amplicon sequence followed by reverse read with its amplicon sequence</option>
+                <option value="fasta">FASTA file: outputs alignments in fasta format where header indicates experiment ID, read id and number of reads</option>
+            </param>
+            <param name="outputs" type="select" label="Additional output files" display="checkboxes" multiple="true" help="Select the output files.">
+                    <option value="config_summary" selected="true">Configuration summary (config_summary.csv)</option>
+                    <option value="barcode_reads" selected="true">Barcode reads filters (barcode_reads_filters.csv)</option>
+                    <option value="knit_reports" selected="true" >Knitr HTML report</option>
+                    <option value="parameters" >Parameters (RunParameters.txt)</option>
+                    <option value="alignments_rds" selected="true">Alignments Rda file (AlignmentsExperimentSet.rds)</option>
+                    <option value="events_filtered_shifted" selected="true">Events filtered shifted (events_filtered_shifted.csv)</option>
+                    <option value="events_filtered_shifted_normalized" selected="true">Events filtered shifted normalized (events_filtered_shifted_normalized.csv)</option>
+                    <option value="raw_events" selected="true">Raw events (raw_events.csv)</option>
+                    <option value="unassigned_reads" selected="true">Unnasigned reads (unassigned_reads.csv) </option>
+            </param>
+        </section>
+    </inputs>      
+    <outputs>
+        <data name="config_summary" from_work_dir="./output_folder/config_summary.csv" format="csv" label="${tool.name} on ${on_string}: config summary">
+            <filter>"config_summary" in output_options["outputs"]</filter>
+        </data>
+        <data name="barcode_reads" from_work_dir="./output_folder/barcode_reads_filters.csv" format="tabular" label="${tool.name} on ${on_string}: barcode reads filters">
+            <filter>"barcode_reads" in output_options["outputs"]</filter>
+        </data>
+        <data name="output_html" from_work_dir="./output_folder/reports/index.html" format="html" label="${tool.name} on ${on_string}: report">
+            <filter>"knit_reports" in output_options["outputs"]</filter>
+        </data>
+        <data name="parameters" from_work_dir="./output_folder/RunParameters.txt" format="txt" label="${tool.name} on ${on_string}: run parameters">
+            <filter>"parameters" in output_options["outputs"]</filter>
+        </data>
+        <data name="alignments_rds" from_work_dir="./output_folder/alignments/AlignmentsExperimentSet.rds" format="rdata" label="${tool.name} on ${on_string}: alignments experiment set">
+            <filter>"alignments_rds" in output_options["outputs"]</filter>
+        </data>
+        <data name="alignments_fasta" from_work_dir="./output_folder/alignments/alignments.fasta" format="fasta" label="${tool.name} on ${on_string}: alignments (FASTA)">
+            <filter>output_options["write_alignment_format"] == "fasta"</filter>
+        </data>
+        <data name="alignments_txt" from_work_dir="./output_folder/alignments/alignments.txt" format="txt" label="${tool.name} on ${on_string}: alignments (txt)">
+            <filter>output_options["write_alignment_format"] == "txt"</filter>
+        </data>
+        <data name="events_filtered_shifted" from_work_dir="./output_folder/alignments/events_filtered_shifted.csv" format="csv" label="${tool.name} on ${on_string}: evens filtered shifted">
+            <filter>"events_filtered_shifted" in output_options["outputs"]</filter>
+        </data>
+        <data name="events_filtered_shifted_normalized" from_work_dir="./output_folder/alignments/events_filtered_shifted_normalized.csv" format="csv" label="${tool.name} on ${on_string}: events filtered shifted normalized">
+            <filter>"events_filtered_shifted_normalized" in output_options["outputs"]</filter>
+        </data>
+        <data name="raw_events" from_work_dir="./output_folder/alignments/raw_events.csv" format="csv" label="${tool.name} on ${on_string}: raw events">
+            <filter>"raw_events" in output_options["outputs"]</filter>
+        </data>
+        <data name="unassigned_reads" from_work_dir="./output_folder/alignments/unassigned_reads.csv" format="csv" label="${tool.name} on ${on_string}: unnasigned reads">
+            <filter>"unassigned_reads" in output_options["outputs"]</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Test default inputs -->
+        <test expect_num_outputs="10">
+            <param name="config_file" value="config.csv" />
+            <param name="fastq_files" value="R1_001.fastq,R1_002.fastq,R2_001.fastq,R2_002.fastq" />
+            <section name="quality_options">
+                <param name="average_quality" value="0"/>
+                <param name="min_quality" value="20"/>
+            </section>
+            <section name="alignment_options">
+                <param name="gap_opening" value="25"/>
+                <param name="gap_extension" value="0"/>
+                <param name="primer_mismatch" value="0"/>
+                <param name="donor_mismatch" value="3"/>
+                <section name="scoring_matrix">
+                    <param name="match_scoring" value="5"/>
+                    <param name="mismatch scoring" value="-4"/>
+                    <param name="base_only" value="true"/>
+                    <param name="scoring_type" value="DNA"/>
+                </section>
+            </section>
+            <section name="advanced_options">
+                <param name="fastq_use" value="0"/>
+                <param name="primer_dimer" value="30"/>
+                <param name="event_filter" value="true"/>
+                <param name="cut_buffer" value="5"/>
+                <param name="promiscuous_consensus" value="true"/>
+            </section>            
+            <section name="output_options">
+                <param name="write_alignment_format" value="txt"/>
+                <param name="outputs" value="config_summary,barcode_reads,knit_reports,parameters,alignments_rds,events_filtered_shifted,events_filtered_shifted_normalized,raw_events,unassigned_reads"/>
+            </section>
+            <output name="config_summary" file="config_summary.csv" ftype="csv" lines_diff="10">
+                <assert_contents>
+                    <has_size value="2896" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="barcode_reads" file="barcode_reads_filtered.csv" ftype="tabular">
+                <assert_contents>
+                    <has_size value="212" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="output_html" file="output_html.html" ftype="html" lines_diff="17">
+                <assert_contents>
+                    <has_size value="1641557" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="parameters" file="RunParameters.txt" ftype="txt" lines_diff="4">
+                <assert_contents>
+                    <has_size value="418" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="alignments_rds" ftype="rdata">
+                <assert_contents>
+                    <has_size value="86527" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="alignments_txt" file="alignments.txt" ftype="txt">
+                <assert_contents>
+                    <has_size value="13406" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="events_filtered_shifted" file="events_filtered_shifted.csv" ftype="csv">
+                <assert_contents>
+                    <has_size value="4826" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="events_filtered_shifted_normalized" file="events_filtered_shifted_normalized.csv" ftype="csv">
+                <assert_contents>
+                    <has_size value="4826" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="raw_events" file="raw_events.csv" ftype="csv">
+                <assert_contents>
+                    <has_size value="4455" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="unassigned_reads" file="unassigned_reads.csv" ftype="csv">
+                <assert_contents>
+                    <has_size value="1176" delta="300" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test alignment output in fasta format -->
+        <test expect_num_outputs="10">
+            <param name="config_file" value="config.csv" />
+            <param name="fastq_files" value="R1_001.fastq,R1_002.fastq,R2_001.fastq,R2_002.fastq" />
+            <section name="quality_options">
+                <param name="average_quality" value="0"/>
+                <param name="min_quality" value="20"/>
+            </section>
+            <section name="alignment_options">
+                <param name="gap_opening" value="25"/>
+                <param name="gap_extension" value="0"/>
+                <param name="primer_mismatch" value="0"/>
+                <param name="donor_mismatch" value="3"/>
+                <section name="scoring_matrix">
+                    <param name="match_scoring" value="5"/>
+                    <param name="mismatch scoring" value="-4"/>
+                    <param name="base_only" value="true"/>
+                    <param name="scoring_type" value="DNA"/>
+                </section>
+            </section>
+            <section name="advanced_options">
+                <param name="fastq_use" value="0"/>
+                <param name="primer_dimer" value="30"/>
+                <param name="event_filter" value="true"/>
+                <param name="cut_buffer" value="5"/>
+                <param name="promiscuous_consensus" value="true"/>
+            </section>
+            <section name="output_options">
+                <param name="write_alignment_format" value="fasta"/>
+                <param name="outputs" value="config_summary,barcode_reads,knit_reports,parameters,alignments_rds,events_filtered_shifted,events_filtered_shifted_normalized,raw_events,unassigned_reads"/>
+            </section>
+            <output name="config_summary" ftype="csv" >
+                <assert_contents>
+                    <has_size value="2896" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="barcode_reads" ftype="tabular">
+                <assert_contents>
+                    <has_size value="212" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="output_html" ftype="html">
+                <assert_contents>
+                    <has_size value="1641557" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="parameters"  ftype="txt" lines_diff="2">
+                <assert_contents>
+                    <has_size value="418" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="alignments_rds" ftype="rdata">
+                <assert_contents>
+                    <has_size value="86527" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="alignments_fasta"  ftype="fasta">
+                <assert_contents>
+                    <has_size value="16146" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="events_filtered_shifted" ftype="csv">
+                <assert_contents>
+                    <has_size value="4826" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="events_filtered_shifted_normalized" ftype="csv">
+                <assert_contents>
+                    <has_size value="4826" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="raw_events" ftype="csv">
+                <assert_contents>
+                    <has_size value="4455" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="unassigned_reads"  ftype="csv">
+                <assert_contents>
+                    <has_size value="1176" delta="300" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test limit outputs -->
+        <test expect_num_outputs="2">
+            <param name="config_file" value="config.csv" />
+            <param name="fastq_files" value="R1_001.fastq,R1_002.fastq,R2_001.fastq,R2_002.fastq" />
+            <section name="quality_options">
+                <param name="average_quality" value="0"/>
+                <param name="min_quality" value="20"/>
+            </section>
+            <section name="alignment_options">
+                <param name="gap_opening" value="25"/>
+                <param name="gap_extension" value="0"/>
+                <param name="primer_mismatch" value="0"/>
+                <param name="donor_mismatch" value="3"/>
+                <section name="scoring_matrix">
+                    <param name="match_scoring" value="5"/>
+                    <param name="mismatch scoring" value="-4"/>
+                    <param name="base_only" value="true"/>
+                    <param name="scoring_type" value="DNA"/>
+                </section>
+            </section>
+            <section name="advanced_options">
+                <param name="fastq_use" value="0"/>
+                <param name="primer_dimer" value="30"/>
+                <param name="event_filter" value="true"/>
+                <param name="cut_buffer" value="5"/>
+                <param name="promiscuous_consensus" value="true"/>
+            </section>
+            <section name="output_options">
+                <param name="write_alignment_format" value="fasta"/>
+                <param name="outputs" value="config_summary"/>
+            </section>
+            <output name="config_summary" ftype="csv">
+                <assert_contents>
+                    <has_size value="2896" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="alignments_fasta" ftype="fasta">
+                <assert_contents>
+                    <has_size value="16146" delta="300" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test gzip files -->
+        <test expect_num_outputs="2">
+            <param name="config_file" value="config_gzip.csv" />
+            <param name="fastq_files" value="R1_001.fastq.gz,R1_002.fastq.gz,R2_001.fastq.gz,R2_002.fastq.gz" />
+            <section name="output_options">
+                <param name="write_alignment_format" value="fasta"/>
+                <param name="outputs" value="config_summary"/>
+            </section>
+            <output name="config_summary" ftype="csv">
+                <assert_contents>
+                    <has_size value="2896" delta="300" />
+                </assert_contents>
+            </output>
+            <output name="alignments_fasta" ftype="fasta">
+                <assert_contents>
+                    <has_size value="16146" delta="300" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**Purpose**
+
+AmpliCan is an analysis tool for genome editing that unites highly precise quantification and 
+visualization of genuine genome editing events. ampliCan features nuclease-optimized alignments, 
+filtering of experimental artifacts, event-specific normalization, and off-target read detection 
+and quantifies insertions, deletions, HDR repair, as well as targeted base editing. It is 
+scalable to thousands of amplicon sequencing-based experiments from any genome editing experiment, 
+including CRISPR. It enables automated integration of controls and accounts for biases at every 
+step of the analysis.
+
+----
+
+.. class:: infomark
+
+**Config file details**
+
+Columns of the config file:
+
+- ID - should be a unique identifier of your experiments.
+- Barcode - use this to group experiments with the same barcode.
+- Forward_Reads, Reverse_Reads - put names of your files in these fields, you can put here files compressed to .gz, we will unpack them for you.
+- Group - use this field if you want to group ID by other criteria, here for instance we will group by person that performed experiment, on later stage it is possible to generate report with breakdown using this field.
+- guideRNA - put your guideRNA in 5’ to 3’ fashion here, if he has to be reverse complemented to be found in the amplicon put “1” into Direction field, we will use this field to make sure your guideRNA is inside the amplicon and during plotting of the results.
+- Forward_Primer, Reverse_Primer - make sure these primers are correct for each of your IDs, Forward_Primer should be found in the amplicon as is, on the left side of the guide, Reverse_Primer reverse complement should be found on the amplicon on the right side of the guide.
+- Direction - here “0” means guide does not requires to be reverse complemented to be matched to the amplicon, “1” means it should be reverse complemented, this field is also used when plotting deletions, mismatches and insertions.
+- Amplicon - insert amplicon sequence as lower case letters, by putting UPPER CASE letters you can specify expected cut site, you should specify at least one cut site, here for example we specify in uppercase letter PAM sequence of the corresponding guideRNA.
+- Donor - insert donor template if you have designed HDR experiments or used base editors, otherwise leave empty, but keep the column. amplican will estimate HDR efficiency based on the events from aligning donor and amplicon sequences, donor and reads and reads and amplicon.
+
+If you have only forward primers leave column Reverse_Primer empty, leave empty also the Reverse_Reads column. You can still use amplican like normal.                  
+
+    ]]>    </help>
+    <expand macro="citations" />
+</tool>

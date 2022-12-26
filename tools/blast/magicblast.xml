@@ -1,0 +1,362 @@
+<tool id="magicblast" name="Magic-BLAST: map large RNA or DNA sequences" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>against a whole genome or transcriptome</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import os
+
+magicblast
+-num_threads \${GALAXY_SLOTS:-8}
+#if $query.is_of_type('fasta.gz', 'fastqsanger.gz'):
+    -query <(gunzip -c '${query}')
+#else:
+    -query '${query}'
+#end if
+#if $query_mate:
+    -paired
+    #if $query.is_of_type('fasta.gz', 'fastqsanger.gz'):
+        -query_mate <(gunzip -c '${query}')
+    #else:
+        -query_mate '${query}'
+    #end if
+#end if
+
+#if $query.is_of_type('fastqsanger', 'fastqsanger.gz'):
+    -infmt fastq
+#end if
+
+#if $db_opts.db_opts_selector == "histdb":
+    -db '${os.path.join($db_opts.histdb.extra_files_path, "blastdb")}'
+#elif $db_opts.db_opts_selector == "db":
+    -db '${db_opts.database.fields.path}'
+#else:
+    #if $db_opts.subject.is_of_type('fasta.gz'):
+        -subject <(gunzip -c '${$db_opts.subject}')
+    #else:
+        -subject '${db_opts.subject}'
+    #end if
+#end if
+
+## General search options
+-word_size $general_search.word_size
+-gapopen $general_search.gapopen
+-gapextend $general_search.gapextend
+-penalty $general_search.penalty
+-max_intron_length $general_search.max_intron_length
+
+## Query filtering options
+$query_filtering.lcase_masking
+-validate_seqs $query_filtering.validate_seqs
+-limit_lookup $query_filtering.limit_lookup
+-max_db_word_count $query_filtering.max_db_word_count
+-lookup_stride $query_filtering.lookup_stride
+
+## Restrict database search
+#if $restrict_search.gilist:
+    -gilist '$restrict_search.gilist'
+#end if
+#if $restrict_search.negative_gilist:
+    -negative_gilist '$restrict_search.negative_gilist'
+#end if
+#if $restrict_search.seqidlist:
+    -seqidlist '$restrict_search.seqidlist'
+#end if
+#if $restrict_search.negative_seqidlist:
+    -negative_seqidlist '$restrict_search.negative_seqidlist'
+#end if
+#if str($restrict_search.taxids) != '':
+    --taxids '$restrict_search.taxids'
+#end if
+#if $restrict_search.taxidlist:
+    -taxidlist '$restrict_search.taxidlist'
+#end if
+#if str($restrict_search.negative_taxids) != '':
+    --negative_taxids '$restrict_search.negative_taxids'
+#end if
+#if $restrict_search.negative_taxidlist:
+    -negative_taxidlist '$restrict_search.negative_taxidlist'
+#end if
+
+## Mapping options
+-score $mapping.score
+#if $mapping.max_edit_dist > 0:
+    -max_edit_dist $mapping.max_edit_dist
+#end if
+-splice '$mapping.splice'
+-reftype '$mapping.reftype'
+
+## Output unaligned options
+#if str($output_options.report_unaligned_cond.report_unaligned) == 'yes':
+    #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.report_unaligned_separately) == 'yes':
+        -out_unaligned 'out_unaligned'
+        #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.unaligned_fmt) == 'bam':
+            -unaligned_fmt 'sam'
+        #else:
+            -unaligned_fmt '$output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.unaligned_fmt'
+        #end if
+    #end if
+#else:
+    -no_unaligned
+#end if
+
+## Additional output options
+$output_options.no_discordant
+## Switch default SAM output to be BAM.
+#if str($output_options.outfmt_cond.outfmt) == 'bam':
+    $output_options.outfmt_cond.md_tag
+    #if $query_mate:
+        $output_options.outfmt_cond.no_query_id_trim
+    #end if
+    -out 'output.sam'
+    #if str($output_options.outfmt_cond.output_sort) == 'coordinate':
+        && samtools sort -@\${GALAXY_SLOTS:-4} -O bam 'output.sam' > '$output'
+    #elif str($output_options.outfmt_cond.output_sort) == 'name':
+        && samtools sort -n -@\${GALAXY_SLOTS:-4} -O bam -o 'output.sam' > '$output'
+    #else:
+        && samtools view -@\${GALAXY_SLOTS:-4} -bS 'output.sam' > '$output'
+    #end if
+#else:
+    -out '$output'
+    -outfmt '$output_options.outfmt_cond.outfmt'
+#end if
+
+## Convert out_unaligned from SAM to BAM if necessary
+
+#if str($output_options.report_unaligned_cond.report_unaligned) == 'yes':
+    #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.report_unaligned_separately) == 'yes':
+        #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.unaligned_fmt) == 'bam':
+            #if str($output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.output_sort) == 'coordinate':
+                && samtools sort -@\${GALAXY_SLOTS:-4} -O bam -o 'out_unaligned' > '$output_unaligned'
+            #elif str($output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.output_sort) == 'name':
+                && samtools sort -n -@\${GALAXY_SLOTS:-4} -O bam -o 'out_unaligned' > '$output_unaligned'
+            #else:
+                && samtools view -@\${GALAXY_SLOTS:-4} -bS 'out_unaligned' > '$output_unaligned'
+            #end if
+        #else:
+            && mv 'out_unaligned' '$output_unaligned'
+        #end if
+    #end if
+#end if
+    ]]></command>
+    <inputs>
+        <param argument="-query" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz" label="Query file" help="Fasta or fastqsanger, optionally gzipped"/>
+        <param argument="-query_mate" type="data" format="fasta,fasta.gz,fastqsanger,fastqsanger.gz" optional="true" label="Query mate file (optional)" help="Fasta or fastqsanger, optionally gzipped"/>
+        <conditional name="db_opts">
+            <param name="db_opts_selector" type="select" label="Subject database/sequences">
+              <option value="histdb" selected="true">blast database from your history</option>
+              <option value="db">Locally installed blast database</option>
+              <option value="file">fasta file from your history (see warning in the tool help section below)</option>
+            </param>
+            <when value="histdb">
+                <param name="histdb" type="data" format="blastdbn" label="Nucleotide blast database"/>
+            </when>
+            <when value="db">
+                <param name="database" type="select" multiple="true" optional="false" label="Nucleotide blast database">
+                    <options from_data_table="blastdb"/>
+                </param>
+            </when>
+            <when value="file">
+                <param argument="-subject" type="data" format="fasta,fasta.gz" label="Nucleotide fasta subject file to use instead of a database"/>
+            </when>
+        </conditional>
+        <section name="general_search" title="General search">
+            <param argument="-word_size" type="integer" value="18" min="12" label="Minimum number of consecutive bases matching exactly"/>
+            <param argument="-gapopen" type="integer" value="0" min="0" label="Cost to open a gap"/>
+            <param argument="-gapextend" type="integer" value="0" min="0" label="Cost to extend a gap"/>
+            <param argument="-penalty" type="integer" value="-4" max="0" label="Penalty for a nucleotide mismatch"/>
+            <param argument="-max_intron_length" type="integer" value="500000" min="0" label="Maximum allowed intron length"/>
+        </section>
+        <section name="query_filtering" title="Query filtering">
+            <param argument="-lcase_masking" type="boolean" truevalue="-lcase_masking" falsevalue="" checked="false" label="Use lower case filtering in subject sequences?"/>
+            <param argument="-validate_seqs" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Reject low quality sequences?"/>
+            <param argument="-limit_lookup" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Remove word seeds with high frequency in the searched database?"/>
+            <param argument="-max_db_word_count" type="integer" value="30" min="0" label="Words that appear more than this number of times in the database will be masked in the lookup table"/>
+            <param argument="-lookup_stride" type="integer" value="0" min="0" label="Number of words to skip after collecting one while creating a lookup table"/>
+        </section>
+        <section name="restrict_search" title="Restrict database search">
+            <param argument="-gilist" type="data" format="tabular" optional="true" label="Tabular file containing list of GIs to which to restrict database search" help="Available only for database searches"/>
+            <param argument="-negative_gilist" type="data" format="tabular" optional="true" label="Tabular file containing list of GIs to restrict database search to everything except the specified GIs" help="Available only for database searches"/>
+            <param argument="-seqidlist" type="data" format="tabular" optional="true" label="Tabular file containing list of SeqIDs to which to restrict database search" help="Available only for database searches"/>
+            <param argument="-negative_seqidlist" type="data" format="tabular" optional="true" label="Tabular file containing list of SeqIDs to restrict database search to everything except the specified SeqIDs" help="Available only for database searches"/>
+            <param argument="-taxids" type="text" optional="true" label="Comma-separated list of taxonomy IDs to which to restrict database search" help="Available only for database searches">
+                <expand macro="sanitize_query" validinitial="string.ascii_letters,string.digits,string.whitespace,string.punctuation"/>
+            </param>
+            <param argument="-taxidlist" type="data" format="tabular" optional="true" label="Tabular file containing list of taxonomy IDs to which to restrict database search" help="Available only for database searches"/>
+            <param argument="-negative_taxids" type="text" optional="true" label="Comma-separated list of taxonomy IDs to restrict database search to everything except the specified taxonomy IDs" help="Available only for database searches">
+                <expand macro="sanitize_query" validinitial="string.ascii_letters,string.digits,string.whitespace,string.punctuation"/>
+            </param>
+            <param argument="-negative_taxidlist" type="data" format="tabular" optional="true" label="Tabular file containing list of taxonomy IDs to restrict database search to everythin except the specified taxonomy IDs" help="Available only for database searches"/>
+        </section>
+        <section name="mapping" title="Mapping">
+            <param argument="-score" type="integer" value="0" min="0" label="Cutoff score for accepting alignments" help="Zero value ignores"/>
+            <param argument="-max_edit_dist" type="integer" value="0" min="0" label="Cutoff edit distance for accepting an alignment" help="Zero value is unlimited"/>
+            <param argument="-splice" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Search for spliced alignments?"/>
+            <param argument="-reftype" type="select" label="Type of the reference">
+                <option value="genome" selected="true">genome</option>
+                <option value="transcriptome">transcriptome</option>
+            </param>
+        </section>
+        <section name="output_options" title="Output options">
+            <conditional name="report_unaligned_cond">
+                <param name="report_unaligned" type="select" label="Report unaligned reads?">
+                    <option value="yes" selected="true">Yes</option>
+                    <option value="no">No</option>
+                </param>
+                <when value="yes">
+                    <conditional name="report_unaligned_separately_cond">
+                        <param name="report_unaligned_separately" type="select" label="Output unaligned reads to a separate file?" help="Select No to output all reads to the same file">
+                            <option value="no" selected="true">No</option>
+                            <option value="yes">Yes</option>
+                        </param>
+                        <when value="no"/>
+                        <when value="yes">
+                            <conditional name="unaligned_fmt_cond">
+                                <param argument="-unaligned_fmt" type="select" label="Output format for unaligned reads">
+                                    <option value="bam" selected="true">bam</option>
+                                    <option value="tabular">tabular</option>
+                                    <option value="fasta">fasta</option>
+                                </param>
+                                <when value="bam">
+                                    <expand macro="output_sort_param"/>
+                                </when>
+                                <when value="tabular"/>
+                                <when value="fasta"/>
+                            </conditional>
+                        </when>
+                    </conditional>
+                </when>
+                <when value="no"/>
+            </conditional>
+            <conditional name="outfmt_cond">
+                <param argument="-outfmt" type="select" label="Output format">
+                    <option value="bam" selected="true">bam</option>
+                    <option value="tabular">tabular</option>
+                </param>
+                <when value="bam">
+                    <expand macro="output_sort_param"/>
+                    <param argument="-md_tag" type="boolean" truevalue="-md_tag" falsevalue="" checked="false" label="Include MD tag in BAM output?"/>
+                    <param argument="-no_query_id_trim" type="boolean" truevalue="-no_query_id_trim" falsevalue="" checked="false" label="Do not trim '.1', '/1', '.2', or '/2' at the end of read ids in BAM output for paired reads?" help="Ignored if no query mate"/>
+                </when>
+                <when value="tabular"/>
+            </conditional>
+            <param argument="-no_discordant" type="boolean" truevalue="-no_discordant" falsevalue="" checked="false" label="Suppress discordant alignments for paired reads?" help="Ignored if no query mate"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output" format="bam" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="output.outfmt_cond.outfmt" value="tabular" format="tabular"/>
+            </change_format>
+        </data>
+        <data name="output_unaligned" format="bam" label="${tool.name} on ${on_string}: unaligned reads">
+            <filter>output_options['report_unaligned_cond']['report_unaligned'] == 'yes' and output_options['report_unaligned_cond']['report_unaligned_separately_cond']['report_unaligned_separately'] == 'yes'</filter>
+            <change_format>
+                <when input="output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.unaligned_fmt" value="tabular" format="tabular"/>
+                <when input="output_options.report_unaligned_cond.report_unaligned_separately_cond.unaligned_fmt_cond.unaligned_fmt" value="fasta" format="fasta"/>
+            </change_format>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Single fasta.gz input, subject file -->
+        <test expect_num_outputs="1">
+            <param name="query" value="query1.fasta.gz" ftype="fasta.gz"/>
+            <param name="db_opts_selector" value="file"/>
+            <param name="subject" value="subject1.fasta.gz" ftype="fasta.gz"/>
+            <output name="output" ftype="bam">
+                <assert_contents>
+                    <has_size value="1247" delta="50"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Single fasta.gz input, subject file, output unaligned reads separately-->
+        <test expect_num_outputs="2">
+            <param name="query" value="query1.fasta.gz" ftype="fasta.gz"/>
+            <param name="db_opts_selector" value="file"/>
+            <param name="subject" value="subject1.fasta.gz" ftype="fasta.gz"/>
+            <param name="report_unaligned_separately" value="yes"/>
+            <param name="unaligned_fmt" value="tabular"/>
+            <output name="output" ftype="bam">
+                <assert_contents>
+                    <has_size value="492" delta="50"/>
+                </assert_contents>
+            </output>
+            <output name="output_unaligned" ftype="tabular">
+                <assert_contents>
+                    <has_size value="959"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Single fasta.gz input, subject file, gilist file, results in error -->
+        <test expect_failure="true">
+            <param name="query" value="query1.fasta.gz" ftype="fasta.gz"/>
+            <param name="db_opts_selector" value="file"/>
+            <param name="subject" value="subject1.fasta.gz" ftype="fasta.gz"/>
+            <param name="report_unaligned_separately" value="yes"/>
+            <param name="gilist" value="gilist1.tabular" ftype="tabular"/>
+            <assert_stderr>
+                <has_text text="Incompatible with argument:"/>
+            </assert_stderr>
+        </test>
+        <!-- Single fasta.gz input, cached db, taxidlist, results in error -->
+        <test expect_failure="true">
+            <param name="query" value="query1.fasta.gz" ftype="fasta.gz"/>
+            <param name="db_opts_selector" value="db"/>
+            <param name="database" value="phiX174"/>
+            <param name="taxidlist" value="taxids.tabular" ftype="tabular"/>
+            <assert_stderr>
+                <has_text text="Taxonomy filtering is not supported in v4 BLAST dbs"/>
+            </assert_stderr>
+        </test>
+        <!-- Paired fastqsanger.gz input, subject file -->
+        <test expect_num_outputs="1">
+            <param name="query" value="query_forward1.fastqsanger.gz" ftype="fastqsanger.gz"/>
+            <param name="query_mate" value="query_reverse1.fastqsanger.gz" ftype="fastqsanger.gz"/>
+            <param name="db_opts_selector" value="file"/>
+            <param name="subject" value="subject1.fasta.gz" ftype="fasta.gz"/>
+            <output name="output" ftype="bam">
+                <assert_contents>
+                    <has_size value="61454" delta="50"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Paired fastqsanger.gz input, cached blast db -->
+        <test expect_num_outputs="1">
+            <param name="query" value="query_forward1.fastqsanger.gz" ftype="fastqsanger.gz"/>
+            <param name="query_mate" value="query_reverse1.fastqsanger.gz" ftype="fastqsanger.gz"/>
+            <param name="db_opts_selector" value="db"/>
+            <param name="database" value="phiX174"/>
+            <output name="output" ftype="bam">
+                <assert_contents>
+                    <has_size value="61457" delta="50"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+.. class:: warningmark
+
+In addition to a BLAST database, you can also search against a fasta file of subject (target) sequences. However, this is not
+advised because it is slower (only one CPU is used), but more importantly gives e-values for pairwise searches (very small
+e-values which will look overly signficiant).  In most cases you should convert the fasta file into a blast database using
+*makeblastdb* and search against that.
+
+Magic-BLAST is a tool for mapping large next-generation RNA or DNA sequencing runs against a whole genome or transcriptome.
+Each alignment optimizes a composite score, taking into account simultaneously the two reads of a pair, and in case of RNA-seq,
+locating the candidate introns and adding up the score of all exons. This is very different from other versions of BLAST, where
+each exon is scored as a separate hit and read-pairing is ignored.
+
+Magic-BLAST incorporates within the NCBI BLAST code framework ideas developed in the NCBI Magic pipeline, in particular hit
+extensions by local walk and jump, and recursive clipping of mismatches near the edges of the reads, which avoids accumulating
+artefactual mismatches near splice sites and is needed to distinguish short indels from substitutions near the edges.
+
+The tool accepts a single or paired set of reads in fasta or fastqsanger format and produces bam or tabular output.
+
+More information about Magic-BLAST is available in the
+`online documentation <https://ncbi.github.io/magicblast/>`_.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
