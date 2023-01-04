@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Credits: Grigorii Sukhorukov, Macha Nikolski
-
-from tensorflow import keras
 import numpy as np
 from sklearn.utils import shuffle
+from tensorflow import keras
 
 
 class BatchLoader(keras.utils.Sequence):

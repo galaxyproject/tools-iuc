@@ -1,5 +1,4 @@
 from tensorflow.keras import layers, models
-import tensorflow as tf
 
 
 def launch(input_layer, hidden_layers):

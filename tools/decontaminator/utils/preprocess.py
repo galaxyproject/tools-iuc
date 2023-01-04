@@ -2,16 +2,17 @@
 # -*- coding: utf-8 -*-
 # Credits: Grigorii Sukhorukov, Macha Nikolski
 
+import math
+import os
+import pathlib
+import random
+
+import h5py
 import numpy as np
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-import os
-import pathlib
-import math
-import random
 from sklearn.utils import shuffle
-import h5py
 
 
 def reverse_complement(fragment):
@@ -130,7 +131,7 @@ def fragmenting(sequences, sl_wind_size, max_gap=0.05, sl_wind_step=None):
     out_sequences = []
     for sequence in sequences:
         seq = str(sequence.seq)
-        n_fragments = 1 + max(0, math.ceil((len(seq) - sl_wind_size)/sl_wind_step))
+        n_fragments = 1 + max(0, math.ceil((len(seq) - sl_wind_size) / sl_wind_step))
         for n in range(n_fragments):
             if n + 1 != n_fragments:
                 frag = seq[n * sl_wind_step: n * sl_wind_step + sl_wind_size]
@@ -260,7 +261,7 @@ def prepare_seq_lists(in_paths, n_fragments, weights=None,):
             assert 1.01 > round(sum(weights), 2) > 0.99
         else:
             l_ = len(in_paths)
-            weights = [1/l_] * l_
+            weights = [1 / l_] * l_
         n_fragments_list_all = []
         seqs_list_all = []
         for in_paths, w_ in zip(in_paths, weights):
@@ -359,7 +360,7 @@ def prepare_ds_fragmenting(in_seq, label, label_int, fragment_length, sl_wind_st
     return u_encoded, u_encoded_rc, u_labs, u_seqs, n_frags
 
 
-def prepare_ds_sampling(in_seqs, fragment_length, n_frags, label, label_int, random_seed,  n_cpus=1, limit=100):
+def prepare_ds_sampling(in_seqs, fragment_length, n_frags, label, label_int, random_seed, n_cpus=1, limit=100):
     # generating plant fragments and labels
     seqs_list = prepare_seq_lists(in_seqs, n_frags)
     frags, frags_rc, seqs_ = sample_fragments(seqs_list, fragment_length, random_seed, limit=limit, max_gap=0.05)
