@@ -5,14 +5,10 @@ import argparse
 import os
 from pathlib import Path
 
-from Bio import SeqIO
-
-from models import model_10
-
 import numpy as np
-
 import pandas as pd
-
+from Bio import SeqIO
+from models import model_10
 from utils import preprocess as pp
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -69,8 +65,7 @@ def predict_nn(ds_path, nn_weights_path, length, batch_size=256):
     out_table['pred_other'].extend(list(prediction[..., 0]))
     print('Exporting predictions to csv file')
     df = pd.DataFrame(out_table)
-    df['NN_decision'] = np.where(df['pred_vir'] >
-                                 df['pred_other'], 'virus', 'other')
+    df['NN_decision'] = np.where(df['pred_vir'] > df['pred_other'], 'virus', 'other')
     return df
 
 
@@ -139,8 +134,7 @@ def predict_contigs(df):
             'other': '# other fragments',
         }
     )
-    df['# viral / # total'] = (df['# viral fragments'] / (
-            df['# viral fragments'] + df['# other fragments'])).round(3)
+    df['# viral / # total'] = (df['# viral fragments'] / (df['# viral fragments'] + df['# other fragments'])).round(3)
     df['# viral / # total * length'] = df['# viral / # total'] * df['length']
     df = df.sort_values(by='# viral / # total * length', ascending=False)
     return df
@@ -193,8 +187,7 @@ def predict(test_ds, weights, out_path, return_viral=True):
             df = predict_contigs(df)
             dfs_cont.append(df)
             print('prediction finished')
-        df_500 = dfs_fr[0][(dfs_fr[0]['length'] >=
-                            limit) & (dfs_fr[0]['length'] < 1500)]
+        df_500 = dfs_fr[0][(dfs_fr[0]['length'] >= limit) & (dfs_fr[0]['length'] < 1500)]
         df_1000 = dfs_fr[1][(dfs_fr[1]['length'] >= 1500)]
         df = pd.concat([df_1000, df_500], ignore_index=True)
         pred_fr = Path(out_path, "predicted_fragments.csv")
