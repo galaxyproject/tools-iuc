@@ -112,7 +112,7 @@ SwitchList <- extractSequence( SwitchList,
 
 ### Summary
 
-extractSwitchSummary( SwitchList,
+switchSummary <- extractSwitchSummary( SwitchList,
                       filterForConsequences=FALSE,
                       alpha=0.05,
                       dIFcutoff = 0.1,
@@ -120,6 +120,7 @@ extractSwitchSummary( SwitchList,
                       # includeCombined=nrow(unique(switchAnalyzeRlist$isoformFeatures[,c('condition_1','condition_1')]))
 )
 
+switchSummary
 
 # Second part of the analysis
 #############################
@@ -239,12 +240,13 @@ switchPlotTopSwitches( SwitchList,
                        sortByQvals=TRUE,
                        filterForConsequences = FALSE,
                        pathToOutput = "/home/laptop/stringtie_test/isoformSwitch_outputs/outputs", #getwd(),
-                       splitComparison=TRUE,
+                       splitComparison=FALSE,
                        splitFunctionalConsequences = TRUE,
                        IFcutoff=0.05,
                        fileType = "png",
 )
 
+pdf(file = '/home/laptop/Galaxy/tools-iuc/tools/isoformswitchanalyzer/test-data/extractConsequencesSummary.pdf', onefile = FALSE, height=6, width = 9)
 extractConsequenceSummary(
   SwitchList,
   consequencesToAnalyze='all',
@@ -255,11 +257,14 @@ extractConsequenceSummary(
   plot=TRUE,
   plotGenes=FALSE,
   simplifyLocation = TRUE,
+  returnResult=TRUE,
   removeEmptyConsequences = FALSE,
   localTheme=theme_bw()
 )
+dev.off()
 
-pdf(file = '/home/laptop/stringtie_test/isoformSwitch_outputs/outputs/consequencesEnrichment.pdf', onefile = FALSE, height=6, width = 9)
+
+pdf(file = '/home/laptop/Galaxy/tools-iuc/tools/isoformswitchanalyzer/test-data/consequencesEnrichment.pdf', onefile = FALSE, height=6, width = 9)
 extractConsequenceEnrichment(
   SwitchList,
   consequencesToAnalyze = 'all',
