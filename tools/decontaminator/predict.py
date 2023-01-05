@@ -99,7 +99,7 @@ def predict_test(ds_path, length):
             out_table["id"].append(seq.id)
             out_table["length"].append(len(seq.seq))
             out_table["fragment"].append(j)
-    print('Exporting predictions to csv file')
+    print('Exporting predictions to tsv file')
     df = pd.DataFrame(out_table)
     df['pred_vir'] = 1
     df['pred_other'] = 0
@@ -190,16 +190,16 @@ def predict(test_ds, weights, out_path, return_viral=True):
         df_500 = dfs_fr[0][(dfs_fr[0]['length'] >= limit) & (dfs_fr[0]['length'] < 1500)]
         df_1000 = dfs_fr[1][(dfs_fr[1]['length'] >= 1500)]
         df = pd.concat([df_1000, df_500], ignore_index=True)
-        pred_fr = Path(out_path, "predicted_fragments.csv")
-        df.to_csv(pred_fr)
+        pred_fr = Path(out_path, "predicted_fragments.tsv")
+        df.to_csv(pred_fr, sep='\t')
 
         df_500 = dfs_cont[0][(dfs_cont[0]['length']
                               >= limit) & (dfs_cont[0]['length'] < 1500)]
         df_1000 = dfs_cont[1][(dfs_cont[1]['length']
                                >= 1500)]
         df = pd.concat([df_1000, df_500], ignore_index=True)
-        pred_contigs = Path(out_path, "predicted.csv")
-        df.to_csv(pred_contigs)
+        pred_contigs = Path(out_path, "predicted.tsv")
+        df.to_csv(pred_contigs, sep='\t')
 
         if return_viral:
             viral_ids = list(df[df["decision"] == "virus"]["id"])
