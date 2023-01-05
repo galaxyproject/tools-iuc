@@ -153,7 +153,7 @@ SwitchList <- analyzeNetSurfP2( SwitchList,
 )
 
 SwitchList <- analyzeAlternativeSplicing( SwitchList,
-                                          onlySwitchingGenes=TRUE,
+                                          onlySwitchingGenes=FALSE,
                                           alpha=0.05,
                                           dIFcutoff = 0.1,
                                           showProgress=TRUE
@@ -246,8 +246,8 @@ switchPlotTopSwitches( SwitchList,
                        fileType = "png",
 )
 
-pdf(file = '/home/laptop/Galaxy/tools-iuc/tools/isoformswitchanalyzer/test-data/extractConsequencesSummary.pdf', onefile = FALSE, height=6, width = 9)
-extractConsequenceSummary(
+pdf(file = '/home/laptop/Galaxy/tools-iuc/tools/isoformswitchanalyzer/test-data/extractConsequencesSummary.pdf', onefile = FALSE, height=6, width = 10)
+consequenceSummary <- extractConsequenceSummary(
   SwitchList,
   consequencesToAnalyze='all',
   includeCombined=FALSE,
@@ -257,15 +257,15 @@ extractConsequenceSummary(
   plot=TRUE,
   plotGenes=FALSE,
   simplifyLocation = TRUE,
-  returnResult=TRUE,
   removeEmptyConsequences = FALSE,
+  returnResult=TRUE,
   localTheme=theme_bw()
 )
 dev.off()
 
 
 pdf(file = '/home/laptop/Galaxy/tools-iuc/tools/isoformswitchanalyzer/test-data/consequencesEnrichment.pdf', onefile = FALSE, height=6, width = 9)
-extractConsequenceEnrichment(
+consequenceEnrichment <- extractConsequenceEnrichment(
   SwitchList,
   consequencesToAnalyze = 'all',
   alpha=0.05,
@@ -275,12 +275,12 @@ extractConsequenceEnrichment(
   plot=TRUE,
   localTheme = theme_bw(base_size = 12),
   minEventsForPlotting = 10,
-  returnResult = FALSE # if TRUE returns a data.frame with the summary statistics
+  returnResult = TRUE # if TRUE returns a data.frame with the summary statistics
 )
 dev.off()
 
 pdf(file = '/home/laptop/stringtie_test/isoformSwitch_outputs/outputs/splicingEnrichment.pdf', onefile = FALSE, height=6, width = 9)
-extractSplicingEnrichment(
+sprincingEnrichment <- extractSplicingEnrichment(
   SwitchList,
   splicingToAnalyze = 'all',
   alpha = 0.05,
@@ -289,7 +289,7 @@ extractSplicingEnrichment(
   countGenes = TRUE,
   plot = TRUE,
   minEventsForPlotting = 10,
-  returnResult = FALSE # if TRUE returns a data.frame with the summary statistics
+  returnResult = TRUE # if TRUE returns a data.frame with the summary statistics
 )
 dev.off()
 
@@ -327,12 +327,12 @@ ggplot(data=SwitchList$isoformFeatures, aes(x=gene_log2_fold_change, y=dIF)) +
 dev.off()
 
 pdf(file = '/home/laptop/stringtie_test/isoformSwitch_outputs/outputs/splicingGenomewide.pdf', onefile = FALSE, height=6, width = 9)
-extractSplicingGenomeWide(
+splicingGenomeWide <- extractSplicingGenomeWide(
   SwitchList,
   featureToExtract = 'all',                 # all isoforms stored in the switchAnalyzeRlist
   splicingToAnalyze = c('A3','MES','ATSS'), # Splice types significantly enriched in COAD
   plot=TRUE,
-  returnResult=FALSE  # Preventing the summary statistics to be returned as a data.frame
+  returnResult=TRUE  # Preventing the summary statistics to be returned as a data.frame
 )
 dev.off()
 
