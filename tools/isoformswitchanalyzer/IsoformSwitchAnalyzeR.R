@@ -198,14 +198,14 @@ SwitchList <- analyzeSwitchConsequences( SwitchList,
 ### Visual analysis
 # Indiviudal switches
 
-mostSwitchingGene <- extractTopSwitches(
+mostSwitchingGene <- extractTopSwitches( ## options included in plot_mode
   SwitchList,
   n = Inf,#100,
   filterForConsequences=TRUE,
   extractGenes=TRUE,
   alpha=0.05,
   dIFcutoff = 0.1,
-  inEachComparison=FALSE,
+  inEachComparison=FALSE, # not included
   sortByQvals=TRUE
 )
 
