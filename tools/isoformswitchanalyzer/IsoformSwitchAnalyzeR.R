@@ -46,10 +46,8 @@ SwitchList <- preFilter( SwitchList,
                          geneExpressionCutoff = 1,
                          isoformExpressionCutoff = 0,
                          #acceptedGeneBiotype = NULL,
-                         #acceptedIsoformClassCode = NULL,
                          removeSingleIsoformGenes = TRUE,
                          #reduceToSwitchingGenes=FALSE,
-                         #reduceFurtherToGenesWithConsequencePotential = FALSE,
                          onlySigIsoforms = FALSE,
                          keepIsoformInAllConditions=FALSE,
                          alpha=0.05,
@@ -250,7 +248,7 @@ pdf(file = '/home/laptop/Galaxy/tools-iuc/tools/isoformswitchanalyzer/test-data/
 consequenceSummary <- extractConsequenceSummary(
   SwitchList,
   consequencesToAnalyze='all',
-  includeCombined=FALSE,
+  includeCombined=FALSE, # not included
   asFractionTotal=FALSE,
   alpha=0.05,
   dIFcutoff=0.1,
@@ -258,7 +256,7 @@ consequenceSummary <- extractConsequenceSummary(
   plotGenes=FALSE,
   simplifyLocation = TRUE,
   removeEmptyConsequences = FALSE,
-  returnResult=TRUE,
+  returnResult=TRUE, # not included
   localTheme=theme_bw()
 )
 dev.off()
@@ -271,10 +269,10 @@ consequenceEnrichment <- extractConsequenceEnrichment(
   alpha=0.05,
   dIFcutoff = 0.1,
   countGenes = TRUE,
-  analysisOppositeConsequence=TRUE,
-  plot=TRUE,
-  localTheme = theme_bw(base_size = 12),
-  minEventsForPlotting = 10,
+  analysisOppositeConsequence=FALSE,
+  plot=TRUE, #not included
+  localTheme = theme_bw(base_size = 12), #not included
+  minEventsForPlotting = 10, #not included
   returnResult = TRUE # if TRUE returns a data.frame with the summary statistics
 )
 dev.off()
@@ -288,8 +286,23 @@ sprincingEnrichment <- extractSplicingEnrichment(
   onlySigIsoforms = FALSE,
   countGenes = TRUE,
   plot = TRUE,
-  minEventsForPlotting = 10,
-  returnResult = TRUE # if TRUE returns a data.frame with the summary statistics
+  minEventsForPlotting = 10, #not included
+  returnResult = TRUE # not included
+)
+dev.off()
+
+pdf(file = '/home/laptop/stringtie_test/isoformSwitch_outputs/outputs/splicingSummary.pdf', onefile = FALSE, height=6, width = 9)
+splicingSummary <- extractSplicingSummary(
+  SwitchList,
+  splicingToAnalyze = 'all',
+  asFractionTotal = FALSE,
+  alpha = 0.05,
+  dIFcutoff = 0.1,
+  onlySigIsoforms = FALSE,
+  plot = TRUE,
+  plotGenes = FALSE,
+  localTheme = theme_bw(),
+  returnResult = TRUE
 )
 dev.off()
 
