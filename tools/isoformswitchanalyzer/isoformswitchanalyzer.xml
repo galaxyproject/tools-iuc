@@ -20,25 +20,51 @@
            description="An undefined error occurred, please check your input carefully and contact your administrator." />
     </stdio>
     <command><![CDATA[
-            #if $function_mode.selector == 'data_import'
-                mk -p 'input_files' &&
-                #if $function_mode.tool_selector == 'stringtie'
+            #if $functionMode.selector == 'data_import'
+                #if $functionMode.transcriptome.is_of_type("fasta.gz"):
+                    ln -s '${functionMode.transcriptome}' './transcriptome.fasta.gz' &&
+                    #set $transcriptome = './transcriptome.fasta.gz' 
+                #else
+                    ln -s '${functionMode.transcriptome}' './transcriptome.fasta'
+                    #set $transcriptome = './transcriptome.fasta' 
+                #end if
+                #if $functionMode.genomeAnnotation.is_of_type("gtf.gz"):
+                    ln -s '${functionMode.genomeAnnotation}' './annotation.gtf.gz' &&
+                    #set $annotation = './annotation.gtf.gz' 
+                #else
+                    ln -s '${functionMode.genomeAnnotation}' './annotation.gtf' &&
+                        #set $annotation = './annotation.gtf' 
+                #end if
+                mkdir -p 'input_files' &&
+                #if $functionMode.countFiles != 'disabled':
+                    mkdir -p "count_files" &&
+                #end if
+                #if $functionMode.tool_selector == 'stringtie'
                     #set $filename = 't_data.ctab'
                 #else
                     #set $filename = 'quant.sf'
                 #end if
-                #for $index,$factor in enumerate($function_mode.rep_factorLevel):
-                    #set $outdir = './input_files/${factor.factorLevel}${index}/'
-                    mkdir $outdir &&
-                    ln -s $factor.trans_counts[$index] '${outdir}${filename}' &&
+                #for $factor in $functionMode.rep_factorLevel:
+                    #for $index in range(len($factor.trans_counts)):
+                        mkdir './input_files/${factor.factorLevel}${index}/' &&
+                        ln -s $factor.trans_counts[$index] './input_files/${factor.factorLevel}${index}/${filename}' &&
+                    #end for
                 #end for
+                Rscript '${__tool_directory__}/IsoformSwitchAnalyzeR.R'
+                    -a $functionMode.selector
+                    -b './input_files'
+                    -c $functionMode.averageSize
+                    -d $annotation
+                    -e $transcriptome
+                    -f $functionMode.fixStringTieAnnotationProblem
+                    -g $functionMode.countFiles
+                && ls -lah gene_counts
             #end if
-            ls -lah
-            Rscript '${__tool_directory__}/IsoformSwitchAnalyzerR.R'
+
 
     ]]></command>
     <inputs>
-        <conditional name="function_mode">
+        <conditional name="functionMode">
             <param name="selector" type="select" label="Tool function mode" 
                 help="The first step of a IsoformSwitchAnalyzeR workflow is to import and integrate the isoform quantification 
                     with its basic annotation. Once you have all the relevant data imported into R (IsoformSwitchAnalyzeR will 
@@ -62,13 +88,21 @@
                     </param>
                     <param name="trans_counts" type="data" format="tabular" multiple="true" label="Transcript-level expression measurements"/> 
                 </repeat>
-                <param name="genome_annotation" type="data" format="gtf,gtf.gz" label="Genome annotation (GTF)" 
+                <param name="genomeAnnotation" type="data" format="gtf,gtf.gz" label="Genome annotation (GTF)" 
                     help="It is used to integrate the coding sequence (CDS) regions from in the GTF file as the ORF regions used by IsoformSwitchAnalyzeR." />
                 <param name="transcriptome" type="data" format="fasta,fasta.gz" label="Transcriptome" 
                     help="Please note this different from a fasta file with the sequences of the entire genome." />
-                <param name="fixed_quantification" type="boolean" truevalue="true" falsevalue="false" checked="true" 
+                <param name="averageSize" type="integer" min="0" value="150" label="Average read length" help="Must be the number of base pairs sequenced. e.g. if the data 
+                    quantified is 75 bp paired ends the the user should supply readLength=75" />
+                <param argument="fixStringTieAnnotationProblem" type="boolean" truevalue="true" falsevalue="false" checked="true" 
                     label="Fix StringTie annotation problem" help="This option will automatically try and correct some of the annoation problems created when 
-                        doing transcript assembly (unassigned transcripts and merged genes)." />
+                        doing transcript assembly (unassigned transcripts and merged genes)" />
+                <param name="countFiles" type="select" label="Generate count matrix files" help="If IsoformSwitchAnalyzeR is used for fixing Stringtie annotation
+                    problem, it can generate count files for analyzing differential expression with DESeq2 or EdgeR.">
+                    <option value="disabled">Disabled</option>
+                    <option value="deseq2">DESeq2 input format</option>
+                    <option value="edger">EdgeR input format</option>
+                </param>
             </when>
 
             <!--WRAPPER FIRST STEP SECTION-->
@@ -325,6 +359,16 @@
     </inputs>
     <outputs>
         <data name="test" format="txt" label="${tool.name} on ${on_string}: test file" />
+        <collection name="deseq2_counts" type="list" label="${tool.name} on ${on_string}: gene counts (DESeq2)">
+            <discover_datasets pattern="__designation_and_ext__" format="tabular" directory="count_files" />
+            <filter>functionMode['countFiles'] == 'deseq2'</filter>
+        </collection>
+        <data name="edger_counts" format="tabular" from_work_dir="count_files/edgeR.tabular" label="${tool.name} on ${on_string}: gene counts (EdgeR)">
+            <filter>functionMode['countFiles'] == 'edger'</filter>
+        </data>
+        <data name="switchList" format="rdata" from_work_dir="SwitchList.Rda" label="${tool.name} on ${on_string}: SwitchList (RData)">
+            <filter>functionMode['selector'] == 'data_import'</filter>
+        </data>
     </outputs>
 
     <tests>
