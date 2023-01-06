@@ -8,6 +8,10 @@ stringtie <- importIsoformExpression(
   readLength = 150
 )
 
+salmonQuant <- importIsoformExpression(
+  parentDir = "/home/laptop/Downloads/drosophila",
+  addIsofomIdAsColumn = TRUE)
+
 ### Make design matrix
 myDesign <- data.frame(
   sampleID = colnames(stringtie$abundance)[-1],
@@ -156,6 +160,8 @@ SwitchList <- analyzeAlternativeSplicing( SwitchList,
                                           dIFcutoff = 0.1,
                                           showProgress=TRUE
 )
+
+
 
 SwitchList <- analyzeSignalP( SwitchList,
                               pathToSignalPresultFile = c("/home/laptop/stringtie_test/isoformSwitch_outputs/signalp_files/first_group/output_protein_type.txt",
