@@ -26,9 +26,11 @@ def get_file_url(wildcards):
             keep_local=True)
         )
 
-metawrap = 'docker://quay.io/biocontainers/metawrap-mg:1.3.0--hdfd78af_0'
-sra_tools = 'docker://quay.io/biocontainers/sra-tools:2.11.0--pl5321ha49a11a_3'
 bbmap = 'docker://quay.io/biocontainers/bbmap:39.01--h5c4e2a8_0'
+bwa = 'docker://quay.io/biocontainers/bwa:0.7.3a--h7132678_7'
+metawrap = 'docker://quay.io/biocontainers/metawrap-mg:1.3.0--hdfd78af_1'
+sra_tools = 'docker://quay.io/biocontainers/sra-tools:2.11.0--pl5321ha49a11a_3'
+samtools = 'docker://quay.io/biocontainers/samtools:1.16.1--h6899075_1'
 
 # metawrap tutorial test
 # https://github.com/bxlab/metaWRAP/blob/master/Usage_tutorial.md
@@ -44,8 +46,134 @@ all_samples = sorted(set(read_urls.keys()))
 rule target:
     input:
         'test_pipeline/BIN_REASSEMBLY',
-        'test_pipeline/subset/final_assembly.fasta' # for galaxy
+        'test_pipeline/subset/final_assembly.fasta', # for galaxy
+        'test_pipeline/shrink_results/mapped_reads.r1.fastq.gz'
 
+
+# map reads back to bins 1 and 2
+rule select_reads:
+    input:
+        'test_pipeline/shrink_results/mapped_reads.fastq'
+    output:
+        r1 = 'test_pipeline/shrink_results/mapped_reads.r1.fastq.gz',
+        r2 = 'test_pipeline/shrink_results/mapped_reads.r2.fastq.gz'
+    log:
+        'test_pipeline/logs/select_reads.log'
+    container:
+        bbmap
+    shell:
+        'reformat.sh '
+        'in={input} '
+        'out={output.r1} '
+        'out2={output.r2} '
+        'zl=9 '
+        'samplerate=0.01 '
+        'sampleseed=14 '
+        '2> {log}'
+
+
+rule get_mapped_reads:
+    input:
+        r1 = 'test_pipeline/CLEAN_READS/ALL_READS_1.fastq',
+        r2 = 'test_pipeline/CLEAN_READS/ALL_READS_2.fastq',
+        names  = 'test_pipeline/shrink_results/ids.txt'
+    output:
+        'test_pipeline/shrink_results/mapped_reads.fastq'
+    container:
+        bbmap
+    log:
+        'test_pipeline/logs/get_mapped_reads.log'
+    shell:
+        'filterbyname.sh '
+        'in={input.r1} '
+        'in2={input.r2} '
+        'out={output} '
+        'names={input.names} '
+        'include=t '
+        '2>{log}'
+
+rule get_read_ids:
+    input:
+        'test_pipeline/shrink_results/mapped.sam'
+    output:
+        'test_pipeline/shrink_results/ids.txt'
+    container:
+        samtools
+    log:
+        'test_pipeline/logs/get_read_ids.log'
+    shell:
+        'samtools view  {input} '
+        '| cut -f1 '
+        '| sort '
+        '| uniq '
+        '> {output} '
+        '2> {log}'
+
+
+rule extract_mapped:
+    input:
+        'test_pipeline/shrink_results/aln.sam'
+    output:
+        'test_pipeline/shrink_results/mapped.sam'
+    container:
+        samtools
+    log:
+        'test_pipeline/logs/extract_mapped.log'
+    shell:
+        'samtools view '
+        '-h '
+        '-F 268 '
+        '{input} '
+        '> {output} '
+        '2> {log}'
+
+
+rule remap:
+    input:
+        r1 = 'test_pipeline/CLEAN_READS/ALL_READS_1.fastq',
+        r2 = 'test_pipeline/CLEAN_READS/ALL_READS_2.fastq',
+        ref = 'test_pipeline/shrink_results/contigs.fa'
+    output:
+        'test_pipeline/shrink_results/aln.sam'
+    log:
+        'test_pipeline/logs/remap.log'
+    threads:
+        workflow.cores
+    container:
+        bwa
+    shell:
+        'bwa index {input.ref} &> {log} && '
+        'bwa mem '
+        '-t {threads} '
+        '{input.ref} '
+        '{input.r1} {input.r2} '
+        '> {output} '
+        '2>> {log}'
+
+
+rule select_bins:
+    input:
+        expand(
+            'test_pipeline/BIN_REFINEMENT/metawrap_70_10_bins/bin.{bin}.fa',
+            bin=['1','2'])
+    output:
+        'test_pipeline/shrink_results/contigs.fa'
+    log:
+        'test_pipeline/logs/select_bins.log'
+    container:
+        bbmap
+    shell:
+        'cat {input} '
+        '| '
+        'reformat.sh '
+        'in=stdin.fa '
+        'out={output} '
+        'samplerate=0.8 '
+        'sampleseed=14 '
+        '2> {log}'
+
+
+# the metawrap pipeline
 rule metawrap_reassemble_bins:
     input:
         r1 = 'test_pipeline/CLEAN_READS/ALL_READS_1.fastq',
