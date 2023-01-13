@@ -7,8 +7,9 @@ import json
 import pickle
 import re
 import sys
-from pathlib import Path
 from importlib.metadata import version
+from pathlib import Path
+
 from packaging.version import Version
 
 
