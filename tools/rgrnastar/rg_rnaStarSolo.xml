@@ -94,8 +94,14 @@
     --soloStrand $solo.soloStrand
     --soloFeatures $solo.soloFeatures
     --soloUMIdedup $sc.soloUMIdedup
-    --quantMode TranscriptomeSAM
-    --outSAMtype BAM Unsorted
+    --quantMode TranscriptomeSAM $solo.quantModeGene
+    #set $tag_names = str($solo.outSAMattributes).replace(',', ' ')
+    --outSAMattributes $tag_names
+    #if "CB" in $tag_names or "UB" in $tag_names:
+        --outSAMtype BAM SortedByCoordinate
+    #else:
+        --outSAMtype BAM Unsorted
+    #end if
 
     #if str($solo.filter.filter_type) == "cellranger2":
     --soloCellFilter CellRanger2.2 $solo.filter.n_expected $solo.filter.max_perc $solo.filter.max_min_ratio
@@ -114,19 +120,24 @@
     ## put the barcodes and features stats into a single file
     && cat <(echo "Barcodes:") Solo.out/Barcodes.stats <(echo "Genes:") Solo.out/soloFeatures/Features.stats > '${output_stats}'
 
-    ## BAM sorting (logic copied from samtools_sort wrapper)
-    ## choosing BAM SortedByCoord appeared once to give fewer reads
-    ## than BAM Unsorted followed by a samtools sort
-    ## so better go with the latter?
 
-    &&
-    ##compute the number of ADDITIONAL threads to be used by samtools (-@)
-    addthreads=\${GALAXY_SLOTS:-2} && (( addthreads-- )) &&
-    ##compute the number of memory available to samtools sort (-m)
-    ##use only 75% of available: https://github.com/samtools/samtools/issues/831
-    addmemory=\${GALAXY_MEMORY_MB_PER_SLOT:-768} &&
-    ((addmemory=addmemory*75/100)) &&
-    samtools sort -@ \$addthreads -m \$addmemory"M" -T "\${TMPDIR:-.}" -O bam -o '$output_BAM' Aligned.out.bam
+    #if "CB" in $tag_names or "UB" in $tag_names:
+        && cp Aligned.sortedByCoord.out.bam '$output_BAM'
+    #else:
+        ## BAM sorting (logic copied from samtools_sort wrapper)
+        ## choosing BAM SortedByCoord appeared once to give fewer reads
+        ## than BAM Unsorted followed by a samtools sort
+        ## so better go with the latter?
+
+        &&
+        ##compute the number of ADDITIONAL threads to be used by samtools (-@)
+        addthreads=\${GALAXY_SLOTS:-2} && (( addthreads-- )) &&
+        ##compute the number of memory available to samtools sort (-m)
+        ##use only 75% of available: https://github.com/samtools/samtools/issues/831
+        addmemory=\${GALAXY_MEMORY_MB_PER_SLOT:-768} &&
+        ((addmemory=addmemory*75/100)) &&
+        samtools sort -@ \$addthreads -m \$addmemory"M" -T "\${TMPDIR:-.}" -O bam -o '$output_BAM' Aligned.out.bam
+    #end if
     ]]></command>
     <configfiles>
         <configfile name="manifest_file" >
@@ -317,6 +328,24 @@
                 <when value="no_filter" />
             </conditional>
             <param argument="--soloOutFormatFeaturesGeneField3" type="text" value="Gene Expression" label="Field 3 in the Genes output." help="Input '-' to remove the 3rd column from the output." />
+            <param argument="--outSAMattributes" type="select" display="checkboxes" multiple="true" optional="true"
+            label="Read alignment tags to include in the BAM output">
+                <option value="NH" selected="true">NH (number of reported alignments/hits for the read)</option>
+                <option value="HI" selected="true">HI (query hit index)</option>
+                <option value="AS" selected="true">AS (local alignment score)</option>
+                <option value="nM" selected="true">nM (number of mismatches per (paired) alignment)</option>
+                <option value="NM">NM (edit distance of the aligned read to the reference)</option>
+                <option value="MD">MD (string for mismatching positions)</option>
+                <option value="jM">jM (intron motifs for all junctions)</option>
+                <option value="jI">jI (1-based start and end of introns for all junctions)</option>
+                <option value="CR">CR Cellular barcode sequence bases (uncorrected)</option>
+                <option value="CY">CY Phred quality of the cellular barcode sequence in the CR tag</option>
+                <option value="GX">GX Gene ID</option>
+                <option value="GN">GN Gene name</option>
+                <option value="CB">CB Cell identifier (corrected)</option>
+                <option value="UB">UB UMI (corrected)</option>
+            </param>
+            <param name="quantModeGene" type="boolean" truevalue="GeneCounts" falsevalue="" checked="false" label="Output global gene count" help="Can be used by MultiQC" />
         </section>
     </inputs>
     <outputs>
@@ -376,6 +405,10 @@
             <expand macro="dbKeyActions" />
         </data>
         <data format="txt" name="output_stats" label="${tool.name} on ${on_string}: Barcode/Feature Statistic Summaries"/>
+        <data name="reads_per_gene" format="tabular" label="${tool.name} on ${on_string}: combined reads per gene" from_work_dir="ReadsPerGene.out.tab">
+            <filter>solo['quantModeGene']</filter>
+            <expand macro="dbKeyActions" />
+        </data>
     </outputs>
     <!-- Generating test data that is big enough for STARsolo to detect and small enough
          for Galaxy to test requires careful modification of input FASTA and GTF data,
@@ -386,7 +419,7 @@
          here: https://gist.github.com/mtekman/149a7c52fd73e5d8ebe49f5a27b0743d
     -->
     <tests>
-        <test expect_num_outputs="6">
+        <test expect_num_outputs="7">
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
@@ -413,35 +446,45 @@
                 </conditional>
                 <param name="soloStrand" value="Forward" />
                 <param name="soloFeatures" value="Gene" />
+                <param name="quantModeGene" value="true" />
             </section>
             <output name="output_barcodes" >
                 <assert_contents>
                     <!-- first and last line -->
                     <has_line line="AAACCTGAGCGCTCCA" />
                     <has_line line="TTTGGTTAGTGGGCTA" />
+                    <has_n_lines n="394" />
                 </assert_contents>
             </output>
             <output name="output_genes">
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
                 </assert_contents>
             </output>
             <output name="output_matrix" >
                 <assert_contents>
                     <has_line_matching expression="14\s+394\s+7" />
                     <has_line_matching expression="4\s+381\s+1" />
+                    <has_n_lines n="10" />
                 </assert_contents>
             </output>
             <output name="output_stats" >
                 <assert_contents>
-                    <has_line_matching expression="\s+nUnmapped\s+5823" />
-                    <has_line_matching expression="\s+nUMIs\s+8" />
+                    <has_line_matching expression="\s+noUnmapped\s+5823" />
+                    <has_line_matching expression="\s+yesUMIs\s+8" />
                 </assert_contents>
             </output>
             <output name="output_BAM" value="filtered3.bam" compare="sim_size" delta="600" />
+            <output name="reads_per_gene" >
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+0\s+0\s+0" />
+                    <has_line_matching expression="ENSG00000275464\s+38\s+1\s+40" />
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="6"><!-- same as above, but using custom -->
+        <test expect_num_outputs="6"><!-- same as above, but using custom and no reads_per_gene-->
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
                 <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
@@ -471,26 +514,30 @@
             </section>
             <output name="output_barcodes_filtered" >
                 <assert_contents>
+                    <!-- first and last line -->
                     <has_line line="ACACCGGTCTAACGGT" />
                     <has_line line="TTCTCAATCCACGTTC" />
+                    <has_n_lines n="7" />
                 </assert_contents>
             </output>
             <output name="output_genes_filtered">
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
                 </assert_contents>
             </output>
             <output name="output_matrix_filtered" >
                 <assert_contents>
                     <has_line_matching expression="14\s+7\s+7" />
                     <has_line_matching expression="4\s+7\s+1" />
+                    <has_n_lines n="10" />
                 </assert_contents>
             </output>
             <output name="output_stats" >
                 <assert_contents>
-                    <has_line_matching expression="\s+nUnmapped\s+5823" />
-                    <has_line_matching expression="\s+nUMIs\s+8" />
+                    <has_line_matching expression="\s+noUnmapped\s+5823" />
+                    <has_line_matching expression="\s+yesUMIs\s+8" />
                 </assert_contents>
             </output>
             <output name="output_BAM" value="filtered3.bam" compare="sim_size" delta="600" />
@@ -524,9 +571,14 @@
                 <assert_contents>
                     <has_line line="ACACCGGTCTAACGGT" />
                     <has_line line="TTCTCAATCCACGTTC" />
+                    <has_n_lines n="7" />
                 </assert_contents>
             </output>
-            <!-- BAM output is huge, we don't need to test here -->
+            <output name="output_BAM" >
+                <assert_contents>
+                    <has_size value="166147" delta="600" />
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="6">
             <!-- Test with paired collection -->
@@ -562,6 +614,7 @@
                 <assert_contents>
                     <has_line line="ACACCGGTCTAACGGT" />
                     <has_line line="TTCTCAATCCACGTTC" />
+                    <has_n_lines n="7" />
                 </assert_contents>
             </output>
             <output name="output_BAM" value="filtered3.bam" compare="sim_size" delta="600" />
@@ -604,18 +657,21 @@
                     <!-- first and last line -->
                     <has_line line="AGACGTTCAAGGCTCC" />
                     <has_line line="TCAACGAAGCTAGTGG" />
+                    <has_n_lines n="6" />
                 </assert_contents>
             </output>
             <output name="output_genes_filtered" >
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Dummy\s+Text" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Dummy\s+Text" />
+                    <has_n_lines n="14" />
                 </assert_contents>
             </output>
             <output name="output_matrixGeneFull_filtered" >
                 <assert_contents>
                     <has_line_matching expression="14\s+6\s+14" />
                     <has_line_matching expression="10\s+6\s+1" />
+                    <has_n_lines n="17" />
                 </assert_contents>
             </output>
         </test>
@@ -663,24 +719,27 @@
                     <!-- first and last line -->
                     <has_line line="ACACCGGTCTAACGGT" />
                     <has_line line="TTCTCAATCCACGTTC" />
+                    <has_n_lines n="7" />
                 </assert_contents>
             </output>
             <output name="output_genes_filtered">
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
                 </assert_contents>
             </output>
             <output name="output_matrix_filtered" >
                 <assert_contents>
                     <has_line_matching expression="14\s+7\s+7" />
                     <has_line_matching expression="4\s+7\s+1" />
+                    <has_n_lines n="10" />
                 </assert_contents>
             </output>
             <output name="output_stats" >
                 <assert_contents>
-                    <has_line_matching expression="\s+nUnmapped\s+5823" />
-                    <has_line_matching expression="\s+nUMIs\s+8" />
+                    <has_line_matching expression="\s+noUnmapped\s+5823" />
+                    <has_line_matching expression="\s+yesUMIs\s+8" />
                 </assert_contents>
             </output>
             <output name="output_BAM" value="filtered3.bam" compare="sim_size" delta="600" />
@@ -730,24 +789,27 @@
                     <!-- first and last line -->
                     <has_line line="ACAACGTGG_AAACCTCC" />
                     <has_line line="ATTCCAGAC_TTCGCTGG" />
+                    <has_n_lines n="33" />
                 </assert_contents>
             </output>
             <output name="output_genes_filtered">
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
                 </assert_contents>
             </output>
             <output name="output_matrix_filtered" >
                 <assert_contents>
                     <has_line_matching expression="14\s+33\s+36" />
                     <has_line_matching expression="2\s+33\s+1" />
+                    <has_n_lines n="39" />
                 </assert_contents>
             </output>
             <output name="output_stats" >
                 <assert_contents>
-                    <has_line_matching expression="\s+nExactMatch\s+791" />
-                    <has_line_matching expression="\s+nUMIs\s+36" />
+                    <has_line_matching expression="\s+yesWLmatchExact\s+791" />
+                    <has_line_matching expression="\s+yesUMIs\s+36" />
                 </assert_contents>
             </output>
         </test>
@@ -837,24 +899,157 @@
                 <assert_contents>
                     <has_line line="CSC6_D02" />
                     <not_has_text text="MGH26_A02" />
+                    <has_n_lines n="3" />
                 </assert_contents>
             </output>
             <output name="output_genes_filtered">
                 <assert_contents>
                     <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
                     <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
                 </assert_contents>
             </output>
             <output name="output_matrix_filtered" >
                 <assert_contents>
                     <has_line_matching expression="14\s+3\s+10" />
                     <has_line_matching expression="12\s+3\s+1" />
+                    <has_n_lines n="13" />
                 </assert_contents>
             </output>
             <output name="output_stats" >
                 <assert_contents>
-                    <has_line_matching expression="\s+nExactMatch\s+9000" />
-                    <has_line_matching expression="\s+nUMIs\s+32" />
+                    <has_line_matching expression="\s+yesWLmatchExact\s+9000" />
+                    <has_line_matching expression="\s+yesUMIs\s+32" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="6">
+            <!-- Test outSAMattributes -->
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
+            </conditional>
+            <section name="solo" >
+                <conditional name="filter">
+                    <param name="filter_type" value="no_filter" />
+                </conditional>
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="Gene" />
+                <param name="outSAMattributes" value="NH,HI,AS,nM,GX,GN,CB,UB" />
+            </section>
+            <output name="output_barcodes" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTGGTTAGTGGGCTA" />
+                    <has_n_lines n="394" />
+                </assert_contents>
+            </output>
+            <output name="output_genes">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+394\s+7" />
+                    <has_line_matching expression="4\s+381\s+1" />
+                    <has_n_lines n="10" />
+                </assert_contents>
+            </output>
+            <output name="output_stats" >
+                <assert_contents>
+                    <has_line_matching expression="\s+noUnmapped\s+5823" />
+                    <has_line_matching expression="\s+yesUMIs\s+8" />
+                </assert_contents>
+            </output>
+            <output name="output_BAM" value="filtered3.bam" decompress="true" />
+            <output name="reads_per_gene" >
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+0\s+0\s+0" />
+                    <has_line_matching expression="ENSG00000275464\s+38\s+1\s+40" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="6">
+            <!-- Test outSAMattributes -->
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="filtered3.Homo_sapiens.GRCh38.dna.chromosome.21.fa.gz" />
+                <param name="genomeSAindexNbases" value="4" />
+                <param name="sjdbOverhang" value="100" />
+                <param name="sjdbGTFfile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf" ftype="gtf"/>
+            </conditional>
+            <conditional name="sc" >
+                <param name="solo_type" value="CB_UMI_Simple" />
+                <conditional name="input_types">
+                    <param name="use" value="repeat" />
+                    <param name="input1" value="pbmc_1k_v2_L001.R1.10k.fastq.gz" ftype="fastqsanger.gz" />
+                    <param name="input2" value="pbmc_1k_v2_L001.R2.10k.fastq.gz" ftype="fastqsanger.gz" />
+                </conditional>
+                <param name="soloCBwhitelist" value="filtered.barcodes.txt" />
+                <conditional name="params">
+                    <param name="chemistry" value="CR3" />
+                </conditional>
+                <param name="soloUMIdedup" value="1MM_All" />
+            </conditional>
+            <section name="solo" >
+                <conditional name="filter">
+                    <param name="filter_type" value="no_filter" />
+                </conditional>
+                <param name="soloStrand" value="Forward" />
+                <param name="soloFeatures" value="Gene" />
+                <param name="outSAMattributes" value="NH,HI,AS,nM,GX,GN,CB,UB" />
+            </section>
+            <output name="output_barcodes" >
+                <assert_contents>
+                    <!-- first and last line -->
+                    <has_line line="AAACCTGAGCGCTCCA" />
+                    <has_line line="TTTGGTTAGTGGGCTA" />
+                    <has_n_lines n="394" />
+                </assert_contents>
+            </output>
+            <output name="output_genes">
+                <assert_contents>
+                    <has_line_matching expression="ENSG00000279493\s+FP565260\.4\s+Gene\s+Expression" />
+                    <has_line_matching expression="ENSG00000279064\s+FP236315\.1\s+Gene\s+Expression" />
+                    <has_n_lines n="14" />
+                </assert_contents>
+            </output>
+            <output name="output_matrix" >
+                <assert_contents>
+                    <has_line_matching expression="14\s+394\s+7" />
+                    <has_line_matching expression="4\s+381\s+1" />
+                    <has_n_lines n="10" />
+                </assert_contents>
+            </output>
+            <output name="output_stats" >
+                <assert_contents>
+                    <has_line_matching expression="\s+noUnmapped\s+5823" />
+                    <has_line_matching expression="\s+yesUMIs\s+8" />
+                </assert_contents>
+            </output>
+            <output name="output_BAM" >
+                <assert_contents>
+                    <has_size value="197376" delta="600" />
                 </assert_contents>
             </output>
         </test>
