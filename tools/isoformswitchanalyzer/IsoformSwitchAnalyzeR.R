@@ -24,13 +24,74 @@ args <- commandArgs(trailingOnly = TRUE)
 # Get options, using the spec as defined by the enclosed list.
 # Read the options from the default: commandArgs(TRUE).
 spec <- matrix(c(
-  "modeSelector",   "a",  1,  "character",
-  "parentDir",      "b",  2,  "character",
-  "readLength",     "c",  2,  "integer",
-  "annotation",     "d",  2,  "character",
-  "transcriptome",  "e",  2,  "character",
-  "fixStringTieAnnotationProblem",  "f",  2,  "logical",
-  "countFiles",     "g",  2,  "character"),
+  "modeSelector",       "a", 1, "character",
+  "parentDir",          "b", 2, "character",
+  "readLength",         "c", 2, "integer",
+  "annotation",         "d", 2, "character",
+  "transcriptome",      "e", 2, "character",
+  "fixStringTieAnnotationProblem", "f", 2, "logical",
+  "countFiles",         "g", 2, "character",
+  "toolSource",         "h", 2, "character",
+  "rObject",            "i", 2, "character",
+  "IFcutoff",           "j", 2, "numeric",
+  "geneExpressionCutoff", "k", 2, "numeric",
+  "isoformExpressionCutoff",  "m", 2, "numeric",
+  "alpha",              "n", 2, "numeric",
+  "dIFcutoff",          "o", 2, "numeric",
+  "onlySigIsoforms",    "p", 2, "logical",
+  "filterForConsequences",  "q", 2, "logical",
+  "acceptedGeneBiotype","r", 2, "character",
+  "removeSingleIsformGenes","s", 2, "logical",
+  "keepIsoformInAllConditions", "t", 2, "logical",
+  "correctForConfoundingFactors","u",2, "logical",
+  "overwriteIFvalues",  "v", 2, "logical",
+  "reduceToSwitchingGenes", "w", 2, "logical",
+  "reduceFurtherToGenesWithConsequencePotential", "x", 2, "logical",
+  "keepIsoformInAllConditions2", "y", 2, "logical",
+  "minORFlength",       "z", 2, "integer",
+  "orfMethod",          "A", 2, "character",
+  "PTCDistance",        "B", 2, "integer",
+  "removeShortAAseq",   "C", 2, "logical",
+  "removeLongAAseq",    "D", 2, "logical",
+  "alsoSplitFastaFile", "E", 2, "logical",
+  "removeORFwithStop",  "F", 2, "logical",
+  "onlySwitchingGenes", "G", 2, "logical",
+  "analysisMode",       "H", 2, "character",
+  "genesToPLot",        "I", 2, "integer",
+  "gene",               "J", 2, "character",
+  "sortByQvals",        "K", 2, "logical",
+  "countGenes",         "M", 2, "logical",
+  "asFractionTotal",    "N", 2, "logical",
+  "plotGenes",          "O", 2, "logical",
+  "simplifyLocation",   "P", 2, "logical",
+  "removeEmptyConsequences",  "Q", 2, "logical",
+  "analysisOppositeConsequence",  "R", 2, "logical"
+  "pathToCPATresultFile", "S", 2, "character",
+  "pathToCPC2resultFile", "T", 2, "character",
+  "pathToPFAMresultFile", "U", 2, "character",
+  "pathToNetSurfP2resultFile", "V", 2, "character",
+  "pathToSignalPresultFile", "W", 2, "character",
+  "pathToIUPred2AresultFile","X", 2, "character",
+  "codingCutoff",       "Y", 2, "numeric",
+  "removeNoncodingORFs","Z", 2, "logical",
+  "minSignalPeptideProbability",  "aA", 2, "numeric",
+  "smoothingWindowSize","aB", 2, "integer",
+  "probabilityCutoff",  "aC", 2, "numeric",
+  "minIdrSize",         "aD", 2, "integer",
+  "annotateBindingSites","aE",2, "logical",
+  "minIdrBindingSize",  "aF", 2, "integer",
+  "minIdrBindingOverlapFrac", "aG", 2, "numeric",
+  "ntCutoff",           "aS", 2, "integer",
+  "ntFracCutoff",       "aH", 2, "numeric",
+  "ntJCsimCutoff",      "aI", 2, "numeric",
+  "AaCutoff",           "aJ", 2, "integer",
+  "AaFracCutoff",       "aK", 2, "numeric",
+  "AaJCsimCutoff",      "aM", 2, "numeric",
+  "removeNonConseqSwitches", "aN",  2,  "logical",
+  "rescaleTranscripts", "aO", 2, "logical",
+  "reverseMinus",       "aP", 2, "logical",
+  "addErrorbars",       "aQ", 2, "logical"
+  ),
 byrow = TRUE, ncol = 4
 )
 opt <- getopt(spec)
@@ -44,8 +105,10 @@ if (opt$modeSelector == 'data_import') {
 
   quantification_data <- importIsoformExpression(
     parentDir = opt$parentDir,
-    addIsofomIdAsColumn = TRUE,
-    readLength = opt$readLength
+    addIsofomIdAsColumn = TRUE, #not optional, required to be TRUE
+    if(!missing(opt$readLength)){
+      readLength = opt$readLength
+    }
   )
 
   ### Make design matrix
@@ -60,8 +123,10 @@ if (opt$modeSelector == 'data_import') {
     designMatrix         = myDesign,
     isoformExonAnnoation = opt$annotation,
     isoformNtFasta       = opt$transcriptome,
-    fixStringTieAnnotationProblem = opt$fixStringTieAnnotationProblem,
-    showProgress = TRUE
+    showProgress = TRUE,
+    if(!missing(opt$fixStringTieAnnotationProblem)){
+      fixStringTieAnnotationProblem = opt$fixStringTieAnnotationProblem
+    }
   )
 
   geneCountMatrix <- extractGeneExpression(
@@ -103,31 +168,33 @@ if (opt$modeSelector == 'first_step') {
   # Second part of the analysis
   #############################
 
+  load(file=opt$rObject)
+
   ### Filter
   SwitchList <- preFilter( SwitchList,
-                          IFcutoff=0.01,
-                          geneExpressionCutoff = 1,
-                          isoformExpressionCutoff = 0,
-                          #acceptedGeneBiotype = NULL,
-                          removeSingleIsoformGenes = TRUE,
+                          IFcutoff=opt$IFcutoff,
+                          geneExpressionCutoff = opt$geneExpressionCutoff,
+                          isoformExpressionCutoff = opt$isoformExpressionCutoff,
+                          removeSingleIsoformGenes = opt$removeSingleIsformGenes,
                           #reduceToSwitchingGenes=FALSE,
-                          onlySigIsoforms = FALSE,
-                          keepIsoformInAllConditions=FALSE,
-                          alpha=0.05,
-                          dIFcutoff = 0.1,
+                          onlySigIsoforms = opt$onlySigIsoforms,
+                          keepIsoformInAllConditions=opt$keepIsoformInAllConditions,
+                          alpha=opt$alpha,
+                          dIFcutoff = opt$dIFcutoff,
+                          acceptedGeneBiotype = opt$acceptedGeneBiotype
   )
 
   ### Test for isoform switches
   SwitchList <- isoformSwitchTestDEXSeq( SwitchList,
-                                        alpha = 0.05,
-                                        dIFcutoff = 0.1,
+                                        alpha = opt$alpha,
+                                        dIFcutoff = opt$dIFcutoff,
                                         ### Advanced arguments
-                                        correctForConfoundingFactors=TRUE,
-                                        overwriteIFvalues=TRUE,
-                                        reduceToSwitchingGenes = TRUE,
-                                        reduceFurtherToGenesWithConsequencePotential = TRUE,
-                                        onlySigIsoforms = FALSE,
-                                        keepIsoformInAllConditions = TRUE,
+                                        correctForConfoundingFactors=opt$correctForConfoundingFactors,
+                                        overwriteIFvalues=opt$overwriteIFvalues,
+                                        reduceToSwitchingGenes = opt$reduceToSwitchingGenes,
+                                        reduceFurtherToGenesWithConsequencePotential = opt$reduceFurtherToGenesWithConsequencePotential,
+                                        onlySigIsoforms = opt$onlySigIsoforms,
+                                        keepIsoformInAllConditions = opt$keepIsoformInAllConditions2,
                                         showProgress = TRUE,
   ) 
 
@@ -142,11 +209,10 @@ if (opt$modeSelector == 'first_step') {
 
   SwitchList <- analyzeNovelIsoformORF( SwitchList,
                                         analysisAllIsoformsWithoutORF = TRUE, # also analyse all those annoatated as without CDS in ref annottaion
-                                        #genomeObject = NULL,
                                         ### Advanced argument
-                                        minORFlength = 100,
-                                        orfMethod = 'longest.AnnotatedWhenPossible',
-                                        PTCDistance = 50,
+                                        minORFlength = opt$minORFlength,
+                                        orfMethod = opt$orfMethod,
+                                        PTCDistance = opt$PTCDistance,
                                         startCodons = "ATG",
                                         stopCodons = c("TAA", "TAG", "TGA"),
                                         showProgress = TRUE,
@@ -154,15 +220,15 @@ if (opt$modeSelector == 'first_step') {
 
   ### Extract Sequences
   SwitchList <- extractSequence( SwitchList,
-                                onlySwitchingGenes = TRUE,
-                                alpha = 0.05,
-                                dIFcutoff = 0.1,
+                                onlySwitchingGenes = opt$onlySwitchingGenes,
+                                alpha = opt$alpha,
+                                dIFcutoff = opt$dIFcutoff,
                                 extractNTseq = TRUE,
                                 extractAAseq = TRUE,
-                                removeShortAAseq = TRUE,
-                                removeLongAAseq = FALSE,
-                                alsoSplitFastaFile = FALSE,
-                                removeORFwithStop=TRUE,
+                                removeShortAAseq = opt$removeShortAAseq,
+                                removeLongAAseq = opt$removeLongAAseq,
+                                alsoSplitFastaFile = opt$alsoSplitFastaFile,
+                                removeORFwithStop=opt$removeORFwithStop,
                                 addToSwitchAnalyzeRlist = TRUE,
                                 writeToFile = TRUE,
                                 pathToOutput = getwd(),
@@ -174,47 +240,93 @@ if (opt$modeSelector == 'first_step') {
   ### Summary
 
   switchSummary <- extractSwitchSummary( SwitchList,
-                        filterForConsequences=FALSE,
-                        alpha=0.05,
-                        dIFcutoff = 0.1,
-                        onlySigIsoforms = FALSE,
+                        filterForConsequences=opt$filterForConsequences,
+                        alpha=opt$alpha,
+                        dIFcutoff = opt$dIFcutoff,
+                        onlySigIsoforms = opt$onlySigIsoforms,
                         # includeCombined=nrow(unique(switchAnalyzeRlist$isoformFeatures[,c('condition_1','condition_1')]))
   )
 
-  switchSummary
+  save(SwitchList,file="SwitchList.Rda")
+  write.table(switchSummary, file="switchSummary.tsv",quote=FALSE, sep='\t', col.names = TRUE, row.names=FALSE)
+
 }
 
-  if (opt$modeSelector == 'second_step') {
+if (opt$modeSelector == 'second_step') {
 
   # Second part of the analysis
   #############################
 
   ### Add annotation
 
-  SwitchList <- analyzeCPAT( SwitchList,
-                              pathToCPATresultFile = "/home/laptop/stringtie_test/isoformSwitch_outputs/result_cpat.txt",
-                              codingCutoff = 0.725,
-                              removeNoncodinORFs        = TRUE
-  )
+  if (!is.null(opt$pathToCPATresultFile)) {
+    SwitchList <- analyzeCPAT( SwitchList,
+                                pathToCPATresultFile = "/home/laptop/stringtie_test/isoformSwitch_outputs/result_cpat.txt",
+                                codingCutoff = 0.725,
+                                removeNoncodinORFs        = TRUE
+    )
+  }
 
-  SwitchList <- analyzeCPC2( SwitchList,
-                            pathToCPC2resultFile = "/home/laptop/stringtie_test/isoformSwitch_outputs/CPC2_standalone-1.0.1/result_cpc2.txt",
-                            removeNoncodinORFs = TRUE # because ORF was predicted de Novo
-  )
+  if (!is.null(opt$pathToCPC2resultFile)) {
+    SwitchList <- analyzeCPC2( SwitchList,
+                              pathToCPC2resultFile = "/home/laptop/stringtie_test/isoformSwitch_outputs/CPC2_standalone-1.0.1/result_cpc2.txt",
+                              removeNoncodinORFs = TRUE # because ORF was predicted de Novo
+    )
+  }
 
+  if (!is.null(opt$pathToPFAMresultFile)) {
 
-  SwitchList <- analyzePFAM( SwitchList,
-                            pathToPFAMresultFile =  "/home/laptop/stringtie_test/isoformSwitch_outputs/pfam_results.txt",
-                            showProgress=FALSE
-  )
+    pfamFiles <- list.files(path=opt$pathToPFAMresultFile,
+                        full.names=TRUE
+                        )
 
-  SwitchList <- analyzeNetSurfP2( SwitchList,
-                                  pathToNetSurfP2resultFile =  "/home/laptop/stringtie_test/isoformSwitch_outputs/networksurfp2_results.txt",
+    SwitchList <- analyzePFAM( SwitchList,
+                              pathToPFAMresultFile =  pfamFiles,
+                              showProgress=FALSE
+    )
+  }
+
+  if (!is.null(opt$pathToNetSurfP2resultFile)) {
+
+    netsurfFiles <- list.files(path=opt$pathToNetSurfP2resultFile,
+                    full.names=TRUE
+                    )
+
+    SwitchList <- analyzeNetSurfP2( SwitchList,
+                                    pathToNetSurfP2resultFile =  "/home/laptop/stringtie_test/isoformSwitch_outputs/networksurfp2_results.txt",
+                                    smoothingWindowSize = 5,
+                                    probabilityCutoff = 0.5,
+                                    minIdrSize = 30,
+                                    showProgress = TRUE,
+    )
+  }
+
+  if (!is.null(opt$pathToIUPred2AresultFile)) {
+
+    SwitchList <- analyzeIUPred2A(SwitchList,
+                                  pathToIUPred2AresultFile = opt$pathToIUPred2AresultFile,
                                   smoothingWindowSize = 5,
                                   probabilityCutoff = 0.5,
                                   minIdrSize = 30,
+                                  annotateBindingSites = TRUE,
+                                  minIdrBindingSize = 15,
+                                  minIdrBindingOverlapFrac = 0.8,
                                   showProgress = TRUE,
-  )
+                                  quiet = FALSE
+                                  )
+  }
+
+  if (!is.null(opt$pathToSignalPresultFile)) {
+
+    signalpFiles <- list.files(path=opt$pathToSignalPresultFile,
+                            full.names=TRUE
+                        )
+
+    SwitchList <- analyzeSignalP( SwitchList,
+                                  pathToSignalPresultFile = signalpFiles,
+                                  minSignalPeptideProbability = 0.5,
+    )
+  }
 
   SwitchList <- analyzeAlternativeSplicing( SwitchList,
                                             onlySwitchingGenes=FALSE,
@@ -225,18 +337,13 @@ if (opt$modeSelector == 'first_step') {
 
 
 
-  SwitchList <- analyzeSignalP( SwitchList,
-                                pathToSignalPresultFile = c("/home/laptop/stringtie_test/isoformSwitch_outputs/signalp_files/first_group/output_protein_type.txt",
-                                                            "/home/laptop/stringtie_test/isoformSwitch_outputs/signalp_files/second_group/output_protein_type.txt"),
-                                minSignalPeptideProbability = 0.5,
-  )
-
   SwitchList <- analyzeIntronRetention( SwitchList,
                                         onlySwitchingGenes = TRUE,
                                         alpha = 0.05,
                                         dIFcutoff = 0.1,
                                         showProgress = TRUE
   )
+  
 
   SwitchList <- analyzeSwitchConsequences( SwitchList,
                                           consequencesToAnalyze=c(
