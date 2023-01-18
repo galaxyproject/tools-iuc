@@ -23,332 +23,73 @@ loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 # Collect arguments from command line
 parser <- ArgumentParser(description='IsoformSwitcheR R script')
 
-parser$add_argument("--modeSelector",
-  help="Mode selector")
-
-parser$add_argument("--parentDir",
-  required=FALSE,
-  help="Parent directory")
-
-parser$add_argument("--readLength",
-  required=FALSE,
-  type="integer",
-  help="Read length (required for stringtie)")
-
-parser$add_argument("--annotation",
-  required=FALSE,
-  help="Annotation")
-
-parser$add_argument("--transcriptome",
-  required=FALSE,
-  help="Transcriptome")
-
-parser$add_argument("--fixStringTieAnnotationProblem",
-  required=FALSE,
-  help="Fix StringTie annotation problem")
-
-parser$add_argument("--countFiles",
-  required=FALSE,
-  help="Count files")
-
-parser$add_argument("--toolSource",
-  required=FALSE,
-  help="Tool source")
-
-parser$add_argument("--rObject",
-  required=FALSE,
-  help="R object")
-
-parser$add_argument("--IFcutoff",
-  required=FALSE,
-  type="numeric",
-  help="IFcutoff")
-
-parser$add_argument("--geneExpressionCutoff",
-  required=FALSE,
-  type="numeric",
-  help="Gene expression cutoff")
-
-parser$add_argument("--isoformExpressionCutoff",
-  required=FALSE,
-  type="numeric",
-  help="Isoform expression cutoff")
-
-parser$add_argument("--alpha",
-  required=FALSE,
-  type="numeric",
-  help="")
-
-parser$add_argument("--dIFcutoff",
-  required=FALSE,
-  type="numeric",
-  help="dIF cutoff")
-
-parser$add_argument("--onlySigIsoforms",
-  required=FALSE,
-  action="store_true",
-  help="Only significative isoforms")
-
-parser$add_argument("--filterForConsequences",
-  required=FALSE,
-  action="store_true",
-  help="Filter for consequences")
-
-parser$add_argument("--acceptedGeneBiotype",
-  required=FALSE,
-  help="Accepted gene biotype")
-
-parser$add_argument("--removeSingleIsformGenes",
-  required=FALSE,
-  action="store_true",
-  help="Remove single isoform genes")
-
-parser$add_argument("--keepIsoformInAllConditions",
-  required=FALSE,
-  action="store_true",
-  help="Keep isoform in all conditions")
-
-parser$add_argument("--correctForConfoundingFactors",
-  required=FALSE,
-  action="store_true",
-  help="Correct for confunding factors")
-
-parser$add_argument("--overwriteIFvalues",
-  required=FALSE,
-  action="store_true",
-  help="Overwrite IF values")
-
-parser$add_argument("--reduceToSwitchingGenes",
-  required=FALSE,
-  action="store_true",
-  help="Reduce to switching genes")
-
-parser$add_argument("--reduceFurtherToGenesWithConsequencePotential",
-  required=FALSE,
-  action="store_true",
-  help="Reduce further to genes with consequence potential")
-
-parser$add_argument("--keepIsoformInAllConditions2",
-  required=FALSE,
-  action="store_true",
-  help="Keep isoform in ll conditions")
-
-parser$add_argument("--minORFlength",
-  required=FALSE,
-  type="integer",
-  help="")
-
-parser$add_argument("--orfMethod",
-  required=FALSE,
-  help="ORF methods")
-
-parser$add_argument("--PTCDistance",
-  required=FALSE,
-  type="integer",
-  help="")
-
-parser$add_argument("--removeShortAAseq",
-  required=FALSE,
-  action="store_true",
-  help="Remove short aminoacid sequences")
-
-parser$add_argument("--removeLongAAseq",
-  required=FALSE,
-  action="store_true",
-  help="Remove long aminoacid sequences")
-
-parser$add_argument("--alsoSplitFastaFile",
-  required=FALSE,
-  action="store_true",
-  help="Also spilt FASTA file")
-
-parser$add_argument("--removeORFwithStop",
-  required=FALSE,
-  action="store_true",
-  help="Remove ORF with stop codon")
-
-parser$add_argument("--onlySwitchingGenes",
-  required=FALSE,
-  action="store_true",
-  help="Only switching genes")
-
-parser$add_argument("--analysisMode",
-  required=FALSE,
-  help="Analyze all isoforms with differential usage or single genes")
-
-parser$add_argument("--genesToPlot",
-  type="integer",
-  default=10,
-  required=FALSE,
-  help="Number of genes to plot")
-
-parser$add_argument("--gene",
-  required=FALSE,
-  help="Gene ID to analyze")
-
-
-parser$add_argument("--sortByQvals",
-  action="store_true",
-  required=FALSE,
-  help="Sort genes by Q-val values")
-
-
-parser$add_argument("--countGenes",
-  action="store_true",
-  required=FALSE,
-  help="Count genes")
-
-
-parser$add_argument("--asFractionTotal",
-  action="store_true",
-  required=FALSE,
-  help="Plot gene expresson as fraction of total")
-
-
-parser$add_argument("--plotGenes",
-  action="store_true",
-  required=FALSE,
-  help="Plot genes instead of isoforms")
-
-
-parser$add_argument("--simplifyLocation",
-  action="store_true",
-  required=FALSE,
-  help="Simplify localtion")
-
-
-parser$add_argument("--removeEmptyConsequences",
-  action="store_true",
-  required=FALSE,
-  help="Remove empty consequences")
-
-
-parser$add_argument("--analysisOppositeConsequence",
-  action="store_true",
-  required=FALSE,
-  help="Analysi opposite consequences")
-
-
-parser$add_argument("--pathToCPATresultFile",
-  required=FALSE,
-  help="Path to CPAT result file")
-
-parser$add_argument("--pathToCPC2resultFile",
-  required=FALSE,
-  help="Path to CPC2 result file")
-
-parser$add_argument("--pathToPFAMresultFile",
-  required=FALSE,
-  help="Path to PFAM result file")
-
-parser$add_argument("--pathToNetSurfP2resultFile",
-  required=FALSE,
-  help="Path to NetSurfP2 result file")
-
-parser$add_argument("--pathToSignalPresultFile",
-  required=FALSE,
-  help="Path to signalP result file")
-
-parser$add_argument("--pathToIUPred2AresultFile",
-  required=FALSE,
-  help="Path to IUPred2A result file")
-
-
-parser$add_argument("--codingCutoff",
-  required=FALSE,
-  type="numeric",
-  help="Codding cutoff")
-
-parser$add_argument("--removeNoncodingORFs",
-  action="store_true",
-  required=FALSE,
-  help="Remove non-coding ORFs")
-
-
-parser$add_argument("--minSignalPeptideProbability",
-  required=FALSE,
-  type="numeric",
-  help="Minimul signal peptide probability")
-
-parser$add_argument("--smoothingWindowSize",
-  type="integer",
-  required=FALSE,
-  help="Smoothing windows size")
-
-parser$add_argument("--probabilityCutoff",
-  required=FALSE,
-  type="numeric",
-  help="Probability cutoff")
-
-parser$add_argument("--minIdrSize",
-  required=FALSE,
-  type="integer",
-  help="Min Idr size")
-
-parser$add_argument("--annotateBindingSites",
-  action="store_true",
-  required=FALSE,
-  help="Annotate binding sites")
-
-parser$add_argument("--minIdrBindingSize",
-  required=FALSE,
-  type="integer",
-  help="Minimun Idr binding size")
-
-parser$add_argument("--minIdrBindingOverlapFrac",
-  required=FALSE,
-  type="numeric",
-  help="")
-
-parser$add_argument("--ntCutoff",
-  required=FALSE,
-  type="integer",
-  help="Nucleotide cutoff")
-
-parser$add_argument("--ntFracCutoff",
-  required=FALSE,
-  type="numeric",
-  help="Nucleotide fraction cutoff")
-
-parser$add_argument("--ntJCsimCutoff",
-  required=FALSE,
-  type="numeric",
-  help="Nucleotide Jaccard simmilarity cutoff")
-
-parser$add_argument("--AaCutoff",
-  required=FALSE,
-  type="integer",
-  help="Aminoacid cutoff")
-
-parser$add_argument("--AaFracCutoff",
-  required=FALSE,
-  type="numeric",
-  help="Aminoacid fraction cutoff")
-
-parser$add_argument("--AaJCsimCutoff",
-  required=FALSE,
-  type="numeric",
-  help="Aminoacid Jaccard similarity cutoff")
-
-parser$add_argument("--removeNonConseqSwitches",
-  action="store_true",
-  required=FALSE,
-  help="Remove switches without consequences")
-
-parser$add_argument("--rescaleTranscripts",
-  action="store_true",
-  required=FALSE,
-  help="Rescale transcripts")
-
-parser$add_argument("--reverseMinus",
-  action="store_true",
-  required=FALSE,
-  help="Reverse minus")
-
-parser$add_argument("--addErrorbars",
-  action="store_true",
-  required=FALSE,
-  help="Add error bars")
+parser$add_argument("--modeSelector")
+parser$add_argument("--parentDir",  required=FALSE, help="Parent directory")
+parser$add_argument("--readLength", required=FALSE, type="integer", help="Read length (required for stringtie)")
+parser$add_argument("--annotation", required=FALSE, help="Annotation")
+parser$add_argument("--transcriptome",required=FALSE,help="Transcriptome")
+parser$add_argument("--fixStringTieAnnotationProblem",required=FALSE,help="Fix StringTie annotation problem")
+parser$add_argument("--countFiles",required=FALSE,help="Count files")
+parser$add_argument("--toolSource",required=FALSE,help="Tool source")
+parser$add_argument("--rObject",required=FALSE,help="R object")
+parser$add_argument("--IFcutoff",required=FALSE,type="numeric",help="IFcutoff")
+parser$add_argument("--geneExpressionCutoff",required=FALSE,type="numeric",help="Gene expression cutoff")
+parser$add_argument("--isoformExpressionCutoff",required=FALSE,type="numeric",help="Isoform expression cutoff")
+parser$add_argument("--alpha",required=FALSE,type="numeric",help="")
+parser$add_argument("--dIFcutoff",required=FALSE,type="numeric",help="dIF cutoff")
+parser$add_argument("--onlySigIsoforms",required=FALSE,action="store_true",help="Only significative isoforms")
+parser$add_argument("--filterForConsequences",required=FALSE,action="store_true",help="Filter for consequences")
+parser$add_argument("--acceptedGeneBiotype",required=FALSE,help="Accepted gene biotype")
+parser$add_argument("--removeSingleIsformGenes",required=FALSE,action="store_true",help="Remove single isoform genes")
+parser$add_argument("--keepIsoformInAllConditions",required=FALSE,action="store_true",help="Keep isoform in all conditions")
+parser$add_argument("--correctForConfoundingFactors",required=FALSE,action="store_true",help="Correct for confunding factors")
+parser$add_argument("--overwriteIFvalues",required=FALSE,action="store_true",help="Overwrite IF values")
+parser$add_argument("--reduceToSwitchingGenes",required=FALSE,action="store_true",help="Reduce to switching genes")
+parser$add_argument("--reduceFurtherToGenesWithConsequencePotential",required=FALSE,action="store_true",help="Reduce further to genes with consequence potential")
+parser$add_argument("--keepIsoformInAllConditions2",required=FALSE,action="store_true",help="Keep isoform in ll conditions")
+parser$add_argument("--minORFlength",required=FALSE,type="integer",help="")
+parser$add_argument("--orfMethod",required=FALSE,help="ORF methods")
+parser$add_argument("--PTCDistance",required=FALSE,type="integer",help="")
+parser$add_argument("--removeShortAAseq",required=FALSE,action="store_true",help="Remove short aminoacid sequences")
+parser$add_argument("--removeLongAAseq",required=FALSE,action="store_true",help="Remove long aminoacid sequences")
+parser$add_argument("--alsoSplitFastaFile",required=FALSE,action="store_true",help="Also spilt FASTA file")
+parser$add_argument("--removeORFwithStop",required=FALSE,action="store_true",help="Remove ORF with stop codon")
+parser$add_argument("--onlySwitchingGenes",required=FALSE,action="store_true",help="Only switching genes")
+parser$add_argument("--analysisMode",required=FALSE,help="Analyze all isoforms with differential usage or single genes")
+parser$add_argument("--genesToPlot",type="integer",default=10,required=FALSE,help="Number of genes to plot")
+parser$add_argument("--gene",required=FALSE,help="Gene ID to analyze")
+parser$add_argument("--sortByQvals",action="store_true",required=FALSE,help="Sort genes by Q-val values")
+parser$add_argument("--countGenes",action="store_true",required=FALSE,help="Count genes")
+parser$add_argument("--asFractionTotal",action="store_true",required=FALSE,help="Plot gene expresson as fraction of total")
+parser$add_argument("--plotGenes",action="store_true",required=FALSE,help="Plot genes instead of isoforms")
+parser$add_argument("--simplifyLocation",action="store_true",required=FALSE,help="Simplify localtion")
+parser$add_argument("--removeEmptyConsequences",action="store_true",required=FALSE,help="Remove empty consequences")
+parser$add_argument("--analysisOppositeConsequence",action="store_true",required=FALSE,help="Analysi opposite consequences")
+parser$add_argument("--pathToCPATresultFile",required=FALSE,help="Path to CPAT result file")
+parser$add_argument("--pathToCPC2resultFile",required=FALSE,help="Path to CPC2 result file")
+parser$add_argument("--pathToPFAMresultFile",required=FALSE,help="Path to PFAM result file")
+parser$add_argument("--pathToNetSurfP2resultFile",required=FALSE,help="Path to NetSurfP2 result file")
+parser$add_argument("--pathToSignalPresultFile",required=FALSE,help="Path to signalP result file")
+parser$add_argument("--pathToIUPred2AresultFile",required=FALSE,help="Path to IUPred2A result file")
+parser$add_argument("--codingCutoff",required=FALSE,type="numeric",help="Codding cutoff")
+parser$add_argument("--removeNoncodingORFs",action="store_true",required=FALSE,help="Remove non-coding ORFs")
+parser$add_argument("--minSignalPeptideProbability",required=FALSE,type="numeric",help="Minimul signal peptide probability")
+parser$add_argument("--smoothingWindowSize",type="integer",required=FALSE,help="Smoothing windows size")
+parser$add_argument("--probabilityCutoff",required=FALSE,type="double",help="Probability cutoff")
+parser$add_argument("--minIdrSize",required=FALSE,type="integer",help="Min Idr size")
+parser$add_argument("--annotateBindingSites",action="store_true",required=FALSE,help="Annotate binding sites")
+parser$add_argument("--minIdrBindingSize",required=FALSE,type="integer",help="Minimun Idr binding size")
+parser$add_argument("--minIdrBindingOverlapFrac",required=FALSE,type="numeric",help="")
+parser$add_argument("--ntCutoff",required=FALSE,type="integer",help="Nucleotide cutoff")
+parser$add_argument("--ntFracCutoff",required=FALSE,type="numeric",help="Nucleotide fraction cutoff")
+parser$add_argument("--ntJCsimCutoff",required=FALSE,type="numeric",help="Nucleotide Jaccard simmilarity cutoff")
+parser$add_argument("--AaCutoff",required=FALSE,type="integer",help="Aminoacid cutoff")
+parser$add_argument("--AaFracCutoff",required=FALSE,type="numeric",help="Aminoacid fraction cutoff")
+parser$add_argument("--AaJCsimCutoff",required=FALSE,type="numeric",help="Aminoacid Jaccard similarity cutoff")
+parser$add_argument("--removeNonConseqSwitches",action="store_true",required=FALSE,help="Remove switches without consequences")
+parser$add_argument("--rescaleTranscripts",action="store_true",required=FALSE,help="Rescale transcripts")
+parser$add_argument("--reverseMinus",action="store_true",required=FALSE,help="Reverse minus")
+parser$add_argument("--addErrorbars",action="store_true",required=FALSE,help="Add error bars")
 
 
 args <- parser$parse_args()
@@ -573,12 +314,12 @@ if (args$modeSelector == 'second_step'){
 
     SwitchList <- analyzeIUPred2A(SwitchList,
                                   pathToIUPred2AresultFile = args$pathToIUPred2AresultFile,
-                                  #smoothingWindowSize = args$smoothingWindowSize,
+                                  smoothingWindowSize = args$smoothingWindowSize,
                                   #probabilityCutoff = args$probabilityCutoff,
-                                  #minIdrSize = args$minIdrSize,
-                                  #annotateBindingSites = args$annotateBindingSites,
-                                  #minIdrBindingSize = args$minIdrBindingSize,
-                                  #minIdrBindingOverlapFrac = args$minIdrBindingOverlapFrac,
+                                  minIdrSize = args$minIdrSize,
+                                  annotateBindingSites = args$annotateBindingSites,
+                                  minIdrBindingSize = args$minIdrBindingSize,
+                                  minIdrBindingOverlapFrac = args$minIdrBindingOverlapFrac,
                                   showProgress = TRUE,
                                   quiet = FALSE
                                   )
@@ -612,19 +353,36 @@ if (args$modeSelector == 'second_step'){
                                         showProgress = TRUE
   )
   
+  consequences <- c('intron_retention',
+                    'NMD_status',
+                    'isoform_seq_similarity',
+                    'ORF_genomic',
+                    'tss',
+                    'tts')
+  
+  if (!is.null(args$pathToCPATresultFile) || !is.null(args$pathToCPC2resultFile)) {
+    updated_consequences <- c(consequences,'coding_potential')
+    consequences <- updated_consequences
+  }
+
+  if (!is.null(args$pathToPFAMresultFile)) {
+    updated_consequences <- c(consequences,'domains_identified')
+    consequences <- updated_consequences
+  }
+
+  if (!is.null(args$pathToSignalPresultFile)) {
+    updated_consequences <- c(consequences,'signal_peptide_identified')
+    consequences <- updated_consequences
+  }
+
+  if (!is.null(args$pathToNetSurfP2resultFile) || !is.null(args$pathToIUPred2AresultFile)) {
+    updated_consequences <- c(consequences,'IDR_identified','IDR_type')
+    consequences <- updated_consequences
+  }
+
+
   SwitchList <- analyzeSwitchConsequences( SwitchList,
-                                          consequencesToAnalyze='all',
-                                            # c(
-                                            #  'intron_retention',
-                                            #  'tss',
-                                            #  'tts',
-                                            #  'coding_potential', # require CPAT results
-                                            #  'NMD_status',
-                                            #  'domains_identified',
-                                            #  'IDR_identified', # require netsurf or iupred2a
-                                            #  'IDR_type',
-                                            #  'signal_peptide_identified',
-                                            #  'ORF_seq_similarity'),
+                                          consequencesToAnalyze=consequences,
                                           alpha=args$alpha,
                                           dIFcutoff=args$dIFcutoff,
                                           onlySigIsoforms=args$onlySigIsoforms,
@@ -634,10 +392,7 @@ if (args$modeSelector == 'second_step'){
                                           AaFracCutoff=args$AaFracCutoff,
                                           AaJCsimCutoff=args$AaJCsimCutoff,
                                           removeNonConseqSwitches=args$removeNonConseqSwitches,
-                                          showProgress=TRUE
-                                          #ntFracCutoff=ntFracCutoff
-                                          
-
+                                          showProgress=TRUE                                          
   )
 
 
@@ -645,9 +400,13 @@ if (args$modeSelector == 'second_step'){
   # Top genes
 
   if (args$analysisMode == 'single'){
+      print("oh god!")
       ## This function enables a full analysis of a specific gene containing an isoform switch
+      
       output_file <- file.path(getwd(), "single_gene.pdf")
+      
       pdf(file = output_file, onefile = FALSE, height=6, width = 9)
+      
       switchPlot(
         ### Core arguments
         SwitchList,
@@ -663,7 +422,7 @@ if (args$modeSelector == 'second_step'){
         reverseMinus = args$reverseMinus,
         addErrorbars = args$addErrorbars,
         logYaxis = FALSE,
-        localTheme = theme_bw(base_size = 8),
+        localTheme = theme_bw(base_size = 8)
       )
       dev.off()
 
