@@ -383,7 +383,7 @@ if (args$modeSelector == "data_import") {
     sampleNames <- colnames(as.data.frame(geneCountMatrix))
     geneNames <- row.names(as.data.frame(geneCountMatrix))
 
-    for (index in 1:set_along(l)) {
+    for (index in seq_along(l)) {
       tabularExpression <- data.frame(geneNames, l[index])
       colnames(tabularExpression) <-
         c("Geneid", sampleNames[index])
