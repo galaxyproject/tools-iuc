@@ -357,7 +357,7 @@ if (args$modeSelector == "data_import") {
       showProgress = TRUE,
       fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
     )
-  } else{
+  } else {
     SwitchList <- importRdata(
       isoformCountMatrix   = quantificationData$counts,
       isoformRepExpression = quantificationData$abundance,
@@ -843,7 +843,7 @@ if (args$modeSelector == "second_step") {
                  size = 1) +
       geom_hline(yintercept = -log10(0.05), linetype = "dashed") + # default cutoff
       geom_vline(xintercept = c(-0.1, 0.1), linetype = "dashed") + # default cutoff
-      facet_wrap(~ condition_2)+
+      facet_wrap(~ condition_2) +
       scale_color_manual("Signficant\nIsoform Switch", values = c("black", "red")) +
       labs(x = "dIF", y = "-Log10 ( Isoform Switch Q Value )") +
       theme_bw()
@@ -863,7 +863,7 @@ if (args$modeSelector == "second_step") {
       geom_point(aes(color = abs(dIF) > 0.1 &
                        isoform_switch_q_value < 0.05),
                  size = 1) +
-      facet_wrap( ~ condition_2) +
+      facet_wrap(~ condition_2) +
       geom_hline(yintercept = 0, linetype = "dashed") +
       geom_vline(xintercept = 0, linetype = "dashed") +
       scale_color_manual("Signficant\nIsoform Switch", values = c("black", "red")) +
