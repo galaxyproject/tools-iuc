@@ -1,7 +1,7 @@
 #!/usr/bin/env R
 VERSION <- "0.5" # nolint
 
-args <- commandArgs(trailingOnly = T)
+args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) != 1) {
      message(paste("VERSION:", VERSION))
@@ -52,8 +52,8 @@ do.filter <- function(sc) { # nolint
     if (filt.use.ccorrect) {
         par(mfrow = c(2, 2))
         sc <- do.call(CCcorrect, c(sc, filt.ccc))
-        print(plotdimsat(sc, change = T))
-        print(plotdimsat(sc, change = F))
+        print(plotdimsat(sc, change = TRUE))
+        print(plotdimsat(sc, change = FALSE))
     }
     return(sc)
 }
@@ -62,8 +62,8 @@ do.cluster <- function(sc) { # nolint
     sc <- do.call(compdist, c(sc, clust.compdist))
     sc <- do.call(clustexp, c(sc, clust.clustexp))
     if (clust.clustexp$sat) {
-        print(plotsaturation(sc, disp = F))
-        print(plotsaturation(sc, disp = T))
+        print(plotsaturation(sc, disp = FALSE))
+        print(plotsaturation(sc, disp = TRUE))
     }
     print(plotjaccard(sc))
     return(sc)
@@ -125,7 +125,7 @@ mkgenelist <- function(sc) {
         print(do.call(mtext, c(paste(buffer, "(fc > ",
                                      genelist.foldchange, ")"), test)))
     })
-    write.table(df, file = out.genelist, sep = "\t", quote = F)
+    write.table(df, file = out.genelist, sep = "\t", quote = FALSE)
 }
 
 
@@ -138,7 +138,7 @@ writecellassignments <- function(sc) {
                       is.outlier = names(dat) %in% sc@out$out)
 
     write.table(tab, file = out.assignments, sep = "\t",
-                quote = F, row.names = F)
+                quote = FALSE, row.names = FALSE)
 }
 
 
@@ -158,7 +158,7 @@ if (use.filtnormconf) {
                                             getfdata(sc))) / ncol(sc@expdata)),
                   "% of cells remain"))
     write.table(as.matrix(sc@ndata), file = out.table, col.names = NA,
-                row.names = T, sep = "\t", quote = F)
+                row.names = TRUE, sep = "\t", quote = FALSE)
 }
 
 if (use.cluster) {

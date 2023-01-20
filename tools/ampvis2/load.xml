@@ -1,0 +1,308 @@
+<tool id="ampvis2_load" name="ampvis2 load" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
+    <description></description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="header"/>
+    <command detect_errors="exit_code"><![CDATA[
+        #if $otutable.ext.startswith("biom")
+            ln -s '$otutable' otutable.biom &&
+        #else
+            ln -s '$otutable' otutable.tsv &&
+        #end if
+        #if $taxonomy
+            ln -s '$taxonomy' taxonomy.tsv &&
+        #end if
+        Rscript '$rscript'
+    ]]></command>
+    <configfiles>
+        <configfile name="rscript"><![CDATA[
+            library(ampvis2, quietly = TRUE)
+            library(readr, quietly = TRUE)
+            ## 'manually' load metadata treating all columns as character
+            ## giving colClasses to amp_load seems not possible
+            #if $metadata
+                metadata <- read.table("$metadata", header = TRUE, sep = "\t", colClasses = "character")
+            #end if
+            data <- amp_load(
+                #if $otutable.ext.startswith("biom")
+                    otutable = "otutable.biom",
+                #else
+                    otutable = "otutable.tsv",
+                #end if
+                #if $metadata
+                    metadata = metadata,
+                #end if
+                #if $taxonomy
+                    taxonomy = "taxonomy.tsv",
+                #end if
+                #if $fasta
+                    fasta = "$fasta",
+                #end if
+                #if $tree
+                    tree = "$tree",
+                #end if
+                pruneSingletons = $pruneSingletons
+            )
+            ## try to guess column types with plyr::type.convert
+            #if $guess_column_types
+                data\$metadata <- readr::type_convert(data\$metadata, guess_integer=TRUE)
+            #end if
+            saveRDS(data, "$ampvis")
+            ## write metadata list for biom input or if metadata is given 
+            #if "metadata" in $write_lists
+                @SAVE_METADATA_LIST@
+            #end if
+
+            #if "tax" in $write_lists
+                @SAVE_TAX_LIST@
+            #end if
+            ## print overview of the data to stdout
+            data
+        ]]></configfile>
+    </configfiles>
+    <inputs>
+        <param argument="otutable" type="data" format="tabular,biom1,biom2" label="OTU table"/>
+        <param argument="metadata" type="data" format="tsv" optional="true" label="Sample metadata">
+            <validator type="expression" message="Table must have at least 1 column"><![CDATA[value.metadata.columns > 0]]></validator>
+            <!-- TODO in future versions this might change https://github.com/MadsAlbertsen/ampvis2/pull/134
+                 if so, then also adapt help text and test data -->
+            <validator type="expression" message="First column must be named SampleID"><![CDATA[value.metadata.column_names[0] == "SampleID"]]></validator>
+        </param>
+        <param name="guess_column_types" type="boolean" checked="true" label="Guess metadata column types" help="See help"/>
+        <param argument="taxonomy" type="data" format="tabular" optional="true" label="Taxonomy table"/>
+        <param argument="fasta" type="data" format="fasta" optional="true" label="Fasta file"/>
+        <param argument="tree" type="data" format="newick" optional="true" label="Phylogenetic tree"/>
+        <param argument="pruneSingletons" type="boolean" truevalue="TRUE" falsevalue="FALSE" checked="false" label="Remove singleton OTUs"/>
+        <param name="write_lists" type="select" optional="true" multiple="true" label="Output list data sets" help="Needed by most downstream tools. Select if the inputs contain taxonomic / metadata information.">
+            <option value="tax" selected="true">Taxonomy list</option>
+            <option value="metadata" selected="true">Metadata list</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="ampvis" format="ampvis2"/>
+        <data name="metadata_list_out" format="tabular" label="${tool.name} on ${on_string}: metadata list">
+            <filter>write_lists and "metadata" in write_lists</filter>
+        </data>
+        <data name="taxonomy_list_out" format="tabular" label="${tool.name} on ${on_string}: taxonomy list">
+            <filter>write_lists and "tax" in write_lists</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- load otu table + metadata + taxonomy -->
+        <test expect_num_outputs="3">
+            <param name="otutable" value="AalborgWWTPs.otu.csv"/>
+            <param name="metadata" value="AalborgWWTPs.tsv" ftype="tsv"/>
+            <param name="taxonomy" value="AalborgWWTPs.tax"/>
+            <output name="ampvis" value="AalborgWWTPs.rds" ftype="ampvis2" compare="sim_size"/>
+            <output name="metadata_list_out" value="AalborgWWTPs-metadata.list"/>
+            <output name="taxonomy_list_out" value="AalborgWWTPs-taxonomy.list"/>
+            <assert_stdout>
+                <has_text text="575.79"/>
+                <has_text text="SampleID, Plant, Date, Year, Period"/>
+                <has_text text="200(100%)   194(97%) 177(88.5%)   170(85%)   152(76%) 113(56.5%)      2(1%)"/>
+            </assert_stdout>
+        </test>
+        <!-- load otu table + metadata + taxonomy + tree + fasta -->
+        <test expect_num_outputs="3">
+            <param name="otutable" value="AalborgWWTPs.otu.csv"/>
+            <param name="metadata" value="AalborgWWTPs.tsv" ftype="tsv"/>
+            <param name="taxonomy" value="AalborgWWTPs.tax"/>
+            <param name="fasta" value="AalborgWWTPs.fa" ftype="fasta"/>
+            <param name="tree" value="AalborgWWTPs.nwk" ftype="newick"/>
+            <output name="ampvis" value="AalborgWWTPs-complete.rds" ftype="ampvis2" compare="sim_size"/>
+            <output name="metadata_list_out" value="AalborgWWTPs-metadata.list"/>
+            <output name="taxonomy_list_out" value="AalborgWWTPs-taxonomy.list"/>
+            <assert_stdout>
+                <has_text text="575.79"/>
+                <has_text text="SampleID, Plant, Date, Year, Period"/>
+                <has_text text="200(100%)   194(97%) 177(88.5%)   170(85%)   152(76%) 113(56.5%)      2(1%)"/>
+            </assert_stdout>
+        </test>
+        <!-- test biom 1/2 input (taken from https://github.com/biocore/biom-format/tree/master/examples)
+             metadata seems not to be loaded from a biom file https://github.com/MadsAlbertsen/ampvis2/issues/129
+             taxonomy is loaded from all but 1 
+            -->
+        <test>
+            <param name="otutable" value="rich-dense.biom" ftype="biom1"/>
+            <output name="ampvis" ftype="ampvis2">
+                <assert_contents>
+                    <has_size value="748"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="4.5"/>
+                <has_text text="SampleID, BarcodeSequence, LinkerPrimerSequence, BODY_SITE, Description"/>
+                <has_text text="5(100%) 5(100%) 5(100%) 5(100%) 5(100%) 5(100%)  1(20%)"/>
+            </assert_stdout>
+        </test>
+        <test>
+            <param name="otutable" value="rich-sparse.biom" ftype="biom1"/>
+            <output name="ampvis" ftype="ampvis2">
+                <assert_contents>
+                    <has_size value="751"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="4.5"/>
+                <has_text text="SampleID, BarcodeSequence, LinkerPrimerSequence, BODY_SITE, Description"/>
+                <has_text text="5(100%) 5(100%) 5(100%) 5(100%) 5(100%) 5(100%)  1(20%)"/>
+            </assert_stdout>
+        </test>
+        <test>
+            <param name="otutable" value="min_sparse_otu_table_hdf5.biom" ftype="biom2"/>
+            <output name="ampvis" ftype="ampvis2">
+                <assert_contents>
+                    <has_size value="395"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="4.5"/>
+                <!-- input file seems to miss metadata check that no metadata & taxonomy is loaded (ampvis2 adds dummy metadata) -->
+                <has_text text="SampleID, DummyVariable"/>
+                <has_text text="0(0%)   0(0%)   0(0%)   0(0%)   0(0%)   0(0%)   0(0%)"/>
+            </assert_stdout>
+        </test>
+        <test>
+            <param name="otutable" value="rich_sparse_otu_table_hdf5.biom" ftype="biom2"/>
+            <output name="ampvis" ftype="ampvis2">
+                <assert_contents>
+                    <has_size value="753"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="4.5"/>
+                <has_text text="SampleID, BODY_SITE, BarcodeSequence, Description, LinkerPrimerSequence"/>
+                <has_text text="5(100%) 5(100%) 5(100%) 5(100%) 5(100%) 5(100%)  1(20%)"/>
+            </assert_stdout>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+What it does
+============
+
+This tool reads an OTU-table and corresponding sample metadata, and returns
+a RDS data set for use in all ampvis2 tools. It is therefore required to load
+data with this tool before any other ampvis2 tools can be used.
+
+The Galaxy tool calls the `amp_load <https://madsalbertsen.github.io/ampvis2/reference/amp_load.html>`_
+function of the ampvis2 package. This function validates and corrects the
+provided data frames in different ways to make it suitable for the rest of the
+ampvis2 tools. It is important that the provided data sets match the
+requirements as described in the following to work properly.
+
+Input
+=====
+
+**The OTU-table**
+
+contains information about the OTUs, their read counts in each sample, and
+optionally their assigned taxonomy. The OTU table can be given as
+
+- Tabular data set
+- BIOM version (1 and 2)
+
+Metadata and taxonomy in the tabular or BIOM files that are given via the
+``OTU table`` parameter can is overwritten if by data presented via the
+``Sample metadata`` or ``Taxonomy table`` parameters.
+
+If given in tabular format the provided OTU-table must be a table with the
+following requirements:
+
+- The rows are OTU IDs and the columns are samples.
+- The OTU ID's are expected to be in a column called "OTU", "ASV", or "#OTU ID".
+- The column names of the table are the sample IDs, exactly matching those in
+  the metadata
+- The last 7 columns are optionally the corresponding taxonomy assigned to the
+  OTUs, named "Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species".
+
+Generally avoid special characters and spaces in row- and column names.
+
+The OTU table can also contain the taxonomic information in additional columns:
+Kingdom, Phylum, Class, Order, Family, Genus.
+
+Check `here <https://biom-format.org/>`_ for information on the BIOM formats.
+
+**The metadata**
+
+contains additional information about the samples, for example where each sample
+was taken, date, pH, treatment etc, which is used to compare and group the
+samples during analysis. The amount of information in the metadata is unlimited,
+it can contain any number of columns (variables), however there are a few
+requirements:
+    
+- The sample IDs must be in the first column and the column must be named
+  ``SampleID``. These sample IDs must match exactly to those in the OTU-table. Any
+  unmatched samples between the otutable and metadata will be removed with a
+  warning.
+- Generally avoid special characters and spaces in row- and column names.
+
+By default the data types of metadata columns are guessed with
+``readr::type_convert``. The guessed column types can be seen in the last (4th)
+column of the ``metadata list`` output and also stdout of the tool.  Guessing of
+data types can be disabled using the parameter ``Guess metadata column types``.
+If disabled matadata from separate tabular input is treated as character data,
+and if loaded from biom files that data is used as is. Metadata types can be set
+manually using the tool ``ampvis2: set metadata``
+
+Dates should be given in the format ``YYYY-MM-DD`` (Y: year, M: month, D: day).
+
+In addition to the RDS data set a metadata (resp. taxonomy) list data set is returned
+if metadata (resp. taxonomic information) is given to this tool. It contains
+restructured metadata (taxonomic information) that is used in downstream ampvis2
+Galaxy tools in order to select metadata / metadata values (resp. taxonomic levels).
+
+**Taxonomy**
+
+is a tabular data set with 7 columns and one row per ASV/OTU:
+
+- the 1st column is identical to the 1st column of the OTU table parameter
+- the remaining columns contain data for Kingdom, Phylum, Class, Order, Family, Genus
+
+Note that the taxonomic information can also be embedded in the OTU table.
+
+**Tree**
+
+a tree with branch lengths in Newick format. 
+
+This is needed / usefull only if the data is used as input of: ``ampvis2:
+ordination plot`` for ordination methods NNDS / MMDS with (un)weighted UniFrac
+distances. Note that the loaded tree is also filtered by the ``ampvis2: subset
+...`` tools.
+
+**Fasta**
+
+a fasta file containing the sequences of the OTUs. Note that this information is
+only used in ``ampvis2: export fasta``. If the OTU table is modified by 
+``ampvis2: mergereplicates`` or the ``ampvis2: subset ...`` tools this might be
+useful to obtain a filtered list of sequences.
+
+
+Output
+======
+
+**RDS**
+
+The main output of the tool is an RDS data set that contains the R representation of
+the ampvis2 object containing the provided data (OTU table, metadata, taxonomy,
+phylogenetic tree, and fasta).
+
+**List files**
+
+Summarize the metadata and taxonomy information:
+
+- the taxonomy list file lists all taxa in a 1 column tabular data set
+- the metadata list file lists the Metadata variables (column 1), and the corresponding
+  available metadata values (column 2), if the variable is the SampleID (column 3), and
+  the data type of the corresponding metadata variable (column 4)
+
+These files are auxilliary files that are needed in downstream ``ampvis2`` Galaxy tools
+to allow selecting metadata and taxonomy. They are not passed to the underlying R functions.
+
+Note that, if the no taxonomy (or metadata) is given then the underlying ``ampvis2`` R
+function adds dummy taxonomy (resp. metadata). In this case the output of the list datasets
+can be disabled with the ``Output list data sets`` parameter.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

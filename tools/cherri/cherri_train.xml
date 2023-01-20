@@ -1,0 +1,231 @@
+<tool id="cherri_train" name="Train a CheRRI model using RRIs" version="@VERSION@" profile="@PROFILE@">
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        export PYTHONHASHSEED=31337 &&
+        mkdir mixed_model &&
+        #set experiments = []
+        #for $experiment in $rep_experiment:
+            mkdir $experiment.exp_name &&
+            ln -s '$experiment.ref_source.genome_fasta' '$experiment.exp_name/genome.fa' &&
+            $experiments.append(str($experiment.exp_name))
+            #set replicates = []
+            #for $i, $sample in enumerate($experiment.rep_samples):
+                ln -s '$sample.file' '$experiment.exp_name/${i}.tabular' &&
+                $replicates.append(str($i) + ".tabular")
+            #end for
+            cherri train
+            -i1 '$experiment.exp_name'
+            -r #echo ' '.join($replicates)
+            -g '$experiment.exp_name/genome.fa'
+            -l '$experiment.chrom_len_file'
+            -n '$experiment.exp_name'
+            #if $experiment.occupied_regions:
+                -i2 '$experiment.occupied_regions'
+            #end if
+            -o .
+            -on '$experiment.exp_name' 
+            @COMMONPARAMS@ &&
+            #if len($rep_experiment) > 1:
+                ln -s '../$experiment.exp_name' 'mixed_model/$experiment.exp_name' &&
+            #else:
+                ln -s $experiment.exp_name/model/optimized/full_${experiment.exp_name}_context_${context}.model final_full.model &&
+                #if $use_structure == 'off':
+                    ln -s $experiment.exp_name/model/features/${experiment.exp_name}_context_${context}.npz features.npz &&
+                #else:
+                    ln -s $experiment.exp_name/feature_files/training_data_${experiment.exp_name}_context_${context}.npz features.npz &&
+                #end if
+            #end if
+        #end for
+        #if len($rep_experiment) > 1:
+            cherri train 
+                -mi on
+                -i1 mixed_model
+                -r #echo ' '.join($experiments)
+                -g /not/needed/
+                -l /not/needed/
+                -n mixed
+                -o .
+                -on mixed_model
+                @COMMONPARAMS@ &&
+                ln -s mixed_model/mixed/model/optimized/full_mixed_context_${context}.model final_full.model &&
+                #if $use_structure == 'off':
+                    ln -s mixed_model/mixed/model/features/mixed_context_${context}.npz features.npz &&
+                #else:
+                    ln -s mixed_model/mixed/feature_files/training_data_mixed_context_${context}.npz features.npz &&
+                #end if
+        #end if
+        tar -zhcvf model.tgz final_full.model features.npz
+    ]]></command>
+    <inputs>
+        <repeat name="rep_experiment" title="Experiment" min="1" default="1">
+            <param name="exp_name" type="text" value="myExperiment" label="Name of the experiment" help="Only letters, numbers and underscores will be retained in this field. If more than one experiment is provided, then the tool generates a mixed model by combining datasets.">
+                <sanitizer>
+                    <valid initial="string.letters,string.digits"><add value="_" /></valid>
+                </sanitizer>
+            </param>
+            <expand macro="reference_source_conditional"/>
+            <repeat name="rep_samples" title="Interaction summary file" min="1" default="1">
+                <param name="file" type="data" format="tabular" multiple="false" label="Interaction summary file of a replicate" />
+            </repeat>
+            <param name="occupied_regions" optional="True" type="data" format="bed" label="Path to the genomic RBP crosslink or binding site locations (in BED format)" />
+        </repeat>
+        <param name="context" type="integer" value="150" label="How much context should be added at up- and downstream of each sequence" />
+        <param name="intarna_param_file" optional="True" type="data" format="txt" label="IntaRNA parameters file" />
+        <param name="use_structure" type="boolean" truevalue="on" falsevalue="off" checked="true" label="Set 'off' if you want to disable structure, default 'on'" />
+        <param name="run_time" type="integer" value="43200" label="Time used for the optimization in seconds, default: 43200 (12h)" />
+        <param name="filter_hybrid" type="boolean" truevalue="on" falsevalue="off" checked="false" label="Filter the data for hybrids already detected by ChiRA" />
+    </inputs>
+    <outputs>
+        <data name="out_model" format="tgz" from_work_dir="model.tgz" label="Trained model and features file on ${on_string}"/>
+    </outputs>
+    <tests>
+        <!-- Single experiment -st on -->
+        <test>
+            <repeat name="rep_experiment">
+                <param name="exp_name" value="myExperiment1"/>
+                <conditional name="ref_source">
+                    <param name="ref_source_selector" value="history"/>
+                    <param name="genome_fasta" value="train_1.fa"/>
+                </conditional>
+                <param name="chrom_len_file" value="train_2_len.tabular" />
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+            </repeat>
+            <param name="run_time" value="60" />
+            <output name="out_model">
+                <assert_contents>
+                    <has_size min="100000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Single experiment -st off -->
+        <test>
+            <repeat name="rep_experiment">
+                <param name="exp_name" value="myExperiment1"/>
+                <conditional name="ref_source">
+                    <param name="ref_source_selector" value="history"/>
+                    <param name="genome_fasta" value="train_1.fa"/>
+                </conditional>
+                <param name="chrom_len_file" value="train_2_len.tabular" />
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+            </repeat>
+            <param name="run_time" value="60" />
+            <param name="use_structure" value="off" />
+            <output name="out_model">
+                <assert_contents>
+                    <has_size min="100000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Mixed model -st on -->
+        <test>
+            <repeat name="rep_experiment">
+                <param name="exp_name" value="myExperiment1"/>
+                <conditional name="ref_source">
+                    <param name="ref_source_selector" value="history"/>
+                    <param name="genome_fasta" value="train_1.fa"/>
+                </conditional>
+                <param name="chrom_len_file" value="train_2_len.tabular" />
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+            </repeat>
+            <repeat name="rep_experiment">
+                <param name="exp_name" value="myExperiment2"/>
+                <conditional name="ref_source">
+                    <param name="ref_source_selector" value="history"/>
+                    <param name="genome_fasta" value="train_2.fa"/>
+                </conditional>
+                <param name="chrom_len_file" value="train_2_len.tabular" />
+                <repeat name="rep_samples">
+                    <param name="file" value="train_2_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_2_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_2_pos.tabular" />
+                </repeat>
+            </repeat>
+            <param name="run_time" value="60" />
+            <param name="context" value="100" />
+            <output name="out_model">
+                <assert_contents>
+                    <has_size min="100000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Mixed model -st off -->
+        <test>
+            <repeat name="rep_experiment">
+                <param name="exp_name" value="myExperiment1"/>
+                <conditional name="ref_source">
+                    <param name="ref_source_selector" value="history"/>
+                    <param name="genome_fasta" value="train_1.fa"/>
+                </conditional>
+                <param name="chrom_len_file" value="train_2_len.tabular" />
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_1_pos.tabular" />
+                </repeat>
+            </repeat>
+            <repeat name="rep_experiment">
+                <param name="exp_name" value="myExperiment2"/>
+                <conditional name="ref_source">
+                    <param name="ref_source_selector" value="history"/>
+                    <param name="genome_fasta" value="train_2.fa"/>
+                </conditional>
+                <param name="chrom_len_file" value="train_2_len.tabular" />
+                <repeat name="rep_samples">
+                    <param name="file" value="train_2_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_2_pos.tabular" />
+                </repeat>
+                <repeat name="rep_samples">
+                    <param name="file" value="train_2_pos.tabular" />
+                </repeat>
+            </repeat>
+            <param name="run_time" value="60" />
+            <param name="use_structure" value="off" />
+            <output name="out_model">
+                <assert_contents>
+                    <has_size min="100000"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+        CheRRI in train mode to build a predictive model. Takes interactions summary files from ChiRA tool as input. Generates a model file and a features file that can be used in CheRRI eval mode.
+    ]]></help>
+    <expand macro="citations" />
+</tool>
