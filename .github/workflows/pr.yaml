@@ -2,12 +2,12 @@ name: Galaxy Tool Linting and Tests for push and PR
 on: [push, pull_request]
 env:
   GALAXY_FORK: galaxyproject
-  GALAXY_BRANCH: release_21.09
+  GALAXY_BRANCH: release_22.05
   MAX_CHUNKS: 4
   MAX_FILE_SIZE: 1M
 concurrency:
-  # group runs by PR, but keep runs on master separate
-  # because we do not want to cancel toolshed uploads
+  # Group runs by PR, but keep runs on the default branch separate
+  # because we do not want to cancel ToolShed uploads
   group: pr-${{ (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.run_number || github.ref }}
   cancel-in-progress: true
 jobs:
@@ -43,18 +43,18 @@ jobs:
         echo 'event.after: ${{ github.event.after }}'
     - name: Determine latest commit in the Galaxy repo
       id: get-galaxy-sha
-      run: echo "::set-output name=galaxy-head-sha::$(git ls-remote https://github.com/${{ env.GALAXY_FORK }}/galaxy refs/heads/${{ env.GALAXY_BRANCH }} | cut -f1)"
-    - uses: actions/setup-python@v1
+      run: echo "galaxy-head-sha=$(git ls-remote https://github.com/${{ env.GALAXY_FORK }}/galaxy refs/heads/${{ env.GALAXY_BRANCH }} | cut -f1)" >> $GITHUB_OUTPUT
+    - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache .cache/pip
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-pip
       with:
         path: ~/.cache/pip
         key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ steps.get-galaxy-sha.outputs.galaxy-head-sha }}
     - name: Cache .planemo
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-planemo
       with:
         path: ~/.planemo
@@ -65,7 +65,7 @@ jobs:
       run: pip install wheel
     - name: Install flake8
       run: pip install flake8 flake8-import-order
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 0
     - name: Fake a Planemo run to update cache and determine commit range, repositories, and chunks
@@ -98,16 +98,14 @@ jobs:
       matrix:
         python-version: ['3.7']
     steps:
-    # checkout the repository
-    # and use it as the current working directory
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 1
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache .cache/pip
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-pip
       with:
         path: ~/.cache/pip
@@ -119,7 +117,7 @@ jobs:
         mode: lint
         repository-list: ${{ needs.setup.outputs.repository-list }}
         tool-list: ${{ needs.setup.outputs.tool-list }}
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       if: ${{ failure() }}
       with:
         name: 'Tool linting output'
@@ -136,14 +134,14 @@ jobs:
       matrix:
         python-version: ['3.7']
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 1
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache .cache/pip
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-pip
       with:
         path: ~/.cache/pip
@@ -152,7 +150,7 @@ jobs:
       run: pip install flake8 flake8-import-order
     - name: Flake8
       run: echo '${{ needs.setup.outputs.repository-list }}' | xargs -d '\n' flake8 --output-file pylint_report.txt --tee
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       if: ${{ failure() }}
       with:
         name: 'Python linting output'
@@ -166,16 +164,16 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-20.04]
-        r-version: ['4.0.1']
+        r-version: ['release']
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 1
-    - uses: r-lib/actions/setup-r@master
+    - uses: r-lib/actions/setup-r@v2
       with:
         r-version: ${{ matrix.r-version }}
     - name: Cache R packages
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       with:
         path: ${{ env.R_LIBS_USER }}
         key: r_cache_${{ matrix.os }}_${{ matrix.r-version }}
@@ -191,7 +189,7 @@ jobs:
     - name: lintr
       run: |
         library(lintr)
-        linters <- with_defaults(line_length_linter = NULL, cyclocomp_linter = NULL, object_usage_linter = NULL)
+        linters <- linters_with_defaults(line_length_linter = NULL, cyclocomp_linter = NULL, object_usage_linter = NULL)
         con <- file("repository_list.txt", "r")
         status <- 0
         while (TRUE) {
@@ -204,14 +202,14 @@ jobs:
             status <- 1
             for (l in lnt) {
               rel_path <- paste(repo, l$filename, sep="/")
-              write(paste(paste(rel_path, l$line_number, l$column_number, sep=":"), l$message), stderr())
-              write(paste(paste(rel_path, l$line_number, l$column_number, sep=":"), l$message), "rlint_report.txt", append=TRUE)
+              write(paste(paste(rel_path, l$line_number, l$column_number, sep=":"), l$message, paste("(", l$line, ")")), stderr())
+              write(paste(paste(rel_path, l$line_number, l$column_number, sep=":"), l$message, paste("(", l$line, ")")), "rlint_report.txt", append=TRUE)
             }
           }
         }
         quit(status = status)
       shell: Rscript {0}
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       if: ${{ failure() }}
       with:
         name: 'R linting output'
@@ -222,10 +220,8 @@ jobs:
     needs: setup
     if: ${{ github.event_name == 'pull_request' && needs.setup.outputs.repository-list != '' }}
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 0
     - name: Check file sizes
@@ -240,7 +236,7 @@ jobs:
           cat file_size_report.txt
           exit 1
         fi
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       if: ${{ failure() }}
       with:
         name: 'File size report'
@@ -268,26 +264,27 @@ jobs:
         ports:
           - 5432:5432
     steps:
-    # checkout the repository
-    # and use it as the current working directory
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 1
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache .cache/pip
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-pip
       with:
         path: ~/.cache/pip
         key: pip_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
     - name: Cache .planemo
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-planemo
       with:
         path: ~/.planemo
         key: planemo_cache_py_${{ matrix.python-version }}_gxy_${{ needs.setup.outputs.galaxy-head-sha }}
+    - name: Get number of CPU cores
+      uses: SimenB/github-actions-cpu-cores@v1
+      id: cpu-cores
     - name: Planemo test
       uses: galaxyproject/planemo-ci-action@v1
       id: test
@@ -298,7 +295,10 @@ jobs:
         galaxy-branch: ${{ env.GALAXY_BRANCH }}
         chunk: ${{ matrix.chunk }}
         chunk-count: ${{ needs.setup.outputs.chunk-count }}
-    - uses: actions/upload-artifact@v2
+        galaxy-slots: ${{ steps.cpu-cores.outputs.count }}
+        # Limit each test to 15 minutes
+        test_timeout: 1800
+    - uses: actions/upload-artifact@v3
       with:
         name: 'Tool test output ${{ matrix.chunk }}'
         path: upload
@@ -317,14 +317,14 @@ jobs:
       matrix:
         python-version: ['3.7']
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         path: artifacts
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache .cache/pip
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-pip
       with:
         path: ~/.cache/pip
@@ -335,7 +335,7 @@ jobs:
       with:
         mode: combine
         html-report: true
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: 'All tool test results'
         path: upload
@@ -355,14 +355,14 @@ jobs:
       matrix:
         python-version: ['3.7']
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 1
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     - name: Cache .cache/pip
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-pip
       with:
         path: ~/.cache/pip
@@ -382,6 +382,23 @@ jobs:
         repository-list: ${{ needs.setup.outputs.repository-list }}
         shed-target: toolshed
         shed-key: ${{ secrets.TS_API_KEY }}
+    # report to the PR if deployment failed
+    - name: Get PR object
+      uses: 8BitJonny/gh-get-current-pr@2.2.0
+      id: getpr
+      if: ${{ failure() }}
+      with:
+        sha: ${{ github.event.after }}
+    - name: Create comment
+      uses: peter-evans/create-or-update-comment@v2
+      if: ${{ failure() }}
+      with:
+        token: ${{ secrets.PAT }}
+        issue-number: ${{ steps.getpr.outputs.number }}
+        body: |
+          Attention: deployment failed!
+
+          https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   determine-success:
     name: Check workflow success

@@ -1,80 +1,260 @@
-<tool id="pangolin" name="Pangolin" version="@TOOL_VERSION@+galaxy1" profile="20.01">
+<tool id="pangolin" name="Pangolin" version="@TOOL_VERSION@+galaxy0" profile="20.01">
     <description>Phylogenetic Assignment of Outbreak Lineages</description>
     <macros>
-        <token name="@TOOL_VERSION@">3.1.17</token>
+        <token name="@TOOL_VERSION@">4.2</token>
+        <token name="@PANGOLIN_DATA_VERSION@">1.17</token>
+        <token name="@CONSTELLATIONS_VERSION@">0.1.10</token>
+        <token name="@MIN_COMPATIBLE_PANGOLIN_DATA_FORMAT@">4</token>
+        <!-- a regex describing the scorpio versions that this wrapper version
+        is backwards-compatible with; can be used with the min_scorpio_version
+        column of the constellations data table to offer only compatible
+        versions of constellations data. -->
+        <token name="@COMPATIBLE_SCORPIO_DATA_FORMAT@"><![CDATA[(^0\.[1-3]$|^0\.[0-2]\.\d+$|^0\.3\.\d$|^0\.3\.1[0-7]$|^0$)]]></token>
+        <xml name="usher_download_option">
+            <when value="download">
+                <param argument="--use-assignment-cache" type="boolean" truevalue="--use-assignment-cache" falsevalue="" label="Download and use also latest UShER assignment cache?"
+                help="Get the latest UShER assignment cache from the pangolin-assignment online repository and use it to speed up UShER lineage assignment. Note: Downloading the cached assignments will only pay off for large numbers of input samples." />
+            </when>
+        </xml>
+        <xml name="cached_usher_assignment_cache">
+            <param name="assignment_cache_release" type="select" optional="true" label="Use corresponding UShER assignment cache?"
+            help="If the server offers a copy of the UShER assignment cache along with the specified version of pangolin-data, you can select it here to speed up UShER lineage assignment. If no suitable assignment cache is available, it is perfectly fine to proceed without one, and the performance difference will only become obvious with very large numbers of samples.">
+                <options from_data_table="pangolin_assignment">
+                    <column name="value" index="0" />
+                    <column name="description" index="1" />
+                    <column name="path" index="4" />
+                    <filter type="static_value" column="2" value="@MIN_COMPATIBLE_PANGOLIN_DATA_FORMAT@" />
+                    <filter type="param_value" ref="release" column="0" />
+                </options>
+            </param>
+        </xml>
+        <xml name="cached_pangolin_data">
+            <when value="cached">
+                <param name="release" label="Cached release of pangolin-data" type="select">
+                    <options from_data_table="pangolin_data">
+                        <column name="value" index="0" />
+                        <column name="description" index="1" />
+                        <column name="date" index="3" />
+                        <column name="path" index="4" />
+                        <filter type="sort_by" column="3" />
+                        <filter type="static_value" column="2" value="@MIN_COMPATIBLE_PANGOLIN_DATA_FORMAT@" />
+                        <validator type="no_options" message="No cached constellations release available" />
+                    </options>
+                </param>
+                <yield />
+            </when>
+        </xml>
+        <xml name="pangolin_data_sources">
+            <conditional name="pangolin_data">
+                <param name="source" type="select" label="Version of pangolin-data to use">
+                    <option value="default">Use pangolin-data version (v@PANGOLIN_DATA_VERSION@) shipped with this version of the tool</option>
+                    <option value="cached">Use specific pangolin-data version cached on this Galaxy server</option>
+                    <option value="download">Download latest available pangolin-data version from web</option>
+                </param>
+                <when value="default" />
+                <yield />
+            </conditional>
+        </xml>
     </macros>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">pangolin</requirement>
-        <requirement type="package" version="0.3.16">scorpio</requirement>
-        <requirement type="package" version="0.23.0">csvtk</requirement>
+        <!-- Pin also the versions of all core dependencies - the ones
+        reported with the all-versions option of pangolin plus ucsc-fatovcf,
+        which the command is intended to report but currently cannot for
+        technical reasons - to the versions you'd get installed in an unpinned
+        conda install of pangolin at the time of release of this wrapper
+        version! By turning these dependencies into explicit requirements the
+        requirements section of the tool interface becomes the equivalent of
+        the all-versions option as long as the user doesn't update the data
+        dependencies.
+        Wrapper updates are **explicitly encouraged** when new dependency
+        versions become available. Also, please check for updated dependencies
+        when updating the wrapper for other reasons. -->
+        <requirement type="package" version="0.3.17">scorpio</requirement>
+        <requirement type="package" version="@PANGOLIN_DATA_VERSION@">pangolin-data</requirement>
+        <requirement type="package" version="@CONSTELLATIONS_VERSION@">constellations</requirement>
+        <requirement type="package" version="0.6.2">usher</requirement>
+        <requirement type="package" version="1.1.0">gofasta</requirement>
+        <requirement type="package" version="426">ucsc-fatovcf</requirement>
+        <requirement type="package" version="2.24">minimap2</requirement>
+        <!-- wrapper-specific requirements to turn pangolin's native
+        comma-separated output into tab-separated one and to truncate
+        pangolin's all-versions output. -->
+        <requirement type="package" version="0.25.0">csvtk</requirement>
+        <requirement type="package" version="3.4">grep</requirement>
     </requirements>
+    <version_command><![CDATA[pangolin --version]]></version_command>
     <command detect_errors="exit_code"><![CDATA[
-        #if str($db.source) == "download"
-            pangolin --update-data --datadir datadir &&
-        #else if str($db.source) == "builtin"
-            ln -s $db.db_release.fields.path datadir &&
+## Prepare a pangolin datadir if required:
+#if str($engine.pangolin_data.source) != 'default' or str($constellations.source) != 'default':
+    ## for at least one of pangolin-data and constellations we need to
+    ## provide a non-conda env version through a datadir
+    mkdir datadir &&
+    #if str($engine.pangolin_data.source) == 'download' or str($constellations.source) == 'download':
+        ## If "download latest from web" got requested for any data component,
+        ## we can make use of pangolin --update-data to do the job for us.
+        ## However, this would download updated versions of *all* data
+        ## packages into our datadir, while the user may have asked for
+        ## just a specific one. To avoid this, we set up a fake package
+        ## with very high version number in the datadir to prevent
+        ## unwanted component updates. After updating the rest of the
+        ## data, we remove the fake package again.
+        #if str($engine.pangolin_data.source) != 'download':
+            mkdir datadir/pangolin_data &&
+            echo '__version__ = "999"' > datadir/pangolin_data/__init__.py &&
         #end if
-        pangolin
-        --threads \${GALAXY_SLOTS:-1}
-        #if str($db.source) == "download" or str($db.source) == "builtin"
-            --datadir 'datadir'
+        #if str($constellations.source) != 'download':
+            mkdir datadir/constellations &&
+            ## constellations versions start with a 'v'!
+            echo '__version__ = "v999"' > datadir/constellations/__init__.py &&
         #end if
-        $usher
-        $alignment
-        --outfile report.csv 
-        --max-ambig $max_ambig
-        --min-length $min_length
-        '$input1'
-        && csvtk csv2tab report.csv
-        #if not $include_header:
-            | tail -n+2 
+        ## download updated packages discarding stdout because we
+        ## output final package versions separately below and because
+        ## it would contain our fake package versions
+        pangolin --update-data --datadir datadir 2&> /dev/null &&
+        #if str($engine.pangolin_data.source) != 'download':
+            rm -r datadir/pangolin_data &&
         #end if
-        > '$output1'
-        #if $alignment
-            && mv sequences.aln.fasta '$align1'
-        #end if 
+        #if str($constellations.source) != 'download':
+            rm -r datadir/constellations &&
+        #end if
+    #end if
+    #if str($engine.analysis_mode) == 'usher' and str($engine.pangolin_data.source) == 'download':
+        #if $engine.pangolin_data.use_assignment_cache:
+            ## We need to download also the latest UShER assignment cache data.
+            ## Since v4.1 pangolin's
+            ## --add-assignment-cache/--use-assignment-cache options respect
+            ## --datadir so we can use them directly.
+            pangolin --datadir datadir --add-assignment-cache &&
+        #end if
+    #end if
+    ## Handle data components to be taken from data tables
+    ## The folder structure pointed to by the data tables can be used
+    ## as is except that cannot symlink the folders themselves since
+    ## pangolin inspects them using os.walk with the default
+    ## `followlinks=False`.
+    ## Since data table versions of data packages can be older than
+    ## the versions installed in the wrapper environment, we need to
+    ## use pangolin's --use-old-datadir option to actually have them
+    ## used.
+    #set $use_old_datadir = ''
+    #if str($engine.pangolin_data.source) == 'cached':
+        #set $use_old_datadir = '--use-old-datadir'
+        cp -rs '${engine.pangolin_data.release.fields.path}' datadir/pangolin_data &&
+        #if str($engine.analysis_mode) == 'usher' and $engine.pangolin_data.assignment_cache_release:
+            cp -rs '${engine.pangolin_data.assignment_cache_release.fields.path}' datadir/pangolin_assignment &&
+        #end if
+    #end if
+    #if str($constellations.source) == 'cached':
+        #set $use_old_datadir = '--use-old-datadir'
+        cp -rs '${constellations.release.fields.path}' datadir/constellations &&
+    #end if
+    ## Report all data package versions that will be used in this run of the tool
+    echo "Running pangolin with the following possibly updated data packages:" &&
+    pangolin --datadir datadir $use_old_datadir --all-versions | grep -E "pangolin-data|assignment|constellations" &&
+#end if
+## Since v4.0.6 pangolin can handle compressed fasta as input,
+## but recognizes file type by suffix.
+#if $input1.is_of_type('fasta.gz'):
+    #set $query = 'query.fa.gz'
+#else:
+    #set $query = 'query.fa'
+#end if
+ln -s '$input1' $query &&
+## Finally run the pangolin analysis
+pangolin
+--threads \${GALAXY_SLOTS:-1}
+--tempdir "\${TMPDIR:-.}"
+#if str($engine.pangolin_data.source) != 'default' or str($constellations.source) != 'default':
+    --datadir datadir $use_old_datadir
+#end if
+--analysis-mode $engine.analysis_mode
+#if str($engine.analysis_mode) == 'usher':
+    #if str($engine.pangolin_data.source) == 'download':
+        $engine.pangolin_data.use_assignment_cache
+    #else if str($engine.pangolin_data.source) == 'cached':
+        #if $engine.pangolin_data.assignment_cache_release:
+            --use-assignment-cache
+        #end if
+    #end if
+#end if
+#if $alignment:
+    $alignment --alignment-file '$align1'
+#end if
+--outfile report.csv
+--max-ambig $max_ambig
+--min-length $min_length
+$expanded_lineage
+$query
+&& csvtk csv2tab report.csv
+#if not $include_header:
+    | tail -n+2
+#end if
+> '$output1'
     ]]></command>
     <inputs>
-        <param type="data" name="input1" format="fasta" label="Input FASTA File(s)" /> 
-        <param argument="--usher" type="boolean" label="Use UShER model" truevalue="--usher" falsevalue="" help="Use UShER model instead of default pangoLEARN model" />
-        <param argument="--alignment" type="boolean" label="Generate output alignment" 
-            truevalue="--alignment" falsevalue="" /> 
-        <param argument="--max-ambig" type="float" label="Maximum proportion of Ns allowed" 
-            value="0.5" min="0" max="1" help="Maximum proportion of Ns allowed for pangolin to attempt assignment" />
-        <param argument="--min-length" type="integer" label="Minimum query length allowed" 
-            value="10000" min="0" help="Minimum query length allowed for pangolin to attempt assignment"/>
-        <param name="include_header" type="boolean" label="Include header line in output file" 
-            truevalue="true" falsevalue="false" />
-        <conditional name="db">
-            <param type="select" name="source" label="pangoLEARN source" help="Where to find the pangoLEARN database. While 'Download latest from web' is recommended, if errors occur see the warning in the main help text below.">
-                <option value="download">Download latest from web</option>
-                <option value="builtin">Use database from Galaxy server</option>
-                <option value="default">Use default database built in to pangolin (not recommended)</option>
+        <param type="data" name="input1" format="fasta,fasta.gz" label="Input FASTA File(s)" />
+        <conditional name="engine">
+            <param argument="--analysis-mode" type="select" label="Analysis mode"
+            help="The analysis engine to use for lineage assignment. Note: In this version, UShER mode is implemented through the usher-sampled algorithm of UShER. If you prefer to run the original usher algorithm, please use version 4.1.3 of the tool.">
+                <option value="usher">UShER</option>
+                <option value="pangolearn">pangoLEARN</option>
             </param>
-            <when value="download">
-                <!-- these are currently not supported by the pangolin downloader -->
-                <!-- <param name="max_retries" label="Max download retries" help="How many times to retry downloading the pangoLEARN database" type="integer" value="5" /> -->
-                <!-- <param name="timeout" label="Download timeout" help="How many seconds to wait when downloading the pangoLEARN database" type="float" value="60.0" /> -->
+            <when value="usher">
+                <expand macro="pangolin_data_sources">
+                    <expand macro="cached_pangolin_data">
+                        <expand macro="cached_usher_assignment_cache" />
+                    </expand>
+                    <expand macro="usher_download_option" />
+                </expand>
             </when>
-            <when value="builtin">
-                <param name="db_release" label="pangoLEARN release" type="select">
-                    <options from_data_table="pangolearn">
+            <when value="pangolearn">
+                <expand macro="pangolin_data_sources">
+                    <expand macro="cached_pangolin_data" />
+                    <when value="download" />
+                </expand>
+            </when>
+        </conditional>
+        <conditional name="constellations">
+            <param name="source" type="select" label="Version of constellations to use">
+                <option value="default">Use constellations version (v@CONSTELLATIONS_VERSION@) shipped with this version of the tool</option>
+                <option value="cached">Use specific constellations version cached on this Galaxy server</option>
+                <option value="download">Download latest available constellations version from web</option>
+            </param>
+            <when value="default" />
+            <when value="cached">
+                <param name="release" label="Cached constellations release" type="select">
+                    <options from_data_table="pangolin_constellations">
                         <column name="value" index="0" />
-                        <column name="name" index="1" />
-                        <column name="path" index="3" />
-                        <filter type="sort_by" column="0" />
-                        <filter type="static_value" column="2" value="3.0" />
+                        <column name="description" index="1" />
+                        <column name="date" index="3" />
+                        <column name="path" index="4" />
+                        <filter type="sort_by" column="3" />
+                        <filter type="regexp" column="2" value="@COMPATIBLE_SCORPIO_DATA_FORMAT@" />
+                        <validator type="no_options" message="No cached constellations release available" />
                     </options>
                 </param>
             </when>
-            <when value="default">
-            </when>
-      </conditional>
+            <when value="download" />
+        </conditional>
+        <param argument="--alignment" type="boolean" truevalue="--alignment" falsevalue="" label="Output multiple sequence alignment of input sequences" />
+        <param argument="--max-ambig" type="float" value="0.3" min="0" max="1" label="Maximum proportion of Ns allowed" help="Maximum proportion of Ns allowed for pangolin to attempt assignment" />
+        <param argument="--min-length" type="integer" value="0" min="0" max="29903" label="Minimum query length allowed" help="Minimum query length allowed for pangolin to attempt assignment. Please note that in the current implementation this parameter is used to calculate an alternate value for the 'Maximum proportion of Ns allowed' parameter as 1-(minlen/reflen). The smaller of the two will be used." />
+        <param argument="--expanded-lineage" type="boolean" truevalue="--expanded-lineage" falsevalue="" label="Add expanded lineage column to output" help="Optional expanded lineage information as defined in the alias.json file in pangolin-data can be appended as an additional column to the output." />
+        <param name="include_header" type="boolean" truevalue="true" falsevalue="false" label="Include header line in output file" />
     </inputs>
     <outputs>
         <data name="output1" format="tabular" label="pangolin on ${on_string}">
             <actions>
-                <action name="column_names" type="metadata" default="taxon,lineage,conflict,ambiguity_score,scorpio_call,scorpio_support,scorpio_conflict,version,pangolin_version,pangoLEARN_version,pango_version,status,note" />
+                <conditional name="expanded_lineage">
+                    <when value="">
+                        <!-- default columns -->
+                        <action name="column_names" type="metadata" default="taxon,lineage,conflict,ambiguity_score,scorpio_call,scorpio_support,scorpio_conflict,scorpio_notes,version,pangolin_version,scorpio_version,constellation_version,is_designated,qc_status,qc_notes,note" />
+                    </when>
+                    <when value="--expanded-lineage">
+                        <action name="column_names" type="metadata" default="taxon,lineage,conflict,ambiguity_score,scorpio_call,scorpio_support,scorpio_conflict,scorpio_notes,version,pangolin_version,scorpio_version,constellation_version,is_designated,qc_status,qc_notes,note,expanded_lineage" />
+                    </when>
+                </conditional>
             </actions>
         </data>
         <data name="align1" format="fasta" label="pangolin alignment on ${on_string}">
@@ -82,44 +262,59 @@
         </data>
     </outputs>
     <tests>
+        <!-- Test only the default UShER mode for now since the
+        pangolearn random forest model uses too much memory
+        see https://github.com/cov-lineages/pangolin/issues/395
         <test expect_num_outputs="1">
             <param name="input1" value="test1.fasta"/>
-            <conditional name="db">
-                <param name="source" value="download" />
+            <conditional name="engine">
+                <param name="analysis_mode" value="pangolearn" />
+                <conditional name="pangolin_data">
+                    <param name="source" value="default" />
+                </conditional>
             </conditional>
             <output name="output1" ftype="tabular">
                 <assert_contents>
                     <has_text_matching expression="B\.1\.1\t\d\.\d" />
-                    <has_text text="passed_qc" />
+                    <has_text text="pass" />
                     <has_n_lines n="1" />
                 </assert_contents>
             </output>
         </test>
-        <!-- test UShER mode -->
+        -->
         <test expect_num_outputs="1">
             <param name="input1" value="test1.fasta"/>
-            <param name="usher" value="true" />
-            <conditional name="db">
-                <param name="source" value="download" />
+            <conditional name="engine">
+                <conditional name="pangolin_data">
+                    <param name="source" value="default" />
+                </conditional>
             </conditional>
             <output name="output1" ftype="tabular">
                 <assert_contents>
-                    <has_text_matching expression="B\.1\.1.*\t\d\.\d\t*PUSHER" />
-                    <has_text text="passed_qc" />
+                    <has_text_matching expression="B\.1\.1.*\t\d\.\d+\t*PUSHER" />
+                    <has_text text="pass" />
                     <has_n_lines n="1" />
                 </assert_contents>
             </output>
         </test>
+        <!-- test download and alignment options -->
         <test expect_num_outputs="2">
-            <param name="alignment" value="--alignment" />
             <param name="input1" value="test1.fasta" />
-            <conditional name="db">
-                <param name="source" value="download" />
+            <conditional name="engine">
+                <!-- Test only the default UShER mode for now since the
+                pangolearn random forest model uses too much memory
+                see https://github.com/cov-lineages/pangolin/issues/395
+                <param name="analysis_mode" value="pangolearn" />
+                -->
+                <conditional name="pangolin_data">
+                    <param name="source" value="download" />
+                </conditional>
             </conditional>
+            <param name="alignment" value="--alignment" />
             <output name="output1" ftype="tabular">
                 <assert_contents>
                     <has_text_matching expression="B\.1\.1\t\d\.\d" />
-                    <has_text text="passed_qc" />
+                    <has_text text="pass" />
                     <has_n_lines n="1" />
                 </assert_contents>
             </output>
@@ -133,41 +328,221 @@
         <!-- test include-header option -->
         <test expect_num_outputs="1">
             <param name="input1" value="multiple_alignment.fasta.gz"/>
-            <param name="include_header" value="true" />
-            <conditional name="db">
-                <param name="source" value="download" />
+            <conditional name="engine">
+                <!-- Test only the default UShER mode for now since the
+                pangolearn random forest model uses too much memory
+                see https://github.com/cov-lineages/pangolin/issues/395
+                <param name="analysis_mode" value="pangolearn" />
+                -->
+                <conditional name="pangolin_data">
+                    <param name="source" value="default" />
+                </conditional>
             </conditional>
+            <param name="include_header" value="true" />
             <output name="output1" ftype="tabular">
                 <assert_contents>
-                    <has_text text="pangoLEARN_version" />
+                    <has_text text="pangolin_version" />
                     <has_text text="lineage" />
                     <has_text text="Serbia" />
                     <has_text text="Poland" />
                     <has_text text="USA" />
                     <has_n_lines n="35" />
+                    <has_n_columns n="16" />
+                </assert_contents>
+            </output>
+        </test>
+        <!-- test with extra expanded_lineage column -->
+        <test expect_num_outputs="1">
+            <param name="input1" value="multiple_alignment.fasta.gz"/>
+            <conditional name="engine">
+                <!-- Test only the default UShER mode for now since the
+                pangolearn random forest model uses too much memory
+                see https://github.com/cov-lineages/pangolin/issues/395
+                <param name="analysis_mode" value="pangolearn" />
+                -->
+                <conditional name="pangolin_data">
+                    <param name="source" value="default" />
+                </conditional>
+            </conditional>
+            <param name="expanded_lineage" value="true" />
+            <param name="include_header" value="true" />
+            <output name="output1" ftype="tabular">
+                <assert_contents>
+                    <has_text text="pangolin_version" />
+                    <has_text text="lineage" />
+                    <has_text text="expanded_lineage" />
+                    <has_text text="Serbia" />
+                    <has_text text="Poland" />
+                    <has_text text="USA" />
+                    <has_n_lines n="35" />
+                    <has_n_columns n="17" />
                 </assert_contents>
             </output>
         </test>
     </tests>
     <help><![CDATA[
 
-.. class:: infomark
+**What it does**
 
-`Pangolin <https://cov-lineages.org/pangolin.html>`_ (Phylogenetic Assignment of Named Global Outbreak LINeages) 
-is used to assign a SARS-CoV-2 genome sequence the most likely lineage based on the PANGO nomenclature system.
+`Pangolin <https://cov-lineages.org/pangolin.html>`_
+(Phylogenetic Assignment of Named Global Outbreak LINeages) is used to assign a
+SARS-CoV-2 genome sequence the most likely lineage based on the PANGO
+nomenclature system.
 
-Pangolin uses the `pangoLEARN <https://github.com/cov-lineages/pangoLEARN>`_ stored model for lineage assignment. This
-model is updated more frequently than the pangolin tool is. In general one should use the most recent model for lineage
-assignment, and the default option for this tool is to download the latest version of the model before the pangolin
-tool runs. A pangoLEARN data manager exists so that the Galaxy admin can download specific versions of the pangoLEARN
-model as required. Finally the pangolin tool can use its default built-in model, but this is **not recommended** as the
-default model rapidly becomes out of date.
+**Data sources/versioning and reproducibility**
+
+Pangolin uses the
+`pangolin-data <https://github.com/cov-lineages/pangolin-data>`_ repository as
+a source of its required model, protobuf, designation hash and alias files, and
+the `constellations <https://github.com/cov-lineages/constellations>`_
+repository for `scorpio <https://github.com/cov-lineages/scorpio>`_ -based
+assignment of lineages of concern.
+
+The tool ships with copies of these two data packages, and using these shipped
+versions is *recommended* for reproducibility (even across Galaxy servers) and
+speed of job execution.
+
+If your instance of Galaxy offers cached alternative versions of
+`pangolin-data` and/or `constellations`, you will be able to use them instead
+of the shipped versions, which can be useful to reproduce results obtained
+earlier with previous versions of pangolin.
+
+Finally, you have the option to *download the latest version* of each data
+package at job runtime.
 
 .. class:: warningmark
 
-	The "Download latest from web" updates the pangolin database but not the pangolin (and scorpio) software. If
-	the database format changes this can cause the pangolin job and the tool to fail. The solution to this kind of
-	failure is to update the pangolin tool installed in the Galaxy server.
+   You can use this option as a workaround to get the most up-to-date lineage
+   assignments even before the next Galaxy tool update (or before an admin
+   installs new cached data versions on your server), but be aware of the
+   following limitations:
+
+1. Using latest downloaded data package versions renders results hard to
+   reproduce (e.g. rerunning a corresponding job will cause also a fresh
+   data download, which may yield different data versions as in the intial
+   run).
+
+2. Downloaded latest versions of the data packages may be incompatible
+   with the *pangolin* and *scorpio* version run by the tool, which can
+   result in failing tool runs, but occasionally also in harder to diagnose
+   lineage assignment issues.
+
+.. class:: infomark
+
+   The exact combination of pangolin, inference engine (UShER/pangoLEARN),
+   scorpio, and data packages that was used for a particular run of the tool
+   can be extracted from the four "version" columns in the output (see below
+   for details).
+
+   In addition, lineage assignment with pangolin can be affected by the exact
+   versions of additional underlying software. The packaged versions of all
+   relevant dependencies are listed in the *Requirements* section below. This
+   section is the equivalent to running `pangolin --all-versions` on the
+   command line except that the listed versions of *pangolin-data* and
+   *constellations* are the ones installed with pangolin and may have been
+   overridden with the versions reported in the corresponding output columns
+   at tool runtime.
+
+**Output**
+
+The main output of the tool is a tabular file with one line per input sequence
+and with columns providing the
+`following information <https://cov-lineages.org/resources/pangolin/output.html>`_:
+
+taxon:
+    The name of the input sequence
+
+lineage:
+    The most likely lineage assigned to a given sequence based on the inference
+    engine used and the SARS-CoV-2 diversity designated.
+    This assignment is sensitive to missing data at key sites.
+
+conflict:
+    If a sequence can fit into more than one category, the conflict score will
+    be greater than 0 and reflect the number of categories the sequence could
+    fit into.
+    If the conflict score is 0, this means that within the current assignment
+    model / lineage tree there is only one category that the sequence could
+    plausibly be assigned to.
+
+ambiguity_score:
+    This score is a function of the quantity of missing data in a sequence.
+    It represents the proportion of relevant sites in a sequence which were
+    imputed to the reference values.
+    A score of 1 indicates that no sites were imputed, while a score of 0
+    indicates that more sites were imputed than were not imputed.
+    This score only includes sites which are used by the assignment engine to
+    classify a sequence.
+
+scorpio_call:
+    If a query is assigned a constellation by scorpio this call is output in
+    this column.
+    The full set of constellations searched by default can be found at the
+    constellations repository.
+
+scorpio_support:
+    The support score is the proportion of defining variants which have the
+    alternative allele in the sequence.
+
+scorpio_conflict:
+    The conflict score is the proportion of defining variants which have the
+    reference allele in the sequence. Ambiguous/other non-ref/alt bases at each
+    of the variant positions contribute only to the denominators of these
+    scores.
+
+scorpio_notes:
+    A notes column specific to the scorpio output.
+
+version:
+    A version number that represents both the inference method and the
+    pangolin-data version number, which as of pangolin 4.0 corresponds to the
+    pango-designation version used to prepare the inference files. For example:
+
+    PANGO-1.2 indicates an identical sequence has been previously designated
+    this lineage, and has so gone through manual curation.
+    The number 1.2 indicates the version of pango-designation that this
+    assignment is based on. These hashes and pango-designation version are
+    bundled with the pangoLEARN and UShER models.
+
+    PLEARN-1.2 indicates that this sequence is different from any previously
+    designated and that the pangoLEARN model was used as an inference engine to
+    predict the most likely lineage based on the given version of
+    pango-designation upon which the pangoLEARN model was trained.
+
+    PUSHER-1.2 indicates that this sequence is different from any previously
+    designated and that UShER was used as an inference engine with fast tree
+    placement and parsimony-based lineage assignment, based on a guide tree
+    (protobuf) file built from the data in a given pango-designation release
+    version.
+
+pangolin_version:
+    The version of pangolin software running.
+
+scorpio_version:
+    The version of the scorpio software installed.
+
+constellation_version:
+    The version of constellations that scorpio has used to curate the lineage
+    assignment.
+
+is_designated:
+    A boolean (True/False) column indicating whether that particular sequence
+    has been offically designated a lineage (via pango-designation).
+
+qc_status:
+    Indicates whether the sequence passed the QC thresholds for minimum length
+    and maximum N content.
+
+qc_notes:
+    Notes specific to the QC checks run on the sequences.
+
+note:
+    If any conflicts arose during assignment, this field will output the
+    alternative assignments. If the sequence failed QC this field will describe
+    why.
+    If the sequence met the SNP thresholds for scorpio to call a constellation,
+    it’ll describe the exact SNP counts of Alt, Ref and Amb (alternative,
+    reference and ambiguous) alleles for that call.
     ]]></help>
     <citations>
       <citation type="doi">10.1093/ve/veab064</citation>
