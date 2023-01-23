@@ -83,7 +83,7 @@ class GetBaktaDatabaseInfo:
                       f"{bakta_database_info['date']}"
         tool_version = str(f"{bakta_database_info['software-min']['major']}."
                            f"{bakta_database_info['software-min']['minor']}")
-        data_info = dict(name=bakta_name,
+        data_info = dict(value=bakta_name,
                          dbkey=bakta_database_info['record'],
                          bakta_version=tool_version,
                          path="db")
