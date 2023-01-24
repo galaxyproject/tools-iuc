@@ -408,7 +408,6 @@ if (args$modeSelector == "data_import") {
         quote = FALSE
       )
     }
-
     for (index in seq_along(lf2)) {
       tabular_expression <- data.frame(geneNames, lf2[index])
       colnames(tabular_expression) <-
@@ -424,7 +423,6 @@ if (args$modeSelector == "data_import") {
         quote = FALSE
       )
     }
-
   } else if (args$countFiles == "matrix") {
     expressionDF <- data.frame(geneCountMatrix)
     geneNames <- row.names(expressionDF)
@@ -443,7 +441,7 @@ if (args$modeSelector == "data_import") {
       sep = "\t",
       row.names = FALSE,
       quote = FALSE
-    )  
+    )
   }
 
   save(SwitchList, file = "SwitchList.Rda")
