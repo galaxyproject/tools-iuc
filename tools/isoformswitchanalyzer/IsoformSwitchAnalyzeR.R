@@ -393,7 +393,7 @@ if (args$modeSelector == "data_import") {
     geneNames <- row.names(as.data.frame(expressionDF))
 
 
-    for (index in 1:length(lf1)) {
+    for (index in seq_along(lf1)) {
       tabular_expression <- data.frame(geneNames, lf1[index])
       colnames(tabular_expression) <-
         c("Geneid", sampleNames1[index])
@@ -409,7 +409,7 @@ if (args$modeSelector == "data_import") {
       )
     }
 
-    for (index in 1:length(lf2)) {
+    for (index in seq_along(lf2)) {
       tabular_expression <- data.frame(geneNames, lf2[index])
       colnames(tabular_expression) <-
         c("Geneid", sampleNames2[index])
@@ -443,7 +443,8 @@ if (args$modeSelector == "data_import") {
       sep = "\t",
       row.names = FALSE,
       quote = FALSE
-    )  }
+    )  
+  }
 
   save(SwitchList, file = "SwitchList.Rda")
 
