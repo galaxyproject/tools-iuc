@@ -3,7 +3,7 @@ library(IsoformSwitchAnalyzeR,
         quietly = TRUE,
         warn.conflicts = FALSE)
 library(argparse, quietly = TRUE, warn.conflicts = FALSE)
-
+library(dplyr, quietly = TRUE, warn.conflicts = FALSE)
 
 # setup R error handling to go to stderr
 options(
@@ -324,12 +324,10 @@ parser$add_argument(
 
 args <- parser$parse_args()
 
-
-# Run IsoformSwitchAnalyzeR
+# Data import
+###################
 
 if (args$modeSelector == "data_import") {
-  # Analysis part one
-  ###################
 
   quantificationData <- importIsoformExpression(
     parentDir = args$parentDir,
@@ -376,41 +374,76 @@ if (args$modeSelector == "data_import") {
     addIdsAsColumns = FALSE
   )
 
-  if (args$countFiles == "deseq2") {
+  if (args$countFiles == "collection") {
 
-    l <- as.list(as.data.frame(geneCountMatrix))
+    expressionDF <- data.frame(geneCountMatrix)
 
-    sampleNames <- colnames(as.data.frame(geneCountMatrix))
-    geneNames <- row.names(as.data.frame(geneCountMatrix))
+    myDesign$condition[length(myDesign$condition)]
 
-    for (index in seq_along(l)) {
-      tabularExpression <- data.frame(geneNames, l[index])
-      colnames(tabularExpression) <-
-        c("Geneid", sampleNames[index])
+    dataframe_factor1 <- expressionDF %>% select(matches(myDesign$condition[1]))
+    dataframe_factor2 <- expressionDF %>% select(matches(myDesign$condition[length(myDesign$condition)]))
+
+
+    lf1 <- as.list(as.data.frame(dataframe_factor1))
+    sampleNames1 <- colnames(as.data.frame(dataframe_factor1))
+
+    lf2 <- as.list(as.data.frame(dataframe_factor2))
+    sampleNames2 <- colnames(as.data.frame(dataframe_factor2))
+
+    geneNames <- row.names(as.data.frame(expressionDF))
+
+
+    for (index in 1:length(lf1)) {
+      tabular_expression <- data.frame(geneNames, lf1[index])
+      colnames(tabular_expression) <-
+        c("Geneid", sampleNames1[index])
       filename <-
-        paste(sampleNames[index], "dataset.tabular", sep = "_")
-      outputPath <- paste("./count_files/", filename, sep = "")
+        paste(sampleNames1[index], "dataset.tabular", sep = "_")
+      output_path <- paste("./count_files/factor1/", filename, sep = "")
       write.table(
-        tabularExpression,
-        outputPath,
+        tabular_expression,
+        output_path,
         sep = "\t",
         row.names = FALSE,
         quote = FALSE
       )
     }
-  } else if (args$countFiles == "edger") {
+
+    for (index in 1:length(lf2)) {
+      tabular_expression <- data.frame(geneNames, lf2[index])
+      colnames(tabular_expression) <-
+        c("Geneid", sampleNames2[index])
+      filename <-
+        paste(sampleNames2[index], "dataset.tabular", sep = "_")
+      output_path <- paste("./count_files/factor2/", filename, sep = "")
+      write.table(
+        tabular_expression,
+        output_path,
+        sep = "\t",
+        row.names = FALSE,
+        quote = FALSE
+      )
+    }
+
+  } else if (args$countFiles == "matrix") {
     expressionDF <- data.frame(geneCountMatrix)
     geneNames <- row.names(expressionDF)
 
     expressionDF <- cbind(geneNames, expressionDF)
     write.table(
       as.data.frame(expressionDF),
-      "./count_files/edgeR.tabular",
+      "./count_files/matrix.tabular",
       sep = "\t",
       row.names = FALSE,
       quote = FALSE
     )
-  }
+    write.table(
+      as.data.frame(myDesign),
+      "./count_files/samples.tabular",
+      sep = "\t",
+      row.names = FALSE,
+      quote = FALSE
+    )  }
 
   save(SwitchList, file = "SwitchList.Rda")
 
