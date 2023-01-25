@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 
-import re
-import sys
-import string
 import argparse
 import operator
+import re
+import sys
 
 VERSION = "0.1.1"
 
@@ -12,23 +11,23 @@ parser = argparse.ArgumentParser(
     description="""
 
 DESCRIPTION
-    
+
     Search a fasta file for matches to a regex and return a bed file with the
-    coordinates of the match and the matched sequence itself. 
-    
+    coordinates of the match and the matched sequence itself.
+
     Output bed file has columns:
     1. Name of fasta sequence (e.g. chromosome)
     2. Start of the match
     3. End of the match
     4. ID of the match
     5. Length of the match
-    6. Strand 
+    6. Strand
     7. Matched sequence as it appears on the forward strand
-    
+
     For matches on the reverse strand it is reported the start and end position on the
     forward strand and the matched string on the forward strand (so the G4 'GGGAGGGT'
     present on the reverse strand is reported as ACCCTCCC).
-    
+
     Note: Fasta sequences (chroms) are read in memory one at a time along with the
     matches for that chromosome.
     The order of the output is: chroms as they are found in the inut fasta, matches
@@ -38,7 +37,7 @@ EXAMPLE:
     ## Test data:
     echo '>mychr' > /tmp/mychr.fa
     echo 'ACTGnACTGnACTGnTGAC' >> /tmp/mychr.fa
-    
+
     fastaRegexFinder.py -f /tmp/mychr.fa -r 'ACTG'
         mychr	0	4	mychr_0_4_for	4	+	ACTG
         mychr	5	9	mychr_5_9_for	4	+	ACTG
@@ -48,8 +47,8 @@ EXAMPLE:
         mychr	0	4	mychr_0_4_for	4	+	ACT[3,4]
         mychr	5	9	mychr_5_9_for	4	+	ACT[3,4]
         mychr	10	14	mychr_10_14_for	4	+	ACT[3,4]
-    
-    less /tmp/mychr.fa | fastaRegexFinder.py -f - -r 'A\w\wGn'
+
+    less /tmp/mychr.fa | fastaRegexFinder.py -f - -r 'A\\w\\wGn'
         mychr	0	5	mychr_0_5_for	5	+	ACTGn
         mychr	5	10	mychr_5_10_for	5	+	ACTGn
         mychr	10	15	mychr_10_15_for	5	+	ACTGn
@@ -65,9 +64,7 @@ parser.add_argument(
     "--fasta",
     "-f",
     type=str,
-    help="""Input fasta file to search. Use '-' to read the file from stdin.
-                                   
-                   """,
+    help="Input fasta file to search. Use '-' to read the file from stdin.",
     required=True,
 )
 
@@ -77,10 +74,9 @@ parser.add_argument(
     type=str,
     help="""Regex to be searched in the fasta input.
 Matches to the reverse complement will have - strand.
-The default regex is '([gG]{3,}\w{1,7}){3,}[gG]{3,}' which searches
-for G-quadruplexes.                                   
-                   """,
-    default="([gG]{3,}\w{1,7}){3,}[gG]{3,}",
+The default regex is '([gG]{3,}\\w{1,7}){3,}[gG]{3,}' which searches
+for G-quadruplexes.""",
+    default="([gG]{3,}\\w{1,7}){3,}[gG]{3,}",
 )
 
 parser.add_argument(
@@ -96,8 +92,7 @@ parser.add_argument(
     "--noreverse",
     action="store_true",
     help="""Do not search the reverse complement of the input fasta.
-Use this flag to search protein sequences.                                   
-                   """,
+Use this flag to search protein sequences.""",
 )
 
 parser.add_argument(
@@ -127,7 +122,7 @@ parser.add_argument(
     "--quiet",
     "-q",
     action="store_true",
-    help="""Do not print progress report (i.e. sequence names as they are scanned).                                   
+    help="""Do not print progress report (i.e. sequence names as they are scanned).
                    """,
 )
 
@@ -228,7 +223,7 @@ def revcomp(x):
 # -----------------------------------------------------------------------------
 
 psq_re_f = re.compile(args.regex, flags=flag)
-## psq_re_r= re.compile(regexrev)
+# psq_re_r= re.compile(regexrev)
 
 if args.fasta != "-":
     ref_seq_fh = open(args.fasta)
