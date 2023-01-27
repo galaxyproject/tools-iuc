@@ -79,8 +79,8 @@ class GetBaktaDatabaseInfo:
     def get_data_manager(self, bakta_database_info):
         self.bakta_table_list = self.get_data_table_format()
         bakta_name = f"V{bakta_database_info['major']}." \
-                      f"{bakta_database_info['minor']}_" \
-                      f"{bakta_database_info['date']}"
+                     f"{bakta_database_info['minor']}_" \
+                     f"{bakta_database_info['date']}"
         tool_version = str(f"{bakta_database_info['software-min']['major']}."
                            f"{bakta_database_info['software-min']['minor']}")
         data_info = dict(value=bakta_name,
