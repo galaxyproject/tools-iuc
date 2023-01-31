@@ -15,14 +15,29 @@
         #for $input, $escaped_element_identifier in zip($gffinputs, $escaped_element_identifiers):
             ln -s '$input' '$escaped_element_identifier' &&
         #end for
+        #if $conditional_annotation.selector == "yes":
+            #if $conditional_annotation.ref_source.selector == "history":
+                ln -s '$conditional_annotation.ref_source.reference_annotation' reference_annotation &&
+            #else:
+                ln -s '${conditional_annotation.ref_source.index.fields.path}' reference_annotation &&
+            #end if
+        #end if
+        #if $seq_data.selector == "Yes":
+            #if $seq_data.seq_source.index_source == "history":
+                ln -s '$seq_data.seq_source.ref_genome' ref_seq.fa &&
+                samtools faidx ref_seq.fa &&
+            #else:
+                ln -s '${seq_data.seq_source.index.fields.path}' ref_seq.fa &&
+            #end if
+        #end if
         gffcompare -V
         #if $conditional_annotation.selector == "yes":
-            -r '${conditional_annotation.reference_annotation}'
+            -r reference_annotation
             $conditional_annotation.R
             $conditional_annotation.Q
             $conditional_annotation.conditional_strict.selector
             #if $conditional_annotation.conditional_strict.selector == '--strict-match'
-                -e $conditional_annotation.strict_match_conditional.e
+                -e $conditional_annotation.conditional_strict.e
             #end if    
             $conditional_annotation.discard_single_exon
             $conditional_annotation.conditional_duplication.selector
@@ -32,8 +47,8 @@
             $conditional_annotation.no_merge    
         #end if
         $refmap_tmap
-        #if $ref_genome
-            -s '${ref_genome}'
+        #if $seq_data.selector == "Yes":
+            -s ref_seq.fa
         #end if
         -d $max_dist_group
         $chr_stats
@@ -45,17 +60,39 @@
         #for $escaped_element_identifier in $escaped_element_identifiers:
             '$escaped_element_identifier'
         #end for
+        #if len($gffinputs) == 1 and $refmap_tmap == 'true'
+            && mv *tmap output.tmap
+            #if $seq_data.selector == "Yes"
+                && mv *refmap output.refmap
+            #end if
+        #end if
     ]]></command>
     <inputs>
-        <param format="gtf" name="gffinputs" type="data" label="GTF inputs for comparison" help="" multiple="true" />
+        <param format="gtf,gff3" name="gffinputs" type="data" label="GTF inputs for comparison" help="" multiple="true" />
         <conditional name="conditional_annotation">
             <param  name="selector" type="select" label="Use reference annotation">
                 <option value="no">No</option>
                 <option value="yes">Yes</option>
             </param>
             <when value="yes">
-                <param argument="-r" name="reference_annotation" type="data" format="gff3,gtf" label="Reference annotation" 
-                    help="Requires an annotation file in GFF3 or GTF format"/>
+                 <conditional name="ref_source">
+                    <param label="Choose the source for the reference annotation" name="selector" type="select">
+                        <option value="cached">Locally cached</option>
+                        <option value="history" selected="true">History</option>
+                    </param>
+                    <when value="cached">
+                        <param argument="-r" label="Using reference annotation" name="index" type="select">
+                            <options from_data_table="gene_sets">
+                                <filter column="dbkey" key="dbkey" ref="gffinputs" type="data_meta" />
+                            </options>
+                            <validator message="No reference annotation is available for the build associated with the selected input dataset" type="no_options" />
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param argument="-r" name="reference_annotation" type="data" format="gff3,gtf" label="Reference annotation" 
+                            help="Requires an annotation file in GFF3 or GTF format"/>                    
+                    </when>
+                </conditional>
                 <param argument="-R" falsevalue="" truevalue="-R" type="boolean" label="Sn correction" help="Consider only the reference transcripts that
                     overlap any of the input transfrags"/>
                 <param argument="-Q" falsevalue="" truevalue="-Q" type="boolean" label="Sp correction"  help="Consider only the input transcripts that overlap 
@@ -98,13 +135,38 @@
             </when>
             <when value="no"/>
         </conditional>
-        <param argument="-s" name="ref_genome" type="data" format="fasta" optional="true" label="Reference genome" help="Optional. Repeats must be soft-masked (lower case) in order to be able to classify
-            transfrags as repeats"/>
+        <conditional name="seq_data">
+            <param name="selector" type="select" label="Use Sequence Data" help="Use sequence data for some optional classification functions, including the addition of the p_id attribute required by Cuffdiff." >
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <conditional name="seq_source">
+                    <param label="Choose the source for the reference sequence" name="index_source" type="select">
+                        <option value="cached">Locally cached</option>
+                        <option value="history" selected="true">History</option>
+                    </param>
+                    <when value="cached">
+                        <param argument="-s" label="Using reference genome" name="index" type="select">
+                            <options from_data_table="fasta_indexes">
+                                <filter column="dbkey" key="dbkey" ref="gffinputs" type="data_meta" />
+                            </options>
+                            <validator message="No reference genome is available for the build associated with the selected input dataset" type="no_options" />
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param argument="-s" name="ref_genome" type="data" format="fasta" label="Reference genome" help="Optional. Repeats must be soft-masked (lower case) in order to be able to classify
+                            transfrags as repeats"/>
+                    </when>
+                </conditional>
+                    </when>
+        </conditional>
         <param argument="-d" name="max_dist_group" type="integer" value="100" min="0" help="Maximum distance (range) for grouping transcript start sites. Default: 100" label="Max distance for transcript grouping" />
-        <param argument="--chr-stats" type="boolean" checked="false" truevalue="--chr-stats" falsevalue="" label="Show summary and accuracy data separately for each reference sequence in the transcript accuracy data set" />
-        <param argument="--T" name="refmap_tmap" type="boolean" truevalue="" falsevalue="--T" checked="true" label="Generate TMAP and RefMap files for each input" help="TMAP are tabular files that store the information regarding the best match for each prediction in the reference.
-            RefMap files are tabular files which store the information regarding the best match for each reference transcript, among all possible prediction models. "/>
-        <section name="adv_output" title="Options for the combined GTF output file">
+        <param argument="--chr-stats" type="boolean" checked="false" truevalue="--chr-stats" falsevalue="" label="Stats per reference contig/chromosome" help="Show summary and accuracy data separately for each reference sequence in the transcript accuracy data set" />
+        <param argument="-T" name="refmap_tmap" type="boolean" truevalue="" falsevalue="-T" checked="true" label="Generate TMAP and RefMap files for each input" help="TMAP are tabular files that store the information regarding the best match for each prediction in the reference.
+            RefMap files are tabular files which store the information regarding the best match for each reference transcript, among all possible prediction models. More information in the help section"/>
+        <section name="adv_output" title="Combined GTF output parameters">
             <param argument="-p" type="text" value="TCONS" label="Name prefix for consensus transcripts">
                 <sanitizer invalid_char="">
                     <valid initial="string.letters,string.digits">
@@ -121,33 +183,46 @@
         </section>
     </inputs>
     <outputs>
-        <data format="txt" from_work_dir="gffcmp.stats" label="${tool.name} on ${on_string}: transcript accuracy" name="transcripts_stats" />
-        <data format="tabular" from_work_dir="gffcmp.loci" label="${tool.name} on ${on_string}: loci" name="transcripts_loci" />
-        <data format="tabular" from_work_dir="gffcmp.tracking" label="${tool.name} on ${on_string}: data ${gffinputs[0].hid} tracking file" name="transcripts_tracking" />
-        <data format="gtf" from_work_dir="gffcmp.combined.gtf" label="${tool.name} on ${on_string}: combined transcripts" name="transcripts_combined">
-            <filter>(isinstance(gffinputs, list) and len(gffinputs) > 1) or annotation['use_ref_annotation'] == "No"</filter>
+        <data name="transcripts_annotated" format="gtf" from_work_dir="gffcmp.annotated.gtf" label="${tool.name} on ${on_string}: annotated transcripts">
+            <filter>conditional_annotation['selector'] == "yes"</filter>
+            <filter>len(gffinputs) == 1</filter>
         </data>
-        <data format="gtf" from_work_dir="gffcmp.annotated.gtf" label="${tool.name} on ${on_string}: annotated transcripts" name="transcripts_annotated">
-            <filter>not (isinstance(gffinputs, list) and len(gffinputs) > 1) and annotation['use_ref_annotation'] == "Yes"</filter>
+        <data name="transcripts_combined" format="gtf" from_work_dir="gffcmp.combined.gtf" label="${tool.name} on ${on_string}: combined transcripts" >
+            <filter>len(gffinputs) > 1</filter>
         </data>
-        <collection name="refmap_output" type="list" label="${tool.name} on ${on_string}: refmap">
+        <collection name="refmap_output_collection" type="list" label="${tool.name} on ${on_string}: RefMap">
             <discover_datasets pattern="gffcmp\.(?P&lt;designation&gt;.+)\.refmap" ext="tabular" />
-            <filter>annotation['refmap_tmap'] != None and 'refmap' in annotation['refmap_tmap']</filter>
+            <filter>conditional_annotation['selector'] == 'yes'</filter>
+            <filter>len(gffinputs) > 1</filter>
+            <filter>refmap_tmap</filter>
         </collection>
-        <collection name="tmap_output" type="list" label="${tool.name} on ${on_string}: tmap">
+        <data name="refmap_output" format="tabular" from_work_dir="output.refmap"  label="${tool.name} on ${on_string}: RefMap">
+            <filter>conditional_annotation['selector'] == 'yes'</filter>
+            <filter>len(gffinputs) == 1</filter>
+            <filter>refmap_tmap</filter>
+        </data>
+        <collection name="tmap_output_collection" type="list" label="${tool.name} on ${on_string}: TMAP">
             <discover_datasets pattern="gffcmp\.(?P&lt;designation&gt;.+)\.tmap" ext="tabular" />
-            <filter>annotation['refmap_tmap'] != None and 'tmap' in annotation['refmap_tmap']</filter>
+            <filter>refmap_tmap</filter>
+            <filter>len(gffinputs) > 1</filter>
         </collection>
+        <data name="tmap_output" format="tabular" from_work_dir="output.tmap" label="${tool.name} on ${on_string}: TMAP">
+            <filter>refmap_tmap</filter>
+            <filter>len(gffinputs) == 1</filter>
+        </data>
+        <data name="transcripts_stats" format="txt" from_work_dir="gffcmp.stats" label="${tool.name} on ${on_string}: accuracy stats"  />
+        <data name="transcripts_loci" format="tabular" from_work_dir="gffcmp.loci" label="${tool.name} on ${on_string}: loci file" />
+        <data name="transcripts_tracking" format="tabular" from_work_dir="gffcmp.tracking" label="${tool.name} on ${on_string}: tracking file"  />
     </outputs>
     <tests>
-        <!-- 2 inputs, no reference, default options -->
+        <!-- Test 01: 2 inputs, no reference, default options -->
         <test expect_num_outputs="5">
             <param ftype="gtf" name="gffinputs" value="gffcompare_in1.gtf,gffcompare_in2.gtf" />
-            <conditional name="annotation">
-                <param name="use_ref_annotation" value="No" />
+            <conditional name="conditional_annotation">
+                <param name="selector" value="no"/>
             </conditional>
             <conditional name="seq_data">
-                <param name="use_seq_data" value="No" />
+                <param name="selector" value="no" />
             </conditional>
             <assert_command>
                 <not_has_text text="-R " />
@@ -157,7 +232,6 @@
                 <has_text_matching expression="^.*gffcompare((?!-s).)*$" /> <!-- since ln also has -s a more complicated regexp is needed here to check if -s is not set -->
                 <not_has_text text="-M " />
                 <not_has_text text="-N " />
-                <has_text text="-e 100 " />
                 <has_text text="-d 100 " />
                 <not_has_text text="-D " />
                 <not_has_text text="--no-merge " />
@@ -171,17 +245,17 @@
             <output file="gffcompare_out1.loci" name="transcripts_loci" />
             <output file="gffcompare_out1.tracking" name="transcripts_tracking" />
             <output file="gffcompare_out1.gtf" name="transcripts_combined" />
-            <output_collection name="tmap_output" type="list" count="2"/>
+            <output_collection name="tmap_output_collection" type="list" count="2"/>
         </test>
-        <!-- 2 inputs, no reference, with refsequence, default options (but disable tmap output) -->
+        <!-- Test 02: 2 inputs, no reference, with refsequence, default options (but disable tmap output) -->
         <test expect_num_outputs="4">
             <param ftype="gtf" name="gffinputs" value="gffcompare_in1.gtf,gffcompare_in2.gtf" />
-            <conditional name="annotation">
-                <param name="use_ref_annotation" value="No" />
-                <param name="refmap_tmap" value=""/>
+            <param name="refmap_tmap" value="false"/>
+            <conditional name="conditional_annotation">
+                <param name="selector" value="no"/>
             </conditional>
             <conditional name="seq_data">
-                <param name="use_seq_data" value="Yes" />
+                <param name="selector" value="Yes" />
                 <conditional name="seq_source">
                     <param name="index_source" value="history"/>
                     <param name="ref_file" ftype="fasta" value="sequence.fa"/>
@@ -194,7 +268,6 @@
                 <has_text_matching expression="gffcompare.*-s " /> <!-- since ln also has -s a more complicated regexp is needed here to check if -s is set -->
                 <not_has_text text="-M " />
                 <not_has_text text="-N " />
-                <has_text text="-e 100 " />
                 <has_text text="-d 100 " />
                 <has_text text="-p 'TCONS' " />
                 <not_has_text text="-C " />
@@ -207,15 +280,15 @@
             <output file="gffcompare_out1.tracking" name="transcripts_tracking" compare="sim_size" />
             <output file="gffcompare_out1.gtf" name="transcripts_combined" compare="sim_size" />
         </test>
-        <!-- 2 inputs, no reference, with cached refsequence, default options (but disable tmap output) -->
+        <!-- Test 03: 2 inputs, no reference, with cached refsequence, default options (but disable tmap output) -->
         <test expect_num_outputs="4">
             <param ftype="gtf" name="gffinputs" value="gffcompare_in1.gtf,gffcompare_in2.gtf" dbkey="hg17" />
-            <conditional name="annotation">
-                <param name="use_ref_annotation" value="No" />
-                <param name="refmap_tmap" value=""/>
+            <param name="refmap_tmap" value="false"/>
+            <conditional name="conditional_annotation">
+                <param name="selector" value="no"/>
             </conditional>
             <conditional name="seq_data">
-                <param name="use_seq_data" value="Yes" />
+                <param name="selector" value="yes" />
                 <conditional name="seq_source">
                     <param name="index_source" value="cached"/>
                     <param name="index" value="test_buildid"/>
@@ -228,7 +301,6 @@
                 <has_text_matching expression="gffcompare.*-s " />
                 <not_has_text text="-M " />
                 <not_has_text text="-N " />
-                <has_text text="-e 100 " />
                 <has_text text="-d 100 " />
                 <has_text text="-p 'TCONS' " />
                 <not_has_text text="-C " />
@@ -241,23 +313,27 @@
             <output file="gffcompare_out1.tracking" name="transcripts_tracking" compare="sim_size" />
             <output file="gffcompare_out1.gtf" name="transcripts_combined" compare="sim_size" />
         </test>
-        <!-- 2 inputs and reference, default options -->
+        <!-- Test 04: 2 inputs and reference, default options -->
         <test expect_num_outputs="6">
             <param ftype="gtf" name="gffinputs" value="gffcompare_in1.gtf,gffcompare_in2.gtf" />
-            <conditional name="annotation">
-                <param name="use_ref_annotation" value="Yes" />
+            <conditional name="conditional_annotation">
+                <param name="selector" value="yes"/>
                 <conditional name="ref_source">
                     <param name="ref_source_sel" value="history"/>
                     <param ftype="gtf" name="reference_annotation" value="gffcompare_in3.gtf" />
                 </conditional>
+                <conditional name="conditional_strict">
+                    <param name="selector" value="--strict-match"/>
+                    <param name="e" value="100"/>
+                </conditional>
             </conditional>
             <conditional name="seq_data">
-                <param name="use_seq_data" value="No" />
+                <param name="seletor" value="no" />
             </conditional>
             <assert_command>
                 <not_has_text text="-R " />
                 <not_has_text text="-Q " />
-                <not_has_text text="--strict-match " />
+                <has_text text="--strict-match " />
                 <not_has_text text="-T " />
                 <not_has_text text="-M " />
                 <not_has_text text="-N " />
@@ -276,38 +352,39 @@
             <output file="gffcompare_out2.loci" name="transcripts_loci" compare="sim_size" />
             <output file="gffcompare_out2.tracking" name="transcripts_tracking" />
             <output file="gffcompare_out2.gtf" name="transcripts_combined" />
-            <output_collection name="refmap_output" type="list" count="2">
+            <output_collection name="refmap_output_collection" type="list" count="2">
                 <element name="gffcompare_in1_gtf" file="gffcompare_out2-1.refmap" ftype="tabular" />
                 <element name="gffcompare_in2_gtf" file="gffcompare_out2-2.refmap" ftype="tabular" />
             </output_collection>
-            <output_collection name="tmap_output" type="list" count="2">
+            <output_collection name="tmap_output_collection" type="list" count="2">
                 <element name="gffcompare_in1_gtf" file="gffcompare_out2-1.tmap" ftype="tabular" />
                 <element name="gffcompare_in2_gtf" file="gffcompare_out2-2.tmap" ftype="tabular" />
             </output_collection>
         </test>
-        <!-- 2 inputs and reference (cached), non default options, only refmap output -->
-        <test expect_num_outputs="5">
+        <!-- Test 05: 2 inputs and reference (cached), non default options -->
+        <test expect_num_outputs="6">
             <param ftype="gtf" name="gffinputs" value="gffcompare_in1.gtf,gffcompare_in2.gtf" dbkey="hg17" />
-            <conditional name="annotation">
-                <param name="use_ref_annotation" value="Yes" />
+            <conditional name="conditional_annotation">
+                <param name="selector" value="yes"/>
                 <conditional name="ref_source">
                     <param name="ref_source_sel" value="cached"/>
                     <param name="index" value="test_buildid"/>
                 </conditional>
-                <param name="ignore_nonoverlapping_reference" value="Yes" />
-                <param name="ignore_nonoverlapping_transfrags" value="Yes" />
-                <param name="strict_match" value="--strict-match" />
-                <param name="refmap_tmap" value="refmap" />
+                <param name="R" value="true"/>
+                <param name="Q" value="true"/>
+                <param name="discard_single_exon" value="-M"/>
+                <param name="no_merge" value="true"/>
+                <conditional name="conditional_strict">
+                    <param name="selector" value="--strict-match"/>
+                    <param name="e" value="101"/>
+                </conditional>
+                <conditional name="conditional_duplication">
+                    <param name="selector" value="-D"/>
+                    <param name="S" value="false"/>
+                </conditional>
             </conditional>
-            <conditional name="seq_data">
-                <param name="use_seq_data" value="No" />
-            </conditional>
-            <param name="discard_single_exon" value="-M"/>
-            <param name="discard_duplicates" value="-D"/>
-            <param name="no_merge" value="--no-merge" />
-            <param name="max_dist_exon" value="101" />
             <param name="max_dist_group" value="99" />
-            <param name="chr_stats" value="--chr-stats" />
+            <param name="chr_stats" value="true" />
             <assert_command>
                 <has_text text="-R " />
                 <has_text text="-Q " />
@@ -330,28 +407,28 @@
             <output file="gffcompare_out2.loci" name="transcripts_loci" compare="sim_size" />
             <output file="gffcompare_out2.tracking" name="transcripts_tracking" compare="sim_size" />
             <output file="gffcompare_out2.gtf" name="transcripts_combined" compare="sim_size" delta="50000"/>
-            <output_collection name="refmap_output" type="list" count="0"/> <!-- because of -M no refmaps are created -->
+            <output_collection name="refmap_output_collection" type="list" count="0"/> <!-- because of -M no refmaps are created -->
+            <output_collection name="tmap_output_collection" type="list" count="2"/>
         </test>
-        <!-- 2 inputs and reference, non default advanced options, only tmap output -->
-        <test expect_num_outputs="5">
+        <!-- Test 06: 2 inputs and reference, non default advanced options -->
+        <test expect_num_outputs="6">
             <param ftype="gtf" name="gffinputs" value="gffcompare_in1.gtf,gffcompare_in2.gtf" />
-            <conditional name="annotation">
-                <param name="use_ref_annotation" value="Yes" />
+            <conditional name="conditional_annotation">
+                <param name="selector" value="yes"/>
                 <conditional name="ref_source">
                     <param name="ref_source_sel" value="history"/>
                     <param ftype="gtf" name="reference_annotation" value="gffcompare_in3.gtf" />
                 </conditional>
-                <param name="refmap_tmap" value="tmap" />
             </conditional>
             <conditional name="seq_data">
-                <param name="use_seq_data" value="No" />
+                <param name="selector" value="no" />
             </conditional>
             <section name="adv_output">
                 <param name="p" value="OTHER" />
-                <param name="C" value="-C" />
-                <param name="A" value="-A" />
-                <param name="X" value="-X" />
-                <param name="K" value="-K" />
+                <param name="C" value="true" />
+                <param name="A" value="true" />
+                <param name="X" value="true" />
+                <param name="K" value="true" />
             </section>
             <assert_command>
                 <not_has_text text="-R " />
@@ -360,7 +437,7 @@
                 <not_has_text text="-T " />
                 <not_has_text text="-M " />
                 <not_has_text text="-N " />
-                <has_text text="-e 100 " />
+                <not_has_text text="-e 100 " />
                 <has_text text="-d 100 " />
                 <not_has_text text="-D " />
                 <not_has_text text="--no-merge " />
@@ -375,21 +452,22 @@
             <output file="gffcompare_out2.loci" name="transcripts_loci" compare="sim_size" />
             <output file="gffcompare_out2.tracking" name="transcripts_tracking" compare="sim_size" />
             <output file="gffcompare_out2.gtf" name="transcripts_combined" compare="sim_size" delta="50000"/>
-            <output_collection name="tmap_output" type="list" count="2"/>
+            <output_collection name="tmap_output_collection" type="list" count="2"/>
+            <output_collection name="tmap_output_collection" type="list" count="2"/>
         </test>
-        <!-- 2 inputs and reference, default options, no tmap or refmap output -->
+        <!-- Test 07: 2 inputs and reference, default options, no tmap or refmap output -->
         <test expect_num_outputs="4">
             <param ftype="gtf" name="gffinputs" value="gffcompare_in1.gtf,gffcompare_in2.gtf" />
-            <conditional name="annotation">
-                <param name="use_ref_annotation" value="Yes" />
+            <param name="refmap_tmap" value="false"/>
+            <conditional name="conditional_annotation">
+                <param name="selector" value="yes"/>
                 <conditional name="ref_source">
                     <param name="ref_source_sel" value="history"/>
                     <param ftype="gtf" name="reference_annotation" value="gffcompare_in3.gtf" />
                 </conditional>
-                <param name="refmap_tmap" value="" />
             </conditional>
             <conditional name="seq_data">
-                <param name="use_seq_data" value="No" />
+                <param name="selector" value="No" />
             </conditional>
             <assert_command>
                 <not_has_text text="-R " />
@@ -398,7 +476,6 @@
                 <has_text text="-T " />
                 <not_has_text text="-M " />
                 <not_has_text text="-N " />
-                <has_text text="-e 100 " />
                 <has_text text="-d 100 " />
                 <not_has_text text="-D " />
                 <not_has_text text="--no-merge " />
@@ -414,22 +491,24 @@
             <output file="gffcompare_out2.tracking" name="transcripts_tracking" />
             <output file="gffcompare_out2.gtf" name="transcripts_combined" />
         </test>
-
+        <!-- Test 08: 1 inputs and reference, default options, no tmap or refmap output -->
         <test expect_num_outputs="4">
             <param ftype="gtf" name="gffinputs" value="gffcompare_in4.gtf" />
-            <conditional name="annotation">
-                <param name="use_ref_annotation" value="Yes" />
+            <param name="refmap_tmap" value="false"/>
+            <conditional name="conditional_annotation">
+                <param name="selector" value="yes"/>
                 <conditional name="ref_source">
                     <param name="ref_source_sel" value="history"/>
                     <param ftype="gtf" name="reference_annotation" value="gffcompare_in5.gtf" />
                 </conditional>
-                <param name="ignore_nonoverlapping_reference" value="Yes" />
-                <param name="ignore_nonoverlapping_transfrags" value="No" />
-                <param name="refmap_tmap" value="" />
+                <param name="R" value="true"/>
+                <param name="Q" value="false"/>
+                <conditional name="conditional_strict">
+                    <param name="selector" value="--strict-match"/>
+                    <param name="e" value="100"/>
+                </conditional>
+                <param name="discard_single_exon" value=""/>
             </conditional>
-            <param name="use_seq_data" value="No" />
-            <param name="discard_single_exon" value="" />
-            <param name="max_dist_exon" value="100" />
             <param name="max_dist_group" value="100" />
             <output file="gffcompare_out3.stats" name="transcripts_stats"/>
             <output file="gffcompare_out3.loci" name="transcripts_loci" compare="sim_size" />
@@ -444,27 +523,95 @@
 
 **GffCompare Overview**
 
-* compare and evaluate the accuracy of RNA-Seq transcript assemblers (Cufflinks, Stringtie).
-* collapse (merge) duplicate transcripts from multiple GTF/GFF3 files (e.g. resulted from assembly of different samples)
-* classify transcripts from one or multiple GTF/GFF3 files as they relate to reference transcripts provided in a
-annotation file (also in GTF/GFF3 format)
+GffCompare is designed to systematically compare one or more sets of transcript predictions to a reference annotation at different levels of granularity (base level, exon level, 
+transcript level etc.), and in the process to provide a way to "annotate" such transcript predictions based on their overlaps or proximity to reference annotation transcripts. 
+When multiple transcript files (samples) are provided, GffCompare generates a non-redundant combined set of transcripts, tracking structurally equivalent transcripts across multiple 
+samples and classifying them according to their relationship to reference transcripts. GffCompare has the following main functions:
+
+- Merge structurally equivalent transcripts and transcript fragments (transfrags) across multiple samples
+- Assess the accuracy of the assembled transcripts from an RNA-Seq sample by comparing it to known annotation
+- Track, annotate, and report all structurally distinct transfrags across multiple samples
+
+The last two purposes require the user to provide a known reference annotation file that GffCompare then uses to classify all the transcripts in the input samples according to the 
+reference transcript that they most closely overlap.
+
+To assess the accuracy of transcriptome assemblies, GffCompare reports several accuracy metrics previously employed for gene prediction evaluation. These metrics include sensitivity 
+and precision as well as the number of novel or missed features, and the metrics are computed at various levels (base, exon, intron chain, transcript, or locus). 
+
+----
+
+.. class:: infomark
+
+**Annotation mode**
+
+When a single query GTF/GFF file is given as input for analysis, along with a reference annotation (-r option), GffCompare switches into annotation mode and it generates a *annotated 
+transcripts* file, allowing annotate transcripts by using a reference annotation. It should be noted that this file is not generated when options to remove "duplicated"/redundant transfrags are given (-D, -S, -C, -A, -X).
+
+----
+
+.. class:: infomark
+
+**Merging structually equivalent transcripts**
+
+When multiple input GTF/GFF files are provided, GffCompare reports a GTF file named *combined transcripts* that containing the union of all transfrags in each sample. If a transfrag with the same 
+exact intron chain is present in both samples, it is thus reported only once in the output file.
+
+**The "super-locus" concept**
+
+A super-locus is a region of the genome where predicted transcripts and reference transcripts get clustered together by exon overlaps. When multiple GFF files are provided as input to GffCompare, 
+this clustering is performed across all the input files. Due to the transitive nature of this clustering, these super-loci can occasionally get very large, sometimes merging a few distinct reference 
+gene regions together, especially if there is a lot of transcription or alignment noise around the individual gene regions. For each super-locus, GffCompare assigns a unique identifier with the XLOC prefix.
+
+----
+
+.. class:: infomark
+
+**Transcript accuracy estimation**
+
+GffCompare can be used to assess the accuracy of transcriptome assemblies produced by programs like StringTie 19 with respect to a known reference annotation. To this end, GffCompare 
+reports various statistics related to the accuracy of the input transcripts compared to the reference annotation in the *accuracy stats* file.
+
+Among these statistics are sensitivity and precision values computed at various levels (base, exon, intron chain, transcript, locus), which are calculated as:
+
+* Sensitivity = TP/(TP+FN)
+* Precision = TP/(TP+FP)
+
+where TP stands for "true positives", or query features (bases, exons, introns, transcripts, etc.) that agree with the corresponding reference annotation features; FN means "false negatives", 
+i.e. features that are found in the reference annotation but are not present in the input data; FP (“false positives”) are features present in the input data but not confirmed by any reference 
+annotation data. Notice that FP+ TP amounts to the whole input set of query features in the input file. If multiple query GTF/GFF files are given as input, these metrics are computed separately 
+for each sample.
+
+Sensitivity and Precision values are estimated at various levels, which are largely an increasingly stringent way of evaluating the accuracy/correctness of a set of predicted transcripts (transfrags), 
+when compared to the reference annotation. The six different levels that GffCompare uses are described below:
+
+* **Base level**: At the base level, TP represents the number of exon bases that are reported at the same coordinate on both the query transcripts and any reference transcript, FN is the number of bases in reference data exons that are not covered at all by any of the query exons, and FP is the number of bases which are covered by predicted transcripts' exons but not covered by any reference transcript exons.
+* **Exon level**: We define the TP, FN, and FP values at the exon level similar to the base level, but now the unit of comparison is the exon interval on the genome, i.e. if an exon of the predicted transcript overlaps and matches the boundaries of a reference transcript exon, then it is counted as a TP.
+* **Intron Level**: Intron intervals are the units that are matched at the intron level, therefore each intron of the predicted transcript is checked against any introns of the reference transcripts in the same region and if there is one with the same exact start-end coordinates, it is counted as a TP.
+* **Intron chain level**: At this level we count as a TP any query transcript for which all of its introns can be found, with the same exact intron coordinates as in a reference transcript that has the same number of introns. Matching all the introns at this level implies that all the internal exons also match, but this might not be true for the external boundaries of the terminal exons.
+* **Transcript level**: Note that intron chain level values are calculated only by looking at multi-exon transcripts, so it completely ignores the single-exon transcripts, which can be quite numerous in a RNA-Seq experiment (possibly due to a lot of transcriptional and alignment noise). The transcript level considers single-exons as well. A TP at this level is defined as a full exon chain match between the predicted transcript and a reference transcript, where all internal exons match and the outer boundaries of the terminal query exons can only slightly differ from the reference exons (with at most 100 bases by default). Also GffCompare considers single-exon transcripts as matching an overlapping single-exon reference transcript if there is a significant overlap between the two (more than 80% of the longer transcript by default).
+* **Locus level**: At this level GffCompare considers that an observed locus, defined as a cluster of exon-overlapping transcripts, matches a similarly built reference locus if at least one predicted transcript has a transcript level match with a reference transcript in the corresponding reference locus.
+
+----
+
+.. class:: infomark
+
+**Tracking transcripts**
+
+GffCompare can also be used to track all transcripts that are structurally equivalent among the different input files. GffCompare considers transcripts matching (or structurally equivalent) if all 
+their introns are identical. Note that matching transcripts are allowed to differ on the length of the first and last exons, since these lengths can usually vary across samples for the same biological transcript.
+
+A list of all matching transcripts is reported in a file called *tracking file* in which each row represents a transcript. The first column in this file represents a unique id assigned to that transcripts. 
+The second file represents the super-locus that contains that transcript. If a reference annotation is provided, the 3 rd and 4 th columns contain the reference annotation transcript that was found to be 
+closest to the transcript and the classification code that specifies the relationship between these two transcripts, respectively. The rest of the columns show the corresponding 
+transcript from each input file in order.
+
+**RefMap and TMAP files**
+
+In order to quickly see which reference transcripts match which transcripts from a sample file, two other files, called *RefMap* and *TMAP* are also created for each query. The RefMap file is a tab-delimited file 
+that has a row for each reference transcript that either fully or partially matches a transcript from the given input file. Conversely, the TMAP file has a row for each input transcript, while the columns in this 
+file describe the most closely matching reference transcript for that transcript.
 
 More information can be found here: https://ccb.jhu.edu/software/stringtie/gffcompare.shtml
-
-The original form of this program is also distributed as part of the Cufflinks suite, under the name "CuffCompare"
-(see manual: http://cole-trapnell-lab.github.io/cufflinks/cuffcompare/). Most of the options and parameters of CuffCompare
-are supported by GffCompare, while new features will likely be added to GffCompare in the future.
-
-A notable difference of GffCompare is that when a single query GTF/GFF file is given as input, along with a reference annotation (-r option),
-gffcompare switches into "annotation mode" and it generates a .annotated.gtf file instead of the .merged.gtf produced by CuffCompare with the
-same parameters. This file has the same general format as CuffCompare's .merged.gtf file (with "class codes" assigned to transcripts as per
-their relationship with the matching/overlapping reference transcript),  but the original transcript IDs are preserved, so gffcompare can thus
-be used as a simple way of annotating a set of transcripts.
-
-Another important difference is that the input transcripts are no longer discarded when they are found to be "intron redundant", i.e.
-contained within other, longer isoforms. CuffCompare had the -G option to prevent collapsing of such intron redundant isoforms into
-their longer "containers", but GffCompare has made this the default mode of operation (hence the -G option is no longer needed
-and is simply ignored when given).
 
     ]]>
     </help>
