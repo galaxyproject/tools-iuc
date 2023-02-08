@@ -1,0 +1,255 @@
+<tool id="bbtools_bbmerge" name="BBTools: BBMerge" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Merge overlapping mates of a read pair</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam_ontology"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import os
+#import re
+
+#if str($input_type_cond.input_type) in ['single', 'pair']:
+    #set read1 = $input_type_cond.read1
+    ## bbmerge uses the file extension to determine the input format.
+    #set ext = '.fastq'
+    #if $read1.ext.endswith('.gz'):
+        #set ext = $ext + '.gz'
+    #end if
+    #set read1_file = 'forward' + $ext
+    ln -s '${read1}' '${read1_file}' &&
+    #if str($input_type_cond.input_type) == 'pair':
+        #set read2 = $input_type_cond.read2
+        #set read2_file = 'reverse' + $ext
+        ln -s '${read2}' '${read2_file}' &&
+    #end if
+#else:
+    #set read1 = $input_type_cond.reads_collection['forward']
+    #set read1_identifier = re.sub('[^\s\w\-]', '_', str($read1.element_identifier))
+    ## bbmap uses the file extension to determine the input format.
+    #set ext = $read1_identifier + '.fastq'
+    #if $read1.ext.endswith('.gz'):
+        #set ext = $ext + '.gz'
+    #end if
+    #set read1_file = $read1_identifier + $ext
+    ln -s '${read1}' '${read1_file}' &&
+    #set read2 = $input_type_cond.reads_collection['reverse']
+    #set read2_identifier = re.sub('[^\s\w\-]', '_', str($read2.element_identifier))
+    #set read2_file = $read2_identifier + $ext
+    ln -s '${read2}' '${read2_file}' &&
+#end if
+
+bbmerge.sh
+#### Input parameters
+#if str($input_type_cond.input_type) == 'single':
+    in='${read1_file}'
+    interleaved=t
+#else:
+    in1='${read1_file}' in2='${read2_file}'
+    interleaved=f
+#end if
+
+#### Output options
+out=merged.fastq
+outu=unmerged.fastq
+ihist=ihist.tabular
+touppercase=t
+
+#### Quality and trimming parameters
+qtrim='$qt_options.qtrim'
+trimq='$qt_options.trimq'
+minlength='$qt_options.minlength_after_trim'
+usequality='$qt_options.usequality'
+
+#### Merging parameters
+usejni=f ## Do overlapping in C code, which is faster.
+ecco='$merge_options.ecco'
+trimnonoverlapping='$merge_options.trimnonoverlapping'
+mininsert='$merge_options.mininsert'
+minoverlap='$merge_options.minoverlap'
+minq='$merge_options.minq'
+maxq='$merge_options.maxq'
+entropy='$merge_options.entropy'
+efilter='$merge_options.efilter'
+pfilter='$merge_options.pfilter'
+kfilter='$merge_options.kfilter'
+usequality='$merge_options.usequality'
+
+#if $merge_options.adapters.selector == "with_adaptors":
+    adapter1='$merge_options.adapter1'
+    adapter2='$merge_options.adapter2'
+#end if
+
+#if $merge_options.merge_mode.selector == 'Ratio mode':
+    maxratio='$merge_options.merge_mode.maxratio'
+    ratiomargin='$merge_options.merge_mode.ratiomargin'
+    ratiooffset='$merge_options.merge_mode.ratiooffset'
+    maxmismatches='$merge_options.merge_mode.maxmismatches'
+    ratiominoverlapreduction=0
+    minsecondratio='$merge_options.merge_mode.minsecondratio'
+#else:
+    margin='$merge_options.merge_mode.margin'
+    mismatches='$merge_options.merge_mode.mismatches'
+    requireratiomatch='$merge_options.merge_mode.requireratiomatch'
+#end if
+
+$merge_options.strictness=t
+]]></command>
+    <inputs>
+        <expand macro="input_type_cond"/>
+        
+        <section name="qt_options" title="Quality and trimming options">
+            <param name="qtrim" type="select" label="Select option for quality trimming ends before mapping">
+                <option value="f" selected="true">No trimming</option>
+                <option value="l">Trim left</option>
+                <option value="r">Trim right</option>
+                <option value="lr">Trim both</option>
+            </param>
+            <param argument="trimq" type="integer" value="6" label="Trim regions with average quality below this value"/>
+            <param argument="minlength_after_trim" type="integer" value="60" label="Don't trim reads to be shorter than this value"/>
+            <param argument="usequality" type="boolean" truevalue="t" falsevalue="f" checked="true" label="Use quality scores when determining which read kmers to use as seeds?"/>
+        </section>
+        
+        <section name="merge_options" title="Merging parameters">
+            <param name="strictness" type="select" label="Select option for quality trimming ends before mapping">
+                <option value="xstrict">max strict</option>
+                <option value="ustrict">ultra strict</option>
+                <option value="vstrict">very strict</option>
+                <option value="strict">strict</option>
+                <option value="default" selected="true">default</option>
+                <option value="loose">loose</option>
+                <option value="vloose">very loose</option>
+                <option value="uloose">ultra loose</option>
+                <option value="xloose">max loose</option>
+                <option value="fast">fastest possible, less accurate</option>
+            </param>
+            <param argument="ecco" type="boolean" truevalue="t" falsevalue="f" checked="false" label="Error-correct the overlapping part, but don't merge." help="If selected, the tool with find the overlaps as if merging reads, use this overlap information to correct sequencing errors on both strands. However, the strands from the mates will not be merged but provided as two separate reads after error correction."/>
+            <param argument="trimnonoverlapping" type="boolean" truevalue="t" falsevalue="f" checked="false" label="Trim all non-overlapping portions, leaving only consensus sequence. By default, only sequence to the right of the overlap (adapter sequence) is trimmed."/>
+            <param argument="mininsert" type="integer" value="35" label="Minimum insert size to merge reads"/>
+            <param argument="minoverlap" type="integer" value="12" label="Minimum number of overlapping bases to allow merging"/>
+            
+            <param argument="minq" type="integer" value="9" label="Ignore bases with quality below this"/>
+            <param argument="maxq" type="integer" value="41" label="Cap output quality scores at this"/>
+            
+            <param argument="entropy" type="boolean" truevalue="t" falsevalue="f" checked="true" label="Increase the minimum overlap requirement for low-complexity reads"/>
+            <param argument="efilter" type="integer" value="6" label="Ban overlaps with over this many times the expected number of errors." help="Lower is more strict, -1 disables."/>
+            <param argument="pfilter" type="float" value="0.00004" label="Probability filter to disallow improbable overlaps." help="Higher is stricter. 0 will disable the filter; 1 will allow only perfect overlaps."/>
+            <param argument="kfilter" type="integer" value="41" label="Ban overlaps that create kmers with count below this value" help="Requires good coverage, 0 disables."/>
+            <param argument="usequality" type="boolean" truevalue="t" falsevalue="f" checked="true" label="Take quality factors into account" help="If disabled, quality values are completely ignored, both for overlap detection and filtering. May be useful for data with inaccurate quality values."/>
+            
+            <conditional name="adapters">
+                <param name="selector" type="select" label="Provide adapter sequences to improve accuracy?">
+                    <option value="wout_adapters" selected="true">No</option>
+                    <option value="with_adapters">Yes, use these adapter sequences</option>
+                </param>
+                <when value="wout_adapters"/>
+                <when value="with_adapters">
+                    <param argument="adapter1" type="text" value="" label="Left adapter sequence"/>
+                    <param argument="adapter2" type="text" value="" label="Right adapter sequence"/>
+                </when>
+            </conditional>
+
+            <conditional name="merge_mode">
+                <param name="selector" type="select" label="Evaluate overlaps via..." help="In the ratio mode, overlaps are decided based on the ratio of matching to mismatching bases. Flat mode scores overlaps based on the total number of mismatching bases only.">
+                    <option value="Ratio mode" selected="true">Ratio mode</option>
+                    <option value="Flat mode">Flat mode</option>
+                </param>
+                <when value="Ratio mode">
+                    <param argument="maxratio" type="float" value="0.09" label="Max error rate; higher increases merge rate."/>
+                    <param argument="ratiomargin" type="float" value="5.5" label="Lower increases merge rate; min is 1."/>
+                    <param argument="ratiooffset" type="float" value="0.55" label="Lower increases merge rate; min is 0."/>
+                    <param argument="maxmismatches" type="integer" value="20" label="Maximum mismatches allowed in overlapping region."/>
+                    <param argument="minsecondratio" type="float" value="0.1" label="Cutoff for second-best overlap ratio."/>
+                </when>
+                <when value="Flat mode">
+                    <param argument="margin" type="integer" value="2" label="The best overlap must have at least 'margin' fewer mismatches than the second best."/>
+                    <param argument="mismatches" type="integer" value="3" label="Do not allow more than this many mismatches."/>
+                    <param argument="requireratiomatch" type="boolean" value="false" label="Require the answer from flat mode and ratio mode to agree, reducing false positives if both are enabled."/>
+                </when>
+            </conditional>
+        </section>
+    </inputs>
+    <outputs>
+        <data format="fastq" name="output_merged_reads" from_work_dir="merged.fastq" label="${tool.name} on ${on_string} (merged reads)"/>
+        <data format="fastq" name="output_unmerged_reads" from_work_dir="unmerged.fastq" label="${tool.name} on ${on_string} (unmerged reads)"/>
+        <data format="tabular" name="output_insertlen_hist" from_work_dir="ihist.tabular" label="${tool.name} on ${on_string} (insert size histogram)"/>
+    </outputs>
+    <tests>
+        <!-- Single interleaved file -->
+        <test expect_num_outputs="3">
+            <param name="input_type" value="single"/>
+            <param name="read1" value="bbmerge/input_interleaved.fastq"/>
+            <output name="output_unmerged_reads" ftype="fastq" value="bbmerge/unmerged.fastq"/>
+            <output name="output_merged_reads" ftype="fastq" value="bbmerge/merged.fastq"/>
+            <output name="output_insertlen_hist" ftype="tabular" value="bbmerge/insert_length_hist.tabular"/>
+        </test>
+        <!-- Paired mates in 2 separate files -->
+        <test expect_num_outputs="3">
+            <param name="input_type" value="pair"/>
+            <param name="read1" value="bbmerge/input_R1.fastq"/>
+            <param name="read2" value="bbmerge/input_R2.fastq"/>
+            <output name="output_unmerged_reads" ftype="fastq" value="bbmerge/unmerged.fastq"/>
+            <output name="output_merged_reads" ftype="fastq" value="bbmerge/merged.fastq"/>
+            <output name="output_insertlen_hist" ftype="tabular" value="bbmerge/insert_length_hist.tabular"/>
+        </test>
+        <!-- Paired mates provided via a paired collection -->
+        <test expect_num_outputs="3">
+            <param name="input_type" value="paired"/>
+            <param name="reads_collection">
+                <collection type="paired">
+                    <element name="forward" value="bbmerge/input_R1.fastq"/>
+                    <element name="reverse" value="bbmerge/input_R2.fastq"/>
+                </collection>
+            </param>
+            <output name="output_unmerged_reads" ftype="fastq" value="bbmerge/unmerged.fastq"/>
+            <output name="output_merged_reads" ftype="fastq" value="bbmerge/merged.fastq"/>
+            <output name="output_insertlen_hist" ftype="tabular" value="bbmerge/insert_length_hist.tabular"/>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+BBMerge merges two overlapping paired reads into a single read. A 2x100nt read pair, for instance can be merged into a single read of length 150nt if the last 50nt of the first read mate and the last 50nt of the second read map overlap. The accuracy of the base calling can also improve as a result of such a reconciliation between the read pairs. BBMerge is also capable of error-correcting the overlapping portion of reads without merging them, as well as merging nonoverlapping reads, if enough coverage is available. 
+
+-----
+
+**A Martian PE sequencing result is expected to be processed as follows:**
+
+input_R1.fastq::
+
+    @read_header_1/1
+    AAAAATTTTTAAAAACCCCCGGGGG
+    +
+    FFFFFFFFFFFFFFFEFFFFFF,FF
+    @read_header_2/1
+    AAAATTTTAAAACCCCCGGGGG
+    +
+    FFFFFFFFFFFFFFFEFFFFFF
+
+
+input_R2.fastq::
+
+    @read_header_1/2
+    TTAATTAATTCCCCCGGGGG
+    +
+    FFFFFFFFFFFFFFFFFFFF
+    @read_header_2/2
+    TTTAAATTTAAACCCCCGGGGG
+    +
+    FFFFFFFFFFFFFFFFFFFFEF
+
+
+output.fastq::
+
+    @read_header_1
+    AAAAATTTTTAAAAACCCCCGGGGGAATTAATTAA
+    +
+    FFFFFFFFFFFFFFFFFFFFFFFFFFF,FFFFFFF
+    @read_header_2
+    AAAATTTTAAAACCCCCGGGGGTTTAAATTTAAA
+    +
+    FFFFFFFFFFFFFFFFFFFFFFFFFFF,FFFFFF
+    </help>
+    <expand macro="citations"/>
+</tool>
+
