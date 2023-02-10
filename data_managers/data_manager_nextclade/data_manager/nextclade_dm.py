@@ -2,8 +2,8 @@
 
 import argparse
 import datetime
+import itertools
 import json
-import operator
 import pathlib
 import subprocess
 import sys
@@ -20,13 +20,33 @@ def parse_date(d: str) -> datetime.datetime:
     return date
 
 
-def entry_to_tag(entry: dict) -> str:
-    return (
-        entry["attributes"]["name"]["value"] + "_" + entry["attributes"]["tag"]["value"]
-    )
+def get_dataset_list(
+    names: List[str] = None,
+    start_date: datetime.datetime = None,
+    end_date: datetime.datetime = None,
+    latest_only: bool = True
+) -> List[dict]:
+    """Retrieve and return a list of nextclade datasets
 
+    When called with no arguments, returns the latest dataset of each dataset
+    name/reference combination, equivalent to the result of running
+    nextclade dataset list
+    with no arguments.
 
-def get_database_list() -> List[dict]:
+    The list of datasets can be restricted by providing a list of dataset
+    names.
+    If an end_date is specified, returns the latest datasets published before
+    or on this date.
+    If latest_only is set to False, returns all datasets (filtered by the list
+    of dataset names if specified) ever published or published within the
+    specified time window.
+
+    The return value is a list of dictionaries, which are themselves simplified
+    versions (holding only selected key dataset info) of the json
+    representation of the correpsonding datasets as obtained by calling
+    nextclade dataset list --json
+    on the commend line.
+    """
     list_cmd = [
         "nextclade",
         "dataset",
@@ -36,61 +56,76 @@ def get_database_list() -> List[dict]:
         "--include-incompatible",
     ]
     list_proc = subprocess.run(list_cmd, capture_output=True, check=True)
-    database_list = json.loads(list_proc.stdout)
+    dataset_list = sorted(
+        json.loads(list_proc.stdout),
+        key=lambda x: (
+            x['attributes']['name']['value'],
+            x['attributes']['reference']['value'],
+            x['attributes']['tag']['value']),
+        reverse=True
+    )
+
     entry_list = []
-    for db_entry in database_list:
-        attributes = db_entry["attributes"]
-        entry = {
-            "value": entry_to_tag(db_entry),
-            "database_name": attributes["name"]["value"],
-            "description": attributes["name"]["valueFriendly"],
-            "date": datetime.datetime.fromisoformat(
-                attributes["tag"]["value"].replace("Z", "")
-            ),
-            "tag": attributes["tag"]["value"],
-            "min_nextclade_version": db_entry["compatibility"]["nextcladeCli"]["min"],
-        }
-        entry_list.append(entry)
+    for dataset_key, versions in itertools.groupby(
+        dataset_list,
+        key=lambda x: (
+            x['attributes']['name']['value'],
+            x['attributes']['reference']['value']
+        )
+    ):
+        name, reference = dataset_key
+        if not names or name in names:
+            for version in versions:
+                tag = version["attributes"]["tag"]["value"]
+                date = datetime.datetime.fromisoformat(tag.replace("Z", ""))
+                if start_date and date < start_date:
+                    break
+                if not end_date or date <= end_date:
+                    entry = {
+                        "value": f"{name}_{reference}_{tag}",
+                        "dataset_name": name,
+                        "reference": reference,
+                        "description": f"{tag}/{reference}",
+                        "date": date,
+                        "tag": tag,
+                        "min_nextclade_version": version["compatibility"]["nextcladeCli"]["min"],
+                        "max_nextclade_version": version["compatibility"]["nextcladeCli"]["max"] or ""
+                    }
+                    entry_list.append(entry)
+                    if latest_only:
+                        break
     return entry_list
 
 
-def filter_by_date(
-    existing_release_tags: List[str],
-    name: str,
-    releases: list,
-    start_date: datetime.datetime = None,
-    end_date: datetime.datetime = None,
-) -> List[dict]:
-    ret = []
-    for release in releases:
-        if (
-            release["database_name"] != name
-            or release["value"] in existing_release_tags
-        ):
-            continue
-        if start_date and release["date"] < start_date:
-            break
-        if not end_date or release["date"] <= end_date:
-            ret.append(release)
+def download(release: dict) -> pathlib.Path:
+    """Download a nextclade dataset
 
-    return ret
+    Given a simplified dictionary representation of a dataset as returned
+    by get_dataset_list, downloads the dataset using the
+    nextclade dataset get
+    command.
+    """
+    dataset_name = release["dataset_name"]
+    reference = release["reference"]
+    tag = release["tag"]
+    tag_file_suffix = tag.replace(":", "-")
+    output_path = pathlib.Path(
+        output_directory
+    ) / f"{dataset}_{reference}_{tag_file_suffix}"
 
-
-def download_and_unpack(name: str, release: str, output_directory: str) -> pathlib.Path:
     download_cmd = [
         "nextclade",
         "dataset",
         "get",
         "--name",
-        name,
+        dataset_name,
+        "--reference",
+        reference,
         "--tag",
-        release,
+        tag,
         "--output-dir",
+        output_path,
     ]
-    output_path = pathlib.Path(output_directory) / (
-        name + "_" + release.replace(":", "-")
-    )
-    download_cmd.append(str(output_path))
     subprocess.run(download_cmd, check=True)
     return output_path
 
@@ -100,7 +135,6 @@ def comma_split(args: str) -> List[str]:
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--testmode", default=False, action="store_true")
     parser.add_argument("--latest", default=False, action="store_true")
@@ -108,7 +142,7 @@ if __name__ == "__main__":
     parser.add_argument("--end_date", type=parse_date)
     parser.add_argument("--known_revisions", type=comma_split)
     parser.add_argument("--datasets", type=comma_split, default=["sars-cov-2"])
-    parser.add_argument("datatable_name", default="nextclade")
+    parser.add_argument("datatable_name", default="nextclade2")
     parser.add_argument("galaxy_config")
     args = parser.parse_args()
 
@@ -118,27 +152,11 @@ if __name__ == "__main__":
     else:
         existing_release_tags = set()
 
-    releases_available = get_database_list()
-    if args.testmode:
-        releases = []
-        for name in args.datasets:
-            releases.extend(
-                filter_by_date(
-                    [],
-                    name,
-                    releases_available,
-                    start_date=args.start_date,
-                    end_date=args.end_date,
-                )
-            )
-        for release in releases:
-            print(
-                release["value"],
-                release["description"],
-                release["date"].isoformat(),
-                release["min_nextclade_version"],
-            )
-        sys.exit(0)
+    releases = [
+        release for release in get_dataset_list(
+            args.datasets, args.start_date, args.end_date, args.latest
+        ) if release["value"] not in existing_release_tags
+    ]
 
     with open(args.galaxy_config) as fh:
         config = json.load(fh)
@@ -147,43 +165,35 @@ if __name__ == "__main__":
 
     data_manager_dict = {"data_tables": {args.datatable_name: []}}
 
-    releases = []
-    if args.latest:
-        for dataset in args.datasets:
-            for release in releases_available:
-                if release["database_name"] == dataset:
-                    if release["value"] not in existing_release_tags:
-                        # add the latest release for this dataset, but only if we don't already have it
-                        releases.append(release)
-                    break
-    else:
-        for dataset in args.datasets:
-            releases_for_ds = filter_by_date(
-                existing_release_tags,
-                dataset,
-                releases_available,
-                start_date=args.start_date,
-                end_date=args.end_date,
-            )
-            releases.extend(releases_for_ds)
-
     for release in releases:
-        fname = download_and_unpack(
-            release["database_name"], release["tag"], output_directory
-        )
-        if fname is not None:
-            data_manager_dict["data_tables"][args.datatable_name].append(
-                {
-                    "value": release["value"],
-                    "database_name": release["database_name"],
-                    "description": release["description"],
-                    "min_nextclade_version": release["min_nextclade_version"],
-                    "date": release["date"].isoformat(),  # ISO 8601 is easily sortable
-                    "path": str(output_directory / fname),
-                }
-            )
+        if args.testmode:
+            for release in releases:
+                for k, v in release.items():
+                    print(k, v)
+        else:
+            fname = download(release)
+            if fname is not None:
+                data_manager_dict["data_tables"][args.datatable_name].append(
+                    {
+                        "value": release["value"],
+                        "dataset_name": release["dataset_name"],
+                        "description": release["description"],
+                        # date in ISO 8601 is a good key to sort on
+                        "date": release["date"].isoformat(),
+                        # record compatible nextclade versions for filtering
+                        # max_nextclade_version will typically be an empty
+                        # string for recent datasets at install time, but an
+                        # admin could update the value later to prevent the
+                        # record from showing up in the interface of more
+                        # recent, incompatible nextclade wrapper versions.
+                        "min_nextclade_version": release["min_nextclade_version"],
+                        "max_nextclade_version": release["max_nextclade_version"],
+                        "path": str(output_directory / fname),
+                    }
+                )
+
     data_manager_dict["data_tables"][args.datatable_name].sort(
-        key=operator.itemgetter("value"), reverse=True
+        key=lambda x: x["value"], reverse=True
     )
     with open(args.galaxy_config, "w") as fh:
         json.dump(data_manager_dict, fh, indent=2, sort_keys=True)
