@@ -111,7 +111,7 @@ def download(release: dict) -> pathlib.Path:
     tag_file_suffix = tag.replace(":", "-")
     output_path = pathlib.Path(
         output_directory
-    ) / f"{dataset}_{reference}_{tag_file_suffix}"
+    ) / f"{dataset_name}_{reference}_{tag_file_suffix}"
 
     download_cmd = [
         "nextclade",
