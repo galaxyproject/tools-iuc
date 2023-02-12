@@ -7,34 +7,36 @@
     <command detect_errors="exit_code"><![CDATA[
 mkdir bins &&
 metabat2
---inFile '$inFile'
---outFile 'bins/bin'
-#if str($advanced.base_coverage_depth_cond.base_coverage_depth) == 'yes':
-    #if $advanced.base_coverage_depth_cond.abdFile:
-        --abdFile '$advanced.base_coverage_depth_cond.abdFile'
-    #else if $advanced.base_coverage_depth_cond.cvExt:
-        --cvExt '$advanced.base_coverage_depth_cond.cvExt'
+    --inFile '$inFile'
+    --outFile 'bins/bin'
+#if str($advanced.base_coverage_depth_cond.base_coverage_depth) == 'yes'
+    #if $advanced.base_coverage_depth_cond.abdFile
+    --abdFile '$advanced.base_coverage_depth_cond.abdFile'
+    #else if $advanced.base_coverage_depth_cond.cvExt
+    --cvExt '$advanced.base_coverage_depth_cond.cvExt'
     #end if
 #end if
---minContig $advanced.minContig
---maxP $advanced.maxP
---minS $advanced.minS
---maxEdges $advanced.maxEdges
---pTNF $advanced.pTNF
-$advanced.noAdd
---minCV $advanced.minCV
---minCVSum $advanced.minCVSum
---minClsSize $advanced.minClsSize
---numThreads \${GALAXY_SLOTS:-4}
-$advanced.onlyLabel
-#if $advanced.saveCls:
-    $advanced.saveCls
+    --minContig $advanced.minContig
+    --maxP $advanced.maxP
+    --minS $advanced.minS
+    --maxEdges $advanced.maxEdges
+    --pTNF $advanced.pTNF
+    $advanced.noAdd
+    --minCV $advanced.minCV
+    --minCVSum $advanced.minCVSum
+    --seed $advanced.seed
+    --minClsSize $out.minClsSize
+    --numThreads \${GALAXY_SLOTS:-4}
+    $out.onlyLabel
+#if $out.saveCls
+    $out.saveCls
     --noBinOut
 #end if
-$advanced.unbinned
---seed $advanced.seed
-> process_log.txt
-#if str($advanced.output_process_log) == 'yes':
+#if 'unbinned' in $out.extra_outputs
+    --unbinned
+#end if
+    > process_log.txt
+#if 'log' in $out.extra_outputs
     && mv process_log.txt '$process_log'
 #end if
     ]]></command>
@@ -43,8 +45,8 @@ $advanced.unbinned
         <section name="advanced" title="Advanced options">
             <conditional name="base_coverage_depth_cond">
                 <param name="base_coverage_depth" type="select" label="Use a base coverage depth file?">
-                    <option value="no" selected="true">No</option>
                     <option value="yes">Yes</option>
+                    <option value="no" selected="true">No</option>
                 </param>
                 <when value="no"/>
                 <when value="yes">
@@ -60,50 +62,160 @@ $advanced.unbinned
             <param argument="--noAdd" type="boolean" truevalue="--noAdd" falsevalue="" checked="false" label="Turn off additional binning for lost or small contigs?"/>
             <param argument="--minCV" type="float" value="1.0" label="Minimum mean coverage of a contig in each library for binning"/>
             <param argument="--minCVSum" type="float" value="1.0" label="Minimum total effective mean coverage of a contig for binning" help="Sum of depth over minCV"/>
+            <param argument="--seed" type="integer" value="0" label="For exact reproducibility." help="Zero value will use random seed"/>
+        </section>
+        <section name="out" title="Output options">
             <param argument="--minClsSize" type="integer" value="200000" label="Minimum size of a bin as the output"/>
             <param argument="--onlyLabel" type="boolean" truevalue="--onlyLabel" falsevalue="" checked="false" label="Output only sequence labels as a list in a column without sequences?"/>
             <param argument="--saveCls" type="boolean" truevalue="--saveCls" falsevalue="" checked="false" label="Save cluster memberships as a matrix format?"/>
-            <param argument="--unbinned" type="boolean" truevalue="--unbinned" falsevalue="" checked="false" label="Output fasta file containing unbinned contigs?"/>
-            <param argument="--seed" type="integer" value="0" label="For exact reproducibility." help="Zero value will use random seed"/>
-            <param name="output_process_log" type="select" label="Output process log file?">
-                <option value="no" selected="true">No</option>
-                <option value="yes">Yes</option>
+            <param name="extra_outputs" type="select" multiple="true" optional="true" label="Extra outputs">
+                <option value="lowDepth">Fasta file containing low depth bins (if no matrix format and label selected)</option>
+                <option value="tooShort">Fasta file containing too short bins (if no matrix format and label selected)</option>
+                <option value="unbinned">Fasta file containing unbinned contigs (if no matrix format and label selected)</option>
+                <option value="log">Process log file</option>
             </param>
         </section>
     </inputs>
     <outputs>
-        <collection name="bin_files" type="list" label="${tool.name} on ${on_string}: (bins)">
-            <discover_datasets pattern="(?P&lt;designation&gt;.*)\.fa" format="fasta" directory="bins"/>
+        <collection name="bins" type="list" label="${tool.name} on ${on_string}: Bins">
+            <filter>not out['saveCls'] and not out['onlyLabel']</filter>
+            <discover_datasets pattern="bin\.(?P&lt;designation&gt;\d*)\.fa" format="fasta" directory="bins"/>
         </collection>
-        <data name="process_log" format="txt" label="${tool.name} on ${on_string} (process log)">
-            <filter>advanced['output_process_log'] == 'yes'</filter>
+        <data name="bin_saveCls" format="tabular" from_work_dir="bins/bin" label="${tool.name} on ${on_string}: Bins">
+            <filter>out['saveCls'] and not out['onlyLabel']</filter>
+        </data>
+        <collection name="bin_onlyLabel" type="list" label="${tool.name} on ${on_string}: Bins">
+            <filter>not out['saveCls'] and out['onlyLabel']</filter>
+            <discover_datasets pattern="bin\.(?P&lt;designation&gt;\d*)" format="tabular" directory="bins"/>
+        </collection>
+        <data name="lowDepth" format="fasta" from_work_dir="bins/bin.lowDepth.fa" label="${tool.name} on ${on_string}: Low depth bins">
+            <filter>not out['saveCls'] and not out['onlyLabel'] and 'lowDepth' in out['extra_outputs']</filter>
+        </data>
+        <data name="tooShort" format="fasta" from_work_dir="bins/bin.tooShort.fa" label="${tool.name} on ${on_string}: Too short bins">
+            <filter>not out['saveCls'] and not out['onlyLabel'] and 'tooShort' in out['extra_outputs']</filter>
+        </data>
+        <data name="unbinned" format="fasta" from_work_dir="bins/bin.unbinned.fa" label="${tool.name} on ${on_string}: Unbinned sequences">
+            <filter>not out['saveCls'] and not out['onlyLabel'] and 'unbinned' in out['extra_outputs']</filter>
+        </data>
+        <data name="process_log" format="txt" label="${tool.name} on ${on_string}: Process log">
+            <filter>'log' in out['extra_outputs']</filter>
         </data>
     </outputs>
     <tests>
-        <test expect_num_outputs="1">
+        <test expect_num_outputs="5">
             <param name="inFile" value="input0.fasta.gz" ftype="fasta.gz"/>
-            <param name="seed" value="345678"/>
-            <output_collection name="bin_files" type="list" count="2">
-                <element name="bin.1" ftype="fasta">
+            <section name="advanced">
+                <conditional name="base_coverage_depth_cond">
+                    <param name="base_coverage_depth" value="no"/>
+                </conditional>
+                <param name="seed" value="345678"/>
+            </section>
+            <section name="out">
+                <param name="extra_outputs" value="lowDepth,tooShort,unbinned,log"/>
+            </section>
+            <output_collection name="bins" type="list" count="2">
+                <element name="1" ftype="fasta">
                     <assert_contents>
                         <has_size value="334554"/>
+                        <has_text text=">MW127517.1"/>
+                        <has_text text=">MW127521.1"/>
                     </assert_contents>
                 </element>
-                <element name="bin.2" ftype="fasta">
+                <element name="2" ftype="fasta">
                     <assert_contents>
                         <has_size value="577866"/>
+                        <has_text text=">MT810119.1"/>
+                        <has_text text=">MW130866.1"/>
                     </assert_contents>
                 </element>
             </output_collection>
+            <output name="lowDepth" ftype="fasta">
+                <assert_contents>
+                    <has_text text=""/>
+                </assert_contents>
+            </output>
+            <output name="tooShort" ftype="fasta">
+                <assert_contents>
+                    <has_text text=""/>
+                </assert_contents>
+            </output>
+            <output name="unbinned" ftype="fasta">
+                <assert_contents>
+                    <has_text text=">NC_045512.2"/>
+                    <has_text text=">MW130872.1"/>
+                </assert_contents>
+            </output>
+            <output name="process_log" ftype="txt">
+                <assert_contents>
+                    <has_text text="MetaBAT"/>
+                    <has_text text="2 bins (897090 bases in total) formed"/>
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="1">
             <param name="inFile" value="input0.fasta.gz" ftype="fasta.gz"/>
-            <param name="base_coverage_depth" value="yes"/>
-            <param name="abdFile" value="input_depth1.tabular" ftype="tabular"/>
-            <param name="seed" value="345678"/>
-            <param name="output_process_log" value="yes"/>
-            <output_collection name="bin_files" type="list" count="0"/>
-            <output name="process_log" file="process_log.txt" ftype="txt"/>
+            <section name="advanced">
+                <conditional name="base_coverage_depth_cond">
+                    <param name="base_coverage_depth" value="yes"/>
+                    <param name="abdFile" value="input_depth1.tabular" ftype="tabular"/>
+                </conditional>
+                <param name="seed" value="345678"/>
+            </section>
+            <section name="out">
+                <param name="onlyLabel" value="false"/>
+                <param name="saveCls" value="false"/>
+                <param name="extra_outputs" value=""/>
+            </section>
+            <output_collection name="bins" type="list" count="0"/>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="inFile" value="input0.fasta.gz" ftype="fasta.gz"/>
+            <section name="advanced">
+                <conditional name="base_coverage_depth_cond">
+                    <param name="base_coverage_depth" value="no"/>
+                </conditional>
+                <param name="seed" value="345678"/>
+            </section>
+            <section name="out">
+                <param name="onlyLabel" value="false"/>
+                <param name="saveCls" value="true"/>
+                <param name="extra_outputs" value=""/>
+            </section>
+            <output name="bin_saveCls" ftype="tabular">
+                <assert_contents>
+                    <has_text text="NC_045512.2"/>
+                    <has_text text="MT810119.1"/>
+                    <has_text text="MW130860.1"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="inFile" value="input0.fasta.gz" ftype="fasta.gz"/>
+            <section name="advanced">
+                <conditional name="base_coverage_depth_cond">
+                    <param name="base_coverage_depth" value="no"/>
+                </conditional>
+                <param name="seed" value="345678"/>
+            </section>
+            <section name="out">
+                <param name="onlyLabel" value="true"/>
+                <param name="saveCls" value="false"/>
+                <param name="extra_outputs" value=""/>
+            </section>
+            <output_collection name="bin_onlyLabel" type="list" count="2">
+                <element name="1" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="MW127518.1"/>
+                        <has_text text="MW127521.1"/>
+                    </assert_contents>
+                </element>
+                <element name="2" ftype="tabular">
+                    <assert_contents>
+                        <has_text text="MT810119.1"/>
+                        <has_text text="MW130866.1"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
         </test>
     </tests>
     <help><![CDATA[
