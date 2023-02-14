@@ -1,0 +1,297 @@
+<tool id="bbtools_bbnorm" name="BBTools: BBNorm" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Normalise sequencing coverage</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam_ontology"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import os
+#import re
+
+#if str($input_type_cond.input_type) in ['single', 'pair']:
+    #set read1 = $input_type_cond.read1
+    ## bbmerge uses the file extension to determine the input format.
+    #set ext = '.fastq'
+    #if $read1.ext.endswith('.gz'):
+        #set ext = $ext + '.gz'
+    #end if
+    #set read1_file = 'forward' + $ext
+    ln -s '${read1}' '${read1_file}' &&
+    #if str($input_type_cond.input_type) == 'pair':
+        #set read2 = $input_type_cond.read2
+        #set read2_file = 'reverse' + $ext
+        ln -s '${read2}' '${read2_file}' &&
+    #end if
+#else:
+    #set read1 = $input_type_cond.reads_collection['forward']
+    #set read1_identifier = re.sub('[^\s\w\-]', '_', str($read1.element_identifier))
+    ## bbmap uses the file extension to determine the input format.
+    #set ext = $read1_identifier + '.fastq'
+    #if $read1.ext.endswith('.gz'):
+        #set ext = $ext + '.gz'
+    #end if
+    #set read1_file = $read1_identifier + $ext
+    ln -s '${read1}' '${read1_file}' &&
+    #set read2 = $input_type_cond.reads_collection['reverse']
+    #set read2_identifier = re.sub('[^\s\w\-]', '_', str($read2.element_identifier))
+    #set read2_file = $read2_identifier + $ext
+    ln -s '${read2}' '${read2_file}' &&
+#end if
+
+bbnorm.sh
+#### Input parameters
+#if str($input_type_cond.input_type) == 'single':
+    in='${read1_file}'
+#else:
+    in1='${read1_file}' in2='${read2_file}'
+    interleaved=f
+#end if
+
+#### Output options
+out=normalised_R1.fastq
+out2=normalised_R2.fastq
+outt=discarded.fastq
+touppercase=t
+hist=kmer_hist_input.tabular
+histout=kmer_hist_output.tabular
+
+#### Hashing parameters
+k='$hashing_params.k'
+bits='$hashing_params.bits'
+hashes='$hashing_params.hashes'
+#if str($hashing_params.prefilter) == "true":
+    prefilter=t
+    prehashes='$hashing_params.prehashes'
+    prefilterbits='$hashing_params.prefilterbits'
+    prefiltersize='$hashing_params.prefiltersize'
+#end if
+buildpasses='$hashing_params.buildpasses'
+minq='$hashing_params.minq'
+minprob='$hashing_params.minprob'
+rdk='$hashing_params.rdk'
+
+### Normalization parameters
+fixspikes='$norm_params.fixspikes'
+target='$norm_params.target'
+maxdepth='$norm_params.maxdepth'  
+mindepth='$norm_params.mindepth'
+minkmers='$norm_params.minkmers'
+percentile='$norm_params.percentile'
+uselowerdepth='$norm_params.uselowerdepth'
+deterministic='$norm_params.deterministic'
+
+### Error detection parameters
+hdp='$error_det_params.hdp'
+ldp='$error_det_params.ldp'
+tossbadreads='$error_det_params.tossbadreads'
+requirebothbad='$error_det_params.requirebothbad'
+errordetectratio='$error_det_params.errordetectratio'
+highthresh='$error_det_params.highthresh'
+lowthresh='$error_det_params.lowthresh'
+
+### Error correction parameters
+#if str($error_corr_params.ecc) == "true":
+    ecc=t
+    ecclimit='$error_corr_params.ecclimit'
+    errorcorrectratio='$error_corr_params.errorcorrectratio'
+    echighthresh='$error_corr_params.echighthresh'
+    eclowthresh='$error_corr_params.eclowthresh'
+    eccmaxqual='$error_corr_params.eccmaxqual'
+    meo='$error_corr_params.meo'
+    mue='$error_corr_params.mue'
+    overlap='$error_corr_params.overlap'
+#end if
+]]></command>
+    <inputs>
+        <expand macro="input_type_cond"/>
+        <section name="hashing_params" title="Hashing parameters">
+            <param argument="k" type="integer" value="31" label="kmer length" help="Values under 32 are most efficient, but arbitrarily high values are supported."/>
+            <param argument="bits" type="integer" value="16" label="Bits per cell in bloom filter; must be 2, 4, 8, 16." help="Maximum kmer depth recorded is 2^c bits. Large values decrease accuracy for a fixed amount of memory, so use the lowest number you can that will still capture highest-depth kmers."/>
+            <param argument="hashes" type="integer" value="3" label="Number of times each kmer is hashed and stored." help="Higher is slower. Higher is more accurate if there is enough memory, but less accurate if there is not enough memory."/>
+            <conditional name="prefilter">
+                <param argument="prefilter" type="select" label="Use a prefilter to eliminate low-depth kmers" help="True is slower, but generally more accurate; filters out low-depth kmers from the main hashtable. The prefilter is more memory-efficient because it uses 2-bit cells.">
+                    <option value="true" >True</option>
+                    <option value="false" selected="true">False</option>
+                </param>
+                <when value="false"/>
+                <when value="true">
+                    <param argument="prehashes" type="integer" value="2" label="Number of hashes for the prefilter"/>
+                    <param argument="prefilterbits" type="integer" value="2" label="Bits per cell in prefilter"/>
+                    <param argument="prefiltersize" type="float" value="0.35" label="Fraction of memory to allocate for the prefilter."/>
+                </when>
+            </conditional>          
+            <param argument="buildpasses" type="integer" value="1" label="Number of passes" help="More passes can sometimes increase accuracy by iteratively removing low-depth kmers"/>
+            <param argument="minq" type="integer" value="6" label="Ignore kmers containing bases with quality below this threshold"/>
+            <param argument="minprob" type="float" value="0.5" label="Ignore kmers with overall probability of correctness below this threshold"/>
+            <param argument="rdk" type="boolean" checked="true" label="Remove duplicate kmers" help="When true, a kmer's count will only be incremented once per read pair, even if that kmer occurs more than once."/>
+        </section>
+        
+        <section name="norm_params" title="Normalization parameters">
+            <param argument="fixspikes" type="boolean" checked="false" label="Do a slower, high-precision bloom filter lookup of kmers that appear to have an abnormally high depth due to collisions."/>
+            <param argument="target" type="integer" value="100" label="Target normalization depth." help="All depth parameters control kmer depth, not read depth. For kmer depth Dk, read depth Dr, read length R, and kmer size K: Dr=Dk*(R/(R-K+1))"/>
+            <param argument="maxdepth" type="integer" value="-1" label="Reads will not be downsampled when below this depth, even if they are above the target depth." help="All depth parameters control kmer depth, not read depth. For kmer depth Dk, read depth Dr, read length R, and kmer size K: Dr=Dk*(R/(R-K+1))"/>
+            <param argument="mindepth" type="integer" value="5" label="kmers with depth below this number will not be included when calculating the depth of a read." help="All depth parameters control kmer depth, not read depth. For kmer depth Dk, read depth Dr, read length R, and kmer size K: Dr=Dk*(R/(R-K+1))"/>
+            <param argument="minkmers" type="integer" value="15" label="Reads must have at least this many kmers over min depth to be retained."/>
+            <param argument="percentile" type="integer" value="54" min="1" max="100" label="Percentile to infer read depth" help="Read depth is by default inferred from the 54th percentile of kmer depth, but this may be changed to any number 1-100."/>
+            <param argument="uselowerdepth" type="boolean" checked="true" label="For pairs, use the depth of the lower read as the depth proxy."/>
+            <param argument="deterministic" type="boolean" checked="true" label="Generate random numbers deterministically" help="This would ensure identical output between multiple runs. May decrease speed with a huge number of threads."/>
+        </section>
+        
+        <section name="error_det_params" title="Error detection parameters">
+            <param argument="hdp" type="integer" value="90" label="highdepthpercentile" help="Position in sorted kmer depth array used as proxy of a read's high kmer depth."/>
+            <param argument="ldp" type="integer" value="25" label="lowdepthpercentile" help="Position in sorted kmer depth array used as proxy of a read's low kmer depth."/>
+            <param argument="tossbadreads" type="boolean" checked="false" label="Throw away reads detected as containing errors." help=""/>
+            <param argument="requirebothbad" type="boolean" checked="false" label="Only toss bad pairs if both reads are bad." help=""/>
+            <param argument="errordetectratio" type="integer" value="125" label="" help="Reads with a ratio of at least this much between their high and low depth kmers will be classified as error reads."/>
+            <param argument="highthresh" type="integer" value="12" label="Threshold for high kmer" help="A high kmer at this or above are considered non-error."/>
+            <param argument="lowthresh" type="integer" value="3" label="Threshold for low kmer" help="Kmers at this and below are always considered errors."/>
+        </section>
+        
+        <section name="error_corr_params" title="Error correction parameters">
+            <conditional name="ecc">
+                <param argument="ecc" type="select" label="What should be done with detected errors?" help="Tadpole is now preferred for error correction, as it does a better job.">
+                    <option value="true" >Correct errors when possible</option>
+                    <option value="false" selected="true">Do not attempt to correct errors</option>
+                </param>
+                <when value="false"/>
+                <when value="true">
+                    <param argument="ecclimit" type="integer" value="3" label="Correct up to this many errors per read." help="If more are detected, the read will remain unchanged."/>
+                    <param argument="errorcorrectratio" type="integer" value="140" label="Depth ratio" help="Adjacent kmers with a depth ratio of at least this much between will be classified as an error."/>
+                    <param argument="echighthresh" type="float" value="" label="Threshold for high kmer" help="A kmer at this or above may be considered non-error."/>
+                    <param argument="eclowthresh" type="integer" value="2" label="Threshold for low kmer." help="kmers at this depth or below will be considered as errors."/>
+                    <param argument="eccmaxqual" type="integer" value="127" label="Do not correct bases with quality above this value."/>
+                    <param argument="meo" type="boolean" checked="false" label="Marks errors by reducing quality value of suspected errors; does not correct anything."/>
+                    <param argument="mue" type="boolean" checked="true" label="Mark errors only on uncorrectable reads."/>
+                    <param argument="overlap" type="boolean" checked="false" label="Correct errors by read overlap."/>
+                </when>
+            </conditional>
+        </section>
+    </inputs>
+    <outputs>
+        <data format="fastq" name="output_normalised_R1" from_work_dir="normalised_R1.fastq" label="${tool.name} on ${on_string} (normalised R1 reads)"/>
+        <data format="fastq" name="output_normalised_R2" from_work_dir="normalised_R2.fastq" label="${tool.name} on ${on_string} (normalised R2 reads)"/>
+        <data format="fastq" name="output_discarded" from_work_dir="discarded.fastq" label="${tool.name} on ${on_string} (discarded reads)"/>       
+        <collection type="list" name="output_hists" label="${tool.name} on ${on_string} (kmer histogram)">
+            <data name="kmer_hist_input" format="tabular" from_work_dir="kmer_hist_input.tabular"/>
+            <data name="kmer_hist_output" format="tabular" from_work_dir="kmer_hist_output.tabular"/>
+       </collection>
+    </outputs>
+    <tests>
+        <!-- Single interleaved file -->
+        <test expect_num_outputs="6">
+            <param name="input_type" value="single"/>
+            <param name="read1" value="bbnorm/input_interleaved.fastq"/>
+            <section name="norm_params">
+                <param name="target" value="4"/>
+                <param name="deterministic" value="true"/>
+                <param name="mindepth" value="0"/>
+            </section>
+            <output name="output_normalised_R1" ftype="fastq" value="bbnorm/normalised_R1.fastq"/>
+            <output name="output_normalised_R2" ftype="fastq" value="bbnorm/normalised_R2.fastq"/>
+            <output name="output_discarded" ftype="fastq" value="bbnorm/discarded.fastq"/>            
+            <output_collection name="output_hists" type="list" count="2">
+                <element name="kmer_hist_input" ftype="tabular" file="bbnorm/kmer_hist_input.tabular"/>
+                <element name="kmer_hist_output" ftype="tabular" file="bbnorm/kmer_hist_output.tabular"/>
+            </output_collection>
+        </test>
+        <!-- Paired mates in 2 separate files -->
+        <test expect_num_outputs="6">
+            <param name="input_type" value="pair"/>
+            <param name="read1" value="bbnorm/input_R1.fastq"/>
+            <param name="read2" value="bbnorm/input_R2.fastq"/>
+            <section name="norm_params">
+                <param name="target" value="4"/>
+                <param name="deterministic" value="true"/>
+                <param name="mindepth" value="0"/>
+            </section>
+            <output name="output_normalised_R1" ftype="fastq" value="bbnorm/normalised_R1.fastq"/>
+            <output name="output_normalised_R2" ftype="fastq" value="bbnorm/normalised_R2.fastq"/>
+            <output name="output_discarded" ftype="fastq" value="bbnorm/discarded.fastq"/>            
+            <output_collection name="output_hists" type="list" count="2">
+                <element name="kmer_hist_input" ftype="tabular" file="bbnorm/kmer_hist_input.tabular"/>
+                <element name="kmer_hist_output" ftype="tabular" file="bbnorm/kmer_hist_output.tabular"/>
+            </output_collection>
+        </test>
+        <!-- Paired mates provided via a paired collection -->
+        <test expect_num_outputs="6">
+            <param name="input_type" value="paired"/>
+            <param name="reads_collection">
+                <collection type="paired">
+                    <element name="forward" value="bbnorm/input_R1.fastq"/>
+                    <element name="reverse" value="bbnorm/input_R2.fastq"/>
+                </collection>
+            </param>
+            <section name="norm_params">
+                <param name="target" value="4"/>
+                <param name="deterministic" value="true"/>
+                <param name="mindepth" value="0"/>
+            </section>
+            <output name="output_normalised_R1" ftype="fastq" value="bbnorm/normalised_R1.fastq"/>
+            <output name="output_normalised_R2" ftype="fastq" value="bbnorm/normalised_R2.fastq"/>
+            <output name="output_discarded" ftype="fastq" value="bbnorm/discarded.fastq"/>            
+            <output_collection name="output_hists" type="list" count="2">
+                <element name="kmer_hist_input" ftype="tabular" file="bbnorm/kmer_hist_input.tabular"/>
+                <element name="kmer_hist_output" ftype="tabular" file="bbnorm/kmer_hist_output.tabular"/>
+            </output_collection>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+BBNorm downsamples a provided sequencing output, while paying attention to potential heteregeneities in sequencing depth obtained from the wet-lab workflow. The reads corresponding to regions with low coverage will be kept as is, whereas some of the reads contributing to an above-threshold coverage depth will be subsampled. The resulting data set is expected to be smaller in size, whereas the genome regions with low coverage levels will still be represented in the subsampled dataset. This provides a more uniform coverage depth against all genomic coordinates while the computational resources needed for subsequent steps such as assembly can be substantially reduced without losing coverage anywhere.
+
+-----
+
+**If the target sequencing depth is 2X, a Martian genome sequencing result is expected to be down-sampled as follows:**
+
+input.fastq::
+
+    @read_header_1
+    AAAAATTTTTCCCCCGGGGGAAATTT
+    +
+    FFFFFFFFFFFFFFFEFFFFFF,FFE
+    @read_header_2
+    TTTTTCCCCCGGGGGAAATTTCCCGGG
+    +
+    FFFFFFFFFFFFFFFEFFFFFFEFFDD
+    @read_header_3
+    TTTTTCCCCCGGGGGAAATTTCCCGGG
+    +
+    FFFFFFFFFFFCEFFEFFFFFFEFFEE
+    @read_header_4
+    TTTTTCCCCCGGGGGAAATTTCCCGGG
+    +
+    FFFFFDDFFFFFFFFEFFFFFFEFFEF    
+    @read_header_5
+    TTTTTCCCCCGGGGGAAATTTCCCGGG
+    +
+    FFFFFEFFFFEEFFFEFFFFFFDFFFF
+    @read_header_6
+    AAAAATTTTTCCCCCGGGGGAAATTT
+    +
+    FFFFFFFFFFFFFFFEFFFFFFEFFD
+
+
+output.fastq::
+
+    @read_header_1
+    AAAAATTTTTCCCCCGGGGGAAATTT
+    +
+    FFFFFFFFFFFFFFFEFFFFFF,FFE
+    @read_header_2
+    TTTTTCCCCCGGGGGAAATTTCCCGGG
+    +
+    FFFFFFFFFFFFFFFEFFFFFFEFFDD
+    @read_header_3
+    TTTTTCCCCCGGGGGAAATTTCCCGGG
+    +
+    FFFFFFFFFFFCEFFEFFFFFFEFFEE
+    @read_header_6
+    AAAAATTTTTCCCCCGGGGGAAATTT
+    +
+    FFFFFFFFFFFFFFFEFFFFFFEFFD
+    </help>
+    <expand macro="citations"/>
+</tool>
+
