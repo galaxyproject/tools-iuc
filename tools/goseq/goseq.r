@@ -1,6 +1,6 @@
-options(show.error.messages = F, error = function() {
+options(show.error.messages = FALSE, error = function() {
   cat(geterrmessage(), file = stderr())
-  q("no", 1, F)
+  q("no", 1, FALSE)
 })
 
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
@@ -146,7 +146,7 @@ if (args$repcnt > 0) {
   )
 
   # Compare sampling with wallenius
-  if (args$make_plots & !is.null(args$wallenius_tab)) {
+  if (args$make_plots && !is.null(args$wallenius_tab)) {
     pdf(args$sample_vs_wallenius_plot)
     plot(log10(results[["Wallenius"]][, 2]),
       log10(results[["Sampling"]][match(results[["Sampling"]][, 1], results[["Wallenius"]][, 1]), 2]),
