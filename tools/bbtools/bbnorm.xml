@@ -6,51 +6,55 @@
     <expand macro="edam_ontology"/>
     <expand macro="requirements"/>
     <command detect_errors="exit_code"><![CDATA[
-#import os
-#import re
-
-#if str($input_type_cond.input_type) in ['single', 'pair']:
-    #set read1 = $input_type_cond.read1
-    ## bbmerge uses the file extension to determine the input format.
-    #set ext = '.fastq'
-    #if $read1.ext.endswith('.gz'):
-        #set ext = $ext + '.gz'
-    #end if
-    #set read1_file = 'forward' + $ext
-    ln -s '${read1}' '${read1_file}' &&
-    #if str($input_type_cond.input_type) == 'pair':
-        #set read2 = $input_type_cond.read2
-        #set read2_file = 'reverse' + $ext
-        ln -s '${read2}' '${read2_file}' &&
-    #end if
-#else:
+## bbtools recommends keeping a proper file extension to determine the input format
+## so we hardcode them in the below block.
+#if str($input_type_cond.input_type) == 'paired_list':
     #set read1 = $input_type_cond.reads_collection['forward']
-    #set read1_identifier = re.sub('[^\s\w\-]', '_', str($read1.element_identifier))
-    ## bbmap uses the file extension to determine the input format.
-    #set ext = $read1_identifier + '.fastq'
-    #if $read1.ext.endswith('.gz'):
-        #set ext = $ext + '.gz'
-    #end if
-    #set read1_file = $read1_identifier + $ext
-    ln -s '${read1}' '${read1_file}' &&
     #set read2 = $input_type_cond.reads_collection['reverse']
-    #set read2_identifier = re.sub('[^\s\w\-]', '_', str($read2.element_identifier))
-    #set read2_file = $read2_identifier + $ext
+#else:
+    #set read1 = $input_type_cond.read1
+    #if str($input_type_cond.input_type) == 'PE_2files':
+        #set read2 = $input_type_cond.read2
+    #end if
+#end if
+
+#if $read1.ext.endswith('.gz'):
+    #set read1_file = 'forward.fastq.gz'
+#else
+    #set read1_file = 'forward.fastq'
+#end if
+ln -s '${read1}' '${read1_file}' &&
+
+#if $str($input_type_cond.input_type) in ['PE_2files', 'paired_list']:
+    #if $read2.ext.endswith('.gz'):
+        #set read2_file = 'reverse.fastq.gz'
+    #else
+        #set read2_file = 'reverse.fastq'
+    #end if
     ln -s '${read2}' '${read2_file}' &&
 #end if
 
-bbnorm.sh
+bbnorm.sh t="\${GALAXY_SLOTS}" -Xmx"\${GALAXY_MEMORY_MB:-1024}m"
 #### Input parameters
-#if str($input_type_cond.input_type) == 'single':
+#if str($input_type_cond.input_type) == 'single_end':
     in='${read1_file}'
-#else:
-    in1='${read1_file}' in2='${read2_file}'
     interleaved=f
+#else:
+    #if str($input_type_cond.input_type) == 'PE_1file':
+        in='${read1_file}'
+        interleaved=t
+    #else:
+        in1='${read1_file}'
+        in2='${read2_file}'
+        interleaved=f
+    #end if
 #end if
 
 #### Output options
 out=normalised_R1.fastq
-out2=normalised_R2.fastq
+#if $str($input_type_cond.input_type) in ['PE_2files', 'paired_list']:
+    out2=normalised_R2.fastq
+#end if
 outt=discarded.fastq
 touppercase=t
 hist=kmer_hist_input.tabular
@@ -104,7 +108,28 @@ lowthresh='$error_det_params.lowthresh'
 #end if
 ]]></command>
     <inputs>
-        <expand macro="input_type_cond"/>
+        <conditional name="input_type_cond">
+            <param name="input_type" type="select" label="Choose the category of the files to be analyzed">
+                <option value="single_end">Single end sequencing</option>
+                <option value="PE_1file">Paired end sequences from single interleaved dataset</option>
+                <option value="PE_2files" selected="true">Paired end sequences from 2 datasets</option>
+                <option value="paired_list">List of dataset pairs</option>
+            </param>
+            <when value="single_end">
+                <param name="read1" type="data" format="fastqsanger.gz,fastqsanger" label="Fastq file"/>
+            </when>
+            <when value="PE_1file">
+                <param name="read1" type="data" format="fastqsanger.gz,fastqsanger" label="Interleaved fastq file"/>
+            </when>
+            <when value="PE_2files">
+                <param name="read1" type="data" format="fastqsanger.gz,fastqsanger" label="Forward reads fastq file"/>
+                <param name="read2" type="data" format="fastqsanger.gz,fastqsanger" label="Reverse reads fastq file"/>
+            </when>
+            <when value="paired_list">
+                <param name="reads_collection" type="data_collection" format="fastqsanger,fastqsanger.gz" collection_type="paired" label="Collection of fastqsanger paired read files"/>
+            </when>
+        </conditional>
+
         <section name="hashing_params" title="Hashing parameters">
             <param argument="k" type="integer" value="31" min="1" label="kmer length" help="Values under 32 are most efficient, but arbitrarily high values are supported."/>
             <param argument="bits" type="integer" value="16" label="Bits per cell in bloom filter; must be 2, 4, 8, 16, ..." help="Maximum kmer depth recorded is 2^c bits. Large values decrease accuracy for a fixed amount of memory, so use the lowest number you can that will still capture highest-depth kmers.">
@@ -169,37 +194,71 @@ lowthresh='$error_det_params.lowthresh'
                 </when>
             </conditional>
         </section>
+
+    <section name="output_options" title="Output options">
+        <param name="save_discarded_reads" type="boolean" checked="false" label="Save the reads that were eliminated from the input datasets to the history"/>
+        <param name="save_kmer_hists" type="boolean" checked="false" label="Save the kmer histograms (in tabular format) for the input and output datasets to the history"/>
+    </section>
     </inputs>
     <outputs>
         <data format="fastq" name="output_normalised_R1" from_work_dir="normalised_R1.fastq" label="${tool.name} on ${on_string} (normalised R1 reads)"/>
-        <data format="fastq" name="output_normalised_R2" from_work_dir="normalised_R2.fastq" label="${tool.name} on ${on_string} (normalised R2 reads)"/>
-        <data format="fastq" name="output_discarded" from_work_dir="discarded.fastq" label="${tool.name} on ${on_string} (discarded reads)"/>       
-        <collection type="list" name="output_hists" label="${tool.name} on ${on_string} (kmer histogram)">
-            <data name="kmer_hist_input" format="tabular" from_work_dir="kmer_hist_input.tabular"/>
-            <data name="kmer_hist_output" format="tabular" from_work_dir="kmer_hist_output.tabular"/>
-       </collection>
+        <data format="fastq" name="output_normalised_R2" from_work_dir="normalised_R2.fastq" label="${tool.name} on ${on_string} (normalised R2 reads)">
+            <filter>input_type_cond['input_type'] in ['PE_2files', 'paired_list']</filter>
+        </data>
+        <data format="fastq" name="output_discarded" from_work_dir="discarded.fastq" label="${tool.name} on ${on_string} (discarded reads)">
+            <filter>output_options['save_discarded_reads'] is True</filter>
+        </data>
+        <data name="kmer_hist_input" format="tabular" from_work_dir="kmer_hist_input.tabular" label="${tool.name} on ${on_string} (kmer histogram input)">
+           <filter>output_options['save_kmer_hists'] is True</filter>
+        </data>
+        <data name="kmer_hist_output" format="tabular" from_work_dir="kmer_hist_output.tabular" label="${tool.name} on ${on_string} (kmer histogram output)">
+            <filter>output_options['save_kmer_hists'] is True</filter>
+        </data>
     </outputs>
     <tests>
-        <!-- Single interleaved file -->
-        <test expect_num_outputs="6">
-            <param name="input_type" value="single"/>
-            <param name="read1" value="bbnorm/input_interleaved.fastq"/>
+        <!-- Single end sequencing -->
+        <test expect_num_outputs="1">
+            <param name="input_type" value="single_end"/>
+            <param name="read1" value="bbnorm/input_R1.fastq"/>
             <section name="norm_params">
                 <param name="target" value="4"/>
                 <param name="deterministic" value="true"/>
                 <param name="mindepth" value="0"/>
             </section>
             <output name="output_normalised_R1" ftype="fastq" value="bbnorm/normalised_R1.fastq"/>
-            <output name="output_normalised_R2" ftype="fastq" value="bbnorm/normalised_R2.fastq"/>
-            <output name="output_discarded" ftype="fastq" value="bbnorm/discarded.fastq"/>            
-            <output_collection name="output_hists" type="list" count="2">
-                <element name="kmer_hist_input" ftype="tabular" file="bbnorm/kmer_hist_input.tabular"/>
-                <element name="kmer_hist_output" ftype="tabular" file="bbnorm/kmer_hist_output.tabular"/>
-            </output_collection>
         </test>
-        <!-- Paired mates in 2 separate files -->
-        <test expect_num_outputs="6">
-            <param name="input_type" value="pair"/>
+        <!-- Single end sequencing, compressed -->
+        <test expect_num_outputs="1">
+            <param name="input_type" value="single_end"/>
+            <param name="read1" value="bbnorm/input_R1.fastq.gz"/>
+            <section name="norm_params">
+                <param name="target" value="4"/>
+                <param name="deterministic" value="true"/>
+                <param name="mindepth" value="0"/>
+            </section>
+            <output name="output_normalised_R1" ftype="fastq" value="bbnorm/normalised_R1.fastq"/>
+        </test>
+        <!-- PE as an interleaved file -->
+        <test expect_num_outputs="4">
+            <param name="input_type" value="PE_1file"/>
+            <param name="read1" value="bbnorm/input_interleaved.fastq"/>
+            <section name="norm_params">
+                <param name="target" value="4"/>
+                <param name="deterministic" value="true"/>
+                <param name="mindepth" value="0"/>
+            </section>
+            <section name="output_options">
+                <param name="save_discarded_reads" value="true"/>
+                <param name="save_kmer_hists" value="true"/>
+            </section>
+            <output name="output_normalised_R1" ftype="fastq" value="bbnorm/normalised_interleaved.fastq"/>
+            <output name="output_discarded" ftype="fastq" value="bbnorm/discarded.fastq"/>            
+            <output name="kmer_hist_input" ftype="tabular" file="bbnorm/kmer_hist_input.tabular"/>
+            <output name="kmer_hist_output" ftype="tabular" file="bbnorm/kmer_hist_output.tabular"/>
+        </test>
+        <!-- PE as 2 files -->
+        <test expect_num_outputs="2">
+            <param name="input_type" value="PE_2files"/>
             <param name="read1" value="bbnorm/input_R1.fastq"/>
             <param name="read2" value="bbnorm/input_R2.fastq"/>
             <section name="norm_params">
@@ -209,15 +268,10 @@ lowthresh='$error_det_params.lowthresh'
             </section>
             <output name="output_normalised_R1" ftype="fastq" value="bbnorm/normalised_R1.fastq"/>
             <output name="output_normalised_R2" ftype="fastq" value="bbnorm/normalised_R2.fastq"/>
-            <output name="output_discarded" ftype="fastq" value="bbnorm/discarded.fastq"/>            
-            <output_collection name="output_hists" type="list" count="2">
-                <element name="kmer_hist_input" ftype="tabular" file="bbnorm/kmer_hist_input.tabular"/>
-                <element name="kmer_hist_output" ftype="tabular" file="bbnorm/kmer_hist_output.tabular"/>
-            </output_collection>
         </test>
-        <!-- Paired mates provided via a paired collection -->
-        <test expect_num_outputs="6">
-            <param name="input_type" value="paired"/>
+        <!-- Paired end collection -->
+        <test expect_num_outputs="2">
+            <param name="input_type" value="paired_list"/>
             <param name="reads_collection">
                 <collection type="paired">
                     <element name="forward" value="bbnorm/input_R1.fastq"/>
@@ -231,11 +285,6 @@ lowthresh='$error_det_params.lowthresh'
             </section>
             <output name="output_normalised_R1" ftype="fastq" value="bbnorm/normalised_R1.fastq"/>
             <output name="output_normalised_R2" ftype="fastq" value="bbnorm/normalised_R2.fastq"/>
-            <output name="output_discarded" ftype="fastq" value="bbnorm/discarded.fastq"/>            
-            <output_collection name="output_hists" type="list" count="2">
-                <element name="kmer_hist_input" ftype="tabular" file="bbnorm/kmer_hist_input.tabular"/>
-                <element name="kmer_hist_output" ftype="tabular" file="bbnorm/kmer_hist_output.tabular"/>
-            </output_collection>
         </test>
     </tests>
     <help>
@@ -293,6 +342,17 @@ output.fastq::
     AAAAATTTTTCCCCCGGGGGAAATTT
     +
     FFFFFFFFFFFFFFFEFFFFFFEFFD
+
+**Indications**
+BBNorm is mainly intended for use in assembly pipelines out of short reads. It might be useful when there is too much data that increases computation time or a highly skewed coverage distribution by subsampling from the existing data. As opposed to keeping a randomly selected subset of reads, such as retaining the first n-many elements, this is a weighted resampling that tries to reduce coverage around coordinates of very high sequencing depth.
+
+**Counterindications**
+* The data already has a roughly uniform coverage that does not need to be normalised further.
+* You do not have any excess data to discard: BBnorm does not increase data quantity by imputation or by repeatedly sampling with replacement.
+* Your pipeline reports results that rely on quantification of abundance (ex: differential expression profiling or ChIP-Seq)
+* You want to do variant discovery. Reduction of sequencing depth might bias significance levels, or even obscure the existence of rare variants altogether.
+* The sequencing platform has a very high error rate (ex: ONT) that might mislead this algorithm.
+
     </help>
     <expand macro="citations"/>
 </tool>
