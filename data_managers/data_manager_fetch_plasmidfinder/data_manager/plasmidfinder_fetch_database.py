@@ -143,22 +143,21 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
             with open(output_tar_path_file, 'wb') as output_dir:
                 output_dir.write(request_info.content)
             untar_output = self.untar_files(file_path=output_tar_path_file, extracted_path_output=output_tar_path.joinpath(self._db_name))
-
-            self.moove_download_files(older_path=untar_output, new_path=output_path)
+            self.moove_download_files(source=untar_output, destination=output_path)
         except requests.exceptions.HTTPError as http_error:
             print(f"Requests Error: {http_error}")
             print(f"Fail to import Plasmidfinder database from {self._plasmidfinder_url}")
 
-    def moove_download_files(self, older_path, new_path, expression_search="*fsa"):
+    def moove_download_files(self, source, destination, expression_search="*"):
         """
         Clean downloaded data by mooving fasta files in the final folder
         @older_path: previous path where the files are located
         @new_path: final path where files will be mooved
         @expression_search: keep only file with this expression
         """
-        fasta_files = Path(older_path).rglob(expression_search)
+        fasta_files = Path(source).rglob(expression_search)
         file_list_paths = [file for file in fasta_files if file.is_file()]
-        [self.keep_filename(pathname=path, output_path=new_path) for path in file_list_paths]
+        [self.keep_filename(pathname=path, output_path=destination) for path in file_list_paths]
 
     def keep_filename(self, pathname, output_path):
         """
