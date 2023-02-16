@@ -1,0 +1,168 @@
+<tool id="bbtools_tadpole" name="BBTools: Tadpole" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>Kmer-based assembler</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam_ontology"/>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+#import os
+
+#if str($input_type_cond.input_type) in ['single', 'pair']:
+    #set read1 = $input_type_cond.read1
+    ## Tadpole uses the file extension to determine the input format.
+    #set ext = '.fastq'
+    #if $read1.ext.endswith('.gz'):
+        #set ext = $ext + '.gz'
+    #end if
+    #set read1_file = 'forward' + $ext
+    ln -s '${read1}' '${read1_file}' &&
+    #if str($input_type_cond.input_type) == 'pair':
+        #set read2 = $input_type_cond.read2
+        #set read2_file = 'reverse' + $ext
+        ln -s '${read2}' '${read2_file}' &&
+    #end if
+#else:
+    #set read1 = $input_type_cond.reads_collection['forward']
+    #set read1_identifier = re.sub('[^\s\w\-]', '_', str($read1.element_identifier))
+    ## Tadpole uses the file extension to determine the input format.
+    #set ext = $read1_identifier + '.fastq'
+    #if $read1.ext.endswith('.gz'):
+        #set ext = $ext + '.gz'
+    #end if
+    #set read1_file = $read1_identifier + $ext
+    ln -s '${read1}' '${read1_file}' &&
+    #set read2 = $input_type_cond.reads_collection['reverse']
+    #set read2_identifier = re.sub('[^\s\w\-]', '_', str($read2.element_identifier))
+    #set read2_file = $read2_identifier + $ext
+    ln -s '${read2}' '${read2_file}' &&
+#end if
+
+tadpole.sh
+
+#### Input parameters
+in='${read1_file}'
+#if str($input_type_cond.input_type) in ['pair', 'paired']:
+    in2='${read2_file}'
+#end if
+
+#### Output parameters
+fastadump='$output_options.fastadump'
+mincounttodump='$output_options.mincounttodump'
+#if str($output_options.fastadump):
+    dump='${outputdump}'
+#end if
+out='${output}'
+#if str($input_type_cond.input_type) in ['pair', 'paired'] and str($mode_options.mode) != 'contig':
+    out2='${output2}'
+#end if
+
+#### Processing modes
+#if str($mode_options.mode) == 'contig':
+    mode=contig
+#elif str($mode_options.mode) == 'extend':
+    mode=extend
+#elif str($mode_options.mode) == 'correct':
+    mode=correct
+#end if
+threads=\${GALAXY_SLOTS:-4}
+overwrite=true
+]]></command>
+    <inputs>
+        <expand macro="input_type_cond"/>
+        <section name="mode_options" title="Mode options">
+            <param name="mode" type="select" label="Select mode">
+                <option value="contig" selected="true">Contig: make contigs from kmers.</option>
+                <option value="extend">Extend: extend sequences to be longer.</option>
+                <option value="correct">Correct: error correction.</option>
+            </param>
+        </section>
+        <section name="output_options" title="Output options">
+            <param argument="fastadump" type="boolean" truevalue="t" falsevalue="f" checked="true" label="Write kmers and counts as fasta."/>
+            <param argument="mincounttodump" type="integer" value="1" label="Dump kmers with at least this depth."/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="output" format="fastqsanger" label="${tool.name} on ${on_string} (Forward)"/>
+        <data name="output2" format="fastqsanger" label="${tool.name} on ${on_string} (Reverse)">
+            <filter>input_type_cond['input_type'] != 'single' and mode_options['mode'] != 'contig'</filter>
+        </data>
+        <data name="outputdump" format="fasta" label="${tool.name} on ${on_string} (Fastadump}">
+            <filter>output_options['fastadump']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- Single correction mode -->
+        <test expect_num_outputs="2">
+            <param name="input_type" value="single"/>
+            <param name="read1" value="SRX7529235_SRR10859038_1.fastq.gz"/>
+            <param name="mode" value="correct"/>
+            <param name="fastadump" value="t"/>
+            <output name="output" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="114660" delta="100"/>
+                    <has_n_lines n="800"/>
+                </assert_contents>
+            </output>
+            <output name="outputdump" ftype="fasta">
+                <assert_contents>
+                    <has_size value="1582245" delta="100"/>
+                    <has_n_lines n="90414"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Paired correction mode -->
+        <test expect_num_outputs="3">
+            <param name="input_type" value="pair"/>
+            <param name="read1" value="SRX7529235_SRR10859038_1.fastq.gz"/>
+            <param name="read2" value="SRX7529235_SRR10859038_2.fastq.gz"/>
+            <param name="mode" value="correct"/>
+            <param name="fastadump" value="t"/>
+            <output name="output" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="114660" delta="100"/>
+                    <has_n_lines n="800"/>
+                </assert_contents>
+            </output>
+            <output name="output2" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="116806" delta="100"/>
+                    <has_n_lines n="800"/>
+                </assert_contents>
+            </output>
+            <output name="outputdump" ftype="fasta">
+                <assert_contents>
+                    <has_size value="2057965" delta="100"/>
+                    <has_n_lines n="117598"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Paired assembly/contig mode -->
+        <test expect_num_outputs="2">
+            <param name="input_type" value="pair"/>
+            <param name="read1" value="SRX7529235_SRR10859038_1.fastq.gz"/>
+            <param name="read2" value="SRX7529235_SRR10859038_2.fastq.gz"/>
+            <param name="mode" value="contig"/>
+            <param name="fastadump" value="t"/>
+            <output name="output" ftype="fastqsanger">
+                <assert_contents>
+                    <has_size value="606" delta="100"/>
+                    <has_n_lines n="9"/>
+                </assert_contents>
+            </output>
+            <output name="outputdump" ftype="fasta">
+                <assert_contents>
+                    <has_size value="2057965" delta="100"/>
+                    <has_n_lines n="117598"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+Tadpole is a kmer-based assembler, with additional capabilities of error-correcting and extending reads. It does not do any complicated graph analysis or scaffolding, and therefore, is not particularly good for diploid organisms. However, compared to most other assemblers, it is incredibly fast, has a very low misassembly rate, and is very adept at handling extremely irregular or super high coverage distributions. It does not have any annoying side-effects of generating temp files and directories. Also, it can selectively assemble a coverage ‘band’ from a dataset (for example, just areas with a depth between 1000x and 1500x). These features make it a good choice for microbial single-cell data, viruses, organelles, and preliminary assemblies for use in binning, quality recalibration, insert-size estimation, and so forth. Tadpole has no upper limit on kmer length.
+
+    </help>
+    <expand macro="citations"/>
+</tool>
