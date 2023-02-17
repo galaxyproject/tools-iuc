@@ -1,11 +1,12 @@
 <macros>
-    <!-- REMEMBER to bump the version of rna_star_index_builder_data_manager
-    whenever you make changes to the following two version tokens!
+    <!-- REMEMBER to bump the version of @IDX_VERSION_SUFFIX@
+    whenever you make changes to the @TOOL_VERSION@ token!
     The data manager uses a symlink to this macro file to keep the STAR and
-    the index versions in sync, but you should manually adjust the +galaxy
-    version number. -->
+    the index versions in sync, but you should manually update @IDX_VERSION_SUFFIX@ -->
     <!-- STAR version to be used -->
-    <token name="@VERSION@">2.7.8a</token>
+    <token name="@TOOL_VERSION@">2.7.10b</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">21.01</token>
     <!-- STAR index version compatible with this version of STAR
     This is the STAR version that introduced the index structure expected
     by the current version.
@@ -14,12 +15,14 @@
     or by looking for the versionGenome parameter in source/parametersDefault
     of STAR's source code -->
     <token name="@IDX_VERSION@">2.7.4a</token>
+    <token name="@IDX_VERSION_SUFFIX@">1</token>
     <token name="@IDX_DATA_TABLE@">rnastar_index2x_versioned</token>
 
     <xml name="requirements">
         <requirements>
-            <requirement type="package" version="@VERSION@">star</requirement>
-            <requirement type="package" version="1.9">samtools</requirement>
+            <requirement type="package" version="@TOOL_VERSION@">star</requirement>
+            <requirement type="package" version="1.16.1">samtools</requirement>
+            <requirement type="package" version="1.12">gzip</requirement>
             <yield />
         </requirements>
     </xml>
@@ -35,7 +38,7 @@
     </xml>
 
     <xml name="index_selection" token_with_gene_model="0">
-        <param argument="--genomeDir" name="genomeDir" type="select"
+        <param argument="--genomeDir" type="select"
         label="Select reference genome"
         help="If your genome of interest is not listed, contact the Galaxy team">
             <options from_data_table="@IDX_DATA_TABLE@">
@@ -55,8 +58,8 @@
             <citation type="doi">10.1093/bioinformatics/bts635</citation>
         </citations>
     </xml>
-    <xml name="@SJDBOPTIONS@" token_optional="true">
-         <param argument="--sjdbGTFfile" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions" optional="@OPTIONAL@" help="Exon junction information for mapping splices"/>
+    <xml name="SJDBOPTIONS">
+         <param argument="--sjdbGTFfile" type="data" format="gff3,gtf" label="Gene model (gff3,gtf) file for splice junctions" optional="false" help="Exon junction information for mapping splices"/>
          <param argument="--sjdbOverhang" type="integer" min="1" value="100" label="Length of the genomic sequence around annotated junctions" help="Used in constructing the splice junctions database. Ideal value is ReadLength-1"/>
     </xml>
     <xml name="dbKeyActions">
@@ -81,11 +84,16 @@
     <token name="@TEMPINDEX@"><![CDATA[
     ## Create temporary index for custom reference
     #if str($refGenomeSource.geneSource) == 'history':
+        #if $refGenomeSource.genomeFastaFiles.ext == "fasta"
+            ln -s '$refGenomeSource.genomeFastaFiles' refgenome.fa &&
+        #else
+            gunzip -c '$refGenomeSource.genomeFastaFiles' > refgenome.fa &&
+        #end if
         mkdir -p tempstargenomedir &&
         STAR
             --runMode genomeGenerate
             --genomeDir 'tempstargenomedir'
-            --genomeFastaFiles '${refGenomeSource.genomeFastaFiles}'
+            --genomeFastaFiles refgenome.fa
             ## Handle difference between indices with/without annotations
             #if 'GTFconditional' in $refGenomeSource:
                 ## GTFconditional exists only in STAR, but not STARsolo
@@ -109,6 +117,8 @@
                 --genomeSAindexNbases ${refGenomeSource.genomeSAindexNbases}
             #end if
             --runThreadN \${GALAXY_SLOTS:-4}
+            ## in bytes
+            --limitGenomeGenerateRAM \$((\${GALAXY_MEMORY_MB:-31000} * 1000000))
         &&
     #end if
     ]]></token>
@@ -121,17 +131,15 @@
     #else:
         '${refGenomeSource.GTFconditional.genomeDir.fields.path}'
         ## Handle difference between indices with/without annotations
-        #if str($refGenomeSource.GTFconditional.GTFselect) == 'without-gtf':
-            #if $refGenomeSource.GTFconditional.sjdbGTFfile:
-                --sjdbOverhang $refGenomeSource.GTFconditional.sjdbOverhang
-                --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
-                #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
-                    --sjdbGTFtagExonParentTranscript Parent
-                #end if
+        #if str($refGenomeSource.GTFconditional.GTFselect) == 'without-gtf-with-gtf':
+            --sjdbOverhang $refGenomeSource.GTFconditional.sjdbOverhang
+            --sjdbGTFfile '${refGenomeSource.GTFconditional.sjdbGTFfile}'
+            #if str($refGenomeSource.GTFconditional.sjdbGTFfile.ext) == 'gff3':
+                --sjdbGTFtagExonParentTranscript Parent
             #end if
         #end if
-        #end if
-        ]]></token>
+    #end if
+    ]]></token>
     <token name="@READSHANDLING@" ><![CDATA[
     ## Check that the input pairs are of the same type
     ## otherwise STARsolo will run for a long time and then error out.
@@ -161,8 +169,13 @@
         @FASTQ_GZ_OPTION@
     #end if
     ]]></token>
+    <token name="@LIMITS@" ><![CDATA[
+        --limitOutSJoneRead $getVar('algo.params.junction_limits.limitOutSJoneRead', $getVar('solo.junction_limits.limitOutSJoneRead', 1000))
+        --limitOutSJcollapsed $getVar('algo.params.junction_limits.limitOutSJcollapsed', $getVar('solo.junction_limits.limitOutSJcollapsed', 1000000))
+        --limitSjdbInsertNsj $getVar('algo.params.junction_limits.limitSjdbInsertNsj', $getVar('solo.junction_limits.limitSjdbInsertNsj', 1000000))
+    ]]></token>
     <xml name="ref_selection">
-        <param argument="--genomeFastaFiles" type="data" format="fasta" label="Select a reference genome" />
+        <param argument="--genomeFastaFiles" type="data" format="fasta,fasta.gz" label="Select a reference genome" />
           <param argument="--genomeSAindexNbases" type="integer" min="2" max="16" value="14" label="Length of the SA pre-indexing string" help="Typically between 10 and 15. Longer strings will use much more memory, but allow faster searches. For small genomes, the parameter --genomeSAindexNbases must be scaled down to min(14, log2(GenomeLength)/2 - 1)"/>
     </xml>
     <xml name="stdio" >
@@ -244,5 +257,144 @@
             <option value="CellRanger4" >5p and 3p adapter clipping similar to CellRanger4</option>
             <option value="None" >No adapter clipping</option>
         </param>
+    </xml>
+    <xml name="common_SAM_attributes">
+        <option value="NH" selected="true">NH (number of reported alignments/hits for the read)</option>
+        <option value="HI" selected="true">HI (query hit index)</option>
+        <option value="AS" selected="true">AS (local alignment score)</option>
+        <option value="nM" selected="true">nM (number of mismatches per (paired) alignment)</option>
+        <option value="NM">NM (edit distance of the aligned read to the reference)</option>
+        <option value="MD">MD (string for mismatching positions)</option>
+        <option value="jM">jM (intron motifs for all junctions)</option>
+        <option value="jI">jI (1-based start and end of introns for all junctions)</option>
+    </xml>
+    <xml name="limits">
+        <section name="junction_limits" title="Junction Limits" expanded="false">
+            <param argument="--limitOutSJoneRead" type="integer" min="1" value="1000" label="Maximum number of junctions for one read (including all multimappers)" />
+            <param argument="--limitOutSJcollapsed" type="integer" min="1" value="1000000" label="Maximum number of collapsed junctions" />
+            <param argument="--limitSjdbInsertNsj" type="integer" min="0" value="1000000" label="Maximum number of inserts to be inserted into the genome on the fly." />
+        </section>
+    </xml>
+    <xml name="outCountActions">
+        <actions>
+            <action name="column_names" type="metadata" default="GeneID,Counts_unstrand,Counts_firstStrand,Counts_secondStrand" />
+        </actions>
+    </xml>
+    <xml name="outWig">
+        <conditional name="outWig">
+            <param name="outWigType" type="select" label="Compute coverage">
+                <option value="None">No coverage</option>
+                <option value="bedGraph">Yes in bedgraph format</option>
+                <option value="wiggle">Yes in wiggle format</option>
+            </param>
+            <when value="None">
+                <!-- This is necessary for the filtering of output -->
+                <param name="outWigStrand" type="hidden" value="false" />
+            </when>
+            <when value="bedGraph">
+                <expand macro="outWigParams"/>
+            </when>
+            <when value="wiggle">
+                <expand macro="outWigParams"/>
+            </when>
+        </conditional>
+    </xml>
+    <xml name="outWigParams">
+        <param name="outWigTypeSecondWord" type="select" label="Input for coverage">
+            <option value="">Default (everything that mapped)</option>
+            <option value="read_5p">signal from only 5’ of the 1st read</option>
+            <option value="read2">signal from only 2nd read</option>
+        </param>
+        <param argument="--outWigStrand" type="boolean" truevalue="Stranded" falsevalue="Unstranded" checked="true" label="collapse strands (unstranded coverage)" help="By default, the strands are separated."/>
+        <param argument="--outWigReferencesPrefix" type="text" value="-" label="prefix matching reference name" help="For example, set 'chr' if you mapped on an ensembl genome but you want to display on UCSC"/>
+        <param argument="--outWigNorm" type="boolean" truevalue="RPM" falsevalue="None" checked="true" label="Normalize coverage to million of mapped reads (RPM)"/>
+    </xml>
+    <token name="@OUTWIG@"><![CDATA[
+        #if str($outWig.outWigType) != 'None':
+            --outWigType '$outWig.outWigType' '$outWig.outWigTypeSecondWord'
+            --outWigStrand '$outWig.outWigStrand'
+            --outWigReferencesPrefix '$outWig.outWigReferencesPrefix'
+            --outWigNorm '$outWig.outWigNorm'
+        #end if
+    ]]></token>
+    <token name="@OUTWIGOUTPUTS@"><![CDATA[
+        #if str($outWig.outWigType) == "bedGraph":
+            && mv Signal.Unique.str1.out.bg Signal.Unique.str1.out
+            && mv Signal.UniqueMultiple.str1.out.bg Signal.UniqueMultiple.str1.out
+            #if str($outWig.outWigStrand) == "Stranded":
+                && mv Signal.Unique.str2.out.bg Signal.Unique.str2.out
+                && mv Signal.UniqueMultiple.str2.out.bg Signal.UniqueMultiple.str2.out
+            #end if
+        #elif str($outWig.outWigType) == "wiggle":
+            && mv Signal.Unique.str1.out.wig Signal.Unique.str1.out
+            && mv Signal.UniqueMultiple.str1.out.wig Signal.UniqueMultiple.str1.out
+            #if str($outWig.outWigStrand) == "Stranded":
+                && mv Signal.Unique.str2.out.wig Signal.Unique.str2.out
+                && mv Signal.UniqueMultiple.str2.out.wig Signal.UniqueMultiple.str2.out
+            #end if
+        #end if
+    ]]></token>
+    <xml name="outWigOutputs">
+        <data format="bedgraph" name="signal_unique_str1" label="${tool.name} on ${on_string}: Coverage Uniquely mapped strand 1" from_work_dir="Signal.Unique.str1.out">
+            <filter>outWig['outWigType'] != "None"</filter>
+            <expand macro="dbKeyActions" />
+            <change_format>
+                <when input="outWig.outWigType" value="wiggle" format="wig" />
+            </change_format>
+        </data>
+        <data format="bedgraph" name="signal_uniquemultiple_str1" label="${tool.name} on ${on_string}: Coverage Uniquely + Multiple mapped strand 1" from_work_dir="Signal.UniqueMultiple.str1.out">
+            <filter>outWig['outWigType'] != "None"</filter>
+            <expand macro="dbKeyActions" />
+            <change_format>
+                <when input="outWig.outWigType" value="wiggle" format="wig" />
+            </change_format>
+        </data>
+        <data format="bedgraph" name="signal_unique_str2" label="${tool.name} on ${on_string}: Coverage Uniquely mapped strand 2" from_work_dir="Signal.Unique.str2.out">
+            <filter>outWig['outWigType'] != "None" and outWig['outWigStrand']</filter>
+            <expand macro="dbKeyActions" />
+            <change_format>
+                <when input="outWig.outWigType" value="wiggle" format="wig" />
+            </change_format>
+        </data>
+        <data format="bedgraph" name="signal_uniquemultiple_str2" label="${tool.name} on ${on_string}: Coverage Uniquely + Multiple mapped strand 2" from_work_dir="Signal.UniqueMultiple.str2.out">
+            <filter>outWig['outWigType'] != "None" and outWig['outWigStrand']</filter>
+            <expand macro="dbKeyActions" />
+            <change_format>
+                <when input="outWig.outWigType" value="wiggle" format="wig" />
+            </change_format>
+        </data>
+    </xml>
+    <xml name="quantMode">
+        <conditional name="quantmode_output">
+            <param argument="--quantMode" type="select"
+            label="Per gene/transcript output"
+            help="STAR can provide analysis results not only with respect to the reference genome, but also with respect to genes and transcripts described by a gene model. Note: This functionality requires either the selection above of a cached index with a gene model, or a gene model provided alongside the index/reference genome in GTF or GFF3 format!">
+                <option value="-">No per gene or transcript output</option>
+                <option value="GeneCounts">Per gene read counts (GeneCounts)</option>
+                <option value="TranscriptomeSAM">Transcript-based BAM output (TranscriptomeSAM)</option>
+                <option value="TranscriptomeSAM GeneCounts">Both per gene read counts and transcript-based BAM output (TranscriptomeSAM GeneCounts)</option>
+            </param>
+            <when value="-" />
+            <when value="GeneCounts" />
+            <when value="TranscriptomeSAM">
+                <param argument="--quantTranscriptomeBan" type="boolean" truevalue="IndelSoftclipSingleend" falsevalue="Singleend"
+                label="Exclude alignments with indels or soft clipping from the transcriptome BAM output?"
+                help="You will need to exclude alignments with indels and soft-clipped bases from the transcriptome BAM output for compatibility with certain transcript quantification tools, most notably RSEM. If you are using a tool, like eXpress, that can deal with indels and soft-clipped bases, you can achieve better results by leaving this option disabled." />
+            </when>
+            <when value="TranscriptomeSAM GeneCounts">
+                <param argument="--quantTranscriptomeBan" type="boolean" truevalue="IndelSoftclipSingleend" falsevalue="Singleend"
+                label="Exclude alignments with indels or soft clipping from the transcriptome BAM output?"
+                help="You will need to exclude alignments with indels and soft-clipped bases from the transcriptome BAM output for compatibility with certain transcript quantification tools, most notably RSEM. If you are using a tool, like eXpress, that can deal with indels and soft-clipped bases, you can achieve better results by leaving this option disabled." />
+            </when>
+        </conditional>
+    </xml>
+    <xml name="quantModeNoGTF">
+        <conditional name="quantmode_output">
+            <param argument="--quantMode" type="select"
+            label="Per gene/transcript output">
+                <option value="-">No per gene or transcript output as no GTF was provided</option>
+            </param>
+            <when value="-" />
+        </conditional>
     </xml>
 </macros>
