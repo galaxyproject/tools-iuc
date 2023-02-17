@@ -55,7 +55,7 @@ class GetPlasmidfinderDataManager:
         data_info = dict(value=plasmidfinder_value,
                          name=plasmidfinder_name,
                          date=self._plasmidfinder_date_version,
-                         path="plasmidfinder_database")
+                         path=self._db_name)
         self.plasmidfinder_table_list["data_tables"][self.data_table_name] = [data_info]
         return self.plasmidfinder_table_list
 
