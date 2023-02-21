@@ -15,7 +15,7 @@ class GetPlasmidfinderDataManager:
 
     def __init__(self,
                  plasmidfinder_database="plasmidfinder_database",
-                 db_name="plasmidfinder-db",
+                 db_name="plasmidfinder_database",
                  plasmidfinder_version="latest"):
         self.data_table_name = plasmidfinder_database
         self._db_name = db_name
@@ -69,7 +69,7 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
     def __init__(self,
                  output_dir=Path.cwd(),
                  plasmidfinder_url="https://bitbucket.org/genomicepidemiology/plasmidfinder_db/get/",
-                 db_name="plasmidfinder-db",
+                 db_name="plasmidfinder_database",
                  db_tmp="tmp_database",
                  plasmidfinder_version="latest",
                  json_file_path=None,
