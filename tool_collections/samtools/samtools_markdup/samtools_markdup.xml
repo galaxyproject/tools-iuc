@@ -1,4 +1,4 @@
-<tool id="samtools_markdup" name="Samtools markdup" version="@TOOL_VERSION@+galaxy3">
+<tool id="samtools_markdup" name="Samtools markdup" version="@TOOL_VERSION@+galaxy0" profile="@PROFILE@" >
     <description>marks duplicate alignments</description>
     <macros>
         <import>macros.xml</import>
@@ -8,7 +8,7 @@
     <expand macro="version_command"/>
     <command><![CDATA[
 @ADDTHREADS@
-## coordinate sort input 
+## coordinate sort input
 #if not $bamfile.is_of_type('bam'):
     samtools sort
     -@ \$addthreads -m \${GALAXY_MEMORY_MB:-768}M -T "\${TMPDIR:-.}"
@@ -19,72 +19,110 @@
     ln -s '$bamfile' coordsort.sam &&
 #end if
 
-samtools markdup 
+## copy fasta reference if needed
+## because samtools will try to write a .fai file next to it
+#if $output_options.output_format.select_oformat == "CRAM"
+    ln -s '$output_options.output_format.ref_file' ref_file.fa &&
+#end if
+
+samtools markdup
 
 -@ \$addthreads
 #if str($maxlen) != '':
     -l $maxlen
-#end if 
-$remove 
-$stats 
-$supp
-coordsort.sam 
-'$output'
-#if $stats
-    2> >(tee -a '$stats_output' >&2)
 #end if
+$remove
+$supp
+#if $odist:
+    -d $odist
+#end if
+$existing_tags
+-m $mode
+$include_fails
+#if $output_options.stats == 'yes'
+    -s
+    -f '$stats_output'
+#end if
+-O $output_options.output_format.select_oformat
+#if $output_options.output_format.select_oformat == "CRAM"
+    --reference ref_file.fa
+#end if
+coordsort.sam
+'$output'
     ]]></command>
     <inputs>
         <param name="bamfile" type="data" format="sam,bam,cram" optional="false" label="Alignment" />
         <param name="remove" type="boolean" argument="-r" truevalue="-r" falsevalue="" label="Remove duplicate reads" />
-        <param name="maxlen" type="integer" optional="true" argument="-l" min="0" label="Expected maximum read length of INT bases. (default 300)"/>
-        <param name="stats" type="boolean" argument="-s" truevalue="-s" falsevalue="" label="Print basic statistics" />
         <param name="supp" type="boolean" argument="-S" truevalue="-S" falsevalue="" label="Mark supplementary reads of duplicates as duplicates" />
+        <param name="existing_tags" type="boolean" argument="-c" truevalue="-c" falsevalue="" label="Clear previous duplicate settings and tags." />
+        <param name="maxlen" type="integer" optional="true" argument="-l" min="0" label="Expected maximum read length of INT bases. (default 300, min=0)"/>
+        <param name="odist" type="integer" optional="true" argument="-d" min="1" label="Optical distance (if set, marks with dt tag, min=1)"/>
+        <param argument="--mode" type="select" label="Duplicate decision method for paired reads.">
+            <option selected="true" value="t">(t) measure positions based on template start/end.</option>
+            <option value="s">(s) measure positions based on sequence start.  </option>
+        </param>
+        <param argument="--include-fails" type="boolean" truevalue="--include-fails" falsevalue="" label="Include quality check failed reads." />
+        <section name="output_options" title="Output Options" expanded="true">
+            <param name="stats" type="select" argument="-s" label="Print basic statistics">
+                <option value="yes">Yes</option>
+                <option value="no" selected="True">No</option>
+            </param>
+            <conditional name="output_format">
+                <param name="select_oformat" type="select" label="Output format" help="Specify output format">
+                    <option value="SAM">SAM</option>
+                    <option value="BAM" selected="True">BAM</option>
+                    <option value="CRAM">CRAM</option>
+                </param>
+                <when value="SAM" />
+                <when value="BAM" />
+                <when value="CRAM">
+                    <param name="ref_file" type="data" format="fasta" label="Reference FASTA file" />
+                </when>
+            </conditional>
+        </section>
     </inputs>
     <outputs>
         <!-- output bam, if input was name sorted then restore this sorting order -->
-        <data name="output" format="bam"/>
+        <data name="output" format="bam" from_work_dir="outfile" label="${tool.name} on ${on_string}">
+            <change_format>
+                <when input="output_format.select_oformat" value="SAM" format="sam" />
+                <when input="output_format.select_oformat" value="BAM" format="bam" />
+                <when input="output_format.select_oformat" value="CRAM" format="cram" />
+            </change_format>
+        </data>
         <data name="stats_output" format="txt" label="${tool.name} on ${on_string}: statistics">
-            <filter>stats</filter>
+            <filter>(output_options['stats'] == 'yes')</filter>
         </data>
     </outputs>
     <tests>
-        <!-- tests and data extracted from 
-             https://github.com/samtools/samtools/blob/6d79411685d8f0fbb34e123f52d72b63271f4dcb/test/test.pl#L2616 
-             TODO the 1st 4 tests are negative, I do not know how to test for the error code 
--->
-<!--    test_cmd($opts, out=>'markdup/1_name_sort.expected.sam', err=>'1_name_sort.expected.sam.err', cmd=>"$$opts{bin}/samtools markdup${threads} -O sam $$opts{path}/markdup/1_name_sort.sam -", expect_fail=>1);
-    test_cmd($opts, out=>'markdup/2_bad_order.expected.sam', err=>'2_bad_order.expected.sam.err', cmd=>"$$opts{bin}/samtools markdup${threads} -O sam $$opts{path}/markdup/2_bad_order.sam -", expect_fail=>1);
-    test_cmd($opts, out=>'markdup/3_missing_mc.expected.sam', err=>'3_missing_mc.expected.sam.err', cmd=>"$$opts{bin}/samtools markdup${threads} -O sam $$opts{path}/markdup/3_missing_mc.sam -", expect_fail=>1);
-    test_cmd($opts, out=>'markdup/4_missing_ms.expected.sam', err=>'4_missing_ms.expected.sam.err', cmd=>"$$opts{bin}/samtools markdup${threads} -O sam $$opts{path}/markdup/4_missing_ms.sam -", expect_fail=>1);-->
-        <!--    test_cmd($opts, out=>'markdup/5_markdup.expected.sam', cmd=>"$$opts{bin}/samtools markdup${threads} -O sam $$opts{path}/markdup/5_markdup.sam -");-->
+        <!-- 1) -->
         <test expect_num_outputs="1">
-            <param name="bamfile" value="5_markdup.sam" />
-            <output name="output" file="5_markdup.expected.bam" />
+            <param name="bamfile" value="1_markdup.sam" />
+            <output name="output" file="1_markdup.expected.bam" ftype="bam" lines_diff="4" />
         </test>
-        <!--    test_cmd($opts, out=>'markdup/6_remove_dups.expected.sam', cmd=>"$$opts{bin}/samtools markdup${threads} -O sam -r $$opts{path}/markdup/6_remove_dups.sam -");-->
+        <!-- 2) -->
         <test expect_num_outputs="1">
-            <param name="bamfile" value="6_remove_dups.sam" />
+            <param name="bamfile" value="2_remove_dups.sam" />
             <param name="remove" value="-r" />
-            <output name="output" file="6_remove_dups.expected.bam" />
+            <output name="output" file="2_remove_dups.expected.bam" ftype="bam" lines_diff="4" />
         </test>
-        <!-- test_cmd($opts, out=>'markdup/7_mark_supp_dup.expected.sam', cmd=>"$$opts{bin}/samtools markdup${threads} -S -O sam $$opts{path}/markdup/7_mark_supp_dup.sam -");-->
+        <!-- 3) -->
         <test expect_num_outputs="1">
-            <param name="bamfile" value="7_mark_supp_dup.bam" />
+            <param name="bamfile" value="3_mark_supp_dup.bam" />
             <param name="supp" value="-S" />
-            <output name="output" file="7_mark_supp_dup.expected.bam" />
+            <output name="output" file="3_mark_supp_dup.expected.bam" ftype="bam" lines_diff="4" />
         </test>
-        <!-- test stats output -->
+        <!-- 4) test stats output -->
         <test expect_num_outputs="2">
-            <param name="bamfile" value="5_markdup.sam" />
-            <param name="stats" value="-s" />
-            <output name="output" file="5_markdup.expected.bam" />
-            <output name="stats_output" file="stats.txt" />
+            <param name="bamfile" value="1_markdup.sam" />
+            <param name="stats" value="yes" />
+            <output name="output" file="1_markdup.expected.bam" ftype="bam" lines_diff="4" />
+            <output name="stats_output" file="stats.txt" lines_diff="2" />
         </test>
-        <!-- check that stderr is not swallowed w test data from fixmate  -->
+        <!-- 5) check that stderr is not swallowed w test data from fixmate  -->
         <test expect_num_outputs="2" expect_exit_code="1" expect_failure="true">
-            <param name="bamfile" value="7_two_read_mapped.sam" />
-            <param name="stats" value="true"/>
+            <param name="bamfile" value="3_two_read_mapped.sam" />
+            <param name="stats" value="yes"/>
             <!-- for some reason this is not possible at the moment
             <output name="stats_output">
                 <assert_contents>
@@ -95,11 +133,43 @@ coordsort.sam
                 <has_line line="[markdup] error: no MC tag. Please run samtools fixmate on file first."/>
             </assert_stderr>
         </test>
+        <!-- 6) check optical distance and check -c option -->
+        <test expect_num_outputs="1">
+            <param name="bamfile" value="1_markdup.sam" />
+            <param name="odist" value="10" />
+            <param name="existing_tags" value="-c" />
+            <output name="output" file="6_markdup.expected.bam" ftype="bam" lines_diff="4" />
+        </test>
+        <!-- 7) check new mode s -->
+        <test expect_num_outputs="1">
+            <param name="bamfile" value="1_markdup.sam" />
+            <param name="mode" value="s" />
+            <output name="output" file="7_markdup.expected.bam" ftype="bam" lines_diff="4" />
+        </test>
+        <!-- 8) check include-fails -->
+        <test expect_num_outputs="1">
+            <param name="bamfile" value="1_markdup.sam" />
+            <param name="include_fails" value="true" />
+            <output name="output" file="8_markdup.expected.bam" ftype="bam" lines_diff="4" />
+        </test>
+        <!-- 9) test sam format -->
+        <test expect_num_outputs="1">
+            <param name="bamfile" value="1_markdup.sam" />
+            <param name="select_oformat" value="SAM" />
+            <output name="output" file="9_markdup.expected.sam" lines_diff="4" />
+        </test>
+        <!-- 10) test cram format -->
+        <test expect_num_outputs="1">
+            <param name="bamfile" value="10_markdup.sam" />
+            <param name="select_oformat" value="CRAM" />
+            <param name="ref_file" value="test.fa" />
+            <output name="output" file="10_markdup.expected.cram" compare="sim_size" delta="250"/>
+        </test>
     </tests>
     <help>
-Mark duplicate alignments from a coordinate sorted file that has been run through fixmate with the -m option. This program relies on the MC and ms tags that fixmate provides. 
+Mark duplicate alignments from a coordinate sorted file that has been run through fixmate with the -m option. This program relies on the MC and ms tags that fixmate provides.
 
-Note: The Galaxy tool sorts the data automatically if the input is SAM or query name sorted. 
+Note: The Galaxy tool sorts the data automatically if the input is SAM or query name sorted.
 The output is BAM (which is query name sorted again if the input is).
 
 The optional basic statistics output of samtools markdup can be visualized with MultiQC.

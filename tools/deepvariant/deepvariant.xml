@@ -1,0 +1,279 @@
+<tool id='deepvariant' name='DeepVariant' version='@TOOL_VERSION@+galaxy@SUFFIX_VERSION@' profile='20.01'>
+    <description>deep learning-based variant caller</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro='edam_ontology' />
+    <expand macro='requirements' />
+    <command detect_errors='exit_code'><![CDATA[
+        ln -s '${reads}' reads_alignment.bam
+        && ln -s '${reads.metadata.bam_index}' reads_alignment.bam.bai
+        #if $regions_conditional.regions_option == 'bed'
+            && ln -s '${regions_conditional.bed_file}' region.bed
+        #end if
+        #if $reference_genome.source == 'history':
+            #set $ref_genome = 'reference.fasta'
+            && ln -s -f '${reference_genome.history_item}' $ref_genome
+            && samtools faidx $ref_genome
+        #else:
+            #set $ref_genome = $reference_genome.index.fields.path
+        #end if
+        && run_deepvariant
+        --model_type=$model_type
+        --ref=$ref_genome
+        --reads=reads_alignment.bam
+        --output_vcf='./output.vcf.gz'
+        #if $output_gvcf
+            --output_gvcf='./output.g.vcf.gz'
+        #end if
+        #if $regions_conditional.regions_option == 'region'
+            --regions $regions_conditional.region_literal
+        #else if $regions_conditional.regions_option == 'bed'
+            --regions region.bed
+        #end if
+        ##--call_variants_extra_args="use_openvino=true" ## Setting this will use OpenVINO on Intel CPUs, which empirically reduces call_variants runtime by 15%-25%.
+        --num_shards=\${GALAXY_SLOTS:-2}
+        && gunzip './output.vcf.gz'
+        #if $output_gvcf
+            && gunzip './output.g.vcf.gz'
+        #end if
+    ]]>    </command>
+    <inputs>
+        <conditional name="reference_genome">
+            <param name="source" type="select" label="Source for the reference genome" help="Built-in references were created using default options.">
+                <option value="indexed" selected="true">Use a built-in genome</option>
+                <option value="history">Use a genome from history</option>
+            </param>
+            <when value="indexed">
+                <param name="index" type="select" label="Select a reference genome" help="If your genome of interest is not listed, contact the Galaxy team.">
+                    <options from_data_table="fasta_indexes">
+                        <filter type="sort_by" column="2" />
+                        <validator type="no_options" message="No genomes are available for the selected input dataset" />
+                    </options>
+                </param>
+            </when>
+            <when value="history">
+                <param name="history_item" type="data" format="fasta" label="Reference genome" help="A reference genome in FASTA format" />
+            </when>
+        </conditional>
+        <param argument="--reads" type="data" format="BAM" label="BAM file" help="An aligned reads file in BAM format. The reads must be aligned to the reference genome" />
+        <param argument="--model_type" type="select" label="Model type" help="Type of model to use for variant calling">
+            <option value="WGS">WGS: Illumina whole genome sequencing</option>
+            <option value="WES">WES: Illumina whole exome sequencing</option>
+            <option value="PACBIO">PacBio HiFi</option>
+            <option value="HYBRID_PACBIO_ILLUMINA">Hybrid PacBio HiFi-Illumina</option>
+        </param>
+        <conditional name="regions_conditional">
+            <param name="regions_option" type="select" label="Select specific regions to process" help="Restrict the analysis to specific regions. A space-separated list of chromosome regions to process. Individual elements can be region literals, such as chr20:10-20 or paths to BED files.">
+                <option value="disabled" selected="True">Disabled</option>
+                <option value="region">Specify region literals</option>
+                <option value="bed">Provide a BED file</option>
+            </param>
+            <when value="disabled"/>
+            <when value="region">
+                <param name="region_literal" argument="--regions" type="text" label="Regions" help="This option refers to contigs present in the reference genome. These arguments accept space-separated lists, so all of the follow examples are valid arguments: 'chr20:10,000,000-11,000,000', 'chr20 chr21' and 'chr20'">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters,string.digits">
+                            <add value="," />
+                            <add value=":" />
+                            <add value="-" />
+                        </valid>
+                    </sanitizer>
+                    <validator type="regex">[0-9a-zA-Z,:-]+</validator>
+                </param>
+            </when>
+            <when value="bed">
+                <param name="bed_file" argument="--regions" type="data" format="bed" label="BED file" help="The BED should the store genomic regions of interest" />
+            </when>
+        </conditional>
+        <param argument="--output_gvcf" type="boolean" truevalue="True" falsevalue="False" checked="False" label="Generate genomic VCF (gVCF) output" help="The key difference between a regular VCF and a gVCF is that the gVCF has records for all sites, whether there is a variant call there or not. The goal is to have every site represented in the file in order to do joint analysis of a cohort in subsequent steps" />
+    </inputs>
+    <outputs>
+        <data name="vcf_file" format="vcf" from_work_dir="output.vcf" label="${tool.name} on ${on_string}: VCF file"/>
+        <data name="html_report" format="html" from_work_dir="output.visual_report.html" label="${tool.name} on ${on_string}: HTML report"/>
+        <data name="gvcf_file" format="vcf" from_work_dir="output.g.vcf" label="${tool.name} on ${on_string}: gVCF file">
+            <filter>output_gvcf</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="2">
+            <conditional name="reference_genome">
+                <param name="source" value="history"/>
+                <param name="history_item" value="reference.fasta"/>
+            </conditional>
+            <param name="reads" value="reads.bam"/>
+            <param name="model_type" value="WGS"/>
+            <param name="output_gvcf" value="False"/>
+            <conditional name="regions_conditional">
+                <param name="regions_option" value="disabled"/>
+            </conditional>
+            <output name="vcf_file" file="output.vcf" ftype="vcf">
+                <assert_contents>
+                    <has_text text="##fileformat=VCFv4.2"/>
+                    <has_size value="2473"/>
+                </assert_contents>
+            </output>
+            <output name="html_report" file="report.html" ftype="html">
+                <assert_contents>
+                    <has_size value="19287" delta="100"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test region literal option-->
+        <test expect_num_outputs="2">
+            <conditional name="reference_genome">
+                <param name="source" value="history"/>
+                <param name="history_item" value="reference.fasta"/>
+            </conditional>
+            <param name="reads" value="reads.bam"/>
+            <param name="model_type" value="WGS"/>
+            <conditional name="regions_conditional">
+                <param name="regions_option" value="region"/>
+                <param name="region_literal" value="K03455:1-2669"/>
+            </conditional>
+            <output name="vcf_file" ftype="vcf">
+                <assert_contents>
+                    <has_text text="##fileformat=VCFv4.2"/>
+                    <has_size value="1842"/>
+                </assert_contents>
+            </output>
+            <output name="html_report" ftype="html">
+                <assert_contents>
+                    <has_size value="14880" delta="100"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test region bed option-->
+        <test expect_num_outputs="2">
+            <conditional name="reference_genome">
+                <param name="source" value="history"/>
+                <param name="history_item" value="reference.fasta"/>
+            </conditional>
+            <param name="reads" value="reads.bam"/>
+            <param name="model_type" value="WGS"/>
+            <conditional name="regions_conditional">
+                <param name="regions_option" value="bed"/>
+                <param name="bed_file" value="region.bed" ftype="bed"/>
+            </conditional>
+            <output name="vcf_file" ftype="vcf">
+                <assert_contents>
+                    <has_text text="##fileformat=VCFv4.2"/>
+                    <has_size value="1842"/>
+                </assert_contents>
+            </output>
+            <output name="html_report" ftype="html">
+                <assert_contents>
+                    <has_size value="14880" delta="100"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test gvcf output option-->
+        <test expect_num_outputs="3">
+            <conditional name="reference_genome">
+                <param name="source" value="history"/>
+                <param name="history_item" value="reference.fasta"/>
+            </conditional>
+            <param name="reads" value="reads.bam"/>
+            <param name="model_type" value="WGS"/>
+            <param name="output_gvcf" value="True"/>
+            <conditional name="regions_conditional">
+                <param name="regions_option" value="region"/>
+                <param name="region_literal" value="K03455:1-2669"/>
+            </conditional>
+            <output name="vcf_file" ftype="vcf">
+                <assert_contents>
+                    <has_text text="##fileformat=VCFv4.2"/>
+                    <has_size value="1842"/>
+                </assert_contents>
+            </output>
+            <output name="gvcf_file" file="output.g.vcf" ftype="vcf">
+                <assert_contents>
+                    <has_text text="##fileformat=VCFv4.2"/>
+                    <has_size value="3191"/>
+                </assert_contents>
+            </output>
+            <output name="html_report" ftype="html">
+                <assert_contents>
+                    <has_size value="14880" delta="100"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test CRAM format input-->
+        <test expect_num_outputs="2">
+            <conditional name="reference_genome">
+                <param name="source" value="history"/>
+                <param name="history_item" value="reference.fasta"/>
+            </conditional>
+            <param name="reads" value="reads.cram"/>
+            <param name="model_type" value="WGS"/>
+            <conditional name="regions_conditional">
+                <param name="regions_option" value="disabled"/>
+            </conditional>
+            <output name="vcf_file" ftype="vcf">
+                <assert_contents>
+                    <has_text text="##fileformat=VCFv4.2"/>
+                    <has_size value="2473"/>
+                </assert_contents>
+            </output>
+            <output name="html_report" ftype="html">
+                <assert_contents>
+                    <has_size value="19287" delta="100"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Test indexed reference format input-->
+        <test expect_num_outputs="2">
+            <conditional name="reference_genome">
+                <param name="source" value="indexed"/>
+                <param name="index" value="phix174"/>
+            </conditional>
+            <param name="reads" value="reads.bam"/>
+            <param name="model_type" value="WGS"/>
+            <conditional name="regions_conditional">
+                <param name="regions_option" value="disabled"/>
+            </conditional>
+            <output name="vcf_file" ftype="vcf">
+                <assert_contents>
+                    <has_text text="##fileformat=VCFv4.2"/>
+                    <has_size value="2473"/>
+                </assert_contents>
+            </output>
+            <output name="html_report" ftype="html">
+                <assert_contents>
+                    <has_size value="19287" delta="100"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+
+.. class:: infomark
+
+**Purpose**
+
+DeepVariant is a deep learning-based variant caller that takes aligned reads (in BAM or CRAM format), produces pileup image tensors from them, classifies each tensor using a convolutional neural network, and finally reports the results in a standard VCF or gVCF file.
+
+DeepVariant supports germline variant-calling in diploid organisms.
+
+- NGS (Illumina) data for either a `whole genome <https://github.com/google/deepvariant/blob/r1.2/docs/deepvariant-case-study.md>`_ or `whole exome <https://github.com/google/deepvariant/blob/r1.2/docs/deepvariant-exome-case-study.md>`_.
+- PacBio HiFi data, see the `PacBio case study <https://github.com/google/deepvariant/blob/r1.2/docs/deepvariant-pacbio-model-case-study.md>`_.
+- Hybrid PacBio HiFi + Illumina WGS, see the `hybrid case study <https://github.com/google/deepvariant/blob/r1.2/docs/deepvariant-hybrid-case-study.md>`_.
+
+Please also note:
+
+For somatic data or any other samples where the genotypes go beyond two copies of DNA, DeepVariant will not work out of the box because the only genotypes supported are hom-alt, het, and hom-ref.
+
+The models included with DeepVariant are only trained on human data. For other organisms, see the blog post on `non-human variant-calling <https://google.github.io/deepvariant/posts/2018-12-05-improved-non-human-variant-calling-using-species-specific-deepvariant-models/>`_ for some possible pitfalls and how to handle them.
+
+----
+
+.. class:: infomark
+
+**How DeepVariants works**
+
+DeepVariant relies on `Nucleus <https://github.com/google/nucleus>`_, a library of Python and C++ code for reading and writing data in common genomics file formats (like SAM and VCF) designed for painless integration with the `TensorFlow <https://www.tensorflow.org/>`_ machine learning framework. Nucleus was built with DeepVariant in mind and open-sourced separately so it can be used by anyone in the genomics research community for other projects. See this blog post on `Using Nucleus and TensorFlow for DNA Sequencing Error Correction <https://google.github.io/deepvariant/posts/2019-01-31-using-nucleus-and-tensorflow-for-dna-sequencing-error-correction/>`_.
+
+
+]]>    </help>
+    <expand macro="citations"/>
+</tool>

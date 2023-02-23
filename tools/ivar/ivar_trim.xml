@@ -1,12 +1,10 @@
-<tool id="ivar_trim" name="ivar trim" version="@VERSION@+galaxy0">
+<tool id="ivar_trim" name="ivar trim" version="@TOOL_VERSION@+galaxy0" profile="@PROFILE@">
     <description>Trim reads in aligned BAM</description>
     <macros>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements">
-        <requirement type="package" version="3.8.1">python</requirement>
-    </expand>
-    <expand macro="version_command" />
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
         #if $primer.source == 'history'
             cp '$primer.input_bed' bed.bed &&
@@ -14,8 +12,13 @@
             cp '$primer.cached_bed.fields.path' bed.bed &&
         #end if
         python '$__tool_directory__/sanitize_bed.py' bed.bed &&
-        #if $amplicons.filter_by == 'yes'
-            python '$__tool_directory__/prepare_amplicon_info.py' bed.bed '$amplicons.amplicon_info' amplicon_info.tsv &&
+        #if $amplicons.filter_by == 'yes' or $amplicons.filter_by == 'yes_compute'
+            #if $amplicons.filter_by == 'yes_compute':
+                python '$__tool_directory__/write_amplicon_info_file.py' bed.bed amplicon_info_raw.tsv &&
+            #else
+                ln -s '$amplicons.amplicon_info' amplicon_info_raw.tsv &&
+            #end if
+            python '$__tool_directory__/prepare_amplicon_info.py' bed.bed amplicon_info_raw.tsv amplicon_info.tsv &&
         #end if
         ln -s '$input_bam' sorted.bam &&
         ln -s '${input_bam.metadata.bam_index}' sorted.bam.bai &&
@@ -23,7 +26,7 @@
         ivar trim
         -i sorted.bam
         -b bed.bed
-        #if $amplicons.filter_by == 'yes'
+        #if $amplicons.filter_by == 'yes' or $amplicons.filter_by == 'yes_compute'
             -f amplicon_info.tsv
         #end if
         -x $primer_pos_wiggle
@@ -56,10 +59,12 @@
         <conditional name="amplicons">
             <param name="filter_by" type="select"
             label="Filter reads based on amplicon info"
-            help="When you select Yes you will need to provide an additional amplicon info dataset. Reads that are not fully contained in any amplicon will be dropped before primer trimming. This option is currently marked as [Experimental] in ivar, but nevertheless recommended here.">
+            help="When you select Yes, reads that are not fully contained in any amplicon will be dropped before primer trimming. This option is currently marked as [Experimental] in ivar, but nevertheless recommended here. Info on amplicons can be computed from suitable primer BED files (see tool help below) or provided by the user. ">
                 <option value="">No, allow reads to extend beyond amplicon boundaries</option>
-                <option value="yes">Yes, drop reads that extend beyond amplicon boundaries</option>
+                <option value="yes_compute">Yes, drop reads that extend beyond amplicon boundaries</option>
+                <option value="yes">Yes, drop reads that extend beyond amplicon boundaries and use my amplicon info file</option>
             </param>
+            <when value="yes_compute" />
             <when value="yes">
                 <param name="amplicon_info" argument="-f" type="data" format="tabular" />
             </when>
@@ -70,8 +75,8 @@
         help="Reads that occur at the specified offset positions relative to primer positions (as annotated in the primer information dataset) will also be trimmed (default: 0)" />
         <param name="inc_primers" argument="-e" type="boolean" truevalue="-e" falsevalue="" checked="false" label="Include reads not ending in any primer binding sites?"/>
         <param name="min_len" argument="-m" type="integer" min="0" value="30" label="Minimum length of read to retain after trimming"/>
-        <param name="min_qual" argument="-q" type="integer" min="0" value="20" label="Minimum quality threshold for sliding window to pass"/>
-        <param name="window_width" argument="-s" type="integer" min="0" value="4" label="Width of sliding window"/>
+        <param name="min_qual" argument="-q" type="integer" min="0" max="255" value="20" label="Minimum quality threshold for sliding window to pass"/>
+        <param name="window_width" argument="-s" type="integer" min="0" max="255" value="4" label="Width of sliding window"/>
     </inputs>
     <outputs>
         <data name="output_bam" format="bam" label="${tool.name} on ${on_string} Trimmed bam" from_work_dir="trimmed.sorted.bam"/>
@@ -106,7 +111,18 @@
                 <param name="input_bed" value="zika/db/zika_primers.bed" />
             </conditional>
             <param name="input_bam" value="zika/Z52_b.sorted.bam" />
-            <output name="output_bam" file="zika/Z52_b.trimmed.sorted.bam" compare="sim_size" delta="100000"/>
+            <output name="output_bam" ftype="bam">
+                <assert_contents>
+                    <has_size value="4023965" delta="1000"/>
+                </assert_contents>
+            </output>
+            <assert_stdout>
+                <has_text text="Found 68 primers in BED file"/>
+                <has_text text="Using Region: PRV"/>
+                <has_text text="Found 40964 mapped reads"/>
+                <has_text text="reads were quality trimmed below the minimum length of 30 bp and were not written to file"/>
+                <has_text text="reads that started outside of primer regions were not written to file"/>
+            </assert_stdout>
         </test>
         <test>
             <conditional name="primer">
@@ -114,6 +130,20 @@
                 <param name="cached_bed" value="SARS-CoV-2-ARTICv1" />
             </conditional>
             <param name="input_bam" value="sars-cov-2/sars_cov2_untrimmed.bam" ftype="bam" />
+            <output name="output_bam" file="sars-cov-2/sars_cov2_trimmed.bam" compare="sim_size" delta="100000"/>
+        </test>
+        <test>
+            <conditional name="primer">
+                <param name="source" value="cached" />
+                <param name="cached_bed" value="SARS-CoV-2-ARTICv1" />
+            </conditional>
+            <conditional name="amplicons">
+                <param name="filter_by" value="yes_compute" />
+            </conditional>
+            <param name="input_bam" value="sars-cov-2/sars_cov2_untrimmed.bam" ftype="bam" />
+            <assert_command>
+                <has_text text="write_amplicon_info_file" />
+            </assert_command>
             <output name="output_bam" file="sars-cov-2/sars_cov2_trimmed.bam" compare="sim_size" delta="100000"/>
         </test>
     </tests>
@@ -132,10 +162,25 @@ soft-clipped.
 Optionally, the tool can also discard reads that do not fully map to within any
 amplicon. Such reads are likely to be wet-lab or mapping artefacts and removing
 them can increase variant calling precision. To calculate the extent of
-expected amplicons the tool requires an additional amplicon info dataset that
-lists the names of primers that together form any given amplicon. Primer names
-(exactly matching those in the primer info dataset) need to be TAB-separated
-with one line per amplicon.
+expected amplicons the tool needs to know which primers work together to form
+an amplicon. The tool can try to deduce this info from the names of the primers
+found in the primer info dataset. This will require a primer naming scheme
+following the regex pattern::
+
+  .*_(?P<amplicon_number>\d+).*_(?P<primer_orientation>L(?:EFT)?|R(?:IGHT)?)
+
+*i.e.*, the following schemes will work (and get parsed as):
+
+- ``nCoV-2019_1_LEFT`` (forward primer of amplicon 1)
+
+- ``400_2_out_R`` (reverse primer of amplicon 2)
+
+- ``QIAseq_163-2_LEFT`` (forward primer of amplicon 163)
+
+Alternatively, you can specify the amplicon information explicitly through a
+dataset that lists the names of primers that together form any given amplicon.
+In it, primer names (exactly matching those in the primer info dataset) need to
+be TAB-separated with one line per amplicon.
 If the primer scheme has more than two primers contributing to a given amplicon
 (in schemes using alternate primers), you can (in this Galaxy tool only)
 specify all of them on one line and the tool will calculate the maximum extent

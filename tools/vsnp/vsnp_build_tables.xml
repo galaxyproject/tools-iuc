@@ -1,44 +1,75 @@
-<tool id="vsnp_build_tables" name="vSNP: build tables" version="@WRAPPER_VERSION@.2" profile="@PROFILE@">
+<tool id="vsnp_build_tables" name="vSNP: build tables" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
     <description></description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <requirements>
-        <requirement type="package" version="1.76">biopython</requirement>
+        <expand macro="biopython_requirement"/>
         <requirement type="package" version="0.25.3">pandas</requirement>
-        <requirement type="package" version="1.2.8">xlsxwriter</requirement>
+        <expand macro="xlsxwriter_requirement"/>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
 #import re
-
-mkdir 'output_excel_dir' &&
-
-## The input_snps_json and input_avg_mq_json identifiers
-## are typically the same string, so we append a uniquq
-## extension to enable the links.
-#set input_snps_json_identifier = re.sub('[^\s\w\-]', '_', str($input_snps_json.element_identifier)) + '.snps'
-ln -s '${input_snps_json}' '${input_snps_json_identifier}' &&
-#set input_avg_mq_json_identifier = re.sub('[^\s\w\-]', '_', str($input_avg_mq_json.element_identifier)) + '.avg_mq'
-ln -s '${input_avg_mq_json}' '${input_avg_mq_json_identifier}' &&
-#set input_newick_identifier = re.sub('[^\s\w\-]', '_', str($input_newick.element_identifier))
-ln -s '${input_newick}' '${input_newick_identifier}' &&
-
+#set output_excel_dir = 'output_excel_dir'
+#set input_type = $input_type_cond.input_type
+mkdir $output_excel_dir &&
+#if $input_type == "collection":
+    #set input_newick_dir = 'input_newick_dir'
+    mkdir $input_newick_dir &&
+    #set input_json_avg_mq_dir = 'input_json_avg_mq_dir'
+    mkdir $input_json_avg_mq_dir &&
+    #set input_json_dir = 'input_json_dir'
+    mkdir $input_json_dir &&
+    #for $i in $input_type_cond.input_avg_mq_json_collection:
+        #set file_name = $i.file_name
+        #set identifier = re.sub('[^\s\w\-\\.]', '_', str($i.element_identifier))
+        ln -s '$file_name' '$input_json_avg_mq_dir/$identifier' &&
+    #end for
+    #for $i in $input_type_cond.input_snps_json_collection:
+        #set file_name = $i.file_name
+        #set identifier = re.sub('[^\s\w\-\\.]', '_', str($i.element_identifier))
+        ln -s '$file_name' '$input_json_dir/$identifier' &&
+    #end for
+    #for $i in $input_type_cond.input_newick_collection:
+        #set file_name = $i.file_name
+        #set identifier = re.sub('[^\s\w\-\\.]', '_', str($i.element_identifier))
+        ln -s '$file_name' '$input_newick_dir/$identifier' &&
+    #end for
+#end if
 python '$__tool_directory__/vsnp_build_tables.py'
---input_snps_json '${input_snps_json_identifier}'
---input_avg_mq_json '${input_avg_mq_json_identifier}'
---input_newick '${input_newick_identifier}'
-#if str($gbk_cond.gbk_param) == 'yes':
-    #if str($gbk_cond.gbk_source_cond.gbk_source) == 'cached':
-        --gbk_file '$gbk_cond.gbk_source_cond.gbk_file.fields.path'
+#if $input_type == "single":
+    --input_avg_mq_json '$input_avg_mq_json'
+    --input_snps_json '$input_snps_json'
+    --input_newick '$input_newick'
+#end if:
+#if str($gbk_cond.gbk_param) == "yes":
+    #set gbk_source_cond = $gbk_cond.gbk_source_cond
+    #set gbk_source = $gbk_source_cond.gbk_source
+    #if str($gbk_source) == "cached":
+        --gbk_file '$gbk_source_cond.gbk_file.fields.path'
     #else:
-        --gbk_file '$gbk_cond.gbk_source_cond.gbk_file'
+        --gbk_file '$gbk_source_cond.gbk_file'
     #end if
 #end if
+--processes \${GALAXY_SLOTS:-8}
 ]]></command>
     <inputs>
-        <param name="input_snps_json" type="data" format="json" label="SNPs json file"/>
-        <param name="input_avg_mq_json" type="data" format="json" label="Average MQ json file"/>
-        <param name="input_newick" type="data" format="newick" label="Best-scoring ML tree file"/>
+        <conditional name="input_type_cond">
+            <param name="input_type" type="select" label="Choose the category for the files to be analyzed">
+                <option value="single" selected="true">Single files</option>
+                <option value="collection">Collection of files</option>
+            </param>
+            <when value="single">
+                <param name="input_snps_json" type="data" format="json" label="SNPs json file"/>
+                <param name="input_avg_mq_json" type="data" format="json" label="Average MQ json file"/>
+                <param name="input_newick" type="data" format="newick" label="Best-scoring ML tree file"/>
+            </when>
+            <when value="collection">
+                <param name="input_snps_json_collection" format="json" type="data_collection" collection_type="list" label="Collection of SNPs json files"/>
+                <param name="input_avg_mq_json_collection" format="json" type="data_collection" collection_type="list" label="Collection of average MQ json files"/>
+                <param name="input_newick_collection" format="newick" type="data_collection" collection_type="list" label="Collection of best-scoring ML tree files"/>
+            </when>
+        </conditional>
         <conditional name="gbk_cond">
             <param name="gbk_param" type="select" label="Use Genbank file?">
                 <option value="yes" selected="true">yes</option>
@@ -53,15 +84,12 @@ python '$__tool_directory__/vsnp_build_tables.py'
                     <when value="cached">
                         <param name="gbk_file" type="select" label="Genbank file">
                             <options from_data_table="vsnp_genbank">
-                                <filter type="data_meta" column="0" key="dbkey" ref="input_avg_mq_json"/>
                                 <validator type="no_options" message="A cached Genbank file is not available for the build associated with the selected average MQ json file"/>
                             </options>
                         </param>
                     </when>
                     <when value="history">
-                        <param name="gbk_file" type="data" format="genbank" label="Genbank file">
-                            <validator type="no_options" message="The current history does not include a genbank dataset"/>
-                        </param>
+                        <param name="gbk_file" type="data" format="genbank" label="Genbank file"/>
                     </when>
                 </conditional>
             </when>
@@ -69,7 +97,7 @@ python '$__tool_directory__/vsnp_build_tables.py'
         </conditional>
     </inputs>
     <outputs>
-        <collection name="excel" type="list" label="${tool.name} on ${on_string}">
+        <collection name="excel" type="list" format="xlsx" label="${tool.name} on ${on_string}">
             <discover_datasets pattern="(?P&lt;designation&gt;.+)\.(?P&lt;ext&gt;xlsx)" directory="output_excel_dir"/>
         </collection>
     </outputs>
@@ -80,38 +108,73 @@ python '$__tool_directory__/vsnp_build_tables.py'
             <param name="input_avg_mq_json" value="input_avg_mq_json.json" ftype="json" dbkey="89"/>
             <param name="gbk_param" value="no"/>
             <output_collection name="excel" type="list" count="2">
-                <element name="input_newick_newick_cascade_table" file="cascade_table.xlsx" ftype="xlsx" compare="sim_size"/>
-                <element name="input_newick_newick_sort_table" file="sort_table.xlsx" ftype="xlsx" compare="sim_size"/>
+                <element name="cascade_table" ftype="xlsx">
+                    <assert_contents>
+                        <has_size value="6766" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="sort_table" ftype="xlsx">
+                    <assert_contents>
+                        <has_size value="6760" delta="100"/>
+                    </assert_contents>
+                </element>
             </output_collection>
         </test>
         <test>
-            <param name="input_snps_json" value="Mbovis-01_snps.json" ftype="json" dbkey="89"/>
-            <param name="input_newick" value="Mbovis-01_snps.newick" ftype="newick" dbkey="89"/>
-            <param name="input_avg_mq_json" value="Mbovis-01_avg_mq.json" ftype="json" dbkey="89"/>
+            <param name="input_type" value="collection"/>
+            <param name="input_snps_json_collection">
+                <collection type="list">
+                    <element name="Mbovis-01_snps.json" value="Mbovis-01_snps.json" dbkey="89"/>
+                    <element name="Mbovis-01D_snps.json" value="Mbovis-01D_snps.json" dbkey="89"/>
+                    <element name="Mbovis-01D6_snps.json" value="Mbovis-01D6_snps.json" dbkey="89"/>
+                </collection>
+            </param>
+            <param name="input_newick_collection">
+                <collection type="list">
+                    <element name="Mbovis-01_snps.newick" value="Mbovis-01_snps.newick" dbkey="89"/>
+                    <element name="Mbovis-01D_snps.newick" value="Mbovis-01D_snps.newick" dbkey="89"/>
+                    <element name="Mbovis-01D6_snps.newick" value="Mbovis-01D6_snps.newick" dbkey="89"/>
+                </collection>
+            </param>
+            <param name="input_avg_mq_json_collection">
+                <collection type="list">
+                    <element name="Mbovis-01_avg_mq.json" value="Mbovis-01_avg_mq.json" dbkey="89"/>
+                    <element name="Mbovis-01D_avg_mq.json" value="Mbovis-01D_avg_mq.json" dbkey="89"/>
+                    <element name="Mbovis-01D6_avg_mq.json" value="Mbovis-01D6_avg_mq.json" dbkey="89"/>
+                </collection>
+            </param>
             <param name="gbk_param" value="no"/>
-            <output_collection name="excel" type="list" count="2">
-                <element name="Mbovis-01_snps_newick_cascade_table" file="Mbovis-01_cascade_table.xlsx" ftype="xlsx" compare="sim_size"/>
-                <element name="Mbovis-01_snps_newick_sort_table" file="Mbovis-01_sort_table.xlsx" ftype="xlsx" compare="sim_size"/>
-            </output_collection>
-        </test>
-        <test>
-            <param name="input_snps_json" value="Mbovis-01D_snps.json" ftype="json" dbkey="89"/>
-            <param name="input_newick" value="Mbovis-01D_snps.newick" ftype="newick" dbkey="89"/>
-            <param name="input_avg_mq_json" value="Mbovis-01D_avg_mq.json" ftype="json" dbkey="89"/>
-            <param name="gbk_param" value="no"/>
-            <output_collection name="excel" type="list" count="2">
-                <element name="Mbovis-01D_snps_newick_cascade_table" file="Mbovis-01D_cascade_table.xlsx" ftype="xlsx" compare="sim_size"/>
-                <element name="Mbovis-01D_snps_newick_sort_table" file="Mbovis-01D_sort_table.xlsx" ftype="xlsx" compare="sim_size"/>
-            </output_collection>
-        </test>
-        <test>
-            <param name="input_snps_json" value="Mbovis-01D6_snps.json" ftype="json" dbkey="89"/>
-            <param name="input_newick" value="Mbovis-01D6_snps.newick" ftype="newick" dbkey="89"/>
-            <param name="input_avg_mq_json" value="Mbovis-01D6_avg_mq.json" ftype="json" dbkey="89"/>
-            <param name="gbk_param" value="no"/>
-            <output_collection name="excel" type="list" count="2">
-                <element name="Mbovis-01D6_snps_newick_cascade_table" file="Mbovis-01D6_cascade_table.xlsx" ftype="xlsx" compare="sim_size"/>
-                <element name="Mbovis-01D6_snps_newick_sort_table" file="Mbovis-01D6_sort_table.xlsx" ftype="xlsx" compare="sim_size"/>
+            <output_collection name="excel" type="list" count="6">
+                <element name="Mbovis-01D6_snps_cascade_table" ftype="xlsx">
+                    <assert_contents>
+                        <has_size value="6767" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="Mbovis-01D6_snps_sort_table" ftype="xlsx">
+                    <assert_contents>
+                        <has_size value="6761" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="Mbovis-01D_snps_cascade_table" ftype="xlsx">
+                    <assert_contents>
+                        <has_size value="6767" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="Mbovis-01D_snps_sort_table" ftype="xlsx">
+                    <assert_contents>
+                        <has_size value="6761" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="Mbovis-01_snps_cascade_table" ftype="xlsx">
+                    <assert_contents>
+                        <has_size value="6767" delta="100"/>
+                    </assert_contents>
+                </element>
+                <element name="Mbovis-01_snps_sort_table" ftype="xlsx">
+                    <assert_contents>
+                        <has_size value="6761" delta="100"/>
+                    </assert_contents>
+                </element>
             </output_collection>
         </test>
     </tests>
@@ -146,6 +209,7 @@ the `vSNP documentation`_.
 
 **Required Options**
 
+ * **Choose the category for the files to be analyzed** -  select "Single files" or "Collections of files", then select the appropriate history items (single SNPs json, average MQ json and newick files, or collections of each) based on the selected option.
  * **Use Genbank file** - Select "yes" to annotate the tables using the information in the Genbank file.  Locally cached files, if available, provide the most widely used annotations, but more custom Genbank files can be chosen from the current history.
     </help>
     <expand macro="citations"/>

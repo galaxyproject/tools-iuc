@@ -115,6 +115,6 @@ if (showcode == TRUE && heatmaps == TRUE) print("Marker Genes")
 #+ echo = `showcode`, warning = `warn`, include = `heatmaps`
 markers <- Seurat::FindAllMarkers(seuset, only.pos = TRUE, min.pct = min_pct, logfc.threshold = logfc_threshold)
 top10 <- dplyr::group_by(markers, cluster)
-top10 <- dplyr::top_n(top10, 10, avg_logFC)
+top10 <- dplyr::top_n(top10, 10, avg_log2FC)
 Seurat::DoHeatmap(seuset, features = top10$gene)
 # nolint end

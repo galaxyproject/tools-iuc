@@ -1,12 +1,12 @@
-<tool id="samtools_view" name="Samtools view" version="@TOOL_VERSION@+galaxy3">
+<tool id="samtools_view" name="Samtools view" version="@TOOL_VERSION@+galaxy0" profile="@PROFILE@">
     <description>- reformat, filter, or subsample SAM, BAM or CRAM</description>
     <macros>
         <import>macros.xml</import>
         <token name="@REF_DATA@">
             ## additional reference data
-            #if $reffa!=None:
-                -T '$reffa'
-                -t '$reffai'
+            #if $use_ref:
+                -T "\$reffa"
+                -t "\$reffai"
             #end if
         </token>
         <xml name="read_output_formatting">
@@ -37,7 +37,7 @@
         </xml>
     </macros>
     <expand macro="requirements">
-        <requirement type="package">gawk</requirement>
+        <requirement type="package" version="5.1.0">gawk</requirement>
     </expand>
     <expand macro="stdio"/>
     <expand macro="version_command"/>
@@ -121,20 +121,20 @@
                 #if str($mode.filter_config.cigarcons):
                     #set $std_filters = $std_filters + " -m %s" % str($mode.filter_config.cigarcons)
                 #end if
-                #if str($mode.filter_config.inclusive_filter) != 'None':
-                    #set $filter = str($mode.filter_config.inclusive_filter)
-                    @FLAGS@
-                    #set $std_filters = $std_filters + " -f %s" % str($flags)
+                #set $filter = $mode.filter_config.inclusive_filter
+                @FLAGS@
+                #set $std_filters = $std_filters + " -f %s" % str($flags)
+                #set $filter = $mode.filter_config.exclusive_filter
+                @FLAGS@
+                #set $std_filters = $std_filters + " -F %s" % str($flags)
+                #set $filter = $mode.filter_config.exclusive_filter_all
+                @FLAGS@
+                #set $std_filters = $std_filters + " -G %s" % str($flags)
+                #if $mode.filter_config.tag:
+                    #set $std_filters = $std_filters + " --tag '%s'" % $mode.filter_config.tag
                 #end if
-                #if str($mode.filter_config.exclusive_filter) != 'None':
-                    #set $filter = str($mode.filter_config.exclusive_filter)
-                    @FLAGS@
-                    #set $std_filters = $std_filters + " -F %s" % str($flags)
-                #end if
-                #if str($mode.filter_config.exclusive_filter_all) != 'None':
-                    #set $filter = str($mode.filter_config.exclusive_filter_all)
-                    @FLAGS@
-                    #set $std_filters = $std_filters + " -G %s" % str($flags)
+                #if $mode.filter_config.qname_file:
+                    #set std_filters = $std_filters + " --qname-file '%s'" % $mode.filter_config.qname_file
                 #end if
             #end if
 
@@ -154,11 +154,11 @@
                         ## not dealing with all of the reads in the indexed
                         ## file. We have to do an extra pass over the input to
                         ## count the reads to subsample.
-                        sample_fragment=`samtools view -c $std_filters infile $reg_filters | awk '{s=\$1} END {frac=s/${mode.subsample_config.subsampling_mode.target}; print(frac > 1 ? $seed+1/frac : ".0")}'` &&
+                        sample_fragment=`samtools view -c $std_filters infile $reg_filters | awk '{s=\$1} END {frac=s/${mode.subsample_config.subsampling_mode.target}; printf("%.8f\n", frac > 1 ? $seed+1/frac : ".0")}'` &&
                     #else:
                         ## We can get the count of reads to subsample using
                         ## an inexpensive call to idxstats.
-                        sample_fragment=`samtools idxstats infile | awk '{s+=\$4+\$3} END {frac=s/${mode.subsample_config.subsampling_mode.target}; print(frac > 1 ? $seed+1/frac : ".0")}'` &&
+                        sample_fragment=`samtools idxstats infile | awk '{s+=\$4+\$3} END {frac=s/${mode.subsample_config.subsampling_mode.target}; printf("%.8f\n", frac > 1 ? $seed+1/frac : ".0")}'` &&
                     #end if
                 #end if
             #end if
@@ -311,6 +311,9 @@
                     <param name="exclusive_filter_all" argument="-G" type="select" multiple="True" label="Exclude reads with all of the following flags set">
                         <expand macro="flag_options" />
                     </param>
+                    <param  argument="--tag" type="text" optional="true" label="Filter by tag" help="Only include reads with tag STR1 and associated value STR2. Write in the format STR1:STR2 (see help for more details)." />
+                    <!-- TODO implement -D -->
+                    <param argument="--qname-file" format="txt" optional="true" type="data" label="Filter by readnames" help="Only output alignments with readnames that are listed in this file." />
                 </section>
                 <section name="subsample_config" title="Configure subsampling" expanded="false">
                     <conditional name="subsampling_mode">
@@ -370,26 +373,7 @@
                 </conditional>
             </when>
         </conditional>
-        <conditional name="addref_cond">
-            <param name="addref_select" type="select" label="Reference data">
-                <help>Reference data as fasta(.gz). Required for SAM input without @SQ headers and useful/required for writing CRAM output (see help).</help>
-                <option value="no" selected="True">No, see help (-output-fmt-option no_ref)</option>
-                <option value="history">Use a genome/index from the history (-t/-T)</option>
-                <option value="cached">Use a built-in genome (-t/-T)</option>
-            </param>
-            <when value="no"/>
-            <when value="history">
-                <param name="ref" format="fasta,fasta.gz" optional="true" type="data" label="Reference file"/>
-            </when>
-            <when value="cached">
-                <param name="ref" type="select" label="Using reference genome">
-                    <options from_data_table="fasta_indexes">
-                        <filter column="dbkey" key="dbkey" ref="input" type="data_meta" />
-                        <validator message="No reference genome is available for the build associated with the selected input dataset" type="no_options" />
-                    </options>
-                </param>
-            </when>
-        </conditional>
+        <expand macro="optional_reference" argument="-t" help="Reference data as fasta(.gz). Required for SAM input without @SQ headers and useful/required for writing CRAM output (see help)."/>
     </inputs>
     <outputs>
         <!-- TODO do I need an action for dbkey? -->
@@ -414,50 +398,51 @@
         </data>
     </outputs>
     <tests>
-        <!-- sam to bam (copied from the sam_to_bam tool) -->
+<!-- 1) sam to bam (copied from the sam_to_bam tool) -->
         <test>
-            <param name="input" ftype="sam" value="sam_to_bam_in1.sam" />
-            <output name="outputsam" ftype="bam" file="sam_to_bam_out1.bam" />
+            <param name="input" ftype="sam" value="in_test_1.sam" />
+            <output name="outputsam" ftype="bam" file="test_1.bam" lines_diff="4" />
         </test>
+        <!-- 2) -->
         <test>
-            <param name="input" ftype="sam" dbkey="equCab2" value="sam_to_bam_in1.sam" />
+            <param name="input" ftype="sam" dbkey="equCab2" value="in_test_1.sam" />
             <conditional name="addref_cond">
                 <param name="addref_select" value="cached" />
                 <param name="ref" value="equCab2chrM" />
             </conditional>
-            <output name="outputsam" ftype="bam" file="sam_to_bam_out2.bam" />
+            <output name="outputsam" ftype="bam" file="test_2.bam" lines_diff="4" />
         </test>
+        <!-- 3) -->
         <test>
-            <param name="input" ftype="sam" value="sam_to_bam_noheader_in2.sam" />
+            <param name="input" ftype="sam" value="in_test_3.sam" />
             <conditional name="addref_cond">
                 <param name="addref_select" value="history" />
                 <param name="ref" ftype="fasta" dbkey="equCab2" value="chr_m.fasta" />
             </conditional>
-            <output name="outputsam" ftype="bam" file="sam_to_bam_out3.bam" />
+            <output name="outputsam" ftype="bam" file="test_3.bam" lines_diff="4" />
         </test>
-
-        <!-- bam to cram -->
+        <!-- 4) cram to bam -->
         <test>
-            <param name="input" value="test.cram" ftype="cram" />
+            <param name="input" value="in_test_4.cram" ftype="cram" />
             <conditional name="addref_cond">
                 <param name="addref_select" value="history" />
                 <param name="ref" value="test.fa" />
             </conditional>
-            <output name="outputsam" file="test.bam" ftype="bam" />
+            <output name="outputsam" file="test_4.bam" ftype="bam" lines_diff="4" />
         </test>
-
-        <!-- within bam operations expected to result in sorting or not -->
-        <test>
+        <!-- 5) within bam operations expected to result in sorting or not -->
+        <test >
             <!-- sorted bam should always result in unmodifed output -->
-            <param name="input" ftype="bam" value="1_sort.bam" />
+            <param name="input" ftype="bam" value="in_test_5.bam" />
             <assert_command>
                 <not_has_text text="samtools sort" />
             </assert_command>
-            <output name="outputsam" ftype="bam" file="1_sort.bam" />
+            <output name="outputsam" ftype="bam" file="test_5.bam" lines_diff="2"/>
         </test>
+        <!-- 6) -->
         <test>
             <!-- sorted bam should always result in unmodifed output -->
-            <param name="input" ftype="bam" value="1_sort.bam" />
+            <param name="input" ftype="bam" value="in_test_5.bam" />
             <conditional name="mode">
                 <conditional name="output_options">
                     <conditional name="output_format">
@@ -468,19 +453,21 @@
             <assert_command>
                 <not_has_text text="samtools sort" />
             </assert_command>
-            <output name="outputsam" ftype="bam" file="1_sort.bam" />
+            <output name="outputsam" ftype="bam" file="test_5.bam" lines_diff="2"/>
         </test>
+        <!-- 7) -->
         <test>
             <!-- qname_sorted.bam should get sorted during "conversion" to bam ... -->
-            <param name="input" ftype="qname_sorted.bam" value="1_sort_read_names.bam" />
+            <param name="input" ftype="qname_sorted.bam" value="in_test_7.bam" />
             <assert_command>
                 <has_text text="samtools sort" />
             </assert_command>
-            <output name="outputsam" ftype="bam" file="1_sort.bam" />
+            <output name="outputsam" ftype="bam" file="test_7.bam" lines_diff="4" />
         </test>
+        <!-- 8) -->
         <test>
             <!-- ... but should be emitted unmodifed when using input format -->
-            <param name="input" ftype="qname_sorted.bam" value="1_sort_read_names.bam" />
+            <param name="input" ftype="qname_sorted.bam" value="in_test_7.bam" />
             <conditional name="mode">
                 <conditional name="output_options">
                     <conditional name="output_format">
@@ -491,19 +478,21 @@
             <assert_command>
                 <not_has_text text="samtools sort" />
             </assert_command>
-            <output name="outputsam" ftype="qname_sorted.bam" file="1_sort_read_names.bam" />
+            <output name="outputsam" ftype="qname_sorted.bam" file="test_8.bam" lines_diff="2"/>
         </test>
+        <!-- 9) -->
         <test>
             <!-- unsorted.bam should get sorted during "conversion" to bam ... -->
-            <param name="input" ftype="unsorted.bam" value="1_sort_read_names.bam" />
+            <param name="input" ftype="unsorted.bam" value="in_test_7.bam" />
             <assert_command>
                 <has_text text="samtools sort" />
             </assert_command>
-            <output name="outputsam" ftype="bam" file="1_sort.bam" />
+            <output name="outputsam" ftype="bam" file="test_7.bam" lines_diff="4" />
         </test>
+        <!-- 10) -->
         <test>
             <!-- ... ... but should be emitted unmodifed when using input format -->
-            <param name="input" ftype="unsorted.bam" value="1_sort_read_names.bam" />
+            <param name="input" ftype="unsorted.bam" value="in_test_7.bam" />
             <conditional name="mode">
                 <conditional name="output_options">
                     <conditional name="output_format">
@@ -514,12 +503,11 @@
             <assert_command>
                 <not_has_text text="samtools sort" />
             </assert_command>
-            <output name="outputsam" ftype="unsorted.bam" file="1_sort_read_names.bam" />
+            <output name="outputsam" ftype="unsorted.bam" file="test_8.bam" lines_diff="2" />
         </test>
-
-        <!-- bam to sam + header options (adapted from bam_to_sam tool)-->
+        <!-- 11) bam to sam + header options (adapted from bam_to_sam tool)-->
         <test>
-            <param ftype="bam" name="input" value="bam_to_sam_in1.bam" />
+            <param ftype="bam" name="input" value="in_test_11.bam" />
             <conditional name="mode">
                 <conditional name="output_options">
                     <conditional name="output_format">
@@ -528,10 +516,11 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output file="bam_to_sam_out1.sam" ftype="sam" name="outputsam" />
+            <output file="test_11.sam" ftype="sam" name="outputsam" lines_diff="2" />
         </test>
+        <!-- 12) -->
         <test>
-            <param ftype="bam" name="input" value="bam_to_sam_in1.bam" />
+            <param ftype="bam" name="input" value="in_test_11.bam" />
             <conditional name="mode">
                 <param name="outtype" value="header" />
                 <conditional name="output_options">
@@ -540,10 +529,11 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output file="bam_to_sam_out2.sam" ftype="sam" name="outputsam" />
+            <output file="test_12.sam" ftype="sam" name="outputsam" lines_diff="2" />
         </test>
+        <!-- 13) -->
         <test>
-            <param ftype="bam" name="input" value="bam_to_sam_in1.bam" />
+            <param ftype="bam" name="input" value="in_test_11.bam" />
             <conditional name="mode">
                 <conditional name="output_options">
                     <conditional name="output_format">
@@ -552,24 +542,22 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output file="bam_to_sam_out3.sam" ftype="sam" name="outputsam" />
+            <output file="test_13.sam" ftype="sam" name="outputsam" lines_diff="2" />
         </test>
-
-        <!-- count alignments -->
+        <!-- 14) count alignments -->
         <test>
-            <param name="input" value="test.bam" ftype="bam" />
+            <param name="input" value="in_test_14.bam" ftype="bam" />
             <conditional name="mode">
                 <param name="outtype" value="all_reads" />
                 <conditional name="output_options">
                     <param name="reads_report_type" value="count" />
                 </conditional>
             </conditional>
-            <output name="outputcnt" file="test_counts.tab" ftype="tabular" />
+            <output name="outputcnt" file="test_14.tab" ftype="tabular" lines_diff="2" />
         </test>
-
-        <!-- region filters -->
+        <!-- 15) region filters -->
         <test>
-            <param name="input" value="test.sam" ftype="sam" />
+            <param name="input" value="in_test_15.sam" ftype="sam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="filter_config">
@@ -587,10 +575,11 @@
                 <param name="addref_select" value="history" />
                 <param name="ref" value="test.fa" />
             </conditional>
-            <output name="outputsam" file="test.cram" ftype="cram" compare="sim_size" delta="250" />
+            <output name="outputsam" file="test_15.cram" ftype="cram" compare="sim_size" delta="250" />
         </test>
+        <!-- 16) -->
         <test>
-            <param name="input" value="test.bam" ftype="bam" />
+            <param name="input" value="in_test_14.bam" ftype="bam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="filter_config">
@@ -608,10 +597,11 @@
                 <param name="addref_select" value="history" />
                 <param name="ref" value="test.fa" />
             </conditional>
-            <output name="outputsam" file="test.cram" ftype="cram" compare="sim_size" delta="250" />
+            <output name="outputsam" file="test_15.cram" ftype="cram" compare="sim_size" delta="250" />
         </test>
+        <!-- 17) -->
         <test>
-            <param name="input" value="test2.cram" dbkey="equCab2" ftype="cram" />
+            <param name="input" value="in_test_17.cram" dbkey="equCab2" ftype="cram" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="filter_config">
@@ -629,10 +619,11 @@
                 <param name="addref_select" value="cached" />
                 <param name="ref" value="equCab2chrM" />
             </conditional>
-            <output name="outputsam" file="sam_to_bam_out2.bam" ftype="bam" />
+            <output name="outputsam" file="test_17.bam" ftype="bam" lines_diff="4" />
         </test>
+        <!-- 18) -->
         <test>
-            <param name="input" value="test.bam" ftype="bam" />
+            <param name="input" value="in_test_14.bam" ftype="bam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="filter_config">
@@ -651,10 +642,11 @@
                 <param name="addref_select" value="history" />
                 <param name="ref" value="test.fa" />
             </conditional>
-            <output name="outputsam" file="test.cram" ftype="cram" compare="sim_size" delta="250" />
+            <output name="outputsam" file="test_15.cram" ftype="cram" compare="sim_size" delta="250" />
         </test>
+        <!-- 19) -->
         <test>
-            <param name="input" value="test.cram" ftype="cram" />
+            <param name="input" value="test_15.cram" ftype="cram" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="filter_config">
@@ -673,10 +665,11 @@
                 <param name="addref_select" value="history" />
                 <param name="ref" value="test.fa" />
             </conditional>
-            <output name="outputsam" file="test.bam" ftype="bam" />
+            <output name="outputsam" file="test_19.bam" ftype="bam" lines_diff="4"/>
         </test>
+        <!-- 20) -->
         <test>
-            <param name="input" value="test.cram" ftype="cram" />
+            <param name="input" value="test_15.cram" ftype="cram" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="filter_config">
@@ -695,12 +688,11 @@
                 <param name="addref_select" value="history" />
                 <param name="ref" value="test.fa" />
             </conditional>
-            <output name="outputsam" file="test.bam" ftype="bam" />
+            <output name="outputsam" file="test_20.bam" ftype="bam" lines_diff="4" />
         </test>
-
-        <!-- sampling options-->
+        <!-- 21) sampling options target < total reads -->
         <test>
-            <param name="input" value="test.sam" ftype="sam" />
+            <param name="input" value="in_test_15.sam" ftype="sam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="subsample_config">
@@ -715,10 +707,11 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="outputsam" file="test_ds.sam" ftype="sam" compare="diff" lines_diff="6" />
+            <output name="outputsam" file="test_21.sam" ftype="sam" compare="diff" lines_diff="10" />
         </test>
+        <!-- 22) target > total reads -->
         <test>
-            <param name="input" value="test.sam" ftype="sam" />
+            <param name="input" value="in_test_15.sam" ftype="sam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="subsample_config">
@@ -733,11 +726,12 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="outputsam" file="test.sam" ftype="sam" />
+            <output name="outputsam" file="test_22.sam" ftype="sam" lines_diff="2"/>
         </test>
+        <!-- 23) -->
         <test>
             <!-- subsampling SAM input without reads -->
-            <param name="input" value="no_reads.sam" ftype="sam" />
+            <param name="input" value="in_test_23.sam" ftype="sam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="subsample_config">
@@ -752,11 +746,12 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="outputsam" file="no_reads.sam" ftype="sam" />
+            <output name="outputsam" file="test_23.sam" ftype="sam" lines_diff="2"/>
         </test>
+        <!-- 24) -->
         <test>
             <!-- subsampling BAM input without reads -->
-            <param name="input" value="no_reads.bam" ftype="bam" />
+            <param name="input" value="in_test_24.bam" ftype="bam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="subsample_config">
@@ -771,10 +766,11 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="outputsam" file="no_reads.bam" ftype="bam" />
+            <output name="outputsam" file="test_24.bam" ftype="bam" lines_diff="2" />
         </test>
+        <!-- 25) -->
         <test>
-            <param name="input" value="test.sam" ftype="sam" />
+            <param name="input" value="in_test_15.sam" ftype="sam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="subsample_config">
@@ -790,10 +786,11 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="outputsam" file="test_ds.sam" ftype="sam" compare="diff" lines_diff="6" />
+            <output name="outputsam" file="test_25.sam" ftype="sam" compare="diff" lines_diff="2" />
         </test>
+        <!-- 26) -->
         <test>
-            <param name="input" value="test.bam" ftype="bam" />
+            <param name="input" value="in_test_14.bam" ftype="bam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="subsample_config">
@@ -809,10 +806,11 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="outputsam" file="test_ds.bam" ftype="bam" />
+            <output name="outputsam" file="test_26.bam" ftype="bam" lines_diff="2" />
         </test>
+        <!-- 27) -->
         <test>
-            <param name="input" value="test.bam" ftype="bam" />
+            <param name="input" value="in_test_14.bam" ftype="bam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="subsample_config">
@@ -828,10 +826,11 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="outputsam" file="test.bam" ftype="bam" />
+            <output name="outputsam" file="test_27.bam" ftype="bam" lines_diff="2"/>
         </test>
+        <!-- 28) -->
         <test>
-            <param name="input" value="test.bam" ftype="bam" />
+            <param name="input" value="in_test_14.bam" ftype="bam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="subsample_config">
@@ -847,10 +846,11 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="outputsam" file="test_ds.bam" ftype="bam" />
-        </test>        
+            <output name="outputsam" file="test_28.bam" ftype="bam" lines_diff="2" />
+        </test>
+        <!-- 29) -->
         <test>
-            <param name="input" value="test.bam" ftype="bam" />
+            <param name="input" value="in_test_14.bam" ftype="bam" />
             <conditional name="mode">
                 <param name="outtype" value="selected_reads" />
                 <section name="subsample_config">
@@ -867,20 +867,58 @@
                     </conditional>
                 </conditional>
             </conditional>
-            <output name="outputsam" file="test_ds.bam" ftype="bam" />
-        </test>        
+            <output name="outputsam" file="test_29.bam" ftype="bam" lines_diff="2"/>
+        </test>
+        <!-- 30) testing tag filtering -->
+        <test>
+            <param name="input" value="in_test_30.bam" ftype="bam" />
+            <conditional name="mode">
+                <param name="outtype" value="selected_reads" />
+                <section name="filter_config">
+                    <param name="tag" value="XS:-18" />
+                </section>
+                <conditional name="output_options">
+                    <conditional name="output_format">
+                        <param name="oformat" value="bam" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <assert_command>
+                <has_text text="--tag 'XS:-18'"/>
+            </assert_command>
+            <output name="outputsam" file="test_30.bam" ftype="bam" lines_diff="2" />
+        </test>
+        <!-- 31) testing readname filtering -->
+        <test>
+            <param name="input" value="in_test_30.bam" ftype="bam" />
+            <conditional name="mode">
+                <param name="outtype" value="selected_reads" />
+                <section name="filter_config">
+                    <param name="qname_file" value="readnames.txt" />
+                </section>
+                <conditional name="output_options">
+                    <conditional name="output_format">
+                        <param name="oformat" value="bam" />
+                    </conditional>
+                </conditional>
+            </conditional>
+            <assert_command>
+                <has_text text="--qname-file"/>
+            </assert_command>
+            <output name="outputsam" file="test_31.bam" ftype="bam" lines_diff="2" />
+        </test>
     </tests>
     <help>
 **What it does**
 
-Samtools view can: 
+Samtools view can:
 
 1. convert between alignment formats (SAM, BAM, CRAM)
 2. filter and subsample alignments according to user-specified criteria
 3. count the reads in the input dataset or those retained after filtering
    and subsampling
 4. obtain just the header of the input in any supported format
-  
+
 In addition, the tool has (limited) options to modify read records during conversion and/or filtering by:
 
 - stripping them of user-specified tags
@@ -894,9 +932,9 @@ reads found in the input dataset (which can be in SAM, BAM, or CRAM format).
 
 By changing the *Output format* it is possible to convert an input dataset to
 another format.
-Inputs of type SAM, BAM, and CRAM are accepted and can be converted to each of these formats (alternatively alignment counts can be computed) by selecting the appropriate "Output type". 
+Inputs of type SAM, BAM, and CRAM are accepted and can be converted to each of these formats (alternatively alignment counts can be computed) by selecting the appropriate "Output type".
 
-.. class:: infomark 
+.. class:: infomark
 
 The tool allows you to specify a reference sequence. This is required for SAM input with missing @SQ headers (which include sequence names, length, md5, etc) and useful (and sometimes necessary) for CRAM input and output. In the following the use of the reference sequence in the CRAM format is detailed.
 CRAM is (primarily) a reference-based compressed format, i.e. only sequence differences between aligned reads and the reference are stored. As a consequence, the reference that was used during read mapping is needed in order to interpret the alignment records (a checksum stored in the CRAM file is used to verify that only the correct reference sequence can be used). This allows for more space-efficient storage than with BAM format, but such a CRAM file is not usable without its reference.
@@ -950,7 +988,14 @@ Examples of region specifications:
 
 **Filtering by quality**
 
-This filters based on the MAPQ column of the SAM format which gives an estimate about the correct placement of the alignment. Note that aligners do not follow a consistent definition. 
+This filters based on the MAPQ column of the SAM format which gives an estimate about the correct placement of the alignment. Note that aligners do not follow a consistent definition.
+
+## Filtering by Tag **
+
+This filter allows to select reads based on tool or user specific tags, e.g., XS:i:-18 the alignment score tag of bowtie.
+Thus to filter for a specific value of the tag you need the format STR1:STR2, e.g., XS:-18 to filter reads with an aligment score of -18.
+You can also just write STR1 without the value STR2 hence the filter selects all reads with the tag STR1, e.g., XS.
+
     </help>
     <expand macro="citations"/>
 </tool>

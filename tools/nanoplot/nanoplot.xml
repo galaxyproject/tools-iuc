@@ -1,4 +1,4 @@
-<tool id="nanoplot" name="NanoPlot" version="@TOOL_VERSION@+galaxy0">
+<tool id="nanoplot" name="NanoPlot" version="@TOOL_VERSION@+galaxy0" profile="20.05">
     <description>Plotting suite for Oxford Nanopore sequencing data and alignments</description>
     <macros>
         <token name="@TOOL_VERSION@">1.41.0</token>
@@ -6,33 +6,56 @@
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">nanoplot</requirement>
     </requirements>
+    <stdio>
+        <regex match="kaleido problem" source="stderr" level="fatal" description="No static plots are saved due to some kaleido problem" />
+    </stdio>
     <version_command>NanoPlot --version</version_command>
     <command detect_errors="exit_code"><![CDATA[
-#set $myfiles = $mode.reads.files
+## set TMPDIR if not already set by admin
+## otherwise kalleido fails with `Less than 64MB of free space in temporary directory for shared memory files: 0`
+## export TMPDIR=\${TMPDIR:-\$_GALAXY_JOB_TMP_DIR};
 
+#set $myfiles = $mode.reads.files
 #set reads_temp = []
 #if $mode.choice == 'combined':
     #for $i, $f in enumerate($myfiles)
-        #if $f.ext == "fastqsanger":
+        #if $f.ext.startswith("fastq"):
             #set $extension = 'fastq'
         #else
             #set $extension = $f.ext
         #end if
+        #if $f.ext.endswith(".gz"):
+            #set $f = $extension + ".gz"
+        #else if $f.ext.endswith(".bz"):
+            #set $extension = $extension + "bz2"
+        #end if
         ln -s '$f' './read_${i}.$extension' &&
+        #if "bam" in $extension
+            ln -s '$f.metadata.bam_index' './read_${i}.${extension}.bai' &&
+        #end if
         $reads_temp.append("read_" + str($i) + "." + str($extension))
     #end for
 #else
-    #if $myfiles.ext == "fastqsanger":
+    #if $myfiles.ext.startswith("fastq"):
         #set $extension = 'fastq'
     #else
         #set $extension = $myfiles.ext
     #end if
-    ln -s '$mode.reads.files' './read.$extension' &&
+    #if $myfiles.ext.endswith(".gz"):
+        #set $extension = $extension + ".gz"
+    #else if $myfiles.ext.endswith(".bz"):
+        #set $extension = $extension + "bz2"
+    #end if
+    ln -s '$myfiles' './read.$extension' &&
+    #if "bam" in $extension
+        ln -s '$myfiles.metadata.bam_index' './read.${extension}.bai' &&
+    #end if
     $reads_temp.append("read." + str($extension))
 #end if
 
 NanoPlot
     --threads \${GALAXY_SLOTS:-4}
+    --tsv_stats
     --$mode.reads.type ${' '.join($reads_temp)}
     #if $filter.maxlength
         --maxlength $filter.maxlength
@@ -46,14 +69,14 @@ NanoPlot
     #if $filter.minqual
         --minqual $filter.minqual
     #end if
+    #if $filter.runtime_until
+        -- $filter.runtime_until
+    #end if
     #if $filter.readtype
         --readtype $filter.readtype
     #end if
     #if $customization.color
         --color $customization.color
-    #end if
-    #if $customization.format
-        --format $customization.format
     #end if
     #if $customization.plots
         --plots ${str($customization.plots).replace(',', ' ')}
@@ -63,8 +86,10 @@ NanoPlot
     $filter.percentqual
     $filter.alength
     $filter.barcoded
+    $filter.no_supplementary
     $customization.N50
     -o '.'
+    && >&2 cat *log
     ]]></command>
     <inputs>
         <conditional name="mode">
@@ -190,6 +215,11 @@ NanoPlot
                 optional="true"
                 label="Drop reads with an average quality lower than specified."/>
             <param
+                type="integer"
+                argument="--runtime_until"
+                optional="true"
+                label="Only take the N first hours of a run"/>
+            <param
                 type="select"
                 argument="--readtype"
                 optional="true"
@@ -204,6 +234,12 @@ NanoPlot
                 truevalue="--barcoded"
                 falsevalue=""
                 label="Use if you want to split the summary file by barcode."/>
+            <param
+                type="boolean"
+                argument="--no_supplementary"
+                truevalue="--no_supplementary"
+                falsevalue=""
+                label="Use if you want to remove supplementary alignments"/>
         </section>
         <section
             name="customization"
@@ -365,23 +401,13 @@ NanoPlot
             </param>
             <param
                 type="select"
-                argument="--format"
-                optional="true"
-                label="Specify the output format of the plots.">
-                <option selected="True" value="png">png</option>
-                <option value="svg">svg</option>
-            </param>
-            <param
-                type="select"
                 argument="--plots"
                 optional="true"
                 multiple="true"
                 display="checkboxes"
                 label="Specify the bivariate format of the plots.">
-                <option value="kde">kde</option>
-                <option value="hex">hex</option>
-                <option value="dot">dot</option>
-                <option value="pauvre">pauvre</option>
+                <option value="kde">kernel density estimation (kde)</option>
+                <option value="dot">dots (dot)</option>
             </param>
             <param
                 type="boolean"
@@ -393,18 +419,10 @@ NanoPlot
     </inputs>
     <outputs>
         <data name="output_html" format="html" from_work_dir="NanoPlot-report.html"  label="${tool.name} on ${on_string}: HTML report"/>
-        <data name="nanostats" format="txt" from_work_dir="NanoStats.txt" label="${tool.name} on ${on_string}: NanoStats"/>
-        <data name="nanostats_post_filtering" format="txt" from_work_dir="NanoStats_post_filtering.txt" label="${tool.name} on ${on_string}: NanoStats post filtering"/>
-        <data name="read_length" format="png" from_work_dir="HistogramReadlength.*" label="${tool.name} on ${on_string}: Histogram Read Length ">
-            <change_format>
-                <when input="customization.format" value="svg" format="svg"/>
-            </change_format>
-        </data>
-        <data name="log_read_length" format="png" from_work_dir="LogTransformed_HistogramReadlength.*" label="${tool.name} on ${on_string}: Log Transformed Histogram Read Length ">
-            <change_format>
-                <when input="customization.format" value="svg" format="svg"/>
-            </change_format>
-        </data>
+        <data name="nanostats" format="tabular" from_work_dir="NanoStats.txt" label="${tool.name} on ${on_string}: NanoStats"/>
+        <data name="nanostats_post_filtering" format="tabular" from_work_dir="NanoStats_post_filtering.txt" label="${tool.name} on ${on_string}: NanoStats post filtering" />
+        <data name="read_length" format="png" from_work_dir="Non_weightedHistogramReadlength.png" label="${tool.name} on ${on_string}: Histogram Read Length"/>
+        <data name="log_read_length" format="png" from_work_dir="Non_weightedLogTransformed_HistogramReadlength.png" label="${tool.name} on ${on_string}: Log Transformed Histogram Read Length"/>
     </outputs>
     <tests>
         <test>
@@ -412,18 +430,30 @@ NanoPlot
                 <param name="choice" value="batch"/>
                 <conditional name="reads">
                     <param name="type" value="fastq_rich"/>
-                    <param name="files" value="reads.fastq.gz" ftype="fastq.gz"/>
+                    <param name="files" value="reads.fastq.gz" ftype="fastqsanger.gz"/>
                 </conditional>
             </conditional>
             <section name="filter">
                 <param name="downsample" value="800"/>
             </section>
             <section name="customization">
-                <param name="plots" value="hex,kde"/>
+                <param name="plots" value="kde"/>
             </section>
-            <output name="output_html" file="NanoPlot-report.html" ftype="html" lines_diff="8" />
-            <output name="nanostats_post_filtering" file="NanoStats_post_filtering.txt" ftype="txt"/>
-            <output name="read_length" file="HistogramReadlength.png" ftype="png" compare="sim_size" delta="3000"/>
+            <output name="output_html" ftype="html">
+                <assert_contents>
+                    <has_text text="html"/>
+                    <has_text text="mean_qual"/>
+                </assert_contents>
+            </output>
+            <output name="nanostats" file="NanoStats.txt" ftype="tabular"/>
+            <output name="nanostats_post_filtering" file="NanoStats_post_filtering.txt" ftype="tabular"/>
+            <output name="read_length" ftype="png" file="HistogramReadlength.png" compare="sim_size">
+            </output>
+            <output name="log_read_length" ftype="png">
+                <assert_contents>
+                    <has_text text="PNG"/>
+                </assert_contents>
+            </output>
         </test>
         <test>
             <conditional name="mode">
@@ -439,15 +469,18 @@ NanoPlot
             </section>
             <section name="customization">
                 <param name="color" value="yellow"/>
-                <param name="format" value="svg"/>
             </section>
-            <output name="output_html" file="bam-report.html" ftype="html" lines_diff="16">
+            <output name="output_html" ftype="html">
                 <assert_contents>
                     <has_text text="html"/>
                     <has_text text="Aligned read length vs Percent identity plot using dots"/> <!-- bam report specific -->
                 </assert_contents>
             </output>
-            <output name="read_length" file="bam-LogTransformed_HistogramReadlength.svg" ftype="svg" compare="sim_size"/>
+            <output name="read_length" ftype="png">
+                <assert_contents>
+                    <has_text text="PNG"/>
+                </assert_contents>
+            </output>
         </test>
         <test><!-- test with multiple input files -->
              <conditional name="mode">
@@ -460,8 +493,8 @@ NanoPlot
             <output name="output_html" ftype="html">
                 <assert_contents>
                     <has_text text="html"/>
-                    <not_has_text text="Aligned read length vs Percent identity plot using dots"/> <!-- bam report specific -->
-                    <has_text text="&lt;td&gt;9.0&lt;/td&gt;"/> <!--check both files were used 4+5 reads -->
+                    <not_has_text text="Aligned read length vs Percent identity plot using dots"/>
+                    <has_text text="&lt;td&gt;9&lt;/td&gt;"/> <!--check both files were used 4+5 reads -->
                 </assert_contents>
             </output>
         </test>

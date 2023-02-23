@@ -598,7 +598,7 @@ permissions.
         <param label="History File (XML)" name="history_xml" type="data" format="xml" help="An XML file containing the WebEnv ID and Query Key referencing the search on the NCBI history server"/>
       </when>
       <when value="id_file">
-        <param label="ID File (Text)" name="id_file" type="data" format="text,tabular" help="A Text file containing one ID per line"/>
+        <param label="ID File (Text)" name="id_file" type="data" format="txt,tabular" help="A Text file containing one ID per line"/>
       </when>
       <when value="id_xml">
         <param label="ID File (XML)" name="id_xml" type="data" format="xml" help="ESearch or ELink Result XML file"/>

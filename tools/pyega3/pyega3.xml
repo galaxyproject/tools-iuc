@@ -1,11 +1,15 @@
-<tool id="pyega3" name="EGA Download Client" version="@VERSION@+galaxy0" profile="19.09" >
+<tool id="pyega3" name="EGA Download Client" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.01" >
     <macros>
-        <token name="@VERSION@">3.4.0</token>
+        <token name="@TOOL_VERSION@">4.0.5</token>
+        <token name="@VERSION_SUFFIX@">2</token>
     </macros>
     <requirements>
-        <requirement type="package" version="@VERSION@">pyega3</requirement>
+        <requirement type="package" version="@TOOL_VERSION@">pyega3</requirement>
     </requirements>
-        <command detect_errors="exit_code"><![CDATA[
+    <version_command><![CDATA[
+        pyega3 -v |& grep version | cut -d" " -f 10
+    ]]></version_command>
+    <command detect_errors="exit_code"><![CDATA[
 #set $username = $__user__.extra_preferences.get('ega_account|username', "")
 #if $username == "":
     #set $username = "ega-test-data@ebi.ac.uk (default user)"
@@ -18,19 +22,59 @@
 #elif $action.action_type == "list_dataset_files"
     pyega3 -cf '$credentials'
       files '$action.dataset_id'
+    &&
+
+    ## create file header
+    echo -e 'File ID\tStatus\tBytes\tCheck sum\tFile name' > '$dataset_file_list' &&
+
+    ## remove timestamps and convert spaces to tabs
+    grep EGAF pyega3_output.log | sed -e 's/^\[.*\]\s\+//g' | sed 's/\s\+/\t/g' >> '$dataset_file_list'
+
 #elif $action.action_type == "download_file"
-    pyega3 -cf '$credentials'
+    pyega3 -c \${PYEGA_CONNECTIONS:-30} -cf '$credentials'
       fetch '$action.file_id'
+      --max-retries 10
       #if $action.range.reference_name
         --reference-name '$action.range.reference_name'
-        #if $action.range.start
+        #if str($action.range.start)
           --start $action.range.start
         #end if
         #if $action.range.end
           --end $action.range.end
         #end if
       #end if
-      --saveto '$downloaded_file'
+    && mv ${action.file_id} downloads
+    && rm -f downloads/*.md5  ## checksum validation already performed by pyEGA, cleanup downloads folder
+
+#elif $action.action_type == "download_files"
+    #import re
+    #set file_ids=[x.split('\t')[int(str($action.id_column))-1] for x in open(str($id_table)).readlines()]
+    mkdir downloads
+    #for f in $file_ids
+      #if not f.startswith("EGAF")
+        && >&2 echo "Ignoring \"$f\": no EGA file ID"
+        #continue
+      #end if
+      && 
+      echo 'Downloading $f'
+      &&
+      pyega3 -c \${PYEGA_CONNECTIONS:-30} -cf '$credentials'
+        fetch '$f'
+          --max-retries 10
+          #if $action.range.reference_name
+          --reference-name '$action.range.reference_name'
+          #if str($action.range.start)
+            --start $action.range.start
+          #end if
+          #if $action.range.end
+            --end $action.range.end
+          #end if
+        #end if
+        --output-dir downloads
+    #end for
+    && for vcf in \$(ls downloads/**/*vcf.gz); do mv "\${vcf}" "\${vcf:0:-6}vcf_bgzip"; done  ## renaming vcf.gz files to vcf_bgzip to recognize format
+    && rm -f downloads/**/*.md5  ## checksum validation already performed by pyEGA, clean up downloads folder
+
 #end if
     ]]></command>
     <configfiles>
@@ -53,6 +97,7 @@
                 <option value="list_datasets"> List my authorized datasets </option>
                 <option value="list_dataset_files"> List files in a datasets </option>
                 <option value="download_file"> Download a file </option>
+                <option value="download_files"> Download multiple files (based on a file with IDs) </option>
             </param>
             <when value="list_dataset_files">
                 <param name="dataset_id" type="text" optional="false" label="EGA Dataset Accession ID" help="Identifier starting with 'EGAD'. For example: EGAD00001003338">
@@ -62,60 +107,128 @@
             <when value="list_datasets"/>
             <when value="download_file">
                 <param name="file_id" type="text" optional="false" label="EGA File Accession Identifier" help="Identifier starting with 'EGAF'. For example: EGAF00001753735">
-                     <validator type="regex" message="EGA Accession ID must be a string of numbers prefixed by 'EGAD' (datasets) or 'EGAF' (files)">EGAF[0-9]+</validator>
+                     <validator type="regex" message="EGA Accession ID must be a string of numbers prefixed by 'EGAD' (datasets) or 'EGAF' (files)">EGA[DF][0-9]+</validator>
                 </param>
                 <section name="range" title="Request a specific Genomic range?" expanded="false">
-                <param argument="--reference-name" type="text" optional="true" label="Reference Sequence Name" help="For example 'chr1', '1', or 'chrX'. If unspecified, all data is returned." />
-                <param argument="--start" type="integer" optional="true" min="0" label="Start Position" help="0-based, inclusive. Only used if a reference sequence name was specified"/>
-                <param argument="--end" type="integer" optional="true" min="0" label="End Position" help="0-based, exclusive. Only used if a reference sequence name was specified"/>
+                    <param argument="--reference-name" type="text" optional="true" label="Reference Sequence Name" help="For example 'chr1', '1', or 'chrX'. If unspecified, all data is returned." />
+                    <param argument="--start" type="integer" optional="true" min="0" label="Start Position" help="0-based, inclusive. Only used if a reference sequence name was specified"/>
+                    <param argument="--end" type="integer" optional="true" min="0" label="End Position" help="0-based, exclusive. Only used if a reference sequence name was specified"/>
+                </section>
+            </when>
+            <when value="download_files">
+                <param name="id_table" type="data" format="tabular" label="Table with IDs to download" help="A tabular file where one column contains the set of file IDs. This will output a collection. Please select files that are all the same format (e.g. all BAM or all VCF)."/>
+                <param name="id_column" type="data_column" data_ref="id_table" label="Column containing the file IDs" help="File Identifiers starting with 'EGAF'. For example: EGAF00001753735" />
+                <section name="range" title="Request a specific Genomic range? (will be applied to ALL requested files)" expanded="false">
+                    <param argument="--reference-name" type="text" optional="true" label="Reference Sequence Name" help="For example 'chr1', '1', or 'chrX'. If unspecified, all data is returned." />
+                    <param argument="--start" type="integer" optional="true" min="0" label="Start Position" help="0-based, inclusive. Only used if a reference sequence name was specified"/>
+                    <param argument="--end" type="integer" optional="true" min="0" label="End Position" help="0-based, exclusive. Only used if a reference sequence name was specified"/>
                 </section>
             </when>
         </conditional>
+        <param name="output_log" type="boolean" checked="false" label="Output the log file?"/>
     </inputs>
     <outputs>
         <data name="authorized_datasets" format="txt" from_work_dir="pyega3_output.log" label="${tool.name}: authorized datasets">
             <filter> action['action_type'] == 'list_datasets' </filter>
         </data>
-        <data name="dataset_file_list" format="txt" from_work_dir="pyega3_output.log" label="${tool.name}: dataset file list">
+        <data name="dataset_file_list" format="tabular" label="${tool.name}: ${action.dataset_id} - file list">
             <filter> action['action_type'] == 'list_dataset_files' </filter>
         </data>
-        <data name="downloaded_file" auto_format="true" label="${tool.name}: ${action.file_id} ${action.range.reference_name} ${action.range.start} ${action.range.end}">
+        <data name="downloaded_file" auto_format="true" from_work_dir="downloads/*" label="${tool.name}: ${action.file_id} ${action.range.reference_name} ${action.range.start} ${action.range.end}">
             <filter> action['action_type'] == 'download_file' </filter>
         </data>
+        <data name="logfile" format="txt" from_work_dir="pyega3_output.log" label="${tool.name}: log">
+            <filter> output_log </filter>
+        </data>
+        <collection name="downloaded_file_collection" type="list" label="${tool.name} on ${on_string}: Downloaded datasets">
+            <filter> action['action_type'] == 'download_files' </filter>
+            <discover_datasets pattern="__name_and_ext__" recurse="true" directory="downloads" />
+        </collection>
     </outputs>
     <tests>
-        <test expect_num_outputs="1"><!-- list datasets with default credentials -->
+        <!-- list datasets with default credentials -->
+        <test expect_num_outputs="1">
             <param name="action_type" value="list_datasets"/>
             <output name="authorized_datasets" ftype="txt">
                 <assert_contents>
-                    <has_text text="pyEGA3 - EGA python client version @VERSION@"/>
+                    <has_text text="pyEGA3 - EGA python client version @TOOL_VERSION@"/>
                     <has_text text="EGAD00001003338"/>
                 </assert_contents>
             </output>
         </test>
-        <test expect_num_outputs="1"><!-- list dataset files with default credentials -->
+        <!-- list dataset files with default credentials, and request a log output file -->
+        <test expect_num_outputs="2">
             <param name="action_type" value="list_dataset_files"/>
             <param name="dataset_id" value="EGAD00001003338"/>
-            <output name="dataset_file_list" ftype="txt">
+            <param name="output_log" value="true"/>
+            <output name="dataset_file_list" file="filelist_EGAD00001003338.tabular"/>
+            <output name="logfile" ftype="txt">
                 <assert_contents>
-                    <has_text text="pyEGA3 - EGA python client version @VERSION@"/>
+                    <has_text text="pyEGA3 - EGA python client version @TOOL_VERSION@"/>
                     <has_line_matching expression="^\[.*\]\s+File ID\s+Status\s+Bytes\s+Check sum\s+File name$"/>
                     <has_text text="EGAF00001753734"/>
                 </assert_contents>
             </output>
         </test>
-        <test expect_num_outputs="1"> <!-- download a single file -->
+        <!-- download a single file -->
+        <test expect_num_outputs="1"> 
             <param name="action_type" value="download_file"/>
             <param name="file_id" value="EGAF00001775036"/>
             <output name="downloaded_file" md5="3b89b96387db5199fef6ba613f70e27c"/>
         </test>
-         <test expect_num_outputs="1"> <!-- download a single file, with genomic range specified -->
+        <!-- download a single vcf.gz -->
+        <test expect_num_outputs="1"> 
+            <param name="action_type" value="download_file"/>
+            <param name="file_id" value="EGAF00007243775"/>
+            <output name="downloaded_file" md5="51cfb69bf3b9416ff425381a58c18a2b" ftype="vcf_bgzip" />
+        </test>
+        <!-- download a single bam, with genomic range specified -->
+        <test expect_num_outputs="1">
             <param name="action_type" value="download_file"/>
             <param name="file_id" value="EGAF00001753756"/>
             <param name="reference_name" value="1"/>
-            <param name="start" value="100"/>
+            <param name="start" value="0"/>
             <param name="end" value="10000"/>
             <output name="downloaded_file" ftype="bam" md5="e576a38748feec45aa45191f6e902ce2"/>
+        </test>
+        <!-- download multiple files -->
+        <test expect_num_outputs="1">
+            <param name="action_type" value="download_files"/>
+            <param name="id_table" value="filelist.tabular"/>
+            <param name="id_column" value="1"/>
+            <output_collection name="downloaded_file_collection" type="list" count="2">
+                <element name="ENCFF000VWO.bam" md5="b8ae14d5d1f717ab17d45e8fc36946a0" />
+                <element name="ENCFF284YOU.bam" md5="3b89b96387db5199fef6ba613f70e27c" />
+            </output_collection>
+            <assert_stderr>
+                <has_text text="Ignoring &quot;File ID&quot;: no EGA file ID"/>
+            </assert_stderr>
+        </test>
+        <!-- download multiple files, in combination with a genomic range -->
+        <test expect_num_outputs="1">
+            <param name="action_type" value="download_files"/>
+            <param name="id_table" value="filelist2.tabular"/>
+            <param name="id_column" value="1"/>
+            <param name="reference_name" value="1"/>
+            <param name="start" value="0"/>
+            <param name="end" value="10000"/>
+            <output_collection name="downloaded_file_collection" count="2">
+                <element name="NA19239_genomic_range_1_0_10000" md5="bcdcf18846233cbe5cc8afd95168552c" />
+                <element name="NA19240_genomic_range_1_0_10000" md5="e576a38748feec45aa45191f6e902ce2" />
+            </output_collection>
+            <assert_stderr>
+                <has_text text="Ignoring &quot;File ID&quot;: no EGA file ID"/>
+            </assert_stderr>
+        </test>
+        <!-- download multiple vcf.gz files -->
+        <test expect_num_outputs="1">
+            <param name="action_type" value="download_files"/>
+            <param name="id_table" value="filelist3.tabular"/>
+            <param name="id_column" value="1"/>
+            <output_collection name="downloaded_file_collection" type="list" count="2">
+                <element name="HG00408.novoBreak__256r__4.100100-10100100__7.200100-9000100" md5="51cfb69bf3b9416ff425381a58c18a2b" ftype="vcf_bgzip" />
+                <element name="HG01890.HGSVC__145r__1.900100-10001000__18.2001000-90001000" md5="ebad4425191a89d3e970c02190a87175" ftype="vcf_bgzip" />
+            </output_collection>
         </test>
     </tests>
     <help><![CDATA[

@@ -13,6 +13,7 @@
 # --output_tabular outputfile_name_tabular --output_pdf outputfile_name_pdf
 
 import argparse
+import os.path
 import sys
 from collections import Counter
 
@@ -164,7 +165,10 @@ def compare_read_families_read_loss(argv):
 
         # data of tags aligned to reference genome
         if ref_genome is not None:
-            pysam.index(ref_genome)
+            ref_genome_index = f"{ref_genome}.bai"
+            if not os.path.exists(ref_genome_index):
+                print(f"Info: Generating BAM index in {ref_genome_index}")
+                pysam.index(ref_genome)
             bam = pysam.AlignmentFile(ref_genome, "rb")
             seq_mut = []
             for read in bam.fetch():

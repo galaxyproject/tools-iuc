@@ -17,6 +17,7 @@
 
 import argparse
 import collections
+import os.path
 import re
 import sys
 
@@ -61,7 +62,10 @@ def compare_read_families_refGenome(argv):
 
     with open(title_file2, "w") as output_file, PdfPages(title_file) as pdf:
         data_array = readFileReferenceFree(firstFile, "\t")
-        pysam.index(bamFile)
+        bamIndex = f"{bamFile}.bai"
+        if not os.path.exists(bamIndex):
+            print(f"Info: Generating BAM index in {bamIndex}")
+            pysam.index(bamFile)
 
         bam = pysam.AlignmentFile(bamFile, "rb")
         qname_dict = collections.OrderedDict()
