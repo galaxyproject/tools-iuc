@@ -34,7 +34,48 @@ ln -s '${read1}' '${read1_file}' &&
     ln -s '${read2}' '${read2_file}' &&
 #end if
 
-bbnorm.sh t="\${GALAXY_SLOTS:-2}"
+## Detect the memory required by estating the cardinality of the kmers via loglog alg.
+## As the program relies on a count-min-sketch algorithm, the potential hash collisions
+## are ignored and translates to a decreased accuracy of the results. Therefore the allocated
+## memory amount effects the numerical output: the more RAM the more accurate results.
+#if str($input_type_cond.input_type) in ['single_end','PE_1file']:
+    loglog.sh in='${read1_file}' 2> loglog.stderr &&
+#else:
+    loglog.sh in1='${read1_file}' in2='${read2_file}' 2> loglog.stderr &&
+#end if
+cardinality=\$(cat loglog.stderr | grep Cardinality | awk '{print \$2}') &&
+
+## Example memory calculation:
+## 3hashes * 16bits/kmer * 1000000000kmers * 100/50 pct_load / 8000000bits/MB = 12 GB to achieve a table under 50% full + 256 MB buffer
+required_RAM_MB=\$(( $hashing_params.hashes * $hashing_params.bits * \$cardinality * 100 / $hashing_params.memory_filled_pct / 8000000 + 256)) &&
+echo Estimated kmer cardinality of the input: \$cardinality &&
+echo Estimated RAM requirement: \${required_RAM_MB}MB &&
+
+## Check if an external constraint limits the memory, and if so, whether we are below that limit.
+## If not, throw an out of memory error.
+if [ \$required_RAM_MB -gt "\${GALAXY_MEMORY_MB:-9192}" ]; then
+    >&2 echo Your Galaxy configuration limits RAM usage to "\${GALAXY_MEMORY_MB:-9192}"MB, whereas you need at least \${required_RAM_MB}MB to accurately perform this task. Increase \"Hashing parameters\" ">" \"Percent memory filled\" or contact your Galaxy administrator.;
+    exit 42;
+fi &&
+if [ -n "\${_JAVA_OPT}" ]; then
+    source calcmem.sh;
+    parseXmx "\${_JAVA_OPT}";
+	if [[ \$set == 1 ]]; then
+	    if [[ \${z:0-1} == 'm' ]]; then
+	        JAVA_OPT_MEMORY_MB=\${z:4:-1};
+	    elif [[ \${z:0-1} == 'g' ]]; then
+	        JAVA_OPT_MEMORY_MB=\$((\${z:4:-1}*1024));
+	    fi;
+        if [ \$required_RAM_MB -gt "\$JAVA_OPT_MEMORY_MB" ]; then
+            >&2 echo Your Java configuration limits RAM usage to "\$JAVA_OPT_MEMORY_MB"MB, whereas you need at least \${required_RAM_MB}MB to accurately perform this task. Increase \"Hashing parameters\" ">" \"Percent memory filled\" or contact your Galaxy administrator.;
+            exit 42;
+        fi;
+    fi;
+fi &&
+
+
+bbnorm.sh tmpdir="\$TMPDIR" t="\${GALAXY_SLOTS:-2}" -Xmx\${required_RAM_MB}m
+
 #### Input parameters
 #if str($input_type_cond.input_type) == 'single_end':
     in='${read1_file}'
@@ -121,14 +162,14 @@ lowthresh=$error_det_params.lowthresh
                 <option value="paired">Paired-end reads as a collection</option>
             </param>
             <when value="single_end">
-                <param name="read1" type="data" format="fastqsanger.gz,fastqsanger" label="Single-end data"/>
+                <param name="read1" type="data" format="fastq,fastq.gz,fastqsanger.gz,fastqsanger" label="Single-end data"/>
             </when>
             <when value="PE_1file">
-                <param name="read1" type="data" format="fastqsanger.gz,fastqsanger" label="Interleaved paired-end data"/>
+                <param name="read1" type="data" format="fastq,fastq.gz,fastqsanger.gz,fastqsanger" label="Interleaved paired-end data"/>
             </when>
             <when value="PE_2files">
-                <param name="read1" type="data" format="fastqsanger.gz,fastqsanger" label="Forward reads"/>
-                <param name="read2" type="data" format="fastqsanger.gz,fastqsanger" label="Reverse reads"/>
+                <param name="read1" type="data" format="fastq,fastq.gz,fastqsanger.gz,fastqsanger" label="Forward reads"/>
+                <param name="read2" type="data" format="fastq,fastq.gz,fastqsanger.gz,fastqsanger" label="Reverse reads"/>
             </when>
             <when value="paired">
                 <param name="reads_collection" type="data_collection" format="fastqsanger,fastqsanger.gz" collection_type="paired" label="Collection of forward and reverse reads"/>
@@ -155,6 +196,7 @@ lowthresh=$error_det_params.lowthresh
                 <option value="32">32</option>
             </param>
             <param argument="hashes" type="integer" value="3" min="1" label="Number of times each kmer is hashed and stored." help="Higher is slower. Higher is more accurate if there is enough memory, but less accurate if there is not enough memory."/>
+            <param name="memory_filled_pct" type="integer" value="10" min="0" max="50" label="Percentage of memory to be filled" help="The lower is more accurate. The cardinality of your input data will be estimated and then a fixed amount of memory will be allocated corresponding to the filled memory percentage you provide here. As such, too low percetnage = too high accuracy might lead to a failed job if the system runs out of memory. Cannot exceed 50%, at which point the results are totally unreliable."/>
             <conditional name="prefilter">
                 <param argument="prefilter" type="select" label="Use a prefilter to eliminate low-depth kmers" help="True is slower, but generally more accurate; filters out low-depth kmers from the main hashtable. The prefilter is more memory-efficient because it uses 2-bit cells.">
                     <option value="true">Yes</option>
@@ -208,15 +250,22 @@ lowthresh=$error_det_params.lowthresh
     </section>
     </inputs>
     <outputs>
-        <data format="fastq" name="output_normalised_R1" from_work_dir="normalised_R1.fastq" label="${tool.name} on ${on_string} (normalised R1 reads)"/>
-        <data format="fastq" name="output_normalised_R2" from_work_dir="normalised_R2.fastq" label="${tool.name} on ${on_string} (normalised R2 reads)">
-            <filter>input_type_cond['input_type'] in ['PE_2files', 'paired']</filter>
+        <data name="output_normalised_R1" format_source="read1" from_work_dir="normalised_R1.fastq" label="${tool.name} on ${on_string} (normalised R1 reads)">
+            <filter>input_type_cond['input_type'] != 'paired'</filter>
         </data>
-        <data format="fastq" name="output_discarded" from_work_dir="discarded.fastq" label="${tool.name} on ${on_string} (discarded reads)">
+        <data name="output_normalised_R2" format_source="read2" from_work_dir="normalised_R2.fastq" label="${tool.name} on ${on_string} (normalised R2 reads)">
+            <filter>input_type_cond['input_type'] == 'PE_2files'</filter>
+        </data>
+        <collection name="output_pair" type="paired" format_source="reads_collection" label="${tool.name} on ${on_string} (normalised reads)">
+            <filter>input_type_cond['input_type'] == 'paired'</filter>
+            <data name="forward" from_work_dir="normalised_R1.fastq" label="${tool.name} on ${on_string} (normalised R1 reads)"/>
+            <data name="reverse" from_work_dir="normalised_R2.fastq" label="${tool.name} on ${on_string} (normalised R2 reads)"/>
+        </collection>
+        <data name="output_discarded" format="fastq" from_work_dir="discarded.fastq" label="${tool.name} on ${on_string} (discarded reads)">
             <filter>output_options['save_discarded_reads'] is True</filter>
         </data>
         <data name="kmer_hist_input" format="tabular" from_work_dir="kmer_hist_input.tabular" label="${tool.name} on ${on_string} (kmer histogram input)">
-           <filter>output_options['save_kmer_hists'] is True</filter>
+            <filter>output_options['save_kmer_hists'] is True</filter>
         </data>
         <data name="kmer_hist_output" format="tabular" from_work_dir="kmer_hist_output.tabular" label="${tool.name} on ${on_string} (kmer histogram output)">
             <filter>output_options['save_kmer_hists'] is True</filter>
@@ -226,7 +275,7 @@ lowthresh=$error_det_params.lowthresh
         <!-- Single end sequencing -->
         <test expect_num_outputs="1">
             <param name="input_type" value="single_end"/>
-            <param name="read1" value="bbnorm/input_R1.fastq"/>
+            <param name="read1" ftype="fastq" value="bbnorm/input_R1.fastq"/>
             <param name="target" value="4"/>
             <section name="norm_params">
                 <param name="deterministic" value="true"/>
@@ -237,18 +286,30 @@ lowthresh=$error_det_params.lowthresh
         <!-- Single end sequencing, compressed -->
         <test expect_num_outputs="1">
             <param name="input_type" value="single_end"/>
-            <param name="read1" value="bbnorm/input_R1.fastq.gz"/>
+            <param name="read1" ftype="fastq.gz" value="bbnorm/input_R1.fastq.gz"/>
             <param name="target" value="4"/>
             <section name="norm_params">
                 <param name="deterministic" value="true"/>
                 <param name="mindepth" value="0"/>
             </section>
-            <output name="output_normalised_R1" ftype="fastq" value="bbnorm/normalised_R1.fastq"/>
+            <output name="output_normalised_R1" ftype="fastq.gz" value="bbnorm/normalised_R1.fastq"/>
+        </test>
+        <!-- Single end sequencing, too big memory allocation that it errors out -->
+        <test expect_failure="true" expect_exit_code="42">
+            <param name="input_type" value="single_end"/>
+            <param name="read1" ftype="fastq" value="bbnorm/input_R1.fastq"/>
+           <section name="hashing_params">
+                <param name="hashes" value="1000000000"/>
+                <param name="memory_filled_pct" value="1"/>
+            </section>
+            <assert_stderr>
+                <has_text text="or contact your Galaxy administrator"/>
+            </assert_stderr>
         </test>
         <!-- PE as an interleaved file -->
         <test expect_num_outputs="4">
             <param name="input_type" value="PE_1file"/>
-            <param name="read1" value="bbnorm/input_interleaved.fastq"/>
+            <param name="read1" ftype="fastq" value="bbnorm/input_interleaved.fastq"/>
             <param name="target" value="4"/>
             <section name="norm_params">
                 <param name="deterministic" value="true"/>
@@ -266,8 +327,8 @@ lowthresh=$error_det_params.lowthresh
         <!-- PE as 2 files -->
         <test expect_num_outputs="2">
             <param name="input_type" value="PE_2files"/>
-            <param name="read1" value="bbnorm/input_R1.fastq"/>
-            <param name="read2" value="bbnorm/input_R2.fastq"/>
+            <param name="read1" ftype="fastq" value="bbnorm/input_R1.fastq"/>
+            <param name="read2" ftype="fastq" value="bbnorm/input_R2.fastq"/>
             <param name="target" value="4"/>
             <section name="norm_params">
                 <param name="deterministic" value="true"/>
@@ -277,12 +338,12 @@ lowthresh=$error_det_params.lowthresh
             <output name="output_normalised_R2" ftype="fastq" value="bbnorm/normalised_R2.fastq"/>
         </test>
         <!-- Paired end collection -->
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <param name="input_type" value="paired"/>
             <param name="reads_collection">
                 <collection type="paired">
-                    <element name="forward" value="bbnorm/input_R1.fastq"/>
-                    <element name="reverse" value="bbnorm/input_R2.fastq"/>
+                    <element name="forward" ftype="fastq" value="bbnorm/input_R1.fastq"/>
+                    <element name="reverse" ftype="fastq" value="bbnorm/input_R2.fastq"/>
                 </collection>
             </param>
             <param name="target" value="4"/>
@@ -290,8 +351,10 @@ lowthresh=$error_det_params.lowthresh
                 <param name="deterministic" value="true"/>
                 <param name="mindepth" value="0"/>
             </section>
-            <output name="output_normalised_R1" ftype="fastq" value="bbnorm/normalised_R1.fastq"/>
-            <output name="output_normalised_R2" ftype="fastq" value="bbnorm/normalised_R2.fastq"/>
+            <output_collection name="output_pair" type="paired" count="2">
+                <element name="forward" ftype="fastq" value="bbnorm/normalised_R1.fastq"/>
+                <element name="reverse" ftype="fastq" value="bbnorm/normalised_R2.fastq"/>
+            </output_collection>
         </test>
     </tests>
     <help>
@@ -353,7 +416,7 @@ output.fastq::
 **Indications**
 BBNorm is mainly intended for use in assembly pipelines out of short reads. It might be useful when there is too much data that increases computation time or a highly skewed coverage distribution by subsampling from the existing data. As opposed to keeping a randomly selected subset of reads, such as retaining the first n-many elements, this is a weighted resampling that tries to reduce coverage around coordinates of very high sequencing depth.
 
-**Counterindications**
+**Contraindications**
 * The data already has a roughly uniform coverage that does not need to be normalised further.
 * You do not have any excess data to discard: BBnorm does not increase data quantity by imputation or by repeatedly sampling with replacement.
 * Your pipeline reports results that rely on quantification of abundance (ex: differential expression profiling or ChIP-Seq)
