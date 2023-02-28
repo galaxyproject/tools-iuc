@@ -5,6 +5,9 @@
     </macros>
     <expand macro="edam_ontology"/>
     <expand macro="requirements"/>
+    <stdio>
+        <regex match="WARNING: This table is (very|crazy) full, which may reduce accuracy. Ideal load is under" source="both" level="fatal_oom" description="Too low RAM - generated results might be incorrect."/>
+    </stdio>
     <command detect_errors="exit_code"><![CDATA[
 ## bbtools recommends keeping a proper file extension to determine the input format
 ## so we hardcode them in the below block.
@@ -34,47 +37,27 @@ ln -s '${read1}' '${read1_file}' &&
     ln -s '${read2}' '${read2_file}' &&
 #end if
 
-## Detect the memory required by estating the cardinality of the kmers via loglog alg.
+
 ## As the program relies on a count-min-sketch algorithm, the potential hash collisions
 ## are ignored and translates to a decreased accuracy of the results. Therefore the allocated
 ## memory amount effects the numerical output: the more RAM the more accurate results.
+
+## Detect the memory required by estating the cardinality of the kmers via loglog alg.
 #if str($input_type_cond.input_type) in ['single_end','PE_1file']:
     loglog.sh in='${read1_file}' 2> loglog.stderr &&
 #else:
     loglog.sh in1='${read1_file}' in2='${read2_file}' 2> loglog.stderr &&
 #end if
-cardinality=\$(cat loglog.stderr | grep Cardinality | awk '{print \$2}') &&
 
-## Example memory calculation:
-## 3hashes * 16bits/kmer * 1000000000kmers * 100/50 pct_load / 8000000bits/MB = 12 GB to achieve a table under 50% full + 256 MB buffer
-required_RAM_MB=\$(( $hashing_params.hashes * $hashing_params.bits * \$cardinality * 100 / $hashing_params.memory_filled_pct / 8000000 + 256)) &&
-echo Estimated kmer cardinality of the input: \$cardinality &&
-echo Estimated RAM requirement: \${required_RAM_MB}MB &&
+## Estimate RAM requirement
+source '$__tool_directory__'/bbnorm_RAM.sh &&
+estimate_required_memory loglog.stderr $hashing_params.hashes $hashing_params.bits $hashing_params.memory_filled_pct &&
 
-## Check if an external constraint limits the memory, and if so, whether we are below that limit.
-## If not, throw an out of memory error.
-if [ \$required_RAM_MB -gt "\${GALAXY_MEMORY_MB:-9192}" ]; then
-    >&2 echo Your Galaxy configuration limits RAM usage to "\${GALAXY_MEMORY_MB:-9192}"MB, whereas you need at least \${required_RAM_MB}MB to accurately perform this task. Increase \"Hashing parameters\" ">" \"Percent memory filled\" or contact your Galaxy administrator.;
-    exit 42;
-fi &&
-if [ -n "\${_JAVA_OPT}" ]; then
-    source calcmem.sh;
-    parseXmx "\${_JAVA_OPT}";
-	if [[ \$set == 1 ]]; then
-	    if [[ \${z:0-1} == 'm' ]]; then
-	        JAVA_OPT_MEMORY_MB=\${z:4:-1};
-	    elif [[ \${z:0-1} == 'g' ]]; then
-	        JAVA_OPT_MEMORY_MB=\$((\${z:4:-1}*1024));
-	    fi;
-        if [ \$required_RAM_MB -gt "\$JAVA_OPT_MEMORY_MB" ]; then
-            >&2 echo Your Java configuration limits RAM usage to "\$JAVA_OPT_MEMORY_MB"MB, whereas you need at least \${required_RAM_MB}MB to accurately perform this task. Increase \"Hashing parameters\" ">" \"Percent memory filled\" or contact your Galaxy administrator.;
-            exit 42;
-        fi;
-    fi;
-fi &&
+## Check RAM constraints from environmental variables
+check_memory_limits &&
 
 
-bbnorm.sh tmpdir="\$TMPDIR" t="\${GALAXY_SLOTS:-2}" -Xmx\${required_RAM_MB}m
+bbnorm.sh tmpdir="\$TMPDIR" t="\${GALAXY_SLOTS:-2}"
 
 #### Input parameters
 #if str($input_type_cond.input_type) == 'single_end':
@@ -244,10 +227,10 @@ lowthresh=$error_det_params.lowthresh
             </conditional>
         </section>
 
-    <section name="output_options" title="Output options">
-        <param name="save_discarded_reads" type="boolean" checked="false" label="Save the reads that were eliminated from the input datasets to the history"/>
-        <param name="save_kmer_hists" type="boolean" checked="false" label="Save the kmer histograms (in tabular format) for the input and output datasets to the history"/>
-    </section>
+        <section name="output_options" title="Output options">
+            <param name="save_discarded_reads" type="boolean" checked="false" label="Save the reads that were eliminated from the input datasets to the history"/>
+            <param name="save_kmer_hists" type="boolean" checked="false" label="Save the kmer histograms (in tabular format) for the input and output datasets to the history"/>
+        </section>
     </inputs>
     <outputs>
         <data name="output_normalised_R1" format_source="read1" from_work_dir="normalised_R1.fastq" label="${tool.name} on ${on_string} (normalised R1 reads)">
