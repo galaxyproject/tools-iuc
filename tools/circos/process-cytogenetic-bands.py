@@ -29,7 +29,7 @@ with open(sys.argv[1], "r") as handle:
         if line.startswith("#"):
             continue
 
-        lineData = dict(zip(COLS, line.split()))
+        lineData = dict(list(zip(COLS, line.split())))
         color = lineData.get("itemRgb", "gpos50")
 
         if color not in colormap:
@@ -47,7 +47,7 @@ with open(sys.argv[1], "r") as handle:
                 # Does not look like an int
                 continue
 
-            colormap[color] = "gx-karyotype-%s" % len(colormap.keys())
+            colormap[color] = "gx-karyotype-%s" % len(list(colormap.keys()))
 
             sys.stderr.write(
                 "{colorName} = {color}\n".format(colorName=colormap[color], color=color)
