@@ -6,7 +6,7 @@
     <expand macro="edam_ontology"/>
     <expand macro="requirements"/>
     <stdio>
-        <regex match="WARNING: This table is (very|crazy) full, which may reduce accuracy. Ideal load is under" source="both" level="fatal_oom" description="Too low RAM - generated results might be incorrect."/>
+        <regex match="This table is (very|crazy|totally) full, which may reduce accuracy.  Ideal load is under" source="stderr" level="fatal_oom" description="Too low memory - generated results might be inaccurate."/>
     </stdio>
     <command detect_errors="exit_code"><![CDATA[
 ## bbtools recommends keeping a proper file extension to determine the input format
@@ -40,22 +40,11 @@ ln -s '${read1}' '${read1_file}' &&
 
 ## As the program relies on a count-min-sketch algorithm, the potential hash collisions
 ## are ignored and translates to a decreased accuracy of the results. Therefore the allocated
-## memory amount effects the numerical output: the more RAM the more accurate results.
-
-## Detect the memory required by estating the cardinality of the kmers via loglog alg.
-#if str($input_type_cond.input_type) in ['single_end','PE_1file']:
-    loglog.sh in='${read1_file}' 2> loglog.stderr &&
-#else:
-    loglog.sh in1='${read1_file}' in2='${read2_file}' 2> loglog.stderr &&
-#end if
-
-## Estimate RAM requirement
-source '$__tool_directory__'/bbnorm_RAM.sh &&
-estimate_required_memory loglog.stderr $hashing_params.hashes $hashing_params.bits $hashing_params.memory_filled_pct &&
-
-## Check RAM constraints from environmental variables
-check_memory_limits &&
-
+## memory amount effects the numerical output: the more RAM the more accurate the results.
+## Check if a memory cap was set.
+if [[ "\${_JAVA_OPTIONS}" != *-Xmx* && "\${JAVA_TOOL_OPTIONS}" != *-Xmx* ]]; then
+    export _JAVA_OPTIONS="\${_JAVA_OPTIONS} -Xmx\${GALAXY_MEMORY_MB:-4096}m -Xms256m";
+fi &&
 
 bbnorm.sh tmpdir="\$TMPDIR" t="\${GALAXY_SLOTS:-2}"
 
@@ -145,17 +134,17 @@ lowthresh=$error_det_params.lowthresh
                 <option value="paired">Paired-end reads as a collection</option>
             </param>
             <when value="single_end">
-                <param name="read1" type="data" format="fastq,fastq.gz,fastqsanger.gz,fastqsanger" label="Single-end data"/>
+                <param name="read1" type="data" format="fastq,fastq.gz" label="Single-end data"/>
             </when>
             <when value="PE_1file">
-                <param name="read1" type="data" format="fastq,fastq.gz,fastqsanger.gz,fastqsanger" label="Interleaved paired-end data"/>
+                <param name="read1" type="data" format="fastq,fastq.gz" label="Interleaved paired-end data"/>
             </when>
             <when value="PE_2files">
-                <param name="read1" type="data" format="fastq,fastq.gz,fastqsanger.gz,fastqsanger" label="Forward reads"/>
-                <param name="read2" type="data" format="fastq,fastq.gz,fastqsanger.gz,fastqsanger" label="Reverse reads"/>
+                <param name="read1" type="data" format="fastq,fastq.gz" label="Forward reads"/>
+                <param name="read2" type="data" format="fastq,fastq.gz" label="Reverse reads"/>
             </when>
             <when value="paired">
-                <param name="reads_collection" type="data_collection" format="fastqsanger,fastqsanger.gz" collection_type="paired" label="Collection of forward and reverse reads"/>
+                <param name="reads_collection" type="data_collection" format="fastq,fastq.gz" collection_type="paired" label="Collection of forward and reverse reads"/>
             </when>
         </conditional>
         <param argument="target" type="integer" value="100" min="1" label="Target normalization depth" help="All depth parameters control kmer depth, not read depth. For kmer depth Dk, read depth Dr, read length R, and kmer size K: Dr=Dk*(R/(R-K+1))"/>
@@ -179,7 +168,6 @@ lowthresh=$error_det_params.lowthresh
                 <option value="32">32</option>
             </param>
             <param argument="hashes" type="integer" value="3" min="1" label="Number of times each kmer is hashed and stored." help="Higher is slower. Higher is more accurate if there is enough memory, but less accurate if there is not enough memory."/>
-            <param name="memory_filled_pct" type="integer" value="10" min="0" max="50" label="Percentage of memory to be filled" help="The lower is more accurate. The cardinality of your input data will be estimated and then a fixed amount of memory will be allocated corresponding to the filled memory percentage you provide here. As such, too low percetnage = too high accuracy might lead to a failed job if the system runs out of memory. Cannot exceed 50%, at which point the results are totally unreliable."/>
             <conditional name="prefilter">
                 <param argument="prefilter" type="select" label="Use a prefilter to eliminate low-depth kmers" help="True is slower, but generally more accurate; filters out low-depth kmers from the main hashtable. The prefilter is more memory-efficient because it uses 2-bit cells.">
                     <option value="true">Yes</option>
@@ -276,18 +264,6 @@ lowthresh=$error_det_params.lowthresh
                 <param name="mindepth" value="0"/>
             </section>
             <output name="output_normalised_R1" ftype="fastq.gz" value="bbnorm/normalised_R1.fastq"/>
-        </test>
-        <!-- Single end sequencing, too big memory allocation that it errors out -->
-        <test expect_failure="true" expect_exit_code="42">
-            <param name="input_type" value="single_end"/>
-            <param name="read1" ftype="fastq" value="bbnorm/input_R1.fastq"/>
-           <section name="hashing_params">
-                <param name="hashes" value="1000000000"/>
-                <param name="memory_filled_pct" value="1"/>
-            </section>
-            <assert_stderr>
-                <has_text text="or contact your Galaxy administrator"/>
-            </assert_stderr>
         </test>
         <!-- PE as an interleaved file -->
         <test expect_num_outputs="4">
@@ -396,10 +372,14 @@ output.fastq::
     +
     FFFFFFFFFFFFFFFEFFFFFFEFFD
 
+
 **Indications**
+
 BBNorm is mainly intended for use in assembly pipelines out of short reads. It might be useful when there is too much data that increases computation time or a highly skewed coverage distribution by subsampling from the existing data. As opposed to keeping a randomly selected subset of reads, such as retaining the first n-many elements, this is a weighted resampling that tries to reduce coverage around coordinates of very high sequencing depth.
 
+
 **Contraindications**
+
 * The data already has a roughly uniform coverage that does not need to be normalised further.
 * You do not have any excess data to discard: BBnorm does not increase data quantity by imputation or by repeatedly sampling with replacement.
 * Your pipeline reports results that rely on quantification of abundance (ex: differential expression profiling or ChIP-Seq)
