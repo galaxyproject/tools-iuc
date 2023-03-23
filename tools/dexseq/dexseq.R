@@ -110,6 +110,7 @@ last_column <- ncol(export_table)
 for (i in seq_len(nrow(export_table))) {
   export_table[i, last_column] <- paste(export_table[i, last_column][[1]], collapse = ", ")
 }
+export_table[, c(last_column)] <- sapply(export_table[, c(last_column)], as.character)
 write.table(export_table, file = opt$outfile, sep = "\t", quote = FALSE, col.names = FALSE)
 print("Written Results")
 
