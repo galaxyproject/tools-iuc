@@ -93,21 +93,25 @@ def download_busco_db(data_tables, table_name, database, version, index, target_
       version: tool version
       target_dp: directory to put copy or link to the data file
     """
+    print(target_dp)
     db_target_dp = target_dp / Path(database)
     db_dp = db_target_dp / Path(database)
+    print(db_target_dp)
+    print(db_dp)
     # launch tool to get db
     cmd = "busco --download %s" % database
     subprocess.check_call(cmd, shell=True)
     # move db
-    db_dp.rename(db_dp)
+    #print(db_dp)
+    #db_dp.rename(db_dp)
     # add details to data table
     add_data_table_entry(
         data_tables,
         table_name,
         dict(
-            dbdate="%s" % date.today().strftime("%d%m%Y")  ,
+            value="%s" % date.today().strftime("%d%m%Y")  ,
             name="BUSCO database %s" % database,
-            dbversion="db-version-%s-%s" % (version,index),
+            dbkey="db-version-%s-%s" % (version,index),
             path=str(db_dp)))
 
 
