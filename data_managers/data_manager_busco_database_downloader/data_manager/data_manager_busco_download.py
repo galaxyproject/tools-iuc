@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Data manager for reference data for the 'humann' Galaxy tools
+# Data manager for reference data for the 'BUSCO' Galaxy tools
 import argparse
 import json
 import subprocess
@@ -10,11 +10,13 @@ from pathlib import Path
 # Utility functions for interacting with Galaxy JSON
 def read_input_json(json_fp):
     """Read the JSON supplied from the data manager tool
+
     Returns a tuple (param_dict,extra_files_path)
     'param_dict' is an arbitrary dictionary of parameters
     input into the tool; 'extra_files_path' is the path
     to a directory where output files must be put for the
     receiving data manager to pick them up.
+
     NB the directory pointed to by 'extra_files_path'
     doesn't exist initially, it is the job of the script
     to create it if necessary.
@@ -74,7 +76,7 @@ def add_data_table_entry(d, table, entry):
         raise Exception("add_data_table_entry: no table '%s'" % table)
 
 
-def download_busco_db(data_tables, table_name, database, index, version, target_dp):
+def download_busco_db(data_tables, table_name, database, version, index, target_dp):
     """Download BUSCO database
 
     Creates references to the specified file(s) on the Galaxy
@@ -86,30 +88,27 @@ def download_busco_db(data_tables, table_name, database, index, version, target_
 
     Arguments:
       data_tables: a dictionary containing the data table info
-      database: database to download (all, eukaryota, prokaryota or virus)
-      index: build of the database to download
+      table_name: name of the table
+      database: database to download (chocophlan or uniref)
       version: tool version
       target_dp: directory to put copy or link to the data file
     """
-
+    db_target_dp = target_dp / Path(database)
+    db_dp = db_target_dp / Path(database)
     # launch tool to get db
-    db_dp = target_dp / Path(database)
-    index_target_dp = db_dp / Path(index)
-    cmd = "busco --download %s" % (
-        database)
+    cmd = "busco --download %s" % database
     subprocess.check_call(cmd, shell=True)
     # move db
-    db_dp.rename(build_target_dp)
+    db_dp.rename(db_dp)
     # add details to data table
     add_data_table_entry(
         data_tables,
         table_name,
         dict(
-            dbdate="%s" % (date.today().strftime("%d%m%Y")),
-            dbname="BUSCO database %s" % database,
-            dbversion="db_version_%s_%s" % (version,index),
-            path=str(index_target_dp)))
-
+            dbdate="%s" % date.today().strftime("%d%m%Y")  ,
+            name="BUSCO database %s" % database,
+            dbversion="db-version-%s-%s" % (version,index),
+            path=str(db_dp)))
 
 
 if __name__ == "__main__":
@@ -118,7 +117,7 @@ if __name__ == "__main__":
     # Read command line
     parser = argparse.ArgumentParser(description='Download BUSCO database')
     parser.add_argument('--database', help="Database name")
-    parser.add_argument('--build', help="Build of the database")
+    parser.add_argument('--index', help="BUSCO database version")
     parser.add_argument('--version', help="BUSCO version")
     parser.add_argument('--json', help="Path to JSON file")
     args = parser.parse_args()
@@ -134,21 +133,23 @@ if __name__ == "__main__":
 
     # Set up data tables dictionary
     data_tables = create_data_tables_dict()
-    if args.database == "chocophlan":
-        table_name = 'humann_nucleotide_database'
-    elif args.database == "uniref":
-        table_name = 'humann_protein_database'
-    elif args.database == "utility_mapping":
-        table_name = 'humann_utility_mapping'
+    if args.database == "all":
+        table_name = 'busco_all_database'
+    elif args.database == "prokaryota":
+        table_name = 'busco_prokaryota_database'
+    elif args.database == "eukaryota":
+        table_name = 'busco_eukaryota_database'
+    else:
+        table_name = 'busco_virus_database'
     add_data_table(data_tables, table_name)
 
     # Fetch data from specified data sources
     print("Download and build database")
-    download_humann_db(
+    download_busco_db(
         data_tables,
         table_name,
         args.database,
-        args.build,
+        args.index,
         args.version,
         target_dp)
 
