@@ -9,7 +9,7 @@ import subprocess
 import datetime
 
 def main(args):
-    workdir = os.path.join(os.getcwd(), 'busco')
+    workdir = os.path.join(os.getcwd(), 'busco_downloads')
     cmd = "busco --download %s" % args.database
     subprocess.check_call(cmd, shell=True)
     data_manager_entry = {}
@@ -22,7 +22,7 @@ def main(args):
         params = json.load(fh)
     target_directory = params['output_data'][0]['extra_files_path']
     os.mkdir(target_directory)
-    output_path = os.path.abspath(os.path.join(os.getcwd(), 'busco'))
+    output_path = os.path.abspath(os.path.join(os.getcwd(), 'busco_downloads'))
     for filename in os.listdir(workdir):
         shutil.move(os.path.join(output_path, filename), target_directory)
     with open(args.json, 'w') as fh:
