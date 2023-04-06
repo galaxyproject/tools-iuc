@@ -2,11 +2,11 @@
 #
 # Data manager for reference data for the 'BUSCO' Galaxy tools
 import argparse
+import datetime
 import json
 import os
 import shutil
 import subprocess
-import datetime
 
 
 def main(args):
