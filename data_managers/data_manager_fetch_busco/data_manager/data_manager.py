@@ -5,9 +5,10 @@ import argparse
 import datetime
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
+
+from pathlib import Path
 
 
 def main(args):
