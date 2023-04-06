@@ -7,7 +7,6 @@ import json
 import os
 import shutil
 import subprocess
-
 from pathlib import Path
 
 
@@ -22,7 +21,7 @@ def main(args):
     data_manager_entry["value"] = args.name.lower()
     data_manager_entry["name"] = args.name
     data_manager_entry["version"] = args.version
-    data_manager_entry["path"] = Path(target_directory)
+    data_manager_entry["path"] = str(Path(target_directory))
     data_manager_json = dict(data_tables=dict(busco=data_manager_entry))
 
     os.mkdir(target_directory)
