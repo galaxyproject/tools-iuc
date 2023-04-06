@@ -5,6 +5,7 @@ import argparse
 import datetime
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 
@@ -13,15 +14,16 @@ def main(args):
     workdir = os.path.join(os.getcwd(), "busco_downloads")
     cmd = "busco --download %s" % args.database
     subprocess.check_call(cmd, shell=True)
+    with open(args.json) as fh:
+        params = json.load(fh)
+    target_directory = params["output_data"][0]["extra_files_path"]
     data_manager_entry = {}
     data_manager_entry["value"] = args.name.lower()
     data_manager_entry["name"] = args.name
     data_manager_entry["version"] = args.version
-    data_manager_entry["path"] = "."
+    data_manager_entry["path"] = Path(target_directory)
     data_manager_json = dict(data_tables=dict(busco=data_manager_entry))
-    with open(args.json) as fh:
-        params = json.load(fh)
-    target_directory = params["output_data"][0]["extra_files_path"]
+
     os.mkdir(target_directory)
     output_path = os.path.abspath(os.path.join(os.getcwd(), "busco_downloads"))
     for filename in os.listdir(workdir):
