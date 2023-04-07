@@ -22,7 +22,7 @@ def main(args):
     data_manager_entry["name"] = args.name
     data_manager_entry["version"] = args.version
     data_manager_entry["path"] = str(Path(target_directory))
-    data_manager_json = dict(data_tables=dict(busco=data_manager_entry))
+    data_manager_json = dict(data_tables=dict(busco_database=data_manager_entry))
 
     os.mkdir(target_directory)
     output_path = os.path.abspath(os.path.join(os.getcwd(), "busco_downloads"))
