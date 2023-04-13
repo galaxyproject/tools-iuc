@@ -1,5 +1,5 @@
-<tool id="episcanpy_filter" name="Filter" version="@tool_version@+galaxy@version_suffix@" profile="@profile@">
-    <description>with episcanpy</description>
+<tool id="episcanpy_preprocess" name="Preprocessing" version="@tool_version@+galaxy@version_suffix@" profile="@profile@">
+    <description>with EpiScanpy</description>
     <macros>
         <import>macros.xml</import>
     </macros>
@@ -7,6 +7,10 @@
     <expand macro="requirements"/>
     <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
+#if $method.method == 'build_matrix'
+bgzip -c '$method.fragment_file' > fragments.gz &&
+tabix -p bed fragments.gz &&
+#end if
 @CMD@
       ]]></command>
     <configfiles>
@@ -14,7 +18,17 @@
 @CMD_imports@
 @CMD_read_inputs@
 
-#if $method.method == 'pp.filter_cells'
+#if $method.method == 'build_matrix'
+peaks = epi.ct.load_peaks('$method.peaks_file')
+epi.ct.norm_peaks(peaks, extension=$method.extension)
+epi.ct.bld_mtx_bed(fragment_file='fragments.gz',
+                    feature_region=peaks,
+                    save='anndata.h5ad')
+
+#else if $method.method == 'nb_feat_log'
+adata.obs['log_nb_features'] = [np.log10(x) for x in adata.obs['nb_features']]
+
+#else if $method.method == 'pp.filter_cells'
 esc.pp.filter_cells(
     adata,
     #if $method.filter.filter == 'min_counts'
@@ -42,6 +56,31 @@ esc.pp.filter_features(
     #end if
     copy=False)
 
+#else if $method.method == 'pp.coverage_cells'
+#set plot_file = "coverage_cells." + str($format)
+esc.pp.coverage_cells(
+    adata,
+    binary=$method.binary,
+    log=$method.log,
+    #if $method.threshold
+    threshold=$method.threshold,
+    #end if
+    bins=$method.bins,
+    save='$plot_file'
+    )
+#else if $method.method == 'pp.coverage_features'
+#set plot_file = "coverage_features." + str($format)
+esc.pp.coverage_features(
+    adata,
+    binary=$method.binary,
+    log=$method.log,
+    #if $method.threshold
+    threshold=$method.threshold,
+    #end if
+    bins=$method.bins,
+    save='$plot_file'
+    )
+
 #else if $method.method == 'pp.select_var_feature'
 esc.pp.select_var_feature(
     adata,
@@ -52,6 +91,25 @@ esc.pp.select_var_feature(
     #end if
 )
 
+#else if $method.method == 'pp.cal_var'
+esc.pp.cal_var(
+    adata,
+    show=True,
+    color=['b', 'r'],
+    save="features_and_variability_scores_distr.png"
+)
+
+#else if $method.method == 'pp.variability_features'
+esc.pp.variability_features(
+    adata,
+    min_score=$method.min_score,
+    nb_features=$method.nb_features,
+    #if $method.log_mode
+    log='$method.log_mode',
+    #end if
+    save="peakmatrix.png"
+)
+
 #end if
 @CMD_anndata_write_outputs@
 ]]></configfile>
@@ -60,10 +118,22 @@ esc.pp.select_var_feature(
         <expand macro="inputs_anndata"/>
         <conditional name="method">
             <param argument="method" type="select" label="Method used for filtering">
+                <option value="build_matrix">Build count matrix from ATAC fragments</option>
+                <option value="nb_feat_log">Compute log10 of nb_features</option>
                 <option value="pp.filter_cells">Filter cell outliers based on counts and numbers of features expressed, using 'pp.filter_cells'</option>
                 <option value="pp.filter_features">Filter features based on counts and numbers of features expressed, using 'pp.filter_features'</option>
+                <option value="pp.coverage_cells">Coverage cells: Histogram of the number of open features (in the case of ATAC-seq data) per cell, using 'pp.coverage_cells'</option>
+                <option value="pp.coverage_features">Coverage features: Distribution of the feature commoness in cells, using 'pp.coverage_features'</option>
                 <option value="pp.select_var_feature">Select the most variable features, 'pp.select_var_feature'</option>
+                <option value="pp.cal_var">Show distribution plots of cells sharing features and variability score 'pp.cal_var'</option>
+                <option value="pp.variability_features">Computes variability score to rank the most variable features across all cells, using 'pp.variability_features'</option>
             </param>
+            <when value="build_matrix">
+                <param name="fragment_file" type="data" label="ATAC fragments file" />
+                <param name="peaks_file" type="data" label="MACS2 narrowPeak file" />
+                <param name="extension" type="integer" value="0" min="0" label="Number of bases to extend both sides of peaks" />
+            </when>
+            <when value="nb_feat_log" />
             <when value="pp.filter_cells">
                 <conditional name="filter">
                     <param argument="filter" type="select" label="Filter" help="Filter mode">
@@ -107,23 +177,60 @@ esc.pp.select_var_feature(
                         <param argument="max_cells" type="integer" min="0" value="" label="Maximum number of cells expressed required for a gene to pass filtering"/>
                     </when>
                 </conditional>
-            </when>            
+            </when>
+            <when value="pp.coverage_cells">
+                <expand macro="coverage_params" />
+            </when>
+            <when value="pp.coverage_features">
+                <expand macro="coverage_params" />
+            </when>
             <when value="pp.select_var_feature">
                 <param argument="min_score" type="float" min="0" max="1" value="0.5" label="Min score" help="Minimum threshold variability score to retain features" />
                 <param argument="nb_features" type="integer" min="0" value="" optional="True" label="Number of features" help="Default value is None, if specify it will select a the top most 
                     variable features. If this parameter is larger than the total number of feature, it filters based on the min_score argument." />
             </when>
-            <when value="pp.cal_var">
-                <param name="color" type="select" label="Color" help="Select blue or red color">
-                    <option value="b">Blue</option>
-                    <option value="r">Red</option>
+            <when value="pp.cal_var"/>
+            <when value="pp.variability_features">
+                <param name="min_score" type="float" min="0" max="1" value="0.5" label="Minimum score value"/>
+                <param name="nb_features" type="integer" min="0" value="" label="Number of features"/>
+                <param name="log_mode" type="select" optional="True" label="Log" help="Log mode">
+                    <option value="log2">Log2</option>
+                    <option value="log10">Log10</option>
                 </param>
             </when>
         </conditional>
+        <expand macro="param_plot_format"/>
         <expand macro="inputs_common_advanced"/>
     </inputs>
     <outputs>
         <expand macro="anndata_outputs"/>
+       <data name="out_png" format="png" from_work_dir="features_and_variability_scores_distr.png" label="${tool.name} (${method.method}) on ${on_string}">
+            <filter>method['method'] == 'pp.cal_var'</filter>
+        </data>
+        <data name="peakmatrix_png" format="png" from_work_dir="peakmatrix.png" label="${tool.name} (${method.method}) on ${on_string}">
+            <filter>method['method'] == 'pp.variability_features'</filter>
+        </data>
+        <data name="coverage_cells_png" format="png" from_work_dir="coverage_cells.png" label="${tool.name} (${method.method}) on ${on_string}">
+            <filter>format == 'png' and method['method'] == 'pp.coverage_cells'</filter>
+        </data>
+        <data name="coverage_cells_pdf" format="pdf" from_work_dir="coverage_cells.pdf" label="${tool.name} (${method.method}) on ${on_string}">
+            <filter>format == 'pdf' and method['method'] == 'pp.coverage_cells'</filter>
+        </data>
+        <data name="coverage_cells_svg" format="png" from_work_dir="coverage_cells.svg" label="${tool.name} (${method.method}) on ${on_string}">
+            <filter>format == 'svg' and method['method'] == 'pp.coverage_cells'</filter>
+        </data>
+        <data name="coverage_features_png" format="png" from_work_dir="coverage_features.png" label="${tool.name} (${method.method}) on ${on_string}">
+            <filter>format == 'png' and method['method'] == 'pp.coverage_features'</filter>
+        </data>
+        <data name="coverage_features_pdf" format="pdf" from_work_dir="coverage_features.pdf" label="${tool.name} (${method.method}) on ${on_string}">
+            <filter>format == 'pdf' and method['method'] == 'pp.coverage_features'</filter>
+        </data>
+        <data name="coverage_features_svg" format="png" from_work_dir="coverage_features.svg" label="${tool.name} (${method.method}) on ${on_string}">
+            <filter>format == 'svg' and method['method'] == 'pp.coverage_features'</filter>
+        </data>
+        <data name="hidden_output" format="txt" label="Log file" hidden="true" >
+            <filter>advanced_common['show_log']</filter>
+        </data>
     </outputs>
     <tests>
         <test>
