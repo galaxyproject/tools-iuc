@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
 import argparse
-import os
-from datetime import datetime
 import json
+import os
 import subprocess
 import sys
+from datetime import datetime
 
 
 def main():
