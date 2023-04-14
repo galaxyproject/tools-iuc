@@ -1,8 +1,8 @@
 <macros>
-    <token name="@TOOL_VERSION@">13.24.1</token>
-    <token name="@PROFILE@">20.01</token>
+    <token name="@TOOL_VERSION@">14.6.0</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">21.01</token>
     <token name="@LICENSE@">MIT</token>
-    <token name="@VERSION_SUFFIX@">1</token>
     <token name="@PROFILE_AND_LICENSE@">profile="@PROFILE@" license="@LICENSE@"</token>
     <token name="@SETUP_CERTIFICATES@"><![CDATA[
 ## If running in container use certificate from ca-certificates instead of outdated / missing container certificates
@@ -11,28 +11,33 @@
     <xml name="requirements">
         <requirements>
             <requirement type="package" version="@TOOL_VERSION@">ncbi-datasets-cli</requirement>
-            <requirement type="package" version="2021.10.8">ca-certificates</requirement>
+            <requirement type="package" version="2022.9.24">ca-certificates</requirement>
             <requirement type="package" version="16.02">p7zip</requirement>
         </requirements>
     </xml>
+    <xml name="bio_tools">
+        <xrefs>
+            <xref type="bio.tools">ncbi_datasets</xref>
+        </xrefs>
+    </xml>
+    <xml name="version_command"><![CDATA[
+        datasets --version | cut -d" " -f 3
+    ]]></xml>
     <xml name="annotation">
         <param argument="--annotated" type="boolean" truevalue="--annotated" falsevalue="" label="Only include genomes with annotation ?"/>
-    </xml>
-    <xml name="dehydrated">
-        <param argument="--dehydrated" type="boolean" truevalue="--dehydrated" falsevalue="" label="Download a dehydrated zip archive including the data report and locations of data files ?" help="Use the rehydrate tools to retrieve data files"/>
     </xml>
     <xml name="assembly_level">
         <param argument="--assembly-level" type="select" label="Restrict assemblies to a comma-separated list of one or more of these" multiple="true" optional="true">
             <option value="chromosome">Chromosome</option>
-            <option value="complete_genome">Complete Genome</option>
+            <option value="complete">Complete Genome</option>
             <option value="contig">Contig</option>
             <option value="scaffold">Scaffold</option>
         </param>
     </xml>
     <xml name="assembly_source">
-        <param argument="--assembly-source" type="select" optional="true">
+        <param argument="--assembly-source" type="select" optional="true" label="Assembly source" help="Default (nothing selected) is both " >
             <option value="refseq">RefSeq</option>
-            <option value="genabnk">GenBank</option>
+            <option value="genbank">GenBank</option>
         </param>
     </xml>
     <xml name="text_or_file" token_what="accession" token_what_extended="NCBI Assembly accession" token_help="Can be NCBI Assembly or BioProject accession">
@@ -42,8 +47,10 @@
                 <option value="file">Read a list of @WHAT_EXTENDED@s from a dataset</option>
             </param>
             <when value="text">
-                <param name="accession" type="text" label="Enter space separated list of @WHAT@s" help="@HELP@">
-                    <yield/>
+                <!-- command section also allows spaces as separator for backward compatibility
+                     prefer comma because this is used also in other text params-->
+                <param name="accession" type="text" label="Enter comma separated list of @WHAT@s" help="@HELP@">
+                    <validator type="length" min="1" message="Provide at least one @WHAT@"/>
                 </param>
             </when>
             <when value="file">
@@ -62,58 +69,264 @@
             </sanitizer>
         </param>
     </xml>
-    <xml name="include" token_include_what="gbff" token_include_label="Include GenBank flat file sequence and annotation, if available">
-        <param argument="--include-@INCLUDE_WHAT@" type="boolean" truevalue="--include-@INCLUDE_WHAT@" falsevalue="" label="@INCLUDE_LABEL@" />
+
+    <xml name="taxon_positional">
+        <param name="taxon_positional" type="text" label="Enter taxon" help="e.g. human, mouse, bos taurus, etc."/>
     </xml>
-    <xml name="includes_genome">
-        <expand macro="include" include_what="gbff" include_label="Include GenBank flat file sequence and annotation, if available"/>
-        <expand macro="include" include_what="gtf" include_label="Include gtf annotation file, if available"/>
+
+    <xml name="ortholog">
+        <param argument="--ortholog" type="text" label="Retrieve orthologs for taxa" help="Retrieve data for an ortholog set. Provide one or more comma separated taxa (any rank) to filter results or 'all' for the complete set.">
+            <sanitizer invalid_char="">
+                <valid initial="string.letters,string.digits">
+                    <add value=" " />
+                    <add value="," />
+                    <add value="-" />
+                </valid>
+            </sanitizer>
+        </param>
     </xml>
-    <xml name="exclude" token_exclude_what="gff3" token_exclude_label="Exclude gff3 annotation file" token_checked="false">
-        <param argument="--exclude-@EXCLUDE_WHAT@" type="boolean" truevalue="--exclude-@EXCLUDE_WHAT@" falsevalue="" label="@EXCLUDE_LABEL@" checked="@CHECKED@"/>
+
+    <xml name="include">
+        <param argument="--include" type="select" multiple="true" optional="true" label="Include" help="Download the following datasets (if available)">
+            <yield/>
+        </param>
     </xml>
-    <xml name="excludes_genome">
-        <expand macro="exclude" exclude_what="seq" exclude_label="Exclude genomic sequence file"/>
-        <expand macro="exclude" exclude_what="gff3" exclude_label="Exclude gff3 annotation file"/>
-        <expand macro="exclude" exclude_what="genomic-cds" exclude_label="Exclude cds from genomic sequence file"/>
-        <expand macro="exclude" exclude_what="protein" exclude_label="Exclude protein sequence file"/>
-        <expand macro="exclude" exclude_what="rna" exclude_label="Exclude transcript sequence file"/>
-    </xml>
-    <xml name="excludes_gene">
-        <expand macro="exclude" exclude_what="gene" exclude_label="Exclude gene sequence file"/>
-        <expand macro="exclude" exclude_what="protein" exclude_label="Exclude protein sequence file"/>
-        <expand macro="exclude" exclude_what="rna" exclude_label="Exclude transcript sequence file"/>
-    </xml>
-    <xml name="excludes_virus_protein">
+    <xml name="genome_includes">
+        <option value="genome" selected="true">genomic sequence (genome)</option>
+        <option value="rna">transcript (rna)</option>
+        <option value="protein">amnio acid sequences (protein)</option>
+        <option value="cds">nucleotide coding sequences (cds)</option>
+        <option value="gff3">general feature file (gff3)</option>
+        <option value="gtf">gene transfer format (gtf)</option>
+        <option value="gbff">GenBank flat file (gbff)</option>
+        <option value="seq-report">sequence report file (seq-report)</option>
         <yield/>
-        <expand macro="exclude" exclude_what="protein" exclude_label="Exclude protein sequence file"/>
-        <expand macro="exclude" exclude_what="pdb" exclude_label="Exclude protein structure files (pdb)"/>
-        <expand macro="exclude" exclude_what="gpff" exclude_label="Exclude protein sequence and annotation in GenPept flat file"/>
-        <expand macro="exclude" exclude_what="cds" exclude_label="Exclude CDS sequence file"/>
     </xml>
-    <xml name="excludes_virus_genome">
-        <expand macro="excludes_virus_protein">
-            <expand macro="exclude" exclude_what="seq" exclude_label="Exclude genomic sequence file"/>
-        </expand>
+    <xml name="gene_includes">
+        <option value="gene">gene sequence (gene)</option>
+        <option value="protein" selected="true">amnio acid sequences (protein)</option>
+        <yield/>
     </xml>
-    <token name="@EXCLUDES_GENOME@">$file_choices.exclude_gff3 $file_choices.exclude_genomic_cds $file_choices.exclude_protein $file_choices.exclude_rna $file_choices.exclude_seq</token>
-    <token name="@EXCLUDES_GENE@">$exclude_gene $exclude_protein $exclude_rna</token>
-    <token name="@EXCLUDES_VIRUS_PROTEIN@">$exclude_protein $exclude_pdb $exclude_gpff $exclude_cds</token>
-    <token name="@EXCLUDES_VIRUS_GENOME@">$exclude_seq @EXCLUDES_VIRUS_PROTEIN@</token>
-    <xml name="includes_virus_genome">
-        <expand macro="include" include_what="gbff" include_label="Include GenBank flat file sequence and annotation"/>
+
+    <token name="@INCLUDE@"><![CDATA[
+        --include
+        #if $file_choices.include
+            #echo ",".join($file_choices.include)
+        #else
+            none
+        #end if
+    ]]></token>
+    <xml name="tsv_report_columns">
+        <param name="report_columns" type="select" multiple="true" optional="false" label="Columns in the report">
+            <option value="accession">Assembly Accession</option>
+            <option value="annotinfo-busco-complete">Annotation BUSCO Complete</option>
+            <option value="annotinfo-busco-duplicated">Annotation BUSCO Duplicated</option>
+            <option value="annotinfo-busco-fragmented">Annotation BUSCO Fragmented</option>
+            <option value="annotinfo-busco-lineage">Annotation BUSCO Lineage</option>
+            <option value="annotinfo-busco-missing">Annotation BUSCO Missing</option>
+            <option value="annotinfo-busco-singlecopy">Annotation BUSCO Single Copy</option>
+            <option value="annotinfo-busco-totalcount">Annotation BUSCO Total Count</option>
+            <option value="annotinfo-busco-ver">Annotation BUSCO Version</option>
+            <option value="annotinfo-featcount-gene-non-coding">Annotation Count Gene Non-coding</option>
+            <option value="annotinfo-featcount-gene-other">Annotation Count Gene Other</option>
+            <option value="annotinfo-featcount-gene-protein-coding">Annotation Count Gene Protein-coding</option>
+            <option value="annotinfo-featcount-gene-pseudogene">Annotation Count Gene Pseudogene</option>
+            <option value="annotinfo-featcount-gene-total">Annotation Count Gene Total</option>
+            <option value="annotinfo-method">Annotation Method</option>
+            <option value="annotinfo-name">Annotation Name</option>
+            <option value="annotinfo-pipeline">Annotation Pipeline</option>
+            <option value="annotinfo-provider">Annotation Provider</option>
+            <option value="annotinfo-release-date">Annotation Release Date</option>
+            <option value="annotinfo-release-version">Annotation Release Version</option>
+            <option value="annotinfo-report-url">Annotation Report URL</option>
+            <option value="annotinfo-software-version">Annotation Software Version</option>
+            <option value="annotinfo-status">Annotation Status</option>
+            <option value="assminfo-atypicalis-atypical">Assembly Atypical Is Atypical</option>
+            <option value="assminfo-atypicalwarnings">Assembly Atypical Warnings</option>
+            <option value="assminfo-bioproject-lineage-accession">Assembly BioProject Lineage Accession</option>
+            <option value="assminfo-bioproject-lineage-parent-accession">Assembly BioProject Lineage Parent Accession</option>
+            <option value="assminfo-bioproject-lineage-parent-accessions">Assembly BioProject Lineage Parent Accessions</option>
+            <option value="assminfo-bioproject-lineage-title">Assembly BioProject Lineage Title</option>
+            <option value="assminfo-biosample-accession">Assembly BioSample Accession</option>
+            <option value="assminfo-biosample-attribute-name">Assembly BioSample Attribute Name</option>
+            <option value="assminfo-biosample-attribute-value">Assembly BioSample Attribute Value</option>
+            <option value="assminfo-biosample-bioproject-accession">Assembly BioSample BioProject Accession</option>
+            <option value="assminfo-biosample-bioproject-parent-accession">Assembly BioSample BioProject Parent Accession</option>
+            <option value="assminfo-biosample-bioproject-parent-accessions">Assembly BioSample BioProject Parent Accessions</option>
+            <option value="assminfo-biosample-bioproject-title">Assembly BioSample BioProject Title</option>
+            <option value="assminfo-biosample-description-comment">Assembly BioSample Description Comment</option>
+            <option value="assminfo-biosample-description-organism-common-name">Assembly BioSample Description Organism Common Name</option>
+            <option value="assminfo-biosample-description-organism-infraspecific-breed">Assembly BioSample Description Organism Infraspecific Names Breed</option>
+            <option value="assminfo-biosample-description-organism-infraspecific-cultivar">Assembly BioSample Description Organism Infraspecific Names Cultivar</option>
+            <option value="assminfo-biosample-description-organism-infraspecific-ecotype">Assembly BioSample Description Organism Infraspecific Names Ecotype</option>
+            <option value="assminfo-biosample-description-organism-infraspecific-isolate">Assembly BioSample Description Organism Infraspecific Names Isolate</option>
+            <option value="assminfo-biosample-description-organism-infraspecific-sex">Assembly BioSample Description Organism Infraspecific Names Sex</option>
+            <option value="assminfo-biosample-description-organism-infraspecific-strain">Assembly BioSample Description Organism Infraspecific Names Strain</option>
+            <option value="assminfo-biosample-description-organism-name">Assembly BioSample Description Organism Name</option>
+            <option value="assminfo-biosample-description-organism-pangolin">Assembly BioSample Description Organism Pangolin Classification</option>
+            <option value="assminfo-biosample-description-organism-tax-id">Assembly BioSample Description Organism Taxonomic ID</option>
+            <option value="assminfo-biosample-description-title">Assembly BioSample Description Title</option>
+            <option value="assminfo-biosample-ids-db">Assembly BioSample Sample Identifiers Database</option>
+            <option value="assminfo-biosample-ids-label">Assembly BioSample Sample Identifiers Label</option>
+            <option value="assminfo-biosample-ids-value">Assembly BioSample Sample Identifiers Value</option>
+            <option value="assminfo-biosample-last-updated">Assembly BioSample Last updated</option>
+            <option value="assminfo-biosample-models">Assembly BioSample Models</option>
+            <option value="assminfo-biosample-owner-contact-lab">Assembly BioSample Owner Contact Lab</option>
+            <option value="assminfo-biosample-owner-name">Assembly BioSample Owner Name</option>
+            <option value="assminfo-biosample-package">Assembly BioSample Package</option>
+            <option value="assminfo-biosample-publication-date">Assembly BioSample Publication date</option>
+            <option value="assminfo-biosample-status-status">Assembly BioSample Status Status</option>
+            <option value="assminfo-biosample-status-when">Assembly BioSample Status When</option>
+            <option value="assminfo-biosample-submission-date">Assembly BioSample Submission date</option>
+            <option value="assminfo-blast-url">Assembly Blast URL</option>
+            <option value="assminfo-description">Assembly Description</option>
+            <option value="assminfo-level">Assembly Level</option>
+            <option value="assminfo-linked-assmaccession">Assembly Linked Assembly Accession</option>
+            <option value="assminfo-linked-assmtype">Assembly Linked Assembly Type</option>
+            <option value="assminfo-name">Assembly Name</option>
+            <option value="assminfo-paired-assmaccession">Assembly Paired Assembly Accession</option>
+            <option value="assminfo-paired-assmname">Assembly Paired Assembly Name</option>
+            <option value="assminfo-paired-assmstatus">Assembly Paired Assembly Status</option>
+            <option value="assminfo-refseq-category">Assembly Refseq Category</option>
+            <option value="assminfo-sequencing-tech">Assembly Sequencing Tech</option>
+            <option value="assminfo-status">Assembly Status</option>
+            <option value="assminfo-submission-date">Assembly Submission Date</option>
+            <option value="assminfo-submitter">Assembly Submitter</option>
+            <option value="assminfo-synonym">Assembly Synonym</option>
+            <option value="assminfo-type">Assembly Type</option>
+            <option value="assmstats-contig-l50">Assembly Stats Contig L50</option>
+            <option value="assmstats-contig-n50">Assembly Stats Contig N50</option>
+            <option value="assmstats-gaps-between-scaffolds-count">Assembly Stats Gaps Between Scaffolds Count</option>
+            <option value="assmstats-gc-count">Assembly Stats GC Count</option>
+            <option value="assmstats-gc-percent">Assembly Stats GC Percent</option>
+            <option value="assmstats-number-of-component-sequences">Assembly Stats Number of Component Sequences</option>
+            <option value="assmstats-number-of-contigs">Assembly Stats Number of Contigs</option>
+            <option value="assmstats-number-of-scaffolds">Assembly Stats Number of Scaffolds</option>
+            <option value="assmstats-scaffold-l50">Assembly Stats Scaffold L50</option>
+            <option value="assmstats-scaffold-n50">Assembly Stats Scaffold N50</option>
+            <option value="assmstats-total-number-of-chromosomes">Assembly Stats Total Number of Chromosomes</option>
+            <option value="assmstats-total-sequence-len">Assembly Stats Total Sequence Length</option>
+            <option value="assmstats-total-ungapped-len">Assembly Stats Total Ungapped Length</option>
+            <option value="current-accession">Current Accession</option>
+            <option value="organelle-assembly-name">Organelle Assembly Name</option>
+            <option value="organelle-bioproject-accessions">Organelle BioProject Accessions</option>
+            <option value="organelle-description">Organelle Description</option>
+            <option value="organelle-infraspecific-name">Organelle Infraspecific Name</option>
+            <option value="organelle-submitter">Organelle Submitter</option>
+            <option value="organelle-total-seq-length">Organelle Total Seq Length</option>
+            <option value="organism-common-name">Organism Common Name</option>
+            <option value="organism-infraspecific-breed">Organism Infraspecific Names Breed</option>
+            <option value="organism-infraspecific-cultivar">Organism Infraspecific Names Cultivar</option>
+            <option value="organism-infraspecific-ecotype">Organism Infraspecific Names Ecotype</option>
+            <option value="organism-infraspecific-isolate">Organism Infraspecific Names Isolate</option>
+            <option value="organism-infraspecific-sex">Organism Infraspecific Names Sex</option>
+            <option value="organism-infraspecific-strain">Organism Infraspecific Names Strain</option>
+            <option value="organism-name">Organism Name</option>
+            <option value="organism-pangolin">Organism Pangolin Classification</option>
+            <option value="organism-tax-id">Organism Taxonomic ID</option>
+            <option value="source_database">Source Database</option>
+            <option value="wgs-contigs-url">WGS contigs URL</option>
+            <option value="wgs-project-accession">WGS project accession</option>
+            <option value="wgs-url">WGS URL</option>
+            <yield/>
+        </param>
     </xml>
-    <token name="@INCLUDES_GENOME@">$file_choices.include_gbff $file_choices.include_gtf</token>
-    <token name="@INCLUDES_VIRUS_GENOME@">$include_gbff</token>
+
+    <xml name="gene_tsv_report_columns">
+        <param name="report_columns" type="select" multiple="true" optional="false" label="Columns in the report">
+            <option value="annotation-assembly-accession">Annotation Assembly Accession</option>
+            <option value="annotation-assembly-name">Annotation Assembly Name</option>
+            <option value="annotation-genomic-range-accession">Annotation Genomic Range Accession</option>
+            <option value="annotation-genomic-range-exon-order">Annotation Genomic Range Exons Order</option>
+            <option value="annotation-genomic-range-exon-orientation">Annotation Genomic Range Exons Orientation</option>
+            <option value="annotation-genomic-range-exon-start">Annotation Genomic Range Exons Start</option>
+            <option value="annotation-genomic-range-exon-stop">Annotation Genomic Range Exons Stop</option>
+            <option value="annotation-genomic-range-range-order">Annotation Genomic Range Order</option>
+            <option value="annotation-genomic-range-range-orientation">Annotation Genomic Range Orientation</option>
+            <option value="annotation-genomic-range-range-start">Annotation Genomic Range Start</option>
+            <option value="annotation-genomic-range-range-stop">Annotation Genomic Range Stop</option>
+            <option value="annotation-genomic-range-seq-name">Annotation Genomic Range Seq Name</option>
+            <option value="annotation-release-date">Annotation Release Date</option>
+            <option value="annotation-release-name">Annotation Release Name</option>
+            <option value="chromosomes">Chromosomes</option>
+            <option value="common-name">Common Name</option>
+            <option value="description">Description</option>
+            <option value="ensembl-geneids">Ensembl GeneIDs</option>
+            <option value="gene-id">NCBI GeneID</option>
+            <option value="gene-type">Gene Type</option>
+            <option value="genomic-region-gene-range-accession">Genomic Region Gene Range Sequence Accession</option>
+            <option value="genomic-region-gene-range-range-order">Genomic Region Gene Range Order</option>
+            <option value="genomic-region-gene-range-range-orientation">Genomic Region Gene Range Orientation</option>
+            <option value="genomic-region-gene-range-range-start">Genomic Region Gene Range Start</option>
+            <option value="genomic-region-gene-range-range-stop">Genomic Region Gene Range Stop</option>
+            <option value="genomic-region-genomic-region-type">Genomic Region Genomic Region Type</option>
+            <option value="group-id">Gene Group Identifier</option>
+            <option value="group-method">Gene Group Method</option>
+            <option value="name-authority">Nomenclature Authority</option>
+            <option value="name-id">Nomenclature ID</option>
+            <option value="omim-ids">OMIM IDs</option>
+            <option value="orientation">Orientation</option>
+            <option value="ref-standard-gene-range-accession">Reference Standard Gene Range Sequence Accession</option>
+            <option value="ref-standard-gene-range-range-order">Reference Standard Gene Range Order</option>
+            <option value="ref-standard-gene-range-range-orientation">Reference Standard Gene Range Orientation</option>
+            <option value="ref-standard-gene-range-range-start">Reference Standard Gene Range Start</option>
+            <option value="ref-standard-gene-range-range-stop">Reference Standard Gene Range Stop</option>
+            <option value="ref-standard-genomic-region-type">Reference Standard Genomic Region Type</option>
+            <option value="replaced-gene-id">Replaced NCBI GeneID</option>
+            <option value="rna-type">RNA Type</option>
+            <option value="swissprot-accessions">SwissProt Accessions</option>
+            <option value="symbol">Symbol</option>
+            <option value="synonyms">Synonyms</option>
+            <option value="tax-id">Taxonomic ID</option>
+            <option value="tax-name">Taxonomic Name</option>
+            <yield/>
+        </param>
+    </xml>
+    <xml name="prok_gene_tsv_report_columns">
+        <param name="report_columns" type="select" multiple="true" optional="false" label="Columns in the report">
+            <option value="accession">Accession</option>
+            <option value="description">Description</option>
+            <option value="ec-number">EC Number</option>
+            <option value="gene-symbol">Gene Symbol</option>
+            <option value="mapping-count">Number of Genome Mappings</option>
+            <option value="name-evidence-accession">Protein Name EvidenceAccession</option>
+            <option value="name-evidence-category">Protein Name EvidenceCategory</option>
+            <option value="name-evidence-source">Protein Name EvidenceSource</option>
+            <option value="protein-length">Protein Length</option>
+            <option value="protein-name">Protein Name</option>
+            <yield/>
+        </param>
+    </xml>
     <xml name="released_options" token_released_what="genomes" token_before_or_after="before">
-        <param argument="--released-@BEFORE_OR_AFTER@" type="text" optional="true" label="Only include @RELEASED_WHAT@ that have been released @BEFORE_OR_AFTER@ a specified date (MM/DD/YYYY)"></param>
+        <param argument="--released-@BEFORE_OR_AFTER@" type="text" optional="true" label="Only include @RELEASED_WHAT@ that have been released @BEFORE_OR_AFTER@ a specified date (MM/DD/YYYY)">
+            <validator type="regex" message="enter a date in the form MM/DD/YYYY">[0-9]{2}/[0-9]{2}/[0-9]{4}</validator>
+        </param>
     </xml>
     <token name="@RELEASED_BEFORE@">#if $filters.released_before:
 --released-before '$filters.released_before'
 #end if
     </token>
-    <token name="@RELEASED_SINCE@">#if $filters.released_since:
---released-since '$filters.released_since'
+    <token name="@RELEASED_AFTER@">#if $filters.released_after:
+--released-after '$filters.released_after'
 #end if
     </token>
+    <xml name="genome_fasta_assert" tokens="el1,el2,expression" token_ftype="fasta" token_expression_n="1">
+        <element name="@EL1@">
+            <element name="@EL2@" ftype="@FTYPE@" decompress="true">
+                <assert_contents>
+                    <has_text_matching expression="@EXPRESSION@" n="@EXPRESSION_N@"/>
+                </assert_contents>
+            </element>
+        </element>
+    </xml>
+    <xml name="citations">
+        <citations>
+            <citation type="bibtex">@misc{NCBI,
+                author = "{NCBI}",
+                title = "NCBI Datasets",
+                year = "2022",
+                url = "https://github.com/ncbi/datasets"}
+            </citation>
+        </citations>
+    </xml>
 </macros>
