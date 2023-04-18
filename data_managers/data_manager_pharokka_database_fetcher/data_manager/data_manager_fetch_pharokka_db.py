@@ -39,7 +39,6 @@ def main():
     else:
         command_args = ["install_databases.py", "-o", db_path]
 
-    # command_args = ["mkdir", db_path]
     proc = subprocess.Popen(args=command_args, shell=False)
     return_code = proc.wait()
     if return_code:
