@@ -35,8 +35,19 @@ def main():
     db_path = os.path.join(workdir, db_value)
 
     # create DB
-    if args.test:  # the test only checks that the pharokka download script is available
-        command_args = ["install_databases.py", "-h"]
+    if args.test:  # the test only checks that the pharokka download script is available and copies the test DB 
+
+        #check if install_databases.py is there
+        ["install_databases.py", "-h"]
+        proc = subprocess.Popen(args=command_args, shell=False)
+        return_code = proc.wait()
+        if return_code:
+            print("Error downloading Pharokka database.", file=sys.stderr)
+            sys.exit(return_code)
+
+        # copy the test DB
+        test_db_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "subset_pharokka_db")
+        command_args = ["cp","-r", test_db_path, db_path]
     else:
         command_args = ["install_databases.py", "-o", db_path]
 
@@ -52,7 +63,7 @@ def main():
             "pharokka_db": {
                 "value": db_value,
                 "dbkey": db_value,
-                "version":args.version,
+                "version": args.version,
                 "name": f"Pharokka DB version {args.version} downloaded at {datetime.now()}",
                 "path": db_path,
             }
