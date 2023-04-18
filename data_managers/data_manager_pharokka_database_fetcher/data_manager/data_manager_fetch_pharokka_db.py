@@ -35,10 +35,10 @@ def main():
     db_path = os.path.join(workdir, db_value)
 
     # create DB
-    if args.test:  # the test only checks that the pharokka download script is available and copies the test DB 
+    if args.test:  # the test only checks that the pharokka download script is available and copies the test DB
 
-        #check if install_databases.py is there
-        ["install_databases.py", "-h"]
+        # check if install_databases.py is there
+        command_args = ["install_databases.py", "-h"]
         proc = subprocess.Popen(args=command_args, shell=False)
         return_code = proc.wait()
         if return_code:
@@ -47,7 +47,7 @@ def main():
 
         # copy the test DB
         test_db_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "subset_pharokka_db")
-        command_args = ["cp","-r", test_db_path, db_path]
+        command_args = ["cp", "-r", test_db_path, db_path]
     else:
         command_args = ["install_databases.py", "-o", db_path]
 
