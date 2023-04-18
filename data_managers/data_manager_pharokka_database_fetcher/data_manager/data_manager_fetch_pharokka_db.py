@@ -12,6 +12,7 @@ def main():
     # Parse Command Line
     parser = argparse.ArgumentParser(description="Create data manager JSON.")
     parser.add_argument("--out", dest="output", action="store", help="JSON filename")
+    parser.add_argument("--version", dest="version", action="store", help="Version of the DB")
     parser.add_argument(
         "--test",
         action="store_true",
@@ -34,7 +35,7 @@ def main():
     db_path = os.path.join(workdir, db_value)
 
     # create DB
-    if args.test:  # the test just checks that the pharokka download script is available
+    if args.test:  # the test only checks that the pharokka download script is available
         command_args = ["install_databases.py", "-h"]
     else:
         command_args = ["install_databases.py", "-o", db_path]
@@ -51,7 +52,8 @@ def main():
             "pharokka_db": {
                 "value": db_value,
                 "dbkey": db_value,
-                "name": "Pharokka DB downloaded at {0}".format(datetime.now()),
+                "version":args.version,
+                "name": f"Pharokka DB version {args.version} downloaded at {datetime.now()}",
                 "path": db_path,
             }
         }
