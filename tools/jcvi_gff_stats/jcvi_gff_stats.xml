@@ -1,89 +1,353 @@
-<?xml version="1.0"?>
-<tool id="jcvi_gff_stats" name="Genome annotation statistics" profile="16.04" version="@VERSION@">
-    <description></description>
+<tool id="jcvi_gff_stats" name="Genome annotation statistics" profile="20.05" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <description>with JCVI utility libraries</description>
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements"/>
     <command><![CDATA[
-
-        ln -s '${gff}' 'input.gff'
-
-        &&
-
-        python -m jcvi.annotation.stats genestats 'input.gff' > '${summary}'
-
-        &&
-
-        #if str($ref_genome.genome_type_select) == "indexed":
-            python -m jcvi.annotation.stats summary 'input.gff' '${ref_genome.genome.fields.path}' 2>&1 | tail -n +3 >> '${summary}'
+        #if $mode.selector == 'stats'
+            ln -s '$mode.{gff}' 'input.gff' &&
+            python -m jcvi.annotation.stats genestats 'input.gff' > '${summary}' &&
+            #if str($mode.ref_genome.genome_type_select) == "indexed":
+                python -m jcvi.annotation.stats summary 'input.gff' '$mode.{ref_genome.genome.fields.path}' 2>&1 | tail -n +3 >> '${summary}' &&
+            #else
+                python -m jcvi.annotation.stats summary 'input.gff' '$mode.{ref_genome.genome}' 2>&1 | tail -n +3 >> '${summary}' &&
+            #end if
+            python -m jcvi.annotation.stats stats --gene '$mode.{gene}' --exon '$mode.{exon}' 'input.gff' 2>&1 | grep Mean >> '${summary}' &&
+            python -m jcvi.annotation.stats histogram  --bins $mode.bins 'input.gff' &&
+            gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile='${graphs}' *.input.pdf 
         #else
-            python -m jcvi.annotation.stats summary 'input.gff' '${ref_genome.genome}' 2>&1 | tail -n +3 >> '${summary}'
-        #end if
-
-        &&
-
-        python -m jcvi.annotation.stats stats 'input.gff' 2>&1 | grep Mean >> '${summary}'
-
-        &&
-
-        python -m jcvi.annotation.stats histogram 'input.gff'
-
-        &&
-
-        pdfunite *.input.pdf '${graphs}'
-    ]]></command>
-    <inputs>
-        <param name="gff" type="data" format="gff" label="Annotation to analyse"/>
-        <conditional name="ref_genome">
-            <param label="Reference genome" name="genome_type_select" type="select">
-                <option selected="True" value="indexed">Use a built-in genome</option>
-                <option value="history">Use a genome from history</option>
+            ln -s '${mode.seqids}' seqids.txt &&
+            ln -s '${mode.macrosynteny_layout}' macrosynteny_layout.txt &&
+            ln -s '${mode.microsynteny_layout}' microsynteny_layout.txt &&
+            #if $mode.fasta_file1.ext.endswith('.gz')
+                ln -s '$mode.fasta_file1' 'genome1_raw.fasta.gz' &&
+                #set $genome1 = 'genome1_raw.fasta.gz'
+            #else
+                ln -s '$mode.fasta_file1' 'genome1_raw.fasta' &&
+                #set $genome1 = 'genome1_raw.fasta'
+            #end if
+            #if $mode.fasta_file2.ext.endswith('.gz')
+                ln -s '$mode.fasta_file2' 'genome2_raw.fasta.gz' &&
+                #set $genome2 = 'genome2_raw.fasta.gz'
+            #else
+                ln -s '$mode.fasta_file2' 'genome2_raw.fasta' &&
+                #set $genome2 = 'genome2_raw.fasta'
+            #end if
+            python -m jcvi.formats.fasta format $genome1 genome1.cds &&
+            python -m jcvi.formats.fasta format $genome2 genome2.cds &&
+            #if $mode.coordinates.selector == 'gff'
+                #if $mode.coordinates.gff_file1.ext.endswith('.gz')
+                    ln -s '$mode.coordinates.gff_file1' 'genome1.gff.gz' &&
+                    #set $annotation1 = 'genome1.gff.gz'
+                #else
+                    ln -s '$mode.coordinates.gff_file1' 'genome1.gff' &&
+                    #set $annotation1 = 'genome1.gff'
+                #end if
+                #if $mode.coordinates.gff_file2.ext.endswith('.gz')
+                    ln -s '$mode.coordinates.gff_file2' 'genome2.gff.gz' &&
+                    #set $annotation2 = 'genome2.gff.gz'
+                #else
+                    ln -s '$mode.coordinates.gff_file2' 'genome2.gff' &&
+                    #set $annotation2 = 'genome2.gff'
+                #end if
+                python -m jcvi.formats.gff bed --type='${mode.coordinates.type}' --key='${mode.coordinates.key}' $mode.primary_only $annotation1 -o genome1.bed &&
+                python -m jcvi.formats.gff bed --type='${mode.coordinates.type}' --key='${mode.coordinates.key}' $mode.primary_only $annotation2 -o genome2.bed &&
+            #else
+                ln -s '$mode.bed_file' 'genome1.bed' &&
+                ln -s '$mode.bed_file' 'genome2.bed' &&
+            #end if
+            ## Pairwise synteny search
+            ## Pairwise synteny visualization
+            #if $mode.cscore
+                python -m jcvi.compara.catalog --cscore=$mode.cscore ortholog genome1 genome2 --no_strip_names &&
+            #else
+                python -m jcvi.compara.catalog ortholog genome1 genome2 --no_strip_names &&
+            #end if
+            python -m jcvi.graphics.dotplot genome1.genome2.anchors &&
+            mv genome1.genome2.pdf synteny_visualization.pdf &&
+            python -m jcvi.compara.synteny depth --histogram genome1.genome2.anchors &&
+            ## Macrosynteny visualization
+            python -m jcvi.compara.synteny screen --minspan=30 --simple genome1.genome2.anchors genome1.genome2.anchors.new &&
+            python -m jcvi.graphics.karyotype seqids.txt macrosynteny_layout.txt &&
+            ## Microsynteny visualization
+            python -m jcvi.compara.synteny mcscan genome1.bed genome1.genome2.lifted.anchors --iter=1 -o genome1.genome2.i1.blocks &&
+            #if $mode.regions_visualize
+                head -$mode.regions_visualize genome1.genome2.i1.blocks > blocks &&
+            #else
+                ln -s genome1.genome2.i1.blocks blocks &&
+            #end if
+            cat genome1.bed genome2.bed > combined.bed &&
+            #if $mode.names_conditional.selector == 'true'
+                python -m jcvi.graphics.synteny blocks --genelabelsize=$mode.names_conditional.genelabelsize --genelabels='${mode.names_conditional.genelabels}' combined.bed microsynteny_layout.txt &&
+            #else
+                python -m jcvi.graphics.synteny blocks combined.bed microsynteny_layout.txt &&
+            #end if
+            ls -lah
+         #end if
+        ]]></command>
+        <inputs>
+            <conditional name="mode">
+                <param name="selector" type="select" label="Tool function">
+                <option value="stats">Generate statistics</option>
+                <option value="collinearity">Multiple collinearity scan</option>
             </param>
-            <when value="indexed">
-                <param
-                  help="If your genome of interest is not listed, contact the Galaxy server administrators"
-                  label="Select a reference genome"
-                  name="genome"
-                  type="select"
-                  >
-                    <options from_data_table="all_fasta">
-                        <filter column="2" type="sort_by" />
-                        <validator message="No genomes are available" type="no_options" />
-                    </options>
+            <when value="stats">
+                <param name="gff" type="data" format="gff" label="Annotation to analyse"/>
+                <conditional name="ref_genome">
+                    <param label="Reference genome" name="genome_type_select" type="select">
+                        <option selected="True" value="indexed">Use a built-in genome</option>
+                        <option value="history">Use a genome from history</option>
+                    </param>
+                    <when value="indexed">
+                        <param
+                          help="If your genome of interest is not listed, contact the Galaxy server administrators"
+                          label="Select a reference genome"
+                          name="genome"
+                          type="select"
+                          >
+                            <options from_data_table="all_fasta">
+                                <filter column="2" type="sort_by" />
+                                <validator message="No genomes are available" type="no_options" />
+                            </options>
+                        </param>
+                    </when>
+                    <when value="history">
+                          <param name="genome" type="data" format="fasta" label="Corresponding genome sequence"/>
+                    </when>
+                </conditional>
+                <param argument="--gene" type="text" value="mRNA" label="Gene type" help="Gene type, used by the stats function">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters"/>
+                    </sanitizer>
+                    <validator type="regex">[a-zA-Z]+</validator>
                 </param>
+                <param argument="--exon" type="text" value="CDS" label="Exon type" help="Exon type, used by the stats function">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters"/>
+                    </sanitizer>
+                    <validator type="regex">[a-zA-Z]+</validator>
+                </param>
+                <param argument="--bins" type="integer" min="1" value="40" label="Nunmber of bins to plot in the histogram" />
             </when>
-            <when value="history">
-                  <param name="genome" type="data" format="fasta" label="Corresponding genome sequence"/>
+            <when value="collinearity">
+                <param name="fasta_file1" type="data" format="fasta,fasta.gz" label="FASTA file 1" help="Genome sequences in FASTA format" />
+                <param name="fasta_file2" type="data" format="fasta,fasta.gz" label="FASTA file 2" help="Genome sequences in FASTA format" />
+                <conditional name="coordinates">
+                    <param name="selector" type="select" label="Coordinates datatype">
+                        <option value="gff">GFF</option>
+                        <option value="bed">BED</option>
+                    </param>
+                    <when value="gff">
+                        <param name="gff_file1" type="data" format="gff,gff.gz,gff3,gff3.gz" label="Annotation file 1" help="The annotation file can be compressed." />
+                        <param name="gff_file2" type="data" format="gff,gff.gz,gff3,gff3.gz" label="Annotation file 2" help="The annotation file can be compressed." />
+                        <param name="type" type="text" value="mRNA" label="Product type">
+                            <sanitizer invalid_char="">
+                                <valid initial="string.letters"/>
+                            </sanitizer>
+                            <validator type="regex">[a-zA-Z]+</validator>
+                        </param>
+                        <param name="key" type="text" value="Name" label="Key">
+                            <sanitizer invalid_char="">
+                                <valid initial="string.letters"/>
+                            </sanitizer>
+                            <validator type="regex">[a-zA-Z]+</validator>
+                        </param>
+                    </when>
+                    <when value="bed">
+                        <param name="bed_file1" type="data" format="bed" label="BED file 1"/>
+                        <param name="bed_file2" type="data" format="bed" label="BED file 2"/>
+                    </when>
+                </conditional>
+                <param name="seqids" type="data" format="txt" label="seqids file" help="This file indicates which set of chromosomes to include. Each set should be included in a different 
+                    line, and each entry should be separated by comma" />
+                <param name="macrosynteny_layout" type="data" format="txt" label="Macrosynteny layout file" help="This file tells the plotter where to draw what. More information in the help section." />
+                <param name="microsynteny_layout" type="data" format="txt" label="Microsynteny layout file" help="This file tells the plotter where to draw what. More information in the help section." />
+                <param argument="--primary_only" type="boolean" truevalue="--primary_only" falsevalue="" checked="false" label="Include only one isoform per transcript"/>
+                <param argument="--cscore" type="float" min="0" max="1" value="" optional="true" label="C-score" help="The ratio of LAST hit to the best BLAST hits to either the query 
+                    and hit. A C-score cutoff of .99 effectively filters the LAST hit to contain reciprocal best hit (RBH)" />
+                <param argument="--iter" type="integer" min="0"  value="1" label="Iter" help="Number of best regions that on genome1 that match genome2" />
+                <param name="regions_visualize" type="integer" min="0" value="" optional="true" label="Number of regions to visualize in microsyntheny plot" help="If not specified, all regions will be plotted" />
+                <conditional name="names_conditional">
+                    <param name="selector" type="select" label="Specify gene IDs">
+                        <option value="false">False</option>
+                        <option value="true">True</option>
+                    </param>
+                    <when value="false"/>
+                    <when value="true">
+                        <param argument="--genelabelsize" type="integer" min="1" max="50" value="10" label="Gene label size"/>
+                        <param argument="--genelabels" type="text" value="" label="Gene labels">
+                            <sanitizer invalid_char="">
+                                <valid initial="string.letters,string.digits">
+                                    <add value="_" />
+                                    <add value="-" />
+                                    <add value="." />
+                                </valid>
+                            </sanitizer>
+                            <validator type="regex">[0-9a-zA-Z_.-]+</validator>
+                        </param>
+                    </when>
+                </conditional>
             </when>
         </conditional>
     </inputs>
     <outputs>
-        <data format="txt" name="summary" label="${tool.name} on ${on_string}: summary"/>
-        <data format="pdf" name="graphs" label="${tool.name} on ${on_string}: graphs"/>
+        <data format="txt" name="summary" label="${tool.name} on ${on_string}: summary">
+            <filter>mode['selector'] == 'stats'</filter>
+        </data>
+        <data format="pdf" name="graphs" label="${tool.name} on ${on_string}: graphs">
+            <filter>mode['selector'] == 'stats'</filter>
+        </data>
+        <data format="pdf" name="plot_visualization" from_work_dir="synteny_visualization.pdf" label="${tool.name} on ${on_string}: pairwise synteny visualization">
+            <filter>mode['selector'] == 'collinearity'</filter>
+        </data>
+        <data format="pdf" name="plot_depth" from_work_dir="genome1.genome2.depth.pdf" label="${tool.name} on ${on_string}: pairwise synteny pattern">
+            <filter>mode['selector'] == 'collinearity'</filter>
+        </data>
+        <data format="bed" name="bed1" from_work_dir="genome1.bed" label="${tool.name} on ${on_string}: bed1">
+            <filter>mode['selector'] == 'collinearity'</filter>
+        </data>
+        <data format="bed" name="bed2" from_work_dir="genome2.bed" label="${tool.name} on ${on_string}: bed2">
+            <filter>mode['selector'] == 'collinearity'</filter>
+        </data>
+        <data format="pdf" name="plot_karyotype" from_work_dir="karyotype.pdf" label="${tool.name} on ${on_string}: macrosynteny karyotype">
+            <filter>mode['selector'] == 'collinearity'</filter>
+        </data>
+        <data format="pdf" name="plot_blocks" from_work_dir="blocks.pdf" label="${tool.name} on ${on_string}: microsynteny blocks plot">
+            <filter>mode['selector'] == 'collinearity'</filter>
+        </data>
+        <data format="tabular" name="microsynteny_table" from_work_dir="genome1.genome2.i1.blocks" label="${tool.name} on ${on_string}: microsynteny local regions">
+            <filter>mode['selector'] == 'collinearity'</filter>
+        </data>
     </outputs>
     <tests>
         <test>
-            <param name="gff" value="annot.gff3"/>
-            <conditional name="ref_genome">
-                <param name="genome_type_select" value="history"/>
-                <param name="genome" value="genome.fasta"/>
+            <conditional name="mode">
+                <param name="selector" value="stats"/>
+                <param name="gff" value="annot.gff3"/>
+                <conditional name="ref_genome">
+                    <param name="genome_type_select" value="history"/>
+                    <param name="genome" value="genome.fasta"/>
+                </conditional>
             </conditional>
             <output name="summary" file="summary.txt"/>
             <output name="graphs" file="all.pdf" compare="sim_size"/>
         </test>
         <test>
-            <param name="gff" value="annot.gff3"/>
-            <conditional name="ref_genome">
-                <param name="genome_type_select" value="indexed"/>
-                <param name="genome" value="merlin"/>
+            <conditional name="mode">
+                <param name="selector" value="stats"/>
+                <param name="gff" value="annot.gff3"/>
+                <conditional name="ref_genome">
+                    <param name="genome_type_select" value="indexed"/>
+                    <param name="genome" value="merlin"/>
+                </conditional>
             </conditional>
             <output name="summary" file="summary.txt"/>
             <output name="graphs" file="all.pdf" compare="sim_size"/>
         </test>
+        <test expect_num_outputs="5">
+            <conditional name="mode">
+                <param name="selector" value="collinearity"/>
+                <param name="fasta_file1" value="genome2.fasta.gz"/>
+                <param name="fasta_file2" value="genome1.fasta.gz"/>
+                <param name="seqids" value="seqids.txt"/>
+                <param name="macrosynteny_layout" value="macrosynteny_layout.txt"/>
+                <param name="microsynteny_layout" value="microsynteny_layout.txt"/>
+                <param name="primary_only" value="false"/>
+                <param name="cscore" value="0.99"/>
+                <param name="iter" value="1"/>
+                <param name="regions_visualize" value="50"/>
+                <conditional name="coordinates">
+                    <param name="selector" value="gff"/>
+                    <param name="gff_file1" value="genome2.gff.gz"/>
+                    <param name="gff_file2" value="genome1.gff.gz"/>
+                    <param name="type" value="mRNA"/>
+                    <param name="key" value="Name"/>
+                </conditional>
+            </conditional>
+            <output name="plot_visualization" file="test_03_visualization.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="plot_depth" file="test_03_depth.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="plot_karyotype" file="test_03_karyotpye.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="plot_blocks"  file="test_03_blocks.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="microsynteny_table" file="test_03_table.tab" ftype="tabular"/>
+        </test>
+        <test expect_num_outputs="5">
+            <conditional name="mode">
+                <param name="selector" value="collinearity"/>
+                <param name="fasta_file1" value="genome2.fasta.gz"/>
+                <param name="fasta_file2" value="genome1.fasta.gz"/>
+                <param name="seqids" value="seqids.txt"/>
+                <param name="macrosynteny_layout" value="macrosynteny_layout.txt"/>
+                <param name="microsynteny_layout" value="microsynteny_layout.txt"/>
+                <param name="primary_only" value="false"/>
+                <param name="cscore" value=""/>
+                <param name="iter" value="1"/>
+                <param name="regions_visualize" value="50"/>
+                <conditional name="coordinates">
+                    <param name="selector" value="bed"/>
+                    <param name="bed_file1" value="genome2.bed"/>
+                    <param name="bed_file2" value="genome1.bed"/>
+                </conditional>
+            </conditional>
+            <output name="plot_visualization" file="test_04_visualization.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="plot_depth" file="test_04_depth.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="plot_karyotype" file="test_04_karyotpye.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="plot_blocks"  file="test_04_blocks.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="microsynteny_table" file="test_04_table.tab" ftype="tabular"/>
+        </test>
+        <test expect_num_outputs="5">
+            <conditional name="mode">
+                <param name="selector" value="collinearity"/>
+                <param name="fasta_file1" value="genome2.fasta.gz"/>
+                <param name="fasta_file2" value="genome1.fasta.gz"/>
+                <param name="seqids" value="seqids.txt"/>
+                <param name="macrosynteny_layout" value="macrosynteny_layout.txt"/>
+                <param name="microsynteny_layout" value="microsynteny_layout.txt"/>
+                <param name="primary_only" value="true"/>
+                <param name="cscore" value="0.99"/>
+                <param name="iter" value="2"/>
+                <param name="regions_visualize" value="50"/>
+                <conditional name="coordinates">
+                    <param name="selector" value="bed"/>
+                    <param name="bed_file1" value="genome2.bed"/>
+                    <param name="bed_file2" value="genome1.bed"/>
+                </conditional>
+                <conditional name="names_conditional">
+                    <param name="selector" value="true"/>
+                    <param name="genelabels" value="GSVIVT01004795001"/>
+                </conditional>
+            </conditional>
+            <output name="plot_visualization" file="test_05_visualization.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="plot_depth" file="test_05_depth.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="plot_karyotype" file="test_05_karyotpye.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="plot_blocks"  file="test_05_blocks.pdf" ftype="pdf" compare="sim_size" delta="100"/>
+            <output name="microsynteny_table" file="test_05_table.tab" ftype="tabular"/>
+        </test>
     </tests>
     <help><![CDATA[
-        Based on JCVI Python utility libraries on genome assembly, annotation and comparative genomics.
+
+.. class:: infomark
+
+**Purpose**
+        
+Based on JCVI Python utility libraries on genome assembly, annotation and comparative genomics.
+
+.. class:: infomark
+
+**Layout file**
+
+the layout file, which tells the plotter where to draw what. The whole canvas is 0-1 on x-axis and 0-1 on y-axis. First, three columns 
+specify the position of the track. Then rotation, color, label, vertical alignment (va), and then the genome BED file. Track 0 is now grape, track 1 is now peach.
+
+        ::
+
+            # y, xstart, xend, rotation, color, label, va,  bed
+            .6,     .1,    .8,       0,      , Grape, top, grape.bed
+            .4,     .1,    .8,       0,      , Peach, top, peach.bed
+            # edges
+            e, 0, 1, grape.peach.anchors.simple
+    
+The next stanza specifies what edges to draw between the tracks. e, 0, 1 asks to draw edges between track 0 and 1, using information from the .simple file.           
 
         .. _JCVI Python utilities: https://github.com/tanghaibao/jcvi
     ]]></help>
