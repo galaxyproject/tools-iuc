@@ -1,7 +1,8 @@
 # setup R error handling to go to stderr
 library("getopt")
 options(show.error.messages = F, error = function() {
-  cat(geterrmessage(), file = stderr()); q("no", 1, F)
+  cat(geterrmessage(), file = stderr())
+  q("no", 1, FALSE)
 })
 options(stringAsFactors = FALSE, useFancyQuotes = FALSE)
 
@@ -18,7 +19,7 @@ setup_cmdline_options <- function() {
     "header", "H", 0, "logical",
     "txtype", "y", 1, "character",
     "tx2gene", "x", 1, "character", # a space-sep tx-to-gene map or GTF file (auto detect .gtf/.GTF)
-    "ruv_ncounts","ruv_ncounts",0,"logical"),
+    "ruv_ncounts", "ruv_ncounts", 0, "logical"),
     byrow = TRUE, ncol = 4)
 
   opt <- getopt(spec)
@@ -156,7 +157,7 @@ alpha <- opt$alpha
 min_k <- opt$min_k
 max_k <- opt$max_k
 min_c <- opt$min_mean_count
-ruv_ncounts <- ifelse ( is.null(opt$ruv_ncounts ) , FALSE, TRUE )
+ruv_ncounts <- ifelse (is.null(opt$ruv_ncounts), FALSE, TRUE)
 sample_json <- fromJSON(opt$sample_json)
 sample_paths <- sample_json$path
 sample_names <- sample_json$label
@@ -185,12 +186,12 @@ for (name in names(result)) {
     df <- data.frame(identifier = rownames(unwanted_variation))
     df <- cbind(df, unwanted_variation)
     colnames(df)[2] <- "condition"
-    write.table(df, file = paste0("batch_effects_", name, ".tabular"),  sep = "\t", quote = F, row.names = F)
+    write.table(df, file = paste0("batch_effects_", name, ".tabular"),  sep = "\t", quote = FALSE, row.names = FALSE)
   }
-  if(ruv_ncounts){
+  if(ruv_ncounts) {
     ruvnorm_counts <- normCounts(set)
     ruvnorm_df <- data.frame(geneID = rownames(ruvnorm_counts), ruvnorm_counts)
-    write.table(ruvnorm_df, file = paste0("ruv_norm_counts_", name, ".tabular"),  sep = "\t", quote = F, row.names = F)
+    write.table(ruvnorm_df, file = paste0("ruv_norm_counts_", name, ".tabular"),  sep = "\t", quote = FALSE, row.names = FALSE)
   }
 
 }
