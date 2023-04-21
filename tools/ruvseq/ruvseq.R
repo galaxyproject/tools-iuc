@@ -1,6 +1,6 @@
 # setup R error handling to go to stderr
 library("getopt")
-options(show.error.messages = F, error = function() {
+options(show.error.messages = FALSE, error = function() {
   cat(geterrmessage(), file = stderr())
   q("no", 1, FALSE)
 })
@@ -157,7 +157,7 @@ alpha <- opt$alpha
 min_k <- opt$min_k
 max_k <- opt$max_k
 min_c <- opt$min_mean_count
-ruv_ncounts <- ifelse (is.null(opt$ruv_ncounts), FALSE, TRUE)
+ruv_ncounts <- ifelse(is.null(opt$ruv_ncounts), FALSE, TRUE)
 sample_json <- fromJSON(opt$sample_json)
 sample_paths <- sample_json$path
 sample_names <- sample_json$label
@@ -188,7 +188,7 @@ for (name in names(result)) {
     colnames(df)[2] <- "condition"
     write.table(df, file = paste0("batch_effects_", name, ".tabular"),  sep = "\t", quote = FALSE, row.names = FALSE)
   }
-  if(ruv_ncounts) {
+  if (ruv_ncounts) {
     ruvnorm_counts <- normCounts(set)
     ruvnorm_df <- data.frame(geneID = rownames(ruvnorm_counts), ruvnorm_counts)
     write.table(ruvnorm_df, file = paste0("ruv_norm_counts_", name, ".tabular"),  sep = "\t", quote = FALSE, row.names = FALSE)
