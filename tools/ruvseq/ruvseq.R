@@ -186,7 +186,7 @@ for (name in names(result)) {
     df <- data.frame(identifier = rownames(unwanted_variation))
     df <- cbind(df, unwanted_variation)
     colnames(df)[2] <- "condition"
-    write.table(df, file = paste0("batch_effects_", name, ".tabular"),  sep = "\t", quote = FALSE, row.names = FALSE)
+    write.table(df, file = paste0("uv_batch_effects_", name, ".tabular"),  sep = "\t", quote = FALSE, row.names = FALSE)
     if (ruv_ncounts) {
       ruvnorm_counts <- normCounts(set)
       ruvnorm_df <- data.frame(geneID = rownames(ruvnorm_counts), ruvnorm_counts)
