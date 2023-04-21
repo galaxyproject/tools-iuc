@@ -187,11 +187,11 @@ for (name in names(result)) {
     df <- cbind(df, unwanted_variation)
     colnames(df)[2] <- "condition"
     write.table(df, file = paste0("batch_effects_", name, ".tabular"),  sep = "\t", quote = FALSE, row.names = FALSE)
-  }
-  if (ruv_ncounts) {
-    ruvnorm_counts <- normCounts(set)
-    ruvnorm_df <- data.frame(geneID = rownames(ruvnorm_counts), ruvnorm_counts)
-    write.table(ruvnorm_df, file = paste0("ruv_norm_counts_", name, ".tabular"),  sep = "\t", quote = FALSE, row.names = FALSE)
+    if (ruv_ncounts) {
+      ruvnorm_counts <- normCounts(set)
+      ruvnorm_df <- data.frame(geneID = rownames(ruvnorm_counts), ruvnorm_counts)
+      write.table(ruvnorm_df, file = paste0("ruv_norm_counts_", name, ".tabular"),  sep = "\t", quote = FALSE, row.names = FALSE)
+    }
   }
 
 }
