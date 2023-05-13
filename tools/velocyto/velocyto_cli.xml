@@ -1,0 +1,293 @@
+<tool id="velocyto_cli" name="velocyto CLI" version="@VERSION@+galaxy0">
+    <description>pre-process data for the analysis of RNA velocity</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="edam"/>
+    <expand macro="requirements"/>
+    <stdio>
+      <!-- Anything other than zero is an error -->
+      <exit_code level="fatal" range="1:"/>
+      <exit_code level="fatal" range=":-1"/>
+      <!-- In case the return code has not been set propery check stderr too -->
+      <regex level="fatal" match="Error:" source="both" />
+      <regex level="fatal" match="Exception:" source="both" />
+      <regex level="fatal_oom" match="Can't calloc" source="both" />
+    </stdio>
+    <version_command><![CDATA[
+    velocyto --version
+    ]]></version_command>
+    <command>
+<![CDATA[
+#import re
+
+#if str($main.do) == "run10x":
+  ## We need to reproduce cell ranger structure:
+  mkdir -p '$main.sample/outs/filtered_gene_bc_matrices/whatever/' &&
+  ln -s '${main.BAM}' '$main.sample/outs/possorted_genome_bam.bam' &&
+  ln -s '${main.barcodes}' '$main.sample/outs/filtered_gene_bc_matrices/whatever/barcodes.tsv' &&
+#else if str($main.do) in ['run', 'run-smartseq2']:
+  #for $bam in $main.bamfiles:
+    #set input_name = re.sub('[^\w\-\s]', '_', str($bam.element_identifier))
+    cp '$bam' '${input_name}.bam' &&
+  #end for
+#end if
+velocyto
+
+#if str($main.do) == "run":
+run
+  @LOOMOUT@
+  #if str($main.b) != 'None':
+    -b '$main.b'
+  #end if
+  #if str($main.m) != 'None':
+    -m '$main.m' 
+  #end if
+  $main.c
+  $main.U
+  #if str($main.u):
+    -u '$main.u'
+  #end if
+  $main.M
+  -t '$main.t'
+  @SAMTOOLS_OPTS@
+  $verbosity
+  *.bam
+  '$main.gtffile'
+
+#else if str($main.do) == "run10x":
+run10x
+  #if str($main.s) != 'None':
+    -s '$main.s'
+  #end if
+  #if str($main.m) != 'None':
+    -m '$main.m' 
+  #end if
+  $main.M
+  -t '$main.t'
+  @SAMTOOLS_OPTS@
+  '$verbosity'
+  '$main.sample'
+  '$main.gtffile'
+&& mv '$main.sample/velocyto/'*.loom 'output.loom'
+
+#else if str($main.do) == "run-smartseq2":
+run-smartseq2
+   @LOOMOUT@
+  #if str($main.m) != 'None':
+    -m '$main.m' 
+  #end if
+  -t '$main.t'
+  @SAMTOOLS_OPTS@
+  '$verbosity'
+  *.bam
+  '$main.gtffile'
+
+#else if str($main.do) == "run-dropest":
+run-dropest
+   @LOOMOUT@
+  #if str($main.b) != 'None':
+    -b '$main.b'
+  #end if
+  #if str($main.m) != 'None':
+    -m '$main.m' 
+  #end if
+  -t '$main.t'
+  @SAMTOOLS_OPTS@
+  '$verbosity'
+  '$main.bamfile'
+  '$main.gtffile'
+
+#else if str($main.do) == "dropest-bc-correct":
+tools dropest-bc-correct
+  -o '$barcodesout'
+  '$main.bamfile'
+  '$main.rfile'
+#end if
+
+]]>
+    </command>
+    <inputs>
+        <conditional name="main"  >
+            <param name="do" type="select" label="Pipeline"
+                   help="" >
+                <option value="run10x" selected="true">Analysis for a 10x Chromium Sample</option>
+                <option value="run-smartseq2">Analysis on SmartSeq2 data (BAM file per cell)</option>
+                <option value="run-dropest">Analysis on DropEst preprocessed data</option>
+                <!-- the above are wrappers for the main "run" command -->
+                <option value="run" >Analysis for other protocols</option>
+                <option value="dropest-bc-correct">Correct DropEst barcodes and produce valid barcodes file</option>
+            </param>
+            <when value="run10x" >
+                <param name="sample" type="text" value="sample" label="sample name" help="This name will appear as prefix of each cell barcode.">
+                    <sanitizer invalid_char="">
+                        <valid initial="string.letters,string.digits">
+                            <add value="_" />
+                        </valid>
+                    </sanitizer>
+                    <validator type="regex">[0-9a-zA-Z_]+</validator>
+                </param>
+                <param name="BAM" type="data" format="bam" label="BAM file including CB tag" help="Can be Cell ranger output or STAR solo output" />
+                <param name="barcodes" type="data" format="tsv,tabular,txt" label="List of valid cell barcodes" help="Can be STAR solo barcodes output" />
+                <param name="gtffile" type="data" format="gtf" label="GTF file" />
+                <param argument="-s" type="data" format="csv" optional="true"
+                       label="Metadata Table"
+                       help="Table containing metadata of the various samples (csv formatted rows are samples and cols are entries)" />
+                <expand macro="repmask" />
+                <expand macro="notuniquemappings" />
+                <expand macro="loomdtype" token_16_selected="true" token_32_selected="false" />
+            </when>
+            <when value="run-smartseq2" >
+                <param name="bamfiles" type="data" format="bam" multiple="true"
+                       label="BAM files" help="A BAM file for each cell. At least two required." />
+                <param name="gtffile" type="data" format="gtf" label="GTF file" />
+                <expand macro="repmask" />
+                <expand macro="loomdtype" token_16_selected="false" token_32_selected="true" />
+            </when>
+            <when value="run-dropest" >
+                <param name="bamfile" type="data" format="bam" label="BAM file" help="BAM file" />
+                <param name="gtffile" type="data" format="gtf" label="GTF file" />
+                <expand macro="bcffile" />
+                <expand macro="repmask" />
+                <expand macro="loomdtype" token_16_selected="false" token_32_selected="true" />
+            </when>
+            <when value="run" >
+                <param name="bamfiles" type="data" format="bam" label="BAM file" help="BAM file" multiple="true"/>
+                <param name="gtffile" type="data" format="gtf" label="GTF file" />
+                <expand macro="bcffile" />
+                <expand macro="repmask" />
+                <param argument="-c" type="boolean" truevalue="-c" falsevalue="" checked="false"
+                       label="One file per cell?"
+                       help="If this flag is used every bamfile passed is interpreted as an independent cell, otherwise multiple files are interpreted as batch of different cells to be analyzed together. Important: cells reads should not be distributed over multiple bamfiles is not supported!! (default: off)" />
+                <param argument="-U" type="boolean" truevalue="-U" falsevalue="" checked="false"
+                       label="Without UMI?"
+                       help="If this flag is used the data is assumed UMI-less and reads are counted instead of molecules (default: off)" />
+                <param argument="-u" type="text" value="" optional="true"
+                       label="UMI extension"
+                       help="In case UMI is too short to guarantee uniqueness (without information from the ampping) set this parameter to chr, Gene ro [N]bp If set to chr the mapping position (binned to 10Gb intervals) will be appended to UB (ideal for InDrops+dropEst). If set to Gene then the GX tag will be appended to the UB tag. If set to [N]bp the first N bases of the sequence will be used to extend UB (ideal for STRT). (Default: no)" />
+                <expand macro="notuniquemappings" />
+                <expand macro="loomdtype" token_16_selected="false" token_32_selected="true" />
+            </when>
+            <when value="dropest-bc-correct" >
+                <param name="bamfile" type="data" format="BAM"
+                       label="Bam file with sorted reads obtained from DropEst" />
+                <param name="rfile" type="data" format="rds"
+                       label="R dump RDS file generated from DropEst" />
+            </when>
+        </conditional>
+        <param name="verbosity" type="select" label="verbosity level">
+            <option value="-v">show only warning</option>
+            <option value="-vv" selected="true">show warning and info</option>
+            <option value="-vvv">show warning, info and debug</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data format="loom" name="samples" from_work_dir="output.loom"/>
+        <data name="barcodesout" format="txt" label="${tool.name} on ${on_string}: Barcodes file" >
+            <filter>main['do']=='dropest-bc-correct'</filter>
+        </data>
+    </outputs>
+    <tests>
+      <!-- Test 1 10x -->
+      <test expect_num_outputs="1">
+          <conditional name="main">
+              <param name="do" value="run10x"/>
+              <param name="sample" value="sample"/>
+              <param name="BAM" value="STARsolo_allSAMat.bam"/>
+              <param name="barcodes" value="barcodes.tsv"/>
+              <param name="gtffile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf"/>
+              <param name="M" value="false"/>
+              <param name="t" value="uint16"/>
+          </conditional>
+          <output name="samples">
+              <assert_contents>
+                  <has_size value="25996" delta="3000"/>
+              </assert_contents>
+              <metadata name="row_attrs_count" value="6" />
+              <metadata name="layers_count" value="3" />
+              <metadata name="layers_names" value="ambiguous,spliced,unspliced" />
+              <metadata name="col_attrs_count" value="1" />
+              <metadata name="col_attrs_names" value="CellID" />
+          </output>
+          <assert_stdout>
+            <has_text text="Counting for batch 1, containing 6 cells and 10 reads"/>
+          </assert_stdout>
+      </test>
+      <!-- Test 2 run single bam as single cell -->
+      <test expect_num_outputs="1">
+          <conditional name="main">
+              <param name="do" value="run"/>
+              <param name="bamfiles" value="STARsolo_allSAMat.bam"/>
+              <param name="gtffile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf"/>
+              <param name="c" value="true"/>
+              <param name="U" value="true"/>
+              <param name="M" value="false"/>
+              <param name="t" value="uint16"/>
+          </conditional>
+          <output name="samples">
+              <assert_contents>
+                  <has_size value="25927" delta="3000"/>
+              </assert_contents>
+              <metadata name="row_attrs_count" value="6" />
+              <metadata name="layers_count" value="3" />
+              <metadata name="layers_names" value="ambiguous,spliced,unspliced" />
+              <metadata name="col_attrs_count" value="1" />
+              <metadata name="col_attrs_names" value="CellID" />
+          </output>
+          <assert_stdout>
+            <has_text text="Counting for batch 1, containing 1 cells and 716 reads"/>
+          </assert_stdout>
+      </test>
+      <!-- Test 3 run single bam as single cell with 2 bam -->
+      <test expect_num_outputs="1">
+          <conditional name="main">
+              <param name="do" value="run"/>
+              <param name="bamfiles" value="STARsolo_allSAMat.bam,STARsolo_allSAMat_copy.bam"/>
+              <param name="gtffile" value="filtered3.Homo_sapiens.GRCh38.100.chr21.gtf"/>
+              <param name="c" value="true"/>
+              <param name="U" value="true"/>
+              <param name="M" value="false"/>
+              <param name="t" value="uint16"/>
+          </conditional>
+          <output name="samples">
+              <assert_contents>
+                  <has_size value="26384" delta="3000"/>
+              </assert_contents>
+              <metadata name="row_attrs_count" value="6" />
+              <metadata name="layers_count" value="3" />
+              <metadata name="layers_names" value="ambiguous,spliced,unspliced" />
+              <metadata name="col_attrs_count" value="1" />
+              <metadata name="col_attrs_names" value="CellID" />
+          </output>
+          <assert_stdout>
+            <has_text text="Counting for batch 2, containing 1 cells and 716 reads"/>
+          </assert_stdout>
+      </test>    
+    </tests>
+    <help><![CDATA[
+Requirements on the input files
+
+velocyto assumes that the bam file that is passed to the CLI contains a set of information and that some upstream analysis was performed on them already. In particular the bam file will have to:
+
+    Be sorted by mapping position.
+    Represents either a single sample (multiple cells prepared using a certain barcode set in a single experiment) or single cell.
+    Contain an error corrected cell barcodes as a TAG named CB or XC.
+    Contain an error corrected molecular barcodes as a TAG named UB or XM.
+
+Note
+
+For SmartSeq2 bam files (3) and (4) are not required because it consists of one bam file per cell and no umi are present.
+
+velocyto assumes that the gtf file follows the GENCODE gtf format description. However some mandatory field are relaxed to extend compatibility to a wider set of gtf files. In particular the gtf file will have to:
+
+    Contain the 3rd column entry feature-type. Note that only the exon entry of the gtf file marked as exon in this column will be considered and therefore the requirements below only apply to the ``exon`` labeled lines.
+    Contain, in the 9th column, the key-value pair transcript_id, containing an unique identified for the transcript model.
+    Contain, in the 9th column, the key-value pair transcript_name (Optional, if not present it will be set to the value of transcript_id)
+    Contain, in the 9th column, the key-value pair gene_id, containing an unique identified for the gene.
+    Contain, in the 9th column, the key-value pair gene_name (Optional, if not present it will be set to the value of gene_id)
+    Contain, in the 9th column, the key-value pair exon_number (Recommended but optional, if not provided velocyto will sort exons in memory and number them)
+
+    ]]>
+    </help>
+    <expand macro="citations"/>
+</tool>
