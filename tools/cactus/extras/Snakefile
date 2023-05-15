@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+
+from pathlib import Path
+import tempfile
+
+cactus = 'docker://quay.io/comparative-genomics-toolkit/cactus:v2.5.1'
+
+data_dir = Path(Path().resolve().parent, 'test-data')
+outdir = Path('test_output')
+logdir = Path(outdir, 'logs')
+
+in_seqs = [Path(outdir, 'fastas', x) for x in [
+    'simCow_chr6.fasta',
+    'simDog_chr6.fasta',
+    'simHuman_chr6.fasta',
+    'simMouse_chr6.fasta',
+    'simRat_chr6.fasta']]
+
+rule target:
+    input:
+        Path(outdir, 'cactus_pangenome', 'alignment.full.hal'),
+        Path(outdir, 'cactus', 'alignment.hal'),
+
+
+with tempfile.TemporaryDirectory() as jobstore:
+    rule cactus_pangenome:
+        input:
+            fastas = in_seqs,
+            seqfile = Path(outdir, 'seqfile.txt')
+        output:
+            Path(outdir, 'cactus_pangenome', 'alignment.full.hal'),
+        params:
+            ref_level = 'simCow_chr6',
+            wd = Path(outdir, 'cactus_pangenome')
+        log:
+            Path(logdir, 'cactus_pangenome.log')
+        threads:
+            workflow.cores
+        container:
+            cactus
+        shell:
+            'cactus-pangenome '
+            '--binariesMode local '
+            '--maxCores  {threads} '
+            '--outDir {params.wd} '
+            '--outName alignment '
+            '--reference {params.ref_level} '
+            '{jobstore} '
+            '{input.seqfile} '
+            '&> {log}'
+
+with tempfile.TemporaryDirectory() as jobstore:
+    rule cactus:
+        input:
+            fastas = in_seqs,
+            seqfile = Path(outdir, 'seqfile.txt')
+        output:
+            Path(outdir, 'cactus', 'alignment.hal'),
+        params:
+            wd = Path(outdir, 'cactus'),
+            seqfile = lambda wildcards, input: Path(input.seqfile).resolve()
+        log:
+            Path(logdir, 'cactus.log').resolve()
+        threads:
+            workflow.cores
+        container:
+            cactus
+        shell:
+            'mkdir -p {params.wd} || exit 1 '
+            '&& '
+            'cd {params.wd} || exit 1 '
+            '&& '
+            'cactus '
+            '--binariesMode local '
+            '--maxCores  {threads} '
+            '{jobstore} '
+            '{params.seqfile} '
+            'alignment.hal '
+            '&> {log}'
+
+rule seqfile:
+    input:
+        in_seqs
+    output:
+        Path(outdir, 'seqfile.txt')
+    run:
+        with open(output[0], 'wt') as f:
+            for seq in input:
+                label = Path(seq).with_suffix('').name
+                filename = Path(seq).resolve()
+                f.write(f'{label} {filename}\n')
+
+rule fastas:
+    input:
+        lambda wildcards:
+            Path(data_dir, wildcards.filename)
+    output:
+        Path(outdir, 'fastas', '{filename}')
+    shell:
+        'cp {input} {output}'
+
+
