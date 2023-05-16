@@ -11,8 +11,7 @@
                     </param>
                     <when value="cached">
                         <param name="cached_db" label="Cached database with clade-specific marker genes" type="select">
-                            <options from_data_table="metaphlan_database">
-                                <filter type="regexp" column="0" value=".*(vOct22_SGB|TOY|demo-db).*"/>
+                            <options from_data_table="metaphlan_database_versioned">
                                 <validator message="No MetaPhlAn database is available" type="no_options"/>
                             </options>
                         </param>
@@ -47,6 +46,11 @@
             #else
                 #set $metaphlan_option += " --bowtie2db %s" % $wf.prescreen.metaphlan_db.cached_db.fields.path
                 #set $metaphlan_option += " --index %s" % $wf.prescreen.metaphlan_db.cached_db.fields.dbkey
+                ## legacy (metaphlan v3) databases are marked as legacy (v4 has content SGB in this column)
+                ## to use them the mpa3 option needs to be passed to metaphlan
+                #if $wf.prescreen.metaphlan_db.cached_db.fields.db_version == 'legacy'
+                    #set $metaphlan_option += " --mpa3"
+                #end if
             #end if
             --metaphlan-options="$metaphlan_option"
             --prescreen-threshold $wf.prescreen.prescreen_threshold
@@ -394,15 +398,15 @@ humann
         </data>
     </outputs>
     <tests>
-        <!-- This test refers to the Metaphlan v3 DB format, and hence should fail, which is to be caught gracefully. -->
+        <!-- 1 This test refers to the Metaphlan v3 DB format, and hence should fail, which is to be caught gracefully. -->
+        <!-- raw fasta file -->
+        <!-- full workflow -->
         <test expect_exit_code="42" expect_failure="true">
             <conditional name="in">
-                <!-- raw fasta file -->
                 <param name="selector" value="raw"/>
                 <param name="input" value="demo.fastq.gz"/>
             </conditional>
             <conditional name="wf">
-                <!-- full workflow -->
                 <param name="selector" value="none"/>
                 <section name="prescreen">
                     <conditional name="metaphlan_db">
@@ -425,7 +429,161 @@ humann
                 </section>
             </conditional>
         </test>
-        <!-- This test refers to the Metaphlan v4 DB format, and hence should be a straight pass. -->
+        <!-- 2 This test refers to the Metaphlan v4 DB format, and hence should be a straight pass. -->
+        <!-- raw fasta file -->
+        <!-- full workflow -->
+        <!-- intermediate files -->
+        <test expect_num_outputs="12">
+            <conditional name="in">
+                <param name="selector" value="raw"/>
+                <param name="input" value="demo.fastq.gz"/>
+            </conditional>
+            <conditional name="wf">
+                <param name="selector" value="none"/>
+                <section name="prescreen">
+                    <conditional name="metaphlan_db">
+                        <param name="selector" value="history"/>
+                        <param name="bowtie2db" value="test-db/metaphlan-db/demo-db-v30.fasta"/>
+                        <param name="mpa_pkl" value="test-db/metaphlan-db/demo-db-v30.json"/>
+                    </conditional>
+                    <param name="prescreen_threshold" value="0.01"/>
+                </section>
+                <section name="nucleotide_search">
+                    <conditional name="nucleotide_db">
+                        <param name="selector" value="history"/>
+                        <param name="nucleotide_database">
+                            <collection type="list">
+                                <element name="g__Bacteroides.s__Bacteroides_stercoris.centroids" ftype="fasta.gz" value="test-db/nucleotide-db/g__Bacteroides.s__Bacteroides_dorei.centroids.v201901_v31.ffn.gz"/>
+                                <element name="g__Bacteroides.s__Bacteroides_vulgatus.centroids" ftype="fasta.gz" value="test-db/nucleotide-db/g__Bacteroides.s__Bacteroides_vulgatus.centroids.v201901_v31.ffn.gz"/>
+                            </collection>
+                        </param>
+                    </conditional>
+                    <param name="nucleotide_identity_threshold" value="0"/>
+                    <param name="nucleotide_subject_coverage_threshold" value="50"/>
+                    <param name="nucleotide_query_coverage_threshold" value="90"/>
+                </section>
+                <section name="translated_search">
+                    <conditional name="protein_db">
+                        <param name="selector" value="history"/>
+                        <param name="protein_database" value="test-db/protein-db/uniref90_demo_prots_v201901b.fasta"/>
+                        <param name="search_mode" value="uniref90"/>
+                    </conditional>
+                    <param name="evalue" value="1"/>
+                    <param name="translated_subject_coverage_threshold" value="50"/>
+                    <param name="translated_query_coverage_threshold" value="90"/>
+                </section>
+            </conditional>
+            <section name="g_p_quant">
+                <param name="gap_fill" value="true"/>
+                <param name="minpath" value="true"/>
+                <param name="pathways" value="metacyc"/>
+                <param name="xipe" value="false"/>
+                <param name="annotation_gene_index" value="3"/>
+            </section>
+            <section name="out">
+                <param name="output_basename" value="humann"/>
+                <param name="log_level" value="DEBUG"/>
+                <param name="output_format" value="tsv"/>
+                <param name="output_max_decimals" value="10"/>
+                <param name="remove_column_description_output" value="false"/>
+                <param name="remove_statified_output" value="false"/>
+                <param name="intermediate_temp" 
+                    value="metaphlan_bowtie2,metaphlan_bugs_list,bowtie2_alignment,bowtie2_reduced_alignment,bowtie2_unaligned,custom_chocophlan_database,diamond_aligned,diamond_unaligned"/>
+            </section>
+            <output name="gene_families_tsv" ftype="tabular" value="demo_genefamilies.tsv" compare="sim_size">
+                <assert_contents>
+                    <has_text text="humann_Abundance-RPKs"/>
+                    <has_text text="UniRef90_A0A078RDY6|g__Bacteroides.s__Bacteroides_vulgatus"/>
+                    <has_n_columns n="2"/>
+                </assert_contents>
+            </output>
+            <output name="pathcoverage_tsv" ftype="tabular" value="demo_pathcoverage.tsv" compare="sim_size">
+                <assert_contents>
+                    <has_text text="humann_Coverage"/>
+                    <has_text text="PWY-5423: oleoresin monoterpene volatiles biosynthesis|unclassified"/>
+                    <has_n_columns n="2"/>
+                </assert_contents>
+            </output>
+            <output name="pathabundance_tsv" ftype="tabular" value="demo_pathabundance.tsv" compare="sim_size">
+                <assert_contents>
+                    <has_text text="humann_Abundance"/>
+                    <has_text text="PWY-5423: oleoresin monoterpene volatiles biosynthesis|unclassified"/>
+                    <has_n_columns n="2"/>
+                </assert_contents>
+            </output>
+            <output name="log" ftype="txt">
+                <assert_contents>
+                    <has_text text="DATABASE SETTINGS"/>
+                    <has_text text="humann.utilities"/>
+                    <has_text text="humann_genefamilies"/>
+                    <has_text text="humann_pathabundance"/>
+                    <has_text text="humann_pathcoverage"/>
+                    <has_text text="g__Bacteroides.s__Bacteroides_dorei"/>
+                </assert_contents>
+            </output>
+            <output name="metaphlan_bowtie2" ftype="tabular">
+                <assert_contents>
+                    <has_text text="s__Bacteroides_dorei_read000116"/>
+                    <has_text text="357276__I9R1V6__DXD47_04125"/>
+                    <has_text text="s__Bacteroides_dorei_read000129"/>
+                    <has_text text="357276__B6W1Y5__IY41_11405"/>
+                </assert_contents>
+            </output>
+            <output name="metaphlan_bugs_list" ftype="tabular">
+                <assert_contents>
+                    <has_text text="relative_abundance"/>
+                    <has_text text="k__Bacteria|p__Bacteroidetes|c__Bacteroidia|o__Bacteroidales|f__Bacteroidaceae|g__Bacteroides|s__Bacteroides_vulgatus"/>
+                    <has_text text="k__Bacteria|p__Bacteroidetes|c__Bacteroidia|o__Bacteroidales|f__Bacteroidaceae|g__Bacteroides|s__Bacteroides_dorei"/>
+                </assert_contents>
+            </output>
+            <output name="bowtie2_alignment" ftype="sam">
+                <assert_contents>
+                    <has_text text="SN:821__F3PQ30__HMPREF9446_00822|k__Bacteria.p__Bacteroidetes.c__Bacteroidia.o__Bacteroidales.f__Bacteroidaceae.g__Bacteroides.s__Bacteroides_vulgatus|UniRef90_F3PQ30|UniRef50_F3PQ30|510"/>
+                    <has_text text="s__Bacteroides_dorei_read009840"/>
+                    <has_text text="PN:bowtie2"/>
+                    <has_text text="LN:1281"/>
+                </assert_contents>
+            </output>
+            <output name="bowtie2_reduced_alignment" ftype="tabular">
+                <assert_contents>
+                    <has_text text="s__Bacteroides_dorei_read000001"/>
+                    <has_text text="821__A6L5K0__BVU_3338|k__Bacteria.p__Bacteroidetes.c__Bacteroidia.o__Bacteroidales.f__Bacteroidaceae.g__Bacteroides.s__Bacteroides_vulgatus|UniRef90_A6L5K0|UniRef50_A6L5K0|468"/>
+                    <has_text text="s__Bacteroides_vulgatus_read003845"/>
+                    <has_text text="821__A0A396BBC3__DXC03_14350|k__Bacteria.p__Bacteroidetes.c__Bacteroidia.o__Bacteroidales.f__Bacteroidaceae.g__Bacteroides.s__Bacteroides_vulgatus|UniRef90_A0A396BBC3|UniRef50_A0A174FNA3|2934"/>
+                </assert_contents>
+            </output>
+            <output name="bowtie2_unaligned" ftype="fasta">
+                <assert_contents>
+                    <has_text text=">s__Bacteroides_dorei_read000001|100"/>
+                    <has_text text=">s__Bacteroides_dorei_read000002|100"/>
+                    <has_text text=">unclassified_read000971|100"/>
+                    <has_text text=">s__Bacteroides_vulgatus_read004473|100"/>
+                </assert_contents>
+            </output>
+            <output name="custom_chocophlan_database" ftype="fasta">
+                <assert_contents>
+                    <has_text text=">821__F3PQ30__HMPREF9446_00822|k__Bacteria.p__Bacteroidetes.c__Bacteroidia.o__Bacteroidales.f__Bacteroidaceae.g__Bacteroides.s__Bacteroides_vulgatus|UniRef90_F3PQ30|UniRef50_F3PQ30|510"/>
+                    <has_text text=">821__F3PUY1__HMPREF9446_02555|k__Bacteria.p__Bacteroidetes.c__Bacteroidia.o__Bacteroidales.f__Bacteroidaceae.g__Bacteroides.s__Bacteroides_vulgatus|UniRef90_F3PUY1|UniRef50_A0A3E5DX68|411"/>
+                    <has_text text=">821__A0A3E4KCH0__DXD33_19495|k__Bacteria.p__Bacteroidetes.c__Bacteroidia.o__Bacteroidales.f__Bacteroidaceae.g__Bacteroides.s__Bacteroides_vulgatus|UniRef90_A0A3E4KCH0|UniRef50_F3PP72|3582"/>
+                </assert_contents>
+            </output>
+            <output name="diamond_aligned" ftype="tabular">
+                <assert_contents>
+                    <has_text text="UniRef90_Z5XVM9|969"/>
+                    <has_text text="s__Bacteroides_vulgatus_read"/>
+                    <has_text text="s__Bacteroides_vulgatus_read"/>
+                    <has_text text="UniRef90_Y0KEF3|618"/>
+                </assert_contents>
+            </output>
+            <output name="diamond_unaligned" ftype="fasta">
+                <assert_contents>
+                    <has_text text=">s__Bacteroides_dorei_read000001|100"/>
+                    <has_text text=">s__Bacteroides_vulgatus_read006412|100"/>
+                    <has_text text=">unclassified_read000867|100"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 3 This test refers to the Metaphlan v4 DB format (identical to the test 2 but using the data in the data table) -->
         <test expect_num_outputs="12">
             <conditional name="in">
                 <!-- raw fasta file -->
@@ -437,9 +595,8 @@ humann
                 <param name="selector" value="none"/>
                 <section name="prescreen">
                     <conditional name="metaphlan_db">
-                        <param name="selector" value="history"/>
-                        <param name="bowtie2db" value="test-db/metaphlan-db/demo-db-v30.fasta"/>
-                        <param name="mpa_pkl" value="test-db/metaphlan-db/demo-db-v30.json"/>
+                        <param name="selector" value="cached"/>
+                        <param name="cached_db" value="metaphlan-demo-db-20210421"/>
                     </conditional>
                     <param name="prescreen_threshold" value="0.01"/>
                 </section>
@@ -578,15 +735,19 @@ humann
                     <has_text text=">unclassified_read000867|100"/>
                 </assert_contents>
             </output>
+            <assert_command>
+                <has_text text="--mpa3" negate="true"/>
+            </assert_command>
         </test>
+        <!-- fastq file -->
+        <!-- bypass_prescreen -->
+        <!-- Biom -->
         <test expect_num_outputs="4">
             <conditional name="in">
-                <!-- fastq file -->
                 <param name="selector" value="raw"/>
                 <param name="input" value="demo.fasta.gz"/>
             </conditional>
             <conditional name="wf">
-                <!-- bypass_prescreen -->
                 <param name="selector" value="bypass_prescreen"/>
                 <section name="nucleotide_search">
                     <conditional name="nucleotide_db">
@@ -615,7 +776,6 @@ humann
                 <param name="annotation_gene_index" value="3"/>
             </section>
             <section name="out">
-                <!-- Biom -->
                 <param name="output_basename" value="humann"/>
                 <param name="log_level" value="DEBUG"/>
                 <param name="output_format" value="biom"/>
@@ -658,14 +818,17 @@ humann
                     <has_text text="Total gene families after translated alignment: "/>
                 </assert_contents>
             </output>
+            <assert_command>
+                <has_text text="--mpa3" negate="true"/>
+            </assert_command>
         </test>
+        <!-- bypass_taxonomic_profiling -->
         <test expect_num_outputs="4">
             <conditional name="in">
                 <param name="selector" value="raw"/>
                 <param name="input" value="demo.fasta.gz"/>
             </conditional>
             <conditional name="wf">
-                <!-- bypass_taxonomic_profiling -->
                 <param name="selector" value="bypass_taxonomic_profiling"/>
                 <param name="taxonomic_profile" value="demo-taxonomic-profile.tabular"/>
                 <section name="nucleotide_search">
@@ -741,14 +904,14 @@ humann
                 </assert_contents>
             </output>
         </test>
+        <!-- mapping SAM file -->
+        <!-- bypass_nucleotide_index -->
         <test expect_num_outputs="4">
             <conditional name="in">
-                <!-- mapping SAM file -->
                 <param name="selector" value="mapping"/>
                 <param name="input" value="demo.sam"/>
             </conditional>
             <conditional name="wf">
-                <!-- bypass_nucleotide_index -->
                 <param name="selector" value="bypass_nucleotide_index"/>
                 <section name="nucleotide_search">
                     <conditional name="nucleotide_db">
@@ -814,14 +977,13 @@ humann
                 </assert_contents>
             </output>
         </test>
+        <!-- bypass_nucleotide_search -->
         <test expect_num_outputs="4">
             <conditional name="in">
-                <!-- raw fasta file -->
                 <param name="selector" value="raw"/>
                 <param name="input" value="demo.fastq.gz"/>
             </conditional>
             <conditional name="wf">
-                <!-- bypass_nucleotide_search -->
                 <param name="selector" value="bypass_nucleotide_search"/>
                 <section name="translated_search">
                     <conditional name="protein_db">
@@ -879,14 +1041,13 @@ humann
                 </assert_contents>
             </output>
         </test>
+        <!-- bypass_translated_search -->
         <test expect_num_outputs="4">
             <conditional name="in">
-                <!-- raw fasta file -->
                 <param name="selector" value="raw"/>
                 <param name="input" value="demo.fastq.gz"/>
             </conditional>
             <conditional name="wf">
-                <!-- bypass_translated_search -->
                 <param name="selector" value="bypass_translated_search"/>
                 <section name="prescreen">
                     <conditional name="metaphlan_db">
@@ -955,14 +1116,13 @@ humann
             </output>
         </test>
         <!-- This test should fail for as metaphlan v4 is invoked on outdated input DB. -->
+        <!-- bypass_translated_search -->
         <test expect_exit_code="1" expect_failure="true">
             <conditional name="in">
-                <!-- raw fasta file -->
                 <param name="selector" value="raw"/>
                 <param name="input" value="demo.fastq.gz"/>
             </conditional>
             <conditional name="wf">
-                <!-- bypass_translated_search -->
                 <param name="selector" value="bypass_translated_search"/>
                 <section name="prescreen">
                     <conditional name="metaphlan_db">
