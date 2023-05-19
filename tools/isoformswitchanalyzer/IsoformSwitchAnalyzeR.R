@@ -912,8 +912,8 @@ if (args$modeSelector == "second_step") {
     )
     splicingGenomeWide <- extractSplicingGenomeWide(
       SwitchList,
-      featureToExtract = "all",
-      splicingToAnalyze = c("A3", "MES", "ATSS"),
+      featureToExtract = "isoformUsage",
+      splicingToAnalyze = "all",
       plot = TRUE,
       returnResult = TRUE
     )
