@@ -875,7 +875,7 @@ if (args$modeSelector == "second_step") {
 
     p <- ggplot(data = SwitchList$isoformFeatures, aes(x = dIF, y = -log10(isoform_switch_q_value))) +
       geom_point(
-        aes( color = abs(dIF) > 0.1 & isoform_switch_q_value < 0.05), # default cutoff
+        aes(color = abs(dIF) > 0.1 & isoform_switch_q_value < 0.05), # default cutoff
         size = 1
       ) +
       geom_hline(yintercept = -log10(0.05), linetype = "dashed") + # default cutoff
@@ -888,9 +888,7 @@ if (args$modeSelector == "second_step") {
     print(p)
     dev.off()
 
-
     ### Switch vs Gene changes:
-    
     outputFile <- file.path(getwd(), "switchGene.pdf")
     pdf(
       file = outputFile,
