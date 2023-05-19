@@ -905,7 +905,6 @@ if (args$modeSelector == "second_step") {
       scale_color_manual("Signficant\nIsoform Switch", values = c("black", "red")) +
       labs(x = "Gene log2 fold change", y = "dIF") +
       theme_bw()
-    print(p)
     dev.off()
 
     outputFile <- file.path(getwd(), "splicingGenomewide.pdf")
