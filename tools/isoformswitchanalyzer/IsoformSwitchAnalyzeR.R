@@ -885,7 +885,6 @@ if (args$modeSelector == "second_step") {
       scale_color_manual("Signficant\nIsoform Switch", values = c("black", "red")) +
       labs(x = "dIF", y = "-Log10 ( Isoform Switch Q Value )") +
       theme_bw()
-    print(p)
     dev.off()
 
     ### Switch vs Gene changes:
