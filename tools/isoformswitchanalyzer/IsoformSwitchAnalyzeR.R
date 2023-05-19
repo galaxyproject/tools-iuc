@@ -4,6 +4,8 @@ library(IsoformSwitchAnalyzeR,
         warn.conflicts = FALSE)
 library(argparse, quietly = TRUE, warn.conflicts = FALSE)
 library(dplyr, quietly = TRUE, warn.conflicts = FALSE)
+library(ggplot2, quietly = TRUE, warn.conflicts = FALSE)
+
 
 # setup R error handling to go to stderr
 options(
@@ -740,7 +742,7 @@ if (args$modeSelector == "second_step") {
       file = outputFile,
       onefile = FALSE,
       height = 6,
-      width = 9
+      width = 12
     )
 
     consequenceSummary <- extractConsequenceSummary(
@@ -835,7 +837,7 @@ if (args$modeSelector == "second_step") {
       file = outputFile,
       onefile = FALSE,
       height = 6,
-      width = 9
+      width = 12
     )
     splicingSummary <- extractSplicingSummary(
       SwitchList,
@@ -863,22 +865,27 @@ if (args$modeSelector == "second_step") {
 
     ### Volcano like plot:
     outputFile <- file.path(getwd(), "volcanoPlot.pdf")
+
     pdf(
       file = outputFile,
       onefile = FALSE,
       height = 6,
       width = 9
     )
-    ggplot(data = SwitchList$isoformFeatures, aes(x = dIF, y = -log10(isoform_switch_q_value))) +
-      geom_point(aes(color = abs(dIF) > 0.1 &
-                       isoform_switch_q_value < 0.05), # default cutoff
-                 size = 1) +
-      geom_hline(yintercept = -log10(0.05), linetype = "dashed") + # default cutoff
-      geom_vline(xintercept = c(-0.1, 0.1), linetype = "dashed") + # default cutoff
-      facet_wrap(~ condition_2) +
-      scale_color_manual("Signficant\nIsoform Switch", values = c("black", "red")) +
-      labs(x = "dIF", y = "-Log10 ( Isoform Switch Q Value )") +
+
+    p <- ggplot(data=SwitchList$isoformFeatures, aes(x=dIF, y=-log10(isoform_switch_q_value))) +
+      geom_point(
+        aes( color=abs(dIF) > 0.1 & isoform_switch_q_value < 0.05 ), # default cutoff
+        size=1
+      ) +
+      geom_hline(yintercept = -log10(0.05), linetype='dashed') + # default cutoff
+      geom_vline(xintercept = c(-0.1, 0.1), linetype='dashed') + # default cutoff
+      facet_wrap( ~ condition_2) +
+      #facet_grid(condition_1 ~ condition_2) + # alternative to facet_wrap if you have overlapping conditions
+      scale_color_manual('Signficant\nIsoform Switch', values = c('black','red')) +
+      labs(x='dIF', y='-Log10 ( Isoform Switch Q Value )') +
       theme_bw()
+    print(p)
     dev.off()
 
 
@@ -886,21 +893,21 @@ if (args$modeSelector == "second_step") {
     outputFile <- file.path(getwd(), "switchGene.pdf")
     pdf(
       file = outputFile,
-      onefile = FALSE,
       height = 6,
       width = 9
     )
-    ggplot(data = SwitchList$isoformFeatures,
+    p <- ggplot(data = SwitchList$isoformFeatures,
            aes(x = gene_log2_fold_change, y = dIF)) +
       geom_point(aes(color = abs(dIF) > 0.1 &
                        isoform_switch_q_value < 0.05),
                  size = 1) +
-      facet_wrap(~ condition_2) +
+      #facet_wrap(~ condition_2) +
       geom_hline(yintercept = 0, linetype = "dashed") +
       geom_vline(xintercept = 0, linetype = "dashed") +
       scale_color_manual("Signficant\nIsoform Switch", values = c("black", "red")) +
       labs(x = "Gene log2 fold change", y = "dIF") +
       theme_bw()
+    print(p)
     dev.off()
 
     outputFile <- file.path(getwd(), "splicingGenomewide.pdf")
@@ -908,7 +915,7 @@ if (args$modeSelector == "second_step") {
       file = outputFile,
       onefile = FALSE,
       height = 6,
-      width = 9
+      width = 14
     )
     splicingGenomeWide <- extractSplicingGenomeWide(
       SwitchList,
