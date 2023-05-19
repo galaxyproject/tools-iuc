@@ -902,7 +902,7 @@ if (args$modeSelector == "second_step") {
       geom_point(aes(color = abs(dIF) > 0.1 &
                        isoform_switch_q_value < 0.05),
                  size = 1) +
-      #facet_wrap(~ condition_2) +
+      facet_wrap(~ condition_2) +
       geom_hline(yintercept = 0, linetype = "dashed") +
       geom_vline(xintercept = 0, linetype = "dashed") +
       scale_color_manual("Signficant\nIsoform Switch", values = c("black", "red")) +
