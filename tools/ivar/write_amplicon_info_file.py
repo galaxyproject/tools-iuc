@@ -10,7 +10,10 @@ AMPLICON_PAT = re.compile(r'.*_(?P<num>\d+).*_(?P<name>L(?:EFT)?|R(?:IGHT)?)')
 def write_amplicon_info_file(bed_file, amplicon_info_file):
     amplicon_sets = {}
     for line in bed_file:
-        fields = line.strip().split('\t')
+        line = line.strip()
+        if not line:
+            continue
+        fields = line.split('\t')
         start = int(fields[1])
         name = fields[3]
         re_match = AMPLICON_PAT.match(name)

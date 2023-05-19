@@ -1,0 +1,237 @@
+<tool id="das_tool" name="DAS Tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>
+        for genome resolved metagenomics
+    </description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="biotools"/>
+    <expand macro="requirements"/>
+    <expand macro="version"/>
+    <command detect_errors="exit_code"><![CDATA[
+#set $bins = ""
+#set $labels = ""
+#set $sep = ""
+#for $i, $s in enumerate($binning)
+    #set $bins += "%s%s" %($sep, $s.bins)
+    #set $labels += "%s%s" %($sep, $s.labels)
+    #set $sep = ","
+#end for
+
+#if $adv.proteins
+ln -s $adv.proteins 'proteins' &&
+#end if
+
+DAS_Tool
+    --contigs '$contigs'
+    --outputbasename 'outputs'
+    --bins '$bins'
+    --labels '$labels'
+    --search_engine '$adv.search_engine'
+#if $adv.proteins
+    --proteins 'proteins'
+#end if
+    --score_threshold $adv.score_threshold
+    --duplicate_penalty $adv.duplicate_penalty
+    --megabin_penalty $adv.megabin_penalty
+    $output.write_bin_evals
+    $output.write_bins.write_bins
+#if str($output.write_bins.write_bins) != ''
+    $output.write_bins.write_unbinned
+#end if
+    $output.debug
+    --threads \${GALAXY_SLOTS:-1}
+    ]]></command>
+    <inputs>
+        <param argument="--contigs" type="data" format="fasta" label="Contig sequences"/>
+        <repeat name="binning" title="Bins" min="1">
+            <param argument="--bins" type="data" format="tabular" label="Contigs-to-bin table" help="Tabular with two columns: contig-IDs and bin-IDs. Fasta_to_Contigs2Bin can be used to  Converts genome bins in fasta format to Contigs-to-bin table"/>
+            <param argument="--labels" type="text" value="" label="Name of binning prediction tool used to generate the table"/>
+        </repeat>
+        <section name="adv" title="Advanced options">
+            <param argument="--search_engine" type="select" label="Engine used for single copy gene identification">
+                <option value="diamond" selected="true">diamond</option>
+                <option value="blastp">blastp</option>
+            </param>
+            <param argument="--proteins" type="data" format="fasta" optional="true" label="Predicted proteins" help="The file should be prodigal fasta format: >contigID_geneNo"/>
+            <param argument="--score_threshold" type="float" min="0" max="1" value="0.5" label="Score threshold until selection algorithm will keep selecting bins"/>
+            <param argument="--duplicate_penalty" type="float" min="0" max="3" value="0.6" label="Penalty for duplicate single copy genes per bin (weight b)" help="Only change if you know what you are doing"/>
+            <param argument="--megabin_penalty" type="float" min="0" max="3" value="0.5" label="Penalty for megabins (weight c)" help="Only change if you know what you are doing"/>
+        </section>
+        <section name="output" title="Outputs">
+            <param name="proteins" type="boolean" checked="false" label="Output predicted proteins?"/>
+            <param argument="--write_bin_evals" type="boolean" truevalue="--write_bin_evals" falsevalue="" checked="false" label="Write evaluation of input bin sets?"/>
+            <conditional name="write_bins">
+                <param argument="--write_bins" type="select" label="Export bins as fasta files?">
+                    <option value="--write_bins" selected="true">Yes</option>
+                    <option value="">No</option>
+                </param>
+                <when value="--write_bins">
+                    <param argument="--write_unbinned" type="boolean" truevalue="--write_unbinned" falsevalue="" checked="false" label="Export unbinned contigs as fasta file?"/>
+                </when>
+                <when value=""/>
+            </conditional>
+            <param argument="--debug" type="boolean" truevalue="--debug" falsevalue="" checked="false" label="Write debug information to log file?"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="summary" format="tabular" from_work_dir="outputs_DASTool_summary.tsv" label="${tool.name} on ${on_string}: Summary of output bins" />
+        <data name="contigs2bin" format="tabular" from_work_dir="outputs_DASTool_contig2bin.tsv" label="${tool.name} on ${on_string}: Contigs to bin file for the output bins" />
+        <data name="log" format="txt" from_work_dir="outputs_DASTool.log" label="${tool.name} on ${on_string}: Log" />
+        <data name="eval" format="tabular" from_work_dir="outputs_allBins.eval" label="${tool.name} on ${on_string}: Quality and completeness estimates of input bin sets" >
+            <filter>output['write_bin_evals']</filter>
+        </data>
+        <collection name="bins" type="list" label="${tool.name} on ${on_string}: Bins">
+            <filter>output['write_bins']['write_bins'] != ""</filter>
+            <discover_datasets pattern=".*?\.(?P&lt;designation&gt;.*)\.fa" format="fasta" directory="outputs_DASTool_bins" />
+          </collection>
+        <data name="unbinned_contigs" format="fasta" from_work_dir="outputs_DASTool_bins/unbinned.fa" label="${tool.name} on ${on_string}: Unbinned contigs" >
+            <filter>output['write_bins']['write_bins'] != "" and output['write_bins']['write_unbinned']</filter>
+        </data>
+        <data name="proteins" format="fasta" from_work_dir="outputs_proteins.faa" label="${tool.name} on ${on_string}: Proteins" >
+            <filter>output['proteins']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="4">
+            <param name="contigs" value="contigs.fasta"/>
+            <repeat name="binning">
+                <param name="bins" value="metabat.tabular"/>
+                <param name="labels" value="metabat"/>
+            </repeat>
+            <section name="adv">
+                <param name="search_engine" value="diamond"/>
+                <param name="proteins" value="proteins.fasta"/>
+                <param name="score_threshold" value="0.5"/>
+                <param name="duplicate_penalty" value="0.6"/>
+                <param name="megabin_penalty" value="0.5" />
+            </section>
+            <section name="output">
+                <param name="write_bin_evals" value="true"/>
+                <conditional name="write_bins">
+                    <param name="write_bins" value=""/>
+                </conditional>
+                <param name="debug" value="true"/>
+            </section>
+            <output name="summary" ftype="tabular">
+                <assert_contents>
+                    <has_text text="unique_SCGs"/>
+                    <has_text text="metabat.8"/>
+                    <has_text text="bacteria"/>
+                </assert_contents>
+            </output>
+            <output name="contigs2bin" ftype="tabular">
+                <assert_contents>
+                    <has_text text="Ley3_66761_scaffold_6"/>
+                </assert_contents>
+            </output>
+            <output name="log" ftype="txt">
+                <assert_contents>
+                    <has_text text="Skipping gene prediction"/>
+                    <has_text text="#Target sequences to report alignments for: 1"/>
+                </assert_contents>
+            </output>
+            <output name="eval" ftype="tabular">
+                <assert_contents>
+                    <has_text text="unique_SCGs"/>
+                    <has_text text="metabat.8"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="6">
+            <param name="contigs" value="contigs.fasta"/>
+            <repeat name="binning">
+                <param name="bins" value="metabat.tabular"/>
+                <param name="labels" value="metabat"/>
+            </repeat>
+            <section name="adv">
+                <param name="search_engine" value="diamond"/>
+                <param name="score_threshold" value="0.5"/>
+                <param name="duplicate_penalty" value="0.6"/>
+                <param name="megabin_penalty" value="0.5" />
+            </section>
+            <section name="output">
+                <param name="proteins" value="true"/>
+                <param name="write_bin_evals" value="false"/>
+                <conditional name="write_bins">
+                    <param name="write_bins" value="--write_bins"/>
+                    <param name="write_unbinned" value="true"/>
+                </conditional>
+                <param name="debug" value="true"/>
+            </section>
+            <output name="summary" ftype="tabular">
+                <assert_contents>
+                    <has_text text="unique_SCGs"/>
+                    <has_text text="metabat.8"/>
+                    <has_text text="bacteria"/>
+                </assert_contents>
+            </output>
+            <output name="contigs2bin" ftype="tabular">
+                <assert_contents>
+                    <has_text text="Ley3_66761_scaffold_6"/>
+                </assert_contents>
+            </output>
+            <output name="log" ftype="txt">
+                <assert_contents>
+                    <has_text text="Parameters"/>
+                    <has_text text="Predicting genes"/>
+                </assert_contents>
+            </output>
+            <output_collection name="bins" count="1">
+                <element name="8" ftype="fasta">
+                    <assert_contents>
+                        <has_text text=">Ley3_66761_scaffold_6"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="unbinned_contigs" ftype="fasta">
+                <assert_contents>
+                    <has_text text=">Ley3_66761_scaffold_505"/>
+                </assert_contents>
+            </output>
+            <output name="proteins" ftype="fasta">
+                <assert_contents>
+                    <has_text text="Ley3_66761_scaffold_6_1 # 1 # 786 # 1 #"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help><![CDATA[
+@HELP_HEADER@
+
+Inputs
+======
+
+- Bins: Tab separated files of contig-IDs and bin-IDs. Contigs to bin file example: ::
+
+    Contig_1	bin.01
+    Contig_8	bin.01
+    Contig_42	bin.02
+    Contig_49	bin.03
+
+- Contigs: Assembled contigs in fasta format: ::
+
+    >Contig_1
+    ATCATCGTCCGCATCGACGAATTCGGCGAACGAGTACCCCTGACCATCTCCGATTA...
+    >Contig_2
+    GATCGTCACGCAGGCTATCGGAGCCTCGACCCGCAAGCTCTGCGCCTTGGAGCAGG...
+
+- [Optional] Proteins: Predicted proteins in prodigal fasta format. Header contains contig-ID and gene number: ::
+
+    >Contig_1_1
+    MPRKNKKLPRHLLVIRTSAMGDVAMLPHALRALKEAYPEVKVTVATKSLFHPFFEG...
+    >Contig_1_2
+    MANKIPRVPVREQDPKVRATNFEEVCYGYNVEEATLEASRCLNCKNPRCVAACPVN...
+
+Outputs
+=======
+
+- Summary of output bins including quality and completeness estimates
+- Contigs to bin file of output bins
+- [Optional] Quality and completeness estimates of input bin sets
+- [Optional] Bins in fasta format
+- [Optional] Unbinned contigs
+
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
