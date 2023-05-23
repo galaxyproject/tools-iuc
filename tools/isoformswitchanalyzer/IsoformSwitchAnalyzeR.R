@@ -514,20 +514,19 @@ if (args$modeSelector == "first_step") {
     showProgress = TRUE,
   )
 
-  if (args$toolSource == "stringtie") {
-    if (!is.null(args$stringtieAnnotation)) {
-      SwitchList <- analyzeNovelIsoformORF(
-        SwitchList,
-        analysisAllIsoformsWithoutORF = TRUE,
-        minORFlength = args$minORFlength,
-        orfMethod = args$orfMethod,
-        PTCDistance = args$PTCDistance,
-        startCodons = "ATG",
-        stopCodons = c("TAA", "TAG", "TGA"),
-        showProgress = TRUE,
-      )
-    }
+  if (!is.null(args$stringtieAnnotation)) {
+    SwitchList <- analyzeNovelIsoformORF(
+      SwitchList,
+      analysisAllIsoformsWithoutORF = TRUE,
+      minORFlength = args$minORFlength,
+      orfMethod = args$orfMethod,
+      PTCDistance = args$PTCDistance,
+      startCodons = "ATG",
+      stopCodons = c("TAA", "TAG", "TGA"),
+      showProgress = TRUE,
+    )
   }
+  
 
   ### Extract Sequences
   SwitchList <- extractSequence(
