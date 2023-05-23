@@ -361,7 +361,7 @@ if (args$modeSelector == "data_import") {
         fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
       )
 
-      SwitchList <- addORFfromGTF( 
+      SwitchList <- addORFfromGTF(
         SwitchList,
         pathToGTF = args$annotation
       )
