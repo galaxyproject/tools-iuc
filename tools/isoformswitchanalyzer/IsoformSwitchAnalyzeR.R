@@ -106,6 +106,12 @@ parser$add_argument(
   help = "Overwrite IF values"
 )
 parser$add_argument(
+  "--removeNonConvensionalChr",
+  required = FALSE,
+  action = "store_true",
+  help = "Remove non-conventional chromosomes"
+)
+parser$add_argument(
   "--reduceToSwitchingGenes",
   required = FALSE,
   action = "store_true",
@@ -354,6 +360,7 @@ if (args$modeSelector == "data_import") {
         isoformCountMatrix   = quantificationData$counts,
         isoformRepExpression = quantificationData$abundance,
         designMatrix         = myDesign,
+        removeNonConvensionalChr = args$removeNonConvensionalChr,
         isoformExonAnnoation = args$stringtieAnnotation,
         isoformNtFasta       = args$transcriptome,
         addAnnotatedORFs = FALSE,
@@ -363,6 +370,7 @@ if (args$modeSelector == "data_import") {
 
       SwitchList <- addORFfromGTF(
         SwitchList,
+        removeNonConvensionalChr = args$removeNonConvensionalChr,
         pathToGTF = args$annotation
       )
 
@@ -371,6 +379,7 @@ if (args$modeSelector == "data_import") {
         isoformCountMatrix   = quantificationData$counts,
         isoformRepExpression = quantificationData$abundance,
         designMatrix         = myDesign,
+        removeNonConvensionalChr = args$removeNonConvensionalChr,
         isoformNtFasta       = args$transcriptome,
         isoformExonAnnoation = args$annotation,
         showProgress = TRUE,
@@ -383,6 +392,7 @@ if (args$modeSelector == "data_import") {
       isoformCountMatrix   = quantificationData$counts,
       isoformRepExpression = quantificationData$abundance,
       designMatrix         = myDesign,
+      removeNonConvensionalChr = args$removeNonConvensionalChr,
       isoformExonAnnoation = args$annotation,
       isoformNtFasta       = args$transcriptome,
       showProgress = TRUE
