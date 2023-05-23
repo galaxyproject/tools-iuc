@@ -35,7 +35,6 @@ parser$add_argument("--readLength",
                     help = "Read length (required for stringtie)")
 parser$add_argument("--annotation", required = FALSE, help = "Annotation")
 parser$add_argument("--stringtieAnnotation", required = FALSE, help = "Stringtie annotation")
-
 parser$add_argument("--transcriptome", required = FALSE, help = "Transcriptome")
 parser$add_argument(
   "--fixStringTieAnnotationProblem",
@@ -383,8 +382,8 @@ if (args$modeSelector == "data_import") {
       isoformCountMatrix   = quantificationData$counts,
       isoformRepExpression = quantificationData$abundance,
       designMatrix         = myDesign,
-      isoformNtFasta       = args$transcriptome,
       isoformExonAnnoation = args$annotation,
+      isoformNtFasta       = args$transcriptome,
       showProgress = TRUE
     )
   }
