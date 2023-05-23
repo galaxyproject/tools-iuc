@@ -356,6 +356,7 @@ if (args$modeSelector == "data_import") {
         designMatrix         = myDesign,
         isoformExonAnnoation = args$stringtieAnnotation,
         isoformNtFasta       = args$transcriptome,
+        addAnnotatedORFs = FALSE,
         showProgress = TRUE,
         fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
       )
