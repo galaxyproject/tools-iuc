@@ -526,7 +526,6 @@ if (args$modeSelector == "first_step") {
       showProgress = TRUE,
     )
   }
-  
 
   ### Extract Sequences
   SwitchList <- extractSequence(
