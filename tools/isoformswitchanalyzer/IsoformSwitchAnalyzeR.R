@@ -514,18 +514,17 @@ if (args$modeSelector == "first_step") {
     showProgress = TRUE,
   )
 
-  if (!is.null(args$stringtieAnnotation)) {
-    SwitchList <- analyzeNovelIsoformORF(
-      SwitchList,
-      analysisAllIsoformsWithoutORF = TRUE,
-      minORFlength = args$minORFlength,
-      orfMethod = args$orfMethod,
-      PTCDistance = args$PTCDistance,
-      startCodons = "ATG",
-      stopCodons = c("TAA", "TAG", "TGA"),
-      showProgress = TRUE,
-    )
-  }
+  # Analyze missing annotated isoforms by default
+  SwitchList <- analyzeNovelIsoformORF(
+    SwitchList,
+    analysisAllIsoformsWithoutORF = TRUE,
+    minORFlength = args$minORFlength,
+    orfMethod = args$orfMethod,
+    PTCDistance = args$PTCDistance,
+    startCodons = "ATG",
+    stopCodons = c("TAA", "TAG", "TGA"),
+    showProgress = TRUE,
+  )
 
   ### Extract Sequences
   SwitchList <- extractSequence(
