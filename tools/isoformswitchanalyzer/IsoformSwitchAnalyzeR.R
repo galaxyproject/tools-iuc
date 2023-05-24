@@ -34,6 +34,7 @@ parser$add_argument("--readLength",
                     type = "integer",
                     help = "Read length (required for stringtie)")
 parser$add_argument("--annotation", required = FALSE, help = "Annotation")
+parser$add_argument("--stringtieAnnotation", required = FALSE, help = "Stringtie annotation")
 parser$add_argument("--transcriptome", required = FALSE, help = "Transcriptome")
 parser$add_argument(
   "--fixStringTieAnnotationProblem",
@@ -103,6 +104,12 @@ parser$add_argument(
   required = FALSE,
   action = "store_true",
   help = "Overwrite IF values"
+)
+parser$add_argument(
+  "--removeNonConvensionalChr",
+  required = FALSE,
+  action = "store_true",
+  help = "Remove non-conventional chromosomes"
 )
 parser$add_argument(
   "--reduceToSwitchingGenes",
@@ -348,26 +355,49 @@ if (args$modeSelector == "data_import") {
   )
 
   if (args$toolSource == "stringtie") {
-    SwitchList <- importRdata(
-      isoformCountMatrix   = quantificationData$counts,
-      isoformRepExpression = quantificationData$abundance,
-      designMatrix         = myDesign,
-      isoformExonAnnoation = args$annotation,
-      isoformNtFasta       = args$transcriptome,
-      showProgress = TRUE,
-      fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
-    )
+    if (!is.null(args$stringtieAnnotation)) {
+      SwitchList <- importRdata(
+        isoformCountMatrix   = quantificationData$counts,
+        isoformRepExpression = quantificationData$abundance,
+        designMatrix         = myDesign,
+        removeNonConvensionalChr = args$removeNonConvensionalChr,
+        isoformExonAnnoation = args$stringtieAnnotation,
+        isoformNtFasta       = args$transcriptome,
+        addAnnotatedORFs = FALSE,
+        showProgress = TRUE,
+        fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
+      )
+
+      SwitchList <- addORFfromGTF(
+        SwitchList,
+        removeNonConvensionalChr = args$removeNonConvensionalChr,
+        pathToGTF = args$annotation
+      )
+
+    } else {
+      SwitchList <- importRdata(
+        isoformCountMatrix   = quantificationData$counts,
+        isoformRepExpression = quantificationData$abundance,
+        designMatrix         = myDesign,
+        removeNonConvensionalChr = args$removeNonConvensionalChr,
+        isoformNtFasta       = args$transcriptome,
+        isoformExonAnnoation = args$annotation,
+        showProgress = TRUE,
+        fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
+      )
+    }
+
   } else {
     SwitchList <- importRdata(
       isoformCountMatrix   = quantificationData$counts,
       isoformRepExpression = quantificationData$abundance,
       designMatrix         = myDesign,
+      removeNonConvensionalChr = args$removeNonConvensionalChr,
       isoformExonAnnoation = args$annotation,
       isoformNtFasta       = args$transcriptome,
       showProgress = TRUE
     )
   }
-
 
   geneCountMatrix <- extractGeneExpression(
     SwitchList,
@@ -484,16 +514,18 @@ if (args$modeSelector == "first_step") {
     showProgress = TRUE,
   )
 
-  SwitchList <- analyzeNovelIsoformORF(
-    SwitchList,
-    analysisAllIsoformsWithoutORF = TRUE,
-    minORFlength = args$minORFlength,
-    orfMethod = args$orfMethod,
-    PTCDistance = args$PTCDistance,
-    startCodons = "ATG",
-    stopCodons = c("TAA", "TAG", "TGA"),
-    showProgress = TRUE,
-  )
+  if (!is.null(args$stringtieAnnotation)) {
+    SwitchList <- analyzeNovelIsoformORF(
+      SwitchList,
+      analysisAllIsoformsWithoutORF = TRUE,
+      minORFlength = args$minORFlength,
+      orfMethod = args$orfMethod,
+      PTCDistance = args$PTCDistance,
+      startCodons = "ATG",
+      stopCodons = c("TAA", "TAG", "TGA"),
+      showProgress = TRUE,
+    )
+  }
 
   ### Extract Sequences
   SwitchList <- extractSequence(
