@@ -525,7 +525,7 @@ if (args$modeSelector == "first_step") {
     stopCodons = c("TAA", "TAG", "TGA"),
     showProgress = TRUE,
   )
-  
+
   ### Extract Sequences
   SwitchList <- extractSequence(
     SwitchList,
