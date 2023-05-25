@@ -37,7 +37,9 @@ options(show.error.messages = FALSE, error = function() {
 })
 
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
-loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
+# The line below breaks test #11 and as if not needed anymore?
+# loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
+
 
 library("getopt")
 library("tools")
@@ -69,7 +71,7 @@ spec <- matrix(c(
   "outlier_replace_off", "a", 0, "logical",
   "outlier_filter_off", "b", 0, "logical",
   "auto_mean_filter_off", "c", 0, "logical",
-  "beta_prior_off", "d", 0, "logical",
+  "use_beta_priors", "d", 0, "logical",
   "alpha_ma", "A", 1, "numeric",
   "prefilter", "P", 0, "logical",
   "prefilter_value", "V", 1, "numeric"
@@ -312,12 +314,15 @@ if (is.null(opt$auto_mean_filter_off)) {
 }
 
 # shrinkage of LFCs
-if (is.null(opt$beta_prior_off)) {
-  beta_prior <- TRUE
-} else {
+if (is.null(opt$use_beta_priors)) {
   beta_prior <- FALSE
-  if (verbose) cat("beta prior off\n")
+  if (verbose)
+    cat("Applied default - beta prior off\n")
+} else {
+  beta_prior <- opt$use_beta_priors
 }
+sprintf("use_beta_prior is set to %s", beta_prior)
+
 
 # dispersion fit type
 if (is.null(opt$fit_type)) {
