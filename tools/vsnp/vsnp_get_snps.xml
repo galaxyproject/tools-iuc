@@ -1,0 +1,383 @@
+<tool id="vsnp_get_snps" name="vSNP: get SNPs" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description></description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+        <expand macro="openpyxl_requirement"/>
+        <expand macro="pandas_requirement"/>
+        <expand macro="pyvcf_requirement"/>
+        <expand macro="xlrd_requirement"/>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+#import re
+
+#set input_vcf_dir = 'input_vcf_dir'
+#set output_json_avg_mq_dir = 'output_json_avg_mq_dir'
+#set output_json_snps_dir = 'output_json_snps_dir'
+#set output_snps_dir = 'output_snps_dir'
+
+mkdir -p $input_vcf_dir &&
+mkdir -p $output_json_avg_mq_dir &&
+mkdir -p $output_json_snps_dir &&
+mkdir -p $output_snps_dir &&
+
+#if str($input_additional_zc_vcf_collection_cond.input_additional_zc_vcf_collection) =='yes':
+    #set dbkey = '?'
+    #for $i in $input_additional_zc_vcf_collection_cond.input_vcf_collection:
+        #if str($dbkey) == '?':
+            #set dbkey = $i.metadata.dbkey
+        #else if str($dbkey) != $i.metadata.dbkey:
+            >&2 echo "The dbkeys associated with the zero coverage VCF files with SNPs found in closely related isolate groups are not unique, check ${i.name}" && exit 1
+        #end if
+        #set vcf_identifier = re.sub('[^\s\w\-]', '_', str($i.element_identifier))
+        ln -s '${i}' '$input_vcf_dir/${vcf_identifier}' &&
+    #end for
+    #if str($dbkey) == '?':
+        >&2 echo "The dbkey must be set for the zero coverage VCF files with SNPs found in closely related isolate groups" && exit 1
+    #end if
+#end if
+#if str($input_zc_vcf_type_cond.input_zc_vcf_type) == "single":
+    #set zc_vcf_identifier = re.sub('[^\s\w\-]', '_', str($input_zc_vcf.element_identifier))
+    ln -s '${input_zc_vcf}' '$input_vcf_dir/${zc_vcf_identifier}' &&
+#else
+    #for $i in $input_zc_vcf_type_cond.input_zc_vcf_collection:
+        #set zc_vcf_identifier = re.sub('[^\s\w\-]', '_', str($i.element_identifier))
+        ln -s '${i}' '$input_vcf_dir/${zc_vcf_identifier}' &&
+    #end for
+#end if
+#if str($input_excel_cond.input_excel_param) == 'yes':
+    #if str($input_excel_cond.excel_source_cond.excel_source) == 'cached':
+        ## The selected Excel filter must be associated with the dbkey value defined above.
+        #set excel_file = $input_excel_cond.excel_source_cond.input_excel.fields.path
+    #else:
+        #set excel_file = $input_excel_cond.excel_source_cond.input_excel
+    #end if
+#end if
+python '$__tool_directory__/vsnp_get_snps.py'
+--ac $ac
+#if str($input_excel_cond.input_excel_param) == 'yes':
+    --input_excel '$excel_file'
+#end if
+$all_isolates
+--input_vcf_dir '$input_vcf_dir'
+--min_mq $min_mq
+--min_quality_score $min_quality_score
+--output_json_avg_mq_dir '$output_json_avg_mq_dir'
+--output_json_snps_dir '$output_json_snps_dir'
+--output_snps_dir '$output_snps_dir'
+--output_summary '$output_summary'
+--processes \${GALAXY_SLOTS:-8}
+--quality_score_n_threshold $quality_score_n_threshold
+--dbkey '$dbkey'
+]]></command>
+    <inputs>
+        <conditional name="input_zc_vcf_type_cond">
+            <param name="input_zc_vcf_type" type="select" label="Choose the category of the files to be analyzed">
+                <option value="collection" selected="true">A collection of zero coverage VCF files</option>
+                <option value="single">A single zero coverage VCF file</option>
+            </param>
+            <when value="single">
+                <param name="input_zc_vcf" type="data" format="vcf" label="Zero coverage VCF file"/>
+            </when>
+            <when value="collection">
+                <param name="input_zc_vcf_collection" format="vcf" type="data_collection" collection_type="list" label="Collection of zero coverage VCF files"/>
+            </when>
+        </conditional>
+        <conditional name="input_additional_zc_vcf_collection_cond">
+            <param name="input_additional_zc_vcf_collection" type="select" label="Include an additional collection of curated zero-coverage VCF files?">
+                <option value="no" selected="true">No</option>
+                <option value="yes">Yes</option>
+            </param>
+            <when value="no"/>
+            <when value="yes">
+                <param name="input_vcf_collection" format="vcf" type="data_collection" collection_type="list" label="Collection of zero coverage VCF files with SNPs found in closely related isolate groups"/>
+            </when>
+        </conditional>
+        <param name="ac" type="integer" min="0" value="2" label="Allele count threshold" help="At least 1 position must have this value for a SNP to be added to a group"/>
+        <param name="min_mq" type="integer" min="0" value="56" label="Map quality threshold" help="At least 1 position must have a higher MQ value for a SNP to be added to a group"/>
+        <param name="min_quality_score" type="integer" min="0" value="150" label="Quality score threshold" help="At least 1 position must have a higher quality score for a SNP to be added to a group"/>
+        <param name="quality_score_n_threshold" type="integer" min="0" value="150" label="Minimum quality score N value for alleles" help="Alleles are marked as N for quality scores between this value and the minimum quality score value above"/>
+        <conditional name="input_excel_cond">
+            <param name="input_excel_param" type="select" label="Use Excel file for grouping and filtering?">
+                <option value="yes" selected="true">Yes</option>
+                <option value="no">No</option>
+            </param>
+            <when value="yes">
+                <conditional name="excel_source_cond">
+                    <param name="excel_source" type="select" label="Choose the source for the Excel file">
+                        <option value="cached">locally cached</option>
+                        <option value="history">from history</option>
+                    </param>
+                    <when value="cached">
+                        <param name="input_excel" type="select" label="Excel file" help="Select the file associated with the same dbkey as the input VCF file(s)">
+                            <options from_data_table="vsnp_excel">
+                                <validator type="no_options" message="No built-in Excel grouping and filtering datasets are available"/>
+                            </options>
+                        </param>
+                    </when>
+                    <when value="history">
+                        <param name="input_excel" type="data" format="xlsx" label="Excel file"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="no"/>
+        </conditional>
+        <param name="all_isolates" type="boolean" truevalue="--all_isolates" falsevalue="" checked="true" label="Create a group containing all isolates?"/>
+    </inputs>
+    <outputs>
+        <collection name="snps" type="list" label="${tool.name} on ${on_string} (SNPs)">
+            <discover_datasets pattern="__name_and_ext__" directory="output_snps_dir"/>
+        </collection>
+        <collection name="json_avg_mq" type="list" label="${tool.name} on ${on_string} (average mq)">
+            <discover_datasets pattern="__name_and_ext__" directory="output_json_avg_mq_dir"/>
+        </collection>
+        <collection name="json_snps" type="list" label="${tool.name} on ${on_string} (SNPs as json)">
+            <discover_datasets pattern="__name_and_ext__" directory="output_json_snps_dir"/>
+        </collection>
+        <data name="output_summary" format="html" label="${tool.name} on ${on_string} (summary)"/>
+    </outputs>
+    <tests>
+        <!--
+            Unfortunately the test files cannot be gzipped since Galaxy changes the file names
+            to be something like 00-0121_WI_Cervid_99-A_vcf_gz, and the VCF Reader requires
+            gzipped files to have a .gz extension.  The exception is
+            UnicodeDecodeError: 'utf-8' codec can't decode byte 0x8b in position 1: invalid start byte
+        -->
+        <!-- A single vcf input, no excel file, all_isolates is False -->
+        <test expect_num_outputs="4">
+            <param name="input_zc_vcf_type" value="single"/>
+            <param name="input_zc_vcf" value="input_zc_vcf.vcf" ftype="vcf" dbkey="89"/>
+            <param name="input_additional_zc_vcf_collection" value="yes"/>
+            <param name="input_vcf_collection">
+                <collection type="list">
+                    <element name="SRR8073662_zc.vcf" value="SRR8073662_zc.vcf" dbkey="89"/>
+                    <element name="SRR1792272_zc.vcf" value="SRR1792272_zc.vcf" dbkey="89"/>
+                </collection>
+            </param>
+            <param name="input_excel_param" value="no"/>
+            <param name="all_isolates" value=""/>
+            <output_collection name="snps" type="list" count="1">
+                <element name="all_vcf" ftype="fasta">
+                    <assert_contents>
+                        <has_size value="150"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="json_avg_mq" type="list" count="1">
+                <element name="all_vcf" ftype="json">
+                    <assert_contents>
+                        <has_size value="551"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="json_snps" type="list" count="1">
+                <element name="all_vcf" ftype="json">
+                    <assert_contents>
+                        <has_size value="876"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="output_summary" ftype="html">
+                <assert_contents>
+                    <has_size value="303"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- An input collection, no excel file, all_isolates is False -->
+        <test expect_num_outputs="4">
+            <param name="input_zc_vcf_type" value="collection"/>
+            <param name="input_zc_vcf_collection">
+                <collection type="list">
+                    <element name="BCG_Pasteur_Unknown_FR_SRR8886989.vcf" value="BCG_Pasteur_Unknown_FR_SRR8886989.vcf" dbkey="89"/>
+                    <element name="BCG_Tokyo_Unknown_JP_DRR029468.vcf" value="BCG_Tokyo_Unknown_JP_DRR029468.vcf" dbkey="89"/>
+                </collection>
+            </param>
+            <param name="input_additional_zc_vcf_collection" value="yes"/>
+            <param name="input_vcf_collection">
+                <collection type="list">
+                    <element name="01_1787_FL_Zoo_Jaguar.vcf" value="01_1787_FL_Zoo_Jaguar.vcf" dbkey="89"/>
+                    <element name="02_5877_MEX_TX_Fed.vcf" value="02_5877_MEX_TX_Fed.vcf" dbkey="89"/>
+                    <element name="02_0585_COA_TX_Fed.vcf" value="02_0585_COA_TX_Fed.vcf" dbkey="89"/>
+                </collection>
+            </param>
+            <param name="input_excel_param" value="no"/>
+            <param name="all_isolates" value=""/>
+            <output_collection name="snps" type="list" count="1">
+                <element name="all_vcf" ftype="fasta">
+                    <assert_contents>
+                        <has_size value="5226"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="json_avg_mq" type="list" count="1">
+                <element name="all_vcf" ftype="json">
+                    <assert_contents>
+                        <has_size value="24332"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="json_snps" type="list" count="1">
+                <element name="all_vcf" ftype="json">
+                    <assert_contents>
+                        <has_size value="38798"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="output_summary" ftype="html">
+                <assert_contents>
+                    <has_size value="303"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- An input collection, an excel file, all_isolates is False -->
+        <test expect_num_outputs="4">
+            <param name="input_zc_vcf_type" value="collection"/>
+            <param name="input_zc_vcf_collection">
+                <collection type="list">
+                    <element name="BCG_Pasteur_Unknown_FR_SRR8886989.vcf" value="BCG_Pasteur_Unknown_FR_SRR8886989.vcf" dbkey="89"/>
+                    <element name="BCG_Tokyo_Unknown_JP_DRR029468.vcf" value="BCG_Tokyo_Unknown_JP_DRR029468.vcf" dbkey="89"/>
+                </collection>
+            </param>
+            <param name="input_additional_zc_vcf_collection" value="yes"/>
+            <param name="input_vcf_collection">
+                <collection type="list">
+                    <element name="01_1787_FL_Zoo_Jaguar.vcf" value="01_1787_FL_Zoo_Jaguar.vcf" dbkey="89"/>
+                    <element name="02_5877_MEX_TX_Fed.vcf" value="02_5877_MEX_TX_Fed.vcf" dbkey="89"/>
+                    <element name="02_0585_COA_TX_Fed.vcf" value="02_0585_COA_TX_Fed.vcf" dbkey="89"/>
+                </collection>
+            </param>
+            <param name="input_excel_param" value="yes"/>
+            <param name="input_excel" value="89"/>
+            <param name="all_isolates" value=""/>
+            <output_collection name="snps" type="list" count="1">
+                <element name="Mbovis-17" ftype="fasta">
+                    <assert_contents>
+                        <has_size value="749"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="json_avg_mq" type="list" count="1">
+                <element name="Mbovis-17" ftype="json">
+                    <assert_contents>
+                        <has_size value="10884"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="json_snps" type="list" count="1">
+                <element name="Mbovis-17" ftype="json">
+                    <assert_contents>
+                        <has_size value="6396"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="output_summary" ftype="html">
+                <assert_contents>
+                    <has_size value="1057"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- An input collection, an excel file, all_isolates is True -->
+        <test expect_num_outputs="4">
+            <param name="input_zc_vcf_type" value="collection"/>
+            <param name="input_zc_vcf_collection">
+                <collection type="list">
+                    <element name="BCG_Pasteur_Unknown_FR_SRR8886989.vcf" value="BCG_Pasteur_Unknown_FR_SRR8886989.vcf" dbkey="89"/>
+                    <element name="BCG_Tokyo_Unknown_JP_DRR029468.vcf" value="BCG_Tokyo_Unknown_JP_DRR029468.vcf" dbkey="89"/>
+                </collection>
+            </param>
+            <param name="input_additional_zc_vcf_collection" value="yes"/>
+            <param name="input_vcf_collection">
+                <collection type="list">
+                    <element name="01_1787_FL_Zoo_Jaguar.vcf" value="01_1787_FL_Zoo_Jaguar.vcf" dbkey="89"/>
+                    <element name="02_5877_MEX_TX_Fed.vcf" value="02_5877_MEX_TX_Fed.vcf" dbkey="89"/>
+                    <element name="02_0585_COA_TX_Fed.vcf" value="02_0585_COA_TX_Fed.vcf" dbkey="89"/>
+                </collection>
+            </param>
+            <param name="input_excel_param" value="yes"/>
+            <param name="input_excel" value="89"/>
+            <param name="all_isolates" value="--all_isolates"/>
+            <output_collection name="snps" type="list" count="2">
+                <element name="Mbovis-17" ftype="fasta">
+                    <assert_contents>
+                        <has_size value="749"/>
+                    </assert_contents>
+                </element>
+                <element name="all_vcf" ftype="fasta">
+                    <assert_contents>
+                        <has_size value="4920"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="json_avg_mq" type="list" count="2">
+                <element name="Mbovis-17" ftype="json">
+                    <assert_contents>
+                        <has_size value="10884"/>
+                    </assert_contents>
+                </element>
+                <element name="all_vcf" ftype="json">
+                    <assert_contents>
+                        <has_size value="24332"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="json_snps" type="list" count="2">
+                <element name="Mbovis-17" ftype="json">
+                    <assert_contents>
+                        <has_size value="6396"/>
+                    </assert_contents>
+                </element>
+                <element name="all_vcf" ftype="json">
+                    <assert_contents>
+                        <has_size value="36466"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="output_summary" ftype="html">
+                <assert_contents>
+                    <has_size value="1056"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help>
+**What it does**
+
+Accepts a zero coverage VCF file produced by the **vSNP: add zero coverage** tool (or a collection of them) along with a collection
+of zero coverage VCF files that have been aligned with the same reference and contain SNPs called between closely related isolate groups.
+The tool produces fasta files containing SNP alignments, json files containing the SNP positions and additional json files containing
+the average map quality values.
+
+The SNP alignments produced by this tool are used to create phylogenetic trees, so larger input collections result in more populated
+phylogenetic trees.  Both of the json outputs are used by the **vSNP: build tables** tool to produce annotated SNP tables in the form
+of Excel spreadsheets.
+
+An Excel spreadsheet containing specified SNPs can optiomally be used to filter desired SNP positions by group.  Users can choose a
+locally cached Excel spreadsheet or one from their current history.
+
+A SNP is added to a group if it has at least one position with a specified allele count value, a quality score greater than a specified
+value, and a map quality greater than a specified value.
+
+If the allele count equals the specified value (2) and the quality score for a SNP position is greater than the minimum quality score
+value (150), the alternate allele is called.
+
+However, if the allele count is 1, the position is called ambiguous.  Deletions are called when the alternate allele is a gap.  If the
+quality score is less than or equal to the minimum quality score N value for alleles (150), the allele is marked "N".
+
+**Required Options**
+
+ * **Zero coverage VCF file(s)** - Select a single or collection of zero coverage VCF files, typically produced by the **vSNP: add zero coverage** tool, from the current history.
+ * **Collection of zero coverage VCF files with SNPs found in closely related isolate groups** - Select a dataset collection of zero coverage vcf files from the current history.
+
+**Additional Options**
+
+ * **Allele count threshold** - At least 1 position must have an allele count greater than this value for a SNP to be added to a group (2 is optimal).
+ * **Map quality threshold** - At least 1 position must have a higher MQ value for a SNP to be added to a group (56 is optimal).
+ * **Quality score threshold** -At least 1 position must have a higher quality score for a SNP to be added to a group (150 is optimal).
+ * **Minimum quality score N value for alleles** - If none of the avove 3 requirements is met and the quality score is less than or equal to the minimum quality score N value for alleles, the allele is marked "N" (150 is optimal).
+ * **Use Excel file for grouping and filtering?** - select Yes to filter desired SNP positions by group.  A cached Excel spreadsheet provides the most widely used SNP positions for grouping, but a custom spreadhseet can be selected from the current history.
+ * **Create a group containing all isolates?** - select Yes to output an additional group containing of all isolates.
+</help>
+    <expand macro="citations"/>
+</tool>
+

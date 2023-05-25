@@ -1,0 +1,391 @@
+<tool name="Map parameter value" id="map_param_value" version="0.1.1" tool_type="expression" profile="22.01">
+    <macros>
+        <xml name="when_element" tokens="type_selection">
+            <param name="input_param" type="@TYPE_SELECTION@" optional="true" label="Value to map">
+                <sanitizer sanitize="false"/>
+            </param>
+            <repeat name="mappings" label="Add value mapping">
+                <param name="from" type="@TYPE_SELECTION@" optional="true" label="Map from this value">
+                    <sanitizer sanitize="false"/>
+                </param>
+                <param name="to" type="text" optional="true" label="to this value" help="This value must be coercable to the selected output parameter type">
+                    <sanitizer sanitize="false"/>
+                </param>
+            </repeat>
+        </xml>
+    </macros>
+    <expression type="ecma5.1">
+        <![CDATA[{
+const source = $job.input_param_type.input_param;
+const mappings = $job.input_param_type.mappings;
+
+const coerceToOutput = function(value) {
+    switch($job.output_param_type) {
+        case "integer":
+            return parseInt(value)
+        case "float":
+            return parseFloat(value)
+        case "boolean":
+            if (value == "false" || value == "False") {
+                return false
+            }
+            return !!value
+        case "text":
+            return value
+    }
+}
+
+for ( var i = 0; i < mappings.length; i++ ) {
+    if ( String(mappings[i].from) == String(source) ) {
+        return { output: coerceToOutput(mappings[i].to) };
+    }
+}
+if ( $job.unmapped.on_unmapped == "fail" ) {
+    return { __error_message: `input_param ${source} not found in mapping values.` };
+} else if ( $job.unmapped.on_unmapped == "default" ) {
+    return { output: coerceToOutput($job.unmapped.default_value) };
+}
+return { output: coerceToOutput(source) };
+}]]>
+    </expression>
+    <inputs>
+        <conditional name="input_param_type">
+            <param name="type" type="select" label="Select type of input parameter to match">
+                <option value="text" selected="true">Text</option>
+                <option value="integer">Integer</option>
+                <option value="float">Float</option>
+                <option value="boolean">Boolean</option>
+            </param>
+            <when value="text">
+                <expand macro="when_element" type_selection="text"/>
+            </when>
+            <when value="integer">
+                <expand macro="when_element" type_selection="integer"/>
+            </when>
+            <when value="float">
+                <expand macro="when_element" type_selection="float"/>
+            </when>
+            <when value="boolean">
+                <expand macro="when_element" type_selection="boolean"/>
+            </when>
+        </conditional>
+        <conditional name="unmapped">
+            <param name="on_unmapped" type="select" label="Select how to handle unmapped values">
+                <option value="input">Use unmodified input parameter value if input parameter value not found in mappings</option>
+                <option value="fail">Fail if input parameter value not found in mappings</option>
+                <option value="default">Provide a default value to use if input parameter value not found in mappings</option>
+            </param>
+            <when value="input" />
+            <when value="fail" />
+            <when value="default">
+                <param name="default_value" type="text" label="Use this value if the input parameter value was not found in mappings"/>
+            </when>
+        </conditional>
+        <param name="output_param_type" type="select" label="Select type of parameter to output">
+            <option value="text">Text</option>
+            <option value="integer">Integer</option>
+            <option value="float">Float</option>
+            <option value="boolean">Boolean</option>
+        </param>
+    </inputs>
+    <outputs>
+        <output type="text" name="output_param_text" from="output">
+            <filter>output_param_type == 'text'</filter>
+        </output>
+        <output type="integer" name="output_param_integer" from="output">
+            <filter>output_param_type == 'integer'</filter>
+        </output>
+        <output type="float" name="output_param_float" from="output">
+            <filter>output_param_type == 'float'</filter>
+        </output>
+        <output type="boolean" name="output_param_boolean" from="output">
+            <filter>output_param_type == 'boolean'</filter>
+        </output>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <!-- map string A to string B -->
+            <conditional name="input_param_type">
+                <param name="type" value="text"/>
+                <param name="input_param" value="A" />
+                <repeat name="mappings">
+                    <param name="from" value="A" />
+                    <param name="to" value="B" />
+                </repeat>
+            </conditional>
+            <output name="output_param_text" value_json="&quot;B&quot;" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- test that mapping works in the presence of usually sanitized characters -->
+            <conditional name="input_param_type">
+                <param name="type" value="text"/>
+                <param name="input_param" value="echo $abc &gt; 1" />
+                <repeat name="mappings">
+                    <param name="from" value="echo $abc &gt; 1" />
+                    <param name="to" value="echo $abc &gt; 2" />
+                </repeat>
+            </conditional>
+            <output name="output_param_text" value_json="&quot;echo $abc &gt; 2&quot;" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- keep unmodified input if no match in mapping values -->
+            <conditional name="input_param_type">
+                <param name="input_param" value="C" />
+                <repeat name="mappings">
+                    <param name="from" value="A" />
+                    <param name="to" value="B" />
+                </repeat>
+            </conditional>
+            <output name="output_param_text" value_json="&quot;C&quot;" />
+        </test>
+        <test expect_failure="true">
+            <!-- fail job if no mapping found and on_unmapped is set to fail -->
+            <conditional name="input_param_type">
+                <param name="input_param" value="C" />
+                <repeat name="mappings">
+                    <param name="from" value="A" />
+                    <param name="to" value="B" />
+                </repeat>
+            </conditional>
+            <conditional name="unmapped">
+                <param name="on_unmapped" value="fail"/>
+            </conditional>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map unspecified option text to string default via unmapped default value -->
+            <conditional name="input_param_type">
+                <repeat name="mappings">
+                    <param name="from" value="A" />
+                    <param name="to" value="B" />
+                </repeat>
+            </conditional>
+            <conditional name="unmapped">
+                <param name="on_unmapped" value="default"/>
+                <param name="default_value" value="default"/>
+            </conditional>
+            <output name="output_param_text" value_json="&quot;default&quot;" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map string C to string X via default value -->
+            <conditional name="input_param_type">
+                <param name="input_param" value="C" />
+                <repeat name="mappings">
+                    <param name="from" value="A" />
+                    <param name="to" value="B" />
+                </repeat>
+            </conditional>
+            <conditional name="unmapped">
+                <param name="on_unmapped" value="default"/>
+                <param name="default_value" value="X"/>
+            </conditional>
+            <output name="output_param_text" value_json="&quot;X&quot;" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map string C to string D in presence of multiple mappings -->
+            <conditional name="input_param_type">
+                <param name="input_param" value="C" />
+                <repeat name="mappings">
+                    <param name="from" value="A" />
+                    <param name="to" value="B" />
+                </repeat>
+                <repeat name="mappings">
+                    <param name="from" value="C" />
+                    <param name="to" value="D" />
+                </repeat>
+            </conditional>
+            <output name="output_param_text" value_json="&quot;D&quot;" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map integer 42 to integer true value -->
+            <conditional name="input_param_type">
+                <param name="type" value="integer" />
+                <param name="input_param" value="42" />
+                <repeat name="mappings">
+                    <param name="from" value="42" />
+                    <param name="to" value="true" />
+                </repeat>
+            </conditional>
+            <param name="output_param_type" value="boolean"/>
+            <output name="output_param_boolean" value_json="true" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map float 1.2 to boolean false via unmapped default value -->
+            <conditional name="input_param_type">
+                <param name="type" value="float" />
+                <param name="input_param" value="1.2" />
+                <repeat name="mappings">
+                    <param name="from" value="42" />
+                    <param name="to" value="true" />
+                </repeat>
+            </conditional>
+            <conditional name="unmapped">
+                <param name="on_unmapped" value="default"/>
+                <param name="default_value" value="False"/>
+            </conditional>
+            <param name="output_param_type" value="boolean"/>
+            <output name="output_param_boolean" value_json="false" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map integer 1 to float 1.1 -->
+            <conditional name="input_param_type">
+                <param name="type" value="integer" />
+                <param name="input_param" value="1" />
+                <repeat name="mappings">
+                    <param name="from" value="1" />
+                    <param name="to" value="1.1" />
+                </repeat>
+            </conditional>
+            <param name="output_param_type" value="float"/>
+            <output name="output_param_float" value_json="1.1" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map string A to integer 2 -->
+            <conditional name="input_param_type">
+                <param name="type" value="text" />
+                <param name="input_param" value="A" />
+                <repeat name="mappings">
+                    <param name="from" value="A" />
+                    <param name="to" value="2" />
+                </repeat>
+            </conditional>
+            <param name="output_param_type" value="integer"/>
+            <output name="output_param_integer" value_json="2" />
+        </test>
+        <test expect_num_outputs="1">A
+            <!-- map string False to boolean false -->
+            <conditional name="input_param_type">
+                <param name="type" value="text" />
+                <param name="input_param" value="False" />
+                <repeat name="mappings">
+                    <param name="from" value="False" />
+                    <param name="to" value="false" />
+                </repeat>
+            </conditional>
+            <conditional name="unmapped">
+                <param name="on_unmapped" value="fail"/>
+            </conditional>
+            <param name="output_param_type" value="boolean"/>
+            <output name="output_param_boolean" value_json="false" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map boolean false to boolean true -->
+            <conditional name="input_param_type">
+                <param name="type" value="boolean" />
+                <param name="input_param" value="false" />
+                <repeat name="mappings">
+                    <param name="from" value="false" />
+                    <param name="to" value="true" />
+                </repeat>
+            </conditional>
+            <conditional name="unmapped">
+                <param name="on_unmapped" value="fail"/>
+            </conditional>
+            <param name="output_param_type" value="boolean"/>
+            <output name="output_param_boolean" value_json="true" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map integer 0 to boolean false via default value coercion -->
+            <conditional name="input_param_type">
+                <param name="type" value="integer" />
+                <param name="input_param" value="0" />
+            </conditional>
+            <param name="output_param_type" value="boolean"/>
+            <output name="output_param_boolean" value_json="false" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map null text value to boolean true -->
+            <conditional name="input_param_type">
+                <param name="type" value="text" />
+                <param name="input_param" value_json="null" />
+                <repeat name="mappings">
+                    <param name="from" value_json="null" />
+                    <param name="to" value="true" />
+                </repeat>
+            </conditional>
+            <param name="output_param_type" value="boolean"/>
+            <output name="output_param_boolean" value_json="true" />
+        </test>
+        <test expect_num_outputs="1" doc="map null integer value to boolean true">
+            <!-- map null integer value to boolean true -->
+            <conditional name="input_param_type">
+                <param name="type" value="integer" />
+                <param name="input_param" value_json="null" />
+                <repeat name="mappings">
+                    <param name="from" value_json="null" />
+                    <param name="to" value="true" />
+                </repeat>
+            </conditional>
+            <param name="output_param_type" value="boolean"/>
+            <output name="output_param_boolean" value_json="true" />
+        </test>
+        <test expect_num_outputs="1">
+            <!-- map integer value to null text -->
+            <conditional name="input_param_type">
+                <param name="type" value="integer" />
+                <param name="input_param" value="1" />
+                <repeat name="mappings">
+                    <param name="from" value="1" />
+                    <param name="to" value_json="null" />
+                </repeat>
+            </conditional>
+            <param name="output_param_type" value="text"/>
+            <output name="output_param_text" value_json="null" />
+        </test>
+        <!-- Old Galaxy issue, optional unset text input still recorded as ""
+             We could work around this with a conditional, but no usecase yet
+             and we should better fix this in Galaxy
+            <test expect_num_outputs="1">
+                <conditional name="input_param_type">
+                    <param name="input_param" value="A" />
+                    <repeat name="mappings">
+                        <param name="from" value="A" />
+                    </repeat>
+                </conditional>
+                <output name="output_param_text" value_json="null" />
+            </test>
+        -->
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+Maps a parameter value to another value.
+This can be used to transform any non-data value (text, integer, float and boolean) to a different value of a different type.
+
+**Settings**
+
+ If the value is not found in the mapping the unmodified value is returned by default.
+ Select ``Fail if input parameter value not found in mappings`` if you wish the job to fail if an input could not be mapped.
+
+ Select ``Provide a default value to use if input parameter value not found in mappings`` to provide a default value to use in case the input parameter value could not be mapped.
+ Select the proper input and output parameter types based on your workflow input and output connections.
+
+**Examples**
+
+You want a user to select from 3 simple options in a workflow, e.g. ``low``, ``medium``, ``high``, which correspond to distinct integer values.
+
+Turn ``Map this parameter value to a different value`` into a a connectable workflow input by clicking on "Add connection to module".
+
+Set the input parameter type to ``Text``, and add 3 mappings:
+
+..
+
+  #.
+
+    * Map from this value: ``low``
+    * to this value: ``1``
+
+  #.
+
+    * Map from this value: ``medium``
+    * to this value: ``2``
+
+  #.
+
+    * Map from this value: ``high``
+    * to this value: ``3``
+
+Set ``Select type of parameter to output`` to ``Integer``.
+You can now connect the output to any connectable Integer input in your workflow.
+
+    ]]></help>
+</tool>

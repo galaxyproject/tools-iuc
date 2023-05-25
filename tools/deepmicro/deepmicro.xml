@@ -1,0 +1,289 @@
+<tool id="deepmicro" name="DeepMicro" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>
+        Representation learning and classification framework
+    </description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="biotools" />
+    <expand macro="requirements" />
+    <expand macro="version" />
+    <command detect_errors="exit_code"><![CDATA[
+        mkdir data &&
+        mkdir results &&
+        ln -s '$features' data/features.csv &&
+
+        #if $mode.mode_type == "only_encoding":
+
+            #for $params in $mode.parameter_set:
+
+                #if $params.rl_type.rl_type_choice == "--pca" or $params.rl_type.rl_type_choice == "--rp":
+                    DM.py -r 1 -cd features.csv '$params.rl_type.rl_type_choice' --save_rep --no_clf -t \${GALAXY_SLOTS:-8} &&
+                #else: 
+                    DM.py -r 1 -cd features.csv '$params.rl_type.rl_type_choice' -dm '$params.rl_type.dm' --save_rep --no_clf -t \${GALAXY_SLOTS:-8} &&
+                #end if
+            #end for
+
+        #else:
+
+            ln -s '$mode.class_labels' data/labels.csv &&
+
+            #for $params in $mode.parameter_set:
+
+                #if $params.rl_type.rl_type_choice == "--pca" or $params.rl_type.rl_type_choice == "--rp":
+                    DM.py -r 1 -cd features.csv -cl labels.csv '$params.rl_type.rl_type_choice' --save_rep -m '$params.rl_type.classifier' -t \${GALAXY_SLOTS:-8} &&
+                #else: 
+                    DM.py -r 1 -cd features.csv -cl labels.csv '$params.rl_type.rl_type_choice' -dm '$params.rl_type.dm' --save_rep -m '$params.rl_type.classifier'  -t \${GALAXY_SLOTS:-8} &&
+                #end if
+            #end for
+
+        #end if
+
+        echo Done !
+        ]]>
+    </command>
+    <inputs>
+        <param argument="--features" type="data" format="tabular" label="Feature table" help="Dataset containing the features of samples"/>
+        <conditional name="mode">
+            <param name="mode_type" type="select" label="Mode" help="The tool can either only create a latent 
+            representation of the data or create a latent representation of the data and cross validate a classifier using that encoding.">
+                <option value="only_encoding">Create only encoding</option>
+                <option value="e_and_c">Create encoding and cross validate a classifier</option>
+            </param>
+            <when value="only_encoding">
+                <repeat name="parameter_set" title="Parameter Set">
+                    <conditional name="rl_type">
+                        <param name="rl_type_choice" type="select" label="Representation learning type" help="The type of representation learning" >
+                            <option value="--pca">PCA</option>
+                            <option value="--rp">Random Projection</option>
+                            <option value="--ae">Autoencoder or Deep Autoencoder</option>
+                            <option value="--vae">Variational Autoencoder</option>
+                            <option value="--cae">Convolutional Autoencoder</option>
+                        </param>
+                        <when value="--pca"/>
+                        <when value="--rp"/>
+                        <when value="--ae">
+                            <expand macro="dm" />                        
+                        </when>
+                        <when value="--vae">
+                            <expand macro="dm" />                          
+                        </when>
+                        <when value="--cae">
+                            <expand macro="dm" />  
+                        </when>
+                    </conditional>
+                </repeat>
+            </when>
+            <when value="e_and_c">
+                <param argument="--class_labels" type="data" format="tabular" label="Class labels" help="Dataset containing the class labels corresponding to the features"/>
+                <repeat name="parameter_set" title="Parameter Set">
+                    <conditional name="rl_type">
+                        <param name="rl_type_choice" type="select" label="Representation learning type" help="The type of representation learning. `Train on input` trains the classifier on the input features without representation learning" >
+                            <option value="--pca">PCA</option>
+                            <option value="--rp">Random Projection</option>
+                            <option value="--ae">Autoencoder or Deep Autoencoder</option>
+                            <option value="--vae">Variational Autoencoder</option>
+                            <option value="--cae">Convolutional Autoencoder</option>
+                            <option value="no_rl">Train on input</option>
+                        </param>
+                        <when value="no_rl">
+                            <expand macro="clfs" />                    
+                        </when>
+                        <when value="--pca">
+                            <expand macro="clfs" />                    
+                        </when>
+                        <when value="--rp">
+                            <expand macro="clfs" />                    
+                        </when>
+                        <when value="--ae">
+                            <expand macro="dm" />   
+                            <expand macro="clfs" />                    
+                        </when>
+                        <when value="--vae">
+                            <expand macro="dm" /> 
+                            <expand macro="clfs" />                            
+                        </when>
+                        <when value="--cae">
+                            <expand macro="dm" /> 
+                            <expand macro="clfs" />    
+                        </when>
+                    </conditional>
+                </repeat>
+            </when>
+        </conditional>
+    </inputs>
+    <outputs>
+        <data name="results" format="tabular" from_work_dir="./results/*_result.txt" label="${tool.name} on ${on_string}: Results">
+            <!-- results are only for classifiers  -->
+            <filter>mode["mode_type"] == "e_and_c"</filter>
+        </data>
+        <collection name="encoded_features" type="list" label="Encoded Features">
+            <!-- the encoded features generated by the tool are only for the training set, this is not very useful, therefore omitting
+            todo change tool do export features complete dataset also when classification is performed -->
+            <filter>mode["mode_type"] == "only_encoding"</filter>
+            <discover_datasets directory="results" pattern="(?P&lt;designation&gt;.*)_rep\.csv" format="tabular" visible="false" />
+        </collection>
+    </outputs>
+    <tests>
+
+    <!-- only encoding -->
+    <!-- test one parameter sets -->
+
+        <test expect_num_outputs="1">
+            <param name="mode_type" value="only_encoding" />
+            <param name="features" value="UserDataExample.csv" />
+            <param name="rl_type_choice" value="--ae" />
+            <param name="dm" value="40" />
+            <output_collection name="encoded_features" type="list">
+                <!-- output is non determinisitc -->
+                <element name="AE[40]_features" ftype="tabular" >
+                    <assert_contents>
+                        <has_n_lines n="20"/>
+                        <!-- <has_n_columns n="40" sep="," /> -->
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+
+        <test expect_num_outputs="1">
+            <param name="mode_type" value="only_encoding" />
+            <param name="features" value="UserDataExample.csv" />
+            <param name="rl_type_choice" value="--pca" />
+            <output_collection name="encoded_features" type="list">
+                <element name="PCA_features" ftype="tabular" >
+                    <assert_contents>
+                        <has_n_lines n="20"/>
+                        <!-- <has_n_columns n="40" sep="," /> -->
+                    </assert_contents>
+                </element>
+            </output_collection>
+        </test>
+
+        <!-- test multiple parameter sets -->
+        <test expect_num_outputs="1">
+            <param name="features" value="UserDataExample.csv" />
+            <conditional name="mode">
+                <param name="mode_type" value="only_encoding" />
+
+                <repeat name="parameter_set">
+                    <conditional name="rl_type">
+                        <param name="rl_type_choice" value="--pca" />
+                    </conditional>
+                </repeat>
+
+                <repeat name="parameter_set">
+                    <conditional name="rl_type">
+                        <param name="rl_type_choice" value="--ae" />
+                        <param name="dm" value="40" />
+                    </conditional>
+                </repeat>
+            
+            </conditional>
+
+            <output_collection name="encoded_features" type="list">
+                <element name="AE[40]_features" ftype="tabular" >
+                    <assert_contents>
+                        <has_n_lines n="20"/>
+                        <!-- <has_n_columns n="40" sep="," /> -->
+                    </assert_contents>
+                </element>
+                <element name="PCA_features" ftype="tabular" >
+                    <assert_contents>
+                        <has_n_lines n="20"/>
+                        <!-- <has_n_columns n="40" sep="," /> -->
+                    </assert_contents>
+                </element>
+            </output_collection>
+            
+        </test>  
+
+        <!-- encoding and clf -->
+        <!-- test one parameter set -->
+
+        <test expect_num_outputs="1">
+            <param name="features" value="UserDataExample.csv" />
+            <param name="mode_type" value="e_and_c" />
+            <param name="class_labels" value="UserLabelExample.csv" />
+            <param name="rl_type_choice" value="--vae" />
+            <param name="dm" value="40" />
+            <param name="classifier" value="rf" /> 
+            <output ftype="tabular" name="results" >
+                <assert_contents>
+                    <has_text text="VAE[40]_rf" />
+                </assert_contents>
+            </output>
+
+        </test>
+
+        <!-- test multiple parameter sets -->
+        <test expect_num_outputs="1">
+            <param name="features" value="UserDataExample.csv" />
+            <conditional name="mode">
+                <param name="mode_type" value="e_and_c" />
+                <param name="class_labels" value="UserLabelExample.csv" />
+
+                <repeat name="parameter_set">
+                    <conditional name="rl_type">
+                        <param name="rl_type_choice" value="--cae" />
+                        <param name="dm" value="20" />
+                        <param name="classifier" value="rf" /> 
+                    </conditional>
+                </repeat>
+
+                <repeat name="parameter_set">
+                    <conditional name="rl_type">
+                        <param name="rl_type_choice" value="--vae" />
+                        <param name="dm" value="40" />
+                        <param name="classifier" value="mlp" /> 
+                    </conditional>
+                </repeat>
+            
+            </conditional>
+            
+            <output ftype="tabular" name="results" >
+                <assert_contents>
+                    <has_text text="CAE[20]_rf" />
+                    <has_text text="VAE[40]_mlp" />
+                </assert_contents>
+            </output>
+
+        </test>  
+
+    </tests>
+    <help>
+        <![CDATA[
+DeepMicro is a deep representation learning framework exploiting various autoencoders 
+to learn robust low-dimensional representations from high-dimensional data and training
+classification models based on the learned representation.
+
+======================================
+Option 1) Only representation learning
+====================================== 
+
+The representation learning does not require class labels and can be learned from the features alone. 
+The wrapper allows to explore multiple paramertes (i.e. different modes to
+generate the features, please refer to the publication for details), for each 
+added parameter the encoded features are generated. Those features can then be passed to subsequent ML tools,
+such as `Ensemble methods for classification and regression` or `Split Dataset into training and test subsets`
+
+=====================================================
+Option 2)  Representation learning and classification
+=====================================================
+
+The tool itself can also evaluate the performance of the generated representation learning for different
+classifiers internally using 5 fold CV. The wrapper allows to explore multiple paramertes and clfs.
+Each parameter run will be stored as a line to the result file. If this option is chosen the latent representation is not
+exported as output. To create the latent representation of the complete feature set, run the tool again
+with the same parameters using the `Only representation learning` option.
+The header of the result file is: 
+
+'{Encoding}_{classifier}, AUC, ACC, Recall, Precision, F1_score, time-end, runtime(sec), classfication time(sec), best hyper-parameter'
+
+The overall schema of the tool is shown in:
+
+.. image:: ML_Workflow.png
+        ]]>
+    </help>
+    <expand macro="citations" />
+    <expand macro="creator" />
+</tool>

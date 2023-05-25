@@ -14,7 +14,7 @@ get_deseq_dataset <- function(sample_table, header, design_formula, tximport, tx
     }
   }
 
-  if (!use_txi & has_header) {
+  if (!use_txi && has_header) {
       countfiles <- lapply(as.character(sample_table$filename), read.delim, row.names = 1)
       tbl <- do.call("cbind", countfiles)
       colnames(tbl) <- rownames(sample_table) # take sample ids from header
@@ -35,7 +35,7 @@ get_deseq_dataset <- function(sample_table, header, design_formula, tximport, tx
         colData = subset(sample_table, select = -filename),
         design = design_formula
       )
-  } else if (!use_txi & !has_header) {
+  } else if (!use_txi && !has_header) {
 
     # construct the object from HTSeq files
     dds <- DESeqDataSetFromHTSeqCount(

@@ -5,7 +5,7 @@
             <yield/>
         </requirements>
     </xml>
-    <token name="@TOOL_VERSION@">1.13</token>
+    <token name="@TOOL_VERSION@">1.15.1</token>
     <token name="@PROFILE@">20.05</token>
     <token name="@FLAGS@"><![CDATA[
         #set $flags = 0
@@ -50,27 +50,60 @@
         #end for
     ]]></token>
     <token name="@PREPARE_FASTA_IDX@"><![CDATA[
-        ##checks for reference data ($addref_cond.addref_select=="history" or =="cached")
-        ##and sets the -t/-T parameters accordingly:
-        ##- in case of history a symbolic link is used because samtools (view) will generate
-        ##  the index which might not be possible in the directory containing the fasta file
-        ##- in case of cached the absolute path is used which allows to read the cram file
-        ##  without specifying the reference
+        ## Make the user-selected reference genome, if any, accessible through
+        ## a shell variable $reffa, index the reference if necessary, and make
+        ## the fai-index file available through a shell variable $reffai.
+
+        ## For a cached genome simply sets the shell variables to point to the
+        ## genome file and its precalculated index.
+        ## For a genome from the user's history, if that genome is a plain
+        ## fasta file, the code creates a symlink in the pwd, creates the fai
+        ## index file next to it, then sets the shell variables to point to the
+        ## symlink and its index.
+        ## For a fasta.gz dataset from the user's history, it tries the same,
+        ## but this will only succeed if the file got compressed with bgzip.
+        ## For a regular gzipped file samtools faidx will fail, in which case
+        ## the code falls back to decompressing to plain fasta before
+        ## reattempting the indexing.
+        ## Indexing of a bgzipped file produces a regular fai index file *and*
+        ## a compressed gzi file. The former is identical to the fai index of
+        ## the uncompressed fasta.
+
+        ## If the user has not selected a reference (it's an optional parameter
+        ## in some samtools wrappers), a cheetah boolean use_ref is set to
+        ## False to encode that fact.
+
+        #set use_ref=True
         #if $addref_cond.addref_select == "history":
-            ln -s '${addref_cond.ref}' reference.fa &&
-            samtools faidx reference.fa &&
-            #set reffa="reference.fa"
-            #set reffai="reference.fa.fai"
+            #if $addref_cond.ref.is_of_type('fasta'):
+                reffa="reference.fa" &&
+                ln -s '${addref_cond.ref}' \$reffa &&
+                samtools faidx \$reffa &&
+            #else:
+                reffa="reference.fa.gz" &&
+                ln -s '${addref_cond.ref}' \$reffa &&
+                {
+                    samtools faidx \$reffa ||
+                    {
+                        echo "Failed to index compressed reference. Trying decompressed ..." 1>&2 &&
+                        gzip -dc \$reffa > reference.fa &&
+                        reffa="reference.fa" &&
+                        samtools faidx \$reffa;
+                    }
+                } &&
+            #end if
+            reffai=\$reffa.fai &&
         #elif $addref_cond.addref_select == "cached":
-            #set reffa=str($addref_cond.ref.fields.path)
-            #set reffai=str($addref_cond.ref.fields.path)+".fai"
+            ## in case of cached the absolute path is used which allows to read 
+            ## a cram file  without specifying the reference
+            reffa='${addref_cond.ref.fields.path}' &&
+            reffai=\$reffa.fai &&
         #else
-            #set reffa=None
-            #set reffai=None
+            #set use_ref=False
         #end if
     ]]></token>
 
-    <xml name="optional_reference">
+    <xml name="optional_reference" token_help="" token_argument="">
         <conditional name="addref_cond">
             <param name="addref_select" type="select" label="Use a reference sequence">
                 <help>@HELP@</help>
