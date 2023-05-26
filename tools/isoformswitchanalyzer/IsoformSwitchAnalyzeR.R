@@ -4,6 +4,8 @@ library(IsoformSwitchAnalyzeR,
         warn.conflicts = FALSE)
 library(argparse, quietly = TRUE, warn.conflicts = FALSE)
 library(dplyr, quietly = TRUE, warn.conflicts = FALSE)
+library(ggplot2, quietly = TRUE, warn.conflicts = FALSE)
+
 
 # setup R error handling to go to stderr
 options(
@@ -32,6 +34,7 @@ parser$add_argument("--readLength",
                     type = "integer",
                     help = "Read length (required for stringtie)")
 parser$add_argument("--annotation", required = FALSE, help = "Annotation")
+parser$add_argument("--stringtieAnnotation", required = FALSE, help = "Stringtie annotation")
 parser$add_argument("--transcriptome", required = FALSE, help = "Transcriptome")
 parser$add_argument(
   "--fixStringTieAnnotationProblem",
@@ -101,6 +104,12 @@ parser$add_argument(
   required = FALSE,
   action = "store_true",
   help = "Overwrite IF values"
+)
+parser$add_argument(
+  "--removeNonConvensionalChr",
+  required = FALSE,
+  action = "store_true",
+  help = "Remove non-conventional chromosomes"
 )
 parser$add_argument(
   "--reduceToSwitchingGenes",
@@ -346,26 +355,49 @@ if (args$modeSelector == "data_import") {
   )
 
   if (args$toolSource == "stringtie") {
-    SwitchList <- importRdata(
-      isoformCountMatrix   = quantificationData$counts,
-      isoformRepExpression = quantificationData$abundance,
-      designMatrix         = myDesign,
-      isoformExonAnnoation = args$annotation,
-      isoformNtFasta       = args$transcriptome,
-      showProgress = TRUE,
-      fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
-    )
+    if (!is.null(args$stringtieAnnotation)) {
+      SwitchList <- importRdata(
+        isoformCountMatrix   = quantificationData$counts,
+        isoformRepExpression = quantificationData$abundance,
+        designMatrix         = myDesign,
+        removeNonConvensionalChr = args$removeNonConvensionalChr,
+        isoformExonAnnoation = args$stringtieAnnotation,
+        isoformNtFasta       = args$transcriptome,
+        addAnnotatedORFs = FALSE,
+        showProgress = TRUE,
+        fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
+      )
+
+      SwitchList <- addORFfromGTF(
+        SwitchList,
+        removeNonConvensionalChr = args$removeNonConvensionalChr,
+        pathToGTF = args$annotation
+      )
+
+    } else {
+      SwitchList <- importRdata(
+        isoformCountMatrix   = quantificationData$counts,
+        isoformRepExpression = quantificationData$abundance,
+        designMatrix         = myDesign,
+        removeNonConvensionalChr = args$removeNonConvensionalChr,
+        isoformNtFasta       = args$transcriptome,
+        isoformExonAnnoation = args$annotation,
+        showProgress = TRUE,
+        fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
+      )
+    }
+
   } else {
     SwitchList <- importRdata(
       isoformCountMatrix   = quantificationData$counts,
       isoformRepExpression = quantificationData$abundance,
       designMatrix         = myDesign,
+      removeNonConvensionalChr = args$removeNonConvensionalChr,
       isoformExonAnnoation = args$annotation,
       isoformNtFasta       = args$transcriptome,
       showProgress = TRUE
     )
   }
-
 
   geneCountMatrix <- extractGeneExpression(
     SwitchList,
@@ -482,6 +514,7 @@ if (args$modeSelector == "first_step") {
     showProgress = TRUE,
   )
 
+  # Analyze missing annotated isoforms by default
   SwitchList <- analyzeNovelIsoformORF(
     SwitchList,
     analysisAllIsoformsWithoutORF = TRUE,
@@ -740,7 +773,7 @@ if (args$modeSelector == "second_step") {
       file = outputFile,
       onefile = FALSE,
       height = 6,
-      width = 9
+      width = 12
     )
 
     consequenceSummary <- extractConsequenceSummary(
@@ -835,7 +868,7 @@ if (args$modeSelector == "second_step") {
       file = outputFile,
       onefile = FALSE,
       height = 6,
-      width = 9
+      width = 12
     )
     splicingSummary <- extractSplicingSummary(
       SwitchList,
@@ -863,34 +896,37 @@ if (args$modeSelector == "second_step") {
 
     ### Volcano like plot:
     outputFile <- file.path(getwd(), "volcanoPlot.pdf")
+
     pdf(
       file = outputFile,
       onefile = FALSE,
       height = 6,
       width = 9
     )
-    ggplot(data = SwitchList$isoformFeatures, aes(x = dIF, y = -log10(isoform_switch_q_value))) +
-      geom_point(aes(color = abs(dIF) > 0.1 &
-                       isoform_switch_q_value < 0.05), # default cutoff
-                 size = 1) +
+
+    p <- ggplot(data = SwitchList$isoformFeatures, aes(x = dIF, y = -log10(isoform_switch_q_value))) +
+      geom_point(
+        aes(color = abs(dIF) > 0.1 & isoform_switch_q_value < 0.05), # default cutoff
+        size = 1
+      ) +
       geom_hline(yintercept = -log10(0.05), linetype = "dashed") + # default cutoff
       geom_vline(xintercept = c(-0.1, 0.1), linetype = "dashed") + # default cutoff
       facet_wrap(~ condition_2) +
+      #facet_grid(condition_1 ~ condition_2) + # alternative to facet_wrap if you have overlapping conditions
       scale_color_manual("Signficant\nIsoform Switch", values = c("black", "red")) +
       labs(x = "dIF", y = "-Log10 ( Isoform Switch Q Value )") +
       theme_bw()
+    print(p)
     dev.off()
-
 
     ### Switch vs Gene changes:
     outputFile <- file.path(getwd(), "switchGene.pdf")
     pdf(
       file = outputFile,
-      onefile = FALSE,
       height = 6,
       width = 9
     )
-    ggplot(data = SwitchList$isoformFeatures,
+    p <- ggplot(data = SwitchList$isoformFeatures,
            aes(x = gene_log2_fold_change, y = dIF)) +
       geom_point(aes(color = abs(dIF) > 0.1 &
                        isoform_switch_q_value < 0.05),
@@ -901,6 +937,7 @@ if (args$modeSelector == "second_step") {
       scale_color_manual("Signficant\nIsoform Switch", values = c("black", "red")) +
       labs(x = "Gene log2 fold change", y = "dIF") +
       theme_bw()
+    print(p)
     dev.off()
 
     outputFile <- file.path(getwd(), "splicingGenomewide.pdf")
@@ -908,12 +945,12 @@ if (args$modeSelector == "second_step") {
       file = outputFile,
       onefile = FALSE,
       height = 6,
-      width = 9
+      width = 14
     )
     splicingGenomeWide <- extractSplicingGenomeWide(
       SwitchList,
-      featureToExtract = "all",
-      splicingToAnalyze = c("A3", "MES", "ATSS"),
+      featureToExtract = "isoformUsage",
+      splicingToAnalyze = "all",
       plot = TRUE,
       returnResult = TRUE
     )
