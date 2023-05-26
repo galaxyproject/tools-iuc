@@ -37,7 +37,9 @@ options(show.error.messages = FALSE, error = function() {
 })
 
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
-# As if "loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")" is not needed anymore breaks test #11
+# As if "loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")" is not needed anymore.
+# Sometimes some tests break, but not 100% reproducible.
+loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
 
 library("getopt")
@@ -218,10 +220,26 @@ if (verbose) {
 }
 
 dds <- get_deseq_dataset(sample_table, header = opt$header, design_formula = design_formula, tximport = opt$tximport, txtype = opt$txtype, tx2gene = opt$tx2gene)
-# estimate size factors for the chosen method
+
+# use/estimate size factors with the chosen method
 if (!is.null(opt$esf)) {
-    dds <- estimateSizeFactors(dds, type = opt$esf)
+    if (opt$esf %in% list("ratio", "poscounts", "iterate")) {
+        cat("Calculating size factors de novo\n")
+        dds <- estimateSizeFactors(dds, type = opt$esf)
+    } else {
+        sf_table <- read.table(opt$esf)
+        # Sort the provided size factors just in case the order differs from the input file order.
+        merged_table <- merge(sample_table, sf_table, by.x=0, by.y=1, sort=F)
+        sf_values <- as.numeric(unlist(merged_table[5]))
+        "sizeFactors"(dds) <- sf_values
+
+        cat("Using user-provided size factors:\n")
+        print(sf_values)
+    }
+} else {
+    cat("No size factor was used\n")
 }
+
 
 # estimate size factors for each sample
 # - https://support.bioconductor.org/p/97676/
