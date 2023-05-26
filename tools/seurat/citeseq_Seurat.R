@@ -13,7 +13,6 @@
 #'     perplexity: ""
 #'     min_pct: ""
 #'     logfc_threshold: ""
-#'     end_step: ""
 #'     showcode: ""
 #'     warn: ""
 #'     varstate: ""
@@ -91,36 +90,30 @@ low_thresholds <- as.integer(params$low_thresholds)
 high_thresholds <- as.integer(params$high_thresholds)
 print(paste0("Umi low threshold: ", low_thresholds))
 print(paste0("Umi high threshold: ", high_thresholds))
+variable_out <- as.logical(params$variable_out)
+num_pcs <- as.integer(params$numPCs)
+print(paste0("Number of principal components: ", num_pcs))
+pca_out <- as.logical(params$pca_out)
 
-if (end_step >= 2) {
-    variable_out <- as.logical(params$variable_out)
+
+if (params$perplexity == "") {
+    perplexity <- -1
+    print(paste0("Perplexity: ", perplexity))
+} else { 
+    perplexity <- as.integer(params$perplexity)
+    print(paste0("Perplexity: ", perplexity))
 }
 
+resolution <- as.double(params$resolution)
+print(paste0("Resolution: ", resolution))
+clusters_out <- as.logical(params$clusters_out)
 
-if (end_step >= 3) {
-    num_pcs <- as.integer(params$numPCs)
-    print(paste0("Number of principal components: ", num_pcs))
-    pca_out <- as.logical(params$pca_out)
-}
-if (end_step >= 4) {
-    if (params$perplexity == "") {
-       perplexity <- -1
-       print(paste0("Perplexity: ", perplexity))
-    } else { 
-        perplexity <- as.integer(params$perplexity)
-        print(paste0("Perplexity: ", perplexity))
-    }
-    resolution <- as.double(params$resolution)
-    print(paste0("Resolution: ", resolution))
-    clusters_out <- as.logical(params$clusters_out)
-}
-if (end_step >= 5) {
-    min_pct <- as.double(params$min_pct)
-    logfc_threshold <- as.double(params$logfc_thresh)
-    print(paste0("Minimum percent of cells", min_pct))
-    print(paste0("Logfold change threshold", logfc_threshold))
-    markers_out <- as.logical(params$markers_out)
-}
+min_pct <- as.double(params$min_pct)
+logfc_threshold <- as.double(params$logfc_thresh)
+print(paste0("Minimum percent of cells", min_pct))
+print(paste0("Logfold change threshold", logfc_threshold))
+markers_out <- as.logical(params$markers_out)
+
 
 #+ echo = FALSE
 if (showcode == TRUE) print("Read in data, generate inital Seurat object")
@@ -130,10 +123,18 @@ rna <- Seurat::CollapseSpeciesExpressionMatrix(rna)
 protein <- read.delim(params$prot, row.names = 1)
 tryCatch(all.equal(colnames(rna), colnames(protein)), error = "Columns do not match in input files")
 seuset <- Seurat::CreateSeuratObject(counts = rna, min.cells = min_cells, min.features = min_genes)
-prot_obj <- Seurat::CreateAssayObject(counts = protein)
-seuset[["ADT"]] <- prot_obj
-Seurat::DefaultAssay(seuset) <- "RNA"
 
+if (showcode == TRUE) print("asdf")
+#+ echo = `showcode`, warning = `warn`, message = F
+prot_obj <- Seurat::CreateAssayObject(counts = protein)
+
+if (showcode == TRUE) print("qwer")
+#+ echo = `showcode`, warning = `warn`, message = F
+seuset[["ADT"]] <- prot_obj
+
+if (showcode == TRUE) print("zxcv")
+#+ echo = `showcode`, warning = `warn`, message = F
+Seurat::DefaultAssay(seuset) <- "RNA"
 
 if (showcode == TRUE && vlnfeat == TRUE) print("Raw data vizualization")
 #+ echo = `showcode`, warning = `warn`, include=`vlnfeat`
@@ -150,82 +151,74 @@ if (norm_out == TRUE) {
         saveRDS(seuset, "norm_out.rds")
 }
 
-if (end_step >= 2) {
-    #+ echo = FALSE
-    if (showcode == TRUE && featplot == TRUE) print("Variable Genes")
-    #+ echo = `showcode`, warning = `warn`, include = `featplot`
-    seuset <- Seurat::FindVariableFeatures(object = seuset, selection.method = "mvp")
-    if (featplot == TRUE) {
-        print(Seurat::VariableFeaturePlot(seuset, cols = c("black", "red"), selection.method = "disp"))
-    }
-    seuset <- Seurat::ScaleData(object = seuset, vars.to.regress = "nCount_RNA")
-    if (variable_out == TRUE) {
-        saveRDS(seuset, "var_out.rds")
-    }
-}
 
-if (end_step >= 3) {
-    #+ echo = FALSE
-    if (showcode == TRUE && pc_plots == TRUE) print("PCA Visualization")
-    #+ echo = `showcode`, warning = `warn`, include = `pc_plots`
-    seuset <- Seurat::RunPCA(seuset, npcs = num_pcs)
-    seuset <- Seurat::JackStraw(seuset, dims = num_pcs, reduction = "pca", num.replicate = 100)
-    seuset <- Seurat::ScoreJackStraw(seuset, dims = 1:num_pcs)
-    if (pc_plots == TRUE) {
-        print(Seurat::VizDimLoadings(seuset, dims = 1:2))
-        print(Seurat::DimPlot(seuset, dims = c(1, 2), reduction = "pca"))
-        print(Seurat::DimHeatmap(seuset, dims = 1:num_pcs, nfeatures = 30, reduction = "pca"))
-        print(Seurat::JackStrawPlot(seuset, dims = 1:num_pcs))
-        print(Seurat::ElbowPlot(seuset, ndims = num_pcs, reduction = "pca"))
-    }
-    if (pca_out == TRUE) {
-        saveRDS(seuset, "pca_out.rds")
-    }
+if (showcode == TRUE && featplot == TRUE) print("Variable Genes")
+#+ echo = `showcode`, warning = `warn`, include = `featplot`
+seuset <- Seurat::FindVariableFeatures(object = seuset, selection.method = "mvp")
+if (featplot == TRUE) {
+    print(Seurat::VariableFeaturePlot(seuset, cols = c("black", "red"), selection.method = "disp"))
 }
-
-if (end_step >= 4) {
-    #+ echo = FALSE
-    if (showcode == TRUE && nmds == TRUE) print("tSNE and UMAP")
-    #+ echo = `showcode`, warning = `warn`, include = `nmds`
-    seuset <- Seurat::FindNeighbors(object = seuset)
-    seuset <- Seurat::FindClusters(object = seuset)
-    if (perplexity == -1) {
-        seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution);
-    } else {
-        seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution, perplexity = perplexity);
-    }
-    if (nmds == TRUE) {
-        print(Seurat::DimPlot(seuset, reduction = "tsne"))
-    }
-    seuset <- Seurat::RunUMAP(seuset, dims = 1:num_pcs)
-    if (nmds == TRUE) {
-            print(Seurat::DimPlot(seuset, reduction = "umap"))
-    }
-    if (clusters_out == TRUE) {
-        tsnedata <- Seurat::Embeddings(seuset, reduction="tsne")
-        saveRDS(seuset, "tsne_out.rds")
-        umapdata <- Seurat::Embeddings(seuset, reduction="umap")
-        saveRDS(seuset, "umap_out.rds")
-    }
+seuset <- Seurat::ScaleData(object = seuset, vars.to.regress = "nCount_RNA")
+if (variable_out == TRUE) {
+    saveRDS(seuset, "var_out.rds")
 }
 
 
-# if (end_step == 5) {
-#     #+ echo = FALSE
-#     if (showcode == TRUE && heatmaps == TRUE) print("Marker Genes")
-#     #+ echo = `showcode`, warning = `warn`, include = `heatmaps`
-#     markers <- Seurat::FindAllMarkers(seuset, only.pos = TRUE, min.pct = min_pct, logfc.threshold = logfc_threshold)
-#     top10 <- dplyr::group_by(markers, cluster)
-#     top10 <- dplyr::top_n(top10, n = 10, wt = avg_log2FC)
-#     print(top10)
-#     if (heatmaps == TRUE) {
-#         print(Seurat::DoHeatmap(seuset, features = top10$gene))
-#     }
-#     if (markers_out == TRUE) {
-#         saveRDS(seuset, "markers_out.rds")
-#         data.table::fwrite(x = markers, row.names=TRUE, sep="\t", file = "markers_out.tsv")
-#     }
-# }
+
+if (showcode == TRUE && pc_plots == TRUE) print("PCA Visualization")
+#+ echo = `showcode`, warning = `warn`, include = `pc_plots`
+seuset <- Seurat::RunPCA(seuset, npcs = num_pcs)
+seuset <- Seurat::JackStraw(seuset, dims = num_pcs, reduction = "pca", num.replicate = 100)
+seuset <- Seurat::ScoreJackStraw(seuset, dims = 1:num_pcs)
+if (pc_plots == TRUE) {
+    print(Seurat::VizDimLoadings(seuset, dims = 1:2))
+    print(Seurat::DimPlot(seuset, dims = c(1, 2), reduction = "pca"))
+    print(Seurat::DimHeatmap(seuset, dims = 1:num_pcs, nfeatures = 30, reduction = "pca"))
+    print(Seurat::JackStrawPlot(seuset, dims = 1:num_pcs))
+    print(Seurat::ElbowPlot(seuset, ndims = num_pcs, reduction = "pca"))
+}
+if (pca_out == TRUE) {
+    saveRDS(seuset, "pca_out.rds")
+}
+
+
+
+if (showcode == TRUE && nmds == TRUE) print("tSNE and UMAP")
+#+ echo = `showcode`, warning = `warn`, include = `nmds`
+seuset <- Seurat::FindNeighbors(object = seuset)
+seuset <- Seurat::FindClusters(object = seuset)
+if (perplexity == -1) {
+    seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution);
+} else {
+    seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution, perplexity = perplexity);
+}
+if (nmds == TRUE) {
+    print(Seurat::DimPlot(seuset, reduction = "tsne"))
+}
+seuset <- Seurat::RunUMAP(seuset, dims = 1:num_pcs)
+if (nmds == TRUE) {
+        print(Seurat::DimPlot(seuset, reduction = "umap"))
+}
+if (clusters_out == TRUE) {
+    tsnedata <- Seurat::Embeddings(seuset, reduction="tsne")
+    saveRDS(seuset, "tsne_out.rds")
+    umapdata <- Seurat::Embeddings(seuset, reduction="umap")
+    saveRDS(seuset, "umap_out.rds")
+}
+
+if (showcode == TRUE && heatmaps == TRUE) print("Marker Genes")
+#+ echo = `showcode`, warning = `warn`, include = `heatmaps`
+markers <- Seurat::FindAllMarkers(seuset, only.pos = TRUE, min.pct = min_pct, logfc.threshold = logfc_threshold)
+top10 <- dplyr::group_by(markers, cluster)
+top10 <- dplyr::top_n(top10, n = 10, wt = avg_log2FC)
+print(top10)
+if (heatmaps == TRUE) {
+    print(Seurat::DoHeatmap(seuset, features = top10$gene))
+}
+if (markers_out == TRUE) {
+    saveRDS(seuset, "markers_out.rds")
+    data.table::fwrite(x = markers, row.names=TRUE, sep="\t", file = "markers_out.tsv")
+}
 
 
 #+ echo = FALSE
@@ -253,48 +246,46 @@ if (showcode == TRUE) print("Cite-seq")
 #+ echo = `showcode`, warning = `warn`, include = `marker_compare`
 rna_markers <- Seurat::FindAllMarkers(seuset, only.pos = TRUE, min.pct = min_pct, logfc.threshold = logfc_threshold, assay="RNA")
 protein_markers <- Seurat::FindAllMarkers(seuset, only.pos = TRUE, min.pct = min_pct, logfc.threshold = logfc_threshold, assay="ADT")
-print(rna_markers)
-# if (marker_compare == TRUE) {
-#   data.table::fwrite(x = rna_markers, sep="\t", file = "rna_out.tsv")
-#   data.table::fwrite(x = protein_markers, sep="\t", file = "protein_out.tsv")
-# }
-# toprna <- dplyr::top_n(dplyr::group_by(rna_markers, cluster), n=5, avg_log2FC)
-# toprna <- head(as.list(unique(as.data.frame(toprna)$gene)), top_x)
-# topprot <- dplyr::top_n(dplyr::group_by(protein_markers, cluster), n=5, avg_log2FC)
-# topprot <- head(as.list(unique(as.data.frame(topprot)$gene)), top_x)
-# if(marker_compare == TRUE) {
-#   pdf(file="citeseq_out.pdf")
-#   rna_labels <- as.vector(toprna)
-#   rna_labels <- rna_labels[!duplicated(rna_labels)]
-#   prot_labels <- as.vector(topprot)
-#   prot_labels <- prot_labels[!duplicated(prot_labels)]
-#   print("RNA vs Protein")
-#   for(rnamarker in rna_labels) {
-#     rnamarker <-  paste("rna_", rnamarker, sep = "")
-#     for(protmarker in prot_labels) {
-#       protmarker <- paste("adt_", protmarker, sep="")
-#       plot <- Seurat::FeatureScatter(seuset, feature1 = rnamarker, feature2 = protmarker) + ggplot2::ggtitle(paste0(rnamarker, " vs ", protmarker))
-#       print(plot)
-#     }
-#   }
-#   for(rnamarker in rna_labels) {
-#     rnamarker <-  paste("rna_", rnamarker, sep = "")
-#     for(rnamarker2 in rna_labels) {
-#       rnamarker2 <- paste("rna_", rnamarker2, sep="")
-#       plot <- Seurat::FeatureScatter(seuset, feature1 = rnamarker, feature2 = rnamarker2) + ggplot2::ggtitle(paste0(rnamarker, " vs ", rnamarker2))
-#       print(plot)
-#     }
-#   }
-#   for(protmarker in prot_labels) {
-#     protmarker <-  paste("adt_", protmarker, sep = "")
-#     for(protmarker2 in prot_labels) {
-#       protmarker2 <- paste("adt_", protmarker2, sep="")
-#       plot <- Seurat::FeatureScatter(seuset, feature1 = protmarker, feature2 = protmarker2) + ggplot2::ggtitle(paste0(protmarker, " vs ", protmarker2))
-#       print(plot)
-#     }
-#   }
-#   dev.off()
-# }
+if (marker_compare == TRUE) {
+  data.table::fwrite(x = rna_markers, sep="\t", file = "rna_out.tsv")
+  data.table::fwrite(x = protein_markers, sep="\t", file = "protein_out.tsv")
+}
+toprna <- dplyr::top_n(dplyr::group_by(rna_markers, cluster), n=5, avg_log2FC)
+toprna <- head(as.list(unique(as.data.frame(toprna)$gene)), top_x)
+topprot <- dplyr::top_n(dplyr::group_by(protein_markers, cluster), n=5, avg_log2FC)
+topprot <- head(as.list(unique(as.data.frame(topprot)$gene)), top_x)
+if(marker_compare == TRUE) {
+  pdf(file="citeseq_out.pdf")
+  rna_labels <- as.vector(toprna)
+  rna_labels <- rna_labels[!duplicated(rna_labels)]
+  prot_labels <- as.vector(topprot)
+  prot_labels <- prot_labels[!duplicated(prot_labels)]
+  for(rnamarker in rna_labels) {
+    rnamarker <-  paste("rna_", rnamarker, sep = "")
+    for(protmarker in prot_labels) {
+      protmarker <- paste("adt_", protmarker, sep="")
+      plot <- Seurat::FeatureScatter(seuset, feature1 = rnamarker, feature2 = protmarker) + ggplot2::ggtitle(paste0(rnamarker, " vs ", protmarker))
+      print(plot)
+    }
+  }
+  for(rnamarker in rna_labels) {
+    rnamarker <-  paste("rna_", rnamarker, sep = "")
+    for(rnamarker2 in rna_labels) {
+      rnamarker2 <- paste("rna_", rnamarker2, sep="")
+      plot <- Seurat::FeatureScatter(seuset, feature1 = rnamarker, feature2 = rnamarker2) + ggplot2::ggtitle(paste0(rnamarker, " vs ", rnamarker2))
+      print(plot)
+    }
+  }
+  for(protmarker in prot_labels) {
+    protmarker <-  paste("adt_", protmarker, sep = "")
+    for(protmarker2 in prot_labels) {
+      protmarker2 <- paste("adt_", protmarker2, sep="")
+      plot <- Seurat::FeatureScatter(seuset, feature1 = protmarker, feature2 = protmarker2) + ggplot2::ggtitle(paste0(protmarker, " vs ", protmarker2))
+      print(plot)
+    }
+  }
+  dev.off()
+}
 
 # nolint end
 
