@@ -983,5 +983,5 @@ if (args$modeSelector == "second_step") {
     dev.off()
   }
   save(SwitchList, file = "SwitchList.Rda")
-  
+
 }
