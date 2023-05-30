@@ -893,6 +893,32 @@ if (args$modeSelector == "second_step") {
       row.names = FALSE
     )
 
+    write.table(
+      SwitchList$switchConsequence,
+      file = "switchConsequence_fulldata.tsv",
+      quote = FALSE,
+      sep = "\t",
+      col.names = TRUE,
+      row.names = FALSE
+    )
+
+    write.table(
+      SwitchList$AlternativeSplicingAnalysis,
+      file = "switchSplicing_fulldata.tsv",
+      quote = FALSE,
+      sep = "\t",
+      col.names = TRUE,
+      row.names = FALSE
+    )
+
+    write.table(
+      SwitchList$isoformFeatures,
+      file = "IsoformFeatures.tsv",
+      quote = FALSE,
+      sep = "\t",
+      col.names = TRUE,
+      row.names = FALSE
+    )
 
     ### Volcano like plot:
     outputFile <- file.path(getwd(), "volcanoPlot.pdf")
