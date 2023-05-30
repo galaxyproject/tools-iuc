@@ -1,4 +1,3 @@
-# Load the IsoformSwitchAnalyzeR library
 library(multiGSEA,
         quietly = TRUE,
         warn.conflicts = FALSE)
