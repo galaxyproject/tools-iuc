@@ -76,13 +76,13 @@ if (!is.null(args$metabolomics)) {
 
 
 ##transcriptome <- read.csv("~/Galaxy/tools-iuc/tools/multigsea/test-data/transcriptome.tsv", header=TRUE,
-                                 sep="\t", dec=".")
+##                                 sep="\t", dec=".")
 
 ##proteome <- read.csv("~/Galaxy/tools-iuc/tools/multigsea/test-data/proteome.tsv", header=TRUE,
-                                 sep="\t", dec=".")
+##                                 sep="\t", dec=".")
 
 ##metabolome <- read.csv("~/Galaxy/tools-iuc/tools/multigsea/test-data/metabolome.tsv", header=TRUE,
-                                 sep="\t", dec=".")
+##                                 sep="\t", dec=".")
 
 
 ## ----rank_features, results='hide'--------------------------------------------
