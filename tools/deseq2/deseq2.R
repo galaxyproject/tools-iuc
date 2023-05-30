@@ -229,7 +229,7 @@ if (!is.null(opt$esf)) {
     } else {
         sf_table <- read.table(opt$esf)
         # Sort the provided size factors just in case the order differs from the input file order.
-        merged_table <- merge(sample_table, sf_table, by.x=0, by.y=1, sort=F)
+        merged_table <- merge(sample_table, sf_table, by.x = 0, by.y = 1, sort = FALSE)
         sf_values <- as.numeric(unlist(merged_table[5]))
         "sizeFactors"(dds) <- sf_values
 
