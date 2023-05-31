@@ -29,15 +29,10 @@ parser$add_argument("--combine_pvalues",  required = TRUE,
                     help = "Combine p-values method")
 parser$add_argument("--padj_method",  required = TRUE,
                     help = "P-adjustment method")
-parser$add_argument('--databasees',
+parser$add_argument('--databases',
                     action = 'append',
                     required = TRUE,
                     help = "Pathway databases")
-parser$add_argument('--eps',
-                    type = "integer",
-                    required = TRUE,
-                    help = "Boundary for calculating the p-value.")
-
 
 args <- parser$parse_args()
 
@@ -143,7 +138,7 @@ pathways_short
 # use the multiGSEA function to calculate the enrichment scores
 
 enrichment_scores <-
-  multiGSEA(pathways, omics_data, eps = args$eps)
+  multiGSEA(pathways, omics_data)
 
 ## ----combine_pvalues----------------------------------------------------------
 
