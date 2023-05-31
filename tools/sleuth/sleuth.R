@@ -42,7 +42,7 @@ args <- parser$parse_args()
 all_files <- args$factorLevel_counts
 
 conditions <- c()
-for (x in 1:length(args$factorLevel)) {
+for (x in seq_along(1:args$factorLevel)) {
   temp <- append(conditions, rep(args$factorLevel[[x]]))
   conditions <- temp
 }
