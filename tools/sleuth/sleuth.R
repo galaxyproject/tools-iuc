@@ -6,8 +6,6 @@ library(annotables, quietly = TRUE, warn.conflicts = FALSE)
 library(argparse, quietly = TRUE, warn.conflicts = FALSE)
 library(tidyverse)
 
-
-
 # setup R error handling to go to stderr
 options(
   show.error.messages = FALSE,
@@ -28,10 +26,9 @@ loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 # Collect arguments from command line
 parser <- ArgumentParser(description = "Sleuth R script")
 
-parser$add_argument('--factorLevel1', action = 'store', required=TRUE)
-parser$add_argument('--factorLevel1_counts', action = 'append',  required=TRUE)
-parser$add_argument('--factorLevel2', action = 'store', required=TRUE)
-parser$add_argument('--factorLevel2_counts', action = 'append', required=TRUE)
+parser$add_argument('--factorLevel', action = 'append', required=TRUE)
+parser$add_argument('--factorLevel_counts', action = 'append',  required=TRUE)
+parser$add_argument('--factorLevel_n', action = 'append',  required=TRUE)
 parser$add_argument('--cores',  type = "integer", required=TRUE)
 parser$add_argument('--normalize', action = "store_true", required=FALSE)
 parser$add_argument('--nbins', type = "integer", required=TRUE)
@@ -40,10 +37,13 @@ parser$add_argument('--upr', type = "numeric", required=TRUE)
 
 args <- parser$parse_args()
 
-all_files <- c(args$factorLevel1_counts,args$factorLevel2_counts)
+all_files <- args$factorLevel_counts
 
-conditions <- c(rep(args$factorLevel1,length(args$factorLevel1_counts)),
-                rep(args$factorLevel2,length(args$factorLevel2_counts)))
+conditions <- c()
+for(x in 1:length(args$factorLevel)){
+  temp <- append(conditions,rep(args$factorLevel[[x]]))
+  conditions <- temp
+}
 
 sample_names <- all_files %>%
   str_replace(pattern = "\\.tab", "")
