@@ -288,4 +288,3 @@ if(marker_compare == TRUE) {
 }
 
 # nolint end
-
