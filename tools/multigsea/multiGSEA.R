@@ -29,8 +29,8 @@ parser$add_argument("--combine_pvalues",  required = TRUE,
                     help = "Combine p-values method")
 parser$add_argument("--padj_method",  required = TRUE,
                     help = "P-adjustment method")
-parser$add_argument('--databases',
-                    action = 'append',
+parser$add_argument("--databases",
+                    action = "append",
                     required = TRUE,
                     help = "Pathway databases")
 
@@ -65,7 +65,7 @@ if (!is.null(args$transcriptomics)) {
     sep = "\t",
     dec = "."
   )
-  layer <- append(layer, 'transcriptome')
+  layer <- append(layer, "transcriptome")
 }
 
 if (!is.null(args$proteomics)) {
@@ -73,7 +73,7 @@ if (!is.null(args$proteomics)) {
                        header = TRUE,
                        sep = "\t",
                        dec = ".")
-  layer <- append(layer, 'proteome')
+  layer <- append(layer, "proteome")
 }
 
 if (!is.null(args$metabolomics)) {
@@ -81,10 +81,10 @@ if (!is.null(args$metabolomics)) {
                          header = TRUE,
                          sep = "\t",
                          dec = ".")
-  layer <- append(layer, 'metabolome')
+  layer <- append(layer, "metabolome")
 }
 
-## ----rank_features, results='hide'--------------------------------------------
+## ----rank_features, results="hide"--------------------------------------------
 
 # create data structure
 omics_data <- initOmicsDataStructure(layer)
@@ -114,13 +114,13 @@ omics_short <- lapply(names(omics_data), function(name) {
 })
 names(omics_short) <- names(omics_data)
 
-## ----calculate_enrichment, results='hide', message=FALSE, warning=FALSE-------
+## ----calculate_enrichment, results="hide", message=FALSE, warning=FALSE-------
 
 pathways <-
   getMultiOmicsFeatures(
     dbs = args$databases,
     layer = layer,
-    returnTranscriptome = args$transcriptome_ids ,
+    returnTranscriptome = args$transcriptome_ids,
     returnProteome = args$proteome_ids,
     returnMetabolome = args$metabolome_ids,
     organism = args$organism,
