@@ -1,10 +1,10 @@
 library(sleuth,
         quietly = TRUE,
         warn.conflicts = FALSE)
-library(wasabi, quietly = TRUE, warn.conflicts = FALSE)
 library(annotables, quietly = TRUE, warn.conflicts = FALSE)
 library(argparse, quietly = TRUE, warn.conflicts = FALSE)
 library(tidyverse)
+
 
 # setup R error handling to go to stderr
 options(
