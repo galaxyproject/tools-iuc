@@ -39,7 +39,7 @@ options(show.error.messages = FALSE, error = function() {
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
 # As if "loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")" is not needed anymore.
 # Sometimes some tests break, but not 100% reproducible.
-loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
+#loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 
 
 library("getopt")
