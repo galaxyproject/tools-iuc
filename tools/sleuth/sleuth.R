@@ -27,9 +27,7 @@ loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
 parser <- ArgumentParser(description = "Sleuth R script")
 
 parser$add_argument("--factorLevel", action = "append", required = TRUE)
-parser$add_argument("--factorLevel_counts",
-                    action = "append",
-                    required = TRUE)
+parser$add_argument("--factorLevel_counts", action = "append", required = TRUE)
 parser$add_argument("--factorLevel_n", action = "append",  required = TRUE)
 parser$add_argument("--cores",  type = "integer", required = TRUE)
 parser$add_argument("--normalize", action = "store_true", required = FALSE)
@@ -42,7 +40,7 @@ args <- parser$parse_args()
 all_files <- args$factorLevel_counts
 
 conditions <- c()
-for (x in seq_along(1:args$factorLevel)) {
+for (x in seq_along(args$factorLevel)) {
   temp <- append(conditions, rep(args$factorLevel[[x]]))
   conditions <- temp
 }
