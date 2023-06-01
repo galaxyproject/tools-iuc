@@ -356,7 +356,7 @@ if (args$modeSelector == "data_import") {
     addIsofomIdAsColumn = TRUE,
     readLength = args$readLength
   )
-  
+
   ### Make design matrix
   myDesign <- data.frame(
     sampleID = args$sampleID,
@@ -369,7 +369,7 @@ if (args$modeSelector == "data_import") {
       condition_1 = myDesign$condition[1],
       condition_2 = myDesign$condition[length(myDesign$condition)]
     ))
-  
+
   if (args$toolSource == "stringtie") {
     if (!is.null(args$stringtieAnnotation)) {
       SwitchList <- importRdata(
@@ -389,7 +389,7 @@ if (args$modeSelector == "data_import") {
         removeNonConvensionalChr = args$removeNonConvensionalChr,
         pathToGTF = args$annotation
       )
-      
+
     } else {
       SwitchList <- importRdata(
         isoformCountMatrix   = quantificationData$counts,
@@ -403,7 +403,7 @@ if (args$modeSelector == "data_import") {
         fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
       )
     }
-    
+
   } else {
     SwitchList <- importRdata(
       isoformCountMatrix   = quantificationData$counts,
@@ -416,34 +416,34 @@ if (args$modeSelector == "data_import") {
       showProgress = TRUE
     )
   }
-  
+
   geneCountMatrix <- extractGeneExpression(
     SwitchList,
     extractCounts = TRUE,
     addGeneNames = FALSE,
     addIdsAsColumns = FALSE
   )
-  
+
   if (args$countFiles == "collection") {
     expressionDF <- data.frame(geneCountMatrix)
-    
+
     myDesign$condition[length(myDesign$condition)]
-    
+
     dataframe_factor1 <-
       expressionDF %>% select(matches(myDesign$condition[1]))
     dataframe_factor2 <-
       expressionDF %>% select(matches(myDesign$condition[length(myDesign$condition)]))
-    
-    
+
+
     lf1 <- as.list(as.data.frame(dataframe_factor1))
     sampleNames1 <- colnames(as.data.frame(dataframe_factor1))
-    
+
     lf2 <- as.list(as.data.frame(dataframe_factor2))
     sampleNames2 <- colnames(as.data.frame(dataframe_factor2))
-    
+
     geneNames <- row.names(as.data.frame(expressionDF))
-    
-    
+
+
     for (index in seq_along(lf1)) {
       tabular_expression <- data.frame(geneNames, lf1[index])
       colnames(tabular_expression) <-
@@ -498,15 +498,15 @@ if (args$modeSelector == "data_import") {
   }
   
   save(SwitchList, file = "SwitchList.Rda")
-  
+
 }
 
 if (args$modeSelector == "first_step") {
   # First part of the analysis
   #############################
-  
+
   load(file = args$rObject)
-  
+
   ### Filter
   SwitchList <- preFilter(
     SwitchList,
@@ -519,7 +519,7 @@ if (args$modeSelector == "first_step") {
     alpha = args$alpha,
     dIFcutoff = args$dIFcutoff,
   )
-  
+
   ### Test for isoform switches
   SwitchList <- isoformSwitchTestDEXSeq(
     SwitchList,
@@ -533,7 +533,7 @@ if (args$modeSelector == "first_step") {
     keepIsoformInAllConditions = args$keepIsoformInAllConditions2,
     showProgress = TRUE,
   )
-  
+
   # Analyze missing annotated isoforms by default
   SwitchList <- analyzeNovelIsoformORF(
     SwitchList,
@@ -545,7 +545,7 @@ if (args$modeSelector == "first_step") {
     stopCodons = c("TAA", "TAG", "TGA"),
     showProgress = TRUE,
   )
-  
+
   ### Extract Sequences
   SwitchList <- extractSequence(
     SwitchList,
@@ -564,7 +564,7 @@ if (args$modeSelector == "first_step") {
     forceReExtraction = FALSE,
     quiet = FALSE
   )
-  
+
   ### Summary
   switchSummary <- extractSwitchSummary(
     SwitchList,
@@ -573,7 +573,7 @@ if (args$modeSelector == "first_step") {
     dIFcutoff = args$dIFcutoff,
     onlySigIsoforms = args$onlySigIsoforms,
   )
-  
+
   save(SwitchList, file = "SwitchList.Rda")
   write.table(
     switchSummary,
@@ -583,15 +583,14 @@ if (args$modeSelector == "first_step") {
     col.names = TRUE,
     row.names = FALSE
   )
-  
 }
 
 if (args$modeSelector == "second_step") {
   # Second part of the analysis
   #############################
-  
+
   load(file = args$rObject)
-  
+
   ### Add annotation
   if (!is.null(args$pathToCPATresultFile)) {
     SwitchList <- analyzeCPAT(
@@ -601,7 +600,7 @@ if (args$modeSelector == "second_step") {
       removeNoncodinORFs        = args$removeNoncodingORFs
     )
   }
-  
+
   if (!is.null(args$pathToCPC2resultFile)) {
     SwitchList <- analyzeCPC2(
       SwitchList,
@@ -609,7 +608,7 @@ if (args$modeSelector == "second_step") {
       removeNoncodinORFs = args$removeNoncodingORFs
     )
   }
-  
+
   if (!is.null(args$pathToPFAMresultFile)) {
     pfamFiles <- list.files(path = args$pathToPFAMresultFile,
                             full.names = TRUE)
@@ -618,11 +617,11 @@ if (args$modeSelector == "second_step") {
                               pathToPFAMresultFile =  pfamFiles,
                               showProgress = FALSE)
   }
-  
+
   if (!is.null(args$pathToNetSurfP2resultFile)) {
     netsurfFiles <- list.files(path = args$pathToNetSurfP2resultFile,
                                full.names = TRUE)
-    
+
     SwitchList <- analyzeNetSurfP2(
       SwitchList,
       pathToNetSurfP2resultFile =  netsurfFiles,
@@ -632,7 +631,7 @@ if (args$modeSelector == "second_step") {
       showProgress = TRUE
     )
   }
-  
+
   if (!is.null(args$pathToIUPred2AresultFile)) {
     SwitchList <- analyzeIUPred2A(
       SwitchList,
@@ -647,18 +646,18 @@ if (args$modeSelector == "second_step") {
       quiet = FALSE
     )
   }
-  
+
   if (!is.null(args$pathToSignalPresultFile)) {
     signalpFiles <- list.files(path = args$pathToSignalPresultFile,
                                full.names = TRUE)
-    
+
     SwitchList <- analyzeSignalP(
       SwitchList,
       pathToSignalPresultFile = signalpFiles,
       minSignalPeptideProbability = args$minSignalPeptideProbability
     )
   }
-  
+
   SwitchList <- analyzeAlternativeSplicing(
     SwitchList,
     onlySwitchingGenes = args$onlySwitchingGenes,
@@ -666,7 +665,7 @@ if (args$modeSelector == "second_step") {
     dIFcutoff = args$dIFcutoff,
     showProgress = TRUE
   )
-  
+
   SwitchList <- analyzeIntronRetention(
     SwitchList,
     onlySwitchingGenes = args$onlySwitchingGenes,
@@ -674,7 +673,7 @@ if (args$modeSelector == "second_step") {
     dIFcutoff = args$dIFcutoff,
     showProgress = TRUE
   )
-  
+
   consequences <- c(
     "intron_retention",
     "NMD_status",
@@ -683,29 +682,29 @@ if (args$modeSelector == "second_step") {
     "tss",
     "tts"
   )
-  
+
   if (!is.null(args$pathToCPATresultFile) ||
       !is.null(args$pathToCPC2resultFile)) {
     updatedConsequences <- c(consequences, "coding_potential")
     consequences <- updatedConsequences
   }
-  
+
   if (!is.null(args$pathToPFAMresultFile)) {
     updatedConsequences <- c(consequences, "domains_identified")
     consequences <- updatedConsequences
   }
-  
+
   if (!is.null(args$pathToSignalPresultFile)) {
     updatedConsequences <- c(consequences, "signal_peptide_identified")
     consequences <- updatedConsequences
   }
-  
+
   if (!is.null(args$pathToNetSurfP2resultFile) ||
       !is.null(args$pathToIUPred2AresultFile)) {
     updatedConsequences <- c(consequences, "IDR_identified", "IDR_type")
     consequences <- updatedConsequences
   }
-  
+
   SwitchList <- analyzeSwitchConsequences(
     SwitchList,
     consequencesToAnalyze = consequences,
@@ -720,21 +719,21 @@ if (args$modeSelector == "second_step") {
     removeNonConseqSwitches = args$removeNonConseqSwitches,
     showProgress = TRUE
   )
-  
-  
+
+
   ### Visual analysis
   # Top genes
-  
+
   if (args$analysisMode == "single") {
     outputFile <- file.path(getwd(), "single_gene.pdf")
-    
+
     pdf(
       file = outputFile,
       onefile = FALSE,
       height = 6,
       width = 9
     )
-    
+
     switchPlot(
       SwitchList,
       gene = args$gene,
@@ -749,7 +748,7 @@ if (args$modeSelector == "second_step") {
       localTheme = theme_bw(base_size = 8)
     )
     dev.off()
-    
+
   } else {
     mostSwitchingGene <-
       extractTopSwitches(
@@ -762,7 +761,7 @@ if (args$modeSelector == "second_step") {
         inEachComparison = FALSE,
         sortByQvals = args$sortByQvals
       )
-    
+
     write.table(
       mostSwitchingGene,
       file = "mostSwitchingGene.tsv",
@@ -771,8 +770,8 @@ if (args$modeSelector == "second_step") {
       col.names = TRUE,
       row.names = FALSE
     )
-    
-    
+
+
     switchPlotTopSwitches(
       SwitchList,
       alpha = args$alpha,
@@ -783,17 +782,17 @@ if (args$modeSelector == "second_step") {
       pathToOutput = getwd(),
       fileType = "pdf"
     )
-    
+
     outputFile <-
       file.path(getwd(), "extractConsequencesSummary.pdf")
-    
+
     pdf(
       file = outputFile,
       onefile = FALSE,
       height = 6,
       width = 12
     )
-    
+
     consequenceSummary <- extractConsequenceSummary(
       SwitchList,
       consequencesToAnalyze = "all",
@@ -809,7 +808,7 @@ if (args$modeSelector == "second_step") {
       localTheme = theme_bw()
     )
     dev.off()
-    
+
     write.table(
       consequenceSummary,
       file = "consequencesSummary.tsv",
@@ -818,8 +817,8 @@ if (args$modeSelector == "second_step") {
       col.names = TRUE,
       row.names = FALSE
     )
-    
-    
+
+
     outputFile <- file.path(getwd(), "consequencesEnrichment.pdf")
     pdf(
       file = outputFile,
@@ -840,7 +839,7 @@ if (args$modeSelector == "second_step") {
       returnResult = TRUE
     )
     dev.off()
-    
+
     write.table(
       consequenceEnrichment,
       file = "consequencesEnrichment.tsv",
@@ -849,8 +848,8 @@ if (args$modeSelector == "second_step") {
       col.names = TRUE,
       row.names = FALSE
     )
-    
-    
+
+
     outputFile <- file.path(getwd(), "splicingEnrichment.pdf")
     pdf(
       file = outputFile,
@@ -870,7 +869,7 @@ if (args$modeSelector == "second_step") {
       returnResult = TRUE
     )
     dev.off()
-    
+
     write.table(
       splicingEnrichment,
       file = "splicingEnrichment.tsv",
@@ -879,8 +878,8 @@ if (args$modeSelector == "second_step") {
       col.names = TRUE,
       row.names = FALSE
     )
-    
-    
+
+
     outputFile <- file.path(getwd(), "splicingSummary.pdf")
     pdf(
       file = outputFile,
@@ -901,7 +900,7 @@ if (args$modeSelector == "second_step") {
       returnResult = TRUE
     )
     dev.off()
-    
+
     write.table(
       splicingSummary,
       file = "splicingSummary.tsv",
@@ -910,7 +909,7 @@ if (args$modeSelector == "second_step") {
       col.names = TRUE,
       row.names = FALSE
     )
-    
+
     write.table(
       SwitchList$switchConsequence,
       file = "switchConsequence_fulldata.tsv",
@@ -919,7 +918,7 @@ if (args$modeSelector == "second_step") {
       col.names = TRUE,
       row.names = FALSE
     )
-    
+
     write.table(
       SwitchList$AlternativeSplicingAnalysis,
       file = "switchSplicing_fulldata.tsv",
@@ -928,7 +927,7 @@ if (args$modeSelector == "second_step") {
       col.names = TRUE,
       row.names = FALSE
     )
-    
+
     write.table(
       SwitchList$isoformFeatures,
       file = "IsoformFeatures.tsv",
@@ -937,17 +936,17 @@ if (args$modeSelector == "second_step") {
       col.names = TRUE,
       row.names = FALSE
     )
-    
+
     ### Volcano like plot:
     outputFile <- file.path(getwd(), "volcanoPlot.pdf")
-    
+
     pdf(
       file = outputFile,
       onefile = FALSE,
       height = 6,
       width = 9
     )
-    
+
     p <-
       ggplot(data = SwitchList$isoformFeatures, aes(x = dIF, y = -log10(isoform_switch_q_value))) +
       geom_point(aes(color = abs(dIF) > 0.1 &
@@ -962,7 +961,7 @@ if (args$modeSelector == "second_step") {
       theme_bw()
     print(p)
     dev.off()
-    
+
     ### Switch vs Gene changes:
     outputFile <- file.path(getwd(), "switchGene.pdf")
     pdf(file = outputFile,
@@ -981,7 +980,7 @@ if (args$modeSelector == "second_step") {
       theme_bw()
     print(p)
     dev.off()
-    
+
     outputFile <- file.path(getwd(), "splicingGenomewide.pdf")
     pdf(
       file = outputFile,
@@ -999,5 +998,5 @@ if (args$modeSelector == "second_step") {
     dev.off()
   }
   save(SwitchList, file = "SwitchList.Rda")
-  
+
 }
