@@ -37,10 +37,18 @@ parser$add_argument("--sampleID",
                     action = "append",
                     required = FALSE,
                     help = "SampleID")
+parser$add_argument("--replicate",
+                    action = "append",
+                    required = FALSE,
+                    help = "Replicates")
 parser$add_argument("--readLength",
                     required = FALSE,
                     type = "integer",
                     help = "Read length (required for stringtie)")
+parser$add_argument("--pairedSamples", 
+                    action = "store_true",
+                    required = FALSE,
+                    help = "Paired samples")       
 parser$add_argument("--annotation", required = FALSE, help = "Annotation")
 parser$add_argument("--stringtieAnnotation", required = FALSE, help = "Stringtie annotation")
 parser$add_argument("--transcriptome", required = FALSE, help = "Transcriptome")
@@ -352,11 +360,17 @@ if (args$modeSelector == "data_import") {
     readLength = args$readLength
   )
 
+  if (!args$pairedSamples) {
   ### Make design matrix
   myDesign <- data.frame(
     sampleID = args$sampleID,
-    condition = args$condition
-  )
+    condition = args$condition)
+  } else {
+  myDesign <- data.frame(
+    sampleID = args$sampleID,
+    condition = args$condition,
+    replicate = args$replicate)
+  }
 
   comparisons <- as.data.frame(cbind(
     condition_1 = myDesign$condition[1],
