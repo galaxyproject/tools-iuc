@@ -45,10 +45,7 @@ parser$add_argument("--readLength",
                     required = FALSE,
                     type = "integer",
                     help = "Read length (required for stringtie)")
-parser$add_argument("--pairedSamples", 
-                    action = "store_true",
-                    required = FALSE,
-                    help = "Paired samples")       
+parser$add_argument("--pairedSamples", action = "store_true", required = FALSE, help = "Paired samples")       
 parser$add_argument("--annotation", required = FALSE, help = "Annotation")
 parser$add_argument("--stringtieAnnotation", required = FALSE, help = "Stringtie annotation")
 parser$add_argument("--transcriptome", required = FALSE, help = "Transcriptome")
