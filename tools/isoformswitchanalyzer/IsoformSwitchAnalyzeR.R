@@ -37,15 +37,12 @@ parser$add_argument("--sampleID",
                     action = "append",
                     required = FALSE,
                     help = "SampleID")
-
 parser$add_argument("--readLength",
                     required = FALSE,
                     type = "integer",
                     help = "Read length (required for stringtie)")
 parser$add_argument("--annotation", required = FALSE, help = "Annotation")
-parser$add_argument("--stringtieAnnotation",
-                    required = FALSE,
-                    help = "Stringtie annotation")
+parser$add_argument("--stringtieAnnotation", required = FALSE, help = "Stringtie annotation")
 parser$add_argument("--transcriptome", required = FALSE, help = "Transcriptome")
 parser$add_argument(
   "--fixStringTieAnnotationProblem",
@@ -341,12 +338,14 @@ parser$add_argument(
   help = "Add error bars"
 )
 
+
 args <- parser$parse_args()
 
 # Data import
 ###################
 
 if (args$modeSelector == "data_import") {
+
   quantificationData <- importIsoformExpression(
     parentDir = args$parentDir,
     addIsofomIdAsColumn = TRUE,
@@ -356,14 +355,13 @@ if (args$modeSelector == "data_import") {
   ### Make design matrix
   myDesign <- data.frame(
     sampleID = args$sampleID,
-    condition = args$condition,
+    condition = args$condition
   )
-  
-  comparisons <-
-    as.data.frame(cbind(
-      condition_1 = myDesign$condition[1],
-      condition_2 = myDesign$condition[length(myDesign$condition)]
-    ))
+
+  comparisons <- as.data.frame(cbind(
+    condition_1 = myDesign$condition[1],
+    condition_2 = myDesign$condition[length(myDesign$condition)]
+  ))
 
   if (args$toolSource == "stringtie") {
     if (!is.null(args$stringtieAnnotation)) {
@@ -379,6 +377,7 @@ if (args$modeSelector == "data_import") {
         comparisonsToMake = comparisons,
         fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
       )
+
       SwitchList <- addORFfromGTF(
         SwitchList,
         removeNonConvensionalChr = args$removeNonConvensionalChr,
@@ -393,8 +392,8 @@ if (args$modeSelector == "data_import") {
         removeNonConvensionalChr = args$removeNonConvensionalChr,
         isoformNtFasta       = args$transcriptome,
         isoformExonAnnoation = args$annotation,
-        comparisonsToMake = comparisons,
         showProgress = TRUE,
+        comparisonsToMake = comparisons,
         fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
       )
     }
@@ -407,8 +406,8 @@ if (args$modeSelector == "data_import") {
       removeNonConvensionalChr = args$removeNonConvensionalChr,
       isoformExonAnnoation = args$annotation,
       isoformNtFasta       = args$transcriptome,
-      comparisonsToMake = comparisons,
-      showProgress = TRUE
+      showProgress = TRUE,
+      comparisonsToMake = comparisons
     )
   }
 
@@ -420,14 +419,13 @@ if (args$modeSelector == "data_import") {
   )
 
   if (args$countFiles == "collection") {
+
     expressionDF <- data.frame(geneCountMatrix)
 
     myDesign$condition[length(myDesign$condition)]
 
-    dataframe_factor1 <-
-      expressionDF %>% select(matches(myDesign$condition[1]))
-    dataframe_factor2 <-
-      expressionDF %>% select(matches(myDesign$condition[length(myDesign$condition)]))
+    dataframe_factor1 <- expressionDF %>% select(matches(myDesign$condition[1]))
+    dataframe_factor2 <- expressionDF %>% select(matches(myDesign$condition[length(myDesign$condition)]))
 
 
     lf1 <- as.list(as.data.frame(dataframe_factor1))
@@ -445,8 +443,7 @@ if (args$modeSelector == "data_import") {
         c("Geneid", sampleNames1[index])
       filename <-
         paste(sampleNames1[index], "dataset.tabular", sep = "_")
-      output_path <-
-        paste("./count_files/factor1/", filename, sep = "")
+      output_path <- paste("./count_files/factor1/", filename, sep = "")
       write.table(
         tabular_expression,
         output_path,
@@ -461,8 +458,7 @@ if (args$modeSelector == "data_import") {
         c("Geneid", sampleNames2[index])
       filename <-
         paste(sampleNames2[index], "dataset.tabular", sep = "_")
-      output_path <-
-        paste("./count_files/factor2/", filename, sep = "")
+      output_path <- paste("./count_files/factor2/", filename, sep = "")
       write.table(
         tabular_expression,
         output_path,
@@ -497,6 +493,7 @@ if (args$modeSelector == "data_import") {
 }
 
 if (args$modeSelector == "first_step") {
+
   # First part of the analysis
   #############################
 
@@ -578,9 +575,11 @@ if (args$modeSelector == "first_step") {
     col.names = TRUE,
     row.names = FALSE
   )
+
 }
 
 if (args$modeSelector == "second_step") {
+
   # Second part of the analysis
   #############################
 
@@ -720,6 +719,7 @@ if (args$modeSelector == "second_step") {
   # Top genes
 
   if (args$analysisMode == "single") {
+
     outputFile <- file.path(getwd(), "single_gene.pdf")
 
     pdf(
@@ -942,11 +942,11 @@ if (args$modeSelector == "second_step") {
       width = 9
     )
 
-    p <-
-      ggplot(data = SwitchList$isoformFeatures, aes(x = dIF, y = -log10(isoform_switch_q_value))) +
-      geom_point(aes(color = abs(dIF) > 0.1 &
-                       isoform_switch_q_value < 0.05), # default cutoff
-                 size = 1) +
+    p <- ggplot(data = SwitchList$isoformFeatures, aes(x = dIF, y = -log10(isoform_switch_q_value))) +
+      geom_point(
+        aes(color = abs(dIF) > 0.1 & isoform_switch_q_value < 0.05), # default cutoff
+        size = 1
+      ) +
       geom_hline(yintercept = -log10(0.05), linetype = "dashed") + # default cutoff
       geom_vline(xintercept = c(-0.1, 0.1), linetype = "dashed") + # default cutoff
       facet_wrap(~ condition_2) +
@@ -959,11 +959,13 @@ if (args$modeSelector == "second_step") {
 
     ### Switch vs Gene changes:
     outputFile <- file.path(getwd(), "switchGene.pdf")
-    pdf(file = outputFile,
-        height = 6,
-        width = 9)
+    pdf(
+      file = outputFile,
+      height = 6,
+      width = 9
+    )
     p <- ggplot(data = SwitchList$isoformFeatures,
-                aes(x = gene_log2_fold_change, y = dIF)) +
+           aes(x = gene_log2_fold_change, y = dIF)) +
       geom_point(aes(color = abs(dIF) > 0.1 &
                        isoform_switch_q_value < 0.05),
                  size = 1) +
