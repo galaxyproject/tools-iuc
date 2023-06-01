@@ -29,10 +29,6 @@ parser$add_argument("--combine_pvalues",  required = TRUE,
                     help = "Combine p-values method")
 parser$add_argument("--padj_method",  required = TRUE,
                     help = "P-adjustment method")
-parser$add_argument("--databases",
-                    action = "append",
-                    required = TRUE,
-                    help = "Pathway databases")
 
 args <- parser$parse_args()
 
@@ -118,7 +114,7 @@ names(omics_short) <- names(omics_data)
 
 pathways <-
   getMultiOmicsFeatures(
-    dbs = args$databases,
+    dbs = c("all"),
     layer = layer,
     returnTranscriptome = args$transcriptome_ids,
     returnProteome = args$proteome_ids,
