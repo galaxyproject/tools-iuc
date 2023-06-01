@@ -37,10 +37,6 @@ parser$add_argument("--sampleID",
                     action = "append",
                     required = FALSE,
                     help = "SampleID")
-parser$add_argument("--replicate",
-                    action = "append",
-                    required = FALSE,
-                    help = "Replicates")
 
 parser$add_argument("--readLength",
                     required = FALSE,
@@ -361,7 +357,6 @@ if (args$modeSelector == "data_import") {
   myDesign <- data.frame(
     sampleID = args$sampleID,
     condition = args$condition,
-    replicate = args$replicate
   )
   
   comparisons <-
