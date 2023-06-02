@@ -29,10 +29,23 @@ parser <- ArgumentParser(description = "IsoformSwitcheR R script")
 
 parser$add_argument("--modeSelector")
 parser$add_argument("--parentDir",  required = FALSE, help = "Parent directory")
+parser$add_argument("--condition",
+                    action = "append",
+                    required = FALSE,
+                    help = "Conditions")
+parser$add_argument("--sampleID",
+                    action = "append",
+                    required = FALSE,
+                    help = "SampleID")
+parser$add_argument("--replicate",
+                    action = "append",
+                    required = FALSE,
+                    help = "Replicates")
 parser$add_argument("--readLength",
                     required = FALSE,
                     type = "integer",
                     help = "Read length (required for stringtie)")
+parser$add_argument("--pairedSamples", action = "store_true", required = FALSE, help = "Paired samples")
 parser$add_argument("--annotation", required = FALSE, help = "Annotation")
 parser$add_argument("--stringtieAnnotation", required = FALSE, help = "Stringtie annotation")
 parser$add_argument("--transcriptome", required = FALSE, help = "Transcriptome")
@@ -344,15 +357,22 @@ if (args$modeSelector == "data_import") {
     readLength = args$readLength
   )
 
+  if (!args$pairedSamples) {
   ### Make design matrix
   myDesign <- data.frame(
-    sampleID = colnames(quantificationData$abundance)[-1],
-    condition = gsub(
-      "[[:digit:]]+",
-      "",
-      colnames(quantificationData$abundance)[-1]
-    )
-  )
+    sampleID = args$sampleID,
+    condition = args$condition)
+  } else {
+  myDesign <- data.frame(
+    sampleID = args$sampleID,
+    condition = args$condition,
+    replicate = args$replicate)
+  }
+
+  comparisons <- as.data.frame(cbind(
+    condition_1 = myDesign$condition[1],
+    condition_2 = myDesign$condition[length(myDesign$condition)]
+  ))
 
   if (args$toolSource == "stringtie") {
     if (!is.null(args$stringtieAnnotation)) {
@@ -365,6 +385,7 @@ if (args$modeSelector == "data_import") {
         isoformNtFasta       = args$transcriptome,
         addAnnotatedORFs = FALSE,
         showProgress = TRUE,
+        comparisonsToMake = comparisons,
         fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
       )
 
@@ -383,6 +404,7 @@ if (args$modeSelector == "data_import") {
         isoformNtFasta       = args$transcriptome,
         isoformExonAnnoation = args$annotation,
         showProgress = TRUE,
+        comparisonsToMake = comparisons,
         fixStringTieAnnotationProblem = args$fixStringTieAnnotationProblem
       )
     }
@@ -395,7 +417,8 @@ if (args$modeSelector == "data_import") {
       removeNonConvensionalChr = args$removeNonConvensionalChr,
       isoformExonAnnoation = args$annotation,
       isoformNtFasta       = args$transcriptome,
-      showProgress = TRUE
+      showProgress = TRUE,
+      comparisonsToMake = comparisons
     )
   }
 
