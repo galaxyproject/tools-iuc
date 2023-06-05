@@ -9,7 +9,7 @@
         <regex match="Traceback " source="both" level="fatal" description="rnaQuast failed" />
     </stdio>
     <command detect_errors="exit_code"><![CDATA[
-    #import os, re
+    #import os, re, glob
     #set $counter = 0
     #for $i in $transcripts        
         ln -s $i '${re.sub('[^\w\-.]', '_', i.element_identifier)}' &&
@@ -63,12 +63,12 @@
     #if "pdf" not in $output_options.out_sr and "plots" not in $output_options.out_add
         --no_plots
     #end if
-    #if $busco_option.selector == 'true'
+    #if $use_busco.selector == 'true'
         --busco 
-        #if $busco_option.lineage_conditional.selector == 'cached':
-            $busco_option.lineage_conditional.cached_db.fields.path
+        #if $use_busco.lineage_conditional.selector == 'cached':
+            '${use_busco.lineage_conditional.cached_db.fields.path}'
         #else
-            $busco_option.lineage
+            $use_busco.lineage
         #end if
     #end if
     ## $advanced_options.gene_mark
@@ -80,33 +80,35 @@
     #if $counter == 1
         #set $path = "/".join(['outputdir',($transcripts[0].element_identifier).split(".")[0]]) + "_output"
         && mv '${path}' './results'
-    #end if
-    #if 'gz' in $output_options.out_add
-        && tar -czvf results.tar.gz './results'
-    #end if
-    ## move per outputs that are generated for each input (outputdir/ASSEMBLER_output)
-    ## to a joint dir (details) to make them discoverable
-    ## also remove "ASSEMBLER." prefixes from files (otherwise the test macros don't work)
-    ##for $i in $transcripts
-    ##    #set basename = os.path.splitext(re.sub('[^\w\-.]', '_', $i.element_identifier))[0]
-    ##    #for $folder in './outputdir/${basename}_output'
-    ##end for
-
-    ## rename .list files to .txt files to make them detectable (format detection by extension)
-    ## the final `true` seems needed since otherwise the `;` at the end is swallowed
-    && find './results/' -name "*.list" -exec mv {} {}.txt \;
-    && true
-    ##&& gs -q -sPAPERSIZE=letter -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sOutputFile=./results/*
-    #if $counter == 1
+        #if 'gz' in $output_options.out_add
+            && tar -czvf results.tar.gz './results'
+        #end if
+        ## rename .list files to .txt files to make them detectable (format detection by extension)
+        ## the final `true` seems needed since otherwise the `;` at the end is swallowed
+        && find './results/' -name "*.list" -exec mv {} {}.txt \;
+        && true
         && printf "************ METRICS/TRANSCRIPTS ***************\n" > stats.txt
         && for file_name in ./results/*txt; do printf "\n************ \$file_name ************\n" >> stats.txt 
         && sed 's/^ ==.*/&\n/' \$file_name | tail -q -n +2 "\$file_name" >> stats.txt; 
         done
         && for file_name in ./results/*txt; do printf "\$file_name.element_identifier" >> stats.txt && tail -q -n +2 \$file_name >> stats.txt; done
         && cat stats.txt > $stats
-    #else  
-        #for $i,$j in enumerate($transcripts)
-            && ls -l 'outputdir/${re.sub("[^\w\-.]", "_", j.element_identifier)}'
+    #else
+        #set list_paths = list()
+        #set $transcripts_list = list(str($transcripts).split(","))
+        && mkdir -p './large_reports/'
+        ##& mv '${path}' './results'
+        #for $i, $transcript in enumerate(transcripts_list)
+            #set $path = "/".join(['outputdir',($transcripts[$i].element_identifier).split(".")[0]]) + "_output"
+            && mv $path './results'
+            && find './results' -name "*.list" -exec mv {} {}.txt \;
+            && true
+            && printf "************ METRICS/TRANSCRIPTS ***************\n" > stats.txt
+            && for file_name in ./results/*txt; do printf "\n************ \$file_name ************\n" >> stats.txt 
+            && sed 's/^ ==.*/&\n/' \$file_name | tail -q -n +2 "\$file_name" >> stats.txt; 
+            done
+            && for file_name in ./results/*txt; do printf "\$file_name.element_identifier" >> stats.txt && tail -q -n +2 \$file_name >> stats.txt; done
+            && mv stats.txt ./large_reports/$transcripts[$i].element_identifier
         #end for
     #end if
     ]]>    </command>
@@ -143,7 +145,7 @@
             </when>
         </conditional>
         <param argument="--reads_alignment" type="data" format="sam" label="Aligned reads to reference genome" optional="true" help="File with read alignments to the reference genome" />
-        <conditional name="busco_option">
+        <conditional name="use_busco">
           <param argument="selector" type="select" label="Run BUSCO" help="BUSCO allows to detect core genes in the assembled transcripts">
               <option value="false">Disabled</option>
               <option value="true">Enabled</option>
@@ -190,7 +192,7 @@
         </section>
         <section name="output_options" title="Output options" expanded="true">
             <param name="out_sr" type="select" multiple="true"  display="checkboxes" label="Short report formats">
-                <option value="tsv">Tabular</option>
+                <option value="tabular">Tabular</option>
                 <option value="txt">Plain text (txt)</option>
                 <option value="tex">TeX</option>
                 <option value="pdf" selected="true">PDF</option>
@@ -206,14 +208,13 @@
     </inputs>
     <outputs>
         <data name="stats" format="txt" label="${tool.name} on ${on_string}: complete report">
-            <filter>counter == "1"</filter>
+            <filter>len(transcripts) == 1</filter>
             <filter>output_options['out_add'] and "complete" in  output_options['out_add']</filter>
         </data>
         <collection name="plots" type="list" label="${tool.name} on ${on_string}: plots">
             <discover_datasets ext="png" pattern="(?P&lt;name&gt;.+)\.png" directory="results" visible="false" />
             <filter>output_options['out_add'] and "plots" in  output_options['out_add']</filter>
         </collection>
-        
         <collection name="list_logs" type="list" label="${tool.name} on ${on_string}: logs">
             <discover_datasets ext="txt" pattern="(?P&lt;name&gt;.+)\.log" directory="outputdir/logs" visible="false" />
             <filter>output_options['out_add'] and "logs" in  output_options['out_add']</filter>
@@ -234,30 +235,35 @@
         <data name="short_report_tex" format="txt" label="${tool.name} on ${on_string}: short report (tex)" from_work_dir="outputdir/short_report.tex">
             <filter>output_options['out_sr'] and "tex" in output_options['out_sr']</filter>
         </data>
-        <data name="short_report_tsv" format="tabular" label="${tool.name} on ${on_string}: short report (tsv)" from_work_dir="outputdir/short_report.tsv">
-            <filter>output_options['out_sr'] and "tsv" in output_options['out_sr']</filter>
+        <data name="short_report_tabular" format="tabular" label="${tool.name} on ${on_string}: short report (tabular)" from_work_dir="outputdir/short_report.tabular">
+            <filter>output_options['out_sr'] and "tabular" in output_options['out_sr']</filter>
         </data>
+        <collection name="stats_collection" type="list" label="${tool.name} on ${on_string}: complete reports">
+            <discover_datasets pattern="__name__" directory="large_reports" visible="false" />
+            <filter>len(transcripts) != 1</filter>
+            <filter>output_options['out_add'] and "complete" in  output_options['out_add']</filter>
+        </collection>
     </outputs>
     <tests>
         <!-- Test 01: Minimum input txt output-->
         <test expect_num_outputs="1">
             <param name="transcripts" value="transcriptome.fasta"/>
             <section name="output_options">
-                <param name="out_sr" value="tsv"/>
+                <param name="out_sr" value="tabular"/>
             </section>
-            <output name="short_report_tsv" file="test_01_short_report.tab"/>
+            <output name="short_report_tabular" file="test_01_short_report.tab"/>
         </test>
         <!-- Test 02: Transcriptome reference,single read,  txt output-->
         <test expect_num_outputs="1">
             <param name="transcripts" value="transcriptome.fasta"/>
             <section name="output_options">
-                <param name="out_sr" value="tsv"/>
+                <param name="out_sr" value="tabular"/>
             </section>
             <conditional name="reads_option">
                 <param name="selector" value="single"/>
                 <param name="single_reads" value="single_end.fastq.gz"/>
             </conditional>
-            <output name="short_report_tsv">
+            <output name="short_report_tabular">
                 <assert_contents>
                     <has_text text="Transcripts" />
                     <has_size value="95" delta="5"/>
@@ -272,13 +278,13 @@
                 <param name="gtf" value="reference.gtf"/>
             </conditional>
             <section name="output_options">
-                <param name="out_sr" value="tsv"/>
+                <param name="out_sr" value="tabular"/>
             </section>
             <conditional name="reads_option">
                 <param name="selector" value="single"/>
                 <param name="single_reads" value=""/>
             </conditional>
-            <output name="short_report_tsv" file="test_03_short_report.tab"/>
+            <output name="short_report_tabular" file="test_03_short_report.tab"/>
         </test>
         <!-- Test 04: Transcriptome reference and annotation, txt output-->
         <test expect_num_outputs="1">
@@ -288,13 +294,13 @@
                 <param name="gtf" value="reference.gtf"/>
             </conditional>
             <section name="output_options">
-                <param name="out_sr" value="tsv"/>
+                <param name="out_sr" value="tabular"/>
             </section>
             <conditional name="reads_option">
                 <param name="selector" value="single"/>
                 <param name="single_reads" value=""/>
             </conditional>
-            <output name="short_report_tsv">
+            <output name="short_report_tabular">
                 <assert_contents>
                     <has_text text="Transcripts" />
                     <has_size value="140" delta="5"/>
@@ -309,14 +315,14 @@
                 <param name="gtf" value="reference.gtf"/>
             </conditional>
             <section name="output_options">
-                <param name="out_sr" value="tsv"/>
+                <param name="out_sr" value="tabular"/>
             </section>
             <conditional name="reads_option">
                 <param name="selector" value='paired'/>
                 <param name="forward_reads" value="input_F.fastqsanger"/>
                 <param name="reverse_reads" value="input_F.fastqsanger"/>
             </conditional>
-            <output name="short_report_tsv">
+            <output name="short_report_tabular">
                 <assert_contents>
                     <has_text text="Transcripts" />
                     <has_size value="140" delta="5"/>
@@ -336,16 +342,16 @@
                 <param name="reverse_reads" value="input_R.fastqsanger"/>
             </conditional>
             <section name="output_options">
-                <param name="out_sr" value="tsv"/>
+                <param name="out_sr" value="tabular"/>
             </section>
-            <conditional name="busco_option">
+            <conditional name="use_busco">
                 <param name="selector" value="true"/>
                 <conditional name="lineage_conditional">
                     <param name="selector" value="cached"/>
                     <param name="cached_db" value="busco-demo-db-20230328"/>
                 </conditional>
             </conditional>
-            <output name="short_report_tsv">
+            <output name="short_report_tabular">
                 <assert_contents>
                     <has_text text="Transcripts" />
                     <has_size value="140" delta="5"/>
@@ -365,7 +371,7 @@
                 <param name="forward_reads" value="input_F.fastqsanger"/>
                 <param name="reverse_reads" value="input_R.fastqsanger"/>
             </conditional>
-            <conditional name="busco_option">
+            <conditional name="use_busco">
                 <param name="selector" value="true"/>
                 <conditional name="lineage_conditional">
                     <param name="selector" value="cached"/>
@@ -373,7 +379,7 @@
                 </conditional>
             </conditional>
              <section name="output_options">
-                <param name="out_sr" value="pdf,tsv"/>
+                <param name="out_sr" value="pdf,tabular"/>
                 <param name="out_add" value="plots,fasta,gz"/>
             </section>
             <output_collection name="fasta_files" type="list" count="7">
@@ -384,7 +390,7 @@
                 <element name="transcript_length" file="test07_transcript_length.png" ftype="png"/>
             </output_collection>
             <output name="short_report_pdf" file="test_07_short_report.pdf" ftype="pdf" compare="sim_size" delta="100"/>
-            <output name="short_report_tsv" file="test_07_short_report.tab" ftype="tsv"/>
+            <output name="short_report_tabular" file="test_07_short_report.tab" ftype="tabular"/>
             <output name="compressed_files" ftype="tgz">
                 <assert_contents>
                     <has_size value="232785" delta="250"/>
