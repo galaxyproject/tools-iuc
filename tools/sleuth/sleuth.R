@@ -46,36 +46,36 @@ args <- parser$parse_args()
 if (args$experiment_design == "complex") {
   ## Complex experiment design
   ############################
-  
+
   s2c  <-
     read.table(file = args$metadata_file,
                header = TRUE,
                sep = "\t")
   paths <- c()
   for (x in s2c$data_filename) {
-    paths <- c(paths, paste('./kallisto_outputs/', x, sep = ""))
+    paths <- c(paths, paste("./kallisto_outputs/", x, sep = ""))
   }
   for (f in paths) {
     file.rename(f, gsub(".fastq.*", ".h5", f))
   }
   s2c$path <- gsub(".fastq.*", ".h5", paths)
-  
+
   so <- sleuth_prep(s2c, full_model = ~ condition, num_cores = 1)
   so <- sleuth_fit(so)
-  
+
 } else {
   ## Simple experiment design
   ###########################
-  
+
   conditions <- c()
   for (x in seq_along(args$factorLevel)) {
     temp <- append(conditions, rep(args$factorLevel[[x]]))
     conditions <- temp
   }
-  
+
   sample_names <-
     gsub(".fastq.+", "", basename(args$factorLevel_counts))
-  
+
   design <-
     data.frame(list(
       sample = sample_names,
