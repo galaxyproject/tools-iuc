@@ -44,7 +44,8 @@ parser$add_argument("--experiment_design", required = FALSE)
 args <- parser$parse_args()
 
 if (args$experiment_design == "complex") {
-  ## Cmplex experiment design
+  ## Complex experiment design
+  ############################
   
   s2c  <-
     read.table(file = args$metadata_file,
