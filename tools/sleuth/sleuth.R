@@ -53,13 +53,13 @@ if (args$experiment_design == "complex") {
                sep = "\t")
   paths <- c()
   for (x in s2c$data_filename) {
-    paths <- c(paths, paste("./kallisto_outputs/", x, sep = ""))
+    paths <- c(paths, paste("./kallisto_outputs/",  x, sep = ""))
   }
   for (f in paths) {
     file.rename(f, gsub(".fastq.*", "", f))
-        file.rename(f, paste(gsub(".fastq.*", "", f),".h5",sep=""))
+        file.rename(f, paste(gsub(".fastq.*", "", f), ".h5",sep = ""))
   }
-  s2c$path <- paste(gsub(".fastq.*", ".h5", paths),".h5",sep="")
+  s2c$path <- paste(gsub(".fastq.*", ".h5", paths), ".h5",sep = "")
 
   so <- sleuth_prep(s2c, full_model = ~ condition, num_cores = 1)
   so <- sleuth_fit(so)
