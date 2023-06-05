@@ -1,11 +1,11 @@
 import argparse
 import json
 import os
-import tarfile
-from datetime import datetime
+
 from pathlib import Path
 
-import requests
+import git
+import time
 
 
 class GetPlasmidfinderDataManager:
@@ -68,12 +68,12 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
 
     def __init__(self,
                  output_dir=Path.cwd(),
-                 plasmidfinder_url="https://bitbucket.org/genomicepidemiology/plasmidfinder_db/get/",
+                 plasmidfinder_url="https://bitbucket.org/genomicepidemiology/plasmidfinder_db/src/master",
                  db_name="plasmidfinder_database",
                  db_tmp="tmp_database",
                  plasmidfinder_version="latest",
                  json_file_path=None,
-                 date_version=datetime.now().strftime("%Y-%m-%d")):
+                 date_version=None):
 
         super().__init__()
         self.json_file_path = json_file_path
@@ -86,86 +86,29 @@ class DownloadPlasmidfinderDatabase(GetPlasmidfinderDataManager):
         self._plasmidfinder_date_version = date_version
         self._commit_number = None
 
-    def extract_db_commit(self, request_header, title_name="content-disposition"):
-        """
-        Extract the commit if to add the information as identifier of the download
-        @request_header: a request object obtained from requests.get()
-        @title_name: the tag to search in the header of the requests object
-        return: the value of the commit
-        """
-        db_info = request_header.headers[title_name]
-        commit_number = db_info.split("-")[2].split(".")[0]
-        return commit_number
+    def git_clone(self):
+        git.Repo.clone_from(url=self._plasmidfinder_url, to_path=self._output_dir)
+        self._plasmidfinder_repository = git.Repo(path=self._output_dir)
 
-    def untar_files(self, file_path: Path, extracted_path_output: Path):
-        """
-        untar the download archive
-        @file_path: input path of the tar.gz file
-        @extracted_path_output: output path of the extract folder
-        return: the path of the output
-        """
-        try:
-            with file_path.open('rb') as fh_in, \
-                    tarfile.open(fileobj=fh_in, mode='r:gz') as tar_file:
-                tar_file.extractall(path=extracted_path_output)
-                print(f'Untar the database in {extracted_path_output}')
-                return extracted_path_output
-        except OSError:
-            os.sys.exit(f'ERROR: Could not extract {file_path}')
+    def get_commit_number(self):
+        sha = self._plasmidfinder_repository.head.commit.hexsha
+        short_sha = self._plasmidfinder_repository.git.rev_parse(sha, short=7)
+        self._commit_number = short_sha
 
-    def choose_db_version(self):
-        """
-        Update the url link depending on the version choosen by user.
-        This method could be upgraded simply by adding the new versions
-        """
-        if self._plasmidfinder_version == "latest":
-            self._plasmidfinder_url = f"{self._plasmidfinder_url}master.gz"
-        elif self._plasmidfinder_version == "2.1":
-            self._plasmidfinder_url = f"{self._plasmidfinder_url}1307168.gz"
+    def get_commit_date(self):
+        self._plasmidfinder_date_version = time.strftime("%Y_%m_%d", time.gmtime(self._plasmidfinder_repository.head.commit.committed_date))
 
     def download_database(self):
         """
-        Download the plasmidfinder database using requests lib
-        Make the directory and temporary directory for download
-        Untar the download files
+        Download the plasmidfinder database using git lib
+        Extract commit and commit date
         """
         self._output_dir = Path(self._output_dir)
-        self.choose_db_version()
-        try:
-            request_info = requests.get(self._plasmidfinder_url)
-            request_info.raise_for_status()
-            self._commit_number = self.extract_db_commit(request_info)
-            output_tar_path = self._output_dir.joinpath(self._temporary_folder)
-            output_tar_path_file = output_tar_path.joinpath(self._db_name_tar)
-            output_path = self._output_dir.joinpath(self._db_name)
-            os.makedirs(output_tar_path)
-            os.makedirs(output_path)
-            with open(output_tar_path_file, 'wb') as output_dir:
-                output_dir.write(request_info.content)
-            untar_output = self.untar_files(file_path=output_tar_path_file, extracted_path_output=output_tar_path.joinpath(self._db_name))
-            self.moove_download_files(source=untar_output, destination=output_path)
-        except requests.exceptions.HTTPError as http_error:
-            print(f"Requests Error: {http_error}")
-            print(f"Fail to import Plasmidfinder database from {self._plasmidfinder_url}")
-
-    def moove_download_files(self, source, destination, expression_search="*"):
-        """
-        Clean downloaded data by mooving fasta files in the final folder
-        @older_path: previous path where the files are located
-        @new_path: final path where files will be mooved
-        @expression_search: keep only file with this expression
-        """
-        fasta_files = Path(source).rglob(expression_search)
-        file_list_paths = [file for file in fasta_files if file.is_file()]
-        [self.keep_filename(pathname=path, output_path=destination) for path in file_list_paths]
-
-    def keep_filename(self, pathname, output_path):
-        """
-        Moove files
-        @pathname: previous path
-        @output_path: final path
-        """
-        Path.replace(pathname, output_path.joinpath(pathname.name))
+        self.git_clone()
+        if self._plasmidfinder_version != "latest":
+            self._plasmidfinder_repository.git.checkout(self._plasmidfinder_version)
+        self.get_commit_number()
+        self.get_commit_date()
 
     def read_json_input_file(self):
         """
