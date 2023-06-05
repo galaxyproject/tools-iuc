@@ -1,11 +1,11 @@
 import argparse
 import json
 import os
-
+import time
 from pathlib import Path
 
+
 import git
-import time
 
 
 class GetPlasmidfinderDataManager:
