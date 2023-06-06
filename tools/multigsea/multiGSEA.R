@@ -14,15 +14,15 @@ parser <- ArgumentParser(description = "multiGSEA R script")
 parser$add_argument("--transcriptomics",  required = FALSE,
                     help = "Transcriptomics data")
 parser$add_argument("--transcriptome_ids",  required = FALSE,
-                    help = "Transcriptomics ids")
+                    help = "Transcriptomics ids", default = "SYMBOL")
 parser$add_argument("--proteomics",  required = FALSE,
                     help = "Proteomics data")
 parser$add_argument("--proteome_ids",  required = FALSE,
-                    help = "Proteomics ids")
+                    help = "Proteomics ids", default = "SYMBOL")
 parser$add_argument("--metabolomics",  required = FALSE,
                     help = "Metabolomics data")
 parser$add_argument("--metabolome_ids",  required = FALSE,
-                    help = "Metabolomics ids")
+                    help = "Metabolomics ids", default = "HMDB")
 parser$add_argument("--organism",  required = TRUE,
                     help = "Organism")
 parser$add_argument("--combine_pvalues",  required = TRUE,
@@ -30,13 +30,12 @@ parser$add_argument("--combine_pvalues",  required = TRUE,
 parser$add_argument("--padj_method",  required = TRUE,
                     help = "P-adjustment method")
 parser$add_argument("--databases",
-                    action = "append",
                     required = TRUE,
                     help = "Pathway databases")
 
 args <- parser$parse_args()
 
-## --- Load library
+## ----Load library-------------------------------------------------------------
 
 organism_mapping <- c(
   "hsapiens" = "org.Hs.eg.db",
@@ -54,7 +53,8 @@ organism_mapping <- c(
 
 library(organism_mapping[args$organism], character.only = TRUE)
 
-## --- Load omics data
+
+## ----Load omics data----------------------------------------------------------
 
 layer <- c()
 
@@ -84,41 +84,45 @@ if (!is.null(args$metabolomics)) {
   layer <- append(layer, "metabolome")
 }
 
-## ----rank_features, results="hide"--------------------------------------------
+## ----rank_features------------------------------------------------------------
 
 # create data structure
 omics_data <- initOmicsDataStructure(layer)
 
 ## add transcriptome layer
-omics_data$transcriptome <- rankFeatures(transcriptome$logFC,
-                                         transcriptome$pValue)
-names(omics_data$transcriptome) <- transcriptome$Symbol
+if (!is.null(args$transcriptomics)) {
+  omics_data$transcriptome <- rankFeatures(transcriptome$logFC,
+                                           transcriptome$pValue)
+  names(omics_data$transcriptome) <- transcriptome$Symbol
+}
 
 ## add proteome layer
-omics_data$proteome <- rankFeatures(proteome$logFC, proteome$pValue)
-names(omics_data$proteome) <- proteome$Symbol
+if (!is.null(args$proteomics)) {
+  omics_data$proteome <- rankFeatures(proteome$logFC, proteome$pValue)
+  names(omics_data$proteome) <- proteome$Symbol
+}
 
 ## add metabolome layer
 ## HMDB features have to be updated to the new HMDB format
-omics_data$metabolome <-
-  rankFeatures(metabolome$logFC, metabolome$pValue)
-names(omics_data$metabolome) <- metabolome$HMDB
-names(omics_data$metabolome) <- gsub("HMDB", "HMDB00",
-                                     names(omics_data$metabolome))
+if (!is.null(args$metabolomics)) {
+  omics_data$metabolome <-
+    rankFeatures(metabolome$logFC, metabolome$pValue)
+  names(omics_data$metabolome) <- metabolome$HMDB
+  names(omics_data$metabolome) <- gsub("HMDB", "HMDB00",
+                                       names(omics_data$metabolome))
+}
 
 
-## ----omics_short--------------------------------------------------------------
-
-omics_short <- lapply(names(omics_data), function(name) {
-  head(omics_data[[name]])
+## remove NA's and sort feature ranks
+omics_data <- lapply( omics_data, function( vec){
+  sort( vec[ !is.na(vec)])
 })
-names(omics_short) <- names(omics_data)
 
-## ----calculate_enrichment, results="hide", message=FALSE, warning=FALSE-------
+## ----Pathway definitions------------------------------------------------------
 
 pathways <-
   getMultiOmicsFeatures(
-    dbs = args$databases,
+    dbs = unlist(strsplit(args$databases, ",", fixed = TRUE)),
     layer = layer,
     returnTranscriptome = args$transcriptome_ids,
     returnProteome = args$proteome_ids,
@@ -127,15 +131,7 @@ pathways <-
     useLocal = FALSE
   )
 
-## ----pathways_short-----------------------------------------------------------
-
-pathways_short <- lapply(names(pathways), function(name) {
-  head(pathways[[name]], 2)
-})
-names(pathways_short) <- names(pathways)
-pathways_short
-
-# use the multiGSEA function to calculate the enrichment scores
+## ----calculate enrichment-----------------------------------------------------
 
 enrichment_scores <-
   multiGSEA(pathways, omics_data)
@@ -152,6 +148,8 @@ df$combined_padj <-
 
 df <- cbind(data.frame(pathway = names(pathways[[1]])), df)
 
+## ----Write output-------------------------------------------------------------
+
 write.table(
   df,
   file = "results.tsv",
@@ -160,5 +158,3 @@ write.table(
   col.names = TRUE,
   row.names = FALSE
 )
-
-sessionInfo()
