@@ -13,16 +13,28 @@ parser <- ArgumentParser(description = "multiGSEA R script")
 
 parser$add_argument("--transcriptomics",  required = FALSE,
                     help = "Transcriptomics data")
-parser$add_argument("--transcriptome_ids",  required = FALSE,
-                    help = "Transcriptomics ids", default = "SYMBOL")
+parser$add_argument(
+  "--transcriptome_ids",
+  required = FALSE,
+  help = "Transcriptomics ids",
+  default = "SYMBOL"
+)
 parser$add_argument("--proteomics",  required = FALSE,
                     help = "Proteomics data")
-parser$add_argument("--proteome_ids",  required = FALSE,
-                    help = "Proteomics ids", default = "SYMBOL")
+parser$add_argument(
+  "--proteome_ids",
+  required = FALSE,
+  help = "Proteomics ids",
+  default = "SYMBOL"
+)
 parser$add_argument("--metabolomics",  required = FALSE,
                     help = "Metabolomics data")
-parser$add_argument("--metabolome_ids",  required = FALSE,
-                    help = "Metabolomics ids", default = "HMDB")
+parser$add_argument(
+  "--metabolome_ids",
+  required = FALSE,
+  help = "Metabolomics ids",
+  default = "HMDB"
+)
 parser$add_argument("--organism",  required = TRUE,
                     help = "Organism")
 parser$add_argument("--combine_pvalues",  required = TRUE,
@@ -116,7 +128,7 @@ if (!is.null(args$metabolomics)) {
 ## remove NA's and sort feature ranks
 omics_data <- lapply(omics_data, function(vec) {
   sort(vec[!is.na(vec)])
-} )
+})
 
 ## ----Pathway definitions------------------------------------------------------
 
