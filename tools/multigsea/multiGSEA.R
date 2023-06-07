@@ -114,9 +114,9 @@ if (!is.null(args$metabolomics)) {
 
 
 ## remove NA's and sort feature ranks
-omics_data <- lapply( omics_data, function( vec){
-  sort( vec[ !is.na(vec)])
-})
+omics_data <- lapply(omics_data, function(vec) {
+  sort(vec[!is.na(vec)])
+} )
 
 ## ----Pathway definitions------------------------------------------------------
 
