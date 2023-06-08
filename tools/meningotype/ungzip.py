@@ -6,7 +6,7 @@ import gzip
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('dataset_input')
-    parser.add_argument('dataset_output', type=argparse.FileType('w'))
+    parser.add_argument('dataset_output', type=argparse.FileType('wb'))
     args = parser.parse_args()
     
     blocksize = 1024*1000*100;  # 100 MB buffer
