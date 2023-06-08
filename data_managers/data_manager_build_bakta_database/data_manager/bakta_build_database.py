@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import sys
+import re
 import tarfile
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,10 @@ class GetBaktaDatabaseInfo:
         self.data_table_name = data_table_name
         self.db_name = db_name
         self.db_version = db_version
+        self.light_db = bool(re.search("light", self.db_version))
+        self.db_version.split(sep="_")
+        
+        
         self.DB_VERSIONS_URL = 'https://raw.githubusercontent.com/oschwengers/bakta/master/db-versions.json'
         self.DB_TEST_URL = 'https://zenodo.org/record/7360542/files/db-versions.json'
         self.test_mode = test_mode
@@ -43,7 +48,7 @@ class GetBaktaDatabaseInfo:
         }
         return self.data_table_entry
 
-    def fetch_db_versions(self, db_version="latest"):
+    def fetch_db_versions(self):
         """
         List bakta database info related to the db_version selected
         """
@@ -56,7 +61,7 @@ class GetBaktaDatabaseInfo:
             print(e, file=sys.stderr)
             raise e
         else:
-            if db_version == "latest":
+            if self.db_version == "latest":
                 db_date_list = []
                 for db_dic in versions:
                     db_date_list.append(datetime.strptime(db_dic["date"],
@@ -65,7 +70,7 @@ class GetBaktaDatabaseInfo:
             else:
                 filtered_version = None
                 for item in versions:
-                    if '{0}.{1}'.format(item["major"], item["minor"]) == db_version:
+                    if '{0}.{1}'.format(item["major"], item["minor"]) == self.db_version:
                         filtered_version = item
                         break
                 if filtered_version is None:
@@ -73,7 +78,6 @@ class GetBaktaDatabaseInfo:
             if filtered_version is not None:
                 self.db_url = f"https://zenodo.org/record/" \
                               f"{filtered_version['record']}/files/db.tar.gz"
-                self.db_version = db_version
                 return filtered_version
 
     def get_data_manager(self, bakta_database_info):
@@ -102,6 +106,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
                  db_dir=Path.cwd(),
                  db_name="bakta",
                  tarball_name="db.tar.gz",
+                 db_version="latest",
                  test_mode=False):
         super().__init__()
         self.md5 = None
@@ -110,6 +115,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         self.tarball_name = tarball_name
         self.tarball_path = None
         self.test_mode = test_mode
+        self.db_version = db_version
 
     def download(self):
         self.db_name = f'{self.db_name}_{self.db_version}'
@@ -166,14 +172,7 @@ Deprecated to use the amrfinderplus data_manager
         amrfinderplus_db_path = f"{self.db_dir}/{self.db_name}/db/amrfinderplus-db"
         if self.db_version == "test":
             cmd = [
-                'amrfinder_update',
-                '--database', str(amrfinderplus_db_path),
-                '--force_update',
-                '--help'
-            ]
-        else:
-            cmd = [
-                'amrfinder_update',
+                'amrfinder_update',self.DB_VERSIONS_URL
                 '--database', str(amrfinderplus_db_path),
                 '--force_update'
             ]
@@ -230,3 +229,19 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+    self = InstallBaktaDatabase(db_version="5.0")
+    bakta_db = self.fetch_db_versions()
+    # update the path for galaxy
+    bakta_upload.db_dir = target_dir
+    # download the database
+    bakta_upload.download()
+    # check md5 sum
+    bakta_upload.calc_md5_sum()
+    # untar db
+    bakta_upload.untar()
+    # make the data_manager metadata
+    bakta_data_manager = bakta_upload.get_data_manager(bakta_database_info=bakta_db)
+    with open(all_args.data_manager_json, 'w') as fh:
+        json.dump(bakta_data_manager, fh, sort_keys=True)
