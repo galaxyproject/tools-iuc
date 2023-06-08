@@ -51,10 +51,10 @@ if (args$experiment_design == "complex") {
     read.table(file = args$metadata_file,
                header = TRUE,
                sep = "\t")
-  
-  s2c$path <- file.path('./kallisto_outputs/', paste(s2c$path,".h5", sep=""))
+
+  s2c$path <- file.path("./kallisto_outputs/", paste(s2c$path, ".h5", sep = ""))
   for (f in args$factorLevel_counts) {
-    file.rename(f, paste(f,".h5", sep=""))
+    file.rename(f, paste(f, ".h5", sep = ""))
   }
 
   so <- sleuth_prep(s2c, full_model = ~ condition, num_cores = 1)
