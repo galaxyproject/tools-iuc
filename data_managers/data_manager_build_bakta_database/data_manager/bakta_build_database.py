@@ -17,12 +17,14 @@ class GetBaktaDatabaseInfo:
     Extract bakta database information to make a json file for data_manager
     """
 
-    def __init__(self,
-                 data_table_name="bakta_database",
-                 db_name=Path.cwd().joinpath("db"),
-                 db_version="latest",
-                 tarball_name="db.tar.gz",
-                 test_mode=False):
+    def __init__(
+        self,
+        data_table_name="bakta_database",
+        db_name=Path.cwd().joinpath("db"),
+        db_version="latest",
+        tarball_name="db.tar.gz",
+        test_mode=False,
+    ):
         self.bakta_table_list = None
         self.db_url = None
         self.db_type = ""
@@ -31,8 +33,8 @@ class GetBaktaDatabaseInfo:
         self.db_name = db_name
         self.tar_name = tarball_name
         self.db_version = db_version
-        self.DB_VERSIONS_URL = 'https://raw.githubusercontent.com/oschwengers/bakta/master/db-versions.json'
-        self.DB_TEST_URL = 'https://zenodo.org/record/8017774/files/db-versions.json'
+        self.DB_VERSIONS_URL = "https://raw.githubusercontent.com/oschwengers/bakta/master/db-versions.json"
+        self.DB_TEST_URL = "https://zenodo.org/record/8021032/files/db-versions.json"
         self.test_mode = test_mode
 
     def get_database_type(self):
@@ -50,18 +52,15 @@ class GetBaktaDatabaseInfo:
         Skeleton of a data_table format
         return: a data table formated for json output
         """
-        self.data_table_entry = {
-            "data_tables": {
-                self.data_table_name: {}
-            }
-        }
+        self.data_table_entry = {"data_tables": {self.data_table_name: {}}}
         return self.data_table_entry
 
     def fetch_db_versions(self):
         """
         List bakta database info related to the db_version selected
         """
-        if self.test_mode == "True":
+        
+        if self.test_mode:
             self.DB_VERSIONS_URL = self.DB_TEST_URL
         try:
             with requests.get(self.DB_VERSIONS_URL) as resp:
@@ -69,37 +68,43 @@ class GetBaktaDatabaseInfo:
         except IOError as e:
             print(e, file=sys.stderr)
             raise e
-        
+
         if self.db_version == "latest":
             db_date_list = []
             for db_dic in versions:
-                db_date_list.append(datetime.strptime(db_dic["date"],
-                                                        '%Y-%m-%d').date())
-            filtered_version = max(versions, key=lambda x: x['date'])
+                db_date_list.append(
+                    datetime.strptime(db_dic["date"], "%Y-%m-%d").date()
+                )
+            filtered_version = max(versions, key=lambda x: x["date"])
         else:
             filtered_version = None
             for item in versions:
-                if '{0}.{1}'.format(item["major"], item["minor"]) == self.db_version:
+                if "{0}.{1}".format(item["major"], item["minor"]) == self.db_version:
                     filtered_version = item
                     break
-            if filtered_version is None:
-                print("No matching version detected in the list")
-            else:
-                self.db_url = f"https://zenodo.org/record/" \
-                                f"{filtered_version['record']}/files/{self.tar_name}"
-                return filtered_version
+        if filtered_version is None:
+            print("No matching version detected in the list")
+        else:
+            self.db_url = f"https://zenodo.org/record/{filtered_version['record']}/files/{self.tar_name}"
+            return filtered_version
 
     def get_data_manager(self, bakta_database_info):
         self.bakta_table_list = self.get_data_table_format()
-        bakta_name = f"V{bakta_database_info['major']}." \
-                     f"{bakta_database_info['minor']}{self.db_type}_" \
-                     f"{bakta_database_info['date']}"
-        tool_version = str(f"{bakta_database_info['software-min']['major']}."
-                           f"{bakta_database_info['software-min']['minor']}")
-        data_info = dict(value=bakta_name,
-                         dbkey=bakta_database_info['record'],
-                         bakta_version=tool_version,
-                         path="db")
+        bakta_name = (
+            f"V{bakta_database_info['major']}."
+            f"{bakta_database_info['minor']}{self.db_type}_"
+            f"{bakta_database_info['date']}"
+        )
+        tool_version = str(
+            f"{bakta_database_info['software-min']['major']}."
+            f"{bakta_database_info['software-min']['minor']}"
+        )
+        data_info = dict(
+            value=bakta_name,
+            dbkey=bakta_database_info["record"],
+            bakta_version=tool_version,
+            path="db",
+        )
         self.bakta_table_list["data_tables"][self.data_table_name] = [data_info]
         return self.bakta_table_list
 
@@ -111,11 +116,9 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
     untar the download db and update for the amrfinderplus database
     """
 
-    def __init__(self,
-                 db_dir=Path.cwd(),
-                 db_name="bakta",
-                 db_version="latest",
-                 test_mode=False):
+    def __init__(
+        self, db_dir=Path.cwd(), db_name="bakta", db_version="latest", test_mode=False
+    ):
         super().__init__()
         self.md5 = None
         self.db_version = db_version
@@ -126,88 +129,75 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         self.get_database_type()
 
     def download(self):
-        self.db_name = f'{self.db_name}_{self.db_version}{self.db_type}'
+        self.db_name = f"{self.db_name}_{self.db_version}{self.db_type}"
         bakta_path = Path(self.db_dir).joinpath(self.tar_name)
         try:
-            with bakta_path.open('wb') as fh_out, \
-                    requests.get(self.db_url, stream=True) as resp:
-                total_length = resp.headers.get('content-length')
+            with bakta_path.open("wb") as fh_out, requests.get(
+                self.db_url, stream=True) as resp:
+                total_length = resp.headers.get("content-length")
                 if total_length is None:  # no content length header
                     for data in resp.iter_content(chunk_size=1024 * 1024):
                         fh_out.write(data)
                 else:
                     for data in resp.iter_content(chunk_size=1024 * 1024):
                         fh_out.write(data)
-            print(f'Download bakta database {self.db_version}')
+            print(f"Download bakta database {self.db_version}")
             self.tarball_path = bakta_path
         except IOError:
-            print(f'ERROR: Could not download file from Zenodo!'
-                  f' url={self.db_url}, path={self.tar_name}')
+            print(
+                f"ERROR: Could not download file from Zenodo!"
+                f" url={self.db_url}, to={self.tarball_path}"
+            )
 
     def untar(self):
         db_path = Path(self.db_dir).as_posix()
         try:
-            with self.tarball_path.open('rb') as fh_in, \
-                    tarfile.open(fileobj=fh_in, mode='r:gz') as tar_file:
+            with self.tarball_path.open("rb") as fh_in, tarfile.open(
+                fileobj=fh_in, mode="r:gz"
+            ) as tar_file:
                 tar_file.extractall(path=db_path)
-                print(f'Untar the database in {db_path}')
+                print(f"Untar the database in {db_path}")
                 return db_path
         except OSError:
-            sys.exit(f'ERROR: Could not extract {self.tar_name} '
-                     f'to {self.db_name}')
+            sys.exit(f"ERROR: Could not extract {self.tar_name} " f"to {self.db_name}")
 
     def calc_md5_sum(self, buffer_size=1048576):
         tarball_path = Path(self.db_dir).joinpath(self.tar_name)
         md5 = hashlib.md5()
-        with tarball_path.open('rb') as fh:
+        with tarball_path.open("rb") as fh:
             data = fh.read(buffer_size)
             while data:
                 md5.update(data)
                 data = fh.read(buffer_size)
         if md5.hexdigest() == self.md5:
-            print('\t...md5 control database OK')
+            print("\t...md5 control database OK")
         else:
-            print(f"Error: corrupt database file! "
-                  f"calculated md5 = {md5.hexdigest()}"
-                  f" different from {self.md5} ")
-
-
-"""
-This is the method to download the amrfinderplus database need by bakta.
-Deprecated to use the amrfinderplus data_manager
-    def update_amrfinderplus_db(self):
-        amrfinderplus_db_path = f"{self.db_dir}/{self.db_name}/db/amrfinderplus-db"
-        if self.db_version == "test":
-            cmd = [
-                'amrfinder_update',self.DB_VERSIONS_URL
-                '--database', str(amrfinderplus_db_path),
-                '--force_update'
-            ]
-        proc = sp.run(
-            cmd,
-            universal_newlines=True
-        )
-        if proc.returncode != 0:
-            print(f"ERROR: AMRFinderPlus failed! "
-                  f"command: 'amrfinder_update --force_update"
-                  f" --database {amrfinderplus_db_path}'")
-        else:
-            print("AMRFinderPlus database download")
-"""
+            print(
+                f"Error: corrupt database file! "
+                f"calculated md5 = {md5.hexdigest()}"
+                f" different from {self.md5} "
+            )
 
 
 def parse_arguments():
     # parse options and arguments
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("data_manager_json")
-    arg_parser.add_argument("-d", "--database_version",
-                            help='Select the database version '
-                                 '(major and minor eg. 4.0),'
-                                 'default is the latest version',
-                            default="latest",
-                            required=True)
-    arg_parser.add_argument("-t", "--test", action='store_true',
-                            help="option to test the script with an empty database")
+    arg_parser.add_argument(
+        "-d",
+        "--database_version",
+        help="Select the database version "
+        "(major and minor eg. 4.0),"
+        "default is the latest version",
+        default="latest",
+        required=True,
+    )
+    arg_parser.add_argument(
+        "-t",
+        "--test",
+        action="store_true",
+        help="option to test the script with an empty database",
+    )
     return arg_parser.parse_args()
 
 
@@ -215,10 +205,12 @@ def main():
     all_args = parse_arguments()
     with open(all_args.data_manager_json) as fh:
         params = json.load(fh)
-    target_dir = params['output_data'][0]['extra_files_path']
+    target_dir = params["output_data"][0]["extra_files_path"]
     os.makedirs(target_dir)
     # init the class to download bakta db
-    bakta_upload = InstallBaktaDatabase(test_mode=all_args.test, db_version=all_args.database_version)
+    bakta_upload = InstallBaktaDatabase(
+        test_mode=all_args.test, db_version=all_args.database_version
+    )
     bakta_db = bakta_upload.fetch_db_versions()
     # update the path for galaxy
     bakta_upload.db_dir = target_dir
@@ -230,17 +222,35 @@ def main():
     bakta_upload.untar()
     # make the data_manager metadata
     bakta_data_manager = bakta_upload.get_data_manager(bakta_database_info=bakta_db)
-    with open(all_args.data_manager_json, 'w') as fh:
+    with open(all_args.data_manager_json, "w") as fh:
         json.dump(bakta_data_manager, fh, sort_keys=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 
 
-self = InstallBaktaDatabase(db_version="5.0_light",test_mode="True")
-bakta_db = self.fetch_db_versions()
-self.download()
-self.untar()
-bakta_data_manager = self.get_data_manager(bakta_database_info=bakta_db)
+'''
+    with open('/home/pierre/test/test.json') as fh:
+        params = json.load(fh)
+    target_dir = params["output_data"][0]["extra_files_path"]
+    os.makedirs(target_dir)
+    # init the class to download bakta db
+    self = InstallBaktaDatabase(
+        test_mode=True, db_version="latest"
+    )
+    bakta_db = self.fetch_db_versions()
+    # update the path for galaxy
+    self.db_dir = target_dir
+    # download the database
+    self.download()
+    # check md5 sum
+    self.calc_md5_sum()
+    # untar db
+    self.untar()
+    # make the data_manager metadata
+    bakta_data_manager = self.get_data_manager(bakta_database_info=bakta_db)
+    with open('/home/pierre/test/test.json', "w") as fh:
+        json.dump(bakta_data_manager, fh, sort_keys=True)
 
+'''
