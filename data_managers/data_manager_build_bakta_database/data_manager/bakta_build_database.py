@@ -59,7 +59,7 @@ class GetBaktaDatabaseInfo:
         """
         List bakta database info related to the db_version selected
         """
-        
+
         if self.test_mode:
             self.DB_VERSIONS_URL = self.DB_TEST_URL
         try:
@@ -133,7 +133,7 @@ class InstallBaktaDatabase(GetBaktaDatabaseInfo):
         bakta_path = Path(self.db_dir).joinpath(self.tar_name)
         try:
             with bakta_path.open("wb") as fh_out, requests.get(
-                self.db_url, stream=True) as resp:
+                    self.db_url, stream=True) as resp:
                 total_length = resp.headers.get("content-length")
                 if total_length is None:  # no content length header
                     for data in resp.iter_content(chunk_size=1024 * 1024):
@@ -228,29 +228,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-'''
-    with open('/home/pierre/test/test.json') as fh:
-        params = json.load(fh)
-    target_dir = params["output_data"][0]["extra_files_path"]
-    os.makedirs(target_dir)
-    # init the class to download bakta db
-    self = InstallBaktaDatabase(
-        test_mode=True, db_version="latest"
-    )
-    bakta_db = self.fetch_db_versions()
-    # update the path for galaxy
-    self.db_dir = target_dir
-    # download the database
-    self.download()
-    # check md5 sum
-    self.calc_md5_sum()
-    # untar db
-    self.untar()
-    # make the data_manager metadata
-    bakta_data_manager = self.get_data_manager(bakta_database_info=bakta_db)
-    with open('/home/pierre/test/test.json', "w") as fh:
-        json.dump(bakta_data_manager, fh, sort_keys=True)
-
-'''
