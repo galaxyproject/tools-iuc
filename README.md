@@ -29,5 +29,9 @@ Other repositories with Galaxy tools:
  * [AAFC-MBB Canada repo](https://github.com/AAFC-MBB/Galaxy/tree/master/wrappers)
  * [Mark Einon's repo](https://gitlab.com/einonm/galaxy-tools)
  * [National Microbiology Laboratory's repo](https://github.com/phac-nml/galaxy_tools)
+ * [RECETOX's repo](https://github.com/RECETOX/galaxytools)
+ * [Workflow4Metabolomics' repo](https://github.com/workflow4metabolomics/tools-metabolomics)
+ * [Galaxy-M](https://github.com/Viant-Metabolomics/Galaxy-M)
+  
 
  

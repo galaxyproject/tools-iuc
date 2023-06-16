@@ -1,0 +1,351 @@
+<?xml version="1.0"?>
+<macros>
+    <token name="@TOOL_VERSION@">1.5.1</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">21.01</token>
+    <xml name="biotools">
+        <xrefs>
+            <xref type="bio.tools">semibin</xref>
+        </xrefs>
+    </xml>
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@TOOL_VERSION@">semibin</requirement>
+            <yield/>
+        </requirements>
+    </xml>
+    <xml name="version">
+        <version_command>SemiBin -v</version_command>
+    </xml>
+    <xml name="mode_fasta_bam">
+        <conditional name="mode">
+            <expand macro="mode_select"/>
+            <when value="single">
+                <expand macro="input-fasta-single"/>
+                <expand macro="input-bam-single"/>
+            </when>
+            <when value="co">
+                <expand macro="input-fasta-single"/>
+                <expand macro="input-bam-multi"/>
+            </when>
+            <when value="multi">
+                <expand macro="input-fasta-multi"/>
+                <expand macro="input-bam-multi"/>
+            </when>
+        </conditional>
+    </xml>
+    <xml name="mode_fasta">
+        <conditional name="mode">
+            <expand macro="mode_select"/>
+            <when value="single">
+                <expand macro="input-fasta-single"/>
+            </when>
+            <when value="co">
+                <expand macro="input-fasta-single"/>
+            </when>
+            <when value="multi">
+                <expand macro="input-fasta-multi"/>
+            </when>
+        </conditional>
+    </xml>
+    <xml name="mode_select">
+        <param name="select" type="select" label="Binning mode">
+            <option value="single" selected="true">Single sample binning (each sample is assembled and binned independently)</option>
+            <option value="co">Co-assembly binning (samples are co-assembled together and binned together)</option>
+            <option value="multi">Multi-sample binning (multiple samples are assembled and binned individually, but information from multiple samples is used together)</option>
+        </param>
+    </xml>
+    <xml name="input-fasta-single">
+        <param argument="--input-fasta" type="data" format="fasta,fasta.gz" label="Contig sequences"/>
+    </xml>
+    <xml name="input-fasta-multi">
+        <conditional name="multi_fasta">
+            <param name="select" type="select" label="Contig files of the samples">
+                <option value="concatenated" selected="true">1 concatenated file (created using the dedicated tool) with all sample contigs </option>
+                <option value="multi">1 contig file per sample</option>
+            </param>
+            <when value="concatenated">
+                <param argument="--input-fasta" type="data" format="fasta,fasta.gz" label="Combined contig sequences"/>
+                <expand macro="separator"/>
+            </when>
+            <when value="multi">
+                <param argument="--input-fasta" type="data" multiple="true" format="fasta,fasta.gz" label="Contig sequences"/>
+                <expand macro="concat_min_len"/>
+            </when>
+        </conditional>
+    </xml>
+    <xml name="concat_min_len">
+        <param name="min_len" type="integer" min="0" value="0" label="Minimal length for contigs to be kept"/>
+    </xml>
+    <token name="@SINGLE_FASTA_FILES@"><![CDATA[
+#if $input_fasta.ext.endswith(".gz")
+gunzip -c '$input_fasta' > 'contigs.fasta' &&
+#else
+ln -s '$input_fasta' 'contigs.fasta' &&
+#end if
+    ]]></token>
+    <token name="@FASTA_FILES@"><![CDATA[
+#if $mode.select == 'single' or $mode.select == 'co'
+    #if $mode.input_fasta.ext.endswith(".gz")
+gunzip -c '$mode.input_fasta' > 'contigs.fasta' &&
+    #else
+ln -s '$mode.input_fasta' 'contigs.fasta' &&
+    #end if
+#else
+    #if $mode.multi_fasta.select == 'concatenated'
+        #if $mode.multi_fasta.input_fasta.ext.endswith(".gz")
+gunzip -c '$mode.multi_fasta.input_fasta' > 'contigs.fasta' &&
+        #else
+ln -s '$mode.multi_fasta.input_fasta' 'contigs.fasta' &&
+        #end if
+#set $separator = $mode.multi_fasta.separator
+    #else
+        #for $e in $mode.multi_fasta.input_fasta
+            #set $identifier = re.sub('[^\s\w\-\\.]', '_', str($e.element_identifier))
+            #if $e.ext.endswith(".gz")
+gunzip -c '$e' > '${identifier}.fasta' &&
+            #else
+ln -s '$e' '${identifier}.fasta' &&
+            #end if
+        #end for
+#set $separator = ':'
+SemiBin concatenate_fasta
+    --input-fasta *.fasta
+    --output 'output'
+    --separator '$separator'
+    -m $mode.multi_fasta.min_len
+&&
+ln -s 'output/concatenated.fa' 'contigs.fasta' &&
+    #end if
+#end if
+    ]]></token>
+    <xml name="separator">
+        <param argument="--separator" type="text" value=":" label="Separator in the contig file between sample name and contig name"/>
+    </xml>
+    <xml name="input-bam-single">
+        <param argument="--input-bam" type="data" format="bam" label="Read mapping to the contigs" help="Sorted BAM files"/>
+    </xml>
+    <xml name="input-bam-multi">
+        <param argument="--input-bam" type="data" format="bam" multiple="true" label="Read mapping to the contigs" help="One file per sample, sorted BAM files"/>
+    </xml>
+    <token name="@BAM_FILES@"><![CDATA[
+#if $mode.select == 'single'
+#set $identifier = re.sub('[^\s\w\-\\.]', '_', str($input_bam.element_identifier))
+ln -s '$input_bam' '${identifier}.bam' &&
+#else
+    #for $e in $input_bam
+        #set $identifier = re.sub('[^\s\w\-\\.]', '_', str($e.element_identifier))
+ln -s '$e' '${identifier}.bam' &&
+    #end for
+#end if
+    ]]></token>
+    <xml name="ref_select">
+        <param name="select" type="select" label="Reference database">
+            <option value="cached" selected="true">Cached database</option>
+            <option value="taxonomy">Pre-computed taxonomy</option>
+        </param>
+    </xml>
+    <xml name="cached_db">
+        <param name="cached_db" label="Cached databases" type="select">
+            <options from_data_table="gtdb">
+                <validator message="No GTDB database is available" type="no_options" />
+            </options>
+        </param>
+    </xml>
+    <xml name="ref-single">
+        <conditional name="ref">
+            <expand macro="ref_select"/>
+            <when value="cached">
+                <expand macro="cached_db"/>
+            </when>
+            <when value="taxonomy">
+                <param argument="--taxonomy-annotation-table" type="data" format="tabular" label="Pre-computed mmseqs2 format taxonomy TSV file"/>
+            </when>
+        </conditional>
+    </xml>
+    <xml name="ref-multi">
+        <conditional name="ref">
+            <expand macro="ref_select"/>
+            <when value="cached">
+                <expand macro="cached_db"/>
+            </when>
+            <when value="taxonomy">
+                <param argument="--taxonomy-annotation-table" type="data" format="tabular" multiple="true" label="Pre-computed mmseqs2 format taxonomy TSV file" help="One per bin file"/>
+            </when>
+        </conditional>
+    </xml>
+    <xml name="ref_single">
+        <conditional name="ref">
+            <expand macro="ref_select"/>
+            <when value="cached">
+                <expand macro="cached_db"/>
+            </when>
+            <when value="taxonomy">
+                <param argument="--taxonomy-annotation-table" type="data" format="tabular" label="Pre-computed mmseqs2 format taxonomy TSV file"/>
+            </when>
+        </conditional>
+    </xml>
+    <xml name="min_len">
+        <conditional name="min_len">
+            <param name="method" type="select" label="Method to set up the minimal length for contigs in binning">
+                <option value="automatic">Automatic</option>
+                <option value="min-len">Manual</option>
+                <option value="ratio">Computation based on ratio of the number of base pairs</option>
+            </param>
+            <when value="automatic"/>
+            <when value="min-len">
+                <param argument="--min-len" type="integer" min="0" value="0" label="Minimal length for contigs in binning"/>
+            </when>
+            <when value="ratio">
+                <param argument="--ratio" type="float" min="0" max="1" value="0.05" label="Ratio of the number of base pairs of contigs between 1000-2500 bp below which the minimal length will be set as 1000bp, otherwise 2500bp."/>
+            </when>
+        </conditional>
+    </xml>
+    <token name="@MIN_LEN@"><![CDATA[
+#if $min_len.method == 'min-len'
+    --min-len $min_len.min_len
+#else if $min_len.method == 'ratio'
+    --ratio $min_len.ratio
+#end if
+    ]]></token>
+    <xml name="random-seed">
+        <param argument="--random-seed" type="integer" min="0" value="0" label="Random seed to reproduce result"/>
+    </xml>
+    <xml name="ml-threshold">
+        <param argument="--ml-threshold" type="integer" min="0" value="" optional="true" label="Length threshold for generating must-link constraints" help="If no value is given, the threshold is calculated from the contig, and the default minimum value is 4,000 bp."/>
+    </xml>
+    <xml name="epoches">
+        <param argument="--epoches" type="integer" min="0" value="20" label="Number of epoches used in the training process"/>
+    </xml>
+    <xml name="batch-size">
+        <param argument="--batch-size" type="integer" min="0" value="2048" label="Batch size used in the training process"/>
+    </xml>
+    <xml name="orf-finder">
+        <param argument="--orf-finder" type="select" label="ORF finder used to estimate the number of bins">
+            <option value="prodigal" selected="true">Prodigal</option>
+            <option value="fraggenescan">Fraggenescan</option>
+        </param>
+    </xml>
+    <xml name="max-node">
+        <param argument="--max-node" type="float" min="0" max="1" value="1" label="Fraction of contigs that considered to be binned"/>
+    </xml>
+    <xml name="max-edges">
+        <param argument="--max-edges" type="integer" min="0" value="200" label="Maximum number of edges that can be connected to one contig"/>
+    </xml>
+    <xml name="environment">
+        <param argument="--environment" type="select" optional="true" label="Environment for the built-in model">
+            <option value="" selected="true">None</option>
+            <option value="human_gut">Human gut</option>
+            <option value="dog_gut">Dog gut</option>
+            <option value="ocean">Ocean</option>
+            <option value="soil">Soil</option>
+            <option value="cat_gut">Cat gut</option>
+            <option value="human_oral">Human oral</option>
+            <option value="mouse_gut">Mouse gut</option>
+            <option value="pig_gut">Pig gut</option>
+            <option value="built_environment">Built environment</option>
+            <option value="wastewater">Wastewater</option>
+            <option value="global">Global</option>
+        </param>
+    </xml>
+    <xml name="minfasta-kbs">
+        <param argument="--minfasta-kbs" type="integer" min="0" value="200" label="Miminimum bin size in Kbps"/>
+    </xml>
+    <xml name="no-recluster">
+        <param argument="--no-recluster" type="boolean" truevalue="--no-recluster" falsevalue="" checked="false" label="Do not recluster bins?"/>
+    </xml>
+    <xml name="data">
+        <param argument="--data" type="data" format="csv" label="Train data"/>
+    </xml>
+    <xml name="data_output_single">
+        <data name="single_data" format="csv" from_work_dir="output/data.csv" label="${tool.name} on ${on_string}: Training data">
+            <filter>mode["select"]=="single" or mode["select"]=="co"</filter>
+        </data>
+        <data name="single_data_split" format="csv" from_work_dir="output/data_split.csv" label="${tool.name} on ${on_string}: Split training data">
+            <filter>mode["select"]=="single" or mode["select"]=="co"</filter>
+        </data>
+    </xml>
+    <xml name="data_output_multi">
+        <collection name="multi_data" type="list" label="${tool.name} on ${on_string}: Training data per sample">
+            <filter>mode["select"]=="multi"</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
+        </collection>
+        <collection name="multi_data_split" type="list" label="${tool.name} on ${on_string}: Split training data per sample">
+            <filter>mode["select"]=="multi"</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_split.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
+        </collection>
+    </xml>
+    <xml name="generate_sequence_features_extra_outputs">
+        <data name="single_cov" format="csv" from_work_dir="output/*_data_cov.csv" label="${tool.name} on ${on_string}: Coverage">
+            <filter>mode["select"]=="single" and extra_output and "coverage" in extra_output</filter>
+        </data>
+        <data name="single_split_cov" format="csv" from_work_dir="output/*_data_split_cov.csv" label="${tool.name} on ${on_string}: Coverage (split data)">
+            <filter>mode["select"]=="single" and extra_output and "coverage" in extra_output</filter>
+        </data>
+        <collection name="co_cov" type="list" label="${tool.name} on ${on_string}: Coverage (co_cov)">
+            <filter>mode["select"]=="co" and extra_output and "coverage" in extra_output</filter>
+            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_cov\.csv" format="csv" directory="output/" />
+        </collection>
+        <collection name="co_split_cov" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample">
+            <filter>mode["select"]=="co" and extra_output and "coverage" in extra_output</filter>
+            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_split_cov\.csv" format="csv" directory="output/" />
+        </collection>
+        <collection name="multi_cov" type="list" label="${tool.name} on ${on_string}: Coverage (multi_cov)">
+            <filter>mode["select"]=="multi" and extra_output and "coverage" in extra_output</filter>
+            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_cov.csv" format="csv" directory="output/samples/" />
+        </collection>
+        <collection name="multi_cov_sample" type="list" label="${tool.name} on ${on_string}: Coverage per sample">
+            <filter>mode["select"]=="multi" and extra_output and "coverage" in extra_output</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_cov.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
+        </collection>
+        <collection name="multi_split_cov" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample (multi_split_cov)">
+            <filter>mode["select"]=="multi" and extra_output and "coverage" in extra_output</filter>
+            <discover_datasets pattern=".*\.bam_(?P&lt;designation&gt;.*)_data_split_cov.csv" format="csv" directory="output/samples/" />
+        </collection>
+        <collection name="multi_split_cov_sample" type="list" label="${tool.name} on ${on_string}: Coverage (split data) per sample (multi_split_cov_sample)">
+            <filter>mode["select"]=="multi" and extra_output and "coverage" in extra_output</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*)\/data_split_cov.csv" format="csv" directory="output/samples/" recurse="true" match_relative_path="true"/>
+        </collection>
+        <collection name="multi_contigs" type="list" label="${tool.name} on ${on_string}: Contigs">
+            <filter>mode["select"]=="multi" and extra_output and "contigs" in extra_output</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.*).fa" format="fasta" directory="output/samples/" />
+        </collection>
+    </xml>
+    <xml name="train_output">
+        <data name="model" format="h5" from_work_dir="output/model.h5" label="${tool.name} on ${on_string}: Semi-supervised deep learning model" />
+    </xml>
+    <xml name="cannot_link_output">
+        <data name="cannot" format="txt" from_work_dir="output/cannot/cannot.txt" label="${tool.name} on ${on_string}: Cannot-link constraints" />
+    </xml>
+    <token name="@HELP_HEADER@"><![CDATA[
+What it does
+============
+
+SemiBin is a Semi-supervised siamese neural network for metagenomic binning
+
+]]></token>
+    <token name="@HELP_INPUT_FASTA@"><![CDATA[
+- Contigs in fasta for 1 or several samples from single or co-assembly
+]]></token>
+    <token name="@HELP_INPUT_BAM@"><![CDATA[
+- BAM with reads mapping to the contigs
+]]></token>
+    <token name="@HELP_CANNOT@"><![CDATA[
+- Cannot-link constraints
+]]></token>
+    <token name="@HELP_DATA@"><![CDATA[
+- Training data and split training data for the model
+]]></token>
+    <token name="@HELP_MODEL@"><![CDATA[
+- Semi-supervised deep learning model
+]]></token>
+    <token name="@HELP_BINS@"><![CDATA[
+- Reconstructed bins after reclustering
+- Reconstructed bins before reclustering
+]]></token>
+    <xml name="citations">
+        <citations>
+            <citation type="doi">10.1038/s41467-022-29843-y</citation>
+        </citations>
+    </xml>
+</macros>
