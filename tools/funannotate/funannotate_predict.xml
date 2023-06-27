@@ -1,0 +1,606 @@
+<tool id="funannotate_predict" name="Funannotate predict annotation" profile="20.01" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <description></description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <requirements>
+        <expand macro="requirements" />
+    </requirements>
+    <version_command><![CDATA[funannotate check --show-versions]]></version_command>
+    <command><![CDATA[
+#if $genemark.genemark_license:
+    if [ -z "\$GENEMARK_PATH" ] ; then echo "GeneMark is not installed on this Galaxy server." >&2 ; exit 1 ; fi &&
+    if [ ! -f "\$GENEMARK_PATH/gmes_petap.pl" ] ; then echo "GeneMark is not installed properly on this Galaxy server." >&2 ; exit 1 ; fi &&
+    ## GeneMark only search for license in ~/.gm_key
+    cp '${genemark.genemark_license}' ~/.gm_key &&
+#end if
+
+#if $uglyTestingHack == "true":
+    ## funannotate_db contains some hard coded path, need to rewrite one for tests (not in real life when using data manager)
+    ## Need to copy too as the test_data is read only on CI
+    cp -r '${database.fields.path}' './hacked_database' &&
+    sed -i.bak 's|/tmp/prout|'`pwd`'/hacked_database|' './hacked_database/trained_species/fly/info.json' &&
+#end if
+
+mkdir -p input/ &&
+ln -s '${input}' input/input.fasta &&
+
+funannotate predict
+--input input/input.fasta
+--out output
+#if $uglyTestingHack == "true":
+    --database `pwd`'/hacked_database'
+#else
+    --database '$database.fields.path'
+#end if
+
+$force
+
+--species '${organism.species}'
+--isolate '${organism.isolate}'
+--strain '${organism.strain}'
+--organism '${organism.organism}'
+--ploidy ${organism.ploidy}
+--SeqCenter '${organism.SeqCenter}'
+--SeqAccession '${organism.SeqAccession}'
+--name '${organism.name}'
+--numbering ${organism.numbering}
+
+#if $parameters:
+    --parameters '${parameters}'
+#end if
+
+#if $evidences.rna_bam
+    --rna_bam ${evidences.rna_bam}
+#end if
+
+#set est_list = ""
+#if len($evidences.transcript_evidence) > 0:
+    #for $estev in $evidences.transcript_evidence:
+        #if $estev:
+        #set est_list += " '" + str($estev) + "'"
+        #end if
+    #end for
+#end if
+#if $est_list:
+    --transcript_evidence $est_list
+#end if
+
+#if $evidences.prot_evidence.prot_evidence_source == 'custom':
+    --protein_evidence
+    #for $protev in $evidences.prot_evidence.protein_evidence:
+        '${protev}'
+    #end for
+#end if
+--p2g_pident ${evidences.p2g_pident}
+--p2g_prefilter ${evidences.p2g_prefilter}
+
+--busco_seed_species '${busco.busco_seed_species}'
+--busco_db '${busco.busco_db}'
+
+#if $augustus.augustus_species != 'none':
+    --augustus_species '${augustus.augustus_species}'
+#end if
+--min_training_models ${augustus.min_training_models}
+${augustus.optimize_augustus}
+
+#if $genemark.genemark_license:
+    --genemark_mode '${genemark.genemark_mode}'
+    #if $genemark.genemark_mod:
+        --genemark_mod '${genemark.genemark_mod}'
+    #end if
+    --soft_mask ${genemark.soft_mask}
+#end if
+
+$evm.repeats2evm
+#if $evm.evm_partitioning.evm_partition == "yes":
+--evm-partition-interval ${evm.evm_partitioning.evm_partition_interval}
+#else:
+--no-evm-partitions
+#end if
+#if $evm.weights:
+    --weights '${evm.weights}'
+#end if
+
+#if $other_predictors.stringtie:
+    --stringtie '${other_predictors.stringtie}'
+#end if
+#if $other_predictors.maker_gff:
+    --maker_gff '${other_predictors.maker_gff}'
+#end if
+#if $other_predictors.pasa_gff:
+    --pasa_gff '${other_predictors.pasa_gff}:${other_predictors.pasa_gff_weight}'
+#end if
+#if $other_predictors.other_gff:
+    --other_gff '${other_predictors.other_gff}:${other_predictors.other_gff_weight}'
+#end if
+
+--min_intronlen ${filtering.min_intronlen}
+--max_intronlen ${filtering.max_intronlen}
+--min_protlen ${filtering.min_protlen}
+${filtering.keep_no_stops}
+--repeat_filter ${filtering.repeat_filter}
+
+--cpus \${GALAXY_SLOTS:-2}
+
+&&
+
+mv output/predict_results/*.gbk out.gbk &&
+mv output/predict_results/*.tbl out.tbl &&
+mv output/predict_results/*.gff3 out.gff3 &&
+mv output/predict_results/*.proteins.fa out.proteins.fa &&
+mv output/predict_results/*.mrna-transcripts.fa out.mrna-transcripts.fa &&
+mv output/predict_results/*.cds-transcripts.fa out.cds-transcripts.fa &&
+mv output/predict_results/*.discrepency.report.txt out.discrepency.report.txt &&
+mv output/predict_results/*.error.summary.txt out.error.summary.txt &&
+mv output/predict_results/*.validation.txt out.validation.txt &&
+mv output/predict_results/*.stats.json out.stats.json
+    ]]></command>
+    <inputs>
+        <param argument="--input" type="data" format="fasta" label="Assembly to annotate" help="The assembly should be soft-masked (with RepeatMasker for example)" />
+
+        <param name="database" label="Funannotate database" type="select">
+            <options from_data_table="funannotate">
+                <column name="value" index="0" />
+                <column name="name" index="1" />
+                <column name="path" index="3" />
+                <filter type="sort_by" column="0" />
+                <filter type="static_value" column="2" value="1.0" />
+            </options>
+        </param>
+
+        <param argument="--force" type="boolean" checked="true" truevalue="" falsevalue="--force" label="Check the genome sequence" help="Disable at your own risk if you want to ignore problems in the genome sequence reported by Funannotate" />
+
+        <section name="organism" expanded="true" title="Organism">
+            <param argument="--species" type="text" optional="false" label="Name of the species to annotate" help="e.g. Genus species">
+                <validator type="empty_field" />
+            </param>
+            <param argument="--isolate" type="text" label="Isolate name" help="If relevant (e.g. Af293)" />
+            <param argument="--strain" type="text" label="Strain name" help="If relevant (e.g. FGSCA4)" />
+            <param argument="--organism" type="boolean" checked="false" truevalue="fungus" falsevalue="other" label="Is it a fungus species?" />
+            <param argument="--ploidy" type="integer" value="1" label="Ploidy of assembly" />
+            <param argument="--SeqCenter" type="text" value="CFMR" label="Sequencing facility for NCBI tbl file" />
+            <param argument="--SeqAccession" type="text" value="12345" label="Sequence accession number for NCBI tbl file" />
+            <param argument="--name" type="text" value="FUN_" label="Locus tag prefix" help="Will prefix all the gene names" />
+            <param argument="--numbering" type="integer" value="1" label="Specify where gene numbering starts" />
+        </section>
+
+        <section name="evidences" expanded="true" title="Evidences">
+            <param argument="--rna_bam" type="data" format="bam" optional="true" label="RNA-seq mapped to genome to train Augustus/GeneMark-ET" />
+            <param argument="--transcript_evidence" type="data" format="fasta" multiple="true" optional="true" label="mRNA/ESTs to align to genome" />
+            <conditional name="prot_evidence">
+                <param name="prot_evidence_source" type="select" label="Select protein evidences">
+                    <option value="uniprot" selected="True">Use UniProtKb/SwissProt (from selected Funannotate database)</option>
+                    <option value="custom">Custom protein sequences</option>
+                </param>
+                <when value="uniprot"/>
+                <when value="custom">
+                    <param argument="--protein_evidence" type="data" format="fasta" multiple="true" label="Proteins to map to genome" />
+                </when>
+            </conditional>
+            <param argument="--p2g_pident" type="integer" value="80" label="Exonerate percent identity (for proteins)" />
+            <param argument="--p2g_prefilter" type="select" label="Prefilter hits with (for proteins)">
+                <option value="diamond" selected="True">Diamond</option>
+                <option value="tblastn">tblastn (slower)</option>
+            </param>
+        </section>
+
+        <section name="busco" expanded="true" title="Busco">
+            <param argument="--busco_db" type="select" label="BUSCO models to align" help="BUSCO will be used to perform initial training of ab initio predictors (e.g. Augustus).">
+                <expand macro="busco_species"/>
+            </param>
+            <param argument="--busco_seed_species" type="select" label="Initial Augustus species training set for BUSCO alignment" help="Used when BUSCO runs Augustus internally.">
+                <expand macro="augustus_species"/>
+            </param>
+        </section>
+
+        <section name="filtering" expanded="true" title="Filtering">
+            <param argument="--min_intronlen" type="integer" value="10" label="Minimum intron length" />
+            <param argument="--max_intronlen" type="integer" value="3000" label="Maximum intron length" />
+            <param argument="--min_protlen" type="integer" value="50" label="Minimum protein length" />
+            <param argument="--keep_no_stops" type="boolean" checked="false" truevalue="--keep_no_stops" falsevalue="" label="Keep gene models without valid stops" />
+            <param argument="--repeat_filter" type="select" label="Repetitive gene model filtering" help="'overlap' drops gene models that are more than 90% contained within a repeat region; 'blast' compares the amino acid sequences to a small database of known transposons">
+                <option value="overlap blast" selected="True">overlap + blast</option>
+                <option value="overlap">overlap</option>
+                <option value="blast">blast</option>
+                <option value="none">none</option>
+            </param>
+        </section>
+
+        <param argument="--parameters" type="data" format="json" optional="true" label="Ab-initio training parameters from a previous run" help="If specified, will over-rule any other training presets based on sepcies selection." />
+
+        <section name="augustus" expanded="false" title="Augustus settings (advanced)">
+            <param argument="--augustus_species" type="select" label="Augustus species training set" help="Select a species from the list">
+                <option value="none" selected="True">No corresponding species, train from scratch</option>
+                <expand macro="augustus_species"/>
+            </param>
+            <param argument="--min_training_models" type="integer" value="200" label="Minimum number of models to train Augustus" />
+            <param argument="--optimize_augustus" type="boolean" checked="false" truevalue="--optimize_augustus" falsevalue="" label="Run 'optimize_augustus.pl' to refine training (long runtime)" />
+        </section>
+
+        <section name="genemark" expanded="false" title="GeneMark settings (advanced)">
+            <param name="genemark_license" type="data" format="txt" optional="true" label="GeneMark license file" help="GeneMark is not a free software, to use it download and unzip a license from http://topaz.gatech.edu/GeneMark/license_download.cgi (ES/ET/EP version). GeneMark needs to be installed manually by Galaxy administrators, it might not be available on this server." />
+            <param argument="--genemark_mode" type="select" label="GeneMark mode">
+                <option value="ES" selected="True">ES</option>
+                <option value="ET">ET</option>
+            </param>
+            <param argument="--genemark_mod" type="data" format="txt" optional="true" label="Use pre-existing Genemark training file (e.g. gmhmm.mod)" />
+            <param argument="--soft_mask" type="integer" value="2000" label="Softmasked length threshold for GeneMark" help="GeneMark will skip prediction on repeat regions shorter than this value" />
+        </section>
+
+        <section name="other_predictors" expanded="false" title="Other annotations (advanced)">
+            <param argument="--stringtie" type="data" format="gtf" optional="true" label="StringTie GTF result" />
+            <param argument="--maker_gff" type="data" format="gff3" optional="true" label="MAKER2 GFF file" help="Parse results directly to EVM" />
+            <param argument="--pasa_gff" type="data" format="gff3" optional="true" label="PASA generated gene models" />
+            <param name="pasa_gff_weight" type="integer" value="1" label="Weight for PASA generated gene models" />
+            <param argument="--other_gff" type="data" format="gff3" optional="true" label="Annotation pass-through to EVM" />
+            <param name="other_gff_weight" type="integer" value="1" label="Weight for annotation pass-through to EVM" />
+        </section>
+
+        <section name="evm" expanded="false" title="EVM settings (advanced)">
+            <param argument="--repeats2evm" type="boolean" checked="false" truevalue="--repeats2evm" falsevalue="" label="Use repeats in EVM consensus model building" help="Not recommended for fungal genomes that have high gene density. You might want to turn this option on for larger genomes or those that have a high repeat content." />
+            <conditional name="evm_partitioning">
+                <param name="evm_partition" type="select" label="Split contigs into partitions for EVM processing?" help="Splits big contigs in smaller overlaping chunks to reduce memory usage and parallelize">
+                    <option value="yes" selected="True">Yes</option>
+                    <option value="no">No</option>
+                </param>
+                <when value="yes">
+                    <param argument="--evm-partition-interval" type="integer" value="1500" label="Min length between genes to make a partition" />
+                </when>
+                <when value="no"/>
+            </conditional>
+            <param argument="--weights" type="text" optional="true" label="Custom ab-initio predictor and EVM weight" help="e.g. augustus:2 pasa:10">
+                <validator type="regex" message="Key must consist of alphanumeric characters only, possibly separated by the period character ('.')">^[\w: ]+$</validator>
+            </param>
+        </section>
+
+        <param name="outputs" type="select" optional="true" multiple="true" label="Which outputs should be generated">
+            <option value="gbk" selected="true">Annotated genome (genbank)</option>
+            <option value="tbl">NCBI tbl annotation file (use for NCBI submission)</option>
+            <option value="gff3">Annotation in GFF3 format</option>
+            <option value="proteins_fa">Multi-fasta file of protein coding genes</option>
+            <option value="mrna_transcripts_fa">Multi-fasta file of transcripts (mRNA)</option>
+            <option value="cds_transcripts_fa">Multi-fasta file of transcripts (CDS)</option>
+            <option value="tbl2asn_report">tbl2asn summary report of annotated genome</option>
+            <option value="tbl2asn_error">tbl2asn error summary report</option>
+            <option value="tbl2asn_validation">tbl2asn genome validation report</option>
+            <option value="stats">statistics</option>
+        </param>
+
+        <!-- Need this to change path in the test funannotate_db -->
+        <param type="hidden" name="uglyTestingHack" value="" />
+    </inputs>
+    <outputs>
+        <data name='annot_gbk' format='genbank' label="${tool.name} on ${on_string}: annotation (genbank)" from_work_dir="out.gbk">
+            <filter>outputs and 'gbk' in outputs</filter>
+        </data>
+        <data name='annot_tbl' format='txt' label="${tool.name} on ${on_string}: NCBI tbl annotation file" from_work_dir="out.tbl">
+            <filter>outputs and 'tbl' in outputs</filter>
+        </data>
+        <data name='annot_gff3' format='gff3' label="${tool.name} on ${on_string}: annotation (GFF3)" from_work_dir="out.gff3">
+            <filter>outputs and 'gff3' in outputs</filter>
+        </data>
+        <data name='fasta_proteins' format='fasta' label="${tool.name} on ${on_string}: protein sequences" from_work_dir="out.proteins.fa">
+            <filter>outputs and 'proteins_fa' in outputs</filter>
+        </data>
+        <data name='fasta_transcripts_mrna' format='fasta' label="${tool.name} on ${on_string}: transcript mRNA sequences" from_work_dir="out.mrna-transcripts.fa">
+            <filter>outputs and 'mrna_transcripts_fa' in outputs</filter>
+        </data>
+        <data name='fasta_transcripts_cds' format='fasta' label="${tool.name} on ${on_string}: transcript CDS sequences" from_work_dir="out.cds-transcripts.fa">
+            <filter>outputs and 'cds_transcripts_fa' in outputs</filter>
+        </data>
+        <data name='tbl2asn_report' format='txt' label="${tool.name} on ${on_string}: tbl2asn summary report of annotated genome" from_work_dir="out.discrepency.report.txt">
+            <filter>outputs and 'tbl2asn_report' in outputs</filter>
+        </data>
+        <data name='tbl2asn_error' format='txt' label="${tool.name} on ${on_string}: tbl2asn error summary report" from_work_dir="out.error.summary.txt">
+            <filter>outputs and 'tbl2asn_error' in outputs</filter>
+        </data>
+        <data name='tbl2asn_validation' format='txt' label="${tool.name} on ${on_string}: tbl2asn genome validation report" from_work_dir="out.validation.txt">
+            <filter>outputs and 'tbl2asn_validation' in outputs</filter>
+        </data>
+        <data name='stats' format='json' label="${tool.name} on ${on_string}: stats" from_work_dir="out.stats.json">
+            <filter>outputs and 'stats' in outputs</filter>
+        </data>
+        <!-- TODO some day: provide trained models as output, reusable as input to other funannotate runs
+            (parameters.json file references files with absolute paths, would probably need to create an archive + edit paths in parameters.json) -->
+        <!--data name='abinitio' format='json' label="${tool.name} on ${on_string}: ab-initio training parameters" from_work_dir="output/predict_results/*.parameters.json" /-->
+    </outputs>
+    <tests>
+        <!-- training from scratch -->
+        <test>
+            <param name="input" value="genome_masked.fa" />
+            <param name="database" value="2021-07-20-120000" />
+            <section name="busco">
+                <param name="busco_seed_species" value="fly" />
+                <param name="busco_db" value="insecta" />
+            </section>
+            <section name="organism">
+                <param name="species" value="Genus species" />
+            </section>
+            <section name="augustus">
+                <param name="min_training_models" value="3" />
+            </section>
+            <param name="outputs" value="gbk,tbl,gff3,proteins_fa,mrna_transcripts_fa,cds_transcripts_fa,tbl2asn_error,tbl2asn_report,tbl2asn_validation,stats" />
+            <!-- non deterministic results, so can't be more precise here -->
+            <output name="annot_gbk">
+                <assert_contents>
+                    <has_text text="  TITLE     Direct Submission" />
+                    <has_text text="/locus_tag=&quot;FUN_000001&quot;" />
+                </assert_contents>
+            </output>
+            <output name="annot_tbl">
+                <assert_contents>
+                    <has_text text=">Feature sample" />
+                    <has_text text="gnl|ncbi|FUN_000001-T1_mrna" />
+                </assert_contents>
+            </output>
+            <output name="annot_gff3">
+                <assert_contents>
+                    <has_text text="##gff-version 3" />
+                    <has_text text="ID=FUN_000001-T1;Parent=FUN_000001;product=hypothetical protein;" />
+                </assert_contents>
+            </output>
+            <output name="fasta_proteins">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <output name="fasta_transcripts_mrna">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <output name="fasta_transcripts_cds">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <!--output name="abinitio" file="predict_scratch/fly.parameters.json" compare="sim_size" /-->
+            <output name="tbl2asn_report" file="predict_scratch/Genus_species.discrepency.report.txt" compare="sim_size" />
+            <output name="tbl2asn_error" file="predict_scratch/Genus_species.error.summary.txt" compare="sim_size" delta="500" />
+            <output name="tbl2asn_validation" file="predict_scratch/Genus_species.validation.txt" compare="sim_size" delta="500" />
+            <output name="stats" file="predict_scratch/Genus_species.stats.json" compare="sim_size" />
+            <assert_stderr>
+                <has_text text="augustus     busco"/>
+                <has_text text="glimmerhmm   busco"/>
+                <has_text text="snap         busco"/>
+                <has_text text="Running BUSCO to find conserved gene models for training ab-initio predictors"/>
+                <has_text text="Skipping CodingQuarry as no --rna_bam passed"/>
+                <has_text text="Running Augustus gene prediction using genus_species parameters"/>
+                <not_has_text text="Aligning transcript evidence to genome with minimap2"/>
+                <not_has_text text="Found 16 alignments, wrote GFF3 and Augustus hints to file"/>
+                <not_has_text text="Extracting hints from RNA-seq BAM file using bam2hints"/>
+                <has_text text="Mapping 13 proteins to genome using diamond and exonerate"/>
+                <has_text text="Found 4 preliminary alignments with diamond"/>
+            </assert_stderr>
+        </test>
+
+        <!-- pre-trained augustus -->
+        <test>
+            <param name="input" value="genome_masked.fa" />
+            <param name="database" value="2021-07-20-120000" />
+            <section name="organism">
+                <param name="species" value="Genus species" />
+            </section>
+            <section name="augustus">
+                <param name="augustus_species" value="fly" />
+            </section>
+            <section name="busco">
+                <param name="busco_seed_species" value="fly" />
+                <param name="busco_db" value="insecta" />
+            </section>
+            <param name="uglyTestingHack" value="true" />
+            <param name="outputs" value="gbk,tbl,gff3,proteins_fa,mrna_transcripts_fa,cds_transcripts_fa,tbl2asn_error,tbl2asn_report,tbl2asn_validation,stats" />
+            <!-- non deterministic results, so can't be more precise here -->
+            <output name="annot_gbk">
+                <assert_contents>
+                    <has_text text="  TITLE     Direct Submission" />
+                    <has_text text="/locus_tag=&quot;FUN_000001&quot;" />
+                </assert_contents>
+            </output>
+            <output name="annot_tbl">
+                <assert_contents>
+                    <has_text text=">Feature sample" />
+                    <has_text text="gnl|ncbi|FUN_000001-T1_mrna" />
+                </assert_contents>
+            </output>
+            <output name="annot_gff3">
+                <assert_contents>
+                    <has_text text="##gff-version 3" />
+                    <has_text text="ID=FUN_000001-T1;Parent=FUN_000001;product=hypothetical protein;" />
+                </assert_contents>
+            </output>
+            <output name="fasta_proteins">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <output name="fasta_transcripts_mrna">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <output name="fasta_transcripts_cds">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="augustus     pretrained"/>
+                <has_text text="glimmerhmm   busco"/>
+                <has_text text="snap         busco"/>
+                <has_text text="Running BUSCO to find conserved gene models for training ab-initio predictors"/>
+                <has_text text="Skipping CodingQuarry as no --rna_bam passed"/>
+                <has_text text="Running Augustus gene prediction using fly parameters"/>
+                <not_has_text text="Aligning transcript evidence to genome with minimap2"/>
+                <not_has_text text="Found 16 alignments, wrote GFF3 and Augustus hints to file"/>
+                <not_has_text text="Extracting hints from RNA-seq BAM file using bam2hints"/>
+                <has_text text="Mapping 13 proteins to genome using diamond and exonerate"/>
+                <has_text text="Found 4 preliminary alignments with diamond"/>
+            </assert_stderr>
+        </test>
+
+        <!-- bam and transcripts and proteins -->
+        <test>
+            <param name="input" value="genome_masked.fa" />
+            <param name="database" value="2021-07-20-120000" />
+            <section name="organism">
+                <param name="species" value="Genus species" />
+            </section>
+            <section name="evidences">
+                <param name="rna_bam" value="SRR7458692.bam" />
+                <param name="transcript_evidence" value="predict_scratch/Genus_species.mrna-transcripts.fa" />
+                <conditional name="prot_evidence">
+                    <param name="prot_evidence_source" value="custom" />
+                    <param name="protein_evidence" value="predict_scratch/Genus_species.proteins.fa" />
+                </conditional>
+            </section>
+            <section name="busco">
+                <param name="busco_seed_species" value="fly" />
+                <param name="busco_db" value="insecta" />
+            </section>
+            <section name="augustus">
+                <param name="min_training_models" value="3" />
+            </section>
+            <param name="outputs" value="gbk,tbl,gff3,proteins_fa,mrna_transcripts_fa,cds_transcripts_fa,tbl2asn_error,tbl2asn_report,tbl2asn_validation,stats" />
+            <!-- non deterministic results, so can't be more precise here -->
+            <output name="annot_gbk">
+                <assert_contents>
+                    <has_text text="  TITLE     Direct Submission" />
+                    <has_text text="/locus_tag=&quot;FUN_000001&quot;" />
+                </assert_contents>
+            </output>
+            <output name="annot_tbl">
+                <assert_contents>
+                    <has_text text=">Feature sample" />
+                    <has_text text="gnl|ncbi|FUN_000001-T1_mrna" />
+                </assert_contents>
+            </output>
+            <output name="annot_gff3">
+                <assert_contents>
+                    <has_text text="##gff-version 3" />
+                    <has_text text="ID=FUN_000001-T1;Parent=FUN_000001;product=hypothetical protein;" />
+                </assert_contents>
+            </output>
+            <output name="fasta_proteins">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <output name="fasta_transcripts_mrna">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <output name="fasta_transcripts_cds">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="augustus     busco"/>
+                <has_text text="glimmerhmm   busco"/>
+                <has_text text="snap         busco"/>
+                <has_text text="Running BUSCO to find conserved gene models for training ab-initio predictors"/>
+                <not_has_text text="Skipping CodingQuarry as no --rna_bam passed"/>
+                <has_text text="Running Augustus gene prediction using genus_species parameters"/>
+                <has_text text="Training Augustus using BUSCO gene models"/>
+                <has_text text="Aligning transcript evidence to genome with minimap2"/>
+                <has_text text="Found 16 alignments, wrote GFF3 and Augustus hints to file"/>
+                <has_text text="Extracting hints from RNA-seq BAM file using bam2hints"/>
+                <has_text text="Mapping 16 proteins to genome using diamond and exonerate"/>
+                <has_text text="Found 21 preliminary alignments with diamond"/>
+            </assert_stderr>
+            <assert_command>
+                <has_text text="--protein_evidence"/>
+            </assert_command>
+        </test>
+
+        <!-- proteins -->
+        <test>
+            <param name="input" value="genome_masked.fa" />
+            <param name="database" value="2021-07-20-120000" />
+            <section name="organism">
+                <param name="species" value="Genus species" />
+            </section>
+            <section name="evidences">
+                <conditional name="prot_evidence">
+                    <param name="prot_evidence_source" value="custom" />
+                    <param name="protein_evidence" value="predict_scratch/Genus_species.proteins.fa" />
+                </conditional>
+            </section>
+            <section name="busco">
+                <param name="busco_seed_species" value="fly" />
+                <param name="busco_db" value="insecta" />
+            </section>
+            <section name="augustus">
+                <param name="min_training_models" value="3" />
+            </section>
+            <param name="outputs" value="gbk,tbl,gff3,proteins_fa,mrna_transcripts_fa,cds_transcripts_fa,tbl2asn_error,tbl2asn_report,tbl2asn_validation,stats" />
+            <!-- non deterministic results, so can't be more precise here -->
+            <output name="annot_gbk">
+                <assert_contents>
+                    <has_text text="  TITLE     Direct Submission" />
+                    <has_text text="/locus_tag=&quot;FUN_000001&quot;" />
+                </assert_contents>
+            </output>
+            <output name="annot_tbl">
+                <assert_contents>
+                    <has_text text=">Feature sample" />
+                    <has_text text="gnl|ncbi|FUN_000001-T1_mrna" />
+                </assert_contents>
+            </output>
+            <output name="annot_gff3">
+                <assert_contents>
+                    <has_text text="##gff-version 3" />
+                    <has_text text="ID=FUN_000001-T1;Parent=FUN_000001;product=hypothetical protein;" />
+                </assert_contents>
+            </output>
+            <output name="fasta_proteins">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <output name="fasta_transcripts_mrna">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <output name="fasta_transcripts_cds">
+                <assert_contents>
+                    <has_text text=">FUN_000001-T1 FUN_000001" />
+                </assert_contents>
+            </output>
+            <assert_stderr>
+                <has_text text="augustus     busco"/>
+                <has_text text="glimmerhmm   busco"/>
+                <has_text text="snap         busco"/>
+                <has_text text="Running BUSCO to find conserved gene models for training ab-initio predictors"/>
+                <has_text text="Skipping CodingQuarry as no --rna_bam passed"/>
+                <has_text text="Running Augustus gene prediction using genus_species parameters"/>
+                <has_text text="Training Augustus using BUSCO gene models"/>
+                <not_has_text text="Aligning transcript evidence to genome with minimap2"/>
+                <not_has_text text="Found 16 alignments, wrote GFF3 and Augustus hints to file"/>
+                <not_has_text text="Extracting hints from RNA-seq BAM file using bam2hints"/>
+                <has_text text="Mapping 16 proteins to genome using diamond and exonerate"/>
+                <has_text text="Found 21 preliminary alignments with diamond"/>
+            </assert_stderr>
+            <assert_command>
+                <has_text text="--protein_evidence"/>
+            </assert_command>
+        </test>
+    </tests>
+    <help><![CDATA[
+Funannotate_ predict
+--------------------
+
+Funannotate_ is a pipeline for genome annotation (built specifically for fungi, but will also work with higher eukaryotes).
+
+Script takes genome multi-fasta file and a variety of inputs to do a comprehensive whole
+genome gene prediction.  Uses AUGUSTUS, GeneMark, Snap, GlimmerHMM, BUSCO, EVidence Modeler,
+tbl2asn, tRNAScan-SE, Exonerate, minimap2.
+
+.. _Funannotate: http://funannotate.readthedocs.io
+    ]]></help>
+    <expand macro="citations" />
+</tool>

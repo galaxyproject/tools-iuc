@@ -1,24 +1,26 @@
-<tool id="ivar_removereads" name="ivar removereads" version="@VERSION@+galaxy0">
+<tool id="ivar_removereads" name="ivar removereads" version="@TOOL_VERSION@+galaxy0" profile="@PROFILE@">
     <description>Remove reads from trimmed BAM file</description>
     <macros>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements">
-        <requirement type="package" version="3.8.1">python</requirement>
-    </expand>
-    <expand macro="version_command" />
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
     <command detect_errors="exit_code"><![CDATA[
         cp '$input_bed' binding_sites.bed &&
         python '$__tool_directory__/sanitize_bed.py' binding_sites.bed &&
-
+        #if $amplicons.computed == "yes"
+            python '$__tool_directory__/write_amplicon_info_file.py' binding_sites.bed amplicon_info.tsv &&
+        #else
+            ln -s '$amplicon_info' amplicon_info.tsv &&
+        #end if
         ivar getmasked
-        -i '$variants_tsv' -b binding_sites.bed -f '$amplicon_info' -p masked_primers &&
+        -i '$variants_tsv' -b binding_sites.bed -f amplicon_info.tsv -p masked_primers &&
 
-        python '$__tool_directory__/completemask.py' masked_primers.txt '$amplicon_info' &&
+        python '$__tool_directory__/completemask.py' masked_primers.txt amplicon_info.tsv &&
         ln -s '$input_bam' sorted.bam &&
         ln -s '${input_bam.metadata.bam_index}' sorted.bam.bai &&
 
-        ivar removereads 
+        ivar removereads
         -i sorted.bam
         -b binding_sites.bed
         -p removed_reads.bam
@@ -27,15 +29,24 @@
     <inputs>
         <param name="input_bam" argument="-i" type="data" format="bam"
         label="Bam input"
-        help="BAM dataset, preprocessed with ivar trim, to remove reads from" />
+        help="BAM dataset, preprocessed with ivar trim, to remove reads from"/>
         <param name="variants_tsv" type="data" format="tabular"
         label="Variants input"
-        help="This dataset will be scanned for variants that affect primer binding sites and needs to be in tabular format with affected chromosome names in the first, and positions in the second column. If there is a header line, the name of the second column should be POS." />
+        help="This dataset will be scanned for variants that affect primer binding sites and needs to be in tabular format with affected chromosome names in the first, and positions in the second column. If there is a header line, the name of the second column should be POS."/>
         <param name="input_bed" argument="-b" type="data" format="bed" label="Primer binding sites information"
         help="The same six-column BED dataset that served as input to ivar trim"/>
-        <param name="amplicon_info" type="data" format="tabular"
-        label="Primer to amplicon assignment info"
-        help="This input should consist of one line per amplicon with the tab-separated names of all primers used to generate that amplicon."/>
+        <conditional name="amplicons">
+            <param name="computed" type="select" label="Compute amplicon info from BED file" help="For suitable primer binding site datasets amplicon info can be computed directly (see tool help below). For others you will need to provide an extra amplicon info dataset.">
+                <option value="yes" selected="true">Yes</option>
+                <option value="no">No</option>
+            </param>
+            <when value="yes" />
+            <when value="no">
+                <param name="amplicon_info" type="data" format="tabular"
+                label="Primer to amplicon assignment info"
+                help="This input should consist of one line per amplicon with the tab-separated names of all primers used to generate that amplicon."/>
+            </when>
+        </conditional>
     </inputs>
     <outputs>
         <data name="output_bam" format="bam" label="${tool.name} on ${on_string}" from_work_dir="removed_reads.bam"/>
@@ -45,8 +56,38 @@
             <param name="input_bam" value="zika/Z52_a.trimmed.sorted.bam"/>
             <param name="variants_tsv" value="zika/primers_Z52_consensus.tsv"/>
             <param name="input_bed" value="zika/db/zika_primers_consensus.bed"/>
-            <param name="amplicon_info" value="zika/db/pair_information.tsv"/>
-            <output name="output_bam" file="zika/Z52_a.masked.bam" compare="sim_size" delta="100000" />
+            <conditional name="amplicons">
+                <param name="computed" value="no"/>
+                <param name="amplicon_info" value="zika/db/pair_information.tsv"/>
+            </conditional>
+            <assert_stdout>
+                <!-- check that primer pairs are picked up correctly
+                from the amplicon info file -->
+                <has_text text="400_18_out_L**&#009;400_18_out_R**&#009;400_23_out_L&#009;400_23_out_R&#009;400_32_out_L&#009;400_32_out_R"/>
+            </assert_stdout>
+            <output name="output_bam" ftype="bam">
+                <assert_contents>
+                    <has_size value="3130923" delta="1000"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test>
+            <param name="input_bam" value="zika/Z52_a.trimmed.sorted.bam"/>
+            <param name="variants_tsv" value="zika/primers_Z52_consensus.tsv"/>
+            <param name="input_bed" value="zika/db/zika_primers_consensus.bed"/>
+            <conditional name="amplicons">
+                <param name="computed" value="yes"/>
+            </conditional>
+            <assert_stdout>
+                <!-- check that primer pairs are picked up correctly
+                from the autogenerated amplicon info file -->
+                <has_text text="400_18_out_L**&#009;400_18_out_R**&#009;400_23_out_L&#009;400_23_out_R&#009;400_32_out_L&#009;400_32_out_R"/>
+            </assert_stdout>
+            <output name="output_bam" ftype="bam">
+                <assert_contents>
+                    <has_size value="3130923" delta="1000"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help><![CDATA[
@@ -61,13 +102,30 @@ trimmed with ``ivar trim``.
 From this input it will remove reads that come from amplicons that have been
 generated with one or more primers that may have been affected in their binding
 by variants listed in the variants input file.
+To do its job, the needs to know which primers work together to form an
+amplicon. The tool can try to deduce this info from the names of the primers
+found in the primer info dataset. This will require a primer naming scheme
+following the regex pattern::
+
+  .*_(?P<amplicon_number>\d+).*_(?P<primer_orientation>L(?:EFT)?|R(?:IGHT)?)
+
+*i.e.*, the following schemes will work (and get parsed as):
+
+- ``nCoV-2019_1_LEFT`` (forward primer of amplicon 1)
+- ``400_2_out_R`` (reverse primer of amplicon 2)
+- ``QIAseq_163-2_LEFT`` (forward primer of amplicon 163)
+
+Alternatively, you can specify the amplicon information explicitly through a
+dataset that lists the names of primers that together form any given amplicon.
+In it, primer names (exactly matching those in the primer info dataset) need to
+be TAB-separated with one line per amplicon.
 
 .. class:: Warning mark
 
    Preprocessing of the BAM input with ivar trim is essential for this tool to
    work because only ``ivar trim`` can add required primer information to the
    BAM auxillary data of every read.
-        
+
 ivar documentation can be found at `<https://andersen-lab.github.io/ivar/html/manualpage.html>`__.
     ]]></help>
     <expand macro="citations" />

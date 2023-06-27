@@ -3,6 +3,9 @@
     <macros>
         <import>macros.xml</import>
     </macros>
+    <xrefs>
+        <xref type="bio.tools">busco</xref>
+    </xrefs>
     <requirements>
         <requirement type="package" version="@TOOL_VERSION@">busco</requirement>
         <requirement type="package" version="1.34">tar</requirement>
@@ -10,28 +13,40 @@
     </requirements>
     <version_command>busco --version</version_command>
     <command><![CDATA[
+
+#if $busco_mode.mode == 'geno' and $busco_mode.use_augustus.use_augustus_selector == 'yes':
+
 if [ -z "\$AUGUSTUS_CONFIG_PATH" ] ; then BUSCO_PATH=\$(dirname \$(which busco)) ; export AUGUSTUS_CONFIG_PATH=\$(realpath \${BUSCO_PATH}/../config) ; fi &&
 cp -r "\$AUGUSTUS_CONFIG_PATH/" augustus_dir/ &&
 export AUGUSTUS_CONFIG_PATH=`pwd`/augustus_dir/ &&
 
-#if $busco_mode.mode == 'geno' and $busco_mode.use_augustus.use_augustus_selector == 'yes' and $busco_mode.use_augustus.aug_prediction.augustus_mode == 'history':
+#if $busco_mode.use_augustus.aug_prediction.augustus_mode == 'history':
     ## Using an augustus model from history, we need to unzip it and let augustus find it
     mkdir -p 'augustus_dir/species/' &&
     tar -C 'augustus_dir/species/' -xzf '${busco_mode.use_augustus.aug_prediction.augustus_model}' &&
 #end if
 
+#end if
+
 busco
 --in '${input}'
---lineage_dataset '${lineage_dataset}'
---update-data
 --mode '${busco_mode.mode}'
 --out busco_galaxy
 --cpu \${GALAXY_SLOTS:-4}
 --evalue ${adv.evalue}
 --limit ${adv.limit}
 
-#if $adv.auto_lineage:
-    $adv.auto_lineage
+#if $lineage_conditional.selector == 'cached':
+    --offline
+    --download_path $lineage_conditional.cached_db.fields.path
+#else
+    --update-data
+#end if
+
+#if $lineage.lineage_mode == "auto_detect":
+    $lineage.auto_lineage
+#else if $lineage.lineage_mode == "select_lineage":
+    --lineage_dataset '${lineage.lineage_dataset}'
 #end if
 #if $busco_mode.mode == 'geno' and $busco_mode.use_augustus.use_augustus_selector == 'yes':
 
@@ -45,7 +60,7 @@ busco
     #end if
 #end if
 
-#if $adv.outputs and 'image' in $adv.outputs:
+#if $outputs and 'image' in $outputs:
     &&
     mkdir BUSCO_summaries
     &&
@@ -55,9 +70,31 @@ busco
     generate_plot.py -wd BUSCO_summaries -rt specific
 #end if
 
+#if $outputs and 'gff' in $outputs:
+    &&
+    echo "\##gff-version 3" > busco_output.gff
+    &&
+    ## gff files can be absent
+    cat busco_galaxy/run_*/busco_sequences/*busco_sequences/*.gff >> busco_output.gff 2> /dev/null || true
+#end if
+
 ]]>    </command>
     <inputs>
         <param type="data" name="input" format="fasta" label="Sequences to analyse" help="Can be an assembled genome or transcriptome (DNA), or protein sequences from an annotated gene set." />
+        <conditional name="lineage_conditional">
+            <param name="selector" type="select" label="Lineage data source">
+                <option value="download">Download lineage data</option>
+                <option value="cached">Use cached lineage data</option>
+            </param>
+            <when value="cached">
+                <param name="cached_db" label="Cached database with lineage" type="select">
+                    <options from_data_table="busco_database">
+                        <validator message="No BUSCO database is available" type="no_options" />
+                    </options>
+                </param>
+            </when>
+            <when value="download"/>
+        </conditional>
         <conditional name="busco_mode">
             <param argument="--mode" type="select" label="Mode">
                 <option value="geno">Genome assemblies (DNA)</option>
@@ -96,90 +133,123 @@ busco
             <when value="prot" />
         </conditional>
 
-        <param argument="--lineage_dataset" type="select" label="Lineage">
-            <expand macro="lineages" />
+        <conditional name="lineage">
+            <param name="lineage_mode" type="select" label="Auto-detect or select lineage?" help="Let BUSCO decide the best lineage automatically, or select from known lineage">
+                <option value="auto_detect">Auto-detect</option>
+                <option value="select_lineage">Select lineage</option>
+            </param>
+            <when value="auto_detect">
+                <param name="auto_lineage" type="select" label="auto-lineage group" help="Taxonomic group to run with auto-lineage.">
+                    <option value="--auto-lineage">All taxonomic groups (--auto-lineage)</option>
+                    <option value="--auto-lineage-prok">Prokaryotes (--auto-lineage-prok)</option>
+                    <option value="--auto-lineage-euk">Eukaryotes (--auto-lineage-euk)</option>
+                </param>
+            </when>
+            <when value="select_lineage">
+                <param argument="--lineage_dataset" type="select" label="Lineage">
+                    <expand macro="lineages" />
+                </param>
+            </when>
+        </conditional>
+
+        <param name="outputs" type="select" optional="true" multiple="true" label="Which outputs should be generated">
+            <option value="short_summary" selected="true">short summary text</option>
+            <option value="missing">list with missing IDs</option>
+            <option value="image">summary image</option>
+            <option value="gff">gff</option>
         </param>
 
         <section name="adv" title="Advanced Options" expanded="False">
             <param argument="--evalue" type="float" value="0.001" min="0" max="1" label="E-value cutoff for BLAST searches." />
             <param argument="--limit" type="integer" value="3" label="How many candidate regions to consider" />
-            <param name="auto_lineage" type="select" optional="true" label="Run auto-lineage to find optimal lineage path">
-                <option value="--auto-lineage">Run auto-lineage to find optimum lineage path</option>
-                <option value="--auto-lineage-prok">Run auto-lineage just on non-eukaryote trees to find optimum lineage path</option>
-                <option value="--auto-lineage-euk">Run auto-placement just on eukaryote tree to find optimum lineage path</option>
-            </param>
-            <param name="outputs" type="select" optional="true" multiple="true" label="Which outputs should be generated">
-                <option value="short_summary">short summary text</option>
-                <option value="missing">list with missing IDs</option>
-                <option value="image">summary image</option>
-            </param>
         </section>
     </inputs>
     <outputs>
         <data name='busco_sum' format='txt' label="${tool.name} on ${on_string}: short summary" from_work_dir="busco_galaxy/run_*/short_summary.txt">
-            <filter>adv['outputs'] and 'short_summary' in adv['outputs']</filter>
+            <filter>outputs and 'short_summary' in outputs</filter>
         </data>
         <data name='busco_table' format='tabular' label="${tool.name} on ${on_string}: full table" from_work_dir="busco_galaxy/run_*/full_table.tsv" />
         <data name='busco_missing' format='tabular' label="${tool.name} on ${on_string}: missing buscos" from_work_dir="busco_galaxy/run_*/missing_busco_list.tsv">
-            <filter>adv['outputs'] and 'missing' in adv['outputs']</filter>
+            <filter>outputs and 'missing' in outputs</filter>
         </data>
         <data name='summary_image' format='png' label="${tool.name} on ${on_string}: summary image" from_work_dir="BUSCO_summaries/busco_figure.png">
-            <filter>adv['outputs'] and 'image' in adv['outputs']</filter>
+            <filter>outputs and 'image' in outputs</filter>
+        </data>
+        <data name='busco_gff' format='gff3' label="${tool.name} on ${on_string}: GFF" from_work_dir="busco_output.gff">
+            <filter>outputs and 'gff' in outputs</filter>
         </data>
     </outputs>
     <tests>
-        <test expect_num_outputs="3">
+        <test expect_num_outputs="4">
             <param name="input" value="genome.fa" />
-            <param name="lineage_dataset" value="arthropoda_odb10" />
+            <conditional name="lineage">
+                <param name="lineage_mode" value="select_lineage" />
+                <param name="lineage_dataset" value="arthropoda_odb10" />
+            </conditional>
             <conditional name="busco_mode">
                 <param name="mode" value="geno" />
                 <conditional name="use_augustus">
                     <param name="use_augustus_selector" value="yes" />
                 </conditional>
             </conditional>
-            <section name="adv">
-                <param name="outputs" value="short_summary,missing" />
-            </section>
-            <output name="busco_sum" file="genome_results/short_summary" compare="diff" lines_diff="4" />
+            <param name="outputs" value="short_summary,missing,gff" />
+            <output name="busco_sum" file="genome_results/short_summary" compare="diff" lines_diff="6" />
             <output name="busco_table" file="genome_results/full_table" compare="diff" lines_diff="4" />
+            <output name="busco_gff">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_text text="##gff-version 3" />
+                </assert_contents>
+            </output>
             <output name="busco_missing" file="genome_results/missing_buscos_list" compare="diff" lines_diff="4">
                 <assert_contents>
                     <has_text text="# BUSCO version is: @TOOL_VERSION@" />
                 </assert_contents>
             </output>
         </test>
-        <test expect_num_outputs="4">
+        <test expect_num_outputs="5">
             <param name="input" value="proteome.fa" />
-            <param name="lineage_dataset" value="arthropoda_odb10" />
+            <conditional name="lineage">
+                <param name="lineage_mode" value="select_lineage" />
+                <param name="lineage_dataset" value="arthropoda_odb10" />
+            </conditional>
             <conditional name="busco_mode">
                 <param name="mode" value="prot" />
             </conditional>
-            <section name="adv">
-                <param name="outputs" value="short_summary,missing,image" />
-            </section>
-            <output name="busco_sum" file="proteome_results/short_summary" compare="diff" lines_diff="4" />
+            <param name="outputs" value="short_summary,missing,image,gff" />
+            <output name="busco_sum" file="proteome_results/short_summary" compare="diff" lines_diff="6" />
             <output name="busco_table" file="proteome_results/full_table" compare="diff" lines_diff="4" />
             <output name="busco_missing" file="proteome_results/missing_buscos_list" compare="diff" lines_diff="4" />
             <output name="summary_image" file="proteome_results/summary.png" compare="sim_size" />
+            <output name="busco_gff">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_text text="##gff-version 3" />
+                </assert_contents>
+            </output>
         </test>
-        <test expect_num_outputs="4">
+        <test expect_num_outputs="5">
             <param name="input" value="transcriptome.fa" />
-            <param name="lineage_dataset" value="arthropoda_odb10" />
+            <conditional name="lineage">
+                <param name="lineage_mode" value="select_lineage" />
+                <param name="lineage_dataset" value="arthropoda_odb10" />
+            </conditional>
             <conditional name="busco_mode">
                 <param name="mode" value="tran" />
             </conditional>
-            <section name="adv">
-                <param name="auto_lineage" value="--auto-lineage" />
-                <param name="outputs" value="short_summary,missing,image" />
-            </section>
-            <output name="busco_sum" file="transcriptome_results/short_summary" compare="diff" lines_diff="4" />
-            <output name="busco_table" file="transcriptome_results/full_table" compare="diff" lines_diff="4" />
-            <output name="busco_missing" file="transcriptome_results/missing_buscos_list" compare="diff" lines_diff="4" />
+            <param name="outputs" value="short_summary,missing,image,gff" />
+            <output name="busco_sum" file="transcriptome_results/short_summary" compare="diff" lines_diff="6" />
+            <output name="busco_table" file="transcriptome_results/full_table" compare="diff" lines_diff="6" />
+            <output name="busco_missing" file="transcriptome_results/missing_buscos_list" compare="diff" lines_diff="6" />
             <output name="summary_image" file="transcriptome_results/summary.png" compare="sim_size" />
+            <output name="busco_gff" file="transcriptome_results/out.gff" compare="diff" />
         </test>
-        <test expect_num_outputs="2">
+        <test expect_num_outputs="3">
             <param name="input" value="genome.fa" />
-            <param name="lineage_dataset" value="arthropoda_odb10" />
+            <conditional name="lineage">
+                <param name="lineage_mode" value="select_lineage" />
+                <param name="lineage_dataset" value="arthropoda_odb10" />
+            </conditional>
             <conditional name="busco_mode">
                 <param name="mode" value="geno" />
                 <conditional name="use_augustus">
@@ -190,15 +260,22 @@ busco
                     </conditional>
                 </conditional>
             </conditional>
-            <section name="adv">
-                <param name="outputs" value="short_summary" />
-            </section>
-            <output name="busco_sum" file="genome_results/short_summary" compare="diff" lines_diff="4" />
+            <param name="outputs" value="short_summary,gff" />
+            <output name="busco_sum" file="genome_results/short_summary" compare="diff" lines_diff="6" />
             <output name="busco_table" file="genome_results/full_table" compare="diff" lines_diff="4" />
+            <output name="busco_gff">
+                <assert_contents>
+                    <has_n_lines n="1"/>
+                    <has_text text="##gff-version 3" />
+                </assert_contents>
+            </output>
         </test>
         <test expect_num_outputs="3">
             <param name="input" value="genome.fa" />
-            <param name="lineage_dataset" value="arthropoda_odb10" />
+            <conditional name="lineage">
+                <param name="lineage_mode" value="select_lineage" />
+                <param name="lineage_dataset" value="arthropoda_odb10" />
+            </conditional>
             <conditional name="busco_mode">
                 <param name="mode" value="geno" />
                 <conditional name="use_augustus">
@@ -209,29 +286,65 @@ busco
                     </conditional>
                 </conditional>
             </conditional>
-            <section name="adv">
-                <param name="outputs" value="short_summary,missing" />
-            </section>
-            <output name="busco_sum" file="genome_results/short_summary" compare="diff" lines_diff="4" />
+            <param name="outputs" value="short_summary,missing" />
+            <output name="busco_sum" file="genome_results/short_summary" compare="diff" lines_diff="6" />
             <output name="busco_table" file="genome_results/full_table" compare="diff" lines_diff="4" />
             <output name="busco_missing" file="genome_results/missing_buscos_list" compare="diff" lines_diff="4" />
         </test>
-        <test expect_num_outputs="4">
+        <test expect_num_outputs="5">
             <param name="input" value="genome.fa" />
-            <param name="lineage_dataset" value="arthropoda_odb10" />
+            <conditional name="lineage">
+                <param name="lineage_mode" value="select_lineage" />
+                <param name="lineage_dataset" value="arthropoda_odb10" />
+            </conditional>
             <conditional name="busco_mode">
                 <param name="mode" value="geno" />
                 <conditional name="use_augustus">
                     <param name="use_augustus_selector" value="no" />
                 </conditional>
             </conditional>
-            <section name="adv">
-                <param name="outputs" value="short_summary,missing,image" />
-            </section>
-            <output name="busco_sum" file="genome_results_metaeuk/short_summary" compare="diff" lines_diff="4" />
-            <output name="busco_table" file="genome_results_metaeuk/full_table" compare="diff" lines_diff="4" />
-            <output name="busco_missing" file="genome_results_metaeuk/missing_buscos_list" compare="diff" lines_diff="4" />
+            <param name="outputs" value="short_summary,missing,image,gff" />
+            <output name="busco_sum" file="genome_results_metaeuk/short_summary" compare="diff" lines_diff="6" />
+            <output name="busco_table" file="genome_results_metaeuk/full_table" compare="diff" lines_diff="6" />
+            <output name="busco_missing" file="genome_results_metaeuk/missing_buscos_list" compare="diff" lines_diff="6" />
             <output name="summary_image" file="genome_results_metaeuk/summary.png" compare="sim_size" />
+            <output name="busco_gff" file="genome_results_metaeuk/out.gff" compare="diff" />
+        </test>
+        <test expect_num_outputs="5">
+            <param name="input" value="genome.fa" />
+            <conditional name="lineage">
+                <param name="lineage_mode" value="auto_detect" />
+                <param name="auto_lineage" value="--auto-lineage" />
+            </conditional>
+            <conditional name="busco_mode">
+                <param name="mode" value="geno" />
+                <conditional name="use_augustus">
+                    <param name="use_augustus_selector" value="no" />
+                </conditional>
+            </conditional>
+            <param name="outputs" value="short_summary,missing,image,gff" />
+            <output name="busco_sum" file="genome_results_metaeuk_auto/short_summary" compare="diff" lines_diff="6" />
+            <output name="busco_table" file="genome_results_metaeuk_auto/full_table" compare="diff" lines_diff="2" />
+            <output name="busco_missing" file="genome_results_metaeuk_auto/missing_buscos_list" compare="diff" lines_diff="2" />
+            <output name="summary_image" file="genome_results_metaeuk_auto/summary.png" compare="sim_size" />
+            <output name="busco_gff" file="genome_results_metaeuk_auto/out.gff" compare="diff" />
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input" value="genome.fa" />
+            <conditional name="lineage_conditional">
+                <param name="selector" value="cached"/>
+                <param name="cached_db" value="busco-demo-db-20230328"/>
+            </conditional>
+            <conditional name="lineage">
+                <param name="lineage_mode" value="select_lineage" />
+                <param name="lineage_dataset" value="archaea_odb10" />
+            </conditional>
+            <param name="outputs" value="short_summary" />
+            <output name="busco_sum" file="genome_results/short_summary_cached" compare="diff" lines_diff="6" />
+            <output name="busco_table" file="genome_results/full_table_cached" compare="diff" lines_diff="4" />
+            <assert_stdout>
+                <has_text text="Running BUSCO using lineage dataset archaea_odb10 (prokaryota, 2021-02-23)"/>
+            </assert_stdout>
         </test>
     </tests>
     <help><![CDATA[

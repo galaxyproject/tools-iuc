@@ -1,9 +1,11 @@
-<?xml version="1.0"?>
 <tool id="kallisto_quant" name="Kallisto quant" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="20.05">
-    <description>- quantify abundances of RNA-Seq transcripts</description>
+    <description>quantify abundances of RNA-Seq transcripts</description>
     <macros>
         <import>macros.xml</import>
     </macros>
+    <xrefs>
+        <xref type="bio.tools">kallisto</xref>
+    </xrefs>
     <expand macro="requirements" />
     <command detect_errors="exit_code">
         <![CDATA[
@@ -15,7 +17,7 @@
             #set index_path = $reference_transcriptome.index.fields.path
         #end if
         kallisto quant -i '$index_path'
-            $bias --bootstrap-samples $bootstrap_samples --seed $seed $fusion $lib_type $pseudobam
+            $bias --bootstrap-samples $bootstrap_samples --seed $seed $fusion  $pseudobam
             #if $pseudobam:
                 -o .
             #else:
@@ -29,15 +31,22 @@
                 --sd $single_paired.sd
                 '$single_reads'
             #else:
-                #if str($single_paired.collection.collection_selector) == 'datasets':
-                    #set $forward_reads = $single_paired.collection.forward
-                    #set $reverse_reads = $single_paired.collection.reverse
+                $single_paired.lib_type
+                #if str($single_paired.single_paired_selector) == 'paired_single':
+                    #set $forward_reads = $single_paired.forward
+                    #set $reverse_reads = $single_paired.reverse
                 #else:
-                    #set $forward_reads = $single_paired.collection.reads.forward
-                    #set $reverse_reads = $single_paired.collection.reads.reverse
+                    #set $forward_reads = $single_paired.reads.forward
+                    #set $reverse_reads = $single_paired.reads.reverse
                 #end if
                 #set $reads = "'%s' '%s'" % ($forward_reads, $reverse_reads)
                 $reads
+            #end if
+            $single_overhang
+            #if $genomebam_option.selector
+                $genomebam_option.selector
+                --gtf $genomebam_option.gtf
+                --chromosomes $genomebam_option.chromosomes
             #end if
             #if $pseudobam:
                 && samtools sort --no-PG -O bam -@ \${GALAXY_SLOTS:-1} -T "\${TMPDIR:-.}" -o '$pseudobam_output' pseudoalignments.bam
@@ -50,39 +59,45 @@
         <conditional name="single_paired">
             <param name="single_paired_selector" type="select" label="Single-end or paired reads">
                 <option value="single" selected="true">Single-end</option>
-                <option value="paired">Paired</option>
+                <option value="paired_single">Paired.end (individual files)</option>
+                <option value="paired_collection">Paired-end (collections)</option>
             </param>
             <when value="single">
                 <param name="reads" type="data" format="fastq,fastq.gz" label="Reads in FASTQ format" />
-                <param name="fragment_length" argument="--fragment-length" type="integer" value="200" label="Average fragment length" help="Illumina typically produces reads of 180-200bp" />
+                <param argument="--fragment-length" type="integer" value="200" label="Average fragment length" help="Illumina typically produces reads of 180-200bp" />
                 <param argument="--sd" type="integer" value="20" label="Estimated standard deviation of fragment length" />
             </when>
-            <when value="paired">
-                <conditional name="collection">
-                    <param name="collection_selector" type="select" label="Collection or individual datasets">
-                        <option value="datasets" selected="true">Individual files</option>
-                        <option value="collection">Pair or list of pairs</option>
-                    </param>
-                    <when value="datasets">
-                        <param name="forward" type="data" format="fastq,fastq.gz" label="Forward reads" />
-                        <param name="reverse" type="data" format="fastq,fastq.gz" label="Reverse reads" />
-                    </when>
-                    <when value="collection">
-                        <param name="reads" type="data_collection" format="fastq,fastq.gz" collection_type="paired" label="Collection of reads" />
-                    </when>
-                </conditional>
+            <when value="paired_single">
+                <param name="forward" type="data" format="fastq,fastq.gz" label="Forward reads" />
+                <param name="reverse" type="data" format="fastq,fastq.gz" label="Reverse reads" />
+                <expand macro="macro_lib_type"/>
+            </when>
+            <when value="paired_collection">
+                <param name="reads" type="data_collection" format="fastq,fastq.gz" collection_type="paired" label="Collection of reads" />
+                <expand macro="macro_lib_type"/>
             </when>
         </conditional>
-        <param argument="--bias" type="boolean" truevalue="--bias" falsevalue="" label="Perform sequence based bias correction" />
-        <param name="bootstrap_samples" argument="--bootstrap-samples" type="integer" value="0" label="Number of bootstrap samples" help="default: 0" />
-        <param argument="--seed" type="integer" value="42" label="Seed for the bootstrap sampling" help="default: 42" />
-        <param argument="--fusion" type="boolean" truevalue="--fusion" falsevalue="" label="Search for fusions" help="for Pizzly" />
-        <param name="lib_type" type="select" label="Library strandness information">
-            <option value="">Unstranded</option>
-            <option value="--fr-stranded">Strand specific reads, first read forward</option>
-            <option value="--rf-stranded">Strand specific reads, first read reverse</option>
-        </param>
+        <param argument="--bias" type="boolean" truevalue="--bias" falsevalue="" label="Perform sequence based bias correction" help="It allows to learn 
+            parameters for a model of sequences specific bias and corrects the abundances accordlingly"/>
+        <param argument="--bootstrap-samples" type="integer" value="0" label="Number of bootstrap samples" help="Running with bootstraps 
+            is mandatory if you want to perform differential expression analysis of isoforms with Sleuth.Default: 0" />
+        <param argument="--fusion" type="boolean" truevalue="--fusion" falsevalue="" label="Search for fusions" help="It generates the required files for Pizzly. This option does normal quantification, but 
+            additionally looks for reads that do not pseudoalign because they are potentially from fusion genes." />
+        <param argument="--single-overhang" type="boolean" truevalue="--single-overhang" falsevalue="" checked="false" label="Single overhang" help="Include reads where 
+            unobserved rest of fragment is predicted to lie outside a transcript" />
         <param argument="--pseudobam" type="boolean" truevalue="--pseudobam" falsevalue="" label="Output pseudoalignments in BAM format" />
+        <conditional name="genomebam_option">
+            <param name="selector" type="select" label="Project pseudoalignments to genome">
+                <option value="--genomebam">Enabled</option>
+                <option value="" selected="true">Disabled</option>
+            </param>
+            <when value="--genomebam">
+                <param argument="--gtf" type="data" format="gtf" label="GTF file" help="GTF file for transcriptome information" />
+                <param argument="--chromosomes" type="data" format="tabular" label="Chromosome names and lengths"/>
+            </when>
+            <when value=""/>
+        </conditional>
+        <param argument="--seed" type="integer" value="42" label="Seed for the bootstrap sampling" help="Default: 42" />
     </inputs>
     <outputs>
         <data format="h5" name="abundance_h5" from_work_dir="abundance.h5" label="${tool.name} on ${on_string}: Abundances (HDF5)" />
@@ -98,8 +113,7 @@
         <test>
             <param name="reference_transcriptome_source" value="history" />
             <param name="reference" ftype="fasta" value="mm10_chrM.fa" />
-            <param name="single_paired_selector" value="paired" />
-            <param name="collection_selector" value="datasets" />
+            <param name="single_paired_selector" value="paired_single" />
             <param name="forward" ftype="fastq" value="mm10_chrM-1.f.fq" />
             <param name="reverse" ftype="fastq" value="mm10_chrM-1.r.fq" />
             <output name="abundance_tab" file="kallisto_quant_out1.tab" ftype="tabular" />
@@ -107,8 +121,7 @@
         <test>
             <param name="reference_transcriptome_source" value="history" />
             <param name="reference" ftype="fasta" value="mm10_chrM.fa" />
-            <param name="single_paired_selector" value="paired" />
-            <param name="collection_selector" value="datasets" />
+            <param name="single_paired_selector" value="paired_single" />
             <param name="forward" ftype="fastq" value="mm10_chrM-1.f.fq" />
             <param name="reverse" ftype="fastq" value="mm10_chrM-1.r.fq" />
             <param name="lib_type" value="--fr-stranded"/>
@@ -121,8 +134,7 @@
         <test>
             <param name="reference_transcriptome_source" value="history" />
             <param name="reference" ftype="fasta" value="mm10_chrM.fa" />
-            <param name="single_paired_selector" value="paired" />
-            <param name="collection_selector" value="collection" />
+            <param name="single_paired_selector" value="paired_collection" />
             <param name="reads">
                 <collection type="paired">
                     <element name="forward" value="mm10_chrM-1.f.fq" />
@@ -135,15 +147,13 @@
             <param name="reference_transcriptome_source" value="history" />
             <param name="reference" ftype="fasta" value="mm10_chrM.fa" />
             <param name="single_paired_selector" value="single" />
-            <param name="collection_selector" value="collection" />
             <param name="reads" ftype="fastq" value="mm10_chrM-1.f.fq" />
             <output name="abundance_tab" file="kallisto_quant_out3.tab" ftype="tabular" />
         </test>
         <test>
             <param name="reference_transcriptome_source" value="history" />
             <param name="reference" ftype="fasta" value="felCat8_chrM.fa" />
-            <param name="single_paired_selector" value="paired" />
-            <param name="collection_selector" value="datasets" />
+            <param name="single_paired_selector" value="paired_single" />
             <param name="pseudobam" value="true" />
             <param name="forward" ftype="fastq" value="felCat8_chrM_F.fq" />
             <param name="reverse" ftype="fastq" value="felCat8_chrM_R.fq" />
@@ -152,8 +162,7 @@
         </test>
         <test>
             <param name="reference_transcriptome_source" value="cached" />
-            <param name="single_paired_selector" value="paired" />
-            <param name="collection_selector" value="datasets" />
+            <param name="single_paired_selector" value="paired_single" />
             <param name="pseudobam" value="true" />
             <param name="forward" ftype="fastq" dbkey="sacCer2" value="sacCer2_chrM_F.fq.gz" />
             <param name="reverse" ftype="fastq" dbkey="sacCer2" value="sacCer2_chrM_R.fq" />
@@ -163,14 +172,30 @@
         <test>
             <param name="reference_transcriptome_source" value="history" />
             <param name="reference" ftype="fasta" value="hg38_transcripts.fa" />
-            <param name="single_paired_selector" value="paired" />
-            <param name="collection_selector" value="datasets" />
+            <param name="single_paired_selector" value="paired_single" />
             <param name="fusion" value="true" />
             <param name="forward" ftype="fastq" dbkey="hg38" value="hg38_F.fq.gz" />
             <param name="reverse" ftype="fastq" dbkey="hg38" value="hg38_R.fq.gz" />
             <output name="fusion_output" file="fusion.txt" ftype="tabular" />
         </test>
-
+        <test>
+            <param name="reference_transcriptome_source" value="history" />
+            <param name="reference" ftype="fasta" value="transcripts.fasta" />
+            <param name="single_paired_selector" value="paired_single" />
+            <param name="forward" ftype="fastq" value="reads_forward.fastq.gz" />
+            <param name="reverse" ftype="fastq" value="reads_reverse.fastq.gz" />
+            <conditional name="genomebam_option">
+                <param name="selector" value="--genomebam"/>
+                <param name="gtf" value="annotation.gtf.gz"/>
+                <param name="chromosomes" value="chromosome_size.tabular"/>
+            </conditional>
+            <output name="abundance_tab" file="kallisto_quant_out7.tab" ftype="tabular" />
+            <assert_command>
+                <has_text text="--genomebam" />
+                <has_text text="--chromosomes" />
+                <has_text text="--gtf" />
+            </assert_command>
+        </test>
     </tests>
     <help>
  <![CDATA[

@@ -1,0 +1,539 @@
+<tool id="datasets_download_gene" name="NCBI Datasets Gene" profile="@PROFILE@" license="@LICENSE@" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <description>download gene sequences and metadata</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"></expand>
+    <expand macro="version_command"/>
+    <command><![CDATA[
+#import re
+@SETUP_CERTIFICATES@
+datasets download gene $query.subcommand.download_by
+#if $query.subcommand.download_by == 'taxon':
+    '$query.subcommand.taxon_positional'
+#else:
+    #if $query.subcommand.text_or_file.text_or_file == 'text':
+        #echo " ".join(f"'{x}'" for x in re.split(" |,", str($query.subcommand.text_or_file.accession)) if x)
+    #else
+        --inputfile '$query.subcommand.text_or_file.inputfile'
+    #end if
+#end if
+
+#if $query.subcommand.download_by != 'taxon' and $query.subcommand.ortholog:
+    --ortholog '$query.subcommand.ortholog'
+#end if
+
+#if $query.subcommand.download_by == 'symbol':
+    #if $query.subcommand.taxon
+        --taxon '$query.subcommand.taxon'
+    #end if
+#end if
+
+#if $query.subcommand.download_by == 'accession':
+    #if $query.subcommand.taxon_filter
+        --taxon-filter '$query.subcommand.taxon_filter'
+    #end if
+    #if str($query.subcommand.include_flanks_bp)
+        --include-flanks-bp $query.subcommand.include_flanks_bp
+    #end if
+#end if
+
+#if $filters.fasta_filter_cond.fasta_filter_select
+    #if $filters.fasta_filter_cond.fasta_filter_select == 'text'
+        --fasta-filter #echo ",".join(f"'{x}'" for x in $filters.fasta_filter_cond.fasta_filter.split(',') if x)
+    #else
+        --fasta-filter-file '$filters.fasta_filter_cond.fasta_filter_file'
+    #end if
+#end if
+
+--include
+#if $file_choices.kingdom_cond.include
+    #echo ",".join($file_choices.kingdom_cond.include)
+#else
+    none
+#end if
+
+--no-progressbar
+
+## produce TSV report file (either gene or prok-gene)
+&& 
+dataformat
+    tsv
+    $file_choices.kingdom_cond.kingdom_sel
+    --package ncbi_dataset.zip
+    --fields #echo ",".join($file_choices.kingdom_cond.report_columns)
+    > gene_data_report.tsv
+## if ! dataformat tsv gene --package ncbi_dataset.zip > gene_data_report.tsv 2> dataformat.log; then
+##     dataformat tsv prok-gene --package ncbi_dataset.zip > gene_data_report.tsv 2>> dataformat.log;
+## fi
+
+#if $file_choices.kingdom_cond.include and "product-report" in $file_choices.kingdom_cond.include
+    && dataformat tsv gene-product --package ncbi_dataset.zip > gene_product_report.tsv
+#end if
+
+## unzip and rehydrate if any data is to be downloaded (include is not None)
+#if $file_choices.kingdom_cond.include
+    ## unzip
+    && 7z x -y ncbi_dataset.zip > 7z.log
+#end if
+]]></command>
+    <inputs>
+        <section name="query" title="Query" expanded="true">
+            <conditional name="subcommand">
+                <param name="download_by" type="select" label="Choose how to find genes to download">
+                    <option value="gene-id">By NCBI Gene ID</option>
+                    <option value="symbol">By Gene symbol</option>
+                    <option value="accession">By RefSeq nucleotide or protein accession</option>
+                    <option value="taxon">By taxon (NCBI Taxonomy ID, scientific or common name at any tax rank)</option>
+                </param>
+                <when value="gene-id">
+                    <expand macro="text_or_file" what="Gene ID" what_extended="NCBI Gene ID" help=""/>
+                    <expand macro="ortholog"/>
+                </when>
+                <when value="symbol">
+                    <expand macro="text_or_file" what="Gene Symbol" what_extended="NCBI Gene Symbol" help=""/>
+                    <expand macro="ortholog"/>
+                    <param argument="--taxon" type="text" value="human" label="Species for gene symbol" help="NCBI taxid, common or scientific name">
+                        <sanitizer invalid_char="">
+                            <valid initial="string.letters">
+                                <add value=" " />
+                                <add value="-" />
+                            </valid>
+                        </sanitizer>
+                    </param>
+                </when>
+                <when value="accession">
+                    <expand macro="text_or_file" what="Gene Accession" what_extended="NCBI Gene Accession" help=""/>
+                    <expand macro="ortholog"/>
+                    <param argument="--taxon-filter" type="text" value="" label="Limit gene sequences and annotation report file to specified taxon" help="any rank, only available for WP accessions">
+                        <sanitizer invalid_char="">
+                            <valid initial="string.letters">
+                                <add value=" " />
+                                <add value="-" />
+                            </valid>
+                        </sanitizer>
+                    </param>
+                    <param argument="--include-flanks-bp" type="integer" optional="true" min="0" label="Length of flanking nucleotides" help="WP accessions only"/>
+                </when>
+                <when value="taxon">
+                    <expand macro="taxon_positional"/>
+                </when>
+            </conditional>
+        </section>
+        <section name="filters" title="Filters and Limit">
+            <conditional name="fasta_filter_cond" label="Filter protein and RNA sequences by RefSeq nucleotide and protein accessions">
+                <param name="fasta_filter_select" type="select" label="Apply filter">
+                    <option value="">No</option>
+                    <option value="text">Enter accessions</option>
+                    <option value="file">Read a list of accessions from a dataset</option>
+                </param>
+                <when value=""/>
+                <when value="text">
+                    <param argument="--fasta-filter" type="text" label="RefSeq nucleotide and protein accessions" help="Comma separated">
+                        <sanitizer invalid_char="">
+                            <valid initial="string.letters,string.digits">
+                                <add value="," />
+                            </valid>
+                        </sanitizer>
+                    </param>
+                </when>
+                <when value="file">
+                    <param argument="--fasta-filter-file" type="data" format="txt" label="Dataset with list of RefSeq nucleotide and protein accessions" help=""/>
+                </when>
+            </conditional>
+        </section>
+        <section name="file_choices" title="Output options" expanded="true">
+            <conditional name="kingdom_cond">
+                <param name="kingdom_sel" type="select" label="Kingdom" help="Prokaryotic: Accessions starting with WP_. Data report has a different format and the rna, cds, 3/5' UTR and gene-product report are not suported. ">
+                    <option value="gene">Eukaryote</option>
+                    <option value="prok-gene">Prokaryote</option>
+                </param>
+                <when value="gene">
+                    <expand macro="gene_tsv_report_columns">
+                        <option value="gene-id" selected="true">NCBI GeneID</option>
+                        <option value="gene-type" selected="true">Gene Type</option>
+                        <option value="common-name" selected="true">Common Name</option>
+                        <option value="description" selected="true">Description</option>
+                        <option value="symbol" selected="true">Symbol</option>
+                        <option value="synonyms" selected="true">Synonyms</option>
+                        <option value="tax-id" selected="true">Taxonomic ID</option>
+                        <option value="tax-name" selected="true">Taxonomic Name</option>
+                    </expand>
+                    <expand macro="include">
+                        <expand macro="gene_includes">
+                            <option value="rna" selected="true">transcript (rna)</option>
+                            <option value="cds">nucleotide coding sequences (cds)</option>
+                            <option value="5p-utr">5'-UTR (5p-utr)</option>
+                            <option value="3p-utr">3'-UTR (3p-utr)</option>
+                            <option value="product-report"> (product-report)</option>
+                        </expand>
+                    </expand>
+                </when>
+                <when value="prok-gene">
+                    <expand macro="prok_gene_tsv_report_columns">
+                        <option value="accession" selected="true">Accession</option>
+                        <option value="description" selected="true">Description</option>
+                        <option value="ec-number" selected="true">EC Number</option>
+                        <option value="gene-symbol" selected="true">Gene Symbol</option>
+                        <option value="mapping-count" selected="true">Number of Genome Mappings</option>
+                        <option value="protein-length" selected="true">Protein Length</option>
+                        <option value="protein-name" selected="true">Protein Name</option>
+                    </expand>
+                    <expand macro="include">
+                        <expand macro="gene_includes"/>
+                    </expand>
+                </when>
+            </conditional>
+            <param name="decompress" type="boolean" label="Decompress FASTA" help="By default FASTA files are provided zipped (fasta.gz) if this is checked the data will be decompressed"/>
+        </section>
+    </inputs>
+    <outputs>
+        <data name="gene_data_report" format="tabular" label="NCBI Gene Datasets: Data Report" from_work_dir="gene_data_report.tsv"/>
+        <data name="gene_product_report" format="tabular" label="NCBI Gene Datasets: Product Report" from_work_dir="gene_product_report.tsv">
+            <filter>file_choices['kingdom_cond']['include'] and "product-report" in file_choices['kingdom_cond']['include']</filter>
+        </data>
+        <data name="gene_fasta" label="NCBI Gene Datasets: Gene fasta" format="fasta" from_work_dir="ncbi_dataset/data/gene.fna">
+            <filter>file_choices['kingdom_cond']['include'] and "gene" in file_choices['kingdom_cond']['include']</filter>
+        </data>
+        <data name="rna_fasta" label="NCBI Gene Datasets: RNA fasta" format="fasta" from_work_dir="ncbi_dataset/data/rna.fna">
+            <filter>file_choices['kingdom_cond']['include'] and "rna" in file_choices['kingdom_cond']['include']</filter>
+        </data>
+        <data name="protein_fasta" label="NCBI Gene Datasets: protein fasta" format="fasta" from_work_dir="ncbi_dataset/data/protein.faa">
+            <filter>file_choices['kingdom_cond']['include'] and "protein" in file_choices['kingdom_cond']['include']</filter>
+        </data>
+        <data name="cds_fasta" label="NCBI Gene Datasets: CDS fasta" format="fasta" from_work_dir="ncbi_dataset/data/cds.fna">
+            <filter>file_choices['kingdom_cond']['include'] and "cds" in file_choices['kingdom_cond']['include']</filter>
+        </data>
+        <data name="threep_utr_fasta" label="NCBI Gene Datasets: 3' UTR fasta" format="fasta" from_work_dir="ncbi_dataset/data/3p_utr.fna">
+            <filter>file_choices['kingdom_cond']['include'] and "5p-utr" in file_choices['kingdom_cond']['include']</filter>
+        </data>
+        <data name="fivep_utr_fasta" label="NCBI Gene Datasets: 5' UTR fasta" format="fasta" from_work_dir="ncbi_dataset/data/5p_utr.fna">
+            <filter>file_choices['kingdom_cond']['include'] and "5p-utr" in file_choices['kingdom_cond']['include']</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- 1: datasets download gene gene-id 672 -->
+        <test expect_num_outputs="3">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="gene-id"/>
+                <conditional name="text_or_file">
+                    <param name="text_or_file" value="text"/>
+                    <param name="accession" value="672"/>
+                </conditional>
+            </conditional>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="human"/>
+                    <has_text text="BRCA1"/>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+            <output name="rna_fasta">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+            <output name="protein_fasta">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 2: datasets download gene gene-id 2597 14433 -->
+        <test expect_num_outputs="3">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="gene-id"/>
+                <conditional name="text_or_file">
+                    <param name="text_or_file" value="text"/>
+                    <param name="accession" value="2597,14433"/>
+                </conditional>
+            </conditional>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="house mouse"/>
+                    <has_text text="glyceraldehyde-3-phosphate dehydrogenase"/>
+                    <has_n_lines n="3"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+            <output name="rna_fasta">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+            <output name="protein_fasta">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 3: same as above + give accessions by file, 2 different outputs and ortholog-->
+        <test expect_num_outputs="3">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="gene-id"/>
+                <conditional name="text_or_file">
+                    <param name="text_or_file" value="file"/>
+                    <param name="inputfile" value="geneids.txt"/>
+                </conditional>
+                <param name="ortholog" value="Haplorrhini,Strepsirrhini"/>
+            </conditional>
+            <section name="file_choices">
+                <conditional name="kingdom_cond">
+                    <param name="include" value="gene,cds"/>
+                </conditional>
+            </section>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="baboon"/>
+                    <has_text text="glyceraldehyde-3-phosphate dehydrogenase"/>
+                    <has_n_lines min="30"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+            <output name="gene_fasta">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+            <output name="cds_fasta">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 4: datasets download gene symbol tp53 -->
+        <test expect_num_outputs="1">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="symbol"/>
+                <conditional name="text_or_file">
+                    <param name="text_or_file" value="text"/>
+                    <param name="accession" value="tp53"/>
+                </conditional>
+            </conditional>
+            <section name="file_choices">
+                <conditional name="kingdom_cond">
+                    <param name="include" value=""/>
+                </conditional>
+            </section>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="human"/>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 5: datasets download gene symbol brca1 \-\-taxon mouse -->
+        <test expect_num_outputs="4">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="symbol"/>
+                <conditional name="text_or_file">
+                    <param name="text_or_file" value="text"/>
+                    <param name="accession" value="brca1"/>
+                </conditional>
+                <param name="taxon" value="mouse"/>
+            </conditional>
+            <section name="file_choices">
+                <conditional name="kingdom_cond">
+                    <param name="include" value="3p-utr,5p-utr,product-report"/>
+                </conditional>
+            </section>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="house mouse"/>
+                    <has_text text="Brca1"/>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+            <output name="gene_product_report">
+                <assert_contents>
+                    <has_text text="house mouse"/>
+                    <has_text text="XR_004936704.1"/>
+                    <has_n_lines min="130"/>
+                    <has_n_columns n="38"/>
+                </assert_contents>
+            </output>
+            <output name="threep_utr_fasta">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+            <output name="fivep_utr_fasta">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 6: datasets download gene symbol brca1 \-\-ortholog -->
+        <test expect_num_outputs="1">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="symbol"/>
+                <conditional name="text_or_file">
+                    <param name="text_or_file" value="text"/>
+                    <param name="accession" value="brca1"/>
+                </conditional>
+                <param name="ortholog" value="rodentia"/>
+            </conditional>
+            <section name="file_choices">
+                <conditional name="kingdom_cond">
+                    <param name="include" value=""/>
+                </conditional>
+            </section>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="rat"/>
+                    <has_text text="Brca1"/>
+                    <has_n_lines min="30"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- 7: datasets download gene accession NP_000483.3 -->
+        <test expect_num_outputs="1">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="accession"/>
+                <conditional name="text_or_file">
+                    <param name="text_or_file" value="text"/>
+                    <param name="accession" value="NP_000483.3"/>
+                </conditional>
+            </conditional>
+            <section name="file_choices">
+                <conditional name="kingdom_cond">
+                    <param name="include" value=""/>
+                </conditional>
+            </section>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="human"/>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- 8: datasets download gene accession NM_000546.6 NM_000492.4 + ortholog-->
+        <test expect_num_outputs="1">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="accession"/>
+                <conditional name="text_or_file">
+                    <param name="text_or_file" value="text"/>
+                    <param name="accession" value="NM_000546.6 NM_000492.4"/>
+                </conditional>
+                <param name="ortholog" value="true"/>
+            </conditional>
+            <section name="file_choices">
+                <conditional name="kingdom_cond">
+                    <param name="include" value=""/>
+                </conditional>
+            </section>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="human"/>
+                    <has_n_lines min="800"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+        </test>
+
+        <!-- 9: datasets download gene accession WP_004675351.1 + include_flanks_bp -->
+        <test expect_num_outputs="3">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="accession"/>
+                <conditional name="text_or_file">
+                    <param name="text_or_file" value="text"/>
+                    <param name="accession" value="WP_004675351.1"/>
+                </conditional>
+                <param name="include_flanks_bp" value="100"/>
+            </conditional>
+            <section name="file_choices">
+                <conditional name="kingdom_cond">
+                    <param name="kingdom_sel" value="prok-gene"/>
+                    <param name="include" value="gene,protein"/>
+                </conditional>
+            </section>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="glcE"/>
+                    <has_n_lines n="2"/>
+                    <has_n_columns n="7"/>
+                </assert_contents>
+            </output>
+            <output name="gene_fasta">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+            <output name="protein_fasta">
+                <assert_contents>
+                    <has_text text=">"/>
+                </assert_contents>
+            </output>
+            <assert_command>
+                <has_text text="include-flanks-bp 100"/>
+            </assert_command>
+        </test> 
+
+        <!-- 10: datasets download gene taxon human   -->
+        <test expect_num_outputs="1">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="taxon"/>
+                <param name="taxon_positional" value="human"/>
+            </conditional>
+            <section name="file_choices">
+                <conditional name="kingdom_cond">
+                    <param name="include" value=""/>
+                </conditional>
+            </section>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="human"/>
+                    <has_n_lines min="72000"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+        </test> 
+        <!-- 11: datasets download gene taxon human + \-\-fasta-filter  -->
+        <test expect_num_outputs="2">
+            <conditional name="query|subcommand">
+                <param name="download_by" value="taxon"/>
+                <param name="taxon_positional" value="human"/>
+            </conditional>
+            <section name="file_choices">
+                <conditional name="kingdom_cond">
+                    <param name="include" value="protein"/>
+                </conditional>
+            </section>
+            <section name="filters">
+                <conditional name="fasta_filter_cond">
+                    <param name="fasta_filter_select" value="text"/>
+                    <param name="fasta_filter" value="NP_542432.2"/>
+                </conditional>
+            </section>
+            <output name="gene_data_report">
+                <assert_contents>
+                    <has_text text="human"/>
+                    <has_n_lines min="72000"/>
+                    <has_n_columns n="8"/>
+                </assert_contents>
+            </output>
+            <output name="protein_fasta">
+                <assert_contents>
+                    <has_text text=">" n="1" />
+                </assert_contents>
+            </output></test>
+    </tests>
+    <help>
+<![CDATA[
+**Download Gene Datasets from NCBI**
+
+Download a gene dataset (gene sequence, transcipt, amino acid sequences, 
+nucleotide coding sequences, 5'-UTR, 3'-UTR) as well as gene and gene
+product reports. Genes can be referred by gene id, symbol, accession,
+or taxon.
+]]>
+    </help>
+    <expand macro="citations"/>
+</tool>

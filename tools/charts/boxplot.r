@@ -8,14 +8,14 @@ wrapper <- function(table, columns, options) {
         # load column data
         column <- as.numeric(columns[key])
         column_data <- suppressWarnings(as.numeric(as.character(table[column][[1]])))
-    
+
         # create hist data
-        data <- boxplot(column_data, plot=FALSE)
-        
+        data <- boxplot(column_data, plot = FALSE)
+
         # collect vectors in list
         l <- append(l, list(data$stats))
     }
-    
+
     # return
-    return (l)
+    return(l)
 }

@@ -1,13 +1,13 @@
-<tool id="rna_star" name="RNA STAR" version="@VERSION@+galaxy0" profile="20.01" license="MIT">
+<tool id="rna_star" name="RNA STAR" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@" license="MIT">
     <description>Gapped-read mapper for RNA-seq data</description>
-    <xrefs>
-        <xref type="bio.tools">star</xref>
-    </xrefs>
     <macros>
         <import>macros.xml</import>
     </macros>
-    <expand macro="requirements"/>
     <expand macro="edam"/>
+    <xrefs>
+        <xref type="bio.tools">star</xref>
+    </xrefs>
+    <expand macro="requirements"/>
     <expand macro="stdio" />
 
 <!--
@@ -52,18 +52,22 @@
         #end for
         #if str($twopass.twopassMode) != 'None':
             #if str($refGenomeSource.GTFconditional.GTFselect) == 'with-gtf':
-                #if not $refGenomeSource.GTFconditional.sjdbGTFfile:
-                    ## case of cached index without built-in gene model,
-                    ## when user does not supply the optional gtf, but
-                    ## specifies the splice junction overhang
-                    --sjdbOverhang $refGenomeSource.GTFconditional.sjdbOverhang
+                ## need to check first if its a cached index or from history
+                ## if it's cached then the sjdbGTFfile and sjdbOverhang params are not provided
+                #if str($refGenomeSource.geneSource) == 'history':
+                    #if not $refGenomeSource.GTFconditional.sjdbGTFfile:
+                       ## case of cached index without built-in gene model,
+                       ## when user does not supply the optional gtf, but
+                       ## specifies the splice junction overhang
+                       --sjdbOverhang $refGenomeSource.GTFconditional.sjdbOverhang
+                    #end if
                 #end if
             #end if
         #end if
 
-        --quantMode ${quantmode_output.quantMode}
-        #if 'TranscriptomeSAM' in str($quantmode_output.quantMode):
-            --quantTranscriptomeBan ${quantmode_output.quantTranscriptomeBan}
+        --quantMode ${refGenomeSource.GTFconditional.quantmode_output.quantMode}
+        #if 'TranscriptomeSAM' in str($refGenomeSource.GTFconditional.quantmode_output.quantMode):
+            --quantTranscriptomeBan ${refGenomeSource.GTFconditional.quantmode_output.quantTranscriptomeBan}
         #end if
 
         ## Output format parameters
@@ -141,6 +145,19 @@
             --chimMultimapScoreRange 10
             --chimMultimapNmax 10
             --chimNonchimScoreDropMin 10
+        
+        #elif str( $algo.params.settingsType ) == 'arriba':
+            ## Preset parameters for Arriba
+            --peOverlapNbasesMin 10
+            --alignSplicedMateMapLminOverLmate 0.5
+            --alignSJstitchMismatchNmax 5 -1 5 5
+            --chimSegmentMin 10
+            --chimJunctionOverhangMin 10
+            --chimScoreDropMax 30
+            --chimScoreJunctionNonGTAG 0
+            --chimScoreSeparation 1
+            --chimSegmentReadGapMax 3
+            --chimMultimapNmax 50
 
         #elif str( $algo.params.settingsType ) == 'full':
             ## Extended parameter options
@@ -159,6 +176,7 @@
             --alignIntronMax ${algo.params.align.alignIntronMax}
             --alignMatesGapMax ${algo.params.align.alignMatesGapMax}
             --alignSJoverhangMin ${algo.params.align.alignSJoverhangMin}
+            --alignSJstitchMismatchNmax ${algo.params.align.alignSJstitchMismatchNmax.alignSJstitchMismatchNmax1} ${algo.params.align.alignSJstitchMismatchNmax.alignSJstitchMismatchNmax2} ${algo.params.align.alignSJstitchMismatchNmax.alignSJstitchMismatchNmax3} ${algo.params.align.alignSJstitchMismatchNmax.alignSJstitchMismatchNmax4}
             --alignSJDBoverhangMin ${algo.params.align.alignSJDBoverhangMin}
             --alignSplicedMateMapLmin ${algo.params.align.alignSplicedMateMapLmin}
             --alignSplicedMateMapLminOverLmate ${algo.params.align.alignSplicedMateMapLminOverLmate}
@@ -188,9 +206,7 @@
             #end if
 
             ## Limits
-            --limitOutSJoneRead $algo.params.limits.limitOutSJoneRead
-            --limitOutSJcollapsed $algo.params.limits.limitOutSJcollapsed
-            --limitSjdbInsertNsj $algo.params.limits.limitSjdbInsertNsj
+                @LIMITS@
         #else:
             ## Go with STAR's default algorithmic settings,
             ## but we need to provide a reasonable default
@@ -220,14 +236,19 @@
                 --chimOutJunctionFormat 1
             #end if
         #end if
+
+        ##outWig:
+        @OUTWIG@
         &&
         ## recompress BAM output for smaller file size
         samtools view -b -o '$mapped_reads' Aligned.sortedByCoord.out.bam
-        #if 'TranscriptomeSAM' in str($quantmode_output.quantMode):
+        #if 'TranscriptomeSAM' in str($refGenomeSource.GTFconditional.quantmode_output.quantMode):
             ## same recompression for optional transcriptome BM
             &&
             samtools view -b -o '$transcriptome_mapped_reads' Aligned.toTranscriptome.out.bam
         #end if
+        ##outWig:
+        @OUTWIGOUTPUTS@
     ]]></command>
 
     <inputs>
@@ -261,15 +282,22 @@
                     <param name="GTFselect" type="select"
                            label="Reference genome with or without an annotation"
                            help="Select the '... with builtin gene-model' option to select from the list of available indexes that were built with splice junction information. Select the '... without builtin gene-model' option to select from the list of available indexes without annotated splice junctions, and, optionally, provide your own splice-junction annonations.">
-                        <option value="without-gtf" selected='true'>use genome reference without builtin gene-model</option>
+                        <option value="without-gtf-with-gtf" selected='true'>use genome reference without builtin gene-model but provide a gtf</option>
+                        <option value="without-gtf">use genome reference without builtin gene-model and do not provide a gtf</option>
                         <option value="with-gtf">use genome reference with builtin gene-model</option>
                     </param>
                     <when value="with-gtf">
                         <expand macro="index_selection" with_gene_model="1" />
+                        <expand macro="quantMode" />
+                    </when>
+                    <when value="without-gtf-with-gtf">
+                        <expand macro="index_selection" with_gene_model="0" />
+                        <expand macro="SJDBOPTIONS"/>
+                        <expand macro="quantMode" />
                     </when>
                     <when value="without-gtf">
                         <expand macro="index_selection" with_gene_model="0" />
-                        <expand macro="@SJDBOPTIONS@" />
+                        <expand macro="quantModeNoGTF" />
                     </when>
                 </conditional>
             </when>
@@ -283,9 +311,12 @@
                         <option value="with-gtf">build index with gene-model</option>
                     </param>
                     <when value="with-gtf">
-                        <expand macro="@SJDBOPTIONS@" optional="false"/>
+                        <expand macro="SJDBOPTIONS"/>
+                        <expand macro="quantMode" />
                     </when>
-                    <when value="without-gtf" />
+                    <when value="without-gtf">
+                        <expand macro="quantModeNoGTF" />
+                    </when>
                 </conditional>
             </when>
         </conditional>
@@ -317,35 +348,14 @@
                 label="Pregenerated splice junctions datasets of your samples" />
             </when>
         </conditional>
-        <conditional name="quantmode_output">
-            <param argument="--quantMode" type="select"
-            label="Per gene/transcript output"
-            help="STAR can provide analysis results not only with respect to the reference genome, but also with respect to genes and transcripts described by a gene model. Note: This functionality requires either the selection above of a cached index with a gene model, or a gene model provided alongside the index/reference genome in GTF or GFF3 format!">
-                <option value="-">No per gene or transcript output</option>
-                <option value="GeneCounts">Per gene read counts (GeneCounts)</option>
-                <option value="TranscriptomeSAM">Transcript-based BAM output (TranscriptomeSAM)</option>
-                <option value="TranscriptomeSAM GeneCounts">Both per gene read counts and transcript-based BAM output (TranscriptomeSAM GeneCounts)</option>
-            </param>
-            <when value="-" />
-            <when value="GeneCounts" />
-            <when value="TranscriptomeSAM">
-                <param argument="--quantTranscriptomeBan" type="boolean" truevalue="IndelSoftclipSingleend" falsevalue="Singleend"
-                label="Exclude alignments with indels or soft clipping from the transcriptome BAM output?"
-                help="You will need to exclude alignments with indels and soft-clipped bases from the transcriptome BAM output for compatibility with certain transcript quantification tools, most notably RSEM. If you are using a tool, like eXpress, that can deal with indels and soft-clipped bases, you can achieve better results by leaving this option disabled." />
-            </when>
-            <when value="TranscriptomeSAM GeneCounts">
-                <param argument="--quantTranscriptomeBan" type="boolean" truevalue="IndelSoftclipSingleend" falsevalue="Singleend"
-                label="Exclude alignments with indels or soft clipping from the transcriptome BAM output?"
-                help="You will need to exclude alignments with indels and soft-clipped bases from the transcriptome BAM output for compatibility with certain transcript quantification tools, most notably RSEM. If you are using a tool, like eXpress, that can deal with indels and soft-clipped bases, you can achieve better results by leaving this option disabled." />
-            </when>
-        </conditional>
         <param argument="--chimOutType" type="select"
         label="Report chimeric alignments?"
         help="Choose if and how chimeric alignments should be reported. STAR-Fusion users should select the 'Junctions' option and use the resulting tabular dataset as input to STAR-Fusion. Everyone else: note that selecting 'WithinBAM' or 'WithinBAM Junctions' disables the --chimMultimapNmax setting in the algorithmic parameters section below (the tool will only consider uniquely mapped reads in the search for chimeric alignments). If you disable the reporting of chimeric alignments here, then all chimeric alignment settings in the algorithmic parameters section below will be ignored.">
             <option value="">Don't report chimeric alignments</option>
             <option value="Junctions">As separate tabular "Junctions" output (Junctions)</option>
             <option value="WithinBAM">Within the BAM output (together with regular alignments; WithinBAM)</option>
-            <option value="WithinBAM Junctions">In both forms (WithinBAM Junctions)</option>
+            <option value="WithinBAM HardClip">Within the BAM output (together with regular alignments; WithinBAM HardClip) hard-clipping in the CIGAR for supplemental chimeric alignments</option>
+            <option value="WithinBAM SoftClip">Within the BAM output (together with regular alignments; WithinBAM SoftClip) soft-clipping in the CIGAR for supplemental chimeric alignments</option>
         </param>
 
         <section name="oformat" title="BAM output format specification" expanded="true">
@@ -353,17 +363,10 @@
             label="Read alignment tags to include in the BAM output"
             help="Note on using the XS tag: If the XS tag is used, STAR will filter out alignments with undefined strand (i.e., those containing only non-canonical unannotated junctions). Using this tag is recommended if you plan to use the STAR results with STAR-Fusion. In addition, it is required for compatibility
 with Cufflinks if your sequences come from an unstranded library preparation.">
-                <option value="NH" selected="true">NH (number of reported alignments/hits for the read)</option>
-                <option value="HI" selected="true">HI (query hit index)</option>
-                <option value="AS" selected="true">AS (local alignment score)</option>
-                <option value="nM" selected="true">nM (number of mismatches per (paired) alignment)</option>
-                <option value="XS">XS (strand flag, see parameter help below) </option>
-                <option value="NM">NM (edit distance of the aligned read to the reference)</option>
-                <option value="MD">MD (string for mismatching positions)</option>
+                <expand macro="common_SAM_attributes"/>
                 <option value="MC">MC (CIGAR string for mate/next segment)</option>
-                <option value="jM">jM (intron motifs for all junctions)</option>
-                <option value="jI">jI (1-based start and end of introns for all junctions)</option>
-                <option value="ch" selected="true">ch (used to indicate chimeric alignments)</option>
+                <option value="XS">XS (strand flag, see parameter help below) </option>
+                <option value="ch" selected="true">ch (used to indicate chimeric alignments)</option> <!--This is not the default in STAR-->
             </param>
             <param argument="--outSAMattrIHstart" name="HI_offset" type="select" display="radio"
             label="HI tag values should be">
@@ -383,10 +386,7 @@ with Cufflinks if your sequences come from an unstranded library preparation.">
             label="Would you like all alignments with the best score labeled
             primary?"/> -->
             <param name="outSAMprimaryFlag" type="hidden" value="OneBestScore" />
-            <param argument="--outSAMmapqUnique" type="integer" value="60" min="30" max="255"
-            label="MAPQ value for unique mappers"
-            help="STAR bases the mapping quality scores of alignment records in its BAM output on the number of alternative mappings for the read. If a read maps to multiple locations on the reference genome, the following MAPQ scoring scheme is
-used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This setting lets you control the MAPQ used for reads mapped to a single location. Set to 255 for compatibility with Cufflinks." />
+            <expand macro="outSAMmapqUnique"/>
         </section>
         <section name="filter" title="Output filter criteria" expanded="true">
             <param name="basic_filters" type="select" display="checkboxes" multiple="true" optional="true"
@@ -413,7 +413,7 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                     <param argument="--outFilterScoreMinOverLread" type="float" value="0.66" min="0" max="1" label="Minimum alignment score, normalized to read length" help="Alignments must have (normalized) scores higher than this value to be output"/>
                     <param argument="--outFilterMatchNmin" type="integer" value="0" min="0" label="Minimum number of matched bases" help="Alignments must have the number of matched bases higher than this value to be output"/>
                     <param argument="--outFilterMatchNminOverLread" type="float" value="0.66" min="0" max="1" label="Minimum number of matched bases, normalized to read length" help="Alignments must have the (normalized) number of matched bases higher than this value to be output"/>
-                    <param argument="--outSAMmultNmax" type="integer" value="-1" min="-1" label="Maximum number of multimapping alignments to output for a read" help="A value of -1 (the default) results in all alignments (up to –-outFilterMultimapNmax) being output" />
+                    <param argument="--outSAMmultNmax" type="integer" value="-1" min="-1" label="Maximum number of multimapping alignments to output for a read" help="A value of -1 (the default) results in all alignments (up to --outFilterMultimapNmax) being output" />
                     <param argument="--outSAMtlen" type="select" label="Calculation method for TLEN">
                         <option value="1" selected="true">leftmost base of the (+)strand mate to rightmost base of the (-)mate. (+)sign for the (+)strand mate</option>
                         <option value="2">leftmost base of any mate to rightmost base of any mate. (+)sign for the mate with the leftmost base. This is different from 1 for overlapping mates with protruding ends</option>
@@ -429,11 +429,13 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                 <param name="settingsType" type="select" label="Configure seed, alignment and limits options">
                     <option value="default" selected="true">Use Defaults</option>
                     <option value="star_fusion">Use parameters suggested for STAR-Fusion</option>
+                    <option value="arriba">Use parameters suggested for Arriba</option>
                     <option value="full">Extended parameter list</option>
                 </param>
                 <when value="default"/>
                 <!-- Set STAR-fusion parameters in command section -->
                 <when value="star_fusion"/>
+                <when value="arriba"/>
 
                 <when value="full">
                     <section name="seed" title="Seed parameters" expanded="false">
@@ -447,17 +449,28 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                     </section>
 
                     <section name="align" title="Alignment parameters" expanded="false">
-                        <param argument="--alignIntronMin" name="alignIntronMin" type="integer" min="0" value="21" label="Minimum intron size"/>
+                        <param argument="--alignIntronMin" type="integer" min="0" value="21" label="Minimum intron size"/>
                         <param argument="--alignIntronMax" type="integer" min="0" value="0" label="Maximum intron size"/>
                         <param argument="--alignMatesGapMax" type="integer" min="0" value="0" label="Maximum gap between two mates"/>
                         <param argument="--alignSJoverhangMin" type="integer" min="1" value="5" label="Minimum overhang for spliced alignments"/>
+                        <section name="alignSJstitchMismatchNmax" title="Maximum number of mismatches for stitching of the splice junctions (-1: no limit)" expanded="true">
+                            <param argument="--alignSJstitchMismatchNmax" name="alignSJstitchMismatchNmax1" type="integer" min="-1" value="0" label="Non-canonical motifs"/>
+                            <param argument="--alignSJstitchMismatchNmax" name="alignSJstitchMismatchNmax2" type="integer" min="-1" value="-1" label="GT/AG and CT/AC motif"/>
+                            <param argument="--alignSJstitchMismatchNmax" name="alignSJstitchMismatchNmax3" type="integer" min="-1" value="0" label="GC/AG and CT/GC motif"/>
+                            <param argument="--alignSJstitchMismatchNmax" name="alignSJstitchMismatchNmax4" type="integer" min="-1" value="0" label="AT/AC and GT/AT motif"/>
+                        </section>
                         <param argument="--alignSJDBoverhangMin" type="integer" min="1" value="3" label="Minimum overhang for annotated spliced alignments"/>
                         <param argument="--alignSplicedMateMapLmin" type="integer" min="0" value="0" label="Minimum mapped length for a read mate that is spliced"/>
                         <param argument="--alignSplicedMateMapLminOverLmate" type="float" min="0" value="0.66" label="Minimum mapped length for a read mate that is spliced, normalized to mate length"/>
                         <param argument="--alignWindowsPerReadNmax" type="integer" min="1" value="10000" label="Maximum number of windows per read"/>
                         <param argument="--alignTranscriptsPerWindowNmax" type="integer" min="1" value="100" label="Maximum number of transcripts per window"/>
                         <param argument="--alignTranscriptsPerReadNmax" type="integer" min="1" value="10000" label="Maximum number of different alignments per read to consider"/>
-                        <param argument="--alignEndsType" type="boolean" truevalue="EndToEnd" falsevalue="Local" checked="false" label="Use end-to-end read alignments, with no soft-clipping?"/>
+                        <param argument="--alignEndsType" type="select" label="type of read ends alignment">
+                            <option value="Local">standard local alignment with soft-clipping allowed</option>
+                            <option value="EndToEnd">force end-to-end read alignment, do not soft-clip</option>
+                            <option value="Extend5pOfRead1">fully extend only the 5p of the read1, all other ends: local alignment</option>
+                            <option value="Extend5pOfReads12">fully extend only the 5p of the both read1 and read2, all other ends: local alignment</option>
+                        </param>
                         <param argument="--peOverlapNbasesMin" type="integer" min="0" value="0"
                         label="minimum number of overlap bases to trigger mates merging and realignment" />
                         <param argument="--peOverlapMMp" type="float" min="0" max="1" value="0.01"
@@ -491,11 +504,7 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                         label="Score range for multi-mapping chimeras"
                         help="The threshold below the best chimeric score that a multimapping chimera must have to be output. This is ignored unless --chimMultimapNmax is above 1" />
                     </section>
-                    <section name="limits" title="Limits" expanded="false">
-                        <param argument="--limitOutSJoneRead" type="integer" min="1" value="1000" label="Maximum number of junctions for one read (including all multimappers)" />
-                        <param argument="--limitOutSJcollapsed" type="integer" min="1" value="1000000" label="Maximum number of collapsed junctions" />
-                        <param argument="--limitSjdbInsertNsj" type="integer" min="0" value="1000000" label="Maximum number of inserts to be inserted into the genome on the fly." />
-                    </section>
+                    <expand macro="limits" />
                 </when>
             </conditional>
         </section>
@@ -503,6 +512,7 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <param argument="--outBAMsortingBinsN" type="integer" value="50" min="1" label="Number of genome bins for coordinate-sorting" help="Higher values result in lower RAM requirements during the sorting step. The default value is 50. Tweak this if you are facing memory-related errors." />
             <param argument="--winAnchorMultimapNmax" type="integer" value="50" min="50" label="Maximum number of loci anchors are allowed to map to" help="Higher value can increase the runtime singificantly. This value should be set greater or equal to --outFilterMultimapNmax" />
         </section>
+        <expand macro="outWig"/>
     </inputs>
 
     <outputs>
@@ -524,14 +534,15 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
         </data>
 
         <data name="transcriptome_mapped_reads" format="unsorted.bam" label="${tool.name} on ${on_string}: transcriptome-mapped.bam" >
-            <filter>'TranscriptomeSAM' in quantmode_output['quantMode']</filter>
+            <filter>'TranscriptomeSAM' in refGenomeSource['GTFconditional']['quantmode_output']['quantMode']</filter>
             <expand macro="dbKeyActions" />
         </data>
 
         <data name="reads_per_gene" format="tabular" label="${tool.name} on ${on_string}: reads per gene" from_work_dir="ReadsPerGene.out.tab">
-            <filter>'GeneCounts' in quantmode_output['quantMode']</filter>
-            <expand macro="dbKeyActions" />
+            <filter>'GeneCounts' in refGenomeSource['GTFconditional']['quantmode_output']['quantMode']</filter>
+            <expand macro="outCountActions" />
         </data>
+        <expand macro="outWigOutputs"/>
     </outputs>
 
     <tests>
@@ -542,12 +553,11 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             </conditional>
             <conditional name="refGenomeSource">
                 <param name="geneSource" value="history" />
-                <param name="genomeFastaFiles" value="tophat_test.fa" />
+                <param name="genomeFastaFiles" value="tophat_test.fa.gz" />
                 <param name="genomeSAindexNbases" value="5" />
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="algo">
                 <conditional name="params">
@@ -573,7 +583,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="algo">
                 <conditional name="params">
@@ -598,14 +607,13 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                     <param name="GTFselect" value="with-gtf" />
                     <param name="sjdbOverhang" value="75"/>
                     <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+                    <conditional name="quantmode_output">
+                        <param name="quantMode" value="GeneCounts"/>
+                    </conditional>
                 </conditional>
-            </conditional>
-            <conditional name="quantmode_output">
-                <param name="quantMode" value="GeneCounts"/>
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="algo">
                 <conditional name="params">
@@ -616,7 +624,9 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <output name="output_log" file="rnastar_test.log" compare="re_match_multiline" />
             <output name="splice_junctions" file="rnastar_test_splicejunctions.bed"/>
             <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" />
-            <output name="reads_per_gene" file="tophat_test_reads_per_gene.txt" />
+            <output name="reads_per_gene" file="tophat_test_reads_per_gene.txt">
+                <metadata name="column_names" value="GeneID,Counts_unstrand,Counts_firstStrand,Counts_secondStrand" />
+            </output>
         </test>
         <!-- test gtf file and TranscriptomeSAM mode -->
         <test expect_num_outputs="4">
@@ -632,14 +642,13 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
                     <param name="GTFselect" value="with-gtf" />
                     <param name="sjdbOverhang" value="75"/>
                     <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+                    <conditional name="quantmode_output">
+                        <param name="quantMode" value="TranscriptomeSAM"/>
+                    </conditional>
                 </conditional>
-            </conditional>
-            <conditional name="quantmode_output">
-                <param name="quantMode" value="TranscriptomeSAM"/>
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="algo">
                 <conditional name="params">
@@ -650,7 +659,40 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <output name="output_log" file="rnastar_test.log" compare="re_match_multiline" />
             <output name="splice_junctions" file="rnastar_test_splicejunctions.bed"/>
             <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" />
-            <output name="transcriptome_mapped_reads" file="rnastar_test_transcriptome_mapped_reads.bam" />
+            <output name="transcriptome_mapped_reads" file="rnastar_test_transcriptome_mapped_reads.bam" compare="sim_size" delta="634" />
+        </test>
+        <!-- test cached no index but gtf file and GeneCounts TranscriptomeSAM mode -->
+        <test expect_num_outputs="5">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="single" />
+                <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
+            </conditional>
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="indexed" />
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" value="without-gtf-with-gtf" />
+                    <param name="genomeDir" value="000" />
+                    <param name="sjdbOverhang" value="75"/>
+                    <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+                    <conditional name="quantmode_output">
+                        <param name="quantMode" value="TranscriptomeSAM GeneCounts"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <section name="oformat">
+                <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
+            </section>
+            <section name="algo">
+                <conditional name="params">
+                    <param name="settingsType" value="default" />
+                </conditional>
+            </section>
+
+            <output name="output_log" file="rnastar_test.log" compare="re_match_multiline" />
+            <output name="splice_junctions" file="rnastar_test_splicejunctions.bed"/>
+            <output name="mapped_reads" file="rnastar_test_mapped_reads.bam" compare="sim_size" delta="634" />
+            <output name="reads_per_gene" file="tophat_test_reads_per_gene.txt" />
+            <output name="transcriptome_mapped_reads" file="rnastar_test_transcriptome_mapped_reads.bam" compare="sim_size" delta="634" />
         </test>
         <test expect_num_outputs="3">
             <conditional name="singlePaired">
@@ -664,7 +706,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch,XS" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="filter">
                 <param name="basic_filters" value="exclude_unmapped,--outFilterIntronMotifs RemoveNoncanonical" />
@@ -700,7 +741,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <param name="chimOutType" value="Junctions" />
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch,XS" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="algo">
                 <conditional name="params">
@@ -723,7 +763,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <param name="chimOutType" value="Junctions" />
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch,XS" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="algo">
                 <conditional name="params">
@@ -745,7 +784,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="filter">
                 <param name="basic_filters" value="--outFilterIntronMotifs RemoveNoncanonical" />
@@ -780,7 +818,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="filter">
                 <param name="basic_filters" value="exclude_unmapped,--outFilterIntronMotifs RemoveNoncanonical" />
@@ -816,7 +853,41 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
-                <param name="outSAMmapqUnique" value="255" />
+            </section>
+            <section name="filter">
+                <param name="basic_filters" value="exclude_unmapped,--outFilterIntronMotifs RemoveNoncanonical" />
+                <conditional name="output_params2">
+                    <param name="output_select2" value="yes" />
+                </conditional>
+            </section>
+            <section name="algo">
+                <conditional name="params">
+                    <param name="settingsType" value="full" />
+                </conditional>
+            </section>
+
+            <output name="output_log" file="rnastar_test_twopass.log" compare="re_match_multiline" />
+            <output name="splice_junctions" file="rnastar_test_splicejunctions_twopass.bed"/>
+            <output name="mapped_reads" file="rnastar_test_mapped_reads_twopass.bam" compare="sim_size" delta="634" />
+        </test>
+        <!-- test Basic twopass with a built-in gtf index option -->
+        <test expect_num_outputs="3">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="single" />
+                <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
+            </conditional>
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="indexed" />
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" value="with-gtf" />
+                    <param name="genomeDir" value="001" />
+                </conditional>
+            </conditional>
+            <conditional name="twopass">
+                <param name="twopassMode" value="Basic" />
+            </conditional>
+            <section name="oformat">
+                <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
             </section>
             <section name="filter">
                 <param name="basic_filters" value="exclude_unmapped,--outFilterIntronMotifs RemoveNoncanonical" />
@@ -851,7 +922,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="filter">
                 <param name="basic_filters" value="exclude_unmapped,--outFilterIntronMotifs RemoveNoncanonicalUnannotated,--outFilterIntronMotifs RemoveNoncanonical" />
@@ -882,7 +952,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="algo">
                 <conditional name="params">
@@ -905,7 +974,6 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             </conditional>
             <section name="oformat">
                 <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
-                <param name="outSAMmapqUnique" value="255" />
             </section>
             <section name="algo">
                 <conditional name="params">
@@ -915,6 +983,101 @@ used: >=5 mappings => MAPQ=0; 3-4 mappings => MAPQ=1; 2 mappings => MAPQ=3. This
             <output name="output_log" file="rnastar_test_genomeSAindexNbases_02.log" compare="re_match_multiline" />
             <output name="splice_junctions" file="rnastar_test_genomeSAindexNbases_02.bed"/>
             <output name="mapped_reads" file="rnastar_test_mapped_reads_genomeSAindexNbases_02.bam" compare="sim_size" delta="634" />
+        </test>
+        <!-- test paired-end input and outWig -->
+        <test expect_num_outputs="6">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired" />
+                <param name="input1" value="tophat_in2.fastqsanger" ftype="fastqsanger" />
+                <param name="input2" value="tophat_in3.fastqsanger" ftype="fastqsanger" />
+            </conditional>
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="tophat_test.fa" />
+                <param name="genomeSAindexNbases" value="5" />
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" value="with-gtf" />
+                    <param name="sjdbOverhang" value="75"/>
+                    <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+                    <conditional name="quantmode_output">
+                        <param name="quantMode" value="GeneCounts"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <section name="oformat">
+                <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
+            </section>
+            <section name="algo">
+                <conditional name="params">
+                    <param name="settingsType" value="default" />
+                </conditional>
+            </section>
+            <conditional name="outWig">
+                <param name="outWigType" value="wiggle" />
+                <param name="outWigTypeSecondWord" value="read2"/>
+                <param name="outWigStrand" value="false" />
+            </conditional>
+            <output name="output_log" file="rnastar_test.log" compare="re_match_multiline" />
+            <output name="splice_junctions" file="rnastar_test_splicejunctions_PE.bed"/>
+            <output name="mapped_reads" file="rnastar_test_mapped_reads_PE.bam" compare="sim_size" delta="634" />
+            <output name="reads_per_gene" file="tophat_test_reads_per_gene_PE.txt" />
+            <output name="signal_unique_str1" file="tophat_Signal.Unique.both.read2.out.wig" ftype="wig"/>
+            <output name="signal_uniquemultiple_str1" file="tophat_Signal.Unique.both.read2.out.wig" ftype="wig" />
+        </test>
+        <!-- test paired-end input as collection and outWig stranded -->
+        <test expect_num_outputs="8">
+            <conditional name="singlePaired">
+                <param name="sPaired" value="paired_collection" />
+                <param name="input" >
+                    <collection type="paired">
+                        <element name="forward" value="tophat_revlib_R1.fastqsanger" ftype="fastq"/>
+                        <element name="reverse" value="tophat_revlib_R2.fastqsanger" ftype="fastq"/>
+                    </collection>
+                </param>
+            </conditional>
+            <conditional name="refGenomeSource">
+                <param name="geneSource" value="history" />
+                <param name="genomeFastaFiles" value="tophat_test.fa" />
+                <param name="genomeSAindexNbases" value="5" />
+                <conditional name="GTFconditional">
+                    <param name="GTFselect" value="with-gtf" />
+                    <param name="sjdbOverhang" value="75"/>
+                    <param name="sjdbGTFfile" value="test1.gtf" ftype="gtf"/>
+                    <conditional name="quantmode_output">
+                        <param name="quantMode" value="GeneCounts"/>
+                    </conditional>
+                </conditional>
+            </conditional>
+            <section name="oformat">
+                <param name="outSAMattributes" value="NH,HI,AS,nM,NM,MD,jM,jI,MC,ch" />
+            </section>
+            <section name="algo">
+                <conditional name="params">
+                    <param name="settingsType" value="default" />
+                </conditional>
+            </section>
+            <conditional name="outWig">
+                <param name="outWigType" value="bedGraph" />
+            </conditional>
+
+            <output name="output_log" file="rnastar_test.log" compare="re_match_multiline" />
+            <output name="splice_junctions">
+                <assert_contents>
+                    <has_n_lines n="2"/>
+                    <has_line_matching expression="test_chromosome\s+251\s+350\s+1\s+1\s+0\s+24\s+0\s+33"/>
+                    <has_line_matching expression="test_chromosome\s+401\s+500\s+1\s+1\s+0\s+25\s+0\s+36"/>
+                </assert_contents>
+            </output>
+            <output name="mapped_reads" >
+                <assert_contents>
+                    <has_size value="4711" delta="800"/>
+                </assert_contents>
+            </output>
+            <output name="reads_per_gene" file="tophat_test_reads_per_gene_PE_rev.txt" />
+            <output name="signal_unique_str1" file="tophat_rev_Signal.Unique.str1.out.bg" ftype="bedgraph"/>
+            <output name="signal_uniquemultiple_str1" file="tophat_rev_Signal.Unique.str1.out.bg" ftype="bedgraph"/>
+            <output name="signal_unique_str2" file="tophat_rev_Signal.Unique.str2.out.bg" ftype="bedgraph" />
+            <output name="signal_uniquemultiple_str2" file="tophat_rev_Signal.Unique.str2.out.bg" ftype="bedgraph" />
         </test>
       </tests>
     <help><![CDATA[
@@ -949,6 +1112,23 @@ In addition, for best results it is recommended_ that you
 - under *Algorithmic settings*, **Configure seed, alignment and limits options**:
   `use parameters suggested for STAR-Fusion`.
 
+*Arriba*
+
+Arriba_ can use the BAM with chimeric junctions or both files separately, generated by STAR, as input, but you
+need to enable **chimeric alignment detection** by STAR for those datasets to be
+generated. Hence, be sure to select either:
+
+**Report chimeric alignments?**: `As separate tabular "Junctions" output (Junctions)` or **Report chimeric alignments?**: `Within the BAM output (together with regular alignments; WithinBAM)`.
+
+In addition, the following parameters_ related to chimeric alignment are recommended for improved sensitivity
+
+- under *Output filter criteria*,
+  **Would you like to set additional output filters?**: select `Yes` to set 
+  **Maximum number of alignments to output a read's alignment results, plus 1** to 50 
+
+- under *Algorithmic settings*, **Configure seed, alignment and limits options**:
+  `use parameters suggested for Arriba`.
+
 *Cufflinks*
 
 .. class:: infomark
@@ -979,7 +1159,9 @@ the creative commons
 
 .. _STAR: https://github.com/alexdobin/STAR
 .. _STAR-Fusion: https://github.com/STAR-Fusion/STAR-Fusion
+.. _Arriba: https://github.com/suhrig/arriba
 .. _recommended: https://github.com/STAR-Fusion/STAR-Fusion/wiki#alternatively-kickstart-mode-running-star-yourself-and-then-running-star-fusion-using-the-existing-outputs
+.. _parameters: https://arriba.readthedocs.io/en/latest/workflow/
     ]]></help>
     <expand macro="citations"/>
 </tool>

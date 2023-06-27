@@ -31,8 +31,9 @@
 #   3 "mean"
 
 # setup R error handling to go to stderr
-options(show.error.messages = F, error = function() {
-  cat(geterrmessage(), file = stderr()); q("no", 1, F)
+options(show.error.messages = FALSE, error = function() {
+  cat(geterrmessage(), file = stderr())
+  q("no", 1, FALSE)
 })
 
 # we need that to not crash galaxy with an UTF8 error on German LC settings.
@@ -52,6 +53,7 @@ spec <- matrix(c(
   "batch_factors", "w", 1, "character",
   "outfile", "o", 1, "character",
   "countsfile", "n", 1, "character",
+  "sizefactorsfile", "F", 1, "character",
   "rlogfile", "r", 1, "character",
   "vstfile", "v", 1, "character",
   "header", "H", 0, "logical",
@@ -68,7 +70,9 @@ spec <- matrix(c(
   "outlier_filter_off", "b", 0, "logical",
   "auto_mean_filter_off", "c", 0, "logical",
   "beta_prior_off", "d", 0, "logical",
-  "alpha_ma", "A", 1, "numeric"
+  "alpha_ma", "A", 1, "numeric",
+  "prefilter", "P", 0, "logical",
+  "prefilter_value", "V", 1, "numeric"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -217,6 +221,30 @@ dds <- get_deseq_dataset(sample_table, header = opt$header, design_formula = des
 if (!is.null(opt$esf)) {
     dds <- estimateSizeFactors(dds, type = opt$esf)
 }
+
+# estimate size factors for each sample
+# - https://support.bioconductor.org/p/97676/
+if (!is.null(opt$sizefactorsfile)) {
+    nm <- assays(dds)[["avgTxLength"]]
+    if (!is.null(nm)) {
+        ## Recommended: takes into account tximport data
+        cat("\nsize factors for samples: taking tximport data into account\n")
+        size_factors <- estimateSizeFactorsForMatrix(counts(dds) / nm)
+    } else {
+        norm_factors <- normalizationFactors(dds)
+        if (!is.null(norm_factors)) {
+            ## In practice, gives same results as above.
+            cat("\nsize factors for samples: no tximport data, using derived normalization factors\n")
+            size_factors <- estimateSizeFactorsForMatrix(norm_factors)
+        } else {
+            ## If we have no other information, estimate from raw.
+            cat("\nsize factors for samples: no tximport data, no normalization factors, estimating from raw data\n")
+            size_factors <- estimateSizeFactorsForMatrix(counts(dds))
+        }
+    }
+    write.table(size_factors, file = opt$sizefactorsfile, sep = "\t", col.names = FALSE, quote = FALSE)
+}
+
 apply_batch_factors <- function(dds, batch_factors) {
   rownames(batch_factors) <- batch_factors$identifier
   batch_factors <- subset(batch_factors, select = -c(identifier, condition))
@@ -228,7 +256,7 @@ apply_batch_factors <- function(dds, batch_factors) {
   dds_data <- colData(dds)
   # Merge dds_data with batch_factors using indexes, which are sample names
   # Set sort to False, which maintains the order in dds_data
-  reordered_batch <- merge(dds_data, batch_factors, by.x = 0, by.y = 0, sort = F)
+  reordered_batch <- merge(dds_data, batch_factors, by.x = 0, by.y = 0, sort = FALSE)
   batch_factors <- reordered_batch[, ncol(dds_data):ncol(reordered_batch)]
   for (factor in colnames(batch_factors)) {
     dds[[factor]] <- batch_factors[[factor]]
@@ -238,7 +266,7 @@ apply_batch_factors <- function(dds, batch_factors) {
 }
 
 if (!is.null(opt$batch_factors)) {
-  batch_factors <- read.table(opt$batch_factors, sep = "\t", header = T)
+  batch_factors <- read.table(opt$batch_factors, sep = "\t", header = TRUE)
   dds <- apply_batch_factors(dds = dds, batch_factors = batch_factors)
   batch_design <- colnames(batch_factors)[-c(1, 2)]
   design_formula <- as.formula(paste("~", paste(c(batch_design, rev(factors)), collapse = " + ")))
@@ -253,6 +281,12 @@ if (verbose) {
   print(design_formula)
   cat("\n\n")
   cat(paste(ncol(dds), "samples with counts over", nrow(dds), "genes\n"))
+}
+
+# minimal pre-filtering
+if (!is.null(opt$prefilter)) {
+    keep <- rowSums(counts(dds)) >= opt$prefilter_value
+    dds <- dds[keep, ]
 }
 
 # optional outlier behavior

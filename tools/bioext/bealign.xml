@@ -5,7 +5,10 @@
         <import>macros.xml</import>
         <token name="@VERSION_SUFFIX@">0</token>
     </macros>
-    <expand macro="requirements" />
+    <expand macro="requirements">
+        <requirement type="package" version="5.1.0">gawk</requirement>
+        <requirement type="package" version="1.14">samtools</requirement>
+    </expand>
     <version_command>bealign --version</version_command>
     <command detect_errors="exit_code">
     <![CDATA[
@@ -16,17 +19,49 @@
     ## and replace any unwanted characters in the sequence names with underscores.
     ## This should not affect the actual alignment, since any non-standard character
     ## in the sequences is already ignored, but the possibility remains.
-    cat '$input' | awk '{ if (\$0 ~ "^[^>]") {a = gensub(/[^ACGTURYKMSWBDHVNacgturykmswbdhvn?-]/, "", "g"); } else {a=gensub(/[^>A-Za-z0-9_]/, "_", "g"); }; print a } ' |
-        sed 's,_\\+,_,g' > reads.fa &&
-    bealign --reference '$select_reference.reference' --alphabet $advanced.alphabet
+    set -o pipefail;
+    cat '$input' @SANITIZE@ reads.fa &&
+    ## bealign's parallel job executor uses the NCPU env variable
+    NCPU=\${GALAXY_SLOTS:-2} bealign --reference '$select_reference.reference' --alphabet $advanced.alphabet
         #if $advanced.expected_identity:
             --expected-identity $advanced.expected_identity
         #end if
-        --score-matrix $advanced.score_matrix $advanced.reverse_complement $advanced.keep_reference
         #if $advanced.discard:
             $advanced.discard '$advanced.discarded_reads'
         #end if
-        reads.fa alignment.bam
+        --score-matrix $advanced.score_matrix
+        $advanced.reverse_complement
+        $advanced.keep_reference
+        ## bypass bealign's internal pysam-based, single-threaded BAM sorting
+        --no-sort
+        reads.fa bealign_out.bam &&
+    samtools sort -@\${GALAXY_SLOTS:-2} -T "\${TMPDIR:-.}" -O bam -o '$output' bealign_out.bam
+    #set $input_background = False
+    #if $background_source.selection == 'history':
+        #if $background_source.sequences:
+            #set $input_background = $background_source.sequences
+        #end if
+    #else:
+        #if $background_source.sequences:
+            #set $input_background = $background_source.sequences.fields.path
+        #end if
+    #end if
+    #if $input_background:
+        && cat '$input_background' @SANITIZE@ background.fa &&
+        NCPU=\${GALAXY_SLOTS:-2} bealign --reference '$select_reference.reference' --alphabet $advanced.alphabet
+        #if $advanced.expected_identity:
+            --expected-identity $advanced.expected_identity
+        #end if
+        --keep-reference --score-matrix $advanced.score_matrix $advanced.reverse_complement
+        ## bypass bealign's internal pysam-based, single-threaded BAM sorting
+        --no-sort
+        background.fa bealign_background.bam &&
+        samtools sort -@\${GALAXY_SLOTS:-2} -T "\${TMPDIR:-.}" -O bam -o '$background' bealign_background.bam
+    #end if
+    #set $reference_name = str($select_reference.reference)
+    #if $select_reference.reference_type == 'preset' and $select_reference.save_reference:
+        && python '$__tool_directory__/copy_reference.py' --reference '$reference_name' --dataset '$saved_reference'
+    #end if
     ]]>
     </command>
     <inputs>
@@ -81,13 +116,28 @@
                     <option value="CoV2-ORF10">SARS-CoV-2: ORF10</option>
                     <option value="CoV2-RdRp">SARS-CoV-2: RNA-dependent RNA polymerase</option>
                 </param>
+                <param name="save_reference" type="boolean" display="radio" label="Save this reference to your history" />
             </when>
             <when value="dataset">
                 <param argument="--reference" type="data" format="fasta" label="Reference sequences" />
             </when>
         </conditional>
+        <conditional name="background_source">
+            <param name="selection" type="select" label="Source for the background" help="You can use a predefined background cached on this Galaxy server or select a dataset from your history">
+                <option value="data_table">Use a predefined background</option>
+                <option value="history">Select a dataset from your history</option>
+            </param>
+            <when value="data_table">
+                <param name="sequences" type="select" optional="true" label="Select sequences from data table">
+                    <options from_data_table="bealign_selection" />
+                </param>
+            </when>
+            <when value="history">
+                <param name="sequences" type="data" format="fasta" optional="true" label="Select dataset with sequences" />
+            </when>
+        </conditional>
         <section name="advanced" title="Advanced options" expanded="False">
-            <param name="expected_identity" argument="--expected-identity" type="float" min="0" max="1" optional="True" label="Discard sequences that are insufficiently identical to the reference" />
+            <param argument="--expected-identity" type="float" min="0" max="1" optional="True" label="Discard sequences that are insufficiently identical to the reference" />
             <param argument="--alphabet" type="select" label="Alphabet to use for alignment">
                 <option value="codon" selected="True">Codon</option>
                 <option value="dna">DNA</option>
@@ -110,33 +160,54 @@
         </section>
     </inputs>
     <outputs>
-        <data name="output" format="bam" from_work_dir="alignment.bam" />
+        <data name="output" format="bam" label="${tool.name} on ${on_string} - Aligned Sequences" />
+        <data name="background" format="bam" label="${tool.name} on ${on_string} - Background" >
+            <filter>background_source['sequences']</filter>
+        </data>
+        <data name="saved_reference" format="fasta" label="${tool.name} on ${on_string} - Reference" >
+            <filter>select_reference['save_reference']</filter>
+        </data>
         <data name="discarded_reads" format="fasta">
             <filter>advanced['discard']</filter>
         </data>
     </outputs>
     <tests>
         <test>
-            <param name="input" ftype="fasta" value="bealign-in1.fa" />
+            <param name="input" ftype="fasta" value="query.fa" />
             <param name="reference_type" value="dataset" />
             <param name="score_matrix" value="HIV_BETWEEN_F" />
-            <param name="reference" ftype="fasta" value="bealign-in-ref-1.fa" />
+            <param name="reference" ftype="fasta" value="reference.fa" />
             <output name="output" file="bealign-out1.bam" ftype="bam" lines_diff="2" />
         </test>
         <test>
-            <param name="input" ftype="fasta" value="bealign-in2.fa" />
-            <param name="reference_type" value="dataset" />
-            <param name="score_matrix" value="BLOSUM62" />
-            <param name="reference" ftype="fasta" value="bealign-in-ref-2.fa" />
+            <param name="input" ftype="fasta" value="query.fa" />
+            <param name="reference_type" value="preset" />
+            <param name="reference" value="CoV2-nsp8" />
+            <param name="score_matrix" value="HIV_BETWEEN_F" />
             <output name="output" file="bealign-out2.bam" ftype="bam" lines_diff="2"/>
         </test>
-        <test>
-            <param name="input" ftype="fasta" value="bealign-in2.fa" />
-            <param name="reference_type" value="dataset" />
-            <param name="expected_identity" value="0.9" />
-            <param name="score_matrix" value="BLOSUM62" />
-            <param name="reference" ftype="fasta" value="bealign-in-ref-2.fa" />
+        <test expect_num_outputs="2">
+            <param name="input" ftype="fasta" value="query.fa" />
+            <param name="reference_type" value="preset" />
+            <param name="reference" value="CoV2-nsp8" />
+            <conditional name="background_source">
+               <param name="selection" value="data_table" />
+            </conditional>
+            <param name="sequences" value="CoV2-nsp8" />
+            <param name="alphabet" value="codon" />
+            <param name="score_matrix" value="HIV_BETWEEN_F" />
             <output name="output" file="bealign-out3.bam" ftype="bam" lines_diff="2"/>
+            <output name="background" file="bealign-out3-background.bam" ftype="bam" lines_diff="2"/>
+        </test>
+        <test expect_num_outputs="2">
+            <param name="input" ftype="fasta" value="query.fa" />
+            <param name="reference_type" value="preset" />
+            <param name="reference" value="CoV2-nsp8" />
+            <param name="save_reference" value="true" />
+            <param name="alphabet" value="codon" />
+            <param name="score_matrix" value="HIV_BETWEEN_F" />
+            <output name="output" file="bealign-out4.bam" ftype="bam" lines_diff="2"/>
+            <output name="saved_reference" file="reference.fa" ftype="fasta"/>
         </test>
     </tests>
     <help>
