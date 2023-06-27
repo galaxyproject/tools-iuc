@@ -49,7 +49,7 @@ heatmaps <- as.logical(params$heatmaps)
 end_step <- as.integer(params$end_step)
 norm_out <- as.logical(params$norm_out)
 comparison <- as.logical(params$comparison)
-feature <- trimws(unlist(strsplit(as.character(params$feat_comp), ", ")))
+feature <- trimws(unlist(strsplit(as.character(params$feat_comp), ",")))
 marker_compare <- as.logical(params$marker_compare)
 top_x <- as.integer(params$top_x)
 
