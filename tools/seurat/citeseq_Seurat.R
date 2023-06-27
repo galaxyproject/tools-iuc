@@ -38,6 +38,10 @@
 options(show.error.messages = F, error = function() {
     cat(geterrmessage(), file = stderr()); q("no", 1, F)
 })
+
+# we need that to not crash Galaxy with an UTF-8 error on German LC settings.
+loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
+
 showcode <- as.logical(params$showcode)
 warn <-  as.logical(params$warn)
 varstate <- as.logical(params$varstate)
@@ -52,12 +56,6 @@ comparison <- as.logical(params$comparison)
 feature <- trimws(unlist(strsplit(as.character(params$feat_comp), ",")))
 marker_compare <- as.logical(params$marker_compare)
 top_x <- as.integer(params$top_x)
-
-
-# we need that to not crash Galaxy with an UTF-8 error on German LC settings.
-loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
-
-#+ echo = F, warning = `warn`, include =`varstate`
 min_cells <- as.integer(params$min_cells)
 min_genes <- as.integer(params$min_genes)
 low_thresholds <- as.integer(params$low_thresholds)
@@ -65,37 +63,21 @@ high_thresholds <- as.integer(params$high_thresholds)
 num_pcs <- as.integer(params$numPCs)
 cells_use <- as.integer(params$cells_use)
 resolution <- as.double(params$resolution)
-perplexity <- as.integer(params$perplexity)
 min_pct <- as.double(params$min_pct)
 logfc_threshold <- as.double(params$logfc_thresh)
+variable_out <- as.logical(params$variable_out)
+pca_out <- as.logical(params$pca_out)
+clusters_out <- as.logical(params$clusters_out)
+markers_out <- as.logical(params$markers_out)
+
 print(paste0("Minimum cells: ", min_cells))
 print(paste0("Minimum features: ", min_genes))
 print(paste0("Umi low threshold: ", low_thresholds))
 print(paste0("Umi high threshold: ", high_thresholds))
 print(paste0("Number of principal components: ", num_pcs))
 print(paste0("Resolution: ", resolution))
-print(paste0("Perplexity: ", perplexity))
 print(paste0("Minimum percent of cells", min_pct))
 print(paste0("Logfold change threshold", logfc_threshold))
-
-# we need that to not crash Galaxy with an UTF-8 error on German LC settings.
-loc <- Sys.setlocale("LC_MESSAGES", "en_US.UTF-8")
-
-#+ echo = F, warning = `warn`, include =`varstate`
-min_cells <- as.integer(params$min_cells)
-min_genes <- as.integer(params$min_genes)
-print(paste0("Minimum cells: ", min_cells))
-print(paste0("Minimum features: ", min_genes))
-low_thresholds <- as.integer(params$low_thresholds)
-high_thresholds <- as.integer(params$high_thresholds)
-print(paste0("Umi low threshold: ", low_thresholds))
-print(paste0("Umi high threshold: ", high_thresholds))
-variable_out <- as.logical(params$variable_out)
-num_pcs <- as.integer(params$numPCs)
-print(paste0("Number of principal components: ", num_pcs))
-pca_out <- as.logical(params$pca_out)
-
-
 if (params$perplexity == "") {
     perplexity <- -1
     print(paste0("Perplexity: ", perplexity))
@@ -103,17 +85,6 @@ if (params$perplexity == "") {
     perplexity <- as.integer(params$perplexity)
     print(paste0("Perplexity: ", perplexity))
 }
-
-resolution <- as.double(params$resolution)
-print(paste0("Resolution: ", resolution))
-clusters_out <- as.logical(params$clusters_out)
-
-min_pct <- as.double(params$min_pct)
-logfc_threshold <- as.double(params$logfc_thresh)
-print(paste0("Minimum percent of cells", min_pct))
-print(paste0("Logfold change threshold", logfc_threshold))
-markers_out <- as.logical(params$markers_out)
-
 
 #+ echo = FALSE
 if (showcode == TRUE) print("Read in data, generate inital Seurat object")
