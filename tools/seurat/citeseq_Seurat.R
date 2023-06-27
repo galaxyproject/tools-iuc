@@ -49,7 +49,7 @@ heatmaps <- as.logical(params$heatmaps)
 end_step <- as.integer(params$end_step)
 norm_out <- as.logical(params$norm_out)
 comparison <- as.logical(params$comparison)
-feature <- unlist(strsplit(as.character(params$feat_comp), ", "))
+feature <- trimws(unlist(strsplit(as.character(params$feat_comp), ",")))
 marker_compare <- as.logical(params$marker_compare)
 top_x <- as.integer(params$top_x)
 
@@ -173,7 +173,7 @@ seuset <- Seurat::ScoreJackStraw(seuset, dims = 1:num_pcs)
 if (pc_plots == TRUE) {
     print(Seurat::VizDimLoadings(seuset, dims = 1:2))
     print(Seurat::DimPlot(seuset, dims = c(1, 2), reduction = "pca"))
-    print(Seurat::DimHeatmap(seuset, dims = 1:num_pcs, nfeatures = 30, reduction = "pca"))
+    print(Seurat::DimHeatmap(seuset, dims = 1:num_pcs, nfeatures = 10, reduction = "pca"))
     print(Seurat::JackStrawPlot(seuset, dims = 1:num_pcs))
     print(Seurat::ElbowPlot(seuset, ndims = num_pcs, reduction = "pca"))
 }
@@ -188,9 +188,9 @@ if (showcode == TRUE && nmds == TRUE) print("tSNE and UMAP")
 seuset <- Seurat::FindNeighbors(object = seuset)
 seuset <- Seurat::FindClusters(object = seuset)
 if (perplexity == -1) {
-    seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution);
+    seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution, check_duplicates = FALSE)
 } else {
-    seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution, perplexity = perplexity);
+    seuset <- Seurat::RunTSNE(seuset, dims = 1:num_pcs, resolution = resolution, perplexity = perplexity, check_duplicates = FALSE)
 }
 if (nmds == TRUE) {
     print(Seurat::DimPlot(seuset, reduction = "tsne"))
@@ -219,7 +219,6 @@ if (markers_out == TRUE) {
     saveRDS(seuset, "markers_out.rds")
     data.table::fwrite(x = markers, row.names=TRUE, sep="\t", file = "markers_out.tsv")
 }
-
 
 #+ echo = FALSE
 if (showcode == TRUE && comparison == TRUE) print("Compare")
