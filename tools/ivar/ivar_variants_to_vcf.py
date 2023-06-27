@@ -66,6 +66,7 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False):
         '##INFO=<ID=ALT_QUAL,Number=1,Type=Integer,Description="Mean quality of alternate base">\n'
         '##INFO=<ID=AF,Number=1,Type=Float,Description="Frequency of alternate base">\n'
         '##INFO=<ID=INDEL,Number=0,Type=Flag,Description="Indicates that the variant is an INDEL.">\n'
+        '##INFO=<ID=DP4,Number=4,Type=Integer,Description="Counts for ref-forward bases, ref-reverse, alt-forward and alt-reverse bases">'
         '##FILTER=<ID=PASS,Description="Result of p-value <= 0.05">\n'
         '##FILTER=<ID=FAIL,Description="Result of p-value > 0.05">\n'
     )
@@ -88,6 +89,27 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False):
             if line.startswith("REGION"):
                 continue
 
+            # fields: 
+            # 0 REGION
+            # 1 POS
+            # 2 REF
+            # 3 ALT
+            # 4 REF_DP
+            # 5 REF_RV
+            # 6 REF_QUAL
+            # 7 ALT_DP
+            # 8 ALT_RV
+            # 9 ALT_QUAL
+            # 10 ALT_FREQ
+            # 11 TOTAL_DP
+            # 12 PVAL
+            # 13 PASS
+            # 14 GFF_FEATURE
+            # 15 REF_CODON
+            # 16 REF_AA
+            # 17 ALT_CODON
+            # 18 ALT_AA
+            # 19 POS_AA
             line = line.split("\t")
             CHROM = line[0]
             POS = line[1]
@@ -116,15 +138,25 @@ def ivar_variants_to_vcf(FileIn, FileOut, passOnly=False):
             if var in vars_seen:
                 continue
 
+            ref_dp = int(line[4])
+            ref_dp_rev = int(line[5])
+            ref_dp_fwd = ref_dp - ref_dp_rev
+            
+            alt_dp = int(line[7])
+            alt_dp_rev = int(line[8])
+            alt_dp_fwd = alt_dp - alt_dp_rev
+
+            dp4 = f'{ref_dp_fwd},{ref_dp_rev},{alt_dp_fwd},{alt_dp_rev}'
             info_elements = {
                 'DP': line[11],
-                'REF_DP': line[4],
-                'REF_RV': line[5],
+                'REF_DP': ref_dp,
+                'REF_RV': ref_dp_rev,
                 'REF_QUAL': line[6],
-                'ALT_DP': line[7],
-                'ALT_RV': line[8],
+                'ALT_DP': alt_dp,
+                'ALT_RV': alt_dp_rev,
                 'ALT_QUAL': line[9],
-                'AF': line[10]
+                'AF': line[10],
+                'DP4': dp4
             }
             if var_type in ['INS', 'DEL']:
                 # add INDEL FLAG
